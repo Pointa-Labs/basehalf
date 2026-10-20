@@ -1913,3 +1913,43 @@ they pay their providers directly, and BaseHalf runs no service in between.
 - Revises D58: channels, presets, typed model ids, the general profile, and
   the OpenAI-compatible format are removed. `.bhnode` version 5 files are not
   read; the product has not launched.
+
+## D60 — BaseHalf's code is organized by feature, the way VS Code organizes its own (NEW, 2026-10-20)
+
+**Decision.** BaseHalf's workbench code stays under its own root,
+`src/vs/workbench/basehalf/`, in a folder per feature, each with VS Code's
+layer folders and its own tests, as VS Code organizes `workbench/contrib/`.
+The canvas is split the way VS Code splits its code editor and its terminal:
+a core that hosts the view, and features that register themselves with it and
+live in folders of their own, which the core never imports. Changes to VS
+Code's own files are marked, and replaced by VS Code's extension points where
+one exists. See [code organization](harness/code-organization.md).
+
+**Why.** On 2026-10-20 one class held the canvas: about 10,000 lines, 40
+injected services, and more than 200 methods for the badge editor, note
+editing, the Video panel, selection, connections, zoom, undo, tidying, and
+moved items. 40 of the 115 commits to BaseHalf's workbench code in the 30
+days before touched its file. It had 6 unit tests, all of small helpers; the
+rest of it was checked only by the smoke, which takes 3 to 7 minutes and
+fails when the machine is busy. No agent could read its 466 KB at once, so
+every change to the canvas started by searching it. VS Code has one source
+file over 5,000 lines, a table of editor options; its code editor is a
+2,559-line widget beside 85 registered features with a median of about 200
+lines each, in folders of their own with their own tests. BaseHalf's other
+files already used VS Code's layers and dependency injection and had no
+import cycles, but they lay in two flat folders, and every pair of features
+imported each other somewhere. 75 of VS Code's own files carried BaseHalf
+changes, most of them unmarked, which every port of a VS Code subsystem had
+to find again. Merge conflicts were not a reason: only 2 of the 22 merges
+since 2026-09-01 conflicted in the canvas file.
+
+**Consequences.**
+- A new canvas feature is a class registered with the canvas in
+  `canvasContrib/<feature>/`, not more code in the canvas view.
+- BaseHalf's code is never spread into VS Code's `contrib/` or `services/`
+  folders; one root lets a VS Code update tell the two apart.
+- Moving the files changed no behavior. File names keep their `basehalf`
+  prefix, so a name in a document or in history still finds its file.
+- VS Code's files are not changed in a pass of their own. Their BaseHalf
+  changes are marked, or replaced by extension points, when their subsystem
+  is next ported from a newer VS Code.

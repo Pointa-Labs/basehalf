@@ -62,4 +62,4 @@
 # Vendored third-party libraries
 src/vs/base/common/lit-html/**
 src/vs/base/common/signals-core/**
-src/vs/workbench/basehalf/common/vendor/**
+src/vs/workbench/basehalf/markdown/common/vendor/**

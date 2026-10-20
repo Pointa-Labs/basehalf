@@ -1791,7 +1791,8 @@ export default defineConfig(
 					]
 				},
 				{
-					'target': 'src/vs/workbench/basehalf/~',
+					// BaseHalf: one folder per feature under its own root (D60, docs/harness/code-organization.md)
+					'target': 'src/vs/workbench/basehalf/*/~',
 					'restrictions': [
 						'vs/base/~',
 						'vs/base/parts/*/~',
@@ -1801,7 +1802,7 @@ export default defineConfig(
 						'vs/workbench/~',
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
-						'vs/workbench/basehalf/~',
+						'vs/workbench/basehalf/*/~',
 						'assert',
 						'crypto'
 					]
@@ -1837,7 +1838,7 @@ export default defineConfig(
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
 						'vs/workbench/contrib/terminalContrib/*/~',
-						'vs/workbench/basehalf/~'
+						'vs/workbench/basehalf/*/~'
 					]
 				},
 				{
@@ -2012,7 +2013,7 @@ export default defineConfig(
 						'vs/workbench/api/~',
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
-						'vs/workbench/basehalf/~',
+						'vs/workbench/basehalf/*/~',
 						'vs/workbench/contrib/terminal/terminal.all.js',
 						'vs/sessions/common/theme.js', // side-effect import for color registry
 						'vs/sessions/common/sizes.js' // side-effect import for size registry

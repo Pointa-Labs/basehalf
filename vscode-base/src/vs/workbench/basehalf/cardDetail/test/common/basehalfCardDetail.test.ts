@@ -1,0 +1,146 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as assert from 'assert';
+import { URI } from '../../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { BaseHalfCardProjectionRegistryService, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, defaultBaseHalfCardDetailProjection, isBaseHalfMarkdownResource, isBaseHalfMediaResource, normalizeBaseHalfCardDetailProjection } from '../../common/basehalfCardDetail.js';
+
+suite('BaseHalfCardDetail', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('uses source as the fallback projection for non-Markdown files', () => {
+		assert.strictEqual(DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, 'source');
+		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/app.ts')), 'source');
+	});
+
+	test('uses rich editing as the Markdown default projection', () => {
+		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/README.md')), 'rich');
+		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/docs/guide.markdown')), 'rich');
+	});
+
+	test('uses media as the default for supported local media', () => {
+		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/shot-01.mp4')), 'media');
+		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/concept.webp')), 'media');
+		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/textbook.pdf')), 'media');
+		assert.strictEqual(isBaseHalfMediaResource(URI.file('/workspace/voice.ogg')), true);
+		assert.strictEqual(isBaseHalfMediaResource(URI.file('/workspace/edit.mov')), false);
+	});
+
+	test('does not expose binary media through the source projection', () => {
+		const registry = new BaseHalfCardProjectionRegistryService();
+		for (const name of ['textbook.pdf', 'concept.webp', 'voice.ogg', 'lesson.mp4']) {
+			const resource = URI.file(`/workspace/${name}`);
+			assert.deepStrictEqual(registry.getProjections(resource).map(projection => projection.id), ['media']);
+			assert.strictEqual(registry.normalizeProjection(resource, 'source'), 'media');
+		}
+		assert.deepStrictEqual(registry.getProjections(URI.file('/workspace/app.ts')).map(projection => projection.id), ['source']);
+		registry.dispose();
+	});
+
+	test('normalizes Markdown-only projections to Markdown resources only', () => {
+		assert.strictEqual(normalizeBaseHalfCardDetailProjection(URI.file('/workspace/README.md'), 'rich'), 'rich');
+		assert.strictEqual(normalizeBaseHalfCardDetailProjection(URI.file('/workspace/README.md'), 'preview'), 'preview');
+		assert.strictEqual(normalizeBaseHalfCardDetailProjection(URI.file('/workspace/app.ts'), 'rich'), 'source');
+		assert.strictEqual(normalizeBaseHalfCardDetailProjection(URI.file('/workspace/app.ts'), 'preview'), 'source');
+		assert.strictEqual(normalizeBaseHalfCardDetailProjection(URI.file('/workspace/app.ts'), undefined), 'source');
+	});
+
+	test('recognizes Markdown resources for card detail projections', () => {
+		assert.strictEqual(isBaseHalfMarkdownResource(URI.file('/workspace/README.md')), true);
+		assert.strictEqual(isBaseHalfMarkdownResource(URI.file('/workspace/docs/guide.markdown')), true);
+		assert.strictEqual(isBaseHalfMarkdownResource(URI.file('/workspace/docs/guide.txt')), false);
+		assert.strictEqual(isBaseHalfMarkdownResource(URI.file('/workspace/docs/md')), false);
+	});
+
+	test('names a note without its extension and every other item by its file name', () => {
+		assert.deepStrictEqual(
+			[
+				['plan.md', false], ['Plan.MD', false], ['plan.markdown', false], ['v1.2.md', false],
+				['data.csv', false], ['index.ts', false], ['notes.mdx', false], ['plan', false],
+				['docs', true], ['drafts.md', true], ['.md', false]
+			].map(([fileName, isFolder]) => [
+				baseHalfItemDisplayName(fileName as string, isFolder as boolean),
+				baseHalfNoteNameExtension(fileName as string)
+			]),
+			[
+				['plan', '.md'], ['Plan', '.MD'], ['plan', '.markdown'], ['v1.2', '.md'],
+				['data.csv', ''], ['index.ts', ''], ['notes.mdx', ''], ['plan', ''],
+				['docs', ''], ['drafts.md', '.md'], ['.md', '']
+			]
+		);
+	});
+
+	test('gives a typed note name the extension its file had', () => {
+		assert.deepStrictEqual(
+			[
+				baseHalfNoteFileName('Draft', '.md'),
+				baseHalfNoteFileName('Draft', '.MD'),
+				baseHalfNoteFileName('draft.md', '.md'),
+				baseHalfNoteFileName('draft.MD', '.md'),
+				baseHalfNoteFileName('draft.txt', '.md'),
+				baseHalfNoteFileName('v1.2', '.markdown'),
+				baseHalfNoteFileName('.md', '.md')
+			],
+			['Draft.md', 'Draft.MD', 'draft.md', 'draft.MD', 'draft.txt.md', 'v1.2.markdown', '.md.md']
+		);
+	});
+
+	test('registers domain projections without widening a core union', () => {
+		const registry = new BaseHalfCardProjectionRegistryService();
+		let changes = 0;
+		const listener = registry.onDidChangeProjections(() => changes++);
+		const registration = registry.registerProjection({
+			id: 'ai-video.storyboard',
+			label: 'Storyboard',
+			icon: 'codicon-layout',
+			selector: { extensions: ['.story-board'] },
+			order: 400,
+			defaultPriority: 300
+		});
+
+		const resource = URI.file('/workspace/episode.story-board');
+		assert.deepStrictEqual(registry.getProjections(resource).map(projection => projection.id), ['ai-video.storyboard', 'source']);
+		assert.strictEqual(registry.defaultProjection(resource), 'ai-video.storyboard');
+		assert.strictEqual(registry.normalizeProjection(resource, 'ai-video.storyboard'), 'ai-video.storyboard');
+		assert.strictEqual(registry.normalizeProjection(URI.file('/workspace/episode.md'), 'ai-video.storyboard'), 'rich');
+		assert.strictEqual(changes, 1);
+
+		registration.dispose();
+		assert.strictEqual(registry.defaultProjection(resource), 'source');
+		assert.strictEqual(changes, 2);
+		listener.dispose();
+		registry.dispose();
+	});
+
+	test('matches an exact file name without taking over every file with the same extension', () => {
+		const registry = new BaseHalfCardProjectionRegistryService();
+		const registration = registry.registerProjection({
+			id: 'pointa.video.sequence',
+			label: 'Sequence',
+			icon: 'codicon-list-ordered',
+			selector: { fileNames: ['sequence.json'] },
+			order: 400,
+			defaultPriority: 300
+		});
+
+		assert.deepStrictEqual(registry.getProjections(URI.file('/workspace/sequence.json')).map(projection => projection.id), ['pointa.video.sequence', 'source']);
+		assert.strictEqual(registry.defaultProjection(URI.file('/workspace/sequence.json')), 'pointa.video.sequence');
+		assert.deepStrictEqual(registry.getProjections(URI.file('/workspace/shot.json')).map(projection => projection.id), ['source']);
+		registration.dispose();
+		registry.dispose();
+	});
+
+	test('rejects duplicate projection identifiers', () => {
+		const registry = new BaseHalfCardProjectionRegistryService();
+		assert.throws(() => registry.registerProjection({
+			id: 'source',
+			label: 'Other source',
+			icon: 'codicon-code',
+			order: 1
+		}), /already registered/);
+		registry.dispose();
+	});
+});

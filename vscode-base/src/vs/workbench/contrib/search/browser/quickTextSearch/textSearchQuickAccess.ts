@@ -36,9 +36,9 @@ import { SearchModelImpl } from '../searchTreeModel/searchModel.js';
 import { SearchModelLocation, RenderableMatch, ISearchTreeFileMatch, ISearchTreeMatch, ISearchResult } from '../searchTreeModel/searchTreeCommon.js';
 import { searchComparer } from '../searchCompare.js';
 import { IMatch } from '../../../../../base/common/filters.js';
-import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
-import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../../../basehalf/common/basehalfEditorFlush.js';
-import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
+import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../../../basehalf/navigation/common/basehalfEditorFlush.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/navigation/common/basehalfOpenRouting.js';
 import { INotebookService } from '../../../notebook/common/notebookService.js';
 
 export const TEXT_SEARCH_QUICK_ACCESS_PREFIX = '%';

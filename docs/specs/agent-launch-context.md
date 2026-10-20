@@ -49,7 +49,7 @@ and reaches every Agent Area terminal, whether or not it receives launch
 context.
 
 The instruction text is a string constant exported from
-`vs/workbench/basehalf/common/basehalfAgentLaunchInstructions.ts`. It is part of
+`vs/workbench/basehalf/agentArea/common/basehalfAgentLaunchInstructions.ts`. It is part of
 the application bundle, so no local process can change it.
 - The text stays under 4 KiB, measured in UTF-8.
 - For a qualifying session, `baseHalfTuiSessionLaunchConfig` returns

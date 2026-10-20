@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import { compare } from 'semver';
 import yazl from 'yazl';
 import { scaffoldPlugin } from '../../packages/plugin-cli/src/scaffold.ts';
-import { baseHalfCanonicalInstalledFileBytes } from '../src/vs/workbench/basehalf/common/basehalfPluginInstalledContent.ts';
+import { baseHalfCanonicalInstalledFileBytes } from '../src/vs/workbench/basehalf/plugins/common/basehalfPluginInstalledContent.ts';
 import { assertBootstrapRegistryInventory, assertCatalogCandidateMatchesPublish, assertCatalogReleaseMatchesPublish, assertCatalogStatus, assertReleaseIdentityMatches, backfillCatalogInstalledContentHashes, CATALOG_VERSION_LIMIT, createCatalog, createCatalogIndex, createReleaseIdentitiesFromCatalog, createReleaseIdentity, createSignatureFile, MAX_CATALOG_BYTES, metadataFromVsix, OFFICIAL_EXTENSION_ID, packagePlugin, reconcileCatalogRelease, serializeCatalogForPublication, serializeReleaseIdentity, updateCatalogStatus, updateExtensionControl, validateReleaseIdentity, validateReviewedReleaseJob, validateReviewedVsixManifest, verifyRelease } from './basehalf-plugin-release.mts';
 import { validateControlPlaneBaseUrl } from './basehalf-release-preflight.mts';
 

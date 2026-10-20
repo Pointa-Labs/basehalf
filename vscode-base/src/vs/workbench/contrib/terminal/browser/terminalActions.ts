@@ -64,7 +64,7 @@ import { ITerminalQuickPickItem, TerminalProfileQuickpick } from './terminalProf
 import { TerminalTabList } from './terminalTabsList.js';
 import { ResourceContextKey } from '../../../common/contextkeys.js';
 import { SeparatorSelectOption } from '../../../../base/browser/ui/selectBox/selectBox.js';
-import { IBaseHalfAgentAreaService } from '../../../basehalf/common/basehalfAgentArea.js';
+import { IBaseHalfAgentAreaService } from '../../../basehalf/agentArea/common/basehalfAgentArea.js';
 
 export const switchTerminalShowTabsTitle = localize('showTerminalTabs', "Show Tabs");
 

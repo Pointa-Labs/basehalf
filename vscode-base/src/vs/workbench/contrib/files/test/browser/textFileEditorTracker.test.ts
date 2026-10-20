@@ -18,7 +18,7 @@ import { MockContextKeyService } from '../../../../../platform/keybinding/test/c
 import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { TestWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
 import { DEFAULT_EDITOR_ASSOCIATION } from '../../../../common/editor.js';
-import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 import { EditorService } from '../../../../services/editor/browser/editorService.js';
 import { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';

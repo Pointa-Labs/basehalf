@@ -1,0 +1,368 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import { $, append, addDisposableListener, EventType } from '../../../../base/browser/dom.js';
+import { mainWindow } from '../../../../base/browser/window.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { toErrorMessage } from '../../../../base/common/errorMessage.js';
+import { isEqual } from '../../../../base/common/resources.js';
+import { URI } from '../../../../base/common/uri.js';
+import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { CodeEditorWidget } from '../../../../editor/browser/widget/codeEditor/codeEditorWidget.js';
+import { IEditorOptions } from '../../../../editor/common/config/editorOptions.js';
+import { ScrollType } from '../../../../editor/common/editorCommon.js';
+import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
+import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectionSource } from '../../../../platform/editor/common/editor.js';
+import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
+import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/browser/simpleEditorOptions.js';
+import { ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
+import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
+import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
+import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+
+export class BaseHalfSourceCardDetail extends Disposable {
+	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
+
+	private readonly root: HTMLElement;
+	private readonly editorHost: HTMLElement;
+
+	private editor: CodeEditorWidget | undefined;
+	private resourceKey: string | undefined;
+	private saving = false;
+	private visible = false;
+	private disposed = false;
+	private readonly editorOptions: IEditorOptions = {
+		automaticLayout: false,
+		glyphMargin: true,
+		lineNumbers: 'on',
+		minimap: { enabled: false },
+		scrollBeyondLastLine: false,
+		renderLineHighlight: 'line',
+		roundedSelection: false,
+		overviewRulerLanes: 3
+	};
+	constructor(
+		private readonly container: HTMLElement,
+		private readonly onSaveStatusChange: (status: 'saving' | 'saved' | 'error') => void,
+		/** The text the user selected, or `undefined` once nothing is (the selection agents can see). */
+		private readonly onSelectionChange: ((selected: IBaseHalfAgentSelectionText | undefined) => void) | undefined,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@ITextModelService private readonly textModelService: ITextModelService,
+		@ITextFileService private readonly textFileService: ITextFileService,
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
+		@ILogService private readonly logService: ILogService
+	) {
+		super();
+
+		this.root = append(this.container, $('.basehalf-card-detail-source'));
+		const root = this.root;
+		this.editorHost = append(root, $('.basehalf-card-detail-source-editor'));
+		this.setSaveStatus('saving');
+
+		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.save();
+			}
+		}));
+		this._register(this.textFileService.files.onDidChangeDirty(model => {
+			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
+				this.updateStatus();
+			}
+		}));
+		this._register(this.textFileService.files.onDidChangeReadonly(model => {
+			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
+				this.updateStatus();
+			}
+		}));
+		this._register(this.textFileService.files.onDidSaveError(model => {
+			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
+				this.updateStatus();
+			}
+		}));
+		this._register(this.textFileService.files.onDidSave(event => {
+			if (this.resourceKey && isEqual(event.model.resource, this.editor?.getModel()?.uri)) {
+				this.updateStatus();
+			}
+		}));
+		this._register(this.textFileService.files.onDidRevert(model => {
+			if (this.resourceKey && isEqual(model.resource, this.editor?.getModel()?.uri)) {
+				this.updateStatus();
+			}
+		}));
+
+		this.registerLayoutObserver();
+	}
+
+	async open(state: IBaseHalfCardDetailState): Promise<void> {
+		this.resourceKey = state.resource.toString();
+		this.setSaveStatus('saving');
+
+		try {
+			const modelReference = await this.textModelService.createModelReference(state.resource);
+			if (this.disposed || this.resourceKey !== state.resource.toString()) {
+				modelReference.dispose();
+				return;
+			}
+			this._register(modelReference);
+
+			const editor = this._register(this.instantiationService.createInstance(CodeEditorWidget, this.editorHost, this.editorOptions, {
+				...getSimpleCodeEditorWidgetOptions(),
+				telemetryData: { target: 'basehalf.cardDetail.source' }
+			}));
+			this.editor = editor;
+			editor.setModel(modelReference.object.textEditorModel);
+			this._register(editor.onDidChangeModelContent(() => this.updateStatus()));
+			// Read once the selection settles: a drag over a long note changes it
+			// with every move.
+			const reportSelection = this._register(new RunOnceScheduler(() => {
+				const model = editor.getModel();
+				const selection = editor.getSelection();
+				if (!model || !selection || selection.isEmpty()) {
+					this.onSelectionChange?.(undefined);
+					return;
+				}
+				// The record keeps at most the limit; one more character says it was cut.
+				const start = selection.getStartPosition();
+				const limitedEnd = model.modifyPosition(start, Math.min(BASEHALF_AGENT_SELECTION_TEXT_LIMIT + 1, model.getOffsetAt(selection.getEndPosition()) - model.getOffsetAt(start)));
+				const text = model.getValueInRange({ startLineNumber: selection.startLineNumber, startColumn: selection.startColumn, endLineNumber: limitedEnd.lineNumber, endColumn: limitedEnd.column });
+				// A selection that ends at the start of a line does not hold that line.
+				const lastLine = selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber ? selection.endLineNumber - 1 : selection.endLineNumber;
+				this.onSelectionChange?.(text.trim().length > 0 ? { path: state.relativePath, text, firstLine: selection.startLineNumber, lastLine } : undefined);
+			}, 30));
+			this._register(editor.onDidChangeCursorSelection(() => reportSelection.schedule()));
+			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
+			this._register(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
+			this.applySelection(state.selection, ScrollType.Immediate);
+			this.updateStatus();
+			// open() resolves at the first meaningful frame: wait for the
+			// layout pass so a projection swap held on this promise never
+			// reveals an unmeasured, unpainted editor.
+			await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => {
+				this.layout();
+				resolve();
+			}));
+		} catch (error) {
+			if (this.disposed) {
+				return;
+			}
+			this.renderError(error);
+		}
+	}
+
+	override dispose(): void {
+		this.disposed = true;
+		super.dispose();
+	}
+
+	/**
+	 * Re-entry hook for a retained (hidden) surface becoming the visible
+	 * projection again: adopt the latest navigation state, re-measure, and
+	 * re-apply the navigation selection.
+	 */
+	activate(state: IBaseHalfCardDetailState): void {
+		this.layout();
+		this.applySelection(state.selection, ScrollType.Immediate);
+	}
+
+	setVisible(visible: boolean): void {
+		this.visible = visible;
+		// Monaco tracks its text model natively and stays cheap while the
+		// layer is hidden; nothing to suspend.
+	}
+
+	focus(): void {
+		this.editor?.focus();
+	}
+
+	applySelection(selection: ITextEditorSelection | undefined, scrollType: ScrollType = ScrollType.Smooth): void {
+		if (!selection || !this.editor?.hasModel()) {
+			return;
+		}
+
+		applyTextEditorOptions({
+			selection,
+			selectionRevealType: TextEditorSelectionRevealType.CenterIfOutsideViewport,
+			selectionSource: TextEditorSelectionSource.NAVIGATION
+		}, this.editor, scrollType);
+	}
+
+	async save(): Promise<void> {
+		await this.flush({ forceSerialize: true });
+	}
+
+	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
+		if (!baseHalfEditorProjectionCanFlush('source', this.visible, options)) {
+			return true;
+		}
+		const resource = this.editor?.getModel()?.uri;
+		if (!resource) {
+			this.updateStatus();
+			return true;
+		}
+
+		if (!this.textFileService.isDirty(resource)) {
+			this.updateStatus();
+			return true;
+		}
+
+		if (this.isReadonly()) {
+			this.updateStatus();
+			return false;
+		}
+
+		this.saving = true;
+		this.setSaveStatus('saving');
+		try {
+			const savedResource = await this.textFileService.save(resource);
+			if (!savedResource && this.textFileService.isDirty(resource)) {
+				this.saving = false;
+				this.updateStatus();
+				return false;
+			}
+			// A conflicted/erroring model never settles on its own (auto saves
+			// are skipped in these states), so fail fast instead of burning the
+			// settle timeout before refusing.
+			if (this.hasUnsavableState(resource)) {
+				this.saving = false;
+				this.updateStatus();
+				return false;
+			}
+			const clean = await this.waitForClean(resource);
+			this.saving = false;
+			this.updateStatus();
+			return clean;
+		} catch (error) {
+			this.logService.error('[BaseHalf] source card detail save failed', error);
+			this.saving = false;
+			this.setSaveStatus('error');
+			return false;
+		}
+	}
+
+	private hasUnsavableState(resource: URI): boolean {
+		const textFileModel = this.textFileService.files.get(resource);
+		return !!textFileModel && (textFileModel.hasState(TextFileEditorModelState.CONFLICT) || textFileModel.hasState(TextFileEditorModelState.ERROR));
+	}
+
+	private async waitForClean(resource: URI): Promise<boolean> {
+		if (!this.textFileService.isDirty(resource)) {
+			return true;
+		}
+
+		return new Promise<boolean>(resolve => {
+			let settled = false;
+			const timer = mainWindow.setTimeout(() => settle(!this.textFileService.isDirty(resource)), BaseHalfSourceCardDetail.SAVE_SETTLE_TIMEOUT);
+			const disposable = this.textFileService.files.onDidChangeDirty(model => {
+				if (isEqual(model.resource, resource) && !model.isDirty()) {
+					settle(true);
+				}
+			});
+
+			const settle = (value: boolean) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				mainWindow.clearTimeout(timer);
+				disposable.dispose();
+				resolve(value);
+			};
+		});
+	}
+
+	private updateStatus(): void {
+		const resource = this.editor?.getModel()?.uri;
+		if (!resource) {
+			this.setSaveStatus('saving');
+			return;
+		}
+
+		if (this.isReadonly()) {
+			this.setSaveStatus('saved');
+			return;
+		}
+
+		if (this.saving) {
+			this.setSaveStatus('saving');
+			return;
+		}
+
+		// CONFLICT/ERROR models skip all auto saves, so without a visible state
+		// the user would keep typing into a card that silently stopped
+		// persisting. Surface it and let the header indicator offer a retry.
+		if (this.hasUnsavableState(resource)) {
+			this.setSaveStatus('error');
+			return;
+		}
+
+		this.setSaveStatus(this.saving || this.textFileService.isDirty(resource) ? 'saving' : 'saved');
+	}
+
+	private setSaveStatus(status: 'saving' | 'saved' | 'error'): void {
+		this.onSaveStatusChange(status);
+	}
+
+	private isReadonly(): boolean {
+		const model = this.editor?.getModel();
+		if (!model) {
+			return false;
+		}
+
+		const textFileModel = this.textFileService.files.get(model.uri);
+		return !!textFileModel?.isReadonly();
+	}
+
+	private renderError(error: unknown): void {
+		this.editorHost.remove();
+
+		if (error instanceof TooLargeFileOperationError) {
+			this.renderNotice('The file is too large to open here.');
+			this.setSaveStatus('saved');
+			return;
+		}
+
+		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
+			this.renderNotice('The file is not displayed here because it is either binary or uses an unsupported text encoding.');
+			this.setSaveStatus('saved');
+			return;
+		}
+
+		this.logService.error('[BaseHalf] source card detail failed to open', error);
+		this.renderNotice(`Unable to open the file. ${toErrorMessage(error)}`);
+		this.setSaveStatus('saved');
+	}
+
+	private renderNotice(message: string): void {
+		const notice = append(this.root, $('.basehalf-card-detail-source-notice'));
+		notice.textContent = message;
+	}
+
+	private registerLayoutObserver(): void {
+		if (typeof ResizeObserver !== 'undefined') {
+			const resizeObserver = new ResizeObserver(() => this.layout());
+			resizeObserver.observe(this.editorHost);
+			this._register(toDisposable(() => resizeObserver.disconnect()));
+			return;
+		}
+
+		this._register(addDisposableListener(mainWindow, EventType.RESIZE, () => this.layout()));
+	}
+
+	private layout(): void {
+		if (!this.editor) {
+			return;
+		}
+
+		this.editor.layout({
+			width: Math.max(0, this.editorHost.clientWidth),
+			height: Math.max(0, this.editorHost.clientHeight)
+		});
+	}
+}

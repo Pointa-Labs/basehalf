@@ -109,15 +109,15 @@ anything changed, the user copies the settings into a new Draft.
 
 Relevant implementation:
 
-- metadata registry: `src/vs/workbench/basehalf/common/basehalfCardDetail.ts`
-- projection host: `src/vs/workbench/basehalf/browser/cardDetail/basehalfExtensionCardProjection.ts`
+- metadata registry: `src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetail.ts`
+- projection host: `src/vs/workbench/basehalf/cardDetail/browser/basehalfExtensionCardProjection.ts`
 - RPC bridge: `src/vs/workbench/api/browser/mainThreadBaseHalf.ts` and
   `src/vs/workbench/api/common/extHostBaseHalf.ts`
 - stable API: `src/vscode-dts/vscode.d.ts` under `vscode.basehalf`
-- catalog: `src/vs/workbench/basehalf/common/basehalfPluginCatalog.ts`
-- lifecycle: `src/vs/workbench/basehalf/common/basehalfPluginManagementService.ts`.
+- catalog: `src/vs/workbench/basehalf/plugins/common/basehalfPluginCatalog.ts`
+- lifecycle: `src/vs/workbench/basehalf/plugins/common/basehalfPluginManagementService.ts`.
   The desktop workbench registers it through
-  `src/vs/workbench/basehalf/electron-browser/basehalfPluginManagementService.ts`,
+  `src/vs/workbench/basehalf/plugins/electron-browser/basehalfPluginManagementService.ts`,
   which supplies the temporary directory where downloads are staged, so the
   common module names no desktop-only service
 
@@ -127,14 +127,14 @@ The unified content-and-execution decision is implemented across narrow host
 boundaries rather than inside a domain plugin:
 
 - Draft, Attempt, and sealed Result document truth:
-  `src/vs/workbench/basehalf/common/basehalfNodeDocument.ts`;
+  `src/vs/workbench/basehalf/video/common/basehalfNodeDocument.ts`;
 - Recipe and Template registries:
   `src/vs/workbench/basehalf/common/basehalfCanvasRecipes.ts` and
-  `src/vs/workbench/basehalf/common/basehalfCanvasTemplate.ts`;
+  `src/vs/workbench/basehalf/canvas/common/basehalfCanvasTemplate.ts`;
 - host-owned Attempt execution, cancellation, integrity, and recovery:
   `src/vs/workbench/basehalf/browser/basehalfNodeExecutionService.ts`;
 - card state and temporary Configuration/Attempts surface:
-  `src/vs/workbench/basehalf/browser/basehalfCanvasWorkbench.contribution.ts`
+  `src/vs/workbench/basehalf/canvas/browser/basehalfCanvasWorkbench.contribution.ts`
   and `src/vs/workbench/basehalf/browser/basehalfNodeLocalSurface.ts`;
 - reviewed extension metadata and executor registration:
   `src/vs/workbench/basehalf/browser/basehalfCanvasRecipeExtensionPoint.contribution.ts`

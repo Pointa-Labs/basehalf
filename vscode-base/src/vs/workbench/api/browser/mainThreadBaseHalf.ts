@@ -13,19 +13,19 @@ import { URI, UriComponents } from '../../../base/common/uri.js';
 import { IFileContent, IFileService, IFileStatWithPartialMetadata } from '../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../contrib/webview/browser/webview.js';
-import { IBaseHalfExtensionCardProjectionRuntimeService, IBaseHalfExtensionCardProjectionSession } from '../../basehalf/browser/cardDetail/basehalfExtensionCardProjection.js';
-import { IBaseHalfCardDetailState } from '../../basehalf/common/basehalfCanvasNavigation.js';
-import { IBaseHalfCardProjectionRegistryService } from '../../basehalf/common/basehalfCardDetail.js';
+import { IBaseHalfExtensionCardProjectionRuntimeService, IBaseHalfExtensionCardProjectionSession } from '../../basehalf/cardDetail/browser/basehalfExtensionCardProjection.js';
+import { IBaseHalfCardDetailState } from '../../basehalf/navigation/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCardProjectionRegistryService } from '../../basehalf/cardDetail/common/basehalfCardDetail.js';
 import {
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	IBaseHalfNodeDocument,
 	parseBaseHalfNodeDocumentBytes
-} from '../../basehalf/common/basehalfNodeDocument.js';
-import { IBaseHalfNodeResult } from '../../basehalf/common/basehalfVideoNode.js';
-import { IBaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../basehalf/common/basehalfPluginAdmissionService.js';
-import { IBaseHalfPluginStructuralCleanupService } from '../../basehalf/common/basehalfPluginStructuralCleanup.js';
-import { IBaseHalfProjectFileTransitionService } from '../../basehalf/common/basehalfProjectFileTransitions.js';
+} from '../../basehalf/video/common/basehalfNodeDocument.js';
+import { IBaseHalfNodeResult } from '../../basehalf/video/common/basehalfVideoNode.js';
+import { IBaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../basehalf/plugins/common/basehalfPluginAdmissionService.js';
+import { IBaseHalfPluginStructuralCleanupService } from '../../basehalf/plugins/common/basehalfPluginStructuralCleanup.js';
+import { IBaseHalfProjectFileTransitionService } from '../../basehalf/plugins/common/basehalfProjectFileTransitions.js';
 import { IExtHostContext } from '../../services/extensions/common/extHostCustomers.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import * as extHostProtocol from '../common/extHost.protocol.js';

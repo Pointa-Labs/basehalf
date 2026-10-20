@@ -17,7 +17,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Promises } from '../../../../base/common/async.js';
 import product from '../../../../platform/product/common/product.js';
-import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
+import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
 
 export class ExtensionDependencyChecker extends Disposable implements IWorkbenchContribution {
 

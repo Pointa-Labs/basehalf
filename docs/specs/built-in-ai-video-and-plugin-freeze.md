@@ -234,7 +234,7 @@ Services:
 Paths are under `vscode-base/` unless they start with a dot.
 
 - Built-in capabilities and their location:
-  `src/vs/workbench/basehalf/common/basehalfBuiltInCapabilities.ts`.
+  `src/vs/workbench/basehalf/plugins/common/basehalfBuiltInCapabilities.ts`.
   `isAllowedContributor` in `basehalfPluginAdmissionService.ts` admits such a
   capability only as the built-in copy at that location. AI Video is
   deliberately not in the profile's list of extensions that are allowed by

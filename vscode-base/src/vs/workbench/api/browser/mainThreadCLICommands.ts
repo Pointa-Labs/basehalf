@@ -23,7 +23,7 @@ import { IOpenWindowOptions, IWindowOpenable } from '../../../platform/window/co
 import { IWorkbenchEnvironmentService } from '../../services/environment/common/environmentService.js';
 import { IExtensionManagementServerService } from '../../services/extensionManagement/common/extensionManagement.js';
 import { IExtensionManifestPropertiesService } from '../../services/extensions/common/extensionManifestPropertiesService.js';
-import { assertBaseHalfReviewedPluginInstallSurface } from '../../basehalf/common/basehalfExtensionInstallPolicy.js';
+import { assertBaseHalfReviewedPluginInstallSurface } from '../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
 
 
 // this class contains the commands that the CLI server is reying on

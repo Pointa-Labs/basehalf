@@ -76,7 +76,7 @@ import { IExtensionGalleryManifestService } from '../../../../platform/extension
 import { IWorkbenchIssueService } from '../../issue/common/issue.js';
 import { IUserDataProfilesService } from '../../../../platform/userDataProfile/common/userDataProfile.js';
 import product from '../../../../platform/product/common/product.js';
-import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
+import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
 
 export class PromptExtensionInstallFailureAction extends Action {
 

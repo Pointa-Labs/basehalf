@@ -46,12 +46,12 @@ import {
 	baseHalfMarkdownTopLevelBlockOf,
 	countBaseHalfMarkdownNewlines,
 	type IBaseHalfMarkdownBlockNode,
-} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownBlockLines.js';
-import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, baseHalfSelectionLines } from '../../../src/vs/workbench/basehalf/common/basehalfSelectionLines.js';
+} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownBlockLines.js';
+import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, baseHalfSelectionLines } from '../../../src/vs/workbench/basehalf/agentArea/common/basehalfSelectionLines.js';
 import {
 	type IBaseHalfAdhdCommand,
 	type IBaseHalfAdhdFile,
-} from '../../../src/vs/workbench/basehalf/common/basehalfAdhd.js';
+} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfAdhd.js';
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
 	baseHalfBlocksToMarkdown,
@@ -63,18 +63,18 @@ import {
 	splitBaseHalfMarkdownFrontmatter,
 	type IBaseHalfMarkdownEditorApi,
 	type IBaseHalfMarkdownReuseEntry,
-} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownProjection.js';
+} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import {
 	diffBaseHalfMarkdownSegments,
 	groupBaseHalfMarkdownContributions,
-} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownMerge.js';
+} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownMerge.js';
 import {
 	BASEHALF_NOTE_HTML_ATTRIBUTES,
 	BASEHALF_NOTE_HTML_TAGS,
 	baseHalfNoteMarkdownToHtml,
-} from '../../../src/vs/workbench/basehalf/common/basehalfNoteMarkdownHtml.js';
+} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownHtml.js';
 import dompurify from '../../../src/vs/base/browser/dompurify/dompurify.js';
-import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/browser/basehalfSidewaysScrollbar.js';
+import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
 import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
@@ -92,11 +92,11 @@ import {
 	type IBaseHalfMarkdownRichFormatState,
 	type IBaseHalfMarkdownRichFileLink,
 	type IBaseHalfMarkdownRichTextSelection,
-} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichWebviewProtocol.js';
-import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFormatting.js';
-import { baseHalfCaptureStableMarkdownRichSnapshot } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichStructuralSave.js';
-import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichSession.js';
-import { BaseHalfMarkdownRichAsyncMutationBarrier } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichAsyncMutation.js';
+} from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichWebviewProtocol.js';
+import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownFormatting.js';
+import { baseHalfCaptureStableMarkdownRichSnapshot } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichStructuralSave.js';
+import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichSession.js';
+import { BaseHalfMarkdownRichAsyncMutationBarrier } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownRichAsyncMutation.js';
 
 interface VsCodeApi {
 	postMessage(message: BaseHalfMarkdownRichWebviewMessage, transfer?: readonly ArrayBuffer[]): void;
@@ -108,7 +108,7 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 // Mirrors BASEHALF_AUTO_SAVE_DELAY_MS in
-// src/vs/workbench/basehalf/common/basehalfWorkbenchProfile.ts — the webview
+// src/vs/workbench/basehalf/shell/common/basehalfWorkbenchProfile.ts — the webview
 // bundle cannot import workbench code. Keep the two in sync.
 const AUTOSAVE_MS = 250;
 const SIDE_MENU_GUTTER_GAP = 8;

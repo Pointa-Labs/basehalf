@@ -27,7 +27,7 @@ import { TerminalCapability } from '../../../platform/terminal/common/capabiliti
 import { ITerminalCompletionService } from '../../contrib/terminalContrib/suggest/browser/terminalCompletionService.js';
 import { IWorkbenchEnvironmentService } from '../../services/environment/common/environmentService.js';
 import { hasKey } from '../../../base/common/types.js';
-import { IBaseHalfAgentAreaService } from '../../basehalf/common/basehalfAgentArea.js';
+import { IBaseHalfAgentAreaService } from '../../basehalf/agentArea/common/basehalfAgentArea.js';
 
 interface TerminalProcessProxyEntry extends IDisposable {
 	readonly proxy: ITerminalProcessExtHostProxy;

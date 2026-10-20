@@ -49,7 +49,7 @@ import { verifiedPublisherIcon } from './extensionsIcons.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { IStringDictionary } from '../../../../base/common/collections.js';
 import { CommontExtensionManagementService } from '../../../../platform/extensionManagement/common/abstractExtensionManagementService.js';
-import { assertBaseHalfGalleryInstallAllowed, assertBaseHalfLocationInstallAllowed, assertBaseHalfReviewedPluginInstallSurface, assertBaseHalfVSIXInstallAllowed } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
+import { assertBaseHalfGalleryInstallAllowed, assertBaseHalfLocationInstallAllowed, assertBaseHalfReviewedPluginInstallSurface, assertBaseHalfVSIXInstallAllowed } from '../../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
 
 const TrustedPublishersStorageKey = 'extensions.trustedPublishers';
 

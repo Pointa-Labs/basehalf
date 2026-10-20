@@ -7,7 +7,7 @@ import { createExtension } from '@blocknote/core';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
-import { baseHalfAdhdKeywordHits } from '../../../src/vs/workbench/basehalf/common/basehalfAdhd.js';
+import { baseHalfAdhdKeywordHits } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfAdhd.js';
 
 export interface IBaseHalfAdhdDecorationPayload {
 	readonly enabled: boolean;

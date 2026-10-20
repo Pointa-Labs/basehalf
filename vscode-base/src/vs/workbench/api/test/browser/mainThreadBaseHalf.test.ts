@@ -11,11 +11,11 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import { IFileContent, IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
-import { IBaseHalfPluginAdmissionService } from '../../../basehalf/common/basehalfPluginAdmissionService.js';
-import { IBaseHalfProjectFileTransitionService } from '../../../basehalf/common/basehalfProjectFileTransitions.js';
-import { createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../basehalf/common/basehalfNodeDocument.js';
-import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoTask } from '../../../basehalf/common/basehalfVideoNode.js';
-import { baseHalfNodeTestId } from '../../../basehalf/test/common/basehalfNodeTestFixtures.js';
+import { IBaseHalfPluginAdmissionService } from '../../../basehalf/plugins/common/basehalfPluginAdmissionService.js';
+import { IBaseHalfProjectFileTransitionService } from '../../../basehalf/plugins/common/basehalfProjectFileTransitions.js';
+import { createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../basehalf/video/common/basehalfNodeDocument.js';
+import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoTask } from '../../../basehalf/video/common/basehalfVideoNode.js';
+import { baseHalfNodeTestId } from '../../../basehalf/video/test/common/basehalfNodeTestFixtures.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { ExtHostBaseHalfShape, IBaseHalfExtensionIdentityDto } from '../../common/extHost.protocol.js';
 import { MainThreadBaseHalf } from '../../browser/mainThreadBaseHalf.js';

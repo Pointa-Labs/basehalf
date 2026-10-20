@@ -5,7 +5,7 @@
 
 /**
  * The model catalog and the payloads of the provider commands, as the host
- * defines them in `src/vs/workbench/basehalf/common/basehalfVideoCatalog.ts`
+ * defines them in `src/vs/workbench/basehalf/video/common/basehalfVideoCatalog.ts`
  * (D59, video providers and the model catalog). The two must stay the same:
  * only the `IBaseHalfVideo`/`BaseHalfVideo` prefixes differ.
  */

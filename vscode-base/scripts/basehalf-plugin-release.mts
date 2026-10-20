@@ -14,8 +14,8 @@ import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import yazl from 'yazl';
 import { createVSIX } from '@vscode/vsce';
 import { compare, valid, validRange } from 'semver';
-import { BASEHALF_OFFICIAL_PLUGIN_IDENTITIES, BASEHALF_RESERVED_OFFICIAL_PLUGIN_PUBLISHERS } from '../src/vs/workbench/basehalf/common/basehalfPluginIdentities.ts';
-import { baseHalfCanonicalInstalledFileBytes } from '../src/vs/workbench/basehalf/common/basehalfPluginInstalledContent.ts';
+import { BASEHALF_OFFICIAL_PLUGIN_IDENTITIES, BASEHALF_RESERVED_OFFICIAL_PLUGIN_PUBLISHERS } from '../src/vs/workbench/basehalf/plugins/common/basehalfPluginIdentities.ts';
+import { baseHalfCanonicalInstalledFileBytes } from '../src/vs/workbench/basehalf/plugins/common/basehalfPluginInstalledContent.ts';
 
 export const OFFICIAL_EXTENSION_ID = BASEHALF_OFFICIAL_PLUGIN_IDENTITIES[0].extensionId;
 const OFFICIAL_PRIMARY_COMMAND = 'pointa.basehalf-ai-video.createWorkflow';

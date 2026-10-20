@@ -21,7 +21,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { ICommandActionTitle } from '../../../../platform/action/common/action.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { SwitchCompositeViewAction } from '../compositeBarActions.js';
-import { IBaseHalfAgentAreaService } from '../../../basehalf/common/basehalfAgentArea.js';
+import { IBaseHalfAgentAreaService } from '../../../basehalf/agentArea/common/basehalfAgentArea.js';
 
 const maximizeIcon = registerIcon('panel-maximize', Codicon.screenFull, localize('maximizeIcon', 'Icon to maximize a panel.'));
 const closeIcon = registerIcon('panel-close', Codicon.close, localize('closeIcon', 'Icon to close a panel.'));

@@ -39,7 +39,7 @@ import { IProgressService, ProgressLocation } from '../../../../platform/progres
 import { resolveCommandsContext } from './editorCommandsContext.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
 import { prepareMoveCopyEditors } from './editor.js';
-import { BaseHalfCanNavigateBackContext, BaseHalfCanNavigateForwardContext, BaseHalfSurfaceActiveContext, IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { BaseHalfCanNavigateBackContext, BaseHalfCanNavigateForwardContext, BaseHalfSurfaceActiveContext, IBaseHalfCanvasNavigationService } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 
 class ExecuteCommandAction extends Action2 {
 

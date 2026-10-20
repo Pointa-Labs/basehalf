@@ -52,10 +52,10 @@ import { RemoveRootFolderAction } from '../../../browser/actions/workspaceAction
 import { OpenEditorsView } from './views/openEditorsView.js';
 import { ExplorerView } from './views/explorerView.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
-import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, shouldRouteSingleResourceThroughBaseHalf, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
-import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID } from '../../../basehalf/common/basehalfCanvasEditing.js';
-import { BaseHalfSurfaceActiveContext } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasNavigationService } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, shouldRouteSingleResourceThroughBaseHalf, tryOpenBaseHalfResource } from '../../../basehalf/navigation/common/basehalfOpenRouting.js';
+import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID } from '../../../basehalf/canvas/common/basehalfCanvasEditing.js';
+import { BaseHalfSurfaceActiveContext } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 
 export const openWindowCommand = (accessor: ServicesAccessor, toOpen: IWindowOpenable[], options?: IOpenWindowOptions) => {
 	if (Array.isArray(toOpen)) {

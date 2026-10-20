@@ -17,7 +17,7 @@ import EmbedPDF, {
 	type ThemeColors
 } from '@embedpdf/snippet';
 import { FontCharset } from '@embedpdf/models';
-import type { BaseHalfPdfWebviewMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/common/basehalfMediaViewState.js';
+import type { BaseHalfPdfWebviewMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
 
 interface VsCodeApi {
 	postMessage(message: BaseHalfPdfWebviewMessage): void;

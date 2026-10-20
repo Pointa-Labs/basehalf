@@ -46,7 +46,7 @@ import { TerminalProfileService } from './terminalProfileService.js';
 import { TerminalService } from './terminalService.js';
 import { TerminalViewPane } from './terminalView.js';
 import { AgentHostTerminalService, IAgentHostTerminalService } from './agentHostTerminalService.js';
-import { BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID } from '../../../basehalf/common/basehalfAgentArea.js';
+import { BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID } from '../../../basehalf/agentArea/common/basehalfAgentArea.js';
 
 // Register services
 registerSingleton(ITerminalLogService, TerminalLogService, InstantiationType.Delayed);

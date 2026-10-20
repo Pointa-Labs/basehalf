@@ -36,7 +36,7 @@ providers answer no cross-origin requests from the window.
 | `basehalf.video.provider.cancel` | the task | `{cancelled}` |
 
 The payload types are in `src/providers/types.ts`, a copy of the window's
-`src/vs/workbench/basehalf/common/basehalfVideoCatalog.ts` without its
+`src/vs/workbench/basehalf/video/common/basehalfVideoCatalog.ts` without its
 `IBaseHalfVideo` and `BaseHalfVideo` prefixes; the two must stay the same.
 
 ### The framework

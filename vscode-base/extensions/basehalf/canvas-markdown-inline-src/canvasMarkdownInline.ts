@@ -19,7 +19,7 @@ import { liftListItem, sinkListItem, splitListItem, wrapInList } from '@tiptap/p
 import { EditorState, Plugin, PluginKey, Selection, TextSelection, type Command, type Transaction } from '@tiptap/pm/state';
 import { canJoin, canSplit } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet, EditorView } from '@tiptap/pm/view';
-import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFormatting.js';
+import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownFormatting.js';
 
 export interface CanvasMarkdownInlineSelection {
 	readonly anchor: number;

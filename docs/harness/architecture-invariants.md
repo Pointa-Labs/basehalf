@@ -24,6 +24,21 @@ migration material, not the center for new desktop orchestration. Do not restore
 the deleted event-log architecture, decisions module, or old CLI-first product
 path. Their history remains available for archaeology.
 
+## Code organization
+
+- BaseHalf's workbench code is under `src/vs/workbench/basehalf/`, in a folder
+  per feature with VS Code's layer folders and its own tests. It is never
+  spread into VS Code's `contrib/` or `services/` folders.
+- The canvas is a core with features registered beside it, as VS Code's code
+  editor and terminal are. New canvas behavior is a canvas feature in
+  `canvasContrib/<feature>/`, not more code in the canvas view, and the core
+  never imports a feature.
+- VS Code's own files import only BaseHalf's `common/` modules, apart from the
+  workbench entry files, and every change in a VS Code file is marked with a
+  `// BaseHalf:` comment.
+
+See [code organization](code-organization.md) and public decision D60.
+
 ## Product shell
 
 - BaseHalf is canvas-first. Folders open canvases; files open full-screen Card

@@ -1,0 +1,284 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as assert from 'assert';
+import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from '../../common/vendor/yjs.bundle.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { BaseHalfMarkdownRichHostMessage } from '../../common/basehalfMarkdownRichWebviewProtocol.js';
+import { BaseHalfMarkdownRichWebviewBridge, IBaseHalfMarkdownRichWebviewTransport, isBaseHalfMarkdownRichRoutedWebviewMessage } from '../../common/basehalfMarkdownRichWebviewBridge.js';
+
+suite('BaseHalfMarkdownRichWebviewBridge', () => {
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('sends init, editable, reveal, save, and save result host messages', async () => {
+		const host = new YDoc();
+		const transport = new TestTransport();
+		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
+
+		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', 'vscode-webview-resource://base/workspace/', '# Doc\n', true, 'canvas', {
+			startLineNumber: 3,
+			startColumn: 1,
+			endLineNumber: 3,
+			endColumn: 6
+		}), true);
+		assert.strictEqual(await bridge.sendEditable(false), true);
+		assert.strictEqual(await bridge.sendStructuralFreeze('freeze-1', true), true);
+		assert.strictEqual(await bridge.sendRevealSelection({
+			startLineNumber: 8,
+			startColumn: 1,
+			endLineNumber: 9,
+			endColumn: 5
+		}), true);
+		assert.strictEqual(await bridge.sendFocusAtPoint({ x: 84.5, y: 126 }), true);
+		assert.strictEqual(await bridge.sendCommand('undo'), true);
+		assert.strictEqual(await bridge.sendCommand('redo'), true);
+		assert.strictEqual(await bridge.sendCommand('setHeading2'), true);
+		assert.strictEqual(await bridge.sendCommand('toggleBold'), true);
+		assert.strictEqual(await bridge.sendCommand('toggleBulletList'), true);
+		assert.strictEqual(await bridge.sendCommand('toggleOrderedList'), true);
+		assert.strictEqual(await bridge.sendCommand('insertDivider'), true);
+		assert.strictEqual(await bridge.sendFileSearchResult('files-1', [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]), true);
+		assert.strictEqual(await bridge.sendAttachmentResult('attachment-1', { url: 'attachments/diagram.png' }), true);
+		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false, structural: true, handoff: false }), true);
+		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
+		assert.strictEqual(await bridge.sendAdhdState({
+			readingModeEnabled: true,
+			adhd: {
+				path: 'doc.md',
+				kind: 'file',
+				highlight_keywords: ['Cost'],
+				read_paragraphs: [[1, 2]]
+			}
+		}), true);
+		assert.strictEqual(await bridge.sendAdhdState({ readingModeEnabled: false, error: 'ADHD metadata issue' }), true);
+
+		assert.deepStrictEqual(transport.messages.map(entry => entry.message), [
+			{
+				type: 'basehalf.markdownRich.init',
+				key: 'workspace\u0000doc.md',
+				resource: 'file:///workspace/doc.md',
+				baseUri: 'vscode-webview-resource://base/workspace/',
+				content: '# Doc\n',
+				editable: true,
+				surface: 'canvas',
+				selection: {
+					startLineNumber: 3,
+					startColumn: 1,
+					endLineNumber: 3,
+					endColumn: 6
+				}
+			},
+			{
+				type: 'basehalf.markdownRich.setEditable',
+				key: 'workspace\u0000doc.md',
+				editable: false
+			},
+			{
+				type: 'basehalf.markdownRich.setStructuralFreeze',
+				key: 'workspace\u0000doc.md',
+				requestId: 'freeze-1',
+				frozen: true
+			},
+			{
+				type: 'basehalf.markdownRich.revealSelection',
+				key: 'workspace\u0000doc.md',
+				selection: {
+					startLineNumber: 8,
+					startColumn: 1,
+					endLineNumber: 9,
+					endColumn: 5
+				}
+			},
+			{
+				type: 'basehalf.markdownRich.focusAtPoint',
+				key: 'workspace\u0000doc.md',
+				point: { x: 84.5, y: 126 }
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'undo'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'redo'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'setHeading2'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'toggleBold'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'toggleBulletList'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'toggleOrderedList'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'insertDivider'
+			},
+			{
+				type: 'basehalf.markdownRich.fileSearchResult',
+				key: 'workspace\u0000doc.md',
+				requestId: 'files-1',
+				files: [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]
+			},
+			{
+				type: 'basehalf.markdownRich.attachmentResult',
+				key: 'workspace\u0000doc.md',
+				requestId: 'attachment-1',
+				url: 'attachments/diagram.png'
+			},
+			{
+				type: 'basehalf.markdownRich.save',
+				key: 'workspace\u0000doc.md',
+				requestId: 'save-1',
+				forceSerialize: true,
+				forceWrite: false,
+				structural: true,
+				handoff: false
+			},
+			{
+				type: 'basehalf.markdownRich.saveResult',
+				key: 'workspace\u0000doc.md',
+				requestId: 'save-1',
+				result: 'blockedByConflict',
+				disk: 'Disk changed\n',
+				message: 'Disk changed'
+			},
+			{
+				type: 'basehalf.markdownRich.adhdState',
+				key: 'workspace\u0000doc.md',
+				readingModeEnabled: true,
+				adhd: {
+					path: 'doc.md',
+					kind: 'file',
+					highlight_keywords: ['Cost'],
+					read_paragraphs: [[1, 2]]
+				}
+			},
+			{
+				type: 'basehalf.markdownRich.adhdState',
+				key: 'workspace\u0000doc.md',
+				readingModeEnabled: false,
+				error: 'ADHD metadata issue'
+			}
+		]);
+	});
+
+	test('sends the current YJS state when the webview becomes ready', async () => {
+		const host = new YDoc();
+		host.getText('body').insert(0, 'host text');
+		const transport = new TestTransport();
+		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
+
+		assert.strictEqual(await bridge.handleWebviewMessage({
+			type: 'basehalf.markdownRich.ready',
+			key: 'workspace\u0000doc.md'
+		}), true);
+
+		assert.strictEqual(transport.messages.length, 1);
+		const update = transport.messages[0].message;
+		assert.strictEqual(update.type, 'basehalf.markdownRich.applyYjsUpdate');
+		assert.deepStrictEqual(transport.messages[0].transfer, [update.update]);
+
+		const mirror = new YDoc();
+		applyUpdate(mirror, new Uint8Array(update.update));
+		assert.strictEqual(mirror.getText('body').toString(), 'host text');
+	});
+
+	test('applies incoming webview updates to the host doc without echoing to the sender', async () => {
+		const host = new YDoc();
+		const senderTransport = new TestTransport();
+		const siblingTransport = new TestTransport();
+		const senderBridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, senderTransport));
+		disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, siblingTransport));
+
+		const webview = new YDoc();
+		webview.getText('body').insert(0, 'from webview');
+		assert.strictEqual(await senderBridge.handleWebviewMessage({
+			type: 'basehalf.markdownRich.yjsUpdate',
+			key: 'workspace\u0000doc.md',
+			update: encodeStateAsUpdate(webview)
+		}), true);
+
+		assert.strictEqual(host.getText('body').toString(), 'from webview');
+		assert.strictEqual(senderTransport.messages.length, 0);
+		assert.strictEqual(siblingTransport.messages.length, 1);
+
+		const siblingMirror = new YDoc();
+		const update = siblingTransport.messages[0].message;
+		assert.strictEqual(update.type, 'basehalf.markdownRich.applyYjsUpdate');
+		applyUpdate(siblingMirror, new Uint8Array(update.update));
+		assert.strictEqual(siblingMirror.getText('body').toString(), 'from webview');
+	});
+
+	test('broadcasts host-side YJS edits to every attached webview bridge', () => {
+		const host = new YDoc();
+		const firstTransport = new TestTransport();
+		const secondTransport = new TestTransport();
+		disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, firstTransport));
+		disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, secondTransport));
+
+		host.getText('body').insert(0, 'host edit');
+
+		assert.strictEqual(firstTransport.messages.length, 1);
+		assert.strictEqual(secondTransport.messages.length, 1);
+		const firstMirror = new YDoc();
+		const firstUpdate = firstTransport.messages[0].message;
+		assert.strictEqual(firstUpdate.type, 'basehalf.markdownRich.applyYjsUpdate');
+		applyUpdate(firstMirror, new Uint8Array(firstUpdate.update));
+		assert.strictEqual(firstMirror.getText('body').toString(), 'host edit');
+	});
+
+	test('ignores invalid and wrong-key webview messages', async () => {
+		const host = new YDoc();
+		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, new TestTransport()));
+
+		assert.strictEqual(await bridge.handleWebviewMessage({ type: 'basehalf.markdownRich.ready', key: 'other\u0000doc.md' }), false);
+		assert.strictEqual(await bridge.handleWebviewMessage({ type: 'basehalf.markdownRich.yjsUpdate', key: 'workspace\u0000doc.md', update: [999] }), false);
+		assert.strictEqual(host.getText('body').toString(), '');
+	});
+
+	test('routes mixed rich format state for the matching document', () => {
+		const message = {
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: 'workspace\u0000doc.md',
+			state: {
+				ready: true,
+				editable: true,
+				canSetBlockType: true,
+				canToggleStyle: true,
+				blockType: 'paragraph',
+				bold: 'mixed',
+				italic: false,
+			}
+		};
+
+		assert.strictEqual(isBaseHalfMarkdownRichRoutedWebviewMessage(message, 'workspace\u0000doc.md'), true);
+		assert.strictEqual(isBaseHalfMarkdownRichRoutedWebviewMessage(message, 'workspace\u0000other.md'), false);
+	});
+});
+
+class TestTransport implements IBaseHalfMarkdownRichWebviewTransport {
+	readonly messages: Array<{ readonly message: BaseHalfMarkdownRichHostMessage; readonly transfer: readonly ArrayBuffer[] | undefined }> = [];
+
+	async postMessage(message: BaseHalfMarkdownRichHostMessage, transfer?: readonly ArrayBuffer[]): Promise<boolean> {
+		this.messages.push({ message, transfer });
+		return true;
+	}
+}
