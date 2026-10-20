@@ -9,4 +9,5 @@ import './browser/basehalfCanvasWorkbench.contribution.js';
 // Canvas features, each in its own folder under canvasContrib/. They register
 // themselves with the canvas, which never imports them; their view controls
 // appear in this order (docs/harness/code-organization.md).
+import '../canvasContrib/snap/browser/basehalfCanvasSnap.contribution.js';
 import '../canvasContrib/zoom/browser/basehalfCanvasZoom.contribution.js';

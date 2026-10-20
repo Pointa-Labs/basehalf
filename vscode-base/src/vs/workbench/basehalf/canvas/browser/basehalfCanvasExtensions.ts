@@ -21,6 +21,9 @@ export interface IBaseHalfCanvasView {
 	zoomBy(direction: -1 | 1): void;
 	fitToScreen(): void;
 
+	/** Whether a card that is moved snaps to the edges and centers of other cards. It does when the canvas starts. */
+	setSnapEnabled(enabled: boolean): void;
+
 	/**
 	 * The group of view controls at the corner of the canvas. A feature appends
 	 * its controls to it when it is created, after the controls of the view

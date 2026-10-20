@@ -1,0 +1,27 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The snap button among the canvas view controls. It is also a chrome button
+ * of the canvas, whose color it replaces whatever order the stylesheets load in. */
+.monaco-workbench .basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle {
+	width: 28px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle.active {
+	color: var(--vscode-icon-foreground);
+}
+
+.monaco-workbench .basehalf-canvas-snap-toggle .codicon {
+	font-size: var(--vscode-codiconFontSize);
+}
+
+@media (forced-colors: active) {
+	/* Above the rule of the active button, as it was in one stylesheet. */
+	.monaco-workbench .basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle[aria-pressed="true"] {
+		color: HighlightText;
+		background: Highlight;
+	}
+}

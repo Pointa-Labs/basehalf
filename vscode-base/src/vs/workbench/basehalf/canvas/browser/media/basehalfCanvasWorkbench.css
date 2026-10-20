@@ -303,27 +303,9 @@
 	outline-offset: 1px;
 }
 
-.monaco-workbench .basehalf-canvas-snap-toggle {
-	width: 28px;
-	color: var(--vscode-descriptionForeground);
-}
-
-.monaco-workbench .basehalf-canvas-snap-toggle.active {
-	color: var(--vscode-icon-foreground);
-}
-
-.monaco-workbench .basehalf-canvas-snap-toggle .codicon {
-	font-size: var(--vscode-codiconFontSize);
-}
-
 @media (forced-colors: active) {
 	.monaco-workbench .basehalf-canvas-chrome-button:focus-visible {
 		border-color: Highlight;
-	}
-
-	.monaco-workbench .basehalf-canvas-snap-toggle[aria-pressed="true"] {
-		color: HighlightText;
-		background: Highlight;
 	}
 }
 

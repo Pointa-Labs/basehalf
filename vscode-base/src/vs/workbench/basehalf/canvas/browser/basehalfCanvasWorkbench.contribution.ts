@@ -590,7 +590,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly chrome: HTMLElement;
 	private readonly viewControls: HTMLElement;
 	private readonly tidyButton: HTMLButtonElement;
-	private readonly snapToggle: HTMLButtonElement;
 	private readonly surface: HTMLElement;
 	private readonly cards: HTMLElement;
 	private readonly inlineEditLayer: HTMLElement;
@@ -695,7 +694,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	/** The last automatic first fit that no user change has replaced yet. */
 	private autoFramedViewport: { readonly sceneKey: string; readonly generation: number } | undefined;
 	private canvasZoom = 1;
-	private canvasSnapEnabled = true;
 	private tidyRunning = false;
 	private tidySequence = 0;
 	private tidyQuestion: IBaseHalfCanvasTidyQuestion | undefined;
@@ -906,12 +904,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(this.tidyButton, 'click', () => void this.tidyCanvas()));
 		this._register(toDisposable(() => this.closeTidyQuestion()));
 		this._register(toDisposable(() => this.inlineRenameEditor?.store.dispose()));
-		this.snapToggle = append(this.viewControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle')) as HTMLButtonElement;
-		this.snapToggle.type = 'button';
-		this.snapToggle.setAttribute('data-testid', 'canvas-snap-toggle');
-		const snapIcon = append(this.snapToggle, $('span.codicon.codicon-magnet'));
-		snapIcon.setAttribute('aria-hidden', 'true');
-		this._register(this.addDisposableListener(this.snapToggle, 'click', () => this.toggleCanvasSnap()));
 		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
 		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
 		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
@@ -1115,7 +1107,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.updateCanvasLayer();
 		this.updateCanvasTidyChrome();
-		this.updateCanvasSnapChrome();
 		this.updateCanvasZoomChrome();
 		this.createContributions();
 		this._register(this.workspaceMutationCoordinator.onDidFinishStructuralMutation(outcome => {
@@ -1172,6 +1163,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			setZoom: zoom => this.setCanvasZoom(zoom),
 			zoomBy: direction => this.zoomBy(direction),
 			fitToScreen: () => this.fitCanvasToScreen(),
+			setSnapEnabled: enabled => this.canvasScene.setSnapEnabled(enabled),
 			viewControls: this.viewControls,
 			onDidHideViewControls: this.onDidHideViewControlsEmitter.event,
 		};
@@ -10086,20 +10078,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		} catch (error) {
 			this.reportCanvasMutationError(error);
 		}
-	}
-
-	private toggleCanvasSnap(): void {
-		this.canvasSnapEnabled = !this.canvasSnapEnabled;
-		this.canvasScene.setSnapEnabled(this.canvasSnapEnabled);
-		this.updateCanvasSnapChrome();
-	}
-
-	private updateCanvasSnapChrome(): void {
-		const label = localize('basehalf.canvas.snapToCards', "Snap to cards");
-		this.snapToggle.title = label;
-		this.snapToggle.setAttribute('aria-label', label);
-		this.snapToggle.setAttribute('aria-pressed', String(this.canvasSnapEnabled));
-		this.snapToggle.classList.toggle('active', this.canvasSnapEnabled);
 	}
 
 	/**

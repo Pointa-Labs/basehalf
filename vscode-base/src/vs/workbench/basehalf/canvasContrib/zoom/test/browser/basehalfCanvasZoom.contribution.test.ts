@@ -5,44 +5,12 @@
 
 import assert from 'assert';
 import { mainWindow } from '../../../../../../base/browser/window.js';
-import { Emitter } from '../../../../../../base/common/event.js';
-import { DisposableStore, IDisposable, toDisposable } from '../../../../../../base/common/lifecycle.js';
+import { IDisposable } from '../../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { IContextViewDelegate, IContextViewService } from '../../../../../../platform/contextview/browser/contextView.js';
 import { TestInstantiationService } from '../../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
-import { IBaseHalfCanvasView } from '../../../../canvas/browser/basehalfCanvasExtensions.js';
+import { createBaseHalfTestCanvasView, IBaseHalfTestCanvasView } from '../../../../canvas/test/browser/basehalfCanvasViewFixture.js';
 import { BaseHalfCanvasZoomControls, baseHalfCanvasZoomFromPercentInput, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasZoom.contribution.js';
-
-interface ITestCanvas extends IBaseHalfCanvasView {
-	readonly calls: string[];
-	reportZoom(zoom: number): void;
-	hideViewControls(): void;
-}
-
-function createTestCanvas(store: Pick<DisposableStore, 'add'>, zoom = 1): ITestCanvas {
-	const onDidChangeZoom = store.add(new Emitter<number>());
-	const onDidHideViewControls = store.add(new Emitter<void>());
-	const viewControls = mainWindow.document.createElement('div');
-	mainWindow.document.body.appendChild(viewControls);
-	store.add(toDisposable(() => viewControls.remove()));
-	const calls: string[] = [];
-	let current = zoom;
-	return {
-		calls,
-		get zoom() { return current; },
-		onDidChangeZoom: onDidChangeZoom.event,
-		setZoom: value => calls.push(`setZoom ${value}`),
-		zoomBy: direction => calls.push(`zoomBy ${direction}`),
-		fitToScreen: () => calls.push('fitToScreen'),
-		viewControls,
-		onDidHideViewControls: onDidHideViewControls.event,
-		reportZoom: value => {
-			current = value;
-			onDidChangeZoom.fire(value);
-		},
-		hideViewControls: () => onDidHideViewControls.fire(),
-	};
-}
 
 /** Renders a context view into the page the way the workbench does, and hides it again. */
 class TestContextViewService implements Partial<IContextViewService> {
@@ -78,8 +46,8 @@ class TestContextViewService implements Partial<IContextViewService> {
 suite('BaseHalfCanvasZoomControls', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
-	function createControls(zoom = 1): { canvas: ITestCanvas; contextView: TestContextViewService; controls: BaseHalfCanvasZoomControls; trigger: HTMLButtonElement } {
-		const canvas = createTestCanvas(store, zoom);
+	function createControls(zoom = 1): { canvas: IBaseHalfTestCanvasView; contextView: TestContextViewService; controls: BaseHalfCanvasZoomControls; trigger: HTMLButtonElement } {
+		const canvas = createBaseHalfTestCanvasView(store, { zoom });
 		const contextView = new TestContextViewService();
 		const instantiationService = store.add(new TestInstantiationService());
 		instantiationService.stub(IContextViewService, contextView);
