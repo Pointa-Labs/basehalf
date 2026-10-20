@@ -71,15 +71,21 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 
 - `canvas/` is the core: the model and its layout file, the view and its
   lifecycle, rendering, and the services that features use.
-- A canvas feature, such as the badge editor, note editing on a card, the
-  Video panel, selection and arrangement, connections, zoom, or tidying, is a
-  class registered with the canvas, in its own folder
-  `canvasContrib/<feature>/` with its own layer folders and tests. The canvas
-  view creates one of each for every open canvas through dependency injection
-  and calls it at defined points of its lifecycle.
+- A canvas feature, such as the zoom controls, the badge editor, note editing
+  on a card, the Video panel, selection and arrangement, connections, or
+  tidying, is a class registered with `registerBaseHalfCanvasContribution` in
+  its own folder `canvasContrib/<feature>/`, with its own layer folders, tests,
+  and stylesheets. The canvas view creates each registered feature once,
+  through dependency injection, and hands it `IBaseHalfCanvasView`
+  (`canvas/browser/basehalfCanvasExtensions.ts`): what a feature may read and
+  do of the canvas. A feature uses nothing else of the view. When a feature
+  needs more, the interface grows by what it needs.
 - A canvas feature may import `canvas/` and other feature folders. `canvas/`
   never imports a canvas feature; lint enforces this the way it does for
   VS Code's terminal, whose features are one folder deeper than the core.
+  One file, `canvas/basehalfCanvas.all.ts`, loads the core and then every
+  feature, as VS Code's `terminal.all.ts` does; the order of its imports is
+  the order of the features' view controls.
 - New behavior on the canvas is a canvas feature, not more code in the canvas
   view.
 
@@ -99,8 +105,10 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 ## Status
 
 - 2026-10-20: the folders by feature are in place.
-- Next: the canvas view, `canvas/browser/basehalfCanvasWorkbench.contribution.ts`
-  (about 10,800 lines in one class), and the React scene,
+- 2026-10-20: canvas features register with the canvas; the zoom controls
+  (`canvasContrib/zoom/`) are the first.
+- Next: the rest of the canvas view, `canvas/browser/basehalfCanvasWorkbench.contribution.ts`
+  (about 10,500 lines in one class), and the React scene,
   `canvas/browser/basehalfCanvasReactScene.ts` (about 5,100 lines), are split
   into the canvas core and canvas features, one feature per commit, each with
   unit tests.

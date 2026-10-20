@@ -1808,6 +1808,34 @@ export default defineConfig(
 					]
 				},
 				{
+					// BaseHalf: a canvas feature may import the canvas core and BaseHalf's other folders.
+					// The core cannot import a feature, which is one folder deeper (D60).
+					'target': 'src/vs/workbench/basehalf/canvasContrib/*/~',
+					'restrictions': [
+						'vs/base/~',
+						'vs/base/parts/*/~',
+						'vs/platform/*/~',
+						'vs/editor/~',
+						'vs/editor/contrib/*/~',
+						'vs/workbench/~',
+						'vs/workbench/services/*/~',
+						'vs/workbench/contrib/*/~',
+						'vs/workbench/basehalf/*/~',
+						'vs/workbench/basehalf/canvasContrib/*/~',
+						'assert',
+						'crypto'
+					]
+				},
+				{
+					// BaseHalf: the one file that loads the canvas core and every canvas feature
+					'target': 'src/vs/workbench/basehalf/canvas/basehalfCanvas.all.ts',
+					'layer': 'browser',
+					'restrictions': [
+						'vs/workbench/basehalf/canvas/~',
+						'vs/workbench/basehalf/canvasContrib/*/~'
+					]
+				},
+				{
 					'target': 'src/vs/workbench/~',
 					'restrictions': [
 						'vs/base/~',
@@ -2014,6 +2042,7 @@ export default defineConfig(
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
 						'vs/workbench/basehalf/*/~',
+						'vs/workbench/basehalf/canvas/basehalfCanvas.all.js',
 						'vs/workbench/contrib/terminal/terminal.all.js',
 						'vs/sessions/common/theme.js', // side-effect import for color registry
 						'vs/sessions/common/sizes.js' // side-effect import for size registry

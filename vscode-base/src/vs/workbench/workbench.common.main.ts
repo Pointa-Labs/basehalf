@@ -492,7 +492,7 @@ import './basehalf/plugins/browser/basehalfPluginStructuralCleanupExtensionPoint
 import './basehalf/plugins/browser/basehalfCanvasTemplateExtensionPoint.contribution.js';
 import './basehalf/plugins/browser/basehalfAgentCapabilityExtensionPoint.contribution.js';
 import './basehalf/video/browser/basehalfVideoNodeStore.js';
-import './basehalf/canvas/browser/basehalfCanvasWorkbench.contribution.js';
+import './basehalf/canvas/basehalfCanvas.all.js';
 import './basehalf/workspace/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/video/browser/basehalfNodeFileOperations.contribution.js';
 import './basehalf/references/browser/basehalfBadgeQuickAccess.contribution.js';

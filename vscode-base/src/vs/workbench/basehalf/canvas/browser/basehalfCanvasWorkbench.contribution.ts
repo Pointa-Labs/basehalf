@@ -6,11 +6,12 @@
 import './media/basehalfCanvasWorkbench.css';
 
 import * as DOM from '../../../../base/browser/dom.js';
-import { $, append, clearNode, isHTMLElement, isHTMLInputElement, isSVGElement } from '../../../../base/browser/dom.js';
-import { AnchorAlignment, AnchorAxisAlignment, AnchorPosition } from '../../../../base/browser/ui/contextview/contextview.js';
+import { $, append, clearNode, isHTMLElement, isSVGElement } from '../../../../base/browser/dom.js';
 import { InputBox, MessageType } from '../../../../base/browser/ui/inputbox/inputBox.js';
 import { IKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
 import { DeferredPromise, RunOnceScheduler } from '../../../../base/common/async.js';
+import { onUnexpectedError } from '../../../../base/common/errors.js';
+import { Emitter } from '../../../../base/common/event.js';
 import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
@@ -32,7 +33,7 @@ import { FileChangesEvent, FileOperationResult, FileSystemProviderCapabilities, 
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { IContextMenuService, IContextViewDelegate, IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
+import { IContextMenuService, IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
 import { defaultInputBoxStyles } from '../../../../platform/theme/browser/defaultStyles.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IUndoRedoService, UndoRedoElementType } from '../../../../platform/undoRedo/common/undoRedo.js';
@@ -163,7 +164,7 @@ import {
 	baseHalfShouldVetoForBadgeDrafts,
 	baseHalfTransitionBadgeDraftIdentity
 } from './basehalfCanvasConnectionTransaction.js';
-import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../shell/common/basehalfConfiguration.js';
+import { BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../shell/common/basehalfConfiguration.js';
 import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../../shell/common/basehalfWorkbenchProfile.js';
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
 import {
@@ -194,6 +195,7 @@ import {
 } from '../common/basehalfCanvasScene.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../markdown/common/basehalfMarkdownFormatting.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from './basehalfCanvasContextMenu.js';
+import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView } from './basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import {
 	BaseHalfStructuralResourceOutcome,
@@ -586,10 +588,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly root: HTMLElement;
 	private readonly createButton: HTMLButtonElement;
 	private readonly chrome: HTMLElement;
-	private readonly zoomControls: HTMLElement;
+	private readonly viewControls: HTMLElement;
 	private readonly tidyButton: HTMLButtonElement;
 	private readonly snapToggle: HTMLButtonElement;
-	private readonly zoomValue: HTMLButtonElement;
 	private readonly surface: HTMLElement;
 	private readonly cards: HTMLElement;
 	private readonly inlineEditLayer: HTMLElement;
@@ -698,12 +699,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private tidyRunning = false;
 	private tidySequence = 0;
 	private tidyQuestion: IBaseHalfCanvasTidyQuestion | undefined;
-	private zoomMenuOpen = false;
-	private zoomMenu: HTMLElement | undefined;
-	private zoomMenuInput: HTMLInputElement | undefined;
-	private zoomMenuInAction: HTMLButtonElement | undefined;
-	private zoomMenuOutAction: HTMLButtonElement | undefined;
-	private zoomMenuPresetActions: readonly { readonly button: HTMLButtonElement; readonly zoom: number }[] = [];
+	/** The zoom the features of the canvas were last told about. */
+	private reportedCanvasZoom: number | undefined;
+	private readonly onDidChangeZoomEmitter = this._register(new Emitter<number>());
+	private readonly onDidHideViewControlsEmitter = this._register(new Emitter<void>());
 	private renderQueuedBehindGesture = false;
 	private chosenCanvasPlacesInstance: BaseHalfCanvasChosenPlaces | undefined;
 	/** The places BaseHalf chose for cards that appeared, until the layout holds them (canvas card placement). */
@@ -896,10 +895,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(this.createButton, 'click', () => this.showCanvasCreateMenu(this.createButton)));
 
 		this.chrome = DOM.append(this.root, DOM.$('.basehalf-canvas-chrome'));
-		this.zoomControls = DOM.append(this.chrome, DOM.$('.basehalf-canvas-zoom-controls'));
-		this.zoomControls.setAttribute('role', 'group');
-		this.zoomControls.setAttribute('aria-label', localize('basehalf.canvas.viewControls', "Canvas view controls"));
-		this.tidyButton = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-tidy')) as HTMLButtonElement;
+		this.viewControls = DOM.append(this.chrome, DOM.$('.basehalf-canvas-zoom-controls'));
+		this.viewControls.setAttribute('role', 'group');
+		this.viewControls.setAttribute('aria-label', localize('basehalf.canvas.viewControls', "Canvas view controls"));
+		this.tidyButton = append(this.viewControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-tidy')) as HTMLButtonElement;
 		this.tidyButton.type = 'button';
 		this.tidyButton.setAttribute('data-testid', 'canvas-tidy');
 		const tidyIcon = append(this.tidyButton, $('span.codicon.codicon-type-hierarchy'));
@@ -907,23 +906,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(this.tidyButton, 'click', () => void this.tidyCanvas()));
 		this._register(toDisposable(() => this.closeTidyQuestion()));
 		this._register(toDisposable(() => this.inlineRenameEditor?.store.dispose()));
-		this.snapToggle = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle')) as HTMLButtonElement;
+		this.snapToggle = append(this.viewControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle')) as HTMLButtonElement;
 		this.snapToggle.type = 'button';
 		this.snapToggle.setAttribute('data-testid', 'canvas-snap-toggle');
 		const snapIcon = append(this.snapToggle, $('span.codicon.codicon-magnet'));
 		snapIcon.setAttribute('aria-hidden', 'true');
 		this._register(this.addDisposableListener(this.snapToggle, 'click', () => this.toggleCanvasSnap()));
-		this.zoomValue = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-zoom-value')) as HTMLButtonElement;
-		this.zoomValue.type = 'button';
-		this.zoomValue.setAttribute('aria-haspopup', 'dialog');
-		this.zoomValue.setAttribute('aria-expanded', 'false');
-		this.zoomValue.setAttribute('data-testid', 'canvas-zoom-trigger');
-		this._register(this.addDisposableListener(this.zoomValue, 'click', () => this.toggleCanvasZoomMenu()));
-		this._register(toDisposable(() => {
-			if (this.zoomMenuOpen) {
-				this.contextViewService.hideContextView();
-			}
-		}));
 		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
 		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
 		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
@@ -1129,6 +1117,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.updateCanvasTidyChrome();
 		this.updateCanvasSnapChrome();
 		this.updateCanvasZoomChrome();
+		this.createContributions();
 		this._register(this.workspaceMutationCoordinator.onDidFinishStructuralMutation(outcome => {
 			let detailReconciliation: Promise<void> | undefined;
 			const detail = this.canvasNavigationService.state.cardDetail;
@@ -1155,6 +1144,37 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!this.holdRenderForMovedItems()) {
 			this.requestRender();
 		}
+	}
+
+	/**
+	 * Creates the registered features of the canvas (docs/harness/code-organization.md),
+	 * in the order of their registration, as VS Code's terminal creates its
+	 * contributions. One that fails is left out and logged; the canvas and the
+	 * other features work on.
+	 */
+	private createContributions(): void {
+		const view = this.createCanvasView();
+		for (const description of BaseHalfCanvasExtensionsRegistry.getCanvasContributions()) {
+			try {
+				this._register(this.instantiationService.createInstance(description.ctor, { canvas: view }));
+			} catch (error) {
+				onUnexpectedError(error);
+			}
+		}
+	}
+
+	/** The canvas as its features see it (IBaseHalfCanvasView). */
+	private createCanvasView(): IBaseHalfCanvasView {
+		const zoom = () => this.canvasZoom;
+		return {
+			get zoom() { return zoom(); },
+			onDidChangeZoom: this.onDidChangeZoomEmitter.event,
+			setZoom: zoom => this.setCanvasZoom(zoom),
+			zoomBy: direction => this.zoomBy(direction),
+			fitToScreen: () => this.fitCanvasToScreen(),
+			viewControls: this.viewControls,
+			onDidHideViewControls: this.onDidHideViewControlsEmitter.event,
+		};
 	}
 
 	override dispose(): void {
@@ -5586,8 +5606,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private updateCanvasLayer(): void {
 		const editorContent = Array.from(this.editorContainer.children).find(child => child.classList.contains('content'));
 		const active = this.editorService.visibleEditors.length === 0 || editorContent?.classList.contains('empty') === true;
-		if (!active && this.zoomMenuOpen) {
-			this.closeCanvasZoomMenu(false);
+		if (!active) {
+			this.onDidHideViewControlsEmitter.fire();
 		}
 		this.editorContainer.classList.toggle('basehalf-canvas-on-top', active);
 		this.canvasNavigationService.setSurfaceActive(active);
@@ -8982,8 +9002,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderDetail(): void {
 		const cardDetail = this.canvasNavigationService.state.cardDetail;
 		const chromeHidden = !!cardDetail || !this.getCurrentFolder();
-		if (chromeHidden && this.zoomMenuOpen) {
-			this.closeCanvasZoomMenu(false);
+		if (chromeHidden) {
+			this.onDidHideViewControlsEmitter.fire();
 		}
 		this.detail.classList.toggle('visible', !!cardDetail);
 		this.createButton.classList.toggle('hidden', chromeHidden);
@@ -10082,277 +10102,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.snapToggle.classList.toggle('active', this.canvasSnapEnabled);
 	}
 
-	private toggleCanvasZoomMenu(): void {
-		if (this.zoomMenuOpen) {
-			this.closeCanvasZoomMenu(true);
-			return;
-		}
-
-		this.showCanvasZoomMenu();
-	}
-
-	private showCanvasZoomMenu(): void {
-		let focusZoomInput = () => { };
-		this.zoomMenuOpen = true;
-		this.zoomValue.classList.add('open');
-		this.zoomValue.setAttribute('aria-expanded', 'true');
-
-		const delegate: IContextViewDelegate = {
-			getAnchor: () => this.zoomControls,
-			anchorAlignment: AnchorAlignment.LEFT,
-			anchorAxisAlignment: AnchorAxisAlignment.VERTICAL,
-			anchorPosition: AnchorPosition.ABOVE,
-			canRelayout: true,
-			focus: () => focusZoomInput(),
-			render: contextContainer => {
-				const store = new DisposableStore();
-				const menu = append(contextContainer, $('.basehalf-canvas-zoom-menu'));
-				menu.id = 'basehalf-canvas-zoom-menu';
-				menu.setAttribute('role', 'dialog');
-				menu.setAttribute('aria-label', localize('basehalf.canvas.zoomOptions', "Canvas zoom options"));
-				menu.setAttribute('data-testid', 'canvas-zoom-menu');
-
-				const inputShell = append(menu, $('.basehalf-canvas-zoom-input-shell'));
-				const input = append(inputShell, $('input.basehalf-canvas-zoom-input')) as HTMLInputElement;
-				input.type = 'text';
-				input.inputMode = 'decimal';
-				input.autocomplete = 'off';
-				input.spellcheck = false;
-				input.value = formatBaseHalfCanvasZoomPercent(this.canvasZoom);
-				input.setAttribute('aria-label', localize(
-					'basehalf.canvas.zoomPercentageInput',
-					"Zoom percentage, from {0}% to {1}%",
-					Math.round(BASEHALF_CANVAS_MIN_ZOOM * 100),
-					Math.round(BASEHALF_CANVAS_MAX_ZOOM * 100)
-				));
-				input.setAttribute('data-testid', 'canvas-zoom-input');
-				const inputSuffix = append(inputShell, $('span.basehalf-canvas-zoom-input-suffix'));
-				inputSuffix.textContent = '%';
-				inputSuffix.setAttribute('aria-hidden', 'true');
-
-				const actionList = append(menu, $('.basehalf-canvas-zoom-menu-actions'));
-				actionList.setAttribute('role', 'menu');
-				const actionButtons: HTMLButtonElement[] = [];
-				const addAction = (
-					label: string,
-					shortcut: string | undefined,
-					action: () => void,
-					options?: { readonly actionId?: string; readonly zoomTarget?: number }
-				): HTMLButtonElement => {
-					const button = append(actionList, $('button.basehalf-canvas-zoom-menu-action')) as HTMLButtonElement;
-					button.type = 'button';
-					button.setAttribute('role', 'menuitem');
-					button.setAttribute('aria-label', label);
-					button.dataset.zoomAction = options?.actionId;
-					if (options?.zoomTarget !== undefined) {
-						button.dataset.zoomTarget = String(options.zoomTarget);
-					}
-					const actionLabel = append(button, $('span.basehalf-canvas-zoom-menu-label'));
-					actionLabel.textContent = label;
-					if (shortcut) {
-						const shortcutLabel = append(button, $('span.basehalf-canvas-zoom-menu-shortcut'));
-						shortcutLabel.textContent = shortcut;
-						shortcutLabel.setAttribute('aria-hidden', 'true');
-					}
-					store.add(this.addDisposableListener(button, 'click', event => {
-						event.preventDefault();
-						event.stopPropagation();
-						this.closeCanvasZoomMenu(event.detail === 0);
-						action();
-					}));
-					actionButtons.push(button);
-					return button;
-				};
-
-				const commandKey = isMacintosh ? '⌘' : localize('basehalf.canvas.controlKey', "Ctrl");
-				this.zoomMenuInAction = addAction(localize('basehalf.canvas.zoomIn', "Zoom In"), `${commandKey} +`, () => this.zoomBy(1), { actionId: 'in' });
-				this.zoomMenuOutAction = addAction(localize('basehalf.canvas.zoomOut', "Zoom Out"), `${commandKey} -`, () => this.zoomBy(-1), { actionId: 'out' });
-				addAction(localize('basehalf.canvas.fitToScreen', "Fit to Screen"), undefined, () => this.fitCanvasToScreen(), { actionId: 'fit' });
-
-				const separator = append(actionList, $('.basehalf-canvas-zoom-menu-separator'));
-				separator.setAttribute('role', 'separator');
-
-				const presetPercentages = [50, 100, Math.round(BASEHALF_CANVAS_MAX_ZOOM * 100)];
-				const presetActions: { readonly button: HTMLButtonElement; readonly zoom: number }[] = [];
-				for (const percentage of [...new Set(presetPercentages)]) {
-					const zoom = percentage / 100;
-					const button = addAction(
-						localize('basehalf.canvas.zoomToPercentage', "Zoom to {0}%", percentage),
-						percentage === 100 ? `${commandKey} 0` : undefined,
-						() => this.setCanvasZoom(zoom),
-						{ actionId: percentage === 100 ? 'reset' : `preset-${percentage}`, zoomTarget: zoom }
-					);
-					presetActions.push({ button, zoom });
-				}
-				this.zoomMenuPresetActions = presetActions;
-
-				const markInputValid = (): void => {
-					input.removeAttribute('aria-invalid');
-					inputShell.classList.remove('invalid');
-					input.title = '';
-				};
-				const commitInput = (): void => {
-					const zoom = baseHalfCanvasZoomFromPercentInput(input.value);
-					if (zoom === undefined) {
-						const message = localize(
-							'basehalf.canvas.zoomPercentageRange',
-							"Enter a value from {0}% to {1}%.",
-							Math.round(BASEHALF_CANVAS_MIN_ZOOM * 100),
-							Math.round(BASEHALF_CANVAS_MAX_ZOOM * 100)
-						);
-						input.setAttribute('aria-invalid', 'true');
-						inputShell.classList.add('invalid');
-						input.title = message;
-						input.select();
-						return;
-					}
-					markInputValid();
-					this.closeCanvasZoomMenu(true);
-					this.setCanvasZoom(zoom);
-				};
-				store.add(this.addDisposableListener(input, 'input', markInputValid));
-				store.add(this.addDisposableListener(menu, 'keydown', event => {
-					if (event.key === 'Escape') {
-						event.preventDefault();
-						event.stopPropagation();
-						this.closeCanvasZoomMenu(true);
-						return;
-					}
-					if ((event.metaKey || event.ctrlKey) && !event.altKey
-						&& (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
-						event.preventDefault();
-						event.stopPropagation();
-						this.closeCanvasZoomMenu(true);
-						if (event.key === '0') {
-							this.setCanvasZoom(1);
-						} else {
-							this.zoomBy(event.key === '-' ? -1 : 1);
-						}
-						return;
-					}
-					const enabledActionButtons = actionButtons.filter(button => !button.disabled);
-					if (isHTMLInputElement(event.target)) {
-						if (event.key === 'Enter') {
-							event.preventDefault();
-							commitInput();
-						} else if (event.key === 'ArrowDown' && enabledActionButtons.length > 0) {
-							event.preventDefault();
-							enabledActionButtons[0].focus();
-						} else if (event.key === 'ArrowUp' && enabledActionButtons.length > 0) {
-							event.preventDefault();
-							enabledActionButtons[enabledActionButtons.length - 1].focus();
-						}
-						return;
-					}
-					const target = isHTMLElement(event.target) && event.target.tagName === 'BUTTON'
-						? event.target as HTMLButtonElement
-						: undefined;
-					const index = target ? enabledActionButtons.indexOf(target) : -1;
-					if (index < 0) {
-						return;
-					}
-					if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-						event.preventDefault();
-						const delta = event.key === 'ArrowDown' ? 1 : -1;
-						enabledActionButtons[(index + delta + enabledActionButtons.length) % enabledActionButtons.length].focus();
-					} else if (event.key === 'Home' || event.key === 'End') {
-						event.preventDefault();
-						enabledActionButtons[event.key === 'Home' ? 0 : enabledActionButtons.length - 1].focus();
-					}
-				}));
-				store.add(this.addDisposableListener(menu, 'focusout', event => {
-					const next = event.relatedTarget;
-					if ((isHTMLElement(next) || isSVGElement(next))
-						&& (menu.contains(next) || this.zoomValue.contains(next))) {
-						return;
-					}
-					this.closeCanvasZoomMenu(false);
-				}));
-				store.add(this.addDisposableListener(menu.ownerDocument, 'pointerdown', event => {
-					const target = event.target;
-					if ((isHTMLElement(target) || isSVGElement(target))
-						&& (menu.contains(target) || this.zoomValue.contains(target))) {
-						return;
-					}
-					this.closeCanvasZoomMenu(false);
-				}, true));
-
-				this.zoomMenu = menu;
-				this.zoomMenuInput = input;
-				this.zoomValue.setAttribute('aria-controls', menu.id);
-				this.updateCanvasZoomMenuChrome();
-				focusZoomInput = () => {
-					input.focus({ preventScroll: true });
-					input.select();
-				};
-				store.add(toDisposable(() => {
-					focusZoomInput = () => { };
-					if (this.zoomMenu === menu) {
-						this.zoomMenu = undefined;
-						this.zoomMenuInput = undefined;
-						this.zoomMenuInAction = undefined;
-						this.zoomMenuOutAction = undefined;
-						this.zoomMenuPresetActions = [];
-					}
-				}));
-				return store;
-			},
-			onHide: data => {
-				this.zoomMenuOpen = false;
-				this.zoomValue.classList.remove('open');
-				this.zoomValue.setAttribute('aria-expanded', 'false');
-				this.zoomValue.removeAttribute('aria-controls');
-				if ((data as { readonly restoreFocus?: boolean } | undefined)?.restoreFocus && this.zoomValue.isConnected) {
-					this.zoomValue.focus({ preventScroll: true });
-				}
-			}
-		};
-
-		this.contextViewService.showContextView(delegate);
-	}
-
-	private closeCanvasZoomMenu(restoreFocus: boolean): void {
-		if (!this.zoomMenuOpen) {
-			return;
-		}
-		this.contextViewService.hideContextView({ restoreFocus });
-	}
-
+	/**
+	 * Shows the zoom on the canvas, whose sizes in screen pixels follow it, and
+	 * tells the features of the canvas when it changed.
+	 */
 	private updateCanvasZoomChrome(): void {
 		const zoom = normalizeCanvasZoom(this.canvasZoom);
 		this.canvasZoom = zoom;
 		this.root.style.setProperty('--basehalf-canvas-zoom', String(zoom));
 		this.root.dataset.zoom = String(zoom);
-		const percentage = Math.round(zoom * 100);
-		this.zoomValue.textContent = `${percentage}%`;
-		const zoomLabel = localize('basehalf.canvas.zoomMenuAtPercentage', "Zoom options, {0}%", percentage);
-		this.zoomValue.title = zoomLabel;
-		this.zoomValue.setAttribute('aria-label', zoomLabel);
-		this.updateCanvasZoomMenuChrome();
-	}
-
-	private updateCanvasZoomMenuChrome(): void {
-		if (!this.zoomMenu) {
-			return;
-		}
-		const zoom = normalizeCanvasZoom(this.canvasZoom);
-		if (this.zoomMenuOutAction) {
-			this.zoomMenuOutAction.disabled = zoom <= BASEHALF_CANVAS_MIN_ZOOM;
-		}
-		if (this.zoomMenuInAction) {
-			this.zoomMenuInAction.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
-		}
-		for (const { button, zoom: targetZoom } of this.zoomMenuPresetActions) {
-			const current = Math.abs(targetZoom - zoom) < 0.0001;
-			button.classList.toggle('current', current);
-			if (current) {
-				button.setAttribute('aria-current', 'true');
-			} else {
-				button.removeAttribute('aria-current');
-			}
-		}
-		if (this.zoomMenuInput && this.zoomMenuInput.ownerDocument.activeElement !== this.zoomMenuInput) {
-			this.zoomMenuInput.value = formatBaseHalfCanvasZoomPercent(zoom);
+		if (zoom !== this.reportedCanvasZoom) {
+			this.reportedCanvasZoom = zoom;
+			this.onDidChangeZoomEmitter.fire(zoom);
 		}
 	}
 
@@ -10707,22 +10468,6 @@ function roundCanvasPosition(value: number): number {
 
 function normalizeCanvasZoom(value: number): number {
 	return Number(normalizeBaseHalfCanvasZoom(value).toFixed(4));
-}
-
-export function baseHalfCanvasZoomFromPercentInput(value: string): number | undefined {
-	const match = /^(\d+(?:\.\d+)?)\s*%?$/.exec(value.trim());
-	if (!match) {
-		return undefined;
-	}
-	const zoom = Number(match[1]) / 100;
-	if (!Number.isFinite(zoom) || zoom < BASEHALF_CANVAS_MIN_ZOOM || zoom > BASEHALF_CANVAS_MAX_ZOOM) {
-		return undefined;
-	}
-	return normalizeCanvasZoom(zoom);
-}
-
-export function formatBaseHalfCanvasZoomPercent(zoom: number): string {
-	return String(Number((normalizeCanvasZoom(zoom) * 100).toFixed(2)));
 }
 
 function mediaPreview(name: string): { readonly kind: 'image' | 'video' | 'audio' | 'pdf'; readonly label: string } | undefined {
