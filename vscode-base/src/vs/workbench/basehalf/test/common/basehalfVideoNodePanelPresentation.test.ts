@@ -85,7 +85,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				case 'slider':
 					return `${control.label} slider ${control.min}-${control.max} by ${control.step} at ${control.value} (${control.valueLabel})${control.auto ? ` +${control.auto.label}${control.auto.selected ? '*' : ''}` : ''}`;
 				case 'number':
-					return `${control.label} number '${control.text}' placeholder '${control.placeholder}'${control.optional ? ' optional' : ''}`;
+					return `${control.label} number '${control.text}' placeholder '${control.placeholder}'${control.optional ? ' optional' : ''}${control.unit ? ` in ${control.unit}` : ''}`;
 				case 'switch':
 					return `${control.label} switch ${control.on ? 'on' : 'off'}`;
 				case 'fixed':
@@ -243,6 +243,65 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		});
 	});
 
+	test('the model menu lists the providers that are set up first, and each model with its abilities', () => {
+		const menu = (presentation: IBaseHalfVideoPanelPresentation) => presentation.modelMenu.groups.map(group => `${group.label}: ${group.items.map(item => `${item.label} (${item.detail})`).join(', ')}`);
+		assert.deepStrictEqual({
+			acmeSetUp: menu(present()),
+			borealisSetUp: menu(present({ notSetUp: ['acme'] })),
+			neither: menu(present({ notSetUp: ['acme', 'borealis'] })).map(line => line.slice(0, line.indexOf(':')))
+		}, {
+			acmeSetUp: [
+				'Acme Video: Acme Motion 2 (Frames · References · 12s · 1080p · Sound), Acme Still (Frames · 10s · 1080P), Acme Clip (Extend · Edit · 720p)',
+				'Borealis Media: Borealis One (Frames)'
+			],
+			borealisSetUp: [
+				'Borealis Media: Borealis One (Frames)',
+				'Acme Video: Acme Motion 2 (Frames · References · 12s · 1080p · Sound), Acme Still (Frames · 10s · 1080P), Acme Clip (Extend · Edit · 720p)'
+			],
+			neither: ['Acme Video', 'Borealis Media']
+		});
+	});
+
+	test('the reason Generate cannot run shows as a line, with the action that fixes it, except where the panel already says it', () => {
+		const declared = JSON.parse(JSON.stringify({ schema: 1, providers: TEST_VIDEO_CATALOG.providers }));
+		const motion = declared.providers[0].models.find((model: { id: string }) => model.id === 'acme-motion-2');
+		motion.modes = motion.modes.map((mode: { id: string }) => mode.id === 'reference' ? { ...mode, regions: ['west'] } : mode);
+		const westOnly: BaseHalfVideoCatalogState = { kind: 'ready', catalog: parseBaseHalfVideoCatalog(declared).catalog };
+		const states = {
+			generating: present({ generating: true }),
+			loading: present({ catalog: { kind: 'loading' } }),
+			failed: present({ catalog: { kind: 'failed', message: 'AI Video is not running.' } }),
+			noModel: present({ noModel: true }),
+			unknownModel: present({ generation: { provider: 'acme', model: 'acme-motion-9' } }),
+			notSetUp: present({ generation: { provider: 'borealis', model: 'borealis-one' } }),
+			region: present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' } }),
+			modeRegion: present({ catalog: westOnly, generation: { ...frames, mode: 'reference' } }),
+			check: present({ check: { problems: ['frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.'] } }),
+			nothingToSend: present({ prompt: '  ', inputs: [] }),
+			ready: present()
+		};
+		assert.deepStrictEqual(Object.fromEntries(Object.entries(states).map(([name, presentation]) => [name, presentation.reason
+			? `${presentation.reason.text}${presentation.reason.action ? ` [${presentation.reason.action.label} → ${presentation.reason.action.provider}]` : ''}`
+			: null])), {
+			generating: null,
+			loading: null,
+			failed: 'BaseHalf could not load the video models: AI Video is not running.',
+			noModel: null,
+			unknownModel: 'acme-motion-9 is not a model BaseHalf offers. Choose another model.',
+			notSetUp: 'Borealis Media is not set up. Set it up in Video Providers. [Set Up → borealis]',
+			region: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers. [Video Providers… → acme]',
+			modeRegion: 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Video Providers. [Video Providers… → acme]',
+			check: 'frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.',
+			nothingToSend: null,
+			ready: null
+		});
+	});
+
+	test('a number field in seconds says so', () => {
+		const edit = present({ generation: { provider: 'acme', model: 'acme-clip', mode: 'edit', params: { start: 2.5 } }, inputs: [] }).settingsView!;
+		assert.deepStrictEqual(controls(edit.advanced), ['Start number \'2.5\' placeholder \'Not set\' optional in seconds']);
+	});
+
 	test('the Generate button names the first blocker, and the model button is outlined for the model and its provider', () => {
 		const states = {
 			generating: present({ generating: true }),
@@ -289,7 +348,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		assert.deepStrictEqual([states.ready.generate.title, states.video.generate.title], [`Generate (${key})`, `Generate a new video in a new node beside this one (${key})`]);
 	});
 
-	test('asks check about what would be sent, and shows its estimate in the region\'s currency', () => {
+	test('asks check about what would be sent, without the inputs that the panel adds with their files, and shows its estimate in the region\'s currency', () => {
 		const estimate = { currency: 'CNY' as const, min: 7.555, max: 7.555, priceDate: '2026-10-18' };
 		const presentation = present({ check: { problems: [], estimate } });
 		const range = present({ check: { problems: [], estimate: { ...estimate, currency: 'USD', min: 3, max: 9 } } });
@@ -308,8 +367,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				model: 'acme-motion-2',
 				mode: 'frames',
 				params: { resolution: '720p', duration: 5, sound: true },
-				prompt: 'A slow push in.\n\nThe sea at dusk.',
-				inputs: { startFrame: true, endFrame: true, images: 0, videos: 0, audios: 0, source: false }
+				prompt: 'A slow push in.\n\nThe sea at dusk.'
 			},
 			estimate: { text: '≈ ¥7.56', tooltip: 'An estimate from the prices Acme Video published on 2026-10-18. What Acme Video bills is what counts.' },
 			range: '$3.00–$9.00',

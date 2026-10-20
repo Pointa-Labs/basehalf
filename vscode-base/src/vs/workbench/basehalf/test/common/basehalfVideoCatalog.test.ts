@@ -19,7 +19,6 @@ import {
 	baseHalfVideoModeOf,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
-	baseHalfVideoPlannedCounts,
 	baseHalfVideoSentParams,
 	baseHalfVideoSettingsSummary,
 	buildBaseHalfVideoPrompt,
@@ -240,9 +239,6 @@ suite('BaseHalfVideoCatalog', () => {
 			],
 			extend: ['a.png:unused(mode)=Image 1', 'take1.mp4:source=Video 1', 'b.png:unused(mode)=Image 2', 'take2.mp4:unused(full)=Video 2', 'c.png:unused(mode)=Image 3'],
 			edit: ['a.png:reference=Image 1', 'take1.mp4:source=Video 1', 'b.png:reference=Image 2', 'take2.mp4:unused(full)=Video 2', 'c.png:unused(full)=Image 3']
-		});
-		assert.deepStrictEqual(baseHalfVideoPlannedCounts(planBaseHalfVideoInputs(baseHalfVideoModeOf(clip, 'edit').inputs, media, 'en')), {
-			startFrame: false, endFrame: false, images: 2, videos: 0, audios: 0, source: true
 		});
 	});
 

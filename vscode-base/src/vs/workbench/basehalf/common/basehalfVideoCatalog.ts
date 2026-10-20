@@ -224,16 +224,6 @@ export interface IBaseHalfVideoPlannedMedia {
 	readonly source?: BaseHalfVideoMedia;
 }
 
-/** The planned inputs counted, for a check without files. */
-export interface IBaseHalfVideoPlannedCounts {
-	readonly startFrame: boolean;
-	readonly endFrame: boolean;
-	readonly images: number;
-	readonly videos: number;
-	readonly audios: number;
-	readonly source: boolean;
-}
-
 export interface IBaseHalfVideoCheckRequest {
 	readonly provider: string;
 	readonly region: string;
@@ -243,8 +233,8 @@ export interface IBaseHalfVideoCheckRequest {
 	readonly params: BaseHalfVideoParams;
 	/** The prompt as it would be sent, text inputs included. */
 	readonly prompt: string;
-	/** With media, the module measures the files; with counts, it checks counts only. */
-	readonly inputs: IBaseHalfVideoPlannedMedia | IBaseHalfVideoPlannedCounts;
+	/** The files a generation would send; the module measures them. */
+	readonly inputs: IBaseHalfVideoPlannedMedia;
 }
 
 export interface IBaseHalfVideoEstimate {
@@ -380,6 +370,31 @@ export function findBaseHalfVideoRegion(provider: IBaseHalfVideoCatalogProvider,
 /** Whether the region offers the model: the model names the id sent to the provider there. */
 export function baseHalfVideoRegionOffersModel(model: IBaseHalfVideoCatalogModel, regionId: string): boolean {
 	return typeof model.providerModels[regionId] === 'string' && model.providerModels[regionId].length > 0;
+}
+
+/** The resolutions of the shared names, smallest first, to find a model's largest. */
+const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p', '540p', '720p', '768p', '1080p', '2k', '4k']);
+
+/**
+ * A model's abilities in one line, from its declarations (video node
+ * specification, "The panel"): its modes, its longest duration, its largest
+ * resolution, and Sound when it makes sound.
+ */
+export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): string {
+	const parts = model.modes.map(mode => mode.label);
+	const duration = model.parameters.find(parameter => parameter.name === 'duration' && (parameter.kind === 'integer' || parameter.kind === 'number'));
+	if (duration && (duration.kind === 'integer' || duration.kind === 'number')) {
+		parts.push(localize('basehalf.video.catalog.abilitySeconds', "{0}s", duration.max));
+	}
+	const resolution = model.parameters.find(parameter => parameter.name === 'resolution' && parameter.kind === 'choice');
+	if (resolution?.kind === 'choice' && resolution.options.length) {
+		const largest = [...resolution.options].sort((a, b) => RESOLUTION_ORDER.indexOf(String(a.value)) - RESOLUTION_ORDER.indexOf(String(b.value))).at(-1)!;
+		parts.push(largest.label);
+	}
+	if (model.parameters.some(parameter => parameter.name === 'sound')) {
+		parts.push(localize('basehalf.video.catalog.abilitySound', "Sound"));
+	}
+	return parts.join(' · ');
 }
 
 /** Whether the region offers the mode: every region that offers the model does, unless the mode names its regions. */
@@ -817,24 +832,6 @@ export function planBaseHalfVideoInputs(
 				return unused(inputs.audios.max > 0 ? 'full' : 'mode');
 		}
 	}));
-}
-
-/** The planned inputs counted, for a check without files. */
-export function baseHalfVideoPlannedCounts(plan: readonly IBaseHalfVideoInputPlanItem[]): IBaseHalfVideoPlannedCounts {
-	const references = (kind: BaseHalfVideoInputKind) => plan.filter(item => item.use === 'reference' && item.kind === kind).length;
-	return Object.freeze({
-		startFrame: plan.some(item => item.use === 'start-frame'),
-		endFrame: plan.some(item => item.use === 'end-frame'),
-		images: references('image'),
-		videos: references('video'),
-		audios: references('audio'),
-		source: plan.some(item => item.use === 'source')
-	});
-}
-
-/** Whether the plan sends an image, a video, or audio. */
-export function baseHalfVideoPlanSendsMedia(plan: readonly IBaseHalfVideoInputPlanItem[]): boolean {
-	return plan.some(item => item.use === 'start-frame' || item.use === 'end-frame' || item.use === 'reference' || item.use === 'source');
 }
 
 /** `图片1`, `视频2`, `音频1` in a Chinese display language; `Image 1`, `Video 2`, `Audio 1` otherwise. */

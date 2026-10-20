@@ -8,12 +8,15 @@ import { URI } from '../../../base/common/uri.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import {
 	BaseHalfVideoCatalogState,
+	BaseHalfVideoImageFormat,
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
+	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoInputSource,
+	IBaseHalfVideoPlannedMedia,
 	IBaseHalfVideoProviderAccess,
 	IBaseHalfVideoProviderSetup
 } from './basehalfVideoCatalog.js';
@@ -217,6 +220,15 @@ export interface IBaseHalfVideoGenerationService {
 	 * call again; a node already followed is left alone.
 	 */
 	resume(resource: URI): void;
+
+	/**
+	 * The planned inputs as a generation sends them (video node specification,
+	 * "The panel"): images in a format the mode takes, or drawn to PNG, and
+	 * videos and audio as files, for the panel's check. Rejects with a
+	 * `BaseHalfVideoGenerationError` naming an input that is missing or not a
+	 * file on this computer.
+	 */
+	prepareInputMedia(plan: readonly IBaseHalfVideoInputPlanItem[], inputs: readonly IBaseHalfVideoResolvedInput[], imageFormats: readonly BaseHalfVideoImageFormat[]): Promise<IBaseHalfVideoPlannedMedia>;
 
 	isGenerating(resource: URI): boolean;
 	getProgress(resource: URI): IBaseHalfVideoGenerationProgress | undefined;

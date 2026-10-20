@@ -12,7 +12,7 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { FileChangesEvent, FileChangeType, IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { NullHoverService } from '../../../../platform/hover/test/browser/nullHoverService.js';
 import { TestInstantiationService } from '../../../../platform/instantiation/test/common/instantiationServiceMock.js';
@@ -26,6 +26,7 @@ import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPane
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import {
 	BaseHalfVideoCatalogState,
+	BaseHalfVideoMedia,
 	baseHalfVideoInputKindOfPath,
 	findBaseHalfVideoRegion,
 	IBaseHalfVideoCatalog,
@@ -33,9 +34,12 @@ import {
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
+	IBaseHalfVideoInputPlanItem,
+	IBaseHalfVideoPlannedMedia,
 	IBaseHalfVideoProviderAccess
 } from '../../common/basehalfVideoCatalog.js';
 import {
+	BaseHalfVideoGenerationError,
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationProgress,
 	IBaseHalfVideoGenerationService,
@@ -205,6 +209,32 @@ class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerati
 
 	resume(): void { }
 
+	/** The used inputs of each plan the panel had prepared for a check. */
+	readonly prepared: string[][] = [];
+	/** What the next preparations refuse with, as an input that is not a file on this computer. */
+	refusal: string | undefined;
+
+	async prepareInputMedia(plan: readonly IBaseHalfVideoInputPlanItem[]): Promise<IBaseHalfVideoPlannedMedia> {
+		this.prepared.push(plan.filter(item => item.use !== 'unused' && item.use !== 'text').map(item => `${item.path}:${item.use}`));
+		if (this.refusal) {
+			throw new BaseHalfVideoGenerationError(this.refusal);
+		}
+		const file = (item: IBaseHalfVideoInputPlanItem): BaseHalfVideoMedia => ({ fsPath: `/workspace/${item.path}`, mimeType: `${item.kind}/*` });
+		const first = (use: string) => plan.find(item => item.use === use);
+		const references = (kind: string) => plan.filter(item => item.use === 'reference' && item.kind === kind).map(file);
+		const start = first('start-frame');
+		const end = first('end-frame');
+		const source = first('source');
+		return {
+			...(start ? { startFrame: file(start) } : {}),
+			...(end ? { endFrame: file(end) } : {}),
+			images: references('image'),
+			videos: references('video'),
+			audios: references('audio'),
+			...(source ? { source: file(source) } : {})
+		};
+	}
+
 	isGenerating(): boolean {
 		return this.generating;
 	}
@@ -322,6 +352,11 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	function findAll(panel: BaseHalfVideoNodePanel, selector: string): HTMLElement[] {
 		return [...panel.element.querySelectorAll<HTMLElement>(selector)];
+	}
+
+	/** A menu item's name, without the second line of a model. */
+	function menuLabel(item: HTMLElement): string | null | undefined {
+		return item.querySelector('.bh-video-panel-menu-label')?.textContent;
 	}
 
 	function type(prompt: HTMLTextAreaElement, value: string): void {
@@ -507,16 +542,89 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('the reason Generate cannot run shows above the footer, and Set Up and Video Providers… open the provider it names', async () => {
+		store.fields = { prompt: 'Rain', generation: { provider: 'borealis', model: 'borealis-one' } };
+		const panel = await createPanel();
+		const reason = find(panel, '.bh-video-panel-reason');
+		const action = find<HTMLButtonElement>(panel, '.bh-video-panel-reason-action');
+		const read = () => ({
+			hidden: reason.hidden,
+			text: find(panel, '.bh-video-panel-reason-text').textContent,
+			action: action.hidden ? null : action.textContent,
+			beforeFooter: reason.nextElementSibling?.classList.contains('bh-video-panel-footer')
+		});
+		const notSetUp = { ...read(), height: panel.height };
+		action.click();
+		providers.regions = { acme: 'west' };
+		store.writeFromElsewhere({ prompt: 'Rain', generation: { provider: 'acme', model: 'acme-still' } });
+		await settle();
+		const region = read();
+		action.click();
+		providers.regions = {};
+		store.writeFromElsewhere({ prompt: 'Rain', generation: READY });
+		await settle();
+		assert.deepStrictEqual({ notSetUp, region, ready: { hidden: reason.hidden, height: panel.height }, opened: providers.opened }, {
+			notSetUp: { hidden: false, text: 'Borealis Media is not set up. Set it up in Video Providers.', action: 'Set Up', beforeFooter: true, height: notSetUp.height },
+			region: { hidden: false, text: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.', action: 'Video Providers…', beforeFooter: true },
+			ready: { hidden: true, height: 180 },
+			opened: ['borealis', 'acme']
+		});
+		// The line takes its height above the footer: one line beside its action, or two.
+		assert.ok(notSetUp.height >= 180 + 8 + 20 && notSetUp.height <= 180 + 8 + 32, `the panel with a reason line is ${notSetUp.height} px tall`);
+	});
+
+	test('check is asked with the files a generation would send, again when they change, and an input that is not a file on this computer is named instead', async () => {
+		const files = disposables.add(new Emitter<FileChangesEvent>());
+		instantiationService.stub(IFileService, { onDidFilesChange: files.event });
+		const resolve = store.resolveInputs.bind(store);
+		store.resolveInputs = async snapshot => (await resolve(snapshot)).map(input => ({ ...input, file: URI.joinPath(WORKSPACE, input.path) }));
+		const panel = await createPanel();
+		const asked = catalog.checks.at(-1)?.inputs;
+		const checks = catalog.checks.length;
+		files.fire(new FileChangesEvent([{ resource: URI.joinPath(WORKSPACE, 'frames', 'b.png'), type: FileChangeType.UPDATED }], false));
+		await settle();
+		const afterChange = catalog.checks.length;
+		generation.refusal = 'b.png is not a file on this computer.';
+		type(find<HTMLTextAreaElement>(panel, 'textarea'), 'Rain at night');
+		await settle();
+		const generate = find(panel, '.bh-video-panel-generate');
+		assert.deepStrictEqual({
+			asked,
+			prepared: generation.prepared.at(0),
+			afterChange: afterChange - checks,
+			refused: { checks: catalog.checks.length - afterChange, reason: find(panel, '.bh-video-panel-reason-text').textContent, generate: [generate.getAttribute('aria-disabled'), generate.getAttribute('aria-label')] }
+		}, {
+			asked: { startFrame: { fsPath: '/workspace/frames/a.png', mimeType: 'image/*' }, endFrame: { fsPath: '/workspace/frames/b.png', mimeType: 'image/*' }, images: [], videos: [], audios: [] },
+			prepared: ['frames/a.png:start-frame', 'frames/b.png:end-frame'],
+			afterChange: 1,
+			refused: { checks: 0, reason: 'b.png is not a file on this computer.', generate: ['true', 'b.png is not a file on this computer.'] }
+		});
+	});
+
+	test('a number field in seconds shows s after it and says so to a screen reader', async () => {
+		store.fields = { prompt: 'Rain', generation: { provider: 'acme', model: 'acme-clip', mode: 'edit', params: { start: 2.5 } } };
+		const panel = await createPanel();
+		find(panel, '.bh-video-panel-settings').click();
+		find(panel, '.bh-video-panel-more').click();
+		const section = find(panel, '.bh-video-panel-setting[data-parameter="start"]');
+		const field = section.querySelector<HTMLInputElement>('.bh-video-panel-field');
+		assert.deepStrictEqual({ value: field?.value, label: field?.getAttribute('aria-label'), unit: section.querySelector('.bh-video-panel-number-unit')?.textContent }, {
+			value: '2.5', label: 'Start, in seconds', unit: 's'
+		});
+	});
+
 	test('the model menu lists the catalog\'s models by provider, and choosing one keeps the values it accepts', async () => {
 		store.fields = { prompt: 'Rain', generation: { ...READY, mode: 'reference', params: { resolution: '1080p', ratio: '21:9', duration: 10, sound: false } } };
 		const panel = await createPanel();
 		find(panel, '.bh-video-panel-model').click();
-		const items = findAll(panel, '.bh-video-panel-menu-item').map(item => `${item.textContent}${item.getAttribute('aria-checked') === 'true' ? '*' : ''}`);
+		const items = findAll(panel, '.bh-video-panel-menu-item').map(item => `${menuLabel(item)}${item.getAttribute('aria-checked') === 'true' ? '*' : ''}`);
+		const details = findAll(panel, '.bh-video-panel-menu-item').map(item => item.querySelector('.bh-video-panel-menu-detail')?.textContent ?? null);
 		const headings = findAll(panel, '.bh-video-panel-menu-heading').map(heading => heading.textContent);
-		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Acme Still')?.click();
+		findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === 'Acme Still')?.click();
 		await settle();
-		assert.deepStrictEqual({ items, headings, written: store.generations, summary: find(panel, '.bh-video-panel-settings').textContent }, {
+		assert.deepStrictEqual({ items, details, headings, written: store.generations, summary: find(panel, '.bh-video-panel-settings').textContent }, {
 			items: ['Acme Motion 2*', 'Acme Still', 'Acme Clip', 'Borealis One', 'Video Providers…'],
+			details: ['Frames · References · 12s · 1080p · Sound', 'Frames · 10s · 1080P', 'Extend · Edit · 720p', 'Frames', null],
 			headings: ['Acme VideoEast · Acme Cloud', 'Borealis MediaNot set up'],
 			written: [{ provider: 'acme', model: 'acme-still', mode: 'frames', params: { resolution: '1080p', duration: 10 } }],
 			summary: 'Frames · 1080P · 10s'
@@ -527,12 +635,12 @@ suite('BaseHalfVideoNodePanel', () => {
 		providers.regions = { acme: 'west' };
 		const panel = await createPanel();
 		find(panel, '.bh-video-panel-model').click();
-		const still = findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Acme Still')!;
-		const dimmed = { unavailable: still.classList.contains('unavailable'), description: still.getAttribute('aria-description'), tooltip: hovers.get(still)?.() };
-		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Video Providers…')?.click();
+		const still = findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === 'Acme Still')!;
+		const dimmed = { unavailable: still.classList.contains('unavailable'), name: still.getAttribute('aria-label'), description: still.getAttribute('aria-description'), tooltip: hovers.get(still)?.() };
+		findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === 'Video Providers…')?.click();
 		await settle();
 		assert.deepStrictEqual({ dimmed, opened: providers.opened }, {
-			dimmed: { unavailable: true, description: 'Not offered in West · Acme Global', tooltip: 'Not offered in West · Acme Global' },
+			dimmed: { unavailable: true, name: 'Acme Still', description: 'Not offered in West · Acme Global. Frames · 10s · 1080P', tooltip: 'Not offered in West · Acme Global' },
 			opened: ['acme']
 		});
 	});
@@ -682,7 +790,8 @@ suite('BaseHalfVideoNodePanel', () => {
 	test('menus follow the arrow keys, Home, and End, and the settings take the focus into their first control', async () => {
 		const panel = await createPanel();
 		find(panel, '.bh-video-panel-model').click();
-		const focused = () => (mainWindow.document.activeElement as HTMLElement | null)?.textContent;
+		// A menu item by its name, without the second line of a model.
+		const focused = () => (mainWindow.document.activeElement as HTMLElement | null)?.querySelector('.bh-video-panel-menu-label')?.textContent;
 		const opened = focused();
 		press(mainWindow.document.activeElement as HTMLElement, 'ArrowDown');
 		const down = focused();
@@ -799,6 +908,8 @@ suite('BaseHalfVideoNodePanel', () => {
 	});
 
 	test('the panel is taller with an input row, and reports its height when it changes', async () => {
+		// Set up, so that no reason line shows.
+		providers.notSetUp = new Set();
 		const panel = await createPanel();
 		const heights: number[] = [];
 		disposables.add(panel.onDidChangeHeight(height => heights.push(height)));

@@ -19,13 +19,13 @@ import {
 	baseHalfVideoEstimateTooltip,
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoListedModels,
+	baseHalfVideoModelAbilities,
 	baseHalfVideoModeOf,
 	baseHalfVideoModeParameters,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
 	baseHalfVideoParameterDefault,
 	baseHalfVideoParamValueLabel,
-	baseHalfVideoPlannedCounts,
 	baseHalfVideoRegionOffersMode,
 	baseHalfVideoRegionOffersModel,
 	baseHalfVideoSentParams,
@@ -152,6 +152,8 @@ export interface IBaseHalfVideoPanelModelMenuItem {
 	readonly checked: boolean;
 	/** Why the provider's region does not offer it. It is dimmed, and can still be chosen. */
 	readonly unavailable?: string;
+	/** The model's abilities in one line, such as `Frames · References · 15s · 1080p · Sound`. */
+	readonly detail: string;
 	readonly title: string;
 }
 
@@ -210,6 +212,8 @@ export type BaseHalfVideoPanelControl =
 		readonly max: number;
 		readonly step: number;
 		readonly integer: boolean;
+		/** Shown after the field. */
+		readonly unit?: 'seconds';
 		/** The value as the field shows it; empty while it is not set or Auto is chosen. */
 		readonly text: string;
 		/** The value an empty field takes: the default, or none for an optional parameter. */
@@ -248,6 +252,13 @@ export interface IBaseHalfVideoPanelEstimate {
 	readonly tooltip: string;
 }
 
+/** Why Generate cannot run, above the footer; with the action that fixes it, when one does. */
+export interface IBaseHalfVideoPanelReason {
+	readonly text: string;
+	/** Opens Video Providers at the provider. */
+	readonly action?: { readonly label: string; readonly provider: string };
+}
+
 export interface IBaseHalfVideoPanelGenerateButton {
 	/** While the node generates, the button is a stop square. */
 	readonly kind: 'generate' | 'stop';
@@ -278,8 +289,14 @@ export interface IBaseHalfVideoPanelPresentation {
 	readonly generate: IBaseHalfVideoPanelGenerateButton;
 	readonly blocker?: BaseHalfVideoGenerateBlocker;
 	readonly blockerText?: string;
-	/** What the panel asks `check` for the estimate and the problems: absent while the region does not offer the model. */
-	readonly checkRequest?: IBaseHalfVideoCheckRequest;
+	/** Why Generate cannot run, when the panel shows it as a line (video node specification, "The panel"). */
+	readonly reason?: IBaseHalfVideoPanelReason;
+	/**
+	 * What the panel asks `check` for the estimate and the problems, without the
+	 * inputs, which the panel adds with their files: absent while the region
+	 * does not offer the model.
+	 */
+	readonly checkRequest?: Omit<IBaseHalfVideoCheckRequest, 'inputs'>;
 }
 
 export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelPresentation {
@@ -295,14 +312,13 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs, displayLanguage);
 	const startFrame = plan.some(item => item.use === 'start-frame');
 	const checkRequest = ref && mode && region && baseHalfVideoRegionOffersModel(ref.model, region.id)
-		? Object.freeze<IBaseHalfVideoCheckRequest>({
+		? Object.freeze<Omit<IBaseHalfVideoCheckRequest, 'inputs'>>({
 			provider: ref.provider.id,
 			region: region.id,
 			model: ref.model.id,
 			mode: mode.id,
 			params: baseHalfVideoSentParams(ref.model, mode.id, params, startFrame),
-			prompt: buildBaseHalfVideoPrompt(state.prompt, plan.flatMap(item => item.use === 'text' ? [state.texts?.get(item.path) ?? ''] : [])),
-			inputs: baseHalfVideoPlannedCounts(plan)
+			prompt: buildBaseHalfVideoPrompt(state.prompt, plan.flatMap(item => item.use === 'text' ? [state.texts?.get(item.path) ?? ''] : []))
 		})
 		: undefined;
 	const blocker = getBaseHalfVideoGenerateBlocker({
@@ -338,6 +354,7 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 		...(estimate ? { estimate } : {}),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
+		...(blocker && blockerText ? reasonOf(blocker, blockerText, ref?.provider.id) : {}),
 		...(checkRequest ? { checkRequest } : {})
 	});
 }
@@ -410,11 +427,6 @@ export function baseHalfVideoPanelInputFileName(path: string): string {
 /** `⌘Enter` on macOS and `Ctrl+Enter` elsewhere. */
 export function baseHalfVideoPanelGenerateKeyLabel(): string {
 	return isMacintosh ? '⌘Enter' : 'Ctrl+Enter';
-}
-
-/** The settings popover of a model in a mode, drawn from the model's declarations. */
-export function baseHalfVideoPanelSettingsView(ref: IBaseHalfVideoModelRef, mode: IBaseHalfVideoCatalogMode, params: BaseHalfVideoParams, startFrame = false, region?: IBaseHalfVideoCatalogRegion): IBaseHalfVideoPanelSettingsView {
-	return settingsView(ref, mode, params, startFrame, region);
 }
 
 // --- inputs --------------------------------------------------------------------------------------
@@ -578,7 +590,9 @@ function modelMenu(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelModelMen
 		return Object.freeze({ message: baseHalfVideoGenerateBlockerText({ kind: 'catalogFailed', message: state.catalog.message }), groups: Object.freeze([]), settingsLabel });
 	}
 	const generation = state.fields.generation;
-	const groups = state.catalog.catalog.providers.flatMap((provider): IBaseHalfVideoPanelModelMenuGroup[] => {
+	// The providers that are set up first, then the others, each in the catalog's order.
+	const providers = [...state.catalog.catalog.providers].sort((a, b) => Number(state.setup(b).setUp) - Number(state.setup(a).setUp));
+	const groups = providers.flatMap((provider): IBaseHalfVideoPanelModelMenuGroup[] => {
 		const setup = state.setup(provider);
 		const items = baseHalfVideoListedModels(provider, generation).map(model => {
 			const unavailable = baseHalfVideoRegionOffersModel(model, setup.region.id)
@@ -590,6 +604,7 @@ function modelMenu(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelModelMen
 				label: model.label,
 				checked: generation?.provider === provider.id && generation.model === model.id,
 				...(unavailable ? { unavailable } : {}),
+				detail: baseHalfVideoModelAbilities(model),
 				title: unavailable ?? model.description ?? model.label
 			});
 		});
@@ -718,7 +733,8 @@ function numberControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalf
 			? localize('basehalf.video.panel.notSet', "Not set")
 			: formatBaseHalfVideoNumber(parameter, fallback),
 		optional: parameter.optional === true,
-		...(auto ? { auto } : {})
+		...(auto ? { auto } : {}),
+		...(parameter.unit ? { unit: parameter.unit } : {})
 	});
 }
 
@@ -743,6 +759,26 @@ function ratioShape(value: string | number): { readonly shape?: { readonly width
 }
 
 // --- Generate --------------------------------------------------------------------------------------
+
+/** The line of a blocker the panel does not show elsewhere, with its action (video node specification, "The panel"). */
+function reasonOf(blocker: BaseHalfVideoGenerateBlocker, text: string, provider: string | undefined): { readonly reason?: IBaseHalfVideoPanelReason } {
+	switch (blocker.kind) {
+		case 'generating':
+		case 'catalogLoading':
+		case 'noModel':
+		case 'nothingToSend':
+			return {};
+		case 'notSetUp':
+			return { reason: Object.freeze({ text, action: Object.freeze({ label: localize('basehalf.video.panel.setUp', "Set Up"), provider: blocker.provider.id }) }) };
+		case 'region':
+		case 'modeRegion':
+			return provider
+				? { reason: Object.freeze({ text, action: Object.freeze({ label: localize('basehalf.video.panel.videoProvidersAction', "Video Providers…"), provider }) }) }
+				: { reason: Object.freeze({ text }) };
+		default:
+			return { reason: Object.freeze({ text }) };
+	}
+}
 
 function generateButton(
 	state: IBaseHalfVideoPanelState,

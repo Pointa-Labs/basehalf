@@ -29,6 +29,8 @@ import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.j
 import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../common/basehalfReferenceEdit.js';
 import {
+	BASEHALF_VIDEO_IMAGE_FORMATS,
+	BaseHalfVideoImageFormat,
 	BaseHalfVideoModeId,
 	BaseHalfVideoParamValue,
 	baseHalfVideoChangeParam,
@@ -37,9 +39,11 @@ import {
 	findBaseHalfVideoModel,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
+	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoModelRef
 } from '../common/basehalfVideoCatalog.js';
 import {
+	BaseHalfVideoGenerationError,
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationService,
 	IBaseHalfVideoNodeSnapshot,
@@ -119,6 +123,9 @@ const PANEL_PADDING = 12;
 const SECTION_GAP = 8;
 const INPUT_ROW_HEIGHT = 40;
 const FOOTER_HEIGHT = 32;
+/** The reason line: one line beside its action, or two lines of text. */
+const REASON_MIN_HEIGHT = 20;
+const REASON_MAX_HEIGHT = 32;
 const PROMPT_LINE_HEIGHT = 20;
 const PROMPT_PADDING = 4;
 const PROMPT_MIN_LINES = 3;
@@ -141,6 +148,14 @@ interface IOpenMenu {
 	readonly align: 'start' | 'end';
 	/** What the items show, so they are drawn again only when it changes. */
 	contentKey?: string;
+}
+
+/** A check the panel asks with the files a generation would send. */
+interface IPendingCheck {
+	readonly request: Omit<IBaseHalfVideoCheckRequest, 'inputs'>;
+	readonly plan: readonly IBaseHalfVideoInputPlanItem[];
+	readonly inputs: readonly IBaseHalfVideoResolvedInput[];
+	readonly imageFormats: readonly BaseHalfVideoImageFormat[];
 }
 
 /**
@@ -173,6 +188,9 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private readonly textarea: HTMLTextAreaElement;
 	private readonly promptState: HTMLElement;
 	private readonly notice: HTMLElement;
+	private readonly reason: HTMLElement;
+	private readonly reasonText: HTMLElement;
+	private readonly reasonAction: HTMLButtonElement;
 	private readonly modelButton: HTMLButtonElement;
 	private readonly modelLabel: HTMLElement;
 	private readonly settingsButton: HTMLButtonElement;
@@ -192,9 +210,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private inputs: readonly IBaseHalfVideoResolvedInput[] = [];
 	/** The text of the text inputs, for the prompt that `check` sees. */
 	private texts: ReadonlyMap<string, string> = new Map();
-	/** The request the panel asked `check` last, and the last answer for the node's model in its region. */
+	/** What the panel asked `check` last, and the last answer for the node's model in its region. */
 	private checkKey: string | undefined;
-	private pendingCheck: IBaseHalfVideoCheckRequest | undefined;
+	private pendingCheck: IPendingCheck | undefined;
+	/** Counts changes to the inputs' files, so that `check` measures them again. */
+	private inputFilesVersion = 0;
 	private lastCheck: { readonly model: string; readonly result: IBaseHalfVideoCheckResult } | undefined;
 	private readonly checkScheduler: RunOnceScheduler;
 	/** Whether the settings show the advanced parameters. */
@@ -281,6 +301,18 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.notice = append(this.element, $('.bh-video-panel-notice'));
 		this.notice.hidden = true;
 
+		// Why Generate cannot run, with the action that fixes it.
+		this.reason = append(this.element, $('.bh-video-panel-reason'));
+		this.reason.hidden = true;
+		this.reason.append(renderCodicon(Codicon.warning, 'bh-video-panel-reason-icon'));
+		this.reasonText = append(this.reason, $('span.bh-video-panel-reason-text'));
+		this.reasonText.setAttribute('role', 'status');
+		this.reasonAction = append(this.reason, $<HTMLButtonElement>('button.bh-video-panel-reason-action'));
+		this.reasonAction.type = 'button';
+		this.reasonAction.hidden = true;
+		// The whole reason when two lines cut it.
+		this._register(this.hoverService.setupDelayedHover(this.reasonText, () => ({ content: this.reasonText.scrollHeight > this.reasonText.clientHeight + 1 ? this.presentation?.reason?.text ?? '' : '' }), { groupId: HOVER_GROUP }));
+
 		const footer = append(this.element, $('.bh-video-panel-footer'));
 		this.modelButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-model'));
 		this.modelButton.type = 'button';
@@ -318,7 +350,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		void this.refresh();
 	}
 
-	/** The panel's height in screen pixels, from 132 without an input row to 220 with one. */
+	/** The panel's height in screen pixels, from 132 without an input row to 260 with one and a reason line of two lines. */
 	get height(): number {
 		return this.currentHeight;
 	}
@@ -538,8 +570,12 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			}
 		}));
 		this._register(this.fileService.onDidFilesChange(event => {
-			if (event.affects(this.resource) || this.inputs.some(input => input.file && event.affects(input.file))
-				|| this.snapshot?.upstream.some(entry => event.affects(this.entryResource(entry)))) {
+			const inputFiles = this.inputs.some(input => input.file && event.affects(input.file));
+			if (inputFiles) {
+				// The files that `check` measures changed: it is asked again.
+				this.inputFilesVersion++;
+			}
+			if (event.affects(this.resource) || inputFiles || this.snapshot?.upstream.some(entry => event.affects(this.entryResource(entry)))) {
 				this.scheduleRefresh();
 			}
 		}));
@@ -585,6 +621,12 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this._register(addDisposableListener(this.modelButton, 'click', () => this.toggleMenu('model', this.modelButton)));
 		this._register(addDisposableListener(this.settingsButton, 'click', () => this.toggleMenu('settings', this.settingsButton)));
 		this._register(addDisposableListener(this.generateButton, 'click', () => { void this.generate(); }));
+		this._register(addDisposableListener(this.reasonAction, 'click', () => {
+			const action = this.presentation?.reason?.action;
+			if (action) {
+				void this.providerSettings.openSettings(action.provider).catch(error => this.logService.error(error));
+			}
+		}));
 		this._register(addDisposableListener(this.element, 'keydown', event => this.onPanelKeyDown(event)));
 		this._register(addDisposableListener(this.inputRowElement, 'keydown', event => this.onRowKeyDown(event)));
 		this._register(addDisposableListener(this.inputRowElement, 'focusin', event => {
@@ -729,13 +771,14 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			generating: this.generationService.isGenerating(this.resource) || isBaseHalfVideoTaskActive(fields.task),
 			prompt: this.textarea.value
 		});
-		this.scheduleCheck(this.presentation.checkRequest);
+		this.scheduleCheck(this.presentation);
 		this.element.dataset.state = 'ready';
 		this.element.dataset.catalog = catalog.kind;
 		this.element.setAttribute('aria-label', localize('basehalf.video.panel.label', "Video panel for {0}", snapshot.title));
 		this.renderNotice();
 		this.renderInputRow();
 		this.renderOverlay();
+		this.renderReason();
 		this.renderFooter();
 		this.refreshMenu();
 		this.updateHeight();
@@ -1034,6 +1077,26 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
+	/** Why Generate cannot run, above the footer, with the action that fixes it. */
+	private renderReason(): void {
+		const reason = this.presentation?.reason;
+		this.reason.hidden = !reason;
+		const text = reason?.text ?? '';
+		if (this.reasonText.textContent !== text) {
+			this.reasonText.textContent = text;
+		}
+		const action = reason?.action;
+		this.reasonAction.hidden = !action;
+		if (this.reasonAction.textContent !== (action?.label ?? '')) {
+			this.reasonAction.textContent = action?.label ?? '';
+		}
+		if (action) {
+			this.reasonAction.setAttribute('aria-description', text);
+		} else {
+			this.reasonAction.removeAttribute('aria-description');
+		}
+	}
+
 	private settingsTitle(): string {
 		return this.presentation?.settingsView
 			? localize('basehalf.video.panel.settingsLabel', "Settings: {0}", this.presentation.settingsView.summary)
@@ -1055,32 +1118,66 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		return ref ? `${ref.provider.id}/${ref.model.id}/${this.providerSettings.getStatus(ref.provider).region.id}` : undefined;
 	}
 
-	/** Asks `check` a moment after what it is asked changes; the answer for the same model shows until the new one arrives. */
-	private scheduleCheck(request: IBaseHalfVideoCheckRequest | undefined): void {
-		const key = request ? JSON.stringify(request) : undefined;
+	/**
+	 * Asks `check` a moment after what it is asked changes: the model, the
+	 * values, the prompt, the inputs, or their files. The answer for the same
+	 * model shows until the new one arrives.
+	 */
+	private scheduleCheck(presentation: IBaseHalfVideoPanelPresentation): void {
+		const request = presentation.checkRequest;
+		const pending: IPendingCheck | undefined = request ? {
+			request,
+			plan: presentation.plan,
+			inputs: this.inputs,
+			imageFormats: presentation.mode?.limits.imageFormats ?? BASEHALF_VIDEO_IMAGE_FORMATS
+		} : undefined;
+		const key = pending ? JSON.stringify({
+			request,
+			plan: pending.plan.map(item => [item.path, item.use]),
+			files: pending.inputs.map(input => input.file?.toString() ?? ''),
+			version: this.inputFilesVersion
+		}) : undefined;
 		if (key === this.checkKey) {
 			return;
 		}
 		this.checkKey = key;
-		this.pendingCheck = request;
-		if (request) {
+		this.pendingCheck = pending;
+		if (pending) {
 			this.checkScheduler.schedule();
 		} else {
 			this.checkScheduler.cancel();
 		}
 	}
 
+	/**
+	 * Asks `check` with the files a generation would send. An input that is
+	 * missing, or that is not a file on this computer, is the answer's problem
+	 * by name, and nothing is asked.
+	 */
 	private async runCheck(): Promise<void> {
-		const request = this.pendingCheck;
-		if (!request || this.disposed) {
+		const pending = this.pendingCheck;
+		const key = this.checkKey;
+		if (!pending || this.disposed) {
 			return;
 		}
-		const key = JSON.stringify(request);
-		const result = await this.catalogService.check(request);
+		let result: IBaseHalfVideoCheckResult | undefined;
+		try {
+			const inputs = await this.generationService.prepareInputMedia(pending.plan, pending.inputs, pending.imageFormats);
+			if (this.disposed || key !== this.checkKey) {
+				return;
+			}
+			result = await this.catalogService.check({ ...pending.request, inputs });
+		} catch (error) {
+			if (!(error instanceof BaseHalfVideoGenerationError)) {
+				this.logService.warn('[BaseHalf] the Video panel could not prepare the inputs to check', error);
+			}
+			result = Object.freeze({ problems: Object.freeze([baseHalfUserFacingErrorMessage(error)]) });
+		}
 		if (this.disposed || key !== this.checkKey) {
-			// A newer request is on its way.
+			// A newer check is on its way.
 			return;
 		}
+		const { request } = pending;
 		const model = `${request.provider}/${request.model}/${request.region}`;
 		this.lastCheck = result ? { model, result } : undefined;
 		this.render();
@@ -1127,8 +1224,15 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private computeHeight(withInputRow: boolean): number {
 		const row = withInputRow ? INPUT_ROW_HEIGHT + SECTION_GAP : 0;
 		const prompt = this.promptLines * PROMPT_LINE_HEIGHT + PROMPT_PADDING * 2;
-		const height = PANEL_PADDING + row + prompt + SECTION_GAP + FOOTER_HEIGHT + PANEL_PADDING;
+		const reason = this.reason.hidden ? 0 : this.reasonHeight() + SECTION_GAP;
+		const height = PANEL_PADDING + row + prompt + SECTION_GAP + reason + FOOTER_HEIGHT + PANEL_PADDING;
 		return Math.min(BASEHALF_VIDEO_PANEL_MAX_HEIGHT, Math.max(BASEHALF_VIDEO_PANEL_MIN_HEIGHT, height));
+	}
+
+	/** The reason line as drawn, one or two lines; one line before the panel is drawn. */
+	private reasonHeight(): number {
+		const drawn = this.reason.offsetHeight;
+		return drawn > 0 ? Math.min(REASON_MAX_HEIGHT, Math.max(REASON_MIN_HEIGHT, drawn)) : REASON_MIN_HEIGHT;
 	}
 
 	private updateHeight(): void {
@@ -1379,7 +1483,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		return undefined;
 	}
 
-	private menuItem(parent: HTMLElement, label: string, run: () => void, options?: { readonly role?: string; readonly checked?: boolean; readonly key?: string; readonly title?: string; readonly icon?: ThemeIcon }): HTMLButtonElement {
+	private menuItem(parent: HTMLElement, label: string, run: () => void, options?: { readonly role?: string; readonly checked?: boolean; readonly key?: string; readonly title?: string; readonly icon?: ThemeIcon; readonly detail?: string }): HTMLButtonElement {
 		const item = append(parent, $<HTMLButtonElement>('button.bh-video-panel-menu-item'));
 		item.type = 'button';
 		item.tabIndex = -1;
@@ -1392,7 +1496,17 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (options?.icon) {
 			item.append(renderCodicon(options.icon, 'bh-video-panel-menu-icon'));
 		}
-		append(item, $('span.bh-video-panel-menu-label')).textContent = label;
+		if (options?.detail) {
+			// A second line under the name; the item is named by its label alone.
+			const text = append(item, $('span.bh-video-panel-menu-text'));
+			append(text, $('span.bh-video-panel-menu-label')).textContent = label;
+			append(text, $('span.bh-video-panel-menu-detail')).textContent = options.detail;
+			item.classList.add('detailed');
+			item.setAttribute('aria-label', label);
+			item.setAttribute('aria-description', options.detail);
+		} else {
+			append(item, $('span.bh-video-panel-menu-label')).textContent = label;
+		}
 		if (options?.checked) {
 			item.append(renderCodicon(Codicon.check, 'bh-video-panel-menu-check'));
 		}
@@ -1449,11 +1563,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				const button = this.menuItem(section, item.label, () => {
 					this.closeMenu(true);
 					this.chooseModel(item.provider, item.model);
-				}, { role: 'menuitemradio', checked: item.checked, key: `model:${item.provider}:${item.model}`, title: item.title });
+				}, { role: 'menuitemradio', checked: item.checked, key: `model:${item.provider}:${item.model}`, title: item.title, detail: item.detail });
 				if (item.unavailable) {
 					// Dimmed with the reason; it can still be chosen.
 					button.classList.add('unavailable');
-					button.setAttribute('aria-description', item.unavailable);
+					button.setAttribute('aria-description', item.detail ? `${item.unavailable}. ${item.detail}` : item.unavailable);
 				}
 			}
 		}
@@ -1588,8 +1702,13 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				field.value = control.text;
 				field.placeholder = control.placeholder;
 				field.dataset.key = `${control.name}:field`;
-				field.setAttribute('aria-label', control.label);
+				field.setAttribute('aria-label', control.unit === 'seconds' ? localize('basehalf.video.panel.secondsField', "{0}, in seconds", control.label) : control.label);
 				field.disabled = control.auto?.selected === true;
+				if (control.unit === 'seconds') {
+					const unit = append(row, $('span.bh-video-panel-number-unit'));
+					unit.textContent = localize('basehalf.video.panel.secondsUnit', "s");
+					unit.setAttribute('aria-hidden', 'true');
+				}
 				const commit = () => {
 					const text = field.value.trim();
 					if (!text) {

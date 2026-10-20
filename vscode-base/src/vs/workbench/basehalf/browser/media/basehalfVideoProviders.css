@@ -172,6 +172,17 @@
 	color: var(--vscode-descriptionForeground);
 }
 
+/* The provider's models by name; one the region does not offer is dimmed. */
+.basehalf-video-provider-editor-heading p.basehalf-video-provider-models {
+	margin-top: 8px;
+	color: var(--vscode-foreground);
+	line-height: 20px;
+}
+
+.basehalf-video-provider-model.unavailable {
+	opacity: 0.5;
+}
+
 .basehalf-video-provider-field {
 	display: grid;
 	gap: 7px;

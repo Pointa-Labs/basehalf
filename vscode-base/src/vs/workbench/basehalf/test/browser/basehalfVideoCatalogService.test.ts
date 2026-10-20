@@ -115,7 +115,8 @@ suite('BaseHalfVideoCatalogService', () => {
 		const service = createService(commands, 0);
 		const request: IBaseHalfVideoCheckRequest = {
 			provider: 'acme', region: 'east', model: 'acme-motion-2', mode: 'frames',
-			params: { resolution: '720p', duration: 5, sound: true }, prompt: 'Rain', inputs: { startFrame: true, endFrame: false, images: 0, videos: 0, audios: 0, source: false }
+			params: { resolution: '720p', duration: 5, sound: true }, prompt: 'Rain',
+			inputs: { startFrame: { fsPath: '/workspace/frames/a.png', mimeType: 'image/png' }, images: [], videos: [], audios: [] }
 		};
 		const seen: IBaseHalfVideoCheckRequest[] = [];
 		commands.check = checked => {

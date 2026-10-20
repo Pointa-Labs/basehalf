@@ -439,6 +439,60 @@
 	line-height: 18px;
 }
 
+/* Why Generate cannot run, above the footer: at most two lines, with the action that fixes it. */
+.monaco-workbench .bh-video-panel-reason {
+	display: flex;
+	min-width: 0;
+	min-height: 20px;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	padding: 0 2px 0 4px;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.monaco-workbench .bh-video-panel-reason-icon.codicon[class*='codicon-'] {
+	flex: none;
+	align-self: flex-start;
+	margin-top: 1px;
+	color: var(--bh-card-warning, var(--vscode-editorWarning-foreground));
+	font-size: 14px;
+}
+
+.monaco-workbench .bh-video-panel-reason-text {
+	display: -webkit-box;
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow-wrap: anywhere;
+}
+
+.monaco-workbench .bh-video-panel-reason-action {
+	display: inline-flex;
+	height: 20px;
+	flex: none;
+	align-items: center;
+	padding: 0 8px;
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	background: var(--bh-video-panel-fill);
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--bh-video-panel-line);
+	border-radius: 6px;
+	font-size: 12px;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.monaco-workbench .bh-video-panel-reason-action:hover {
+	background: var(--bh-video-panel-hover);
+}
+
 /* The footer: one row with the model, the settings, and Generate. */
 
 .monaco-workbench .bh-video-panel-footer {
@@ -646,8 +700,40 @@
 }
 
 /* A model the provider's region does not offer: dimmed, and it can still be chosen. */
-.monaco-workbench .bh-video-panel-menu-item.unavailable > .bh-video-panel-menu-label {
+.monaco-workbench .bh-video-panel-menu-item.unavailable > .bh-video-panel-menu-label,
+.monaco-workbench .bh-video-panel-menu-item.unavailable > .bh-video-panel-menu-text {
 	opacity: 0.5;
+}
+
+/* A model with its abilities on a second line. */
+.monaco-workbench .bh-video-panel-menu-item.detailed {
+	height: auto;
+	min-height: 40px;
+	padding: 4px 8px;
+}
+
+.monaco-workbench .bh-video-panel-menu-text {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.monaco-workbench .bh-video-panel-menu-detail {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 14px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .bh-video-panel-menu-item:hover .bh-video-panel-menu-detail,
+.monaco-workbench .bh-video-panel-menu-item:focus-visible .bh-video-panel-menu-detail {
+	color: inherit;
+	opacity: 0.8;
 }
 
 .monaco-workbench .bh-video-panel-menu-label {
@@ -955,6 +1041,13 @@
 
 .monaco-workbench .bh-video-panel-slider:disabled {
 	opacity: 0.4;
+}
+
+/* The unit after a number field, such as `s`. */
+.monaco-workbench .bh-video-panel-number-unit {
+	flex: none;
+	margin-left: -4px;
+	color: var(--vscode-descriptionForeground);
 }
 
 .monaco-workbench .bh-video-panel-number-value {

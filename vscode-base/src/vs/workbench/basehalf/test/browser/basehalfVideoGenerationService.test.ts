@@ -28,10 +28,10 @@ import {
 	unknownOutcomeMessage
 } from '../../browser/basehalfVideoGenerationService.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
-import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoCheckRequest, IBaseHalfVideoDownloadRequest, IBaseHalfVideoGenerationChoice, IBaseHalfVideoSubmitRequest } from '../../common/basehalfVideoCatalog.js';
-import { BaseHalfVideoGenerationError } from '../../common/basehalfVideoGeneration.js';
+import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoCheckRequest, IBaseHalfVideoDownloadRequest, IBaseHalfVideoGenerationChoice, IBaseHalfVideoSubmitRequest, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
 import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoNodeFields, IBaseHalfVideoTask } from '../../common/basehalfVideoNode.js';
-import { TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { TEST_VIDEO_CATALOG, testVideoModel } from '../common/basehalfVideoCatalogFixture.js';
 import { FAKE_MP4, FakeProviderCommands, FakeVideoNodeStore, InMemoryCredentialStore } from './basehalfVideoTestFixtures.js';
 
 const START = Date.parse('2026-10-15T08:00:00.000Z');
@@ -408,6 +408,41 @@ suite('BaseHalfVideoGenerationService', () => {
 		});
 		await service.stop(node);
 	}));
+
+	test('prepares the planned inputs for the panel\'s check as a generation sends them, draws an image to PNG once until it changes, and names an input it cannot send', async () => {
+		const harness = await createHarness();
+		const remote = disposables.add(new DisposableStore());
+		remote.add(harness.fileService.registerProvider(Schemas.vscodeRemote, remote.add(new InMemoryFileSystemProvider())));
+		const far = URI.from({ scheme: Schemas.vscodeRemote, authority: 'host', path: '/workspace/frames/far.png' });
+		await harness.fileService.writeFile(far, VSBuffer.fromString('far-png'));
+		await harness.fileService.writeFile(joinPath(root, 'frames/start.svg'), VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'));
+		await harness.fileService.writeFile(joinPath(root, 'frames/end.png'), VSBuffer.fromString('end-png'));
+		const input = (path: string, file = joinPath(root, path)): IBaseHalfVideoResolvedInput => ({ path, kind: 'image', available: true, file });
+		const frames = testVideoModel('acme', 'acme-motion-2').modes[0].inputs;
+		const prepare = (inputs: IBaseHalfVideoResolvedInput[]) => harness.service.prepareInputMedia(planBaseHalfVideoInputs(frames, inputs, 'en'), inputs, ['png', 'jpeg', 'webp']);
+		const planned = [input('frames/start.svg'), input('frames/end.png')];
+		const first = await prepare(planned);
+		const again = (await prepare(planned)).startFrame;
+		const drawnOnce = [...harness.rasterized];
+		await harness.fileService.writeFile(joinPath(root, 'frames/start.svg'), VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"/>'));
+		await prepare(planned);
+		const refusal = (inputs: IBaseHalfVideoResolvedInput[]) => prepare(inputs).then(() => 'prepared', error => `${error instanceof BaseHalfVideoGenerationError}: ${error.message}`);
+		assert.deepStrictEqual({
+			first,
+			again,
+			drawnOnce,
+			drawnAfterTheChange: harness.rasterized,
+			notLocal: await refusal([input('frames/far.png', far)]),
+			missing: await refusal([input('frames/gone.png')])
+		}, {
+			first: { startFrame: { dataUrl: PNG_DATA_URL }, endFrame: file('frames/end.png', 'image/png'), images: [], videos: [], audios: [] },
+			again: { dataUrl: PNG_DATA_URL },
+			drawnOnce: ['image/svg+xml'],
+			drawnAfterTheChange: ['image/svg+xml', 'image/svg+xml'],
+			notLocal: 'true: far.png is not a file on this computer.',
+			missing: 'true: gone.png is missing. Connect it again or remove its connection.'
+		});
+	});
 
 	test('ends with the provider\'s message when the credentials are refused, and never shows them', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
 		const harness = await createHarness();

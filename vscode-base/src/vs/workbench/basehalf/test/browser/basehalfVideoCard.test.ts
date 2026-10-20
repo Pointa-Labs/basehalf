@@ -12,6 +12,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { NullHoverService } from '../../../../platform/hover/test/browser/nullHoverService.js';
 import { renderBaseHalfVideoCard } from '../../browser/basehalfVideoCard.js';
+import { IBaseHalfVideoPlannedMedia } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoGenerationProgress, IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
 import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
 
@@ -31,6 +32,9 @@ class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerati
 	async stop(): Promise<void> { }
 	resume(resource: URI): void {
 		this.resumed.push(resource.path);
+	}
+	prepareInputMedia(): Promise<IBaseHalfVideoPlannedMedia> {
+		throw new Error('Not used by the card.');
 	}
 	isGenerating(): boolean {
 		return this.progress !== undefined;

@@ -42,7 +42,9 @@ import {
 	IBaseHalfVideoPlannedMedia,
 	IBaseHalfVideoProviderAccess,
 	IBaseHalfVideoProviderError,
+	IBaseHalfVideoDownloadResult,
 	IBaseHalfVideoSubmitRequest,
+	IBaseHalfVideoSubmitResult,
 	IBaseHalfVideoTaskRef,
 	normalizeBaseHalfVideoParams,
 	parseBaseHalfVideoCheckResult,
@@ -99,6 +101,8 @@ const UNREADABLE_ANSWERS = 3;
 const TEXT_INPUT_READ_BYTES = 256 * 1024;
 /** The longest side of an image drawn to PNG. */
 const RASTER_MAX_SIDE = 4096;
+/** How many images drawn to PNG the service keeps, so the panel's checks do not draw them again. */
+const DRAWN_IMAGES_KEPT = 16;
 /** A vector image without a useful size is drawn at least this large. */
 const RASTER_VECTOR_SIDE = 1024;
 
@@ -109,16 +113,6 @@ const VIDEO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp4': 'v
 const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac' });
 
 const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'balance', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'tooLarge', 'unknownProvider']);
-
-/** What the AI Video extension answers to `submit`: the provider's task id. */
-export interface IBaseHalfVideoProviderSubmitResult {
-	readonly remoteId: string;
-}
-
-/** What the AI Video extension answers to `download`: the bytes it wrote. */
-export interface IBaseHalfVideoProviderDownloadResult {
-	readonly size: number;
-}
 
 /** Draws an image that providers do not take (SVG, GIF, AVIF, BMP) to a PNG data URL. */
 export type BaseHalfVideoImageRasterizer = (bytes: VSBuffer, mimeType: string) => Promise<string>;
@@ -188,6 +182,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	private readonly stopping = new ResourceSet();
 	private readonly laterChecks = new ResourceMap<IDisposable>();
 	private readonly rasterize: BaseHalfVideoImageRasterizer;
+	/** Images drawn to PNG, by file, modification time, and size; the oldest goes first. */
+	private readonly drawnImages = new Map<string, string>();
 
 	constructor(
 		rasterize: BaseHalfVideoImageRasterizer | undefined,
@@ -319,46 +315,20 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const sent = baseHalfVideoSentParams(ref.model, mode.id, params, plan.some(item => item.use === 'start-frame'));
 
 		const texts: string[] = [];
-		const media: { startFrame?: BaseHalfVideoMedia; endFrame?: BaseHalfVideoMedia; source?: BaseHalfVideoMedia; images: BaseHalfVideoMedia[]; videos: BaseHalfVideoMedia[]; audios: BaseHalfVideoMedia[] } = { images: [], videos: [], audios: [] };
 		const used: string[] = [];
-		const imageFormats = mode.limits.imageFormats ?? BASEHALF_VIDEO_IMAGE_FORMATS;
 		for (const [index, item] of plan.entries()) {
 			if (item.use === 'unused') {
 				continue;
 			}
-			const input = resolved[index];
 			used.push(item.path);
-			switch (item.use) {
-				case 'text':
-					texts.push(await this.readText(input, item));
-					break;
-				case 'start-frame':
-					media.startFrame = await this.prepareMedia(input, item, 'image', imageFormats);
-					break;
-				case 'end-frame':
-					media.endFrame = await this.prepareMedia(input, item, 'image', imageFormats);
-					break;
-				case 'source':
-					media.source = await this.prepareMedia(input, item, 'video');
-					break;
-				default:
-					if (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio') {
-						const prepared = await this.prepareMedia(input, item, item.kind, imageFormats);
-						(item.kind === 'image' ? media.images : item.kind === 'video' ? media.videos : media.audios).push(prepared);
-					}
+			if (item.use === 'text') {
+				texts.push(await this.readText(resolved[index], item));
+				throwIfCancelled(token);
 			}
-			throwIfCancelled(token);
 		}
+		const inputs = await this.prepareInputMedia(plan, resolved, mode.limits.imageFormats ?? BASEHALF_VIDEO_IMAGE_FORMATS, token);
 		const sentPrompt = buildBaseHalfVideoPrompt(prompt, texts);
-		const inputs: IBaseHalfVideoPlannedMedia = Object.freeze({
-			...(media.startFrame ? { startFrame: media.startFrame } : {}),
-			...(media.endFrame ? { endFrame: media.endFrame } : {}),
-			images: Object.freeze(media.images),
-			videos: Object.freeze(media.videos),
-			audios: Object.freeze(media.audios),
-			...(media.source ? { source: media.source } : {})
-		});
-		if (!sentPrompt && !media.startFrame && !media.endFrame && !media.source && !media.images.length && !media.videos.length && !media.audios.length) {
+		if (!sentPrompt && !inputs.startFrame && !inputs.endFrame && !inputs.source && !inputs.images.length && !inputs.videos.length && !inputs.audios.length) {
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'nothingToSend' }));
 		}
 
@@ -431,6 +401,39 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
+	async prepareInputMedia(plan: readonly IBaseHalfVideoInputPlanItem[], inputs: readonly IBaseHalfVideoResolvedInput[], imageFormats: readonly BaseHalfVideoImageFormat[], token: CancellationToken = CancellationToken.None): Promise<IBaseHalfVideoPlannedMedia> {
+		const media: { startFrame?: BaseHalfVideoMedia; endFrame?: BaseHalfVideoMedia; source?: BaseHalfVideoMedia; images: BaseHalfVideoMedia[]; videos: BaseHalfVideoMedia[]; audios: BaseHalfVideoMedia[] } = { images: [], videos: [], audios: [] };
+		for (const [index, item] of plan.entries()) {
+			const input = inputs[index];
+			switch (item.use) {
+				case 'start-frame':
+					media.startFrame = await this.prepareMedia(input, item, 'image', imageFormats);
+					break;
+				case 'end-frame':
+					media.endFrame = await this.prepareMedia(input, item, 'image', imageFormats);
+					break;
+				case 'source':
+					media.source = await this.prepareMedia(input, item, 'video');
+					break;
+				case 'reference':
+					if (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio') {
+						const prepared = await this.prepareMedia(input, item, item.kind, imageFormats);
+						(item.kind === 'image' ? media.images : item.kind === 'video' ? media.videos : media.audios).push(prepared);
+					}
+					break;
+			}
+			throwIfCancelled(token);
+		}
+		return Object.freeze({
+			...(media.startFrame ? { startFrame: media.startFrame } : {}),
+			...(media.endFrame ? { endFrame: media.endFrame } : {}),
+			images: Object.freeze(media.images),
+			videos: Object.freeze(media.videos),
+			audios: Object.freeze(media.audios),
+			...(media.source ? { source: media.source } : {})
+		});
+	}
+
 	/** An image as a local file of a format the mode takes, or drawn to PNG; a video or audio as a local file. The provider module measures them. */
 	private async prepareMedia(input: IBaseHalfVideoResolvedInput, item: IBaseHalfVideoInputPlanItem, kind: 'image' | 'video' | 'audio', imageFormats: readonly BaseHalfVideoImageFormat[] = BASEHALF_VIDEO_IMAGE_FORMATS): Promise<BaseHalfVideoMedia> {
 		const file = input.file;
@@ -438,12 +441,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			throw new BaseHalfVideoGenerationError(missingInputMessage(item.path));
 		}
 		let size: number;
+		let mtime: number;
 		try {
 			const stat = await this.fileService.stat(file);
 			if (stat.isDirectory) {
 				throw new Error('directory');
 			}
 			size = stat.size;
+			mtime = stat.mtime;
 		} catch {
 			throw new BaseHalfVideoGenerationError(missingInputMessage(item.path));
 		}
@@ -460,9 +465,19 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			if (size > RASTER_MAX_BYTES) {
 				throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.imageTooLargeToDraw', "{0} is larger than 64 MiB, which BaseHalf does not draw as a PNG.", inputName(item.path)));
 			}
+			const key = `${file.toString()}|${mtime}|${size}`;
+			const drawn = this.drawnImages.get(key);
+			if (drawn) {
+				return { dataUrl: drawn };
+			}
 			try {
 				const bytes = (await this.fileService.readFile(file)).value;
-				return { dataUrl: await this.rasterize(bytes, direct ?? RASTER_IMAGE_TYPES[extension] ?? 'image/*') };
+				const dataUrl = await this.rasterize(bytes, direct ?? RASTER_IMAGE_TYPES[extension] ?? 'image/*');
+				this.drawnImages.set(key, dataUrl);
+				if (this.drawnImages.size > DRAWN_IMAGES_KEPT) {
+					this.drawnImages.delete(this.drawnImages.keys().next().value!);
+				}
+				return { dataUrl };
 			} catch (error) {
 				this.logService.warn(`[BaseHalf video] Could not draw ${item.path} to PNG: ${getErrorMessage(error)}`);
 				throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.imageUnreadable', "BaseHalf could not read the image {0}.", inputName(item.path)));
@@ -1010,7 +1025,7 @@ function parseProviderAnswer<T>(raw: unknown, parse: (value: unknown) => T | und
 	return { ok: false, error: { code: 'invalidResponse', message: localize('basehalf.video.generation.unreadableAnswer', "AI Video answered in a form BaseHalf cannot read.") } };
 }
 
-function parseSubmitResult(value: unknown): IBaseHalfVideoProviderSubmitResult | undefined {
+function parseSubmitResult(value: unknown): IBaseHalfVideoSubmitResult | undefined {
 	if (!isRecord(value) || typeof value.remoteId !== 'string') {
 		return undefined;
 	}
@@ -1019,7 +1034,7 @@ function parseSubmitResult(value: unknown): IBaseHalfVideoProviderSubmitResult |
 	return remoteId && remoteId.length <= 256 && plainDetail(remoteId, []) === remoteId ? { remoteId } : undefined;
 }
 
-function parseDownloadResult(value: unknown): IBaseHalfVideoProviderDownloadResult | undefined {
+function parseDownloadResult(value: unknown): IBaseHalfVideoDownloadResult | undefined {
 	return isRecord(value) && typeof value.size === 'number' && Number.isSafeInteger(value.size) && value.size >= 0 ? { size: value.size } : undefined;
 }
 

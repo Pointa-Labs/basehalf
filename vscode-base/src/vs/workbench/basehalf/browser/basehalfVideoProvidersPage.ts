@@ -13,7 +13,7 @@ import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { IHoverService } from '../../../platform/hover/browser/hover.js';
 import { IOpenerService } from '../../../platform/opener/common/opener.js';
 import { ISettingsCustomSection, ISettingsCustomSectionLayout } from '../../contrib/preferences/browser/settingsCustomSections.js';
-import { baseHalfVideoListedModels, IBaseHalfVideoCatalogCredential, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
+import { baseHalfVideoListedModels, baseHalfVideoRegionOffersModel, IBaseHalfVideoCatalogCredential, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
 import { BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH, BaseHalfVideoProviderSettingsError } from '../common/basehalfVideoProviderSettings.js';
 
@@ -260,6 +260,23 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		summary.textContent = status.setUp
 			? localize('basehalf.video.providers.summarySetUp', "Set up · {0}", modelCount(provider))
 			: localize('basehalf.video.providers.summaryNotSetUp', "Not set up · {0}", modelCount(provider));
+		// The models by name, so that the user can tell which provider to get credentials from.
+		const models = append(heading, $('p.basehalf-video-provider-models'));
+		for (const [index, model] of baseHalfVideoListedModels(provider, undefined).entries()) {
+			if (index > 0) {
+				models.append(' · ');
+			}
+			const name = append(models, $('span.basehalf-video-provider-model'));
+			name.textContent = model.label;
+			name.dataset.model = model.id;
+			if (!baseHalfVideoRegionOffersModel(model, status.region.id)) {
+				// Dimmed: the region does not offer it.
+				const notOffered = localize('basehalf.video.providers.modelNotOffered', "{0} is not offered in {1}.", model.label, status.region.label);
+				name.classList.add('unavailable');
+				name.setAttribute('aria-description', notOffered);
+				disposables.add(this.hoverService.setupDelayedHover(name, { content: notOffered }));
+			}
+		}
 
 		if (provider.regions.length > 1) {
 			this.renderRegions(editor, provider, status, disposables);

@@ -14,8 +14,8 @@
 export const BASEHALF_VIDEO_PANEL_WIDTH = 512;
 /** The panel's height without an input row and with a prompt of three lines. */
 export const BASEHALF_VIDEO_PANEL_MIN_HEIGHT = 132;
-/** The panel's height with an input row and a prompt of five lines. */
-export const BASEHALF_VIDEO_PANEL_MAX_HEIGHT = 220;
+/** The panel's height with an input row, a prompt of five lines, and a reason line of two. */
+export const BASEHALF_VIDEO_PANEL_MAX_HEIGHT = 260;
 /** Between the card and the panel. */
 export const BASEHALF_VIDEO_PANEL_GAP = 10;
 /** The panel and its menus stay this far inside the canvas. */

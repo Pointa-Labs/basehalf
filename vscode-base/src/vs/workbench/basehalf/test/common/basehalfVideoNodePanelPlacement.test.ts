@@ -23,7 +23,7 @@ suite('BaseHalfVideoNodePanelPlacement', () => {
 		};
 		assert.deepStrictEqual({
 			below: place({ left: 350, top: 100, right: 650, bottom: 300 }, 132),
-			// Room is measured for the tallest panel: 220 does not fit below 400.
+			// Room is measured for the tallest panel: 260 does not fit below a card that ends at 600.
 			aboveWhenTheTallestPanelDoesNotFitBelow: place({ left: 350, top: 300, right: 650, bottom: 600 }, 132),
 			aboveClearOfTheName: place({ left: 350, top: 450, right: 650, bottom: 700 }, 180, canvas, 78),
 			clampedBelow: place({ left: 350, top: 100, right: 650, bottom: 300 }, 180, { width: 1000, height: 420 }),

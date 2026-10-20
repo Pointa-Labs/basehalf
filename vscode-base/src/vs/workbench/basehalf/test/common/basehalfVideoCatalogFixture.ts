@@ -21,7 +21,8 @@ import {
  *     1 audio); resolution, a ratio for references only, duration 4 to 12 s
  *     with Auto, sound, and an advanced seed and negative prompt; both regions.
  *   - Acme Still: frames with a start frame only; two durations; `east` only.
- *   - Acme Clip: extend and edit (a clip, and 2 reference images in edit).
+ *   - Acme Clip: extend and edit (a clip, and 2 reference images in edit),
+ *     with an advanced start in seconds for edit.
  *   - Acme Legacy: deprecated.
  * - Borealis Media (`borealis`): one region, two credentials; Borealis One
  *   draws from text alone, with a style of seven choices, a decimal strength,
@@ -86,7 +87,8 @@ export const ACME_CLIP: IBaseHalfVideoCatalogModel = {
 		{ id: 'edit', label: 'Edit', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 2 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'required' }, limits: {} }
 	],
 	parameters: [
-		{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '720p', label: '720p' }], default: '720p' }
+		{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '720p', label: '720p' }], default: '720p' },
+		{ name: 'start', label: 'Start', kind: 'number', unit: 'seconds', min: 0, max: 20, step: 0.1, optional: true, modes: ['edit'], advanced: true }
 	],
 	estimate: true
 };
