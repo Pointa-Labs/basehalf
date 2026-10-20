@@ -2148,6 +2148,11 @@ async function assertBaseHalfAboutPage(page) {
 // & Providers page, and opens from its command.
 async function openVideoProvidersPage(page) {
 	await runCommand(page, 'Video Providers');
+	return waitForVideoProvidersPage(page);
+}
+
+// Video Providers inside Settings, however it was opened.
+async function waitForVideoProvidersPage(page) {
 	const settingsEditor = page.locator('.settings-editor').first();
 	await settingsEditor.waitFor({ state: 'visible', timeout: 20_000 });
 	const providers = settingsEditor.locator('.basehalf-video-providers').first();
@@ -2182,6 +2187,10 @@ async function assertVideoProvidersPage(page) {
 	if (!editor.credentials.length || editor.credentials.some(credential => credential.set || credential.input !== 'password')
 		|| !editor.regions.some(region => region.id === VIDEO_REGION) || !/^https:\/\//.test(editor.endpoint ?? '')) {
 		throw new Error(`The page must offer a masked field for every credential of ${VIDEO_PROVIDER}, its regions, and its endpoint: ${JSON.stringify(editor)}`);
+	}
+	// The provider's models by name, so that the user can tell where to get credentials.
+	if (!editor.models.length || editor.models.some(model => !model.id || !model.label)) {
+		throw new Error(`The page must list ${VIDEO_PROVIDER}'s models by name: ${JSON.stringify(editor.models)}`);
 	}
 	await closeVideoProvidersPage(page, providers);
 }
@@ -2995,6 +3004,10 @@ async function assertVideoPanelModelAndSettings(page) {
 	if (!group || group.detail !== 'Not set up' || !group.items.length || JSON.stringify(menu.end) !== JSON.stringify(['Video Providers…'])) {
 		throw new Error(`The model menu must list ${VIDEO_PROVIDER}'s models as not set up, and end with Video Providers…: ${JSON.stringify(menu)}`);
 	}
+	// Each model with its abilities on a second line, its modes first.
+	if (menu.groups.some(candidate => candidate.items.some(item => !item.detail || !/^(Frames|References|Extend|Edit)\b/.test(item.detail)))) {
+		throw new Error(`Every model must show its abilities under its name: ${JSON.stringify(menu.groups.map(candidate => candidate.items))}`);
+	}
 	videoSmoke.model = group.items[0].model;
 	await clickVideoModel(page, panel, videoSmoke.model);
 	const chosen = await waitForReading(() => readVideoNode(VIDEO_NODE).generation, generation => generation?.provider === VIDEO_PROVIDER && generation.model === videoSmoke.model
@@ -3006,6 +3019,10 @@ async function assertVideoPanelModelAndSettings(page) {
 	const blocked = await waitForReading(() => readVideoPanel(panel), seen => seen.model === group.items[0].label && / is not set up\. Set it up in Video Providers\.$/.test(seen.generate?.label ?? ''), 'Generate to say that the provider is not set up');
 	if (!blocked.generate.disabled || !blocked.modelOutlined) {
 		throw new Error(`Without its credentials, Generate must be disabled and the model button outlined: ${JSON.stringify(blocked)}`);
+	}
+	// The reason shows above the footer too, with Set Up.
+	if (blocked.reason?.text !== blocked.generate.label || blocked.reason?.action !== 'Set Up') {
+		throw new Error(`The panel must say why Generate cannot run, with Set Up: ${JSON.stringify(blocked)}`);
 	}
 	// The estimate is asked for without the credentials.
 	const estimated = await waitForReading(() => readVideoPanel(panel), seen => seen.estimate !== null, 'the estimate to show beside Generate', 15_000);
@@ -3033,6 +3050,11 @@ async function assertVideoPanelModelAndSettings(page) {
 	videoSmoke.summary = changed.settings;
 	videoSmoke.generation = stored;
 	await closeVideoPanelMenu(page, panel, 'settings');
+	// Set Up opens Video Providers at the provider that is not set up.
+	await panel.locator('button.bh-video-panel-reason-action').click();
+	const providers = await waitForVideoProvidersPage(page);
+	await waitForReading(() => readVideoProviderEditor(providers), seen => seen.provider === VIDEO_PROVIDER, `Set Up to open Video Providers at ${VIDEO_PROVIDER}`);
+	await closeVideoProvidersPage(page, providers);
 	await clickBlankVideoCanvas(page);
 }
 
@@ -3173,12 +3195,12 @@ async function assertVideoPanelPlacement(page) {
 	const placed = await waitForReading(() => readVideoPanelGeometry(page, VIDEO_NODE), seen => seen !== null && !seen.moving, 'the panel to come to rest');
 	const width = Math.min(512, placed.host.width - 24);
 	const left = Math.min(Math.max((placed.card.left + placed.card.right - width) / 2, 12), placed.host.width - 12 - width);
-	if (placed.card.bottom + 10 + 220 > placed.host.height - 12) {
+	if (placed.card.bottom + 10 + 260 > placed.host.height - 12) {
 		throw new Error(`The step must leave room below the card for the tallest panel: ${JSON.stringify(placed)}`);
 	}
 	if (placed.placement !== 'below' || Math.abs(placed.panel.top - (placed.card.bottom + 10)) > 1.5
 		|| Math.abs(placed.panel.width - width) > 1.5 || Math.abs(placed.panel.left - left) > 1.5
-		|| placed.panel.height < 132 - 1 || placed.panel.height > 220 + 1) {
+		|| placed.panel.height < 132 - 1 || placed.panel.height > 260 + 1) {
 		throw new Error(`The panel must be ${width} px wide, centered 10 px below its card: ${JSON.stringify({ placed, width, left })}`);
 	}
 	await panCanvasCardTo(page, card, { x: canvasBox.x + canvasBox.width + 80, y: top.y });
@@ -3706,8 +3728,11 @@ function readVideoPanel(panel) {
 			} : null;
 		};
 		const estimate = element.querySelector('.bh-video-panel-estimate');
+		const reason = element.querySelector('.bh-video-panel-reason');
+		const action = element.querySelector('.bh-video-panel-reason-action');
 		return {
 			catalog: element.getAttribute('data-catalog'),
+			reason: reason && !reason.hidden ? { text: reason.querySelector('.bh-video-panel-reason-text')?.textContent ?? null, action: action && !action.hidden ? action.textContent : null } : null,
 			prompt: prompt?.value ?? null,
 			promptFocused: !!prompt && element.ownerDocument.activeElement === prompt,
 			model: text('.bh-video-panel-model-label'),
@@ -3743,6 +3768,7 @@ function readVideoModelMenu(panel) {
 				items: Array.from(group.querySelectorAll('.bh-video-panel-menu-item')).map(item => ({
 					model: (item.getAttribute('data-key') ?? '').split(':').slice(2).join(':'),
 					label: label(item),
+					detail: item.querySelector('.bh-video-panel-menu-detail')?.textContent ?? null,
 					unavailable: item.classList.contains('unavailable')
 				}))
 			})),
@@ -3824,6 +3850,7 @@ function readVideoProviderEditor(providers) {
 			})),
 			endpoint: endpoint?.value ?? null,
 			customEndpoint: endpoint?.getAttribute('data-custom') === 'true',
+			models: Array.from(root.querySelectorAll('.basehalf-video-provider-model')).map(model => ({ id: model.getAttribute('data-model'), label: model.textContent, unavailable: model.classList.contains('unavailable') })),
 			status: root.querySelector('.basehalf-video-providers-status')?.textContent ?? null
 		};
 	}, undefined, { timeout: 2_000 });

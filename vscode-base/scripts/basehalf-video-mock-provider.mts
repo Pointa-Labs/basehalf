@@ -73,8 +73,6 @@ export interface MockVideoProvider {
 	readonly url: string;
 	/** The base URL to enter as the endpoint: `http://127.0.0.1:<port>/api/v3`. */
 	readonly baseUrl: string;
-	/** The same as `baseUrl`. */
-	readonly seedanceBaseUrl: string;
 	readonly key: string;
 	readonly requests: readonly MockVideoProviderRequest[];
 	configure(options: { readonly fail?: MockVideoProviderFailure; readonly durationMs?: number }): void;
@@ -273,7 +271,6 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 	return {
 		url: origin,
 		baseUrl: `${origin}/api/v3`,
-		seedanceBaseUrl: `${origin}/api/v3`,
 		key,
 		requests,
 		configure(settings) {
