@@ -11,37 +11,30 @@ import {
 	BASEHALF_CANVAS_CARD_CORNER_RADIUS
 } from '../../common/basehalfCanvasScene.js';
 import {
-	BaseHalfCanvasPendingConnectionState,
 	BaseHalfCanvasResizeCorner,
-	BaseHalfCanvasSelectionIntentCoordinator,
-	baseHalfCanvasAutoPanStep,
-	baseHalfCanvasCardDoubleClickAction,
-	baseHalfCanvasInteractionOwnsEscape,
 	baseHalfCanvasResizeStartSize,
-	baseHalfCanvasSceneCardIsNoteEditing,
-	baseHalfCanvasSceneGeometryForCommit,
-	baseHalfCanvasSceneNodeSize,
-	baseHalfCanvasScenePressGesture,
 	baseHalfCanvasSceneProjectsSelection,
 	baseHalfCanvasSceneShowsResizeControls,
-	baseHalfCanvasSceneVideoInputPickGesturePolicy,
-	baseHalfCanvasShouldOpenCreateMenu,
-	baseHalfCanvasSceneSelectionRenameLabel,
-	baseHalfCanvasTargetBlocksGraphShortcuts,
-	baseHalfCanvasTargetOwnsSelectionShortcuts,
-	baseHalfCanvasTargetOwnsSelectedEdgeShortcuts,
-	baseHalfCanvasVideoToolbarWidth,
-	captureBaseHalfCanvasNodeDragOrigins,
 	captureBaseHalfCanvasCardFocusPath,
-	filterBaseHalfCanvasCancelledNodeDragChanges,
+	resolveBaseHalfCanvasCardFocusPath,
+	resolveBaseHalfCanvasResizeCornerGeometry
+} from '../../browser/scene/basehalfCanvasCardNode.js';
+import { BaseHalfCanvasPendingConnectionState } from '../../browser/scene/basehalfCanvasSceneConnections.js';
+import { baseHalfCanvasSceneGeometryForCommit, baseHalfCanvasSceneNodeSize } from '../../browser/scene/basehalfCanvasSceneGeometry.js';
+import { baseHalfCanvasTargetBlocksGraphShortcuts, baseHalfCanvasTargetOwnsSelectionShortcuts, baseHalfCanvasTargetOwnsSelectedEdgeShortcuts } from '../../browser/scene/basehalfCanvasSceneKeyboard.js';
+import { baseHalfCanvasCardDoubleClickAction, baseHalfCanvasShouldOpenCreateMenu } from '../../browser/scene/basehalfCanvasSceneMouse.js';
+import { captureBaseHalfCanvasNodeDragOrigins, filterBaseHalfCanvasCancelledNodeDragChanges, restoreBaseHalfCanvasNodeDragOrigins } from '../../browser/scene/basehalfCanvasSceneNodeDrag.js';
+import { baseHalfCanvasAutoPanStep, baseHalfCanvasScenePressGesture } from '../../browser/scene/basehalfCanvasScenePressGesture.js';
+import { BaseHalfCanvasSelectionIntentCoordinator } from '../../browser/scene/basehalfCanvasSceneSelection.js';
+import { baseHalfCanvasInteractionOwnsEscape, baseHalfCanvasSceneCardIsNoteEditing, baseHalfCanvasSceneVideoInputPickGesturePolicy } from '../../browser/scene/basehalfCanvasSceneShared.js';
+import {
+	baseHalfCanvasVideoToolbarWidth,
 	resolveBaseHalfCanvasNoteSelectionPlacement,
 	resolveBaseHalfCanvasVideoPanelPlacement,
 	resolveBaseHalfCanvasVideoSelectionPlacement,
-	resolveBaseHalfCanvasSelectionToolbarPlacement,
-	resolveBaseHalfCanvasCardFocusPath,
-	resolveBaseHalfCanvasResizeCornerGeometry,
-	restoreBaseHalfCanvasNodeDragOrigins
-} from '../../browser/basehalfCanvasReactScene.js';
+	resolveBaseHalfCanvasSelectionToolbarPlacement
+} from '../../browser/scene/basehalfCanvasSelectionControlsPlacement.js';
+import { baseHalfCanvasSceneSelectionRenameLabel } from '../../browser/scene/basehalfCanvasSelectionToolbar.js';
 
 suite('BaseHalfCanvasReactScene', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

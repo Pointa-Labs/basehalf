@@ -1791,6 +1791,36 @@ export default defineConfig(
 					]
 				},
 				{
+					// BaseHalf: the canvas, whose scene is typed with the React and React Flow that it loads
+					// when it mounts (canvas/browser/scene/README.md). Otherwise as every BaseHalf folder below.
+					'target': 'src/vs/workbench/basehalf/canvas/~',
+					'restrictions': [
+						'vs/base/~',
+						'vs/base/parts/*/~',
+						'vs/platform/*/~',
+						'vs/editor/~',
+						'vs/editor/contrib/*/~',
+						'vs/workbench/~',
+						'vs/workbench/services/*/~',
+						'vs/workbench/contrib/*/~',
+						'vs/workbench/basehalf/*/~',
+						'assert',
+						'crypto',
+						{
+							'when': 'hasBrowser',
+							'pattern': 'react'
+						}, // type import
+						{
+							'when': 'hasBrowser',
+							'pattern': 'react-dom/client'
+						}, // type import
+						{
+							'when': 'hasBrowser',
+							'pattern': '@xyflow/react'
+						} // type import
+					]
+				},
+				{
 					// BaseHalf: one folder per feature under its own root (D60, docs/harness/code-organization.md)
 					'target': 'src/vs/workbench/basehalf/*/~',
 					'restrictions': [

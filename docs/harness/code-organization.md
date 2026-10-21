@@ -55,6 +55,9 @@ file.
   and `npm run valid-layers-check` checks the types each layer uses.
 - A feature folder may import another one. Prefer the other feature's services
   and types in its `common/` folder over its views.
+- Only `canvas/` imports the types of React, React DOM, and React Flow, in its
+  `browser/` layer: its scene loads them when it mounts
+  (`canvas/browser/scene/README.md`). Lint allows it there and nowhere else.
 - There are no import cycles. `npm run check-cyclic-dependencies` checks the
   transpiled output in about two seconds.
 - A `common/` module that a webview bundle under `extensions/basehalf/*-src/`
@@ -98,6 +101,12 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   state and the other parts through `view`. A file of the canvas stays small
   enough to be read whole; a part that grows past about 1,500 lines is split
   by concern.
+- The scene that the view draws with React Flow is split the same way. The
+  scene object, `canvas/browser/basehalfCanvasReactScene.ts`, loads React and
+  mounts the scene. Each component is made by a factory in
+  `canvas/browser/scene/` (its README lists them) from the scene's
+  environment, and the root component does its work in hooks of one concern
+  each, which it calls in a fixed order.
 
 ## Changes to VS Code's own files
 
@@ -125,12 +134,14 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 - 2026-10-21: the canvas view, which was one class of about 10,200 lines,
   is the view (about 1,000 lines) and ten parts of 600 to 1,300 lines in
   `canvas/browser/view/`.
-- Next: the React scene, `canvas/browser/basehalfCanvasReactScene.ts` (about
-  5,100 lines, one class of about 4,000), is split the same way. Parts that
-  are features of their own move on into `canvasContrib/`, in the order of
-  how often their code changed: the Video cards and their actions,
-  connections, creating cards, the badge editor, Card Detail, and note
-  editing.
+- 2026-10-21: the React scene, which was one file of about 5,100 lines with
+  a root component of about 2,000, is the scene object (about 300 lines) and
+  19 files of 60 to 580 lines in `canvas/browser/scene/`: a factory for each
+  component, and the root component's work in nine hooks.
+- Next: parts that are features of their own move on into `canvasContrib/`,
+  in the order of how often their code changed: the Video cards and their
+  actions, connections, creating cards, the badge editor, Card Detail, and
+  note editing.
 - On 2026-10-20, 75 of VS Code's files carried BaseHalf changes, most of them
   unmarked. They are marked, or replaced by an extension point, when their
   subsystem is next ported from a newer VS Code, not in a pass of their own.
