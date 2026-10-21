@@ -1,8 +1,9 @@
 # Video node
 
-Status: Active (2026-10-15; providers and settings from the model catalog, 2026-10-19)
+Status: Active (2026-10-15; providers and settings from the model catalog, 2026-10-19; no price, 2026-10-21)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
-[D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+[D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21)
 Related: [video providers and the model catalog](video-providers.md),
 [reference graph](reference-graph.md),
 [canvas card placement](canvas-card-placement.md),
@@ -12,7 +13,7 @@ Related: [video providers and the model catalog](video-providers.md),
 This specification owns the Video node: its file, its inputs, the panel under
 its card, the card, how a generation runs from a click to a video file, and
 how agents run it. Which providers and models exist, what each model accepts,
-the credentials, the requests, and the estimates belong to
+the credentials, and the requests belong to
 [video providers and the model catalog](video-providers.md); this
 specification reads them from the catalog. It replaces the earlier Video
 node specifications of the AI Video extension (the development, Composer
@@ -54,8 +55,7 @@ a model list the user fills.
 - Writing a prompt and generating is the first thing a new Video node offers,
   and the prompt is never lost.
 - Every model of the catalog runs with the user's own credentials, with
-  exactly the options it accepts and its estimated price shown before the
-  run.
+  exactly the options it accepts.
 - The node's connections are its inputs, in their order. What the panel shows
   is what is sent.
 - A generation keeps going when the panel closes, the window reloads, or
@@ -73,6 +73,8 @@ a model list the user fills.
   inputs a provider takes only as public URLs.
 - Compatibility with `.bhnode` versions 4 and 5. The product has not
   launched; such a file is unreadable and shows as such.
+- A price, an estimate, or a currency (D61). What a generation costs is in
+  the console of the user's provider, where the user got the key.
 
 ## Terms
 
@@ -290,8 +292,8 @@ From top to bottom:
    half a second after typing stops, when the field loses focus, when the
    card is deselected, and before a generation starts. Nothing is written
    while an input method composes text. Saving never opens a dialog.
-3. **Footer**: the model button, the settings button, the estimate, and the
-   Generate button.
+3. **Footer**: the model button, the settings button, and the Generate
+   button.
    - The model button shows the model's name. Its menu lists the catalog's
      models grouped by provider: the providers that are set up first, then
      the others, each in the catalog's order; a provider that is not set up
@@ -313,20 +315,6 @@ From top to bottom:
      change is saved at once, and text when its field loses the focus, on
      Enter, and when the popover closes. Until the catalog has the node's
      model, there is no settings button.
-   - The estimate shows the price of one generation from the provider's
-     list price, as "≈ ¥7.56" or "¥3.00–¥9.00", in the region's currency. Its
-     tooltip says that it is an estimate from the provider's published price
-     of the given date and that the provider's bill counts. Without an
-     estimate, nothing is shown. The panel asks the provider module
-     ([check](video-providers.md#requests)) a quarter of a second after the
-     model, mode, values, prompt, inputs, or the inputs' files change, also
-     before the provider is set up, and keeps showing the last answer for the
-     same model until the new one arrives. It asks with the files a
-     generation would send: images in a format the mode takes, or drawn to
-     PNG as a generation draws them, and videos and audio as they are, so
-     sizes, lengths, and formats are reported before Generate. An input that
-     is missing, or that is not a file on this computer, is reported by name
-     instead, and nothing is asked.
    - The Generate button is a round arrow. While the node generates, it is a
      stop square that stops the generation.
 
@@ -350,6 +338,16 @@ it at the provider whose region does not offer the model or the mode. There
 is no line while the node generates, while the catalog loads, when no model
 is chosen, or when there is nothing to send: the stop square, the model
 button, and the empty prompt already say those.
+
+The panel asks the provider module for the problems of the planned
+generation a quarter of a second after the model, mode, values, prompt,
+inputs, or the inputs' files change, also before the provider is set up, and
+keeps the last answer for the same model until the new one arrives. It asks
+with the files a generation would send: images in a format the mode takes,
+or drawn to PNG as a generation draws them, and videos and audio as they
+are, so sizes, lengths, and formats are reported before Generate. An input
+that is missing, or that is not a file on this computer, is reported by name
+instead, and nothing is asked.
 
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
@@ -523,11 +521,11 @@ card. The original node and its video do not change.
   own key pays.
 - `basehalf --list-capabilities` includes the model catalog as
   `host.videoCatalog`: each provider with its label, whether it is set up, its
-  regions (id, label, currency) and the region in use, and each model with
-  its label, description, the regions that offer it, its prompt rule, its
-  modes with their input slots and limits, its parameters, whether it has an
-  estimate, and whether it is deprecated. It holds no credential, endpoint, or
-  id sent to a provider. When the catalog could not be loaded, it lists no
+  regions (id and label) and the region in use, and each model with its
+  label, description, the regions that offer it, its prompt rule, its modes
+  with their input slots and limits, its parameters, and whether it is
+  deprecated. It holds no credential, endpoint, id sent to a provider, or
+  price. When the catalog could not be loaded, it lists no
   provider and says why in `error`. An agent chooses `provider`, `model`,
   `mode`, and `params` from it.
 - The skill that BaseHalf offers to agents describes the Video node fields,
@@ -633,8 +631,8 @@ Panel and card
     as specified, and hidden when the card is off the canvas.
 11. The settings popover is drawn from the model's parameters for the mode,
     advanced ones under More; choosing a model or mode that does not accept a
-    value replaces it with the default; the settings button, the estimate,
-    and the request show the same values.
+    value replaces it with the default; the settings button and the request
+    show the same values.
 12. The Generate button is disabled with the first blocker as its tooltip and
     accessible name, in the specified order; the panel shows that reason as a
     line above the footer, whose Set Up opens Video Providers at the provider.
@@ -661,9 +659,9 @@ A generation
 20. Capturing the first, current, and last frame writes three PNGs whose cards
     appear beside the video.
 21. Sequence adds a generated video and refuses a node without one.
-22. The estimate shows the price that the provider module computes for the
-    node's model, mode, values, and inputs, in the region's currency, and
-    changes when they change.
+22. Nothing shows what a generation costs: the panel, Video Providers, and
+    what agents read hold no price, estimate, or currency, and `check`
+    answers no price or estimate.
 
 Focus
 
@@ -679,10 +677,12 @@ Focus
 - Unit tests of the pure modules (`basehalfVideoNode.test.ts`,
   `basehalfVideoCatalog.test.ts`), of the document reader, of the services
   with a fake extension and a test catalog, and of the panel drawn from that
-  catalog.
+  catalog; for criterion 22, what the panel's footer holds, the labels of the
+  regions on Video Providers, and the catalog that `--list-capabilities`
+  gives agents.
 - The tests of each provider module ([video providers](video-providers.md#verification)).
-- `npm run basehalf:smoke` with steps for criteria 6 to 17, 19, 20, 22, 24,
-  and the prompt of 23, against the local test provider through the
+- `npm run basehalf:smoke` with steps for criteria 6 to 17, 19, 20, 24, and
+  the prompt of 23, against the local test provider through the
   ByteDance module, with a test key; no paid provider is called.
 - A real-window check of the panel, the settings of models of several
   providers, the focus of a settings field, a generation against the local

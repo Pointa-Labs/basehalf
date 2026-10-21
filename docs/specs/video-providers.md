@@ -1,7 +1,8 @@
 # Video providers and the model catalog
 
-Status: Active (2026-10-19)
-Decision: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; no price, 2026-10-21)
+Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21)
 Related: [Video node](video-node.md),
 [built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md),
 [BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
@@ -29,8 +30,8 @@ on the provider's own API, and declares every model with its exact
 parameters next to the code that calls it. Every control is drawn from those
 declarations, and a price estimate is computed from them. Its catalog stays
 right because one team owns it and ships it with each release. BaseHalf
-takes that design, with one difference: users bring their own keys and pay
-their providers directly.
+takes that design, with two differences: users bring their own keys and pay
+their providers directly, and BaseHalf shows no price (D61).
 
 ## Goals
 
@@ -41,8 +42,6 @@ their providers directly.
   panel offers nothing else.
 - Users set up a provider once: a region, their own credentials, and, when
   they use a relay or a private gateway, its endpoint.
-- The panel shows what a generation will cost, from the provider's published
-  list price, before it runs.
 - Inputs reach the provider without any service of BaseHalf in between.
 
 ## Non-goals
@@ -58,13 +57,15 @@ their providers directly.
   lip sync on an existing video).
 - Compatibility with D58 channels or `.bhnode` version 5 settings. The
   product has not launched.
+- A price, an estimate, or a currency (D61). What a generation costs is in
+  the provider's console, where the user gets the key.
 
 ## Terms
 
 - **Provider**: a company's video API, such as ByteDance's Seedance API.
-- **Region**: one deployment of a provider with its own base URL, keys, and
-  currency, such as Volcengine Ark (China) and BytePlus ModelArk
-  (international) for ByteDance.
+- **Region**: one deployment of a provider with its own base URL and keys,
+  such as Volcengine Ark (China) and BytePlus ModelArk (international) for
+  ByteDance.
 - **Credentials**: what the provider needs to accept a request, usually one
   API key; some need two values.
 - **Endpoint**: the base URL requests go to. It is the region's base URL
@@ -74,8 +75,6 @@ their providers directly.
 - **Mode**: how the node's inputs are used: `frames`, `reference`, `extend`,
   or `edit` ([Modes and inputs](#modes-and-inputs)).
 - **Parameter**: a setting a model declares, such as `resolution`.
-- **Estimate**: the price of one generation computed from the provider's
-  published list price.
 
 ## The catalog
 
@@ -94,8 +93,8 @@ tooltips are in the window's display language.
 	"id": "bytedance",
 	"label": "ByteDance",
 	"regions": [
-		{ "id": "cn", "label": "China · Volcengine Ark", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "currency": "CNY", "console": "https://ark.volcengine.com/region:cn-beijing/apiKey" },
-		{ "id": "intl", "label": "International · BytePlus ModelArk", "baseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3", "currency": "USD", "console": "https://ai.byteplus.com/ark/region:ap-southeast-1/apiKey" }
+		{ "id": "cn", "label": "China · Volcengine Ark", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3", "console": "https://ark.volcengine.com/region:cn-beijing/apiKey" },
+		{ "id": "intl", "label": "International · BytePlus ModelArk", "baseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3", "console": "https://ai.byteplus.com/ark/region:ap-southeast-1/apiKey" }
 	],
 	"credentials": [{ "id": "apiKey", "label": "API Key" }],
 	"models": [ ... ]
@@ -103,8 +102,7 @@ tooltips are in the window's display language.
 ```
 
 - `id` is stable and is what a node stores. `regions` lists at least one
-  region; `currency` is `CNY` or `USD`; `console` is where the user gets a
-  key.
+  region; the first is the default; `console` is where the user gets a key.
 - `credentials` lists the values the provider needs, in order. Every value is
   a secret.
 
@@ -119,7 +117,6 @@ tooltips are in the window's display language.
 	"prompt": { "required": "withoutMedia", "maxLength": 20000 },
 	"modes": [ ... ],
 	"parameters": [ ... ],
-	"estimate": true,
 	"deprecated": false
 }
 ```
@@ -226,16 +223,6 @@ module maps it to its provider's field and value.
 
 A parameter only one provider has is named as that provider's field.
 
-### Estimate
-
-A model with `estimate: true` has its price computed by its provider module
-from the provider's published list price for the region, given the mode,
-parameters, and inputs. The answer is a single amount or a range in the
-region's currency, with the date of the price list. Where the price depends on
-something known only after the run, such as the length of a reference video
-that the provider measures, the answer is a range. A model without a published
-price has no estimate.
-
 ## Credentials, regions, and endpoints
 
 Settings has one **Video Providers** page
@@ -243,8 +230,8 @@ Settings has one **Video Providers** page
 lists the providers of the
 catalog. For each:
 
-- **Region**, when the provider has more than one. It sets the base URL, the
-  currency, and which models are offered.
+- **Region**, when the provider has more than one. It sets the base URL and
+  which models are offered.
 - **Credentials**: one field per value the provider declares. A value is
   stored encrypted on this computer, never in the workspace, and never shown
   again: the field says whether it is set and offers Replace and Remove.
@@ -306,7 +293,7 @@ answer cross-origin requests from the window.
 | Command | Does |
 | --- | --- |
 | `basehalf.video.provider.catalog` | answers the catalog |
-| `basehalf.video.provider.check` | validates a planned generation and estimates its price |
+| `basehalf.video.provider.check` | validates a planned generation |
 | `basehalf.video.provider.submit` | sends the request once and answers the provider's task id |
 | `basehalf.video.provider.poll` | asks the provider about a task once |
 | `basehalf.video.provider.download` | downloads the video to a given file |
@@ -314,7 +301,7 @@ answer cross-origin requests from the window.
 
 - `check` takes the provider, region, model, mode, parameters, the prompt as
   sent, and the planned inputs with their files. It answers the problems, in
-  order, as plain sentences, and the estimate. It reads image sizes and video
+  order, as plain sentences. It reads image sizes and video
   and audio lengths from the files and checks them against the mode's
   limits. For a model
   whose modes and inputs choose among several provider ids, it also answers
@@ -355,15 +342,14 @@ answer cross-origin requests from the window.
 - The extension checks every request against the model's declarations
   (the inputs the mode takes, the prompt rule, each parameter's value, and
   the mode's limits) before the provider module adds the rules
-  between parameters and the estimate. An estimate is answered only for a
-  model declared with one, in its region's currency.
+  between parameters and the provider's own input rules.
 
 ## Providers
 
 Every provider below is reached on its own API with the user's credentials.
 Each implemented provider has its own specification in
 [video-providers/](video-providers/), with its regions, its models and what
-each accepts, its requests and task states, and its estimate:
+each accepts, and its requests and task states:
 
 - [ByteDance (Seedance)](video-providers/bytedance.md)
 - [Kling](video-providers/kling.md)
@@ -402,8 +388,7 @@ replaces them.
 ### Phases
 
 1. The catalog, the Video Providers page, the settings drawn from the
-   catalog, estimates, and ByteDance, Kling, Alibaba, MiniMax, Vidu, and
-   Google.
+   catalog, and ByteDance, Kling, Alibaba, MiniMax, Vidu, and Google.
 2. PixVerse, Luma, Runway, xAI, LTX, and Black Forest Labs.
 
 Both phases are implemented (2026-10-19). A provider added later is in the
@@ -426,8 +411,8 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
    server that answers like the provider: create, poll through every state,
    download, cancel where offered, refused credentials, too many requests,
    and an answer that never comes.
-6. The estimate of each model with a published price matches the provider's
-   price list for three parameter combinations recorded in its tests.
+6. No model declares a price and no region a currency, and `check` answers
+   no price or estimate (D61).
 7. A request is never sent twice by BaseHalf.
 
 ## Verification

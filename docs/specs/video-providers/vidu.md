@@ -8,8 +8,8 @@ Module: `vscode-base/extensions/basehalf-ai-video/src/providers/vidu.ts`
 
 This page records what the Vidu module of AI Video declares and sends: its
 regions and credentials, its models with their modes, inputs, parameters, and
-rules, how a request is built, how a task is followed and cancelled, and how
-its price is estimated. Everything not said here follows
+rules, how a request is built, and how a task is followed and cancelled.
+Everything not said here follows
 [Video providers and the model catalog](../video-providers.md) and the
 [Video node](../video-node.md).
 
@@ -24,7 +24,7 @@ fetched by adding `.md`.
 | Topic | Pages |
 | --- | --- |
 | Index | `llms.txt` |
-| Models and prices | `overview/model-map`, `overview/pricing`, `overview/faq`, `api-reference/updates` |
+| Models | `overview/model-map`, `overview/faq`, `api-reference/updates` |
 | Vidu Q4 Preview | `api-reference/video-models/vidu-q4-preview/image-to-video`, `…/reference-to-video` |
 | Vidu Q3 | `api-reference/video-models/vidu-q3/text-to-video`, `…/image-to-video`, `…/start-end-to-video`, `…/reference-to-video` |
 | Vidu Q2 | `api-reference/video-models/vidu-q2/text-to-video`, `…/image-to-video`, `…/start-end-to-video`, `…/reference-to-video` |
@@ -32,15 +32,14 @@ fetched by adding `.md`.
 | Tasks | `api-reference/task-management/task-detail`, `…/task-list`, `…/cancel-task`, `…/account-balance` |
 | Errors | `api-reference/other-documentation/error-codes` |
 | Limits | `terms-and-policies/usage-and-limits`, `terms-and-policies/content-moderation` (international site only) |
-| Credit price | `https://platform.vidu.cn/pricing` and `https://platform.vidu.com/pricing`: the text of the pages' script, which states the price of a credit |
 | HTTP statuses of the error codes | the earlier Chinese documentation site, `https://docs.platform.vidu.cn/7179254m0.md` (error codes) and `…/331854699e0.md` (task query) |
 
 ## Regions and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `cn` | China | `https://api.vidu.cn` | CNY | `https://platform.vidu.cn` |
-| `intl` | International | `https://api.vidu.com` | USD | `https://platform.vidu.com` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `cn` | China | `https://api.vidu.cn` | `https://platform.vidu.cn` |
+| `intl` | International | `https://api.vidu.com` | `https://platform.vidu.com` |
 
 - One credential, `apiKey` ("API Key"), made under API Key Management on the
   platform. It is sent as `Authorization: Token <key>`. Every page says
@@ -150,7 +149,7 @@ field and value:
 - `q2-pro` and `q2-turbo` make sound from a start frame alone: their
   `start-end2video` request has no `audio` field.
 - Values the pages list for one request only are not offered: `360p` of the
-  Q2 start–end request has no price.
+  Q2 start–end request.
 
 Tooltips, in English like every label of the module:
 
@@ -159,8 +158,8 @@ Tooltips, in English like every label of the module:
 | `ratio` of `q3-pro`, `q3-turbo` | Set by the start frame (`setByStartFrame`): used when there is no start frame; a video made from a frame takes the shape of the frame. |
 | `ratio` with `adaptive` | Adaptive lets Vidu choose the shape from the reference images. |
 | `sound` | Dialogue and sound effects made together with the picture. |
-| `sound` of `q2-pro`, `q2-turbo` | Dialogue and sound made with the picture, from a start frame alone. It adds 15 credits. |
-| `prompt_extend` | Vidu writes a fuller prompt from yours and the start frame before it generates. It may add 10 credits. |
+| `sound` of `q2-pro`, `q2-turbo` | Dialogue and sound made with the picture, from a start frame alone. |
+| `prompt_extend` | Vidu writes a fuller prompt from yours and the start frame before it generates. |
 | `seed` | The same seed and settings make a similar video. Empty or 0 makes a new one each time. |
 
 ### Prompt
@@ -267,61 +266,6 @@ code only with a status below 500; a server error keeps its meaning, so a
 create it answers has an unknown outcome. The same meanings describe the
 `err_code` of a failed task.
 
-## Estimate
-
-Every model declares an estimate. The price is in credits: one credit is
-¥0.03125 in China (100 yuan buy 3,200 credits at every tier) and $0.005 in
-International, the standard rate the international pricing page states
-(higher purchase tiers have better rates, so the estimate may be above what is
-paid). Credits by model, from the documentation's pricing page
-(`overview/pricing`, the same in both regions) as read on 2026-10-19, the
-estimate's price date:
-
-| Model | Requests | Credits per second: 540p / 720p / 1080p / 2K / 4K |
-| --- | --- | --- |
-| `q4-preview` | both | 9 / 19 / 24 / 38 / 78 |
-| `q3-pro` | all three | 9 / 20 / 24 |
-| `q3-turbo` | all three | 7 / 12 / 13 |
-| `q3-pro-fast` | `img2video` | — / 12 / 15 |
-| `q3` | `reference2video` | 7 / 12 / 15 |
-| `q3-mix` | `reference2video` | — / 24 / 29 |
-| `q3-turbo-reference` | `reference2video` | 4 / 10 / 13 |
-
-The estimate is the rate times the duration. `q2-pro` and `q2-turbo` are
-priced per video by its length, the same for both requests: credits for a
-1-second video, for a 2-second video, and then for each further second.
-
-| Model | 540p | 720p | 1080p |
-| --- | --- | --- | --- |
-| `q2-turbo` | 6; 8; +2 | 8; 10; +10 | 35; 45; +10 |
-| `q2-pro` | 8; 10; +5 | 15; 25; +10 | 55; 70; +15 |
-
-Sound adds 15 credits to an `img2video` request of Q2. The platform's pricing
-page gives the same numbers length by length (1 to 10 seconds from a start
-frame, 1 to 8 from start and end frames; the API takes 1 to 10 for both).
-
-- `prompt_extend` on for `q4-preview` gives a range up to 10 credits more: the
-  update notice of 2025-11-03 says each call with `is_rec` costs 10 more
-  credits, and the Q2 pages say the same; the Q4 page names no price for it.
-- `q3-pro-fast` with an end frame has no estimate: the price list gives
-  `img2video` only.
-- The estimate is the standard price. Vidu's off-peak mode, about half the
-  price, is not offered ([Left out](#left-out)).
-- `viduq3-mix`: the pricing page of the documentation gives 24 and 29 credits a
-  second; the pricing page of the platform lists 20 and 24, the same row as two
-  industry models. The estimate follows the documentation, the higher one.
-
-Examples recorded in the tests:
-
-| Region | Model and settings | Credits | Estimate |
-| --- | --- | --- | --- |
-| China | `q3-pro`, 720p, 5 s | 100 | ¥3.125 |
-| China | `q4-preview` References, 4K, 16 s | 1,248 | ¥39 |
-| China | `q2-turbo`, start frame, 720p, 5 s, sound | 55 | ¥1.71875 |
-| International | `q3-turbo`, 1080p, 10 s | 130 | $0.65 |
-| International | `q3-mix`, 1080p, 15 s | 435 | $2.175 |
-| International | `q2-pro`, start and end frames, 540p, 1 s | 8 | $0.04 |
-
 ## Left out
 
 - **Vidu Q1 (`viduq1`, `viduq1-classic`) and Vidu 2.0**: older generations,
@@ -331,10 +275,9 @@ Examples recorded in the tests:
   references of **`viduq2-pro`**: not in this phase. `viduq2` makes what Q3
   Turbo and Q3 make, and its references with images are documented only on
   the Chinese site; the image-to-video page documents no request of
-  `viduq2-pro-fast`; the price of the video references of `viduq2-pro` is only
-  in a separate sheet.
+  `viduq2-pro-fast`.
 - **`viduq3-ad` and `viduq3-drama`**: models tuned for advertising and comic
-  drama, without a price in the documentation's price list.
+  drama; not in this phase.
 - **Subjects** (`subjects`, `auto_subjects`, the subject library): BaseHalf
   names its inputs Image 1, Audio 1, and so on; subjects are another way of
   naming them in the prompt.
@@ -343,8 +286,7 @@ Examples recorded in the tests:
 - **Off-peak mode** (`off_peak`): its tasks run within 48 hours, longer than a
   generation waits ([Video node, Ending without a video](../video-node.md#ending-without-a-video)).
 - **`is_rec` of Q2 and Q3**: their pages say that Vidu then generates from a
-  prompt of its own and leaves the user's aside; on Q2 it costs 10 more
-  credits.
+  prompt of its own and leaves the user's aside.
 - **`voice_id`, `bgm`, `movement_amplitude`**: a voice comes from a separate
   list, and the other two are documented on one region's pages only.
 - **Watermark settings** (China): the video downloaded is `url`, which has no
@@ -363,10 +305,6 @@ Examples recorded in the tests:
   to 2147483647.
 - **Audio data URL type**: the pages' examples write `data:video/mp3`; BaseHalf
   sends that type.
-- **`prompt_extend` of `q4-preview`** (Vidu's `is_rec`): its price, hence the
-  range.
-- **The credit price in International**: only the pricing page's script states
-  $0.005; the documentation's price page states the price in yuan.
 - **`task_id`**: the pages give a string. When an answer gives it as a number,
   the module takes its digits from the answer's text, so a long id keeps every
   digit.
@@ -388,7 +326,6 @@ Examples recorded in the tests:
 6. `check` reports every rule of
    [Rules between parameters and inputs](#rules-between-parameters-and-inputs)
    and sends nothing when one applies.
-7. The estimates of [Estimate](#estimate) match the recorded examples.
 
 ## Verification
 

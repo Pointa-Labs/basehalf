@@ -6,10 +6,10 @@ Parent: [Video providers and the model catalog](../video-providers.md)
 
 This specification owns the xAI module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/xai.ts`): the Grok
-Imagine video models it declares, the requests it sends, how it reads xAI's
-answers, and how it estimates a price. What is the same for every provider
-(the commands, the checks from the declarations, retries, the download, plain
-messages) is owned by the parent specification and is not repeated here.
+Imagine video models it declares, the requests it sends, and how it reads
+xAI's answers. What is the same for every provider (the commands, the checks
+from the declarations, retries, the download, plain messages) is owned by the
+parent specification and is not repeated here.
 
 ## Sources
 
@@ -29,10 +29,9 @@ updated".
 | `/developers/model-capabilities/video/extension` | 2026-10-09 | extension on `grok-imagine-video` only: an MP4 of 2 to 15 seconds, 2 to 10 seconds added (default 6); the status `expired` in its polling examples |
 | `/developers/rest-api-reference/inference/videos` | 2026-04-13 | `POST /v1/videos/generations`, `/edits`, `/extensions`, `GET /v1/videos/{request_id}`, their fields, `progress`, `respect_moderation`, `error.code` |
 | `/openapi.json` (read 2026-10-19) | — | the same schemas; the poll answers 200 when the task ended, 202 while it runs, and 404 for an unknown id; no cancel operation |
-| `/developers/models/grok-imagine-video-1.5`, `/grok-imagine-video-1.5-lite`, `/grok-imagine-video` | none | the price per second at each resolution, the price of input images and input video seconds, the aliases, 10 requests a second |
-| `/developers/models` | 2026-09-21 | the starting price per second of each model |
-| `/developers/pricing` | 2026-10-10 | prices in USD; a generation that breaks the usage guidelines is still charged |
-| `/developers/model-capabilities/imagine` | 2026-10-08 | duration and resolution set the price of a video |
+| `/developers/models/grok-imagine-video-1.5`, `/grok-imagine-video-1.5-lite`, `/grok-imagine-video` | none | the aliases, 10 requests a second |
+| `/developers/models` | 2026-09-21 | a model's plain name is its latest stable version ("Model Aliases") |
+| `/developers/pricing` | 2026-10-10 | a generation that breaks the usage guidelines is still charged |
 | `/developers/model-capabilities/imagine/files`, `.../files/inputs`, `.../files/outputs` | 2026-07-30, 2026-07-30, 2026-10-09 | the generation URL is ephemeral, "only good for fetching the asset shortly after generation"; `file_id` inputs |
 | `/developers/rest-api-reference/files/upload` | 2026-04-28 | the Files API upload (not used) |
 | `/developers/debugging` (its HTML page) | 2026-05-13 | 400 for an invalid argument or an incorrect API key, 401, 403, 404 for an unknown model, 415, 422, 429 |
@@ -43,14 +42,11 @@ updated".
 | `/developers/faq/security` | 2026-10-10 | Zero Data Retention blocks Files API uploads |
 | `/developers/release-notes` | 2026-10-13 | July 2026: `grok-imagine-video-1.5` takes text, image, and reference to video, 1080p for the first two |
 
-The model pages give their prices in their HTML only: the Markdown version
-lists one price per model, the 480p one.
-
 ## Region and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `global` | Global | `https://api.x.ai/v1` | USD | `https://console.x.ai/team/default/api-keys` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `global` | Global | `https://api.x.ai/v1` | `https://console.x.ai/team/default/api-keys` |
 
 - One credential, `apiKey` (**API Key**), sent as `Authorization: Bearer
   <key>`. A key belongs to a team; the team's prepaid credits pay for it.
@@ -81,7 +77,7 @@ task.
 - The name of each model is sent, not an alias such as
   `grok-imagine-video-1.5-2026-05-30`: a model's name is its latest stable
   version (Models, "Model Aliases").
-- Every model has an estimate and none is deprecated.
+- No model is deprecated.
 - Prompt: `withoutMedia` on every model. A prompt is required for text to
   video; it is optional with a start frame ("Optional for image-to-video"),
   and on 1.5 with any frame or reference image (Video Generation, "Request
@@ -257,37 +253,6 @@ Authentication, unknown models, and rate limits come back on the request
 itself, before a task exists; what xAI refuses while it generates comes back
 as a failed task with one of the codes above.
 
-## Estimate
-
-```text
-Frames, References: duration × price per second (model, resolution) + images × price per image
-Edit:   clip × price per second (480p to 720p) + clip × $0.01
-Extend: from added × price per second (480p) + clip × $0.01
-        to (clip + added) × price per second (720p) + clip × $0.01
-```
-
-Prices in USD from the model pages, read on 2026-10-19 (the pages state no
-date of their own; the Pricing page of 2026-10-10 lists the 480p prices):
-
-| Model | 480p | 720p | 1080p | Input image | Input video |
-| --- | --- | --- | --- | --- | --- |
-| `grok-imagine-video-1.5` | $0.08 / s | $0.14 / s | $0.25 / s | $0.01 | — |
-| `grok-imagine-video-1.5-lite` | $0.02 / s | $0.03 / s | $0.14 / s | $0.01 | — |
-| `grok-imagine-video` | $0.05 / s | $0.07 / s | — | $0.002 | $0.01 / s |
-
-- "You are charged for each second of video generated" and "also charged
-  when using video or image as an input": every frame and reference image is
-  an input image. The prices are the same in every cluster xAI lists.
-- An edited or extended video keeps the clip's resolution, capped at 720p,
-  and AI Video does not measure a video's resolution: the estimate spans the
-  480p and 720p prices.
-- Extend: the added seconds are generated, and the result holds the clip
-  too; xAI does not say which seconds it bills and calls its extension price
-  promotional, so the range spans both.
-- A clip is counted at its measured length; a clip whose length AI Video
-  cannot read counts from its mode's shortest to its longest allowed length
-  (Edit 0.1 to 8.7 seconds, Extend 2 to 15).
-
 ## Left out
 
 - **Preset voices** (`reference_audios` with `voice_id`) and voice clips:
@@ -326,8 +291,6 @@ date of their own; the Pricing page of 2026-10-10 lists the 480p prices):
   balance; the module reads them from the message.
 - The largest request, image, or clip xAI takes inline, and the shortest
   clip it edits.
-- Which seconds an extension bills, and the price tier of an edited or
-  extended video below 480p.
 
 ## Acceptance criteria
 
@@ -346,8 +309,6 @@ date of their own; the Pricing page of 2026-10-10 lists the 480p prices):
    was sent answers `unknownOutcome` and was sent once.
 6. `check` reports each rule above and a MOV clip; a refused request sends
    nothing.
-7. The estimate of three combinations matches the price list, and Edit and
-   Extend answer the ranges above.
 
 ## Verification
 

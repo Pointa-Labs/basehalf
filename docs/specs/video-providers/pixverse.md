@@ -6,10 +6,10 @@ Parent: [Video providers and the model catalog](../video-providers.md)
 
 This specification owns the PixVerse module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/pixverse.ts`): the
-catalog entry it declares, the uploads and requests it sends, how it reads
-PixVerse's answers, and how it estimates a price. What is the same for every
-provider (the commands, checks from the declarations, retries, the download,
-plain messages) is owned by the parent specification and is not repeated here.
+catalog entry it declares, the uploads and requests it sends, and how it reads
+PixVerse's answers. What is the same for every provider (the commands, checks
+from the declarations, retries, the download, plain messages) is owned by the
+parent specification and is not repeated here.
 
 ## Sources
 
@@ -32,21 +32,20 @@ their own, except the changelog's entries. Every page below was read on
 | Upload Media (Video and Audio) (`upload-media-video-and-audio-43051206e0`) | `POST /openapi/v2/media/upload`: MP4, MOV, and WebM videos; `Resp.media_id` |
 | Query Task Status (`query-task-status-43051212e0` and the guide `query-task-status-2394991m0`) | `GET /openapi/v2/video/result/{video_id}`; the states 1, 5, 7, and 8; `Resp.url` |
 | Error Codes (`error-codes-2394992m0`), Concurrency Rules (`concurrency-rules-2394990m0`) | every `ErrCode`, the HTTP status it comes with, and what to do about it |
-| FAQ (`faq-2394993m0`), Billing and Usage (`billing-and-usage-2394984m0`) | uploads belong to one account and region; credits; refunds of failed tasks |
-| PixVerse API Pricing (`pixverse-api-pricing-2394995m0`) | credits per second or per request; "225 Credits = USD 1" |
+| FAQ (`faq-2394993m0`), Billing and Usage (`billing-and-usage-2394984m0`) | uploads belong to one account and region; refunds of failed tasks |
+| PixVerse API Pricing (`pixverse-api-pricing-2394995m0`) | the combinations each model makes: V5.6 at 10 seconds and 1080p is "Not supported"; V5 has no sound |
 | Changelog (`changelog-2394996m0`) | release dates; V6 references from 2026-05-21, with `type` and `ref_name` optional |
 
 ## Regions and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `global` | Global | `https://app-api.pixverse.ai` | USD | `https://platform.pixverse.ai` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `global` | Global | `https://app-api.pixverse.ai` | `https://platform.pixverse.ai` |
 
 - One region. Start Here names one production base URL, and every page
   answers a refused key with "Use a key from the global environment." The web
   code of PixVerse's platform also names a China host, which no page of the
-  documentation describes and whose prices and currency are not published;
-  it is not a region of the catalog.
+  documentation describes; it is not a region of the catalog.
 - One credential, `apiKey` (**API Key**), sent as `API-KEY: <key>`. It is made
   in the PixVerse API Platform. Uploads and ids belong to the account and
   region that made them (FAQ).
@@ -79,7 +78,7 @@ choose the endpoint, so `check` answers no `providerModel`.
 | References | Reference-to-Video (Fusion), `/video/fusion/generate` |
 | Extend | Video Extend, `/video/extend/generate` |
 
-- Every model has an estimate and none is deprecated.
+- No model is deprecated.
 - The prompt is required (`always`): every create page lists `prompt` among
   the required fields. It is at most 5,000 characters, and at most 2,048 with
   a start frame and no end frame (Image-to-Video), which `check` reports.
@@ -253,68 +252,11 @@ says; its `ErrCode` refines a 4xx status (a 5xx status leaves a create's
 outcome unknown whatever its code). The concurrency limit counts per account
 and plan; the console shows it.
 
-## Estimate
-
-```text
-C1, V6:    amount = credits per second (model, resolution, sound) × seconds ÷ 225
-V5.6, V5:  amount = credits per request (duration, resolution, sound) ÷ 225
-```
-
-PixVerse prices in credits, "225 Credits = USD 1". The price list states no
-date of its own; it was read on 2026-10-19, the estimate's `priceDate`. The
-amount is the credits divided by 225, not rounded; the list's dollar figures
-are the same amounts rounded to three decimals.
-
-Credits per second of video:
-
-| Model | Sound | 360p | 540p | 720p | 1080p |
-| --- | --- | --- | --- | --- | --- |
-| C1 | off | 6 | 8 | 10 | 19 |
-| C1 | on | 8 | 10 | 13 | 24 |
-| V6 | off | 5 | 7 | 9 | 18 |
-| V6 | on | 7 | 9 | 12 | 23 |
-
-Credits per request:
-
-| Model | Duration | Sound | 360p | 540p | 720p | 1080p |
-| --- | --- | --- | --- | --- | --- | --- |
-| V5.6 | 5 s | off | 35 | 35 | 45 | 75 |
-| V5.6 | 5 s | on | 80 | 80 | 90 | 120 |
-| V5.6 | 8 s | off | 70 | 70 | 90 | 150 |
-| V5.6 | 8 s | on | 115 | 115 | 135 | 195 |
-| V5.6 | 10 s | off | 77 | 77 | 99 | none |
-| V5.6 | 10 s | on | 122 | 122 | 144 | none |
-| V5 | 5 s | (none) | 45 | 45 | 60 | 120 |
-| V5 | 8 s | (none) | 90 | 90 | 120 | 240 |
-
-The seconds of C1 and V6:
-
-- Frames, and References with images only: the duration.
-- References with reference videos: "twice the standard V6 rate" (the list's
-  "V6 video reference" rows) for the seconds of the longest reference video,
-  which the result follows. That is from its measured length to its next
-  whole second, since the list does not say how a fraction of a second is
-  billed; for a video whose length AI Video cannot read, 1 to 15 seconds.
-- Extend: the seconds added, at "the applicable V6 resolution, audio, and
-  generated-duration rate". Video Extend has no sound setting, so the estimate
-  ranges from V6's rate without sound to its rate with sound.
-
-V5.6 at 10 seconds and 1080p has no price, and a rule refuses it. The list's
-own calculation examples, which the tests repeat:
-
-| Generation | Credits | List price |
-| --- | --- | --- |
-| C1, 1080p, sound off, 5 s | 19 × 5 = 95 | $0.422 |
-| V6, 720p, sound on, 8 s | 12 × 8 = 96 | $0.427 |
-| V6 references with a 5-second reference video, 720p, sound off | 18 × 5 = 90 | $0.400 |
-| V5.6, 720p, sound on, 8 s | 135 | $0.600 |
-
 ## Left out
 
 - **V5.5, V5-Fast, V4.5, V4, and V3.5**: the create pages still list them,
-  but the capability map does not; V5-Fast depends on account permissions,
-  and only V5.5 has a published price. V5.6 and V6 make what V5.5 makes,
-  V6 also with multiple clips.
+  but the capability map does not; V5-Fast depends on account permissions.
+  V5.6 and V6 make what V5.5 makes, V6 also with multiple clips.
 - **References on C1, V5.6, and V5**: Fusion lists them "subject to account
   access", and the changelog added C1 and V5.6 to it, but the capability map
   marks Reference-to-Video "Not supported" for all three, and the V5.6 entry
@@ -353,8 +295,6 @@ own calculation examples, which the tests repeat:
   at 1080p "Not supported", and V5 is priced at 1080p for 8 seconds.
 - **Reference video sizes**: Fusion states none; the module allows what AI
   Video can send in one request.
-- **Seconds billed for reference videos and Extend**: hence the ranges of the
-  estimate.
 - **An unknown task**: the pages do not say what `GET /video/result` answers
   for a `video_id` that does not exist; `500008` (requested data not found)
   answers `notFound`.
@@ -378,8 +318,6 @@ own calculation examples, which the tests repeat:
    drops after it was sent answers `unknownOutcome` and was sent once.
 6. `check` reports each rule between parameters and inputs; a refused request
    uploads and sends nothing.
-7. The estimate of the list's calculation examples and of three other
-   combinations matches the price list.
 
 ## Verification
 

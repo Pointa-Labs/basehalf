@@ -6,10 +6,10 @@ Parent: [Video providers and the model catalog](../video-providers.md)
 
 This specification owns the Kling module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/kling.ts`): the
-catalog entry it declares, the requests it sends, how it reads Kling's
-answers, and how it estimates a price. What is the same for every provider
-(the commands, checks from the declarations, retries, the download, plain
-messages) is owned by the parent specification and is not repeated here.
+catalog entry it declares, the requests it sends, and how it reads Kling's
+answers. What is the same for every provider (the commands, checks from the
+declarations, retries, the download, plain messages) is owned by the parent
+specification and is not repeated here.
 
 ## Sources
 
@@ -34,14 +34,13 @@ was read on 2026-10-18 and read again, unchanged, on 2026-10-19.
 | `api/video/multi-elements` | base64 is sent without a `data:` prefix |
 | `api/get-started/concurrency-rules` | concurrency per account, model, and resource package; code 1303 |
 | `api/get-started/error-codes` | the codes and their statuses |
-| `pricing/base/video` | units per generated second; 1 unit is ¥1.0 (China page) and $0.14 (international page) |
 
 ## Regions and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `cn` (default) | China | `https://api-beijing.klingai.com` | CNY | `https://klingai.com/dev/api-key` |
-| `intl` | International | `https://api-singapore.klingai.com` | USD | `https://kling.ai/dev/api-key` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `cn` (default) | China | `https://api-beijing.klingai.com` | `https://klingai.com/dev/api-key` |
+| `intl` | International | `https://api-singapore.klingai.com` | `https://kling.ai/dev/api-key` |
 
 - One credential, `apiKey` (**API Key**), sent as `Authorization: Bearer
   <key>`. It is made in the console of the region.
@@ -67,7 +66,7 @@ video and image to video, and the same id in both regions.
 | `kling-2.6` | Kling 2.6 | `kling-2.6` | Frames | `/text-to-video/…`, `/image-to-video/…` |
 | `kling-2.5-turbo` | Kling 2.5 Turbo | `kling-2.5-turbo` | Frames | `/text-to-video/…`, `/image-to-video/…` |
 
-Every model has an estimate and none is deprecated. The prompt is required
+No model is deprecated. The prompt is required
 when no image is sent (`withoutMedia`): Kling requires the prompt of text to
 video, and its image pages list the prompt item among the contents without
 requiring it. The prompt is at most 3,072 characters on 3.0 Turbo, 3.0, and
@@ -107,7 +106,7 @@ The defaults are Kling's own.
 - A video made from a start frame takes the frame's shape; the ratio's
   tooltip says so. Kling's image-to-video endpoints have no aspect ratio, and
   the omni endpoint requires one only when no first frame is sent.
-- Kling 3.0 Turbo has no sound setting and is priced only with native audio.
+- Kling 3.0 Turbo has no sound setting and always makes sound.
   O1 and 2.5 Turbo make no sound (O1's `audio` value `original` keeps the
   sound of a reference video, which is not offered).
 
@@ -225,32 +224,6 @@ code.
 Concurrency counts per account, model, and resource package; a task holds
 its place from `submitted` until it ends. Asking about tasks is not limited.
 
-## Estimate
-
-```text
-amount = units per second (model, resolution, sound) × duration in seconds × unit price
-```
-
-The unit price is ¥1 in China and $0.14 internationally; the price list is
-the one of 2026-10-19, which states no date of its own. Kling bills the
-duration of the generated video; the estimate is a single amount for the
-duration asked for.
-
-| Model | Sound | 720p | 1080p | 4K |
-| --- | --- | --- | --- | --- |
-| 3.0 Turbo | always | 0.8 | 1.0 | — |
-| 3.0 | off | 0.6 | 0.8 | 3.0 |
-| 3.0 | on | 0.9 | 1.2 | 3.0 |
-| 3.0 Omni (no video input) | off | 0.6 | 0.8 | 3.0 |
-| 3.0 Omni (no video input) | on | 0.8 | 1.0 | 3.0 |
-| O1 (no video input) | never | 0.6 | 0.8 | — |
-| 2.6 | off | 0.3 | 0.5 | — |
-| 2.6 | on (no voice control) | — | 1.0 | — |
-| 2.5 Turbo | never | 0.3 | 0.5 | — |
-
-A combination without a price (2.6 with sound at 720p, which a rule refuses)
-has no estimate.
-
 ## Left out
 
 - **Multi-shot storyboards.** Not offered in this phase. `multi_shot` is not
@@ -287,8 +260,6 @@ has no estimate.
    answers `unknownOutcome` and was sent once.
 6. `check` reports each rule between parameters and refuses WebP and GIF
    images; a refused request sends nothing.
-7. The estimate of three combinations in each region matches the price list,
-   and every row of the international list is its units at $0.14.
 
 ## Verification
 

@@ -6,10 +6,10 @@ Parent: [Video providers and the model catalog](../video-providers.md)
 
 This specification owns the Black Forest Labs module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/bfl.ts`): the
-catalog entry it declares for FLUX 3, the requests it sends, how it reads the
-answers, and how it estimates a price. What is the same for every provider
-(the commands, checks from the declarations, retries, the download, plain
-messages) is owned by the parent specification and is not repeated here.
+catalog entry it declares for FLUX 3, the requests it sends, and how it reads
+the answers. What is the same for every provider (the commands, checks from
+the declarations, retries, the download, plain messages) is owned by the
+parent specification and is not repeated here.
 
 ## Sources
 
@@ -30,8 +30,8 @@ release notes, the pages carry no dates.
 | `flux_tools/flux_video_upscale` | the upscale, left out |
 | `api_integration/integration_guidelines` | the global endpoint and the regional `api.eu.bfl.ai` and `api.us.bfl.ai`; that the `polling_url` must be used; delivery hosts `delivery.*.bfl.ai`; at most 24 requests at once for most endpoints |
 | `api_integration/errors` | the HTTP statuses, the poll statuses, the moderation reasons, the safety tolerance range of each endpoint |
-| `quick_start/get_started`, `account_management/organizations_projects`, `account_management/credits_billing` | the dashboard, keys per project (`bfl_…`), prepaid credits (1 credit is $0.01), the first request a FLUX 3 video |
-| `quick_start/pricing` and `https://bfl.ai/pricing` | the video rates; both pages render the same published rate data, last updated on 2026-10-15 |
+| `quick_start/get_started`, `account_management/organizations_projects`, `account_management/credits_billing` | the dashboard, keys per project (`bfl_…`), prepaid credits, the first request a FLUX 3 video |
+| `quick_start/pricing` and `https://bfl.ai/pricing` | the resolution labels |
 | `release-notes` | FLUX 3 video released as a preview on 2026-08-04; continuation limited to 15 seconds on 2026-08-17; `qhd` and `uhd` added on 2026-09-10 |
 | `cookbook/video_quickstart`, `cookbook/video_start_from_images`, `cookbook/video_edit_recast_continue` | images as PNG, JPEG, or WebP; no upload service, local files inline as base64 data URLs; a clip of at most 50 MB and 15 seconds; a continuation's duration counting the new part only; 5 generations at once per organization |
 
@@ -41,9 +41,9 @@ this specification takes from them only what the API reference does not say.
 
 ## Region and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `global` | Global | `https://api.bfl.ai/v1` | USD | `https://dashboard.bfl.ai` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `global` | Global | `https://api.bfl.ai/v1` | `https://dashboard.bfl.ai` |
 
 - One credential, `apiKey` (**API Key**, placeholder `bfl_…`), sent as
   `x-key: <key>`. A key belongs to a project (**API → Keys** in the
@@ -77,8 +77,8 @@ exactly that route.
 | | | Edit | `flux-tools/video-edit-v1` | none |
 | | | Extend | `flux-3-video` | `v2v` |
 
-- `providerModels` is `{ "global": "flux-3-video" }`. The model has an
-  estimate and is not deprecated; BFL calls FLUX 3 a preview model.
+- `providerModels` is `{ "global": "flux-3-video" }`. The model is not
+  deprecated; BFL calls FLUX 3 a preview model.
 - The prompt is required in every mode (`always`): the schema of each mode
   requires `prompt`, and every documented request has one. BFL states no
   limit for the prompt of `/v1/flux-3-video`; the catalog bounds it at 20,000
@@ -132,7 +132,7 @@ No mode takes reference images, reference videos, or audio.
 
 - The defaults are BFL's own (`hd`, `auto` ratio, sound on, tolerance 2),
   except the duration: BFL's default is `auto`, and the catalog's is 5
-  seconds, so that the estimate is one price.
+  seconds, so that a video has a known length until the user chooses Auto.
 - Resolution labels are the rate card's. At 16:9, `hd` is 1280 × 704, `fhd`
   1920 × 1088, `qhd` 2560 × 1440, and `uhd` 3840 × 2176 (the tooltip says
   so); above `hd`, BFL runs the same generation and finishes it with its
@@ -197,10 +197,9 @@ sends it, or the start and end frames as a list of two.
   overview sends keyframes and clips this way, and the cookbook says local
   files travel inline because "there is no upload service". Timed
   `[seconds, image]` keyframes are not sent.
-- The answer is `{id, polling_url, cost, input_mp, output_mp}`, `cost` in
-  credits. The task's `remoteId` comes from it as the next section says. An
-  answer that gives neither a usable polling address nor an `id` leaves the
-  outcome unknown.
+- The answer is `{id, polling_url, cost, input_mp, output_mp}`. The task's
+  `remoteId` comes from it as the next section says. An answer that gives
+  neither a usable polling address nor an `id` leaves the outcome unknown.
 
 ## Asking about a task
 
@@ -275,43 +274,15 @@ most 24 requests at once for most endpoints; the cookbook gives 5 video
 generations at once per organization, a sixth answering 429 ("too many active
 tasks"), a sign to wait for a running task.
 
-## Estimate
-
-```text
-amount = rate per second (mode, resolution) × seconds of output video
-```
-
-| Mode | `hd` (720p) | `fhd` (1080p) | `qhd` (2K) | `uhd` (4K) |
-| --- | --- | --- | --- | --- |
-| Frames (text or image to video) | $0.15 | $0.24 | $0.28 | $0.41 |
-| Extend (continuation) | $0.21 | $0.27 | $0.31 | $0.45 |
-| Edit (FLUX Video Edit [fast]) | $0.03 at every size | | | |
-
-- Frames and Extend bill the duration. With Auto the estimate is a range:
-  5 to 20 seconds in Frames, 5 to 15 in Extend. A continuation's output is
-  the new part only (cookbook), and the rate card bills output seconds.
-- Edit bills the output, which keeps the clip's length, "with fractional
-  seconds charged pro rata" (rate card). With the clip's file, its measured
-  length gives one amount; without it, 0.7 to 15 seconds give $0.021 to $0.45.
-- The rate card shows no date. The published rate data that both pricing
-  pages render was last updated on 2026-10-15, so the estimate's price date
-  is 2026-10-15. The release notes of 2026-09-10 list higher `qhd` and `uhd`
-  rates ($0.40 and $0.80 a second, continuation $0.65 and $0.95); the rate
-  card's are the ones in force.
-- Drafts ($0.06 a second for text and image to video at `hd`) are not
-  offered, and so not estimated.
-
 ## What is left out, and why
 
 - **FLUX Video Upscale** (`/v1/flux-tools/video-upscale-v1`): upscaling is
   not generation ([non-goals](../video-providers.md#non-goals)), and it does
   not fit Edit, which changes what a clip shows on a prompt: the upscale
-  changes the clip's size, and its price per output megapixel-second depends
-  on the clip's frame size, which AI Video does not measure.
+  changes the clip's size.
 - **Drafts and Draft Enhance** (`draft`, `mode: "draft_enhance"`): a draft
   is a fast `hd` preview meant to be finished from its `draft_cache` bundle,
-  which a node does not keep, and a fresh full render is another take; a
-  draft continuation has no published price.
+  which a node does not keep, and a fresh full render is another take.
 - **More keyframes and timed keyframes**: FLUX 3 takes up to ten images as
   frames of the clip, spread over it or pinned to seconds. The node's Frames
   mode has a start and an end frame, and its references are not frames of
@@ -363,8 +334,6 @@ amount = rate per second (mode, resolution) × seconds of output video
    with BFL's words; a create whose connection drops after it was sent
    answers `unknownOutcome` and was sent once.
 7. `check` reports each rule above, and a refused request sends nothing.
-8. The estimate of three combinations matches the rate card, and every rate
-   of the card is used as listed.
 
 ## Verification
 

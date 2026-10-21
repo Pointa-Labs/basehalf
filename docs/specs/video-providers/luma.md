@@ -6,10 +6,10 @@ Parent: [Video providers and the model catalog](../video-providers.md)
 
 This specification owns the Luma module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/luma.ts`): the
-catalog entry it declares, the requests it sends, how it reads Luma's
-answers, and how it estimates a price. What is the same for every provider
-(the commands, checks from the declarations, retries, the download, plain
-messages) is owned by the parent specification and is not repeated here.
+catalog entry it declares, the requests it sends, and how it reads Luma's
+answers. What is the same for every provider (the commands, checks from the
+declarations, retries, the download, plain messages) is owned by the parent
+specification and is not repeated here.
 
 ## Sources
 
@@ -28,7 +28,7 @@ with `X-API-Version: 2026-04-01`.
 | `guides/videos/migration/` | the Dream Machine models that retire; `ray-3.2` as the only id of the new API; keys from the Luma API Platform; the four states |
 | `guides/files/`, `api/resources/files/methods/create/`, `.../complete/`, `.../get/`, `.../delete/`, `.../list/` | the Files API: the presigned upload, `complete`, the file states, `expires_at` |
 | `api/resources/generations/methods/create/`, `.../get/` | the fields of a request and of a generation, the failure codes |
-| `guides/pricing/` | the prices |
+| `guides/pricing/` | which failed generations are refunded or partly charged |
 | `guides/error-handling/`, `guides/rate-limits/`, `guides/faq/` | the error answers and their statuses, the limits, image and video sizes and formats, no cancellation, retention |
 
 The Dream Machine API documentation, `https://docs.lumalabs.ai/docs/`
@@ -57,13 +57,13 @@ Every request goes to the **Luma Agents API**
 
 ## Region and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `global` | Luma Agents API | `https://agents.lumalabs.ai/v1` | USD | `https://platform.lumalabs.ai` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `global` | Luma Agents API | `https://agents.lumalabs.ai/v1` | `https://platform.lumalabs.ai` |
 
 - One credential, `apiKey` (**API Key**, shown with the placeholder
   `luma-api-…`), sent as `Authorization: Bearer <key>`. Luma has one
-  deployment and no sandbox; every price is in US dollars.
+  deployment and no sandbox.
 - Generations, limits, and files belong to the API client: several keys of
   one client share them.
 - Limits, per client and by plan: requests a minute on `POST /generations`
@@ -81,7 +81,7 @@ Every request goes to the **Luma Agents API**
   `providerModel`.
 - The prompt is always required: 1 to 6,000 characters for every type
   (`prompt.required: "always"`, `maxLength: 6000`).
-- The model has an estimate and is not deprecated.
+- The model is not deprecated.
 
 ## Modes and inputs
 
@@ -124,8 +124,8 @@ The defaults are Luma's own: 720p, the shape chosen by the model when
 and anchor frames"), 5 seconds, no loop, standard dynamic range, and for an
 edit the automatic controls Luma recommends as the default.
 
-- `resolution`: 360p is Luma's draft tier, for fast, low-cost previews; its
-  tooltip says so.
+- `resolution`: 360p is Luma's draft tier, for fast previews; its tooltip
+  says so.
 - `strength` is Luma's field name. Its tooltip gives the bands: Adhere keeps
   the clip's motion, composition, and structure; Flex keeps its motion and
   lets the prompt change style and content; Reimagine lets the prompt drive
@@ -321,48 +321,6 @@ has no `DELETE` for generations. `cancel` sends nothing and answers false.
 The message is Luma's `detail` with a sentence of what to do. A `detail`
 that is a list of field errors is read as each field's path and message.
 
-## Estimate
-
-Luma's pay-as-you-go price list in US dollars, as read on 2026-10-19 (the
-page states no date; it says video rates "are subject to change ahead of
-general availability").
-
-**Frames** (the video-generation tier): one amount for the resolution, the
-duration, and the dynamic range.
-
-| Resolution | 5 s | 10 s | 5 s, HDR |
-| --- | --- | --- | --- |
-| 360p | $0.06 | $0.18 | — |
-| 540p | $0.15 | $0.45 | — |
-| 720p | $0.30 | $0.90 | $0.60 |
-| 1080p | $1.20 | $3.60 | $2.40 |
-
-**Edit** (the video-edit tier): Luma lists totals for 5 and 10 seconds,
-which are the same rate per second `r`, and the edited video keeps the
-clip's length `L`. Luma does not say how a length other than 5 or 10 seconds
-is billed, so the estimate runs from the clip's length to the next multiple
-of 5 seconds:
-
-```text
-min = L × r
-max = max(L, ⌈(L − 0.05) / 5⌉ × 5) × r        (at least one 5-second block)
-```
-
-`L` is the measured length of the clip; for a clip whose length AI Video
-cannot read, 0.1 to 18 seconds (0.1 × r to 20 × r).
-
-| Resolution | 5 s | 10 s | 5 s, HDR | 10 s, HDR | r | r, HDR |
-| --- | --- | --- | --- | --- | --- | --- |
-| 360p | $0.54 | $1.08 | $1.08 | $2.16 | $0.108 | $0.216 |
-| 540p | $0.72 | $1.44 | $1.44 | $2.88 | $0.144 | $0.288 |
-| 720p | $1.08 | $2.16 | $2.16 | $4.32 | $0.216 | $0.432 |
-| 1080p | $2.16 | $4.32 | $4.32 | $8.64 | $0.432 | $0.864 |
-
-A combination without a price (HDR at 360p or 540p in Frames, HDR for 10
-seconds), which a rule refuses, has no estimate. Synchronous errors are never
-charged; of the asynchronous failures, `content_moderated`,
-`generation_failed`, and `output_not_found` are refunded.
-
 ## Left out
 
 - **Reframe** (`type: "video_reframe"`): it changes a clip's shape and fills
@@ -396,8 +354,6 @@ charged; of the asynchronous failures, `content_moderated`,
 
 ## Not confirmed
 
-- **Edits of other lengths**: how an edit of a clip that is not 5 or 10
-  seconds long is billed; hence the range.
 - **The longest clip**: 18 seconds on three pages, 30 on one; the module
   takes 18.
 - **MOV clips**: Luma names no video format besides its `video/mp4` example;
@@ -425,8 +381,6 @@ charged; of the asynchronous failures, `content_moderated`,
    `unknownOutcome` and was sent once.
 6. `check` reports each rule between parameters and a request too large to
    send; a refused request sends nothing, not even an upload.
-7. The estimates match the price list for three combinations of each mode,
-   and every row of the list.
 
 ## Verification
 

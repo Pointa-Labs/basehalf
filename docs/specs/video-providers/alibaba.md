@@ -8,7 +8,7 @@ Related: [video providers and the model catalog](../video-providers.md),
 This specification owns the provider module `alibaba` of the AI Video
 extension (`extensions/basehalf-ai-video/src/providers/alibaba.ts`): the Wan
 and HappyHorse video models of Alibaba Cloud Model Studio (DashScope), their
-declarations in the catalog, the requests that run them, and their estimates.
+declarations in the catalog, and the requests that run them.
 Everything the six provider commands do for every provider is owned by
 [video providers and the model catalog](../video-providers.md).
 
@@ -28,17 +28,15 @@ under `https://www.alibabacloud.com/help/en/model-studio/`, China pages under
 | `video-generate-edit-model`, `newly-released-models` | which models exist, their resolutions and lengths, release dates |
 | `manage-asynchronous-tasks`, `async-task-api` | task query, states, cancellation |
 | `get-temporary-file-url` | the temporary upload |
-| `model-pricing` (international updated 2026-10-15; China updated 2026-10-18) | prices per output second |
 | `rate-limit` (updated 2026-10-16), `error-code` | limits and error codes |
-| `video-to-video-guide`, `wan-video-editing-guide`, `wan-image-to-video-guide` | what input video is billed |
 | OSS `postobject` (`https://www.alibabacloud.com/help/en/oss/developer-reference/`) | the upload form and its answers |
 
 ## Regions, hosts, and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `cn` | China (Beijing) | `https://dashscope.aliyuncs.com` | CNY | `https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key` |
-| `intl` | International (Singapore) | `https://dashscope-intl.aliyuncs.com` | USD | `https://modelstudio.console.alibabacloud.com/ap-southeast-1/model/settings/api-key` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `cn` | China (Beijing) | `https://dashscope.aliyuncs.com` | `https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key` |
+| `intl` | International (Singapore) | `https://dashscope-intl.aliyuncs.com` | `https://modelstudio.console.alibabacloud.com/ap-southeast-1/model/settings/api-key` |
 
 - A region has its own keys and models; a key of one region does not work in
   the other.
@@ -67,7 +65,7 @@ under `https://www.alibabacloud.com/help/en/model-studio/`, China pages under
   before every path unless the endpoint already ends with it.
 - Other regions (US Virginia, Germany Frankfurt, Japan Tokyo, China Hong
   Kong) are not offered: they have only workspace hosts or a few of these
-  models, and their prices are not those of the two regions above.
+  models.
 
 ## Catalog models
 
@@ -110,8 +108,6 @@ the id the request would be sent with, and `submit` sends exactly that id.
   HappyHorse takes 5,000 characters or 2,500 Chinese characters: `check`
   counts a Chinese character (CJK ideographs) as two and refuses more than
   5,000.
-- Every model has `estimate: true`; the estimate uses the routed task's
-  prices.
 
 ## Parameters
 
@@ -266,39 +262,6 @@ Every path is under `{endpoint}/api/v1`.
   for every model here; over either, HTTP 429 `Throttling.*`. A
   rate-limited message says so. The task query takes 20 requests a second.
 
-## Estimates
-
-The price is per second of video in the region's currency, from the price
-list of 2026-10-18 for China (CNY) and of 2026-10-15 for International (USD),
-for the task a generation is routed to. Failed tasks cost nothing.
-
-| Tasks | China (CNY per second) | International (USD per second) |
-| --- | --- | --- |
-| `wan3.0-video` (list price; a limited-time 30% discount applies now) | 480P 0.3, 720P 0.6, 1080P 1.2 | 480P 0.05, 720P 0.10, 1080P 0.20 |
-| `wan3.0-video-prime` | 480P 0.45, 720P 0.9, 1080P 1.8 | 480P 0.068, 720P 0.14, 1080P 0.28 |
-| every Wan 2.7 task, `wan2.6-t2v`, `wan2.6-i2v` | 720P 0.6, 1080P 1 | 720P 0.10, 1080P 0.15 |
-| `wan2.6-i2v-flash` with sound | 720P 0.3, 1080P 0.5 | 720P 0.05, 1080P 0.075 |
-| `wan2.6-i2v-flash` without sound | 720P 0.15, 1080P 0.25 | 720P 0.025, 1080P 0.0375 |
-| `happyhorse-1.1-*` | 480P 0.45, 720P 0.9, 1080P 1.2 | 480P 0.07, 720P 0.14, 1080P 0.18 |
-| `happyhorse-1.0-*` | 720P 0.9, 1080P 1.6 | 720P 0.14, 1080P 0.24 |
-
-Seconds billed:
-
-- Wan 2.7 text and image to video, Wan 2.6, Wan 2.6 Flash, HappyHorse: the
-  duration. In Wan 2.7 Extend the duration is the length of the whole result,
-  the clip included, and all of it is billed. Wan 2.6 text to video is priced
-  by the resolution of its size.
-- Wan 3.0: the input videos plus the output. With a duration, the input
-  videos plus the duration, at most 30. With Auto, and always in Edit and
-  Extend, a range from the input videos plus 2 seconds to 30 seconds.
-- Wan 2.7 References: the output plus each reference video up to 5 seconds
-  divided among the videos (5, 2.5, 1.65, 1.25, or 1 second each for one to
-  five videos).
-- Wan 2.7 Edit: the input video plus the output, which keeps the input's
-  length: twice the video.
-- An input video whose length AI Video cannot read counts from its mode's
-  shortest to its longest allowed length.
-
 ## What is left out, and why
 
 - The ratio and the duration of Wan 2.7 Edit (`wan2.7-videoedit`): one
@@ -342,5 +305,4 @@ Wan 2.6 text to video; the upload with its form and without the key; Edit
 and Extend refused outside China; polls through every state, the download,
 cancelling a pending and a running task, refused keys, too many requests, a
 create whose connection drops (sent once, unknown outcome), the endpoint with
-and without `/api/v1`, every rule above, and estimates of the routed task,
-three per region.
+and without `/api/v1`, and every rule above.

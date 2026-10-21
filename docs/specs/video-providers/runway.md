@@ -6,10 +6,10 @@ Parent: [Video providers and the model catalog](../video-providers.md)
 
 This specification owns the Runway module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/runway.ts`): the
-catalog entry it declares, the requests it sends, how it reads Runway's
-answers, and how it estimates a price. What is the same for every provider
-(the commands, checks from the declarations, retries, the download, plain
-messages) is owned by the parent specification and is not repeated here.
+catalog entry it declares, the requests it sends, and how it reads Runway's
+answers. What is the same for every provider (the commands, checks from the
+declarations, retries, the download, plain messages) is owned by the parent
+specification and is not repeated here.
 
 ## Sources
 
@@ -23,21 +23,20 @@ byte.
 | `ai-context.md` | the base URL; the key as `Authorization: Bearer`; `X-Runway-Version: 2024-11-06` on every request; the task states; `DELETE /v1/tasks/{id}` cancels or deletes; `gen3a_turbo` and `gen4_aleph` were removed |
 | `api.md` and `openapi.json` (API version `2024-11-06`) | the request fields and values of `gen4.5` and `gen4_turbo` (`/v1/text_to_video`, `/v1/image_to_video`) and `aleph2` (`/v1/video_to_video`); the answers of a create and of `GET /v1/tasks/{id}`; `DELETE`; `POST /v1/uploads`; the error bodies |
 | `guides/models.md` | which video models are Runway's own and which it resells |
-| `guides/pricing.md` | credits per second of each model; a credit costs $0.01 |
 | `usage/tiers.md` and the table the page renders | concurrency and generations a day per usage tier; `THROTTLED`; 429 |
 | `assets/inputs.md` | size limits of data URIs, URLs, and uploads; image, video, and audio formats; the ratios of each model; aspect ratio limits of prompt images; Aleph 2.0 clips of 2 to 30 seconds at 30 FPS or lower |
 | `assets/uploads.md` | the ephemeral upload and its rules |
 | `assets/outputs.md` | output addresses expire within 24 to 48 hours |
 | `errors/errors.md`, `errors/task-failures.md`, `errors/troubleshooting.md` | HTTP statuses and which may be retried; failure codes; the key's form; images of at most 8,000 px a side |
 | `api-details/versioning.md`, `api-details/api_changelog.md` | the version header; Gen-4.5 (2026-02-10), Aleph 2.0 (2026-06-02), the sunset of `gen3a_turbo` and `gen4_aleph` (2026-07-30), Gen-4 Turbo durations of 2 to 10 seconds (2025-10-08) |
-| `api-details/moderation.md` | moderation is `auto` unless `contentModeration` says otherwise; moderated generations cost the same as others |
+| `api-details/moderation.md` | moderation is `auto` unless `contentModeration` says otherwise |
 | `guides/setup.md` | the developer portal, API keys per project, credits to buy before the first request |
 
 ## Region and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `global` | Runway Dev | `https://api.dev.runwayml.com` | USD | `https://dev.runway.com/` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `global` | Runway Dev | `https://api.dev.runwayml.com` | `https://dev.runway.com/` |
 
 - One credential, `apiKey` (**API Key**, shown as `key_…`): an API secret
   made in the API Keys tab of a project in the developer portal. It starts
@@ -65,7 +64,7 @@ Runway's own video models only (`guides/models.md`):
 
 - Each model has one id at every endpoint: `providerModels` is
   `{global: <id>}`, and `check` answers no `providerModel`.
-- Every model has an estimate; none is deprecated.
+- No model is deprecated.
 - Prompts are at most 1,000 characters. Gen-4.5 requires one at both of its
   endpoints (`always`). Gen-4 Turbo and Aleph 2.0 take one optionally
   (`withoutMedia`; their only mode always sends an image or a video).
@@ -263,9 +262,8 @@ parentheses.
 - Runway documents no status or reason for a project without credits. A
   402 would be `balance` (the parent's rule); any other refusal carries
   Runway's own words.
-- Moderation shows as a failed task, not as an HTTP error. Moderated
-  generations cost the same as successful ones, and an account with too
-  many is suspended.
+- Moderation shows as a failed task, not as an HTTP error. An account with
+  too many moderated generations is suspended.
 
 ### Limits
 
@@ -275,25 +273,6 @@ share one table: tier 1, 1 task at once and 50 generations a day; tier 2
 (after $1,000), 10 and 5,000; tier 5 (after $5,000), 20 and 25,000. A task
 beyond the concurrency waits as `THROTTLED`; a create beyond the generations
 of a rolling 24 hours answers 429. Requests per minute are not limited.
-
-## Estimate
-
-```text
-amount (USD) = credits × $0.01
-credits      = 12 × duration                    Gen-4.5
-             = 5 × duration                     Gen-4 Turbo
-             = max(56, 28 × the clip's seconds) Aleph 2.0
-```
-
-- Credits cost $0.01 each; sales tax, where it applies, is not included.
-  The price list is the one of 2026-10-19, which states no date of its own.
-- Aleph 2.0 costs 28 credits a second, at least 56 credits a generation, and
-  its video is as long as its clip. The clip's measured length gives a single
-  amount; a part of a second counts as measured, since Runway does not say
-  how it rounds. A clip whose length AI Video cannot read counts as 2 to 30
-  seconds, 56 to 840 credits ($0.56 to $8.40).
-- An MP4 has no surcharge. Moderated tasks cost the same as others, and
-  `SAFETY.INPUT` failures are not refunded; other failures are.
 
 ## Left out
 
@@ -309,8 +288,8 @@ credits      = 12 × duration                    Gen-4.5
   `range`): every image needs a time in the clip, which a node's input
   cannot say.
 - **Output formats** (`outputFormat`, `proresProfile`): ProRes `.mov`,
-  zipped image sequences, and 10-bit or HDR deliveries cost a surcharge and
-  are enabled per account; BaseHalf keeps an H.264 MP4.
+  zipped image sequences, and 10-bit or HDR deliveries are enabled per
+  account; BaseHalf keeps an H.264 MP4.
 - **The size `672:1584`** of Gen-4.5 Image to Video: on the inputs page,
   not in the API reference.
 - **Seeds above 2147483647**: outside the shared seed.
@@ -341,7 +320,6 @@ credits      = 12 × duration                    Gen-4.5
 6. 401 answers `auth`; 429 answers `rateLimited`; a create whose connection
    drops after it was sent answers `unknownOutcome` and was sent once.
 7. `check` reports each rule above; a refused request sends nothing.
-8. The estimate of three combinations matches the price list.
 
 ## Verification
 

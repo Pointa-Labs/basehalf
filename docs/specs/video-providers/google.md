@@ -70,9 +70,9 @@ rolling 10 minutes ($10 to $200 by usage tier); exceeding either answers HTTP
 429 (`rate_limit_exceeded`, `quota_exceeded`, `too_many_requests`, or, for the
 spend limits, `RESOURCE_EXHAUSTED`).
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `global` | Gemini API | `https://generativelanguage.googleapis.com/v1beta` | USD | `https://aistudio.google.com/api-keys` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `global` | Gemini API | `https://generativelanguage.googleapis.com/v1beta` | `https://aistudio.google.com/api-keys` |
 
 The pricing page lists Gemini Omni Flash for the paid tier only ("Not
 available" on the free tier); a key of a free-tier project is refused by
@@ -270,28 +270,6 @@ credits depleted) is `balance`, `rate_limit_exceeded`, `quota_exceeded`, and
 (codes such as `safety`, `prohibited_content`, `content_blocked`) come as a
 refused create or a failed interaction with Google's message.
 
-## Estimate
-
-Google bills the output video's tokens: "calculated at a rate of 5,792 tokens
-per second of 720p video", at $17.50 per million video output tokens on the
-paid tier's Standard pricing (Gemini Developer API pricing, last updated
-2026-10-16), "an effective price of approximately $0.10 per second". One
-second of 720p costs 5,792 × $17.50 / 1,000,000 = $0.10136.
-
-- Only 720p has a published rate. At 360p, 1080p, and 4K the panel shows no
-  estimate.
-- Frames, References, and Edit: the length is known only after the run, so
-  the estimate is 3 to 10 seconds: $0.30408 to $1.0136.
-- Extend: the extended video contains the clip (the guide extends "by 10s, up
-  to a total length of 40s", and edits the clip's last frames to join the
-  two), so the estimate is the clip's length plus 3 to 10 seconds. The
-  clip's length is measured (a 4-second clip: 7 to 14 seconds, $0.70952 to
-  $1.41904); a clip whose length AI Video cannot read counts as at most 10
-  seconds, which gives 3 to 20 seconds, $0.30408 to $2.0272.
-- Input tokens ($1.50 per million) and thinking tokens ($9.00 per million)
-  cannot be counted before the run and are not included; Google's bill
-  counts.
-
 ## Facts not confirmed
 
 - That Gemini Omni Flash runs in the background is implied by the Omni guide
@@ -299,6 +277,4 @@ second of 720p costs 5,792 × $17.50 / 1,000,000 = $0.10136.
 - Whether a poll answers the inputs' base64 again inside its `user_input`
   step.
 - The highest number of reference images: Google states none.
-- How long an edited video is, and whether an extension is billed for the
-  clip's seconds: the estimates take the ranges above.
 - Whether the reference's `response_format.duration` applies to Omni.

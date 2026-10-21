@@ -1872,6 +1872,9 @@ handed over the open choices; this decision records them.
 
 ## D59 — Video providers are built-in integrations with each model's exact settings; users bring their own keys (NEW, 2026-10-19)
 
+> **Revised by D61 (2026-10-21).** The estimated price and the currency of
+> each region are removed: BaseHalf shows no price. The rest of D59 stands.
+
 **Decision.** BaseHalf ships one integration per video provider, on the
 provider's own API, together with a catalog that declares each model exactly:
 the regions that offer it, its modes, the inputs each mode takes and their
@@ -1953,3 +1956,31 @@ since 2026-09-01 conflicted in the canvas file.
 - VS Code's files are not changed in a pass of their own. Their BaseHalf
   changes are marked, or replaced by extension points, when their subsystem
   is next ported from a newer VS Code.
+
+## D61 — BaseHalf shows no price (NEW, 2026-10-21)
+
+**Decision.** BaseHalf shows no price, estimate, or currency: not in the
+Video panel, not on the Video Providers page, and not in what agents read of
+the model catalog. What a generation costs is in the console of the user's
+provider, where the user got the key. Models declare no price lists, regions
+no currency, and `check` answers no price or estimate.
+See [Video providers and the model catalog](specs/video-providers.md).
+
+**Why.** On 2026-10-21 the user found the estimate beside Generate of little
+use and decided that users look up their costs on the page where they set up
+their key. BaseHalf bills nothing, so the provider's bill is the only figure
+that counts, and a price list copied into BaseHalf is only as current as its
+last copy. Products that show a price before every run sell credits and show
+their own charge; with the user's own key, BaseHalf has no charge to show.
+Keeping the price lists of 51 models in two regions right was work at every
+price change of every provider.
+
+**Consequences.**
+- Revises D59: the estimate beside Generate, the price lists of the provider
+  modules, the currency of each region, and `estimate` in the catalog and in
+  `host.videoCatalog` are removed. The rest of D59 stands.
+- `check` stays: it reports the problems of a planned generation before
+  Generate, with the files the generation would send.
+- An unknown outcome still asks the user to check the provider's console
+  before generating again, since a second request may be charged again
+  (D58).

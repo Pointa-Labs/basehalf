@@ -7,7 +7,7 @@ Related: [Video providers and the model catalog](../video-providers.md),
 
 This specification owns the MiniMax provider of the catalog: its regions,
 the models it declares with each one's modes, inputs, limits, and
-parameters, how its requests are made and its tasks read, and its estimate.
+parameters, and how its requests are made and its tasks read.
 It is implemented in
 `vscode-base/extensions/basehalf-ai-video/src/providers/minimax.ts`; the
 contract every provider follows is in
@@ -30,7 +30,6 @@ its own.
 | Models | `guides/video-generation`, `guides/models-intro`, `faq/models`, `release-notes/models` |
 | Keys and hosts | `guides/quickstart-preparation`, `api-reference/api-overview`, `guides/mcp-guide` |
 | Limits and errors | `guides/rate-limits`, `api-reference/errorcode` |
-| Prices | `pricing/overview`, the Video section |
 
 The README of MiniMax's own MCP server on GitHub (`MiniMax-AI/MiniMax-MCP`)
 says that a key must be used with the host of its region, and is the only
@@ -38,10 +37,10 @@ official material that names `https://api.minimaxi.com`.
 
 ## Regions and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `cn` | China | `https://api.minimax.cn` | CNY | `https://platform.minimax.cn/user-center/basic-information/interface-key` |
-| `intl` | International | `https://api.minimax.io` | USD | `https://platform.minimax.io/user-center/basic-information/interface-key` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `cn` | China | `https://api.minimax.cn` | `https://platform.minimax.cn/user-center/basic-information/interface-key` |
+| `intl` | International | `https://api.minimax.io` | `https://platform.minimax.io/user-center/basic-information/interface-key` |
 
 - One credential, `apiKey` (**API Key**), a pay-as-you-go key, sent as
   `Authorization: Bearer <key>`. No group id. A key works only with the host
@@ -60,7 +59,7 @@ official material that names `https://api.minimaxi.com`.
 ## Models
 
 Each model's id is the same in both regions: every page of both sites
-lists the same names, and both price lists price all five.
+lists the same names.
 
 | Model | Label | Id sent | API | Modes | Resolution (default) | Duration (default) |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -72,14 +71,12 @@ lists the same names, and both price lists price all five.
 
 - MiniMax H3 Max is MiniMax's faster H3, served by MiniMax's own V2 API
   with the same requests. The API reference and the video guide say it
-  takes references (images, videos, and audio), and its price list prices
-  input videos; the model list and the models overview name only text and
-  frames (the China model list says "only"). The catalog follows the API
-  reference.
-- The price list groups the Hailuo models under legacy models, and the
-  video guide presents H3 and H3 Max as MiniMax's current models. The API
-  reference still documents the Hailuo models, the model list lists them as
-  available, and the rate limits list the Hailuo series, so they are not
+  takes references (images, videos, and audio); the model list and the
+  models overview name only text and frames (the China model list says
+  "only"). The catalog follows the API reference.
+- The video guide presents H3 and H3 Max as MiniMax's current models. The
+  API reference still documents the Hailuo models, the model list lists them
+  as available, and the rate limits list the Hailuo series, so they are not
   deprecated in the catalog.
 - No Hailuo model takes a ratio: a frame sets the shape of the video.
 
@@ -264,40 +261,6 @@ success; any other code is an error, read as follows:
 - A rate limit names MiniMax's limits: 20 requests a minute for the Hailuo
   series; 300 requests a minute and 30 tasks at a time for H3.
 
-## Estimate
-
-The price list (the Video section of `pricing/overview`) has no date; the
-estimate gives 2026-10-18, the day it was read. It is the pay-as-you-go list
-price; a video package's points are not counted.
-
-**MiniMax H3 and H3 Max**: the duration times the output price of the model
-and resolution, plus each image beyond the free ones times the image price,
-plus the seconds of the reference videos times the input video price at the
-output resolution. Audio is free. The images are the frames and the
-reference images together. MiniMax meters whole seconds of input video
-(`usage.input_seconds`): the estimate is a range from the measured length
-of the videos rounded down to that length rounded up; with a video whose
-length AI Video cannot read, from 2 seconds a video to 15 seconds.
-
-| | H3 768P | H3 2K | H3 Max 480P | H3 Max 768P |
-| --- | --- | --- | --- | --- |
-| Output a second, USD / CNY | 0.08 / 0.50 | 0.13 / 0.80 | 0.05 / 0.33 | 0.08 / 0.50 |
-| Input video a second, USD / CNY | 0.08 / 0.50 | 0.13 / 0.80 | 0.0553 / 0.37 | 0.143 / 0.97 |
-| Free images | 5 | 5 | 2 | 2 |
-| Each further image, USD / CNY | 0.04 / 0.20 | 0.04 / 0.20 | 0.074 / 0.50 | 0.074 / 0.50 |
-
-**Hailuo**: one price a video, by model, resolution, and duration, in USD /
-CNY.
-
-| Model | 512P, 6 s | 512P, 10 s | 768P, 6 s | 768P, 10 s | 1080P, 6 s |
-| --- | --- | --- | --- | --- | --- |
-| Hailuo 2.3 | — | — | 0.28 / 2.00 | 0.56 / 4.00 | 0.49 / 3.50 |
-| Hailuo 2.3 Fast | — | — | 0.19 / 1.35 | 0.32 / 2.25 | 0.33 / 2.31 |
-| Hailuo 02 | 0.10 / 0.60 | 0.15 / 1.00 | 0.28 / 2.00 | 0.56 / 4.00 | 0.49 / 3.50 |
-
-The price list gives one price a model, resolution, and length; a Hailuo 02
-video with an end frame is estimated at that price.
-
 ## Left out
 
 - A seed: MiniMax documents none for these models.
@@ -330,5 +293,4 @@ the provider commands against local servers that answer like MiniMax:
 - refused keys, too many requests, an empty balance, a nonzero `base_resp`
   in an HTTP 200, an unknown task, and a create whose connection drops,
   which is sent once and has an unknown outcome;
-- the rules of `check`, and estimates for at least three combinations in
-  each region, checked against the price list.
+- the rules of `check`.

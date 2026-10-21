@@ -7,10 +7,9 @@ Parent: [Video providers and the model catalog](../video-providers.md)
 This specification owns the LTX module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/ltx.ts`): the
 catalog entry it declares for Lightricks' LTX video models, the requests it
-sends, how it reads LTX's answers, and how it estimates a price. What is the
-same for every provider (the commands, the checks from the declarations,
-retries, the download, plain messages) is owned by the parent specification
-and is not repeated here.
+sends, and how it reads LTX's answers. What is the same for every provider
+(the commands, the checks from the declarations, retries, the download, plain
+messages) is owned by the parent specification and is not repeated here.
 
 ## Sources
 
@@ -36,7 +35,6 @@ first read on 2026-10-19.
 | `migrate-v1-to-v2` | the V2 endpoints replace V1 on 2026-10-26; the upload stays `/v1/upload` |
 | `input-formats` | data URIs, the upload, sizes per method and endpoint, image, video, and audio formats |
 | `errors`, `rate-limits`, `debugging` | the error shape and types; concurrency (2 by default) and the job queue |
-| `pricing` | prices per second by model, endpoint, and resolution |
 | `api-changelog` (entries to 2026-10-12) | LTX-2 removed on 2026-08-15; 1:1, 3:2, and 2:3 on LTX-2.5 on 2026-10-12; 1440p, 4K, and 48 fps on LTX-2.5 Pro on 2026-09-02; the V1 retirement |
 | `openapi.json` | the exact schemas: required fields, `maxLength: 5000` of every prompt, enums, the job status variants |
 
@@ -51,9 +49,9 @@ does not exist yet and is otherwise refused with 412.
 
 ## Region and credentials
 
-| Region | Label | Base URL | Currency | Console |
-| --- | --- | --- | --- | --- |
-| `global` | LTX API | `https://api.ltx.io` | USD | `https://console.ltx.io` |
+| Region | Label | Base URL | Console |
+| --- | --- | --- | --- |
+| `global` | LTX API | `https://api.ltx.io` | `https://console.ltx.io` |
 
 - One credential, `apiKey` (**API Key**), sent as `Authorization: Bearer
   <key>`. It is made in the Developer Console.
@@ -89,7 +87,7 @@ mode and the inputs of a generation choose the endpoint.
 - The endpoint table of `models`: text and image to video on every model;
   audio to video on both LTX-2.5 models and on LTX-2.3 Pro; retake and extend
   on LTX-2.3 Pro only.
-- Every model has an estimate and none is deprecated.
+- No model is deprecated.
 - Prompts: every request schema bounds the prompt at 5,000 characters
   (`maxLength: 5000`). Every model declares `withoutMedia`, the rule of its
   loosest endpoint: audio to video needs a prompt unless an image is sent
@@ -316,46 +314,6 @@ is a sentence of what it means and what to do, then LTX's type and words.
 
 A 429 that asks to wait (`Retry-After`) says the wait, as the contract has it.
 
-## Estimate
-
-```text
-amount = price per second (model, endpoint, resolution) × seconds billed
-```
-
-In US dollars, from the price list read on 2026-10-19, which states no date
-of its own (its last change in the API changelog is of 2026-10-12, when the
-1:1, 3:2, and 2:3 sizes were priced as the 16:9 size with the same short
-side). Prices per second:
-
-| Model | Text and image to video: 720p / 1080p / 1440p / 4K | Audio to video: 720p / 1080p / 1440p / 4K | Retake | Extend |
-| --- | --- | --- | --- | --- |
-| LTX-2.5 Fast | 0.09 / 0.13 / 0.19 / 0.30 | 0.09 / 0.13 / 0.19 / 0.30 | — | — |
-| LTX-2.5 Pro | 0.12 / 0.17 / 0.25 / 0.39 | 0.12 / 0.17 / 0.25 / 0.39 | — | — |
-| LTX-2.3 Fast | 0.03 / 0.06 / 0.12 / 0.24 | — | — | — |
-| LTX-2.3 Pro | 0.04 / 0.08 / 0.16 / 0.32 | 0.06 / 0.10 / 0.18 / 0.34 | 0.10 | 0.10 |
-
-Seconds billed:
-
-- Frames: the generated video, so the duration. With Auto, LTX bills the
-  length it makes, which is known only after the run: the estimate runs from
-  6 seconds, the shortest LTX lists, to the longest the resolution and frame
-  rate allow (20 seconds on LTX-2.5 Fast at 720p or 1080p and 24 or 25 fps,
-  10 otherwise).
-- References: the input audio, as measured; for audio whose length AI Video
-  cannot read, the estimate runs from 0 to the longest audio the model takes
-  at the resolution.
-- Edit: the input clip, all of it, as measured; for a clip whose length AI
-  Video cannot read, LTX states no longest clip, so there is no estimate.
-- Extend: the extension and the context frames LTX uses, at most 505 frames
-  together. The frame rate of the clip is not measured, so: with a Context
-  setting, the extension plus the context or the clip's length, whichever is
-  shorter (for a clip whose length cannot be read, the estimate runs from the
-  extension alone to the extension plus the context); without one, LTX uses as much context as
-  fits, up to 20 seconds, so the estimate runs from the extension alone to
-  the extension plus 20 seconds or the clip's length, whichever is shorter.
-- The price list names only the sizes 1920×1080 and 1080×1920 for retake and
-  extend; their price is used at every size.
-
 ## Left out
 
 - **HDR** (`/v2/video-to-video-hdr`): it converts a video to HDR and answers
@@ -378,10 +336,8 @@ Seconds billed:
 
 ## Facts not confirmed
 
-- The shortest audio that audio to video takes: LTX states none, so the
-  estimate for audio whose length cannot be read starts at 0.
-- The shortest video Auto makes: LTX lists durations from 6 seconds; the
-  estimate starts there.
+- The shortest audio that audio to video takes: LTX states none.
+- The shortest video Auto makes: LTX lists durations from 6 seconds.
 - The size limit of uploaded audio when it is used: LTX states 32 MB for
   audio sent by address and a 15 MB cap for uploaded images; 32 MiB is taken.
   Whether LTX's "MB" means MiB everywhere: its upload header does.
@@ -390,13 +346,10 @@ Seconds billed:
 - Whether audio longer than 10 seconds needs 24 or 25 fps on the fast and
   2.3 models, as a duration does: the audio limit table names the model and
   the resolution only, so nothing is checked.
-- Whether a Context longer than the clip is shortened or refused: the
-  estimate assumes shortened.
+- Whether a Context longer than the clip is shortened or refused.
 - Whether LTX-2.3 takes `camera_motion`: the request schemas offer it with
   every model, and only the LTX-2.5 page names it.
 - How long `result.video_url` stays valid.
-- The price of retake and extend at sizes other than 1920×1080 and
-  1080×1920.
 
 ## Acceptance criteria
 
@@ -417,8 +370,6 @@ Seconds billed:
    drops after it was sent answers `unknownOutcome` and was sent once.
 7. `check` reports each rule above, and `submit` refuses PCM audio before
    anything is sent; a refused request sends nothing.
-8. The estimate of three combinations of each endpoint matches the price
-   list, and every price of the list is used as listed.
 
 ## Verification
 

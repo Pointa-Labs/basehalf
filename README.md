@@ -207,8 +207,8 @@ layout, and references follow.
 - Generate videos from Video nodes with your own key for ByteDance (Seedance),
   Kling, Alibaba (Wan), MiniMax (Hailuo), Vidu, Google, PixVerse, Luma, Runway,
   xAI (Grok Imagine), LTX, or Black Forest Labs. The panel shows each model's
-  own settings and an estimated price before a run, and a running generation
-  continues after a restart.
+  own settings, and a running generation continues after a restart. What a
+  generation costs is in your provider's console.
 - Find BaseHalf's settings, the Video Providers page, and About (the version
   and updates) in Settings under BaseHalf.
 - Update in place: an update is downloaded once, in the background, and
