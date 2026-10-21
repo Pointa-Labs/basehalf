@@ -62,6 +62,16 @@ See [code organization](code-organization.md) and public decision D60.
   Create from Connection line, closes in the same frame as the menu. Users can
   switch back to native menus in settings; a native menu is closed by the OS
   before the window is told, so such state then lags behind it.
+- On the canvas, a focus ring is for the keyboard. The workbench rings every
+  focused button, field, and element with a tab index, also after a click;
+  on the canvas surface, its own buttons, and the toolbars, menus, and Video
+  panel over its cards, a control shows a ring only when the keyboard moved
+  the focus there. A text field shows its focus by its caret, and a field
+  with a border by its border alone. A menu that BaseHalf draws on the
+  canvas starts at its checked item. Without one, it has no current item
+  when a click opened it, until an arrow key chooses one, as the
+  workbench's context menus do, and it starts at its first item when the
+  keyboard opened it. Card Detail keeps the look of the editors it hosts.
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 

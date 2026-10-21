@@ -279,6 +279,19 @@
 	outline: none;
 }
 
+/*
+ * On the canvas a focus ring is for the keyboard (architecture invariants,
+ * Product shell). The workbench rings every focused button, field, and
+ * element with a tab index, also after a click; here a control that a click
+ * focused shows none, and its own `:focus-visible` rule draws its ring for
+ * the keyboard. Card Detail, beside the surface, keeps its editors' look.
+ */
+.monaco-workbench .basehalf-canvas-surface :focus:not(:focus-visible),
+.monaco-workbench .basehalf-canvas-chrome :focus:not(:focus-visible),
+.monaco-workbench .basehalf-canvas-create-button:focus:not(:focus-visible) {
+	outline: none;
+}
+
 .monaco-workbench .basehalf-canvas-overlay {
 	position: absolute;
 	inset: 0;

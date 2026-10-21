@@ -195,6 +195,16 @@ export function baseHalfCanvasInteractionOwnsEscape(event: Pick<KeyboardEvent, '
 	return event.key === 'Escape' && !event.isComposing && event.keyCode !== 229;
 }
 
+/**
+ * Whether a click came from the mouse or a touch. A click that Enter or Space
+ * makes on a button has no count. A menu that such a click opens has no
+ * current item until an arrow key chooses one (architecture invariants,
+ * Product shell).
+ */
+export function baseHalfCanvasClickedByPointer(event: Pick<MouseEvent, 'detail'>): boolean {
+	return event.detail > 0;
+}
+
 /** The four sides of a card where a connection attaches. */
 export const EDGE_RECONNECT_ANCHORS: readonly BaseHalfCanvasAnchor[] = ['north', 'east', 'south', 'west'];
 

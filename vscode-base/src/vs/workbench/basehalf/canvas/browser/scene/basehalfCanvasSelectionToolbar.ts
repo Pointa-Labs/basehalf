@@ -9,7 +9,7 @@ import { localize } from '../../../../../nls.js';
 import { BaseHalfCanvasArrangement, IBaseHalfCanvasArrangeCard, baseHalfCanvasBoundingRect } from '../../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasSceneSelectionAction, baseHalfCanvasSceneSelectionActions, BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
-import { BaseHalfCanvasFlowNode, flowNodeRect, IBaseHalfCanvasSceneEnvironment, isCanvasElement, screenSpaceCanvasStyle } from './basehalfCanvasSceneShared.js';
+import { BaseHalfCanvasFlowNode, baseHalfCanvasClickedByPointer, flowNodeRect, IBaseHalfCanvasSceneEnvironment, isCanvasElement, screenSpaceCanvasStyle } from './basehalfCanvasSceneShared.js';
 import { resolveBaseHalfCanvasSelectionToolbarPlacement } from './basehalfCanvasSelectionControlsPlacement.js';
 
 export function baseHalfCanvasSceneSelectionRenameLabel(renameChangesPathOnly: boolean): string {
@@ -47,7 +47,10 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 		const viewport = vendor.useViewport();
 		const [focusIndex, setFocusIndex] = vendor.useState(0);
 		const [arrangeOpen, setArrangeOpen] = vendor.useState(false);
+		// A click opened the menu, not a key: it holds the focus itself, with no current item.
+		const arrangeByPointer = vendor.useRef(false);
 		const arrangeRef = vendor.useRef<HTMLSpanElement>(null);
+		const arrangeMenuRef = vendor.useRef<HTMLDivElement>(null);
 		const toolbarRef = vendor.useRef<HTMLDivElement>(null);
 		// The buttons of a set carry their names, so the width depends on the
 		// language. It is measured, and it keeps the toolbar inside the view.
@@ -73,7 +76,8 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 			if (!arrangeOpen) {
 				return;
 			}
-			arrangeRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+			const menu = arrangeMenuRef.current;
+			(arrangeByPointer.current ? menu : menu?.querySelector<HTMLButtonElement>('[role="menuitem"]'))?.focus({ preventScroll: true });
 			const closeOutside = (event: PointerEvent): void => {
 				if (!isCanvasElement(event.target) || !arrangeRef.current?.contains(event.target)) {
 					setArrangeOpen(false);
@@ -135,10 +139,11 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 			const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
 			const index = items.findIndex(item => item === event.currentTarget.ownerDocument.activeElement);
 			let next: number | undefined;
+			// Without a current item (index -1), Down goes to the first item and Up to the last.
 			if (event.key === 'ArrowDown') {
 				next = (index + 1) % items.length;
 			} else if (event.key === 'ArrowUp') {
-				next = (index - 1 + items.length) % items.length;
+				next = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length;
 			} else if (event.key === 'Home') {
 				next = 0;
 			} else if (event.key === 'End') {
@@ -201,6 +206,7 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 							if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
 								event.preventDefault();
 								event.stopPropagation();
+								arrangeByPointer.current = false;
 								setArrangeOpen(true);
 								return;
 							}
@@ -209,13 +215,16 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 						onClick: (event: ReactMouseEvent<HTMLElement>) => {
 							event.preventDefault();
 							event.stopPropagation();
+							arrangeByPointer.current = baseHalfCanvasClickedByPointer(event);
 							setArrangeOpen(open => !open);
 						}
 					}, ...face('layout', arrangeLabel, true)),
 					arrangeOpen ? h('div', {
+						ref: arrangeMenuRef,
 						className: 'basehalf-canvas-arrange-menu',
 						role: 'menu',
 						'aria-label': arrangeLabel,
+						tabIndex: -1,
 						onKeyDown: moveInArrangeMenu
 					}, ...arrangements.map(item => h('button', {
 						key: item.id,

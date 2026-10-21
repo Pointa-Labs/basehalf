@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { workspacePath } from '../../context.mts';
-import { assertCanvasFolder, openRootCanvas, readCanvasCardGeometry } from '../../lib/canvas.mts';
+import { assertCanvasFolder, assertCanvasMenuOpenedByClick, openRootCanvas, readCanvasCardGeometry } from '../../lib/canvas.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
 // Canvas card placement: every card has a saved place. A folder that was never
@@ -220,8 +220,10 @@ export async function assertCanvasSelectionAndArrangement(page) {
 	}
 	await expectState({ cards: ['d.md', 'e.md'], connections: 0, box: true, count: '2' }, 'After Escape during a move the set must still be the selection');
 
-	// Arrange: a column from the corner of the box, and one undo.
+	// Arrange: a column from the corner of the box, and one undo. The menu that
+	// the click opens has no current item and no ring.
 	await page.locator('.basehalf-canvas-selection-toolbar [data-toolbar-item="arrange"]').click();
+	await assertCanvasMenuOpenedByClick(page, '.basehalf-canvas-arrange-menu', 'The Arrange menu');
 	await page.locator('.basehalf-canvas-arrange-menu-item[data-arrangement="column"]').click();
 	const column = { ...first, 'e.md': [first['d.md'][0], first['d.md'][1] + 280] };
 	await waitUntil(() => same(rowsOf(), column), 'Arrange to put the set in a column and to move no other card', 10_000);

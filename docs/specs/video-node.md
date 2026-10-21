@@ -354,7 +354,17 @@ button, and the empty prompt already say those.
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
 open, returns focus to the card. Menus follow the arrow keys, Home, End, and
-Enter.
+Enter. A menu starts at its checked item; without one, a menu opened from
+the keyboard starts at its first item, and a menu opened by a click has no
+current item until Down chooses the first or Up the last.
+
+Focus follows the canvas's rule
+([architecture invariants](../harness/architecture-invariants.md#product-shell)).
+The prompt has no frame or ring when it has the focus: its caret shows it,
+and the text being typed looks as it does at rest. A field of the settings
+popover shows the focus by its border alone. The buttons, slots, and menu
+items show a ring only when the keyboard moved the focus to them, so a model
+chosen with the mouse leaves no ring on the model button.
 
 ### Placement
 
@@ -616,7 +626,7 @@ Providers
 Panel and card
 
 8. Creating a Video node selects it and shows the panel with the prompt
-   focused.
+   focused, with no frame or ring around the prompt.
 9. Typing a prompt and clicking the canvas saves the prompt to the file, with
    no dialog, also when no model is chosen.
 10. The panel never pans or zooms the canvas; it is below, above, or clamped
@@ -655,6 +665,15 @@ A generation
     node's model, mode, values, and inputs, in the region's currency, and
     changes when they change.
 
+Focus
+
+23. While the prompt is typed in, it has no frame or ring; a field of the
+    settings popover shows its focus by its border alone.
+24. The model menu of a node without a model and the menu of Capture Frame,
+    opened by a click, have no current item and no ring, and choosing from
+    them with the mouse leaves no ring on the model button or on Capture
+    Frame.
+
 ## Verification
 
 - Unit tests of the pure modules (`basehalfVideoNode.test.ts`,
@@ -662,11 +681,11 @@ A generation
   with a fake extension and a test catalog, and of the panel drawn from that
   catalog.
 - The tests of each provider module ([video providers](video-providers.md#verification)).
-- `npm run basehalf:smoke` with steps for criteria 6 to 17, 19, 20, and 22
-  against the local test provider through the ByteDance module, with a test
-  key; no paid provider is called.
+- `npm run basehalf:smoke` with steps for criteria 6 to 17, 19, 20, 22, 24,
+  and the prompt of 23, against the local test provider through the
+  ByteDance module, with a test key; no paid provider is called.
 - A real-window check of the panel, the settings of models of several
-  providers, a generation against the local test provider, and a reload
-  during a generation.
+  providers, the focus of a settings field, a generation against the local
+  test provider, and a reload during a generation.
 - A generation with a real provider is run by a person with their own key
   before a release that adds or changes a provider module.

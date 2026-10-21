@@ -380,3 +380,38 @@ export async function assertCanvasEdgeGone(page, from, to) {
 			.some(p => p instanceof SVGPathElement && p.dataset.edgeId === `${f}${String.fromCharCode(0)}${t}`);
 	}, [from, to], { timeout: 15_000 });
 }
+
+// What has the keyboard focus, and the ring it shows, if any. On the canvas a
+// focus ring is for the keyboard: a click leaves none, and a text field shows
+// its focus by its caret (architecture invariants, Product shell).
+export function readCanvasFocus(page) {
+	return page.evaluate(() => {
+		const active = document.activeElement;
+		if (!active || active === document.body) {
+			return { element: null, role: null, ring: null };
+		}
+		const style = getComputedStyle(active);
+		return {
+			element: `${active.tagName.toLowerCase()}.${[...active.classList].join('.')}`,
+			role: active.getAttribute('role'),
+			ring: style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0 ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}` : null
+		};
+	});
+}
+
+export async function assertNoCanvasFocusRing(page, what) {
+	const focus = await readCanvasFocus(page);
+	if (focus.ring !== null) {
+		throw new Error(`${what} must show no focus ring: ${JSON.stringify(focus)}`);
+	}
+	return focus;
+}
+
+// A menu that a click opened holds the focus itself, with no current item
+// until an arrow key chooses one, and shows no ring.
+export async function assertCanvasMenuOpenedByClick(page, menuSelector, what) {
+	await page.waitForFunction(selector => document.activeElement?.matches(selector) ?? false, menuSelector, { timeout: 10_000 }).catch(async () => {
+		throw new Error(`${what}, opened by a click, must hold the focus itself with no current item: ${JSON.stringify(await readCanvasFocus(page))}`);
+	});
+	await assertNoCanvasFocusRing(page, what);
+}

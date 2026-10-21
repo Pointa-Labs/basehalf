@@ -19,7 +19,7 @@ import {
 } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfVideoPanelSide } from '../../../video/common/basehalfVideoNodePanelPlacement.js';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
-import { BaseHalfCanvasFlowNode, IBaseHalfCanvasSceneEnvironment, isCanvasElement, numericStyle, screenSpaceCanvasStyle } from './basehalfCanvasSceneShared.js';
+import { BaseHalfCanvasFlowNode, baseHalfCanvasClickedByPointer, IBaseHalfCanvasSceneEnvironment, isCanvasElement, numericStyle, screenSpaceCanvasStyle } from './basehalfCanvasSceneShared.js';
 import { baseHalfCanvasVideoToolbarWidth, NOTE_CONTROLS_SCREEN_MARGIN, resolveBaseHalfCanvasVideoPanelPlacement, resolveBaseHalfCanvasVideoSelectionPlacement } from './basehalfCanvasSelectionControlsPlacement.js';
 
 const VIDEO_CAPTURE_FRAMES: readonly BaseHalfCanvasSceneVideoFrame[] = Object.freeze(['first', 'current', 'last']);
@@ -92,8 +92,11 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 		const viewportSize = useHostSize();
 		const [focusIndex, setFocusIndex] = vendor.useState(0);
 		const [captureOpen, setCaptureOpen] = vendor.useState(false);
+		// A click opened the menu of frames, not a key: it holds the focus itself, with no current item.
+		const captureByPointer = vendor.useRef(false);
 		const toolbarRef = vendor.useRef<HTMLDivElement | null>(null);
 		const buttonRefs = vendor.useRef<(HTMLButtonElement | null)[]>([]);
+		const frameMenuRef = vendor.useRef<HTMLDivElement | null>(null);
 		const frameRefs = vendor.useRef<(HTMLButtonElement | null)[]>([]);
 		const controls = node.data.card.controls?.kind === 'video' ? node.data.card.controls : undefined;
 		const actions = baseHalfCanvasSceneVideoSelectionActions(controls?.actions ?? []);
@@ -127,7 +130,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			if (!captureOpen) {
 				return;
 			}
-			frameRefs.current[0]?.focus({ preventScroll: true });
+			(captureByPointer.current ? frameMenuRef.current : frameRefs.current[0])?.focus({ preventScroll: true });
 			const closeOutside = (event: PointerEvent): void => {
 				if (!isCanvasElement(event.target) || !toolbarRef.current?.contains(event.target)) {
 					setCaptureOpen(false);
@@ -189,6 +192,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			if (index === captureIndex && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
 				event.preventDefault();
 				event.stopPropagation();
+				captureByPointer.current = false;
 				setCaptureOpen(true);
 				return;
 			}
@@ -213,10 +217,11 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			const items = frameRefs.current.filter((item): item is HTMLButtonElement => !!item);
 			const index = items.findIndex(item => item === host.ownerDocument.activeElement);
 			let next: number | undefined;
+			// Without a current item (index -1), Down goes to the first frame and Up to the last.
 			if (event.key === 'ArrowDown') {
 				next = (index + 1) % items.length;
 			} else if (event.key === 'ArrowUp') {
-				next = (index - 1 + items.length) % items.length;
+				next = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length;
 			} else if (event.key === 'Home') {
 				next = 0;
 			} else if (event.key === 'End') {
@@ -278,6 +283,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 				event.preventDefault();
 				event.stopPropagation();
 				if (action === 'captureFrame') {
+					captureByPointer.current = baseHalfCanvasClickedByPointer(event);
 					setCaptureOpen(open => !open);
 					return;
 				}
@@ -287,9 +293,11 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 		const frameMenu = captureOpen && captureIndex >= 0
 			? h('div', {
 				key: 'frames',
+				ref: frameMenuRef,
 				className: `basehalf-video-capture-menu ${menuOpensAbove ? 'above' : 'below'}`,
 				role: 'menu',
 				'aria-label': labels.captureFrame,
+				tabIndex: -1,
 				onKeyDown: onFrameKeyDown
 			}, ...VIDEO_CAPTURE_FRAMES.map((frame, index) => h('button', {
 				key: frame,

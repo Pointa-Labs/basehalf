@@ -464,7 +464,10 @@ Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
 
 - The set toolbar is reached and operated by the keyboard as the toolbar of
   a single card is. Arrange opens a menu of three items that the arrow keys,
-  Enter, and Escape operate.
+  Enter, and Escape operate. Opened from the keyboard, the menu starts at
+  Grid; opened by a click, it has no current item and shows no focus ring
+  until an arrow key chooses one
+  ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
 - The set box is announced as a group with the number of selected cards.
 - Tidy Canvas has a name, and its tooltip shows the key.
 - The buttons of the question are reached by Tab. Keep is the default

@@ -369,9 +369,14 @@
 	overflow-y: auto;
 	color: var(--bh-card-text-primary, var(--vscode-foreground));
 	background: transparent;
-	outline: none;
 	resize: none;
 	scrollbar-width: none;
+}
+
+/* The caret shows that the prompt has the focus. The workbench rings every
+ * focused text field; here the text being typed looks as it does at rest. */
+.monaco-workbench .bh-video-panel-prompt-input:focus {
+	outline: none;
 }
 
 .monaco-workbench .bh-video-panel-prompt-input::-webkit-scrollbar {
@@ -988,7 +993,6 @@
 	border-radius: 7px;
 	font: inherit;
 	font-size: 12px;
-	outline: none;
 }
 
 .monaco-workbench .bh-video-panel-field.multiline {
@@ -998,8 +1002,12 @@
 	resize: vertical;
 }
 
-.monaco-workbench .bh-video-panel-field:focus {
+/* A field shows its focus by its border alone, whichever stylesheet loads
+ * last: the workbench's ring would be drawn over the border, and the panel's
+ * ring for the keyboard would be a second frame outside it. */
+.monaco-workbench .bh-video-panel .bh-video-panel-field:focus {
 	border-color: var(--vscode-focusBorder);
+	outline: none;
 }
 
 .monaco-workbench .bh-video-panel-field:disabled {

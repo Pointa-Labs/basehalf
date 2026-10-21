@@ -18,6 +18,8 @@ import {
 } from './videoNode.mts';
 import { workspacePath } from '../../context.mts';
 import {
+	assertCanvasMenuOpenedByClick,
+	assertNoCanvasFocusRing,
 	emptyCanvasPoint,
 	openCanvasZoomMenu,
 	readCanvasCardGeometry,
@@ -365,11 +367,19 @@ export async function seekVideoCard(page, cardPath, seconds) {
 	}
 }
 
+// Captures a frame with the mouse (the menu of criterion 24): the menu that
+// the click opens has no current item and no ring, and choosing a frame leaves
+// no ring on Capture Frame.
 export async function captureVideoCardFrame(page, frame, relativePath) {
 	await page.locator('.basehalf-video-context-toolbar [data-video-action="captureFrame"]').click();
 	const item = page.locator(`.basehalf-video-capture-menu [data-video-frame="${frame}"]`);
 	await item.waitFor({ state: 'visible', timeout: 10_000 });
+	await assertCanvasMenuOpenedByClick(page, '.basehalf-video-capture-menu', 'The menu of Capture Frame');
 	await item.click();
+	const afterChoice = await assertNoCanvasFocusRing(page, 'Capture Frame after a frame was chosen with the mouse');
+	if (!afterChoice.element?.includes('basehalf-video-capture-action')) {
+		throw new Error(`Choosing a frame must give the focus back to Capture Frame: ${JSON.stringify(afterChoice)}`);
+	}
 	await waitUntil(() => fs.existsSync(videoWorkspaceFile(relativePath)), `Capture Frame to write ${relativePath}`, 20_000);
 	await waitUntil(() => readCanvasCardGeometry(readVideoCanvasLayout(), relativePath) !== undefined, `the card of ${relativePath} to get a place`, 10_000);
 	await videoCanvasCard(page, relativePath).waitFor({ state: 'attached', timeout: 15_000 });

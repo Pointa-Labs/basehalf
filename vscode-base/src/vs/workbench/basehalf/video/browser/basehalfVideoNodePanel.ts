@@ -146,6 +146,8 @@ interface IOpenMenu {
 	/** The control the menu opened from, for placing it. */
 	readonly anchor: () => DOMRect | undefined;
 	readonly align: 'start' | 'end';
+	/** A click opened it, not a key: it has no current item until an arrow key chooses one. */
+	readonly byPointer: boolean;
 	/** What the items show, so they are drawn again only when it changes. */
 	contentKey?: string;
 }
@@ -618,8 +620,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			}
 		}));
 
-		this._register(addDisposableListener(this.modelButton, 'click', () => this.toggleMenu('model', this.modelButton)));
-		this._register(addDisposableListener(this.settingsButton, 'click', () => this.toggleMenu('settings', this.settingsButton)));
+		this._register(addDisposableListener(this.modelButton, 'click', event => this.toggleMenu('model', this.modelButton, clickedByPointer(event))));
+		this._register(addDisposableListener(this.settingsButton, 'click', event => this.toggleMenu('settings', this.settingsButton, clickedByPointer(event))));
 		this._register(addDisposableListener(this.generateButton, 'click', () => { void this.generate(); }));
 		this._register(addDisposableListener(this.reasonAction, 'click', () => {
 			const action = this.presentation?.reason?.action;
@@ -847,7 +849,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			empty.append(renderCodicon(Codicon.add));
 			append(empty, $('span.bh-video-panel-slot-title')).textContent = slot.title;
 			this.rowStore.add(this.hoverService.setupDelayedHover(empty, () => ({ content: slot.addLabel }), { groupId: HOVER_GROUP }));
-			this.rowStore.add(addDisposableListener(empty, 'click', () => this.toggleMenu('add', empty)));
+			this.rowStore.add(addDisposableListener(empty, 'click', event => this.toggleMenu('add', empty, clickedByPointer(event))));
 		});
 		for (const item of row.items) {
 			this.renderInput(list, item, undefined);
@@ -861,7 +863,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		add.setAttribute('aria-label', addLabel);
 		add.append(renderCodicon(Codicon.add));
 		this.rowStore.add(this.hoverService.setupDelayedHover(add, () => ({ content: addLabel }), { groupId: HOVER_GROUP }));
-		this.rowStore.add(addDisposableListener(add, 'click', () => this.toggleMenu('add', add)));
+		this.rowStore.add(addDisposableListener(add, 'click', event => this.toggleMenu('add', add, clickedByPointer(event))));
 		const hint = this.picking
 			? localize('basehalf.video.panel.picking', "Click a card to connect it. Escape cancels.")
 			: row.emptyHint;
@@ -1249,15 +1251,15 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	//#region Menus
 
-	private toggleMenu(kind: Exclude<BaseHalfVideoPanelMenuKind, 'mention'>, trigger: HTMLElement): void {
+	private toggleMenu(kind: Exclude<BaseHalfVideoPanelMenuKind, 'mention'>, trigger: HTMLElement, byPointer: boolean): void {
 		if (this.openMenu?.kind === kind && this.openMenu.trigger === trigger) {
 			this.closeMenu(true);
 			return;
 		}
-		this.showMenu(kind, trigger);
+		this.showMenu(kind, trigger, byPointer);
 	}
 
-	private showMenu(kind: BaseHalfVideoPanelMenuKind, trigger: HTMLElement): void {
+	private showMenu(kind: BaseHalfVideoPanelMenuKind, trigger: HTMLElement, byPointer = false): void {
 		this.closeMenu(false);
 		if (!this.presentation) {
 			return;
@@ -1273,7 +1275,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			store,
 			content: store.add(new DisposableStore()),
 			anchor: kind === 'mention' ? () => this.caretRect() : () => this.menuAnchor(kind, trigger),
-			align: 'start'
+			align: 'start',
+			byPointer
 		};
 		this.openMenu = menu;
 		this.menu.value = store;
@@ -1336,7 +1339,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				this.closeMenu(false);
 				return;
 			}
-			this.showMenu(menu.kind, replacement);
+			this.showMenu(menu.kind, replacement, menu.byPointer);
 			return;
 		}
 		if (this.menuContentKey(menu.kind) === menu.contentKey) {
@@ -1427,10 +1430,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		const items = this.menuItems(menu.element);
 		const index = items.findIndex(item => item === getWindow(this.element).document.activeElement);
 		let next: number | undefined;
+		// Without a current item (index -1), Down goes to the first item and Up to the last.
 		if (event.key === 'ArrowDown') {
 			next = (index + 1) % items.length;
 		} else if (event.key === 'ArrowUp') {
-			next = (index - 1 + items.length) % items.length;
+			next = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length;
 		} else if (event.key === 'Home') {
 			next = 0;
 		} else if (event.key === 'End') {
@@ -1461,10 +1465,21 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		return items;
 	}
 
-	/** A menu focuses its checked item or its first; the settings focus their first control. */
+	/**
+	 * A menu focuses its checked item. Without one, a menu opened from the
+	 * keyboard focuses its first item, and a menu that a click opened holds the
+	 * focus itself, with no current item, as the workbench's menus do: an item
+	 * focused there would show no ring, and Enter would choose it unseen. The
+	 * settings focus their first control.
+	 */
 	private focusFirstMenuItem(menu: IOpenMenu): void {
 		const items = this.menuItems(menu.element);
 		const checked = items.find(item => item.getAttribute('aria-checked') === 'true');
+		if (!checked && menu.byPointer && items.length > 0) {
+			menu.element.tabIndex = -1;
+			menu.element.focus({ preventScroll: true });
+			return;
+		}
 		(checked ?? items[0] ?? this.firstControl(menu.element))?.focus({ preventScroll: true });
 	}
 
@@ -2208,4 +2223,9 @@ function renderCodicon(icon: ThemeIcon, className?: string): HTMLElement {
 
 function addInputLabel(): string {
 	return localize('basehalf.video.panel.addInput', "Add Input");
+}
+
+/** A click of the mouse or a touch. A click that Enter or Space makes on a button has no count. */
+function clickedByPointer(event: MouseEvent): boolean {
+	return event.detail > 0;
 }

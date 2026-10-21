@@ -811,6 +811,38 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('a menu that a click opened has no current item until an arrow key chooses one; from the keyboard it starts at its first item', async () => {
+		const panel = await createPanel();
+		const add = find(panel, '.bh-video-panel-add');
+		const active = () => mainWindow.document.activeElement as HTMLElement;
+		// The focused item by its name, or the menu itself.
+		const current = () => active().matches('.bh-video-panel-menu') ? 'menu' : active().querySelector('.bh-video-panel-menu-label')?.textContent ?? active().className;
+		// A click of the mouse counts one; the click that Enter or Space makes on a button counts none.
+		const clickWithMouse = (element: HTMLElement) => element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+		clickWithMouse(add);
+		const clicked = current();
+		press(active(), 'ArrowDown');
+		const down = current();
+		press(active(), 'Escape');
+		clickWithMouse(add);
+		press(active(), 'ArrowUp');
+		const up = current();
+		press(active(), 'Escape');
+		add.click();
+		const fromKeyboard = current();
+		press(active(), 'Escape');
+		// A model that is checked stays where a click opens its menu.
+		clickWithMouse(find(panel, '.bh-video-panel-model'));
+		const checked = current();
+		assert.deepStrictEqual({ clicked, down, up, fromKeyboard, checked }, {
+			clicked: 'menu',
+			down: 'Pick on Canvas',
+			up: 'Import File…',
+			fromKeyboard: 'Pick on Canvas',
+			checked: 'Acme Motion 2'
+		});
+	});
+
 	test('says when the node cannot be read, and shows why Generate did not start', async () => {
 		const unreadable = disposables.add(new FakeVideoNodeStore({}, []));
 		unreadable.read = async () => { throw new Error('document.version 5 is no longer supported: this node was saved by an earlier BaseHalf.'); };

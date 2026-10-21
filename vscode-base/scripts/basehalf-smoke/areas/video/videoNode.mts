@@ -46,6 +46,8 @@ import { workspacePath } from '../../context.mts';
 import { waitForAgentAreaTerminalPrompt } from '../../lib/agentArea.mts';
 import {
 	assertCanvasFolder,
+	assertCanvasMenuOpenedByClick,
+	assertNoCanvasFocusRing,
 	clickCanvasCreateSubmenuAction,
 	panCanvasCardTo,
 	readCanvasCardGeometry,
@@ -128,9 +130,9 @@ export async function stopVideoSmokeProvider() {
 }
 
 // Criteria 8 and 12, and the first half of 10: a Video node made from the
-// create menu is selected and shows its panel with the prompt focused,
-// nothing has moved the view, and with no model chosen Generate is disabled
-// and says why, also in its tooltip.
+// create menu is selected and shows its panel with the prompt focused and no
+// ring around it, nothing has moved the view, and with no model chosen
+// Generate is disabled and says why, also in its tooltip.
 async function assertVideoNodeCreateOpensPanel(page) {
 	await videoSmokeProvider();
 	createVideoSmokeFolder();
@@ -157,6 +159,7 @@ async function assertVideoNodeCreateOpensPanel(page) {
 	await waitForCanvasCardSelection(page, VIDEO_NODE, 15_000);
 	const panel = await waitForVideoPanel(page, VIDEO_NODE);
 	await waitForReading(() => readVideoPanel(panel), seen => seen.promptFocused, 'the prompt of the new Video node to have the keyboard focus');
+	await assertNoCanvasFocusRing(page, 'The prompt of the new Video node');
 	assertSameCanvasView(viewBefore, await readCanvasView(page), 'Making a Video node and opening its panel');
 	// The panel shows that the models load until AI Video answers with the catalog.
 	const shown = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === true && seen.catalog === 'ready', 'Generate to be disabled while no model is chosen, once the catalog is there', 30_000);
@@ -169,14 +172,16 @@ async function assertVideoNodeCreateOpensPanel(page) {
 	await page.mouse.move(canvasBox.x + 8, canvasBox.y + canvasBox.height - 8);
 }
 
-// Criteria 9 and 10: the prompt typed with the keyboard is saved to the
-// node's file when the user clicks the canvas, without a model and without a
-// dialog, and the panel goes with the card's selection.
+// Criteria 9 and 10, and the first half of 23: the prompt typed with the
+// keyboard, with no ring around it, is saved to the node's file when the user
+// clicks the canvas, without a model and without a dialog, and the panel goes
+// with the card's selection.
 async function assertVideoNodePromptSavesWithoutDialog(page) {
 	const panel = videoPanel(page, VIDEO_NODE);
 	await waitForReading(() => readVideoPanel(panel), seen => seen.promptFocused, 'the prompt to keep the keyboard focus');
 	await page.keyboard.type(VIDEO_PROMPT);
 	await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === VIDEO_PROMPT, 'the prompt to hold what was typed');
+	await assertNoCanvasFocusRing(page, 'The prompt while it is typed in');
 	await clickBlankVideoCanvas(page);
 	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === VIDEO_PROMPT, `the typed prompt to be saved in ${VIDEO_NODE}`, 10_000);
 	await waitForReading(() => page.locator('.basehalf-canvas-video-panel-surface').count(), count => count === 0, 'the Video panel to go when its card is no longer selected');
@@ -219,17 +224,19 @@ async function assertVideoProvidersSetUp(page) {
 	await assertCanvasFolder(page, VIDEO_FOLDER);
 }
 
-// Criteria 7, 11, 12, and 22: the model menu lists the catalog's models by
-// provider, says that the provider is not set up, and ends with the way to
-// Video Providers; choosing the first model of VIDEO_PROVIDER stores it with
-// its mode and the defaults of its values; Generate names the provider that is
-// not set up; the settings popover is drawn from the model's parameters, and a
-// change is shown and stored at once; the estimate shows before the
-// credentials are set.
+// Criteria 7, 11, 12, and 22, and the model menu of 24: the model menu lists
+// the catalog's models by provider, says that the provider is not set up, and
+// ends with the way to Video Providers; opened by a click, it has no current
+// item and no ring; choosing the first model of VIDEO_PROVIDER stores it with
+// its mode and the defaults of its values, and leaves no ring on the model
+// button; Generate names the provider that is not set up; the settings
+// popover is drawn from the model's parameters, and a change is shown and
+// stored at once; the estimate shows before the credentials are set.
 async function assertVideoPanelModelAndSettings(page) {
 	const panel = await selectVideoCard(page, VIDEO_NODE);
 	await panel.locator('button.bh-video-panel-model').click();
 	const menu = await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null && seen.groups.length > 0, 'the model menu to list the catalog\'s models');
+	await assertCanvasMenuOpenedByClick(page, '.bh-video-panel-menu.model', 'The model menu');
 	const group = menu.groups.find(candidate => candidate.provider === VIDEO_PROVIDER);
 	if (!group || group.detail !== 'Not set up' || !group.items.length || JSON.stringify(menu.end) !== JSON.stringify(['Video Providers…'])) {
 		throw new Error(`The model menu must list ${VIDEO_PROVIDER}'s models as not set up, and end with Video Providers…: ${JSON.stringify(menu)}`);
@@ -240,6 +247,10 @@ async function assertVideoPanelModelAndSettings(page) {
 	}
 	videoSmoke.model = group.items[0].model;
 	await clickVideoModel(page, panel, videoSmoke.model);
+	const afterChoice = await assertNoCanvasFocusRing(page, 'The model button after a model was chosen with the mouse');
+	if (!afterChoice.element?.includes('bh-video-panel-model')) {
+		throw new Error(`Choosing a model must give the focus back to the model button: ${JSON.stringify(afterChoice)}`);
+	}
 	const chosen = await waitForReading(() => readVideoNode(VIDEO_NODE).generation, generation => generation?.provider === VIDEO_PROVIDER && generation.model === videoSmoke.model
 		&& typeof generation.mode === 'string' && generation.params && typeof generation.params === 'object', 'choosing the model to store its provider, model, mode, and values', 10_000);
 	// Frames take the two images of the next steps.
