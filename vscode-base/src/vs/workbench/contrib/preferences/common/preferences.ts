@@ -240,6 +240,8 @@ knownTermMappings.set('jet brains', 'JetBrains');
 knownTermMappings.set('jetbrains', 'JetBrains');
 knownTermMappings.set('re sharper', 'ReSharper');
 knownTermMappings.set('resharper', 'ReSharper');
+// BaseHalf: the product's name, as search results show it before its settings ("BaseHalf › Editor").
+knownTermMappings.set('basehalf', 'BaseHalf');
 
 export function wordifyKey(key: string): string {
 	key = key

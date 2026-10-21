@@ -30,6 +30,19 @@ Measured in the real window on 2026-10-21:
   area, closing it on Video Providers and opening it again showed Video
   Providers selected in the table of contents and, beside it, only the
   headings "BaseHalf" and "Video Providers".
+- **The pages were empty headings in the settings list.** BaseHalf › Agent
+  Area listed Default Session and then the headings "Video Providers" and
+  "About" with nothing under them; so did the whole list after a search was
+  cleared.
+- **The skill switch was in no area.** Agent Area matched
+  `basehalf.agent.*`, and the setting that turns off the offer of BaseHalf's
+  skill is `basehalf.agents.offerSkill`: only a search found it. The area
+  Connections matched no setting since the last one was removed, and was
+  never drawn.
+- **The welcome page's Open BaseHalf Settings… found nothing.** It searches
+  for the tag `basehalf`, and no setting had it.
+- **Enter did not reach a page.** Enter on the entry of a page moved the
+  focus to the hidden settings list, so it stayed in the table of contents.
 
 ## Terms
 
@@ -44,11 +57,27 @@ Measured in the real window on 2026-10-21:
 
 The table of contents has a group **BaseHalf**. It lists BaseHalf's settings
 by area, each area that has settings, and then the pages Video Providers and
-About.
+About:
 
-- A page has no settings and shows no count. It is not among search results:
-  a search lists settings only.
-- The entry of a page shows the page in place of the settings list.
+| Entry | Holds |
+| --- | --- |
+| Editor | `basehalf.editor.*` |
+| Canvas | `basehalf.canvas.*` |
+| Agent Area | `basehalf.agent.*` and `basehalf.agents.*` |
+| Video Providers | the page ([video providers](video-providers.md#credentials-regions-and-endpoints)) |
+| About | the page ([app update](app-update.md#where-an-update-shows)) |
+
+- Every BaseHalf setting is in exactly one area, and every area holds a
+  setting.
+- Every BaseHalf setting has the tag `basehalf`. The welcome page's **Open
+  BaseHalf Settings…** searches Settings for it and lists them all.
+- Search results name the group as **BaseHalf**, such as "BaseHalf ›
+  Editor".
+- A page has no settings and shows no count. It is no heading in the
+  settings list, and no search lists it.
+- The entry of a page shows the page in place of the settings list. As for
+  every entry, a click or the arrow keys there keep the focus in the table
+  of contents; Enter, or Tab, moves it into the page.
 
 ## Opening Settings at a page
 
@@ -106,11 +135,20 @@ BaseHalf**. Video Providers opens at a provider when one is given.
    again shows that page.
 4. Switching User and Workspace while a page is shown keeps the page, the
    text typed in it, and the focus.
+5. BaseHalf › Agent Area lists Default Session and the switch for the offer
+   of the skill, and no area or the whole list shows a page as a heading.
+6. The welcome page's Open BaseHalf Settings… lists every BaseHalf setting.
+7. Enter on the entry of a page puts the focus on the page.
 
 ## Verification
 
-- The real-window check of criteria 1 to 4, in both forms of Settings, from
+- The real-window check of criteria 1 to 7, in both forms of Settings, from
   a disposable workspace.
+- Unit tests: every BaseHalf setting is in exactly one area and has the tag
+  that the welcome page searches for
+  (`shell/test/browser/basehalfSettingsLayout.test.ts`); a page is an entry
+  of the table of contents and no heading of the settings list
+  (`settingsCustomSections.test.ts`).
 - The smoke: Settings opens at Video Providers from its command and from Set
   Up (`areas/workbench/settings.mts`, `areas/video/videoNode.mts`). The smoke
   runs Settings in the editor area.

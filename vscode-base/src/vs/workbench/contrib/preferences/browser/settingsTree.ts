@@ -2457,8 +2457,11 @@ export class SettingsTreeFilter implements ITreeFilter<SettingsTreeElement> {
 
 		// Group with no visible children
 		if (element instanceof SettingsTreeGroupElement) {
+			// BaseHalf: a page is an entry of the table of contents that has no settings
+			// (docs/specs/settings-pages.md): it is no heading in the settings list, and no
+			// search lists it.
 			if (element.customSection) {
-				return this.viewState.query?.trim() ? false : true;
+				return !this.isFilteringGroups && !this.viewState.query?.trim();
 			}
 			// When filtering to a specific category, only show that category and its descendants
 			if (this.isFilteringGroups && this.viewState.categoryFilter) {

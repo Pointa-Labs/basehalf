@@ -24,6 +24,12 @@ export const BASEHALF_CANVAS_DEFAULT_ZOOM = 1;
 
 export const BASEHALF_AGENT_DEFAULT_SESSION: BaseHalfAgentSessionKind = 'tui-codex';
 
+/**
+ * The tag of every BaseHalf setting. The welcome page's Open BaseHalf Settings
+ * searches Settings for it (`@tag:basehalf`).
+ */
+export const BASEHALF_SETTINGS_TAG = 'basehalf';
+
 // Exported so tests can restore BaseHalf settings after platform suites reset
 // the shared configuration registry.
 export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
@@ -36,12 +42,14 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			type: 'boolean',
 			default: false,
 			scope: ConfigurationScope.RESOURCE,
+			tags: [BASEHALF_SETTINGS_TAG],
 			description: localize('basehalf.editor.readingMode', 'Controls whether BaseHalf ADHD reading aids are enabled in rich Markdown documents.')
 		},
 		[BaseHalfSetting.AttachmentsDirectory]: {
 			type: 'string',
 			default: 'attachments',
 			scope: ConfigurationScope.RESOURCE,
+			tags: [BASEHALF_SETTINGS_TAG],
 			description: localize('basehalf.editor.attachmentsDirectory', 'Controls the folder, relative to a Markdown document, where files inserted from the rich editor are stored.')
 		},
 		[BaseHalfSetting.CanvasDefaultZoom]: {
@@ -50,6 +58,7 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			minimum: BASEHALF_CANVAS_MIN_ZOOM,
 			maximum: BASEHALF_CANVAS_MAX_ZOOM,
 			scope: ConfigurationScope.RESOURCE,
+			tags: [BASEHALF_SETTINGS_TAG],
 			description: localize('basehalf.canvas.defaultZoom', 'Controls the initial BaseHalf canvas zoom when a folder has no remembered canvas viewport on this machine.')
 		},
 		[BaseHalfSetting.AgentDefaultSession]: {
@@ -59,12 +68,14 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			enumItemLabels: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.label),
 			enumDescriptions: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.description),
 			scope: ConfigurationScope.WINDOW,
+			tags: [BASEHALF_SETTINGS_TAG],
 			description: localize('basehalf.agent.defaultSession', 'Controls which Agent Area session is created when the Agent Area is opened with no active sessions.')
 		},
 		[BaseHalfSetting.AgentsOfferSkill]: {
 			type: 'boolean',
 			default: true,
 			scope: ConfigurationScope.WINDOW,
+			tags: [BASEHALF_SETTINGS_TAG],
 			description: localize('basehalf.agents.offerSkill', 'Controls whether BaseHalf offers to install its skill for your agents when you open a folder. The skill tells agents such as Claude Code and Codex where a card\'s description and connections are.')
 		}
 	}

@@ -192,14 +192,10 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['basehalf.canvas.*']
 				},
 				{
-					id: 'basehalf/connections',
-					label: localize('basehalfConnections', "Connections"),
-					settings: ['basehalf.references.*']
-				},
-				{
+					// BaseHalf: the Agent Area's settings, and whether BaseHalf offers its skill to agents.
 					id: 'basehalf/agentArea',
 					label: localize('basehalfAgentArea', "Agent Area"),
-					settings: ['basehalf.agent.*']
+					settings: ['basehalf.agent.*', 'basehalf.agents.*']
 				},
 				{
 					id: 'basehalf/models',

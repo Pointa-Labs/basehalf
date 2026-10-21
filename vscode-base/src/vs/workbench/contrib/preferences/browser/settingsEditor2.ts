@@ -688,6 +688,13 @@ export class SettingsEditor2 extends EditorPane {
 	}
 
 	focusSettings(focusSettingInput = false): void {
+		// BaseHalf: a page is shown in place of the settings list, so the commands that move into
+		// the list, such as Enter on the entry of the table of contents, move into the page.
+		if (this.activeCustomSection.value) {
+			this.activeCustomSection.value.focus();
+			return;
+		}
+
 		const focused = this.settingsTree.getFocus();
 		if (!focused.length) {
 			this.settingsTree.focusFirst();
@@ -1166,11 +1173,12 @@ export class SettingsEditor2 extends EditorPane {
 
 			this.tocFocusedElement = element;
 			this.tocTree.setSelection(element ? [element] : []);
-			// BaseHalf: the entry of a page shows the page. The table of contents, rebuilt, focuses a
-			// new element for the same entry; the page shown for it stays as it is, with its focus.
+			// BaseHalf: the entry of a page shows the page, and the focus stays in the table of
+			// contents, as for every entry. The table of contents, rebuilt, focuses a new element for
+			// the same entry; the page shown for it stays as it is, with its focus.
 			if (element?.customSection) {
 				if (this.activeCustomSectionId !== element.id) {
-					this.activateCustomSection(element.id, undefined);
+					this.activateCustomSection(element.id, undefined, false);
 				}
 			} else {
 				this.deactivateCustomSection();
@@ -2323,7 +2331,7 @@ export class SettingsEditor2 extends EditorPane {
 		} catch {
 			// The table of contents can be rebuilding while an extension contributes settings.
 		}
-		this.activateCustomSection(group.id, request.input);
+		this.activateCustomSection(group.id, request.input, true);
 	}
 
 	/** BaseHalf: clears the search the way its clear action does, and then shows the page asked for. */
@@ -2358,8 +2366,11 @@ export class SettingsEditor2 extends EditorPane {
 		return undefined;
 	}
 
-	/** BaseHalf: shows a page in place of the settings list, with the keyboard focus on it. */
-	private activateCustomSection(id: string, input: string | undefined): void {
+	/**
+	 * BaseHalf: shows a page in place of the settings list; opened for a request, with the
+	 * keyboard focus on it.
+	 */
+	private activateCustomSection(id: string, input: string | undefined, focus: boolean): void {
 		const descriptor = settingsCustomSectionRegistry.get(id);
 		if (!descriptor || !this.customSectionContainer) {
 			return;
@@ -2379,7 +2390,9 @@ export class SettingsEditor2 extends EditorPane {
 			width: this.customSectionContainer.clientWidth,
 			height: this.customSectionContainer.clientHeight
 		});
-		queueMicrotask(() => this.activeCustomSection.value?.focus());
+		if (focus) {
+			queueMicrotask(() => this.activeCustomSection.value?.focus());
+		}
 	}
 
 	/** BaseHalf: disposes the page shown, and shows the settings list again. */

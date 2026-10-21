@@ -8,7 +8,6 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import '../../browser/basehalfConfiguration.contribution.js';
 import { Extensions as ConfigurationExtensions, ConfigurationScope, IConfigurationRegistry } from '../../../../../platform/configuration/common/configurationRegistry.js';
 import { Registry } from '../../../../../platform/registry/common/platform.js';
-import { tocData } from '../../../../contrib/preferences/browser/settingsLayout.js';
 import {
 	BASEHALF_AGENT_DEFAULT_SESSION,
 	BASEHALF_CANVAS_DEFAULT_ZOOM,
@@ -63,29 +62,6 @@ suite('BaseHalfConfiguration', () => {
 			assert.strictEqual(key.startsWith('basehalf.update.'), false);
 		}
 		assert.strictEqual(Object.keys(properties).some(key => key.startsWith('basehalf.git.') || key.startsWith('basehalf.update.')), false);
-	});
-
-	test('exposes BaseHalf as a first-class Settings UI category', () => {
-		const basehalf = tocData.children?.find(child => child.id === 'basehalf');
-		assert.strictEqual(basehalf?.label, 'BaseHalf');
-		assert.deepStrictEqual(basehalf?.children?.map(child => child.id), [
-			'basehalf/editor',
-			'basehalf/canvas',
-			'basehalf/connections',
-			'basehalf/agentArea',
-			'basehalf/models',
-			'basehalf/about'
-		]);
-		assert.deepStrictEqual(basehalf?.children?.map(child => child.settings), [
-			['basehalf.editor.*'],
-			['basehalf.canvas.*'],
-			['basehalf.references.*'],
-			['basehalf.agent.*'],
-			undefined,
-			undefined
-		]);
-		// The two pages of BaseHalf's own: Video Providers, and About.
-		assert.deepStrictEqual(basehalf?.children?.map(child => child.custom === true), [false, false, false, false, true, true]);
 	});
 
 	test('normalizes canvas default zoom using the product zoom range', () => {

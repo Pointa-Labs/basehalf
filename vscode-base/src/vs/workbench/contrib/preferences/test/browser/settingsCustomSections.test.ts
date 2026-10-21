@@ -4,11 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { TreeVisibility } from '../../../../../base/browser/ui/tree/tree.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { ConfigurationTarget } from '../../../../../platform/configuration/common/configuration.js';
+import { TestEnvironmentService } from '../../../../test/browser/workbenchTestServices.js';
 import { settingsCustomSectionRegistry } from '../../browser/settingsCustomSections.js';
+import { SettingsTreeFilter } from '../../browser/settingsTree.js';
+import { ISettingsEditorViewState, SettingsTreeGroupElement } from '../../browser/settingsTreeModels.js';
 
 suite('SettingsCustomSections', () => {
-	ensureNoDisposablesAreLeakedInTestSuite();
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('registers each page once, until its registration is disposed', () => {
 		const id = 'test.settings.customSection';
@@ -23,5 +28,25 @@ suite('SettingsCustomSections', () => {
 			registration.dispose();
 		}
 		assert.strictEqual(settingsCustomSectionRegistry.get(id), undefined);
+	});
+
+	// BaseHalf: a page is an entry of the table of contents with no settings (docs/specs/settings-pages.md).
+	test('a page is an entry of the table of contents, never a heading in the settings list or a search result', () => {
+		const page = store.add(new SettingsTreeGroupElement('test/page', undefined, 'Page', 1, false, true));
+		const shown = (isSettingsList: boolean, query?: string) => {
+			const viewState: ISettingsEditorViewState = { settingsTarget: ConfigurationTarget.USER_LOCAL, query, categoryFilter: page };
+			return new SettingsTreeFilter(viewState, isSettingsList, TestEnvironmentService).filter(page, TreeVisibility.Visible);
+		};
+		assert.deepStrictEqual({
+			tableOfContents: shown(false),
+			tableOfContentsWhileSearching: shown(false, 'zoom'),
+			settingsList: shown(true),
+			settingsListWhileSearching: shown(true, 'zoom')
+		}, {
+			tableOfContents: true,
+			tableOfContentsWhileSearching: false,
+			settingsList: false,
+			settingsListWhileSearching: false
+		});
 	});
 });
