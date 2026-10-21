@@ -40,6 +40,26 @@ for iteration. The compile-backed smoke remains the delivery check. Use
 disposable fixture workspaces; never point a setup or smoke flow at the
 repository root or `vscode-base/` as a product workspace.
 
+The smoke is organized as VS Code's own smoke tests are
+(`test/smoke/src/areas/`). Its steps are in suites by area under
+`vscode-base/scripts/basehalf-smoke/`, and each suite starts a BaseHalf of its
+own on a fresh fixture workspace, so that no suite depends on what another one
+did. The whole smoke runs every suite, one after another. While working, run
+the suites of the areas a change touches:
+
+```bash
+cd vscode-base
+npm run basehalf:smoke-no-compile -- --suite canvas,cardDetail
+```
+
+The suites are `workbench` (the window at startup, the surfaces BaseHalf
+hides, the Agent Area, Source Control, and Settings), `canvas`, `cardDetail`
+(Card Detail and its projections, the rich editor among them), `navigation`
+(Quick Open, Quick Text Search, the Explorer, back and forward, and what
+happens to the files of the workspace), and `video` (the AI Video node). A new
+step goes into the suite of its area. A suite that needs something done first
+does it itself, never relying on another suite.
+
 For changes to the rich Markdown projection (what it reads, which blocks it
 edits, and what it writes back):
 

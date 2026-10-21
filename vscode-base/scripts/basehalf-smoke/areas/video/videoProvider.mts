@@ -16,7 +16,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import type { AddressInfo, Socket } from 'node:net';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { MOCK_VIDEO_FIXTURE_URL, startMockVideoProvider, type MockVideoProvider, type MockVideoProviderRequest } from './basehalf-video-mock-provider.mts';
+import { MOCK_VIDEO_FIXTURE_URL, startMockVideoProvider, type MockVideoProvider, type MockVideoProviderRequest } from '../../../basehalf-video-mock-provider.mts';
 
 export interface VideoSmokeProvider {
 	/** The test provider; `requests` lists the create requests it received. */

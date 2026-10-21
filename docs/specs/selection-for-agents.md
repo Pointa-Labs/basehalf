@@ -322,8 +322,7 @@ whenever the Agent Area or the status bar changes size or visibility.
 5. The skill: version 3, the description names a request that does not say
    which file or text it is about, and the body has "What the user
    selected" with the record's path and every field. Unit test.
-6. Smoke step `agent-sees-selection`, in the default list and in
-   `--canvas-only`. The smoke installs the skill into a folder of its own run
+6. Smoke step `agent-sees-selection`, in the `canvas` suite. The smoke installs the skill into a folder of its own run
    (`BASEHALF_SMOKE_AGENT_SKILL_HOME`, which the product never sets), so the
    agents' settings of the machine are neither read nor changed:
    - nothing is recorded or shown before the skill is installed;

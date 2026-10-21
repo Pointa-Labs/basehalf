@@ -403,8 +403,8 @@ The editor in place
   to 23, and the click on a name of criterion 24 in the real window. It
   makes its first double click at a person's speed and counts the frames
   that show a selected card. The press on the caption right of the text,
-  of criterion 22, was measured by hand: see below. It is part of the whole run and of the `--canvas-only`
-  slice. It types with the keyboard and never fills the input,
+  of criterion 22, was measured by hand: see below. It is a step of the
+  `canvas` suite. It types with the keyboard and never fills the input,
   so an editor without the keyboard fails it. For criterion 14 it writes
   other content into the note and checks that the card was drawn again. On
   the code before this change the step fails at its first editor: no

@@ -1,0 +1,18 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+// The suites of the smoke, in the order the whole smoke runs them, and what each
+// covers (README.md in this folder). Their steps are in suites.mts. This module
+// imports nothing, so that scripts/basehalf-smoke.mts can read it without
+// starting a run.
+
+export const SUITE_LIST = [
+	{ name: 'workbench', description: 'The window at startup, the surfaces BaseHalf hides, the Agent Area, Source Control, and Settings.' },
+	{ name: 'canvas', description: 'The canvas: creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, and snapping.' },
+	{ name: 'cardDetail', description: 'Card Detail and its projections: the rich Markdown editor, source, media, and PDF; back and forward from it.' },
+	{ name: 'navigation', description: 'Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace.' },
+	{ name: 'video', description: 'The AI Video node, against the local test provider.' },
+	{ name: 'plugin', description: 'The lifecycle of a reviewed external plugin, refused while the plugin platform is frozen. Only when asked.', onlyWhenAsked: true }
+];

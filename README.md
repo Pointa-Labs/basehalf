@@ -238,7 +238,9 @@ npm run basehalf:smoke
 
 For BaseHalf UI/routing changes, `npm run basehalf:smoke` is the important
 product smoke. If `out/` is already current, `npm run basehalf:smoke-no-compile`
-skips the compile step.
+skips the compile step. Its steps are in suites by area, each on a BaseHalf of
+its own, and `-- --suite canvas` runs one of them
+(`vscode-base/scripts/basehalf-smoke/README.md`).
 
 Package a macOS release build:
 
