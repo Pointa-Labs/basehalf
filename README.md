@@ -25,7 +25,7 @@ materials.
 
 </div>
 
-**Status:** BaseHalf 0.5.0 is the current public macOS Apple Silicon release.
+**Status:** BaseHalf 0.6.0 is the current public macOS Apple Silicon release.
 It is usable, early, and changing quickly. The product has moved from the old
 hand-rolled Electron/core shell onto `vscode-base/`, where VS Code provides the
 application substrate and BaseHalf owns the canvas-first product layer.
@@ -223,7 +223,7 @@ node.
 
 ## Install
 
-1. Download `BaseHalf-0.5.0-darwin-arm64.dmg` from
+1. Download `BaseHalf-0.6.0-darwin-arm64.dmg` from
    [the latest release][latest-release].
 2. Open the DMG and drag `BaseHalf.app` into Applications.
 3. If macOS blocks first launch, remove the quarantine attribute:

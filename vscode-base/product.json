@@ -3,7 +3,7 @@
 	"nameLong": "BaseHalf",
 	"applicationName": "basehalf",
 	"quality": "stable",
-	"basehalfVersion": "0.5.0",
+	"basehalfVersion": "0.6.0",
 	"updateUrl": "https://github.com/Pointa-Labs/basehalf/releases/latest/download",
 	"basehalfReleasesUrl": "https://github.com/Pointa-Labs/basehalf/releases",
 	"linkProtectionTrustedDomains": [
