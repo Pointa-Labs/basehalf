@@ -353,6 +353,8 @@ export async function assertCanvasNoteRendersMarkdown(page) {
 	}
 	await page.keyboard.press('Escape');
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	// The fades follow the table's scroll through an animation, which the next frame brings up to date.
+	await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 	const after = await shown();
 	if (JSON.stringify(after) !== JSON.stringify(scrolledInTheEditor)) {
 		throw new Error(`A table must keep its sideways position when editing ends: ${JSON.stringify({ scrolledInTheEditor, after })}`);
