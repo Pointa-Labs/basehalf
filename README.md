@@ -53,9 +53,9 @@ same local project without a cloud account or hidden database.
 The workspace map is a core part of that product direction, not a legacy
 detail. Each note lists what flows into it in an `upstream` list that agents
 read along with the note, and `.bh/` holds BaseHalf project metadata such as
-canvas layout, descriptions, and reading aids. BaseHalf does not mirror your
-live position into files; an agent's own file mentions already point at a
-location.
+canvas layout, descriptions, and reading aids. BaseHalf also records what you
+last selected (a folder, cards, or text in a note), so that an agent knows
+what you mean by "this".
 
 ## Product Shape
 
@@ -67,9 +67,11 @@ location.
 - **Connections live in the files.** BaseHalf keeps user content in real
   files. A note's `upstream` frontmatter lists what flows into it, and `.bh/`
   holds BaseHalf project metadata: canvas layout, descriptions, reading aids,
-  and the upstream lists of non-Markdown files. This is a first-class product
-  workstream, even though the VS Code-base migration has recently been the
-  active focus.
+  and the upstream lists of non-Markdown files.
+- **Video from your own providers.** A Video node is a prompt over its
+  connections: the images, videos, audio, and notes connected to it are its
+  inputs, in order. It runs 51 models from 12 video providers with the user's
+  own keys, and the video it makes is an ordinary file in the workspace.
 - **VS Code is the lower layer.** BaseHalf reuses VS Code's Explorer, Search,
   SCM/Git, quick input, working-copy/file services, menus, settings, extension
   host, and terminal process APIs.
@@ -100,16 +102,21 @@ Extension support starts curated, not marketplace-open. BaseHalf currently
 allows only the extension families needed for Git/GitHub auth and the Codex /
 Claude agent surfaces.
 
+BaseHalf offers to install a `basehalf` skill for Claude Code, Codex, and other
+agents that load skills. It tells them where a card's description and
+connections are, what moving a file does to them, and what the user last
+selected. BaseHalf asks first and adds the skill to the agents' own settings,
+not to your folder.
+
 ## Local Workspace Protocol
 
 BaseHalf publishes context in files and never injects workspace content into
 prompts. Agents read the workspace files directly, including each note's
-`upstream` list, and can inspect `.bh/` when useful. Claude Code TUI sessions
-started from Agent Area also receive a short, static BaseHalf instruction at
-launch that explains this layout and the canvas workflow commands. BaseHalf
-no longer adds instructions to `CLAUDE.md` or `AGENTS.md`. This protocol is the
-shared language between the app, the human's visual workspace, and file-based
-agents:
+`upstream` list, and learn where the rest is under `.bh/` from the `basehalf`
+skill. Claude Code TUI sessions started from Agent Area also receive a short,
+static BaseHalf instruction at launch. BaseHalf no longer adds instructions to
+`CLAUDE.md` or `AGENTS.md`. This protocol is the shared language between the
+app, the human's visual workspace, and file-based agents:
 
 ```mermaid
 flowchart LR
@@ -133,21 +140,25 @@ The format is deliberately plain:
 
 - A Markdown note lists the files that flow into it under the `upstream` key of
   its frontmatter; a `.bhnode` keeps the same list in its `upstream` field.
+- A Video node is a `.bhnode` that also holds its prompt, provider, model, and
+  settings. The videos it makes are written under `outputs/`.
 - `.bh/mirror/<path>/upstream.yaml` keeps the upstream list of a folder, PDF,
   or other non-Markdown file.
 - `.bh/mirror/<path>/badge.yaml` stores a file or folder description.
-- `.bh/mirror/<folder>/canvas.yaml` stores card geometry and edge anchors for
-  that folder canvas.
+- `.bh/mirror/<folder>/canvas.yaml` stores the place and size of every card and
+  edge anchors for that folder canvas.
 - `.bh/mirror/<file>/adhd.yaml` stores per-file reading aids such as highlights
   and read ranges, and `.bh/mirror/<path>/appearance.yaml` stores visual
   presentation.
-- `.bh/cache/` holds machine-local run leases and undo stashes and is not
-  meant for git.
+- `.bh/cache/` holds machine-local state: run leases, undo stashes, recovery
+  copies of files BaseHalf could not read, and `selection.yaml`, what the user
+  last selected, for agents to read.
 
-BaseHalf does not create or edit `.gitignore`. The rest of `.bh/` may be
-committed, so that canvas layout, descriptions, and non-Markdown upstream lists
-travel with the folder; we recommend ignoring `.bh/cache/`. Canvas viewports
-are kept per machine, outside the workspace.
+BaseHalf never edits your `.gitignore`. It writes one ignore file of its own,
+`.bh/.gitignore`, which keeps card places (`canvas.yaml`) and `.bh/cache/` out
+of git. Descriptions, reading aids, and non-Markdown upstream lists can be
+committed and travel with the folder. Canvas viewports are kept per machine,
+outside the workspace.
 
 References are an explicit directed context-flow graph: `A → B` means A's
 context flows into B. The graph is not a tree; many-to-many relationships and
@@ -176,6 +187,13 @@ layout, and references follow.
   tabs.
 - Drag cards, persist positions, explicitly connect directed context-flow
   references with anchored edges, and use snap guides.
+- Select several cards with a marquee, move them as one set, arrange them in a
+  grid, a row, or a column, and tidy a whole canvas along its connections,
+  then keep or revert the result.
+- Rename a card in place by double-clicking its name. Notes are named without
+  `.md`.
+- Read notes rendered on their cards, with tables, images, and task boxes, and
+  edit a note of up to 128 KiB on its card.
 - Use Quick Open and Quick Text Search while result activation still routes
   back into BaseHalf card detail.
 - Edit Markdown in rich mode, switch to source or preview, and keep Markdown as
@@ -184,14 +202,24 @@ layout, and references follow.
 - Use VS Code's native Git provider, repository state, branch quick pick, SCM
   refresh, and publish-branch flow.
 - Run Codex, Claude Code, curated extension agents, and shell agents inside the
-  Agent Area.
-- Read BaseHalf settings in VS Code's Settings UI under the BaseHalf category.
-- See release notes as a system page without creating workspace files.
+  Agent Area. Agents can read what you selected: a folder, one or several
+  cards, or text in a note. The status bar shows what they see.
+- Generate videos from Video nodes with your own key for ByteDance (Seedance),
+  Kling, Alibaba (Wan), MiniMax (Hailuo), Vidu, Google, PixVerse, Luma, Runway,
+  xAI (Grok Imagine), LTX, or Black Forest Labs. The panel shows each model's
+  own settings and an estimated price before a run, and a running generation
+  continues after a restart.
+- Find BaseHalf's settings, the Video Providers page, and About (the version
+  and updates) in Settings under BaseHalf.
+- Update in place: an update is downloaded once, in the background, and
+  installed when BaseHalf quits, or at the latest at its next start. Release
+  Notes opens the release page.
 
-The smoke suite guards this shape: hidden competing workbench surfaces, Files /
-Git / Search sidebar state, Agent Area sessions, canvas routing, Quick Open /
-Search routing, Markdown rich/source behavior, Git provider integration, and
-release notes.
+The smoke guards this shape in five suites: the workbench (hidden competing
+surfaces, the Files / Git / Search sidebar, Agent Area sessions, Source
+Control, and Settings), the canvas, Card Detail with its Markdown projections,
+navigation (Quick Open, Quick Text Search, and Explorer routing), and the Video
+node.
 
 ## Install
 
@@ -253,11 +281,15 @@ build/basehalf/package-darwin.sh arm64
 
 ```text
 vscode-base/                         current desktop product source
-  src/vs/workbench/basehalf/         BaseHalf canvas, card detail, Agent Area,
-                                     profile, routing, mirrors, tests
-  src/vs/platform/basehalf/          BaseHalf platform services such as the
-                                     update protocol
-  extensions/basehalf/               rich Markdown webview/editor assets
+  src/vs/workbench/basehalf/         BaseHalf's workbench code, a folder per
+                                     feature: canvas, card detail, Agent Area,
+                                     video, references, navigation, workspace
+  src/vs/platform/update/            BaseHalf's update service and protocol,
+                                     beside VS Code's (basehalf*.ts)
+  extensions/basehalf/               rich Markdown editor, in-card note
+                                     editor, and other bundles
+  extensions/basehalf-ai-video/      built-in AI Video: Sequence, the starter
+                                     template, and the video provider modules
   build/basehalf/                    macOS package, DMG, and update scripts
   BASEHALF_UPSTREAM.md               VS Code import baseline
 
@@ -279,10 +311,10 @@ packages/                            historical BaseHalf core/desktop material
 4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
    render as Agent Area sessions, not the stock terminal panel.
 5. **Fixed shell, extensible main canvas.** The built-in AI Video adds
-   main-canvas recipes and templates, card previews, and file-specific Card
-   Detail projections without replacing the canvas model, BaseHalf navigation,
-   the sidebar, or Agent Area. The plugin platform it is built on is frozen:
-   nothing can be installed or published. See
+   templates, card projections, the Sequence view, and the requests of the
+   Video node to its providers without replacing the canvas model, BaseHalf
+   navigation, the sidebar, or Agent Area. The plugin platform it is built on
+   is frozen: nothing can be installed or published. See
    [built-in AI Video and the frozen plugin platform](docs/specs/built-in-ai-video-and-plugin-freeze.md)
    and the [plugin architecture](docs/plugin-architecture.md).
 6. **Markdown shares one truth.** Rich, source, and preview projections operate
