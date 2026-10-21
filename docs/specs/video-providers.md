@@ -258,16 +258,20 @@ catalog. For each:
 A provider is set up when every credential value is set. Nothing is checked
 with the provider when values are saved; the first generation tells the user
 whether they work. A stored value that cannot be read, such as one encrypted
-with a key that this computer no longer has, counts as not set: the provider
-shows as not set up, and setting the value again replaces it. Nothing is
-deleted for it, so a value that could not be read for a moment counts again
-once it can.
+with a key that this computer no longer has, or one that the keychain refused
+for a moment, is neither used nor deleted, and the record of this computer
+stays as it is: the provider still shows as set up, a generation says that
+BaseHalf cannot read the credentials and asks to set them again, and a value
+that can be read again works again. Replace and Remove write over the
+provider's stored values: with values that cannot be read, those of its
+other credentials are gone too, and show as not set.
 
 The page saves each change at once, one after another:
 
-- The endpoint is saved when its field loses the focus, on Enter, and when
-  the page closes or is left, also by Escape or Cmd+W, which close Settings
-  without taking the focus from the field. Its outcome shows where the field
+- The endpoint is saved when its field loses the focus, on Enter, which
+  keeps the focus in the field, and when the page closes or is left, also by
+  Escape or Cmd+W, which close Settings without taking the focus from the
+  field. Its outcome shows where the field
   is, without drawing the page again, so the click that took the focus
   reaches what it clicked. An address the page cannot take is shown with
   the reason while the page is open, and is not kept when the page closes.

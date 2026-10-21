@@ -173,19 +173,25 @@ suite('BaseHalfVideoProviderSettingsService', () => {
 		});
 	});
 
-	test('a stored value that cannot be read counts as not set, and Set, Replace, and Remove write over it', async () => {
+	test('a stored value that cannot be read is neither used nor deleted, works again once it can be read, and Replace and Remove write over it', async () => {
 		const { service, credentials } = createHarness();
 		const address = 'basehalf.modelServices.video.acme.apiKey';
 		await service.setCredential(acme, 'apiKey', 'acme-old');
 		credentials.unreadable.add(address);
-		const access = await service.getAccess(acme);
+		const refused = await service.getAccess(acme).then(() => 'no error', (error: Error) => error.message);
 		const shown = service.getStatus(acme).setUp;
+		const kept = credentials.values.get(address);
+		credentials.unreadable.delete(address);
+		const again = (await service.getAccess(acme))?.credentials;
+		credentials.unreadable.add(address);
 		await service.setCredential(acme, 'apiKey', 'acme-new');
 		const replaced = credentials.values.get(address);
 		await service.setCredential(acme, 'apiKey', undefined);
-		assert.deepStrictEqual({ access, shown, replaced, removed: !credentials.values.has(address), setUp: service.getStatus(acme).setUp }, {
-			access: undefined,
-			shown: false,
+		assert.deepStrictEqual({ refused, shown, kept, again, replaced, removed: !credentials.values.has(address), setUp: service.getStatus(acme).setUp }, {
+			refused: 'BaseHalf can\'t read the credentials of Acme Video on this computer. Set them again in Video Providers.',
+			shown: true,
+			kept: JSON.stringify({ apiKey: 'acme-old' }),
+			again: { apiKey: 'acme-old' },
 			replaced: JSON.stringify({ apiKey: 'acme-new' }),
 			removed: true,
 			setUp: false

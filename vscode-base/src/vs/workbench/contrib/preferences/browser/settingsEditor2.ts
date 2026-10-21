@@ -189,8 +189,11 @@ export class SettingsEditor2 extends EditorPane {
 	private customSectionContainer!: HTMLElement;
 	private readonly activeCustomSection = this._register(new MutableDisposable<ISettingsCustomSection>());
 	private activeCustomSectionId: string | undefined;
-	/** BaseHalf: the page that opening Settings asked for, until the settings tree is there to show it. */
-	private requestedCustomSection: ISettingsEditorCustomSection | undefined;
+	/**
+	 * BaseHalf: the page that opening Settings asked for, until the settings tree is there to
+	 * show it, and whether the page then takes the keyboard focus.
+	 */
+	private requestedCustomSection: { readonly section: ISettingsEditorCustomSection; readonly focus: boolean } | undefined;
 	private settingRenderers!: SettingTreeRenderers;
 	private tocTreeModel!: TOCTreeModel;
 	private readonly settingsTreeModel = this._register(new MutableDisposable<SettingsTreeModel>());
@@ -538,10 +541,12 @@ export class SettingsEditor2 extends EditorPane {
 
 			// Init TOC selection
 			this.updateTreeScrollSync();
-			// BaseHalf: Settings that opens again on the entry of a page shows the page, not an empty list.
+			// BaseHalf: Settings that opens again on the entry of a page shows the page, not an empty
+			// list, unless it opens with a search; the focus stays where the opening put it.
 			const category = this.viewState.categoryFilter;
-			if (!this.requestedCustomSection && !this.activeCustomSection.value && category?.customSection && !this.searchResultModel) {
-				this.requestedCustomSection = { id: category.id };
+			if (!this.requestedCustomSection && !this.activeCustomSection.value && category?.customSection
+				&& !this.searchResultModel && !this.viewState.query && !this.searchWidget.getValue()) {
+				this.requestedCustomSection = { section: { id: category.id }, focus: false };
 			}
 			this.showRequestedCustomSection();
 		});
@@ -616,7 +621,7 @@ export class SettingsEditor2 extends EditorPane {
 		// BaseHalf: a page of BaseHalf's is shown at once when the settings tree is there, and
 		// otherwise by the first drawing of Settings (onConfigUpdate), so no other page shows first.
 		if (options.customSection) {
-			this.requestedCustomSection = options.customSection;
+			this.requestedCustomSection = { section: options.customSection, focus: !options.preserveFocus };
 			this.showRequestedCustomSection();
 		}
 	}
@@ -2316,9 +2321,14 @@ export class SettingsEditor2 extends EditorPane {
 			return;
 		}
 		this.requestedCustomSection = undefined;
-		const group = this.findSettingsGroup(this.settingsTreeModel.value.root, request.id);
-		if (!group?.customSection || !settingsCustomSectionRegistry.get(request.id)) {
+		const group = this.findSettingsGroup(this.settingsTreeModel.value.root, request.section.id);
+		if (!group?.customSection || !settingsCustomSectionRegistry.get(request.section.id)) {
 			return;
+		}
+		// The settings model is rebuilt also while Settings is hidden, and the table of contents
+		// only while it shows: it is drawn anew when it does not hold the model's entry yet.
+		if (!this.tocTree.hasElement(group)) {
+			this.refreshTOCTree();
 		}
 		// The entry is chosen before the table of contents moves to it, so that its focus event
 		// does not show the page a second time without its input.
@@ -2331,7 +2341,7 @@ export class SettingsEditor2 extends EditorPane {
 		} catch {
 			// The table of contents can be rebuilding while an extension contributes settings.
 		}
-		this.activateCustomSection(group.id, request.input, true);
+		this.activateCustomSection(group.id, request.section.input, request.focus);
 	}
 
 	/** BaseHalf: clears the search the way its clear action does, and then shows the page asked for. */

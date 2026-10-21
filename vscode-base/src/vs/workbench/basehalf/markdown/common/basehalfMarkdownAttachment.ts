@@ -89,10 +89,11 @@ function isPortableAttachmentDirectorySegment(segment: string): boolean {
 	return !!segment
 		&& segment !== '.'
 		&& segment !== '..'
-		&& segment.length <= 160
+		// Characters, not UTF-16 units, as Settings counts them in the setting's pattern.
+		&& Array.from(segment).length <= 160
 		&& !/[\u0000-\u001f<>:"|?*]/.test(segment)
 		&& !/[. ]$/.test(segment)
-		&& !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(segment);
+		&& !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/is.test(segment);
 }
 
 export function sanitizeBaseHalfAttachmentName(value: string): string {

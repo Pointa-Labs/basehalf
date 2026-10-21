@@ -11,9 +11,14 @@
 /** Starts reading, every frame, what Settings shows. */
 export async function watchSettingsFrames(page) {
 	await page.evaluate(() => {
+		// A watch that a failed step left running stops here.
+		if (globalThis.__basehalfSettingsFrames) {
+			globalThis.__basehalfSettingsFrames.stop = true;
+		}
 		const frames = [];
 		const watch = { frames, stop: false };
 		globalThis.__basehalfSettingsFrames = watch;
+		let ticks = 0;
 		const tick = () => {
 			const editor = Array.from(document.querySelectorAll('.settings-editor')).find(element => element.getClientRects().length > 0);
 			if (editor) {
@@ -25,7 +30,8 @@ export async function watchSettingsFrames(page) {
 					page: shownPage ? shownPage.classList[0] ?? null : null
 				});
 			}
-			if (!watch.stop) {
+			// At most about ten seconds of frames, so that a step that fails before its check leaves no loop behind.
+			if (!watch.stop && ++ticks < 1200) {
 				requestAnimationFrame(tick);
 			}
 		};

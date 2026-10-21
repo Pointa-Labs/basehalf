@@ -36,6 +36,15 @@ interface IBaseHalfVideoProvidersSaveOutcome {
 	readonly onFailure?: () => void;
 }
 
+/** What the page shows of one provider's settings. */
+interface IBaseHalfVideoProviderShown {
+	readonly region: string;
+	readonly setUp: boolean;
+	readonly endpoint: string;
+	readonly customEndpoint: boolean;
+	readonly credentials: string;
+}
+
 /** Numbers the pages: Settings can show the page twice, in two editor groups, and each page's ids are its own. */
 let pageCount = 0;
 
@@ -62,15 +71,17 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	private selectedId: string | undefined;
 	/** The provider the editor currently shows; typed text is kept only while it stays the same. */
 	private renderedId: string | undefined;
-	/** The catalog and the providers' settings as last drawn: a change of anything else, such as the last model used, draws nothing. */
+	/** The catalog and each provider's settings as last drawn: a change of anything else, such as the last model used, draws nothing. */
 	private renderedCatalog: BaseHalfVideoCatalogState | undefined;
-	private renderedSettings: string | undefined;
+	private renderedSettings: ReadonlyMap<string, IBaseHalfVideoProviderShown> | undefined;
 	/** The credentials whose value is being replaced. */
 	private readonly replacing = new Set<string>();
 	/** The changes under way, by what they change: a second click on Set is not a second change. */
 	private readonly saving = new Set<string>();
 	/** How many changes, the endpoint's too, are still being saved; the last one to end draws the page. */
 	private pendingSaves = 0;
+	/** A change ended while others were saved and has an outcome to draw, such as an error under its field. */
+	private outcomeToDraw = false;
 	/** The endpoint text saved as the page closed, so that hiding and then disposing the page saves it once. */
 	private endpointSavedOnClose: string | undefined;
 	private disposed = false;
@@ -199,15 +210,36 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	}
 
 	/** What the page shows of every provider's settings, to tell whether a change needs a render. */
-	private settingsState(): string {
-		return JSON.stringify(this.providers().map(provider => {
+	private shownSettings(): ReadonlyMap<string, IBaseHalfVideoProviderShown> {
+		return new Map(this.providers().map(provider => {
 			const status = this.providerSettings.getStatus(provider);
-			return [provider.id, status.region.id, status.setUp, status.endpoint, status.customEndpoint, [...status.credentials].sort()];
+			return [provider.id, {
+				region: status.region.id,
+				setUp: status.setUp,
+				endpoint: status.endpoint,
+				customEndpoint: status.customEndpoint,
+				credentials: [...status.credentials].sort().join('\n')
+			}];
 		}));
 	}
 
 	private changedSinceRender(): boolean {
-		return this.catalogService.state !== this.renderedCatalog || this.settingsState() !== this.renderedSettings;
+		const rendered = this.renderedSettings;
+		if (this.catalogService.state !== this.renderedCatalog || !rendered) {
+			return true;
+		}
+		const now = this.shownSettings();
+		if (now.size !== rendered.size) {
+			return true;
+		}
+		for (const [id, shown] of now) {
+			const before = rendered.get(id);
+			if (!before || before.region !== shown.region || before.setUp !== shown.setUp || before.endpoint !== shown.endpoint
+				|| before.customEndpoint !== shown.customEndpoint || before.credentials !== shown.credentials) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private render(): void {
@@ -236,7 +268,8 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 
 		const state = this.catalogService.state;
 		this.renderedCatalog = state;
-		this.renderedSettings = this.settingsState();
+		this.renderedSettings = this.shownSettings();
+		this.outcomeToDraw = false;
 		this.root.dataset.catalog = state.kind;
 		const empty = state.kind !== 'ready' || !providers.length;
 		this.content.classList.toggle('empty', empty);
@@ -449,7 +482,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 				? localize('basehalf.video.providers.replaceSaveLabel', "Save the new {0}", credential.label)
 				: localize('basehalf.video.providers.setLabel', "Set {0}", credential.label));
 			const submit = () => {
-				if (this.saving.has(control)) {
+				if (this.saving.has(saveKey(provider, control))) {
 					// The value is being saved: a second click is not a second change.
 					return;
 				}
@@ -530,7 +563,9 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		disposables.add(addDisposableListener(input, EventType.KEY_DOWN, (event: KeyboardEvent) => {
 			if (event.key === 'Enter' && !isComposing(event)) {
 				event.preventDefault();
-				input.blur();
+				// Saved where the focus is: taking the focus away would leave the page, where
+				// Escape no longer closes Settings.
+				void this.saveEndpoint(provider, input);
 			}
 		}));
 	}
@@ -562,14 +597,16 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	/**
 	 * Runs one change and shows its outcome. Nothing here talks to the provider.
 	 * Changes run one after another in the provider settings service; a second
-	 * change waits for the first instead of being dropped, and the outcome of a
-	 * change touches the fields only while its provider is the one shown.
+	 * change waits for the first instead of being dropped, the same change of
+	 * the same provider is not made twice, and the outcome of a change touches
+	 * the fields only while its provider is the one shown.
 	 */
 	private async save(provider: IBaseHalfVideoCatalogProvider, key: string, control: BaseHalfVideoProviderControl | undefined, operation: () => Promise<void>, outcome: IBaseHalfVideoProvidersSaveOutcome): Promise<void> {
-		if (this.saving.has(key)) {
+		const saving = saveKey(provider, key);
+		if (this.saving.has(saving)) {
 			return;
 		}
-		this.saving.add(key);
+		this.saving.add(saving);
 		this.pendingSaves++;
 		if (control) {
 			this.fieldErrors.delete(control);
@@ -580,7 +617,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		} catch (error) {
 			failure = saveFailure(error);
 		} finally {
-			this.saving.delete(key);
+			this.saving.delete(saving);
 			this.pendingSaves--;
 		}
 		if (this.disposed) {
@@ -591,14 +628,19 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			if (shown) {
 				outcome.onSuccess?.();
 				this.setStatus(outcome.success, 'success');
+			} else {
+				this.setStatus(outcomeFor(provider, outcome.success), 'success');
 			}
 		} else if (shown && control) {
 			this.fieldErrors.set(control, failure);
 			this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."), 'warning');
 		} else {
-			this.setStatus(shown ? failure : localize('basehalf.video.providers.notSavedFor', "{0}: {1}", provider.label, failure), 'warning');
+			this.setStatus(shown ? failure : outcomeFor(provider, failure), 'warning');
 		}
-		if (!this.pendingSaves) {
+		// The last change to end draws the page, with what the others changed.
+		if (this.pendingSaves) {
+			this.outcomeToDraw = true;
+		} else {
 			this.render();
 		}
 		if (failure !== undefined && shown) {
@@ -611,8 +653,9 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 
 	/**
 	 * Saves the endpoint as typed, and shows the outcome in place: the page is
-	 * not drawn again, so the click that took the focus from the field reaches
-	 * what it clicked, and a field being typed in elsewhere keeps its caret.
+	 * not drawn again for it, so the click that took the focus from the field
+	 * reaches what it clicked, and a field being typed in keeps its caret. What
+	 * other changes did meanwhile is drawn.
 	 */
 	private async saveEndpoint(provider: IBaseHalfVideoCatalogProvider, input: HTMLInputElement): Promise<void> {
 		this.pendingSaves++;
@@ -627,34 +670,32 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		if (this.disposed) {
 			return;
 		}
-		if (this.controls.get('endpoint') !== input) {
+		const inPlace = this.controls.get('endpoint') === input;
+		if (!inPlace) {
 			// Another provider is shown now, or the page was drawn again meanwhile.
-			if (failure !== undefined) {
-				this.setStatus(localize('basehalf.video.providers.notSavedFor', "{0}: {1}", provider.label, failure), 'warning');
-			}
-			if (!this.pendingSaves && this.changedSinceRender()) {
-				this.render();
-			}
-			return;
-		}
-		if (failure !== undefined) {
+			this.setStatus(outcomeFor(provider, failure ?? localize('basehalf.video.providers.saved', "Saved.")), failure === undefined ? 'success' : 'warning');
+		} else if (failure !== undefined) {
 			this.fieldErrors.set('endpoint', failure);
 			this.showFieldError('endpoint', failure);
 			this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."), 'warning');
-			return;
+		} else {
+			this.fieldErrors.delete('endpoint');
+			this.showFieldError('endpoint', undefined);
+			const status = this.providerSettings.getStatus(provider);
+			if (getActiveElement() !== input) {
+				// The address as it is stored: without a trailing slash, or the region's.
+				input.value = status.endpoint;
+			}
+			input.dataset.custom = String(status.customEndpoint);
+			this.setStatus(localize('basehalf.video.providers.saved', "Saved."), 'success');
+			// The field shows this provider's endpoint now: only it counts as drawn.
+			const rendered = this.renderedSettings?.get(provider.id);
+			if (this.renderedSettings && rendered) {
+				this.renderedSettings = new Map(this.renderedSettings).set(provider.id, { ...rendered, endpoint: status.endpoint, customEndpoint: status.customEndpoint });
+			}
 		}
-		this.fieldErrors.delete('endpoint');
-		this.showFieldError('endpoint', undefined);
-		const status = this.providerSettings.getStatus(provider);
-		if (getActiveElement() !== input) {
-			// The address as it is stored: without a trailing slash, or the region's.
-			input.value = status.endpoint;
-		}
-		input.dataset.custom = String(status.customEndpoint);
-		this.setStatus(localize('basehalf.video.providers.saved', "Saved."), 'success');
-		if (!this.pendingSaves) {
-			// Everything else the page shows is as it was drawn.
-			this.renderedSettings = this.settingsState();
+		if (!this.pendingSaves && (this.outcomeToDraw || this.changedSinceRender())) {
+			this.render();
 		}
 	}
 
@@ -799,7 +840,8 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 				}
 			}
 		}
-		return (this.selectedId !== undefined ? this.rows.get(this.selectedId) : undefined) ?? this.focusables.get('retry');
+		// While the catalog loads after Try Again there is neither: the page keeps the focus.
+		return (this.selectedId !== undefined ? this.rows.get(this.selectedId) : undefined) ?? this.focusables.get('retry') ?? this.root;
 	}
 
 	private clearSensitiveInputs(): void {
@@ -815,6 +857,16 @@ function modelCount(provider: IBaseHalfVideoCatalogProvider): string {
 	return count === 1
 		? localize('basehalf.video.providers.modelOne', "1 model")
 		: localize('basehalf.video.providers.models', "{0} models", count);
+}
+
+/** What the changes of the providers are known by on the page: the same change of the same provider is not made twice. */
+function saveKey(provider: IBaseHalfVideoCatalogProvider, key: string): string {
+	return `${provider.id}:${key}`;
+}
+
+/** The outcome of a change of a provider that is not the one shown, with the provider's name. */
+function outcomeFor(provider: IBaseHalfVideoCatalogProvider, message: string): string {
+	return localize('basehalf.video.providers.outcomeFor', "{0}: {1}", provider.label, message);
 }
 
 /** The plain words of a change that was not saved. */

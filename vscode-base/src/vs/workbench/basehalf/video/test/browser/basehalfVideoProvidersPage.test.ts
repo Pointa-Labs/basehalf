@@ -121,6 +121,16 @@ suite('BaseHalfVideoProvidersPage', () => {
 		return active instanceof mainWindow.HTMLElement ? active.dataset.focus : undefined;
 	}
 
+	function row(container: HTMLElement, id: string): HTMLButtonElement {
+		const found = descendants(container).find(element => element.tagName === 'BUTTON' && element.dataset.provider === id);
+		assert.ok(found, `no row of ${id}`);
+		return found as HTMLButtonElement;
+	}
+
+	function typeCredential(container: HTMLElement, id: string, value: string): void {
+		inputs(credentialField(container, id)).find(input => input.type === 'password')!.value = value;
+	}
+
 	function statusLine(container: HTMLElement): string | null {
 		return descendants(container).find(element => element.getAttribute('role') === 'status')?.textContent ?? null;
 	}
@@ -346,6 +356,121 @@ suite('BaseHalfVideoProvidersPage', () => {
 			errors: 0,
 			status: 'Acme Video: BaseHalf could not save this change: The keychain is locked.'
 		});
+	});
+
+	test('Enter saves the endpoint and keeps the focus in its field, inside the page', async () => {
+		const { providers, container } = createPage();
+		const field = endpoint(container);
+		field.focus();
+		field.value = 'https://relay.example.com/v1';
+		field.dispatchEvent(new mainWindow.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		await settle();
+		assert.deepStrictEqual({ focused: focused(), stored: providers.getStatus(acme).endpoint, status: statusLine(container) }, {
+			focused: 'endpoint',
+			stored: 'https://relay.example.com/v1',
+			status: 'Saved.'
+		});
+	});
+
+	test('a change of a second provider is made while the first one\'s is still saved', async () => {
+		const cobalt = { ...acme, id: 'cobalt', label: 'Cobalt Video' };
+		const credentials = new GatedCredentialStore();
+		let open: () => void = () => { };
+		credentials.gate = new Promise<void>(resolve => open = resolve);
+		const { providers, container } = createPage({ kind: 'ready', catalog: { ...TEST_VIDEO_CATALOG, providers: [...TEST_VIDEO_CATALOG.providers, cobalt] } }, credentials);
+		typeCredential(container, 'apiKey', 'acme-secret');
+		action(credentialField(container, 'apiKey'), 'set').click();
+		await settle();
+		row(container, 'cobalt').click();
+		await settle();
+		typeCredential(container, 'apiKey', 'cobalt-secret');
+		action(credentialField(container, 'apiKey'), 'set').click();
+		await settle();
+		open();
+		await settle();
+		assert.deepStrictEqual({ acme: providers.getStatus(acme).setUp, cobalt: providers.getStatus(cobalt).setUp, rows: rows(container) }, {
+			acme: true,
+			cobalt: true,
+			rows: ['acme:set up', 'borealis:not set up', 'cobalt:set up*']
+		});
+	});
+
+	test('a change that ends after another provider is shown is told with its provider\'s name', async () => {
+		const credentials = new GatedCredentialStore();
+		let open: () => void = () => { };
+		credentials.gate = new Promise<void>(resolve => open = resolve);
+		const { container } = createPage(undefined, credentials);
+		typeCredential(container, 'apiKey', 'acme-secret');
+		action(credentialField(container, 'apiKey'), 'set').click();
+		await settle();
+		row(container, 'borealis').click();
+		await settle();
+		open();
+		await settle();
+		assert.deepStrictEqual({ rows: rows(container), status: statusLine(container) }, {
+			rows: ['acme:set up', 'borealis:not set up*'],
+			status: 'Acme Video: API Key saved.'
+		});
+	});
+
+	test('Try Again keeps the focus in the page while the providers load again', async () => {
+		const failed = createPage({ kind: 'failed', message: 'AI Video is not running.' });
+		failed.catalog.load = () => {
+			failed.catalog.loads++;
+			failed.catalog.state = { kind: 'loading' };
+			failed.catalog.changed.fire();
+		};
+		const retry = descendants(failed.container).find(element => element.dataset.focus === 'retry')!;
+		retry.focus();
+		retry.click();
+		await settle();
+		const active = mainWindow.document.activeElement;
+		assert.deepStrictEqual({
+			loading: failed.container.textContent?.includes('Loading the video providers…'),
+			inPage: active instanceof mainWindow.HTMLElement && failed.container.contains(active),
+			page: active instanceof mainWindow.HTMLElement && active.classList.contains('basehalf-video-providers')
+		}, { loading: true, inPage: true, page: true });
+	});
+
+	test('a change that ends while the endpoint is saved is drawn when the endpoint is, also when it failed', async () => {
+		const drawn: unknown[] = [];
+		for (const outcome of ['saved', 'failed'] as const) {
+			const credentials = new GatedCredentialStore();
+			let open: () => void = () => { };
+			let fail: (error: Error) => void = () => { };
+			credentials.gate = new Promise<void>((resolve, reject) => { open = resolve; fail = reject; });
+			const { container } = createPage(undefined, credentials);
+			typeCredential(container, 'apiKey', 'acme-secret');
+			action(credentialField(container, 'apiKey'), 'set').click();
+			await settle();
+			const field = endpoint(container);
+			field.value = 'https://relay.example.com/v1';
+			field.dispatchEvent(new mainWindow.Event('change'));
+			await settle();
+			if (outcome === 'saved') {
+				open();
+			} else {
+				fail(new Error('The keychain is locked.'));
+			}
+			await settle();
+			drawn.push({
+				rows: rows(container),
+				replace: descendants(credentialField(container, 'apiKey')).some(element => element.dataset.action === 'replace'),
+				errors: descendants(container).filter(element => element.getAttribute('role') === 'alert' && !element.hidden).map(element => element.textContent),
+				endpoint: endpoint(container).value
+			});
+		}
+		assert.deepStrictEqual(drawn, [{
+			rows: ['acme:set up*', 'borealis:not set up'],
+			replace: true,
+			errors: [],
+			endpoint: 'https://relay.example.com/v1'
+		}, {
+			rows: ['acme:not set up*', 'borealis:not set up'],
+			replace: false,
+			errors: ['BaseHalf could not save this change: The keychain is locked.'],
+			endpoint: 'https://relay.example.com/v1'
+		}]);
 	});
 
 	test('two pages, as in two editor groups, have ids of their own', () => {

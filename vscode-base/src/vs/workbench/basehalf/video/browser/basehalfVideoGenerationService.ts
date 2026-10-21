@@ -903,7 +903,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return undefined;
 		}
 		const provider = findBaseHalfVideoProvider(catalog, task.request.provider);
-		return provider ? this.providerSettings.getAccess(provider, task.request.region) : undefined;
+		try {
+			return provider ? await this.providerSettings.getAccess(provider, task.request.region) : undefined;
+		} catch (error) {
+			// Credentials that cannot be read now: the task waits, as for a provider not set up here.
+			this.logService.info(`[BaseHalf video] Could not read the credentials to follow a task: ${getErrorMessage(error)}`);
+			return undefined;
+		}
 	}
 
 	// --- helpers -------------------------------------------------------------------------------

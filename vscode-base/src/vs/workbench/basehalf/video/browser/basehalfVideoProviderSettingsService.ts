@@ -135,7 +135,8 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 			}
 			const normalized = value === undefined ? undefined : normalizeBaseHalfVideoCredentialValue(value, credential.label);
 			const address = baseHalfVideoProviderSecretAddress(provider.id);
-			const values: Record<string, string> = { ...await this.readCredentialValues(address) };
+			// Stored values that cannot be read are written anew: the user sets or removes one now.
+			const values: Record<string, string> = { ...(await this.readCredentialValues(address) ?? {}) };
 			if (normalized === undefined) {
 				delete values[credentialId];
 			} else {
@@ -160,6 +161,11 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 			return undefined;
 		}
 		const values = await this.readCredentialValues(address);
+		if (values === undefined) {
+			// Neither used nor deleted, and the record stays as it is: the provider still
+			// shows as set up, and values that can be read again work again.
+			throw new BaseHalfVideoProviderSettingsError(localize('basehalf.video.providerSettings.unreadable', "BaseHalf can't read the credentials of {0} on this computer. Set them again in Video Providers.", provider.label));
+		}
 		const present = provider.credentials.filter(credential => values[credential.id] !== undefined).map(credential => credential.id);
 		const stored = this.stored(provider.id);
 		if (present.length !== stored.credentials.length || present.some(id => !stored.credentials.includes(id))) {
@@ -210,18 +216,16 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 	}
 
 	/**
-	 * The credential values of a provider as the credential store holds them. A
-	 * value that cannot be read, such as one encrypted with a key that this
-	 * computer no longer has, counts as not set: the provider shows as not set
-	 * up, and Set, Replace, and Remove write over it. Nothing is deleted for it,
-	 * so a value that cannot be read for a moment counts again once it can.
+	 * The credential values of a provider as the credential store holds them,
+	 * or nothing when they cannot be read, such as values encrypted with a key
+	 * that this computer no longer has, or a keychain that refused for a moment.
 	 */
-	private async readCredentialValues(address: string): Promise<Readonly<Record<string, string>>> {
+	private async readCredentialValues(address: string): Promise<Readonly<Record<string, string>> | undefined> {
 		try {
 			return parseBaseHalfVideoCredentialSecret(await this.credentialStore.get(address));
 		} catch (error) {
-			this.logService.warn(`BaseHalf could not read the credentials of a video provider; they count as not set: ${getErrorMessage(error)}`);
-			return {};
+			this.logService.warn(`BaseHalf could not read the credentials of a video provider: ${getErrorMessage(error)}`);
+			return undefined;
 		}
 	}
 

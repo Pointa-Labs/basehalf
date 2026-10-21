@@ -157,7 +157,8 @@ export interface IBaseHalfVideoProviderSettingsService {
 	/**
 	 * Where a request goes and with what, read from the encrypted store; for a
 	 * `region` other than the one in use, that region's base URL. `undefined`
-	 * when a credential value is not set.
+	 * when a credential value is not set. Throws, with plain words for the
+	 * user, when the stored values cannot be read.
 	 */
 	getAccess(provider: IBaseHalfVideoCatalogProvider, region?: string): Promise<IBaseHalfVideoProviderAccess | undefined>;
 

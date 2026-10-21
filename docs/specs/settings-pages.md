@@ -105,7 +105,8 @@ BaseHalf**. Video Providers opens at a provider when one is given.
 - The table of contents shows the page's entry selected and the BaseHalf
   group expanded.
 - The keyboard focus is on the page: on its selected entry, such as the
-  provider, or on the page itself.
+  provider, or on the page itself; an opening that keeps the focus where it
+  is leaves it there.
 
 ## While a page is shown
 
@@ -114,7 +115,10 @@ BaseHalf**. Video Providers opens at a provider when one is given.
 - Switching between User and Workspace does not change a page. The page
   stays, with what was typed in it and the focus.
 - Settings that opens again where it kept its place shows the entry chosen
-  last, a page too. The overlay starts anew each time, on Commonly Used.
+  last, a page too, unless it opens with a search, such as the welcome
+  page's Open BaseHalf Settings…: the search is shown. The focus stays where
+  the opening put it, such as the search box. The overlay starts anew each
+  time, on Commonly Used.
 - A page is drawn again only when what it shows changed. After a change made
   on the page, the focus stays on the control it was on, or moves to the one
   that took its place, such as Replace after Set; it never falls out of the

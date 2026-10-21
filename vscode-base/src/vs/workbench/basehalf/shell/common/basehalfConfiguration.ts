@@ -44,7 +44,8 @@ export const BASEHALF_ATTACHMENTS_DIRECTORY_PATTERN = (() => {
 	const dots = String.raw`(?!\.\.?${partEnds})`;
 	const reserved = String.raw`(?!(?:[cC][oO][nN]|[pP][rR][nN]|[aA][uU][xX]|[nN][uU][lL]|[cC][oO][mM][1-9]|[lL][pP][tT][1-9])(?:\.[^\\/]*)?${partEnds})`;
 	const part = `${dots}${reserved}${character}{0,159}${last}`;
-	return String.raw`^\s*(?:\.${separator})?${part}(?:${separator}${part})*${separator}*\s*$`;
+	// The rule trims the value before it takes off `./`: spaces before the first part are not part of it.
+	return String.raw`^\s*(?:\.${separator}|(?!\s))${part}(?:${separator}${part})*${separator}*\s*$`;
 })();
 
 /**

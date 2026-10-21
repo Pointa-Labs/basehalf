@@ -27,7 +27,11 @@ suite('BaseHalfMarkdownAttachment', () => {
 			'attachments', 'assets/notes', 'media/images/', '  media  ', '.\\media\\', './media', 'a\\b/c', '.hidden', '..twice', 'my files', '附件', '图片/2026',
 			'console', 'com0', 'lpt10', 'nul-files', 'CONx/y', long, `${long}/b`,
 			'', '   ', '.', '..', './', '././media', '../outside', 'a/../b', 'a/./b', '/absolute', '\\server', 'C:/files', 'course:files', 'a//b', 'a\\\\b',
-			'course./files', 'trailing ', 'trailing./', 'CON', 'con.txt', 'Com1/x', 'x/LPT9.log', 'a\u0007b', 'what?', 'a*b', 'a<b', 'a|b', 'a"b', `${long}a`, `b/${long}a`
+			'course./files', 'trailing ', 'trailing./', 'CON', 'con.txt', 'Com1/x', 'x/LPT9.log', 'a\u0007b', 'what?', 'a*b', 'a<b', 'a|b', 'a"b', `${long}a`, `b/${long}a`,
+			// Spaces before the first part are trimmed away; after `./`, and in a later part, they belong to the part.
+			' CON', ' con.txt/x', ' media', './ media', 'a/ CON', '\u2028media',
+			// Characters beyond the first plane count once, and a line separator is a character like any other.
+			'😀'.repeat(81), '😀'.repeat(160), '😀'.repeat(161), 'con.\u2028x', 'x\u2028y'
 		];
 		assert.deepStrictEqual(values.filter(value => pattern.test(value) !== (parseBaseHalfAttachmentsDirectory(value) !== undefined)), []);
 		assert.deepStrictEqual(['media/images', '附件', '../outside', '/absolute', 'C:/files', 'CON'].map(value => pattern.test(value)), [true, true, false, false, false, false]);
