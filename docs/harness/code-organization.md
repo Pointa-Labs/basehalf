@@ -89,6 +89,15 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   the order of the features' view controls.
 - New behavior on the canvas is a canvas feature, not more code in the canvas
   view.
+- The canvas view itself is a set of parts, one concern per file, as VS Code's
+  code editor widget delegates to its view, model, and controllers. The view,
+  `canvas/browser/basehalfCanvasWorkbench.contribution.ts`, builds the
+  elements, owns the scene and the state its parts share, and creates the
+  parts as its first fields. Each part is a class in `canvas/browser/view/`
+  (its README lists them) that keeps its own state and reaches the shared
+  state and the other parts through `view`. A file of the canvas stays small
+  enough to be read whole; a part that grows past about 1,500 lines is split
+  by concern.
 
 ## Changes to VS Code's own files
 
@@ -113,14 +122,15 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   its items and what their cards show, and the selection; moves cards and
   puts them back as steps of undo; reads and sets the viewport; shows a
   panel under a card; lets the user pick a card; and hears the canvas's keys.
-- Next, in the order of how often the code changed in the month before:
-  the rest of the Video node on the canvas (its cards, its actions, Capture
-  Frame), connections, creating cards, the badge editor, Card Detail, and
-  note editing. The rest of the canvas view, `canvas/browser/basehalfCanvasWorkbench.contribution.ts`
-  (about 10,200 lines in one class), and the React scene,
-  `canvas/browser/basehalfCanvasReactScene.ts` (about 5,100 lines), are split
-  into the canvas core and canvas features, one feature per commit, each with
-  unit tests.
+- 2026-10-21: the canvas view, which was one class of about 10,200 lines,
+  is the view (about 1,000 lines) and ten parts of 600 to 1,300 lines in
+  `canvas/browser/view/`.
+- Next: the React scene, `canvas/browser/basehalfCanvasReactScene.ts` (about
+  5,100 lines, one class of about 4,000), is split the same way. Parts that
+  are features of their own move on into `canvasContrib/`, in the order of
+  how often their code changed: the Video cards and their actions,
+  connections, creating cards, the badge editor, Card Detail, and note
+  editing.
 - On 2026-10-20, 75 of VS Code's files carried BaseHalf changes, most of them
   unmarked. They are marked, or replaced by an extension point, when their
   subsystem is next ported from a newer VS Code, not in a pass of their own.

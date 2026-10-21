@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfCanvasLayoutNotice, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasRetainedCardChromeIsStale } from '../../browser/basehalfCanvasWorkbench.contribution.js';
+import { baseHalfCanvasLayoutNotice, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasRetainedCardChromeIsStale } from '../../browser/view/basehalfCanvasViewShared.js';
 
 suite('BaseHalfCanvasWorkbench', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
