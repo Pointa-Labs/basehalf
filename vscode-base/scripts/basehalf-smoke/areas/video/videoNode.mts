@@ -217,7 +217,7 @@ async function assertVideoProvidersSetUp(page) {
 		await providers.locator(`.basehalf-video-provider-region[data-region="${VIDEO_REGION}"]`).click();
 		editor = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.regions.find(region => region.id === VIDEO_REGION)?.checked === true, `the region ${VIDEO_REGION} to be chosen`);
 	}
-	await providers.locator('#basehalf-video-provider-endpoint').click();
+	await providers.locator('.basehalf-video-provider-field.endpoint input').click();
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
 	await page.keyboard.type(provider.endpoint);
 	await page.keyboard.press('Enter');

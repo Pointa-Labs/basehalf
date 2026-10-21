@@ -14,6 +14,23 @@
 	background: var(--vscode-editor-background);
 }
 
+.basehalf-video-providers[hidden] {
+	display: none;
+}
+
+/*
+ * A focus ring is for the keyboard (settings pages, "While a page is shown").
+ * The workbench rings every focused button and element with a tab index, also
+ * after a click, at a specificity of up to (0,3,0). Here a control that a click
+ * focused shows none, each control's own ring below is drawn only for the
+ * keyboard, and the page itself, which takes the focus only for the keyboard
+ * to start from, never shows one.
+ */
+.monaco-workbench .basehalf-video-providers :focus:not(:focus-visible),
+.monaco-workbench .basehalf-video-providers[tabindex]:focus {
+	outline: none;
+}
+
 .basehalf-video-providers-header {
 	display: flex;
 	align-items: flex-start;
@@ -73,10 +90,26 @@
 	background: color-mix(in srgb, var(--vscode-sideBar-background) 72%, transparent);
 }
 
+/* While the catalog loads or after it failed, the message takes the whole width, with Try Again. */
+.basehalf-video-providers-content.empty {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.basehalf-video-providers-content.empty .basehalf-video-providers-list {
+	display: none;
+}
+
 .basehalf-video-providers-empty {
-	padding: 18px 10px;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
 	line-height: 1.5;
 	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-video-providers-empty p {
+	margin: 0;
 }
 
 .basehalf-video-provider-row {
@@ -100,7 +133,7 @@
 	background: var(--vscode-list-hoverBackground);
 }
 
-.basehalf-video-provider-row:focus-visible {
+.monaco-workbench .basehalf-video-providers .basehalf-video-provider-row:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
 }
@@ -281,7 +314,7 @@
 	background: color-mix(in srgb, var(--vscode-focusBorder) 16%, transparent);
 }
 
-.basehalf-video-provider-region:focus-visible {
+.monaco-workbench .basehalf-video-providers .basehalf-video-provider-region:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }
@@ -302,7 +335,7 @@
 	text-decoration: underline;
 }
 
-.basehalf-video-provider-console:focus-visible {
+.monaco-workbench .basehalf-video-providers .basehalf-video-provider-console:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }
@@ -335,7 +368,7 @@
 	background: var(--vscode-button-hoverBackground);
 }
 
-.basehalf-video-providers-button:focus-visible {
+.monaco-workbench .basehalf-video-providers .basehalf-video-providers-button:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }
@@ -346,10 +379,6 @@
 }
 
 @container (max-width: 560px) {
-	.basehalf-video-providers {
-		padding: 18px;
-	}
-
 	.basehalf-video-providers-content {
 		display: flex;
 		flex-direction: column;

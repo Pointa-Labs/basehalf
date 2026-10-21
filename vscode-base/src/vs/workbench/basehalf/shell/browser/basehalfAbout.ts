@@ -19,7 +19,11 @@ import { BASEHALF_ABOUT_ACTION_COMMANDS, BaseHalfAboutAction, baseHalfAboutActio
  * status element that the base draws for an update, shown here and not in a
  * card of the title bar, and below it the one action the state calls for.
  */
+/** Numbers the pages: Settings can show the page twice, in two editor groups, and each page's ids are its own. */
+let pageCount = 0;
+
 export class BaseHalfAboutView extends Disposable implements ISettingsCustomSection {
+	private readonly titleId = `basehalf-about-title-${++pageCount}`;
 	private root: HTMLElement | undefined;
 	private actionButton: HTMLButtonElement | undefined;
 	private action: BaseHalfAboutAction | undefined;
@@ -37,11 +41,12 @@ export class BaseHalfAboutView extends Disposable implements ISettingsCustomSect
 
 	create(parent: HTMLElement): void {
 		this.root = append(parent, $('.basehalf-about'));
-		this.root.setAttribute('role', 'main');
-		this.root.setAttribute('aria-labelledby', 'basehalf-about-title');
+		this.root.setAttribute('role', 'region');
+		this.root.setAttribute('aria-labelledby', this.titleId);
 		this.root.tabIndex = -1;
 
-		const title = append(this.root, $('h1#basehalf-about-title'));
+		const title = append(this.root, $('h1'));
+		title.id = this.titleId;
 		title.textContent = localize('basehalf.about.title', "About");
 
 		const content = append(this.root, $('.basehalf-about-content'));

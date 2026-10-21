@@ -4,11 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Queue } from '../../../../base/common/async.js';
+import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IBaseHalfModelCredentialStore } from '../common/basehalfModelCredentialStore.js';
 import {
@@ -57,7 +59,8 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 	constructor(
 		@IStorageService private readonly storageService: IStorageService,
 		@IBaseHalfModelCredentialStore private readonly credentialStore: IBaseHalfModelCredentialStore,
-		@ICommandService private readonly commandService: ICommandService
+		@ICommandService private readonly commandService: ICommandService,
+		@ILogService private readonly logService: ILogService
 	) {
 		super();
 		this.settingsRaw = this.storageService.get(BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY, StorageScope.APPLICATION);
@@ -132,7 +135,7 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 			}
 			const normalized = value === undefined ? undefined : normalizeBaseHalfVideoCredentialValue(value, credential.label);
 			const address = baseHalfVideoProviderSecretAddress(provider.id);
-			const values: Record<string, string> = { ...parseBaseHalfVideoCredentialSecret(await this.credentialStore.get(address)) };
+			const values: Record<string, string> = { ...await this.readCredentialValues(address) };
 			if (normalized === undefined) {
 				delete values[credentialId];
 			} else {
@@ -156,7 +159,7 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		} catch {
 			return undefined;
 		}
-		const values = parseBaseHalfVideoCredentialSecret(await this.credentialStore.get(address));
+		const values = await this.readCredentialValues(address);
 		const present = provider.credentials.filter(credential => values[credential.id] !== undefined).map(credential => credential.id);
 		const stored = this.stored(provider.id);
 		if (present.length !== stored.credentials.length || present.some(id => !stored.credentials.includes(id))) {
@@ -204,6 +207,22 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 
 	async openSettings(providerId?: string): Promise<void> {
 		await this.commandService.executeCommand(BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, ...(providerId !== undefined ? [providerId] : []));
+	}
+
+	/**
+	 * The credential values of a provider as the credential store holds them. A
+	 * value that cannot be read, such as one encrypted with a key that this
+	 * computer no longer has, counts as not set: the provider shows as not set
+	 * up, and Set, Replace, and Remove write over it. Nothing is deleted for it,
+	 * so a value that cannot be read for a moment counts again once it can.
+	 */
+	private async readCredentialValues(address: string): Promise<Readonly<Record<string, string>>> {
+		try {
+			return parseBaseHalfVideoCredentialSecret(await this.credentialStore.get(address));
+		} catch (error) {
+			this.logService.warn(`BaseHalf could not read the credentials of a video provider; they count as not set: ${getErrorMessage(error)}`);
+			return {};
+		}
 	}
 
 	private stored(providerId: string): IBaseHalfVideoStoredProviderSettings {

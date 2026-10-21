@@ -13,6 +13,21 @@
 	background: var(--vscode-editor-background);
 }
 
+.basehalf-about[hidden] {
+	display: none;
+}
+
+/*
+ * A focus ring is for the keyboard (settings pages, "While a page is shown").
+ * The workbench rings every focused button and element with a tab index, also
+ * after a click; here a control that a click focused shows none, and the page
+ * itself never does.
+ */
+.monaco-workbench .basehalf-about :focus:not(:focus-visible),
+.monaco-workbench .basehalf-about[tabindex]:focus {
+	outline: none;
+}
+
 .basehalf-about h1 {
 	margin: 0;
 	font-size: 26px;
@@ -72,7 +87,7 @@
 	background: var(--vscode-button-hoverBackground);
 }
 
-.basehalf-about-action:focus-visible {
+.monaco-workbench .basehalf-about .basehalf-about-action:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }

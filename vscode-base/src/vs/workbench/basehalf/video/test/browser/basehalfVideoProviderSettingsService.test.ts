@@ -8,6 +8,7 @@ import { Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ICommandEvent, ICommandService } from '../../../../../platform/commands/common/commands.js';
+import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
@@ -24,7 +25,12 @@ import { TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 class MemoryCredentials implements IBaseHalfModelCredentialStore {
 	declare readonly _serviceBrand: undefined;
 	readonly values = new Map<string, string>();
+	/** Values that cannot be decrypted, as when the key that encrypted them is gone. */
+	readonly unreadable = new Set<string>();
 	async get(key: string): Promise<string | undefined> {
+		if (this.unreadable.has(key)) {
+			throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.');
+		}
 		return this.values.get(key);
 	}
 	async set(key: string, value: string): Promise<void> {
@@ -55,7 +61,7 @@ suite('BaseHalfVideoProviderSettingsService', () => {
 		const storage = store.add(new InMemoryStorageService());
 		const credentials = new MemoryCredentials();
 		const commands = new RecordingCommands();
-		const service = store.add(new BaseHalfVideoProviderSettingsService(storage, credentials, commands));
+		const service = store.add(new BaseHalfVideoProviderSettingsService(storage, credentials, commands, new NullLogService()));
 		return { storage, credentials, commands, service };
 	}
 
@@ -164,6 +170,25 @@ suite('BaseHalfVideoProviderSettingsService', () => {
 			unreadable: undefined,
 			elsewhere: { region: 'west', setUp: true, endpoint: 'https://west.acme.example/api/v1', customEndpoint: false, credentials: ['apiKey'] },
 			changes: 3
+		});
+	});
+
+	test('a stored value that cannot be read counts as not set, and Set, Replace, and Remove write over it', async () => {
+		const { service, credentials } = createHarness();
+		const address = 'basehalf.modelServices.video.acme.apiKey';
+		await service.setCredential(acme, 'apiKey', 'acme-old');
+		credentials.unreadable.add(address);
+		const access = await service.getAccess(acme);
+		const shown = service.getStatus(acme).setUp;
+		await service.setCredential(acme, 'apiKey', 'acme-new');
+		const replaced = credentials.values.get(address);
+		await service.setCredential(acme, 'apiKey', undefined);
+		assert.deepStrictEqual({ access, shown, replaced, removed: !credentials.values.has(address), setUp: service.getStatus(acme).setUp }, {
+			access: undefined,
+			shown: false,
+			replaced: JSON.stringify({ apiKey: 'acme-new' }),
+			removed: true,
+			setUp: false
 		});
 	});
 

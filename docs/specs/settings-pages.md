@@ -104,6 +104,16 @@ BaseHalf**. Video Providers opens at a provider when one is given.
   stays, with what was typed in it and the focus.
 - Settings that opens again where it kept its place shows the entry chosen
   last, a page too. The overlay starts anew each time, on Commonly Used.
+- A page is drawn again only when what it shows changed. After a change made
+  on the page, the focus stays on the control it was on, or moves to the one
+  that took its place, such as Replace after Set; it never falls out of the
+  page, where Escape would no longer close Settings.
+- A focus ring shows only when the keyboard moved the focus, as on the
+  canvas ([architecture invariants](../harness/architecture-invariants.md#product-shell));
+  the page itself, which takes the focus for the keyboard to start from,
+  shows none. A text field shows its focus by its border.
+- Each page's elements have ids of their own: Settings can show a page in
+  two editor groups at once.
 
 ## Implementation boundaries
 
@@ -139,6 +149,9 @@ BaseHalf**. Video Providers opens at a provider when one is given.
    of the skill, and no area or the whole list shows a page as a heading.
 6. The welcome page's Open BaseHalf Settings… lists every BaseHalf setting.
 7. Enter on the entry of a page puts the focus on the page.
+8. Clicking a page, or a control on it, draws no focus ring; choosing a
+   region with the arrow keys keeps the focus on the region, with a ring,
+   and Escape then closes Settings; after Set, the focus is on Replace.
 
 ## Verification
 

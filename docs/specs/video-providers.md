@@ -257,7 +257,27 @@ catalog. For each:
 
 A provider is set up when every credential value is set. Nothing is checked
 with the provider when values are saved; the first generation tells the user
-whether they work. Removing the credentials of a provider leaves its nodes
+whether they work. A stored value that cannot be read, such as one encrypted
+with a key that this computer no longer has, counts as not set: the provider
+shows as not set up, and setting the value again replaces it. Nothing is
+deleted for it, so a value that could not be read for a moment counts again
+once it can.
+
+The page saves each change at once, one after another:
+
+- The endpoint is saved when its field loses the focus, on Enter, and when
+  the page closes or is left, also by Escape or Cmd+W, which close Settings
+  without taking the focus from the field. Its outcome shows where the field
+  is, without drawing the page again, so the click that took the focus
+  reaches what it clicked. An address the page cannot take is shown with
+  the reason while the page is open, and is not kept when the page closes.
+- Enter that an input method uses to choose its text is not for the page.
+- A second change does not wait for the first to be shown and is not
+  dropped; the same change is not made twice. A change that ends after
+  another provider is shown says so in the status line, with the provider's
+  name, and leaves that provider's fields alone.
+- While the catalog loads, the page says so; when it could not be loaded,
+  the page says why and offers **Try Again**. Removing the credentials of a provider leaves its nodes
 as they are; they show that the provider is not set up. Changing the region
 keeps an endpoint the user entered; clearing the endpoint, or entering the
 region's base URL, goes back to the region's base URL.

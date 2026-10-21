@@ -62,7 +62,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		const store = new FakeVideoNodeStore(root);
 		owner.add({ dispose: () => store.dispose() });
 		const commands = new FakeProviderCommands(fileService);
-		const providers = owner.add(new BaseHalfVideoProviderSettingsService(owner.add(new InMemoryStorageService()), new InMemoryCredentialStore(), commands));
+		const providers = owner.add(new BaseHalfVideoProviderSettingsService(owner.add(new InMemoryStorageService()), new InMemoryCredentialStore(), commands, new NullLogService()));
 		if (options.key !== false) {
 			await providers.setCredential(ACME, 'apiKey', KEY);
 		}

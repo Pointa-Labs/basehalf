@@ -75,7 +75,7 @@ export async function waitForReading(read, accept, description, timeoutMs = 15_0
 export function readVideoProviderEditor(providers) {
 	return providers.evaluate(root => {
 		const editor = root.querySelector('.basehalf-video-provider-editor');
-		const endpoint = root.querySelector('#basehalf-video-provider-endpoint');
+		const endpoint = root.querySelector('.basehalf-video-provider-field.endpoint input');
 		const row = root.querySelector('.basehalf-video-provider-row[aria-current="page"]');
 		return {
 			provider: editor?.getAttribute('data-provider') ?? null,
