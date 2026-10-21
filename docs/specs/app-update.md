@@ -4,7 +4,9 @@ Status: Active (2026-10-12). Implemented. Installed copies up to 0.5.0 still
 do what [the first version](#the-first-version) describes.
 Decision: [D47](../decisions.md#d47--an-update-is-downloaded-once-and-is-there-at-the-next-start-new-2026-10-12)
 Related: [verification and delivery](../harness/verification-and-delivery.md),
-[architecture invariants](../harness/architecture-invariants.md)
+[architecture invariants](../harness/architecture-invariants.md),
+[BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
+About page)
 
 ## The rule
 

@@ -7,8 +7,10 @@
 
 import fs from 'fs';
 import path from 'path';
+import process from 'process';
 import { root } from '../../context.mts';
 import { runCommand } from '../../lib/quickInput.mts';
+import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
 import {
 	closeVideoProvidersPage,
 	openVideoProvidersPage,
@@ -42,15 +44,23 @@ export async function assertBaseHalfSettingsCategory(page) {
 // The About page is in Settings below BaseHalf, and holds BaseHalf's own
 // version and the way to the release notes (app update, "Where an update
 // shows"). The smoke runs with updates switched off, so the state it shows
-// is that one.
+// is that one. Settings, closed, opens on the page from its first frame on
+// (settings pages, criterion 1), also when it was open on another entry
+// before: in the smoke, Settings keeps its place between openings.
 export async function assertBaseHalfAboutPage(page) {
-	await runCommand(page, 'About BaseHalf');
 	const settingsEditor = page.locator('.settings-editor').first();
+	if (await settingsEditor.isVisible()) {
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
+		await settingsEditor.waitFor({ state: 'hidden', timeout: 15_000 });
+	}
+	await watchSettingsFrames(page);
+	await runCommand(page, 'About BaseHalf');
 	await settingsEditor.waitFor({ state: 'visible', timeout: 20_000 });
 	const about = settingsEditor.locator('.basehalf-about').first();
 	await about.waitFor({ state: 'visible', timeout: 20_000 });
 	await about.locator('h1', { hasText: /^About$/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	await settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^About$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await assertSettingsFramesShowedOnly(page, 'About', 'basehalf-about', 'The command About BaseHalf');
 
 	const version = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8')).basehalfVersion;
 	const shown = (await about.innerText()).replace(/\s+/g, ' ');

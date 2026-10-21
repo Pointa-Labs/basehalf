@@ -30,8 +30,8 @@ registerAction2(class OpenBaseHalfAboutAction extends Action2 {
 	}
 
 	override async run(accessor: ServicesAccessor): Promise<void> {
-		await accessor.get(IPreferencesService).openSettings({ jsonEditor: false });
-		settingsCustomSectionRegistry.request(BASEHALF_ABOUT_SETTINGS_SECTION_ID);
+		// Settings opens on the page itself (settings pages, "Opening Settings at a page").
+		await accessor.get(IPreferencesService).openSettings({ jsonEditor: false, customSection: { id: BASEHALF_ABOUT_SETTINGS_SECTION_ID } });
 	}
 });
 

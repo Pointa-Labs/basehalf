@@ -10,7 +10,7 @@ import { settingsCustomSectionRegistry } from '../../browser/settingsCustomSecti
 suite('SettingsCustomSections', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('registers exact sections and transfers one pending request', () => {
+	test('registers each page once, until its registration is disposed', () => {
 		const id = 'test.settings.customSection';
 		const registration = settingsCustomSectionRegistry.register({
 			id,
@@ -19,17 +19,9 @@ suite('SettingsCustomSections', () => {
 		try {
 			assert.ok(settingsCustomSectionRegistry.get(id));
 			assert.throws(() => settingsCustomSectionRegistry.register({ id, create: () => { throw new Error(); } }));
-
-			const request = settingsCustomSectionRegistry.request(id, 'provider.scope');
-			assert.strictEqual(settingsCustomSectionRegistry.peekPendingRequest(), request);
-			assert.strictEqual(request.input, 'provider.scope');
-			assert.strictEqual(settingsCustomSectionRegistry.consumePendingRequest({ id }), false);
-			assert.strictEqual(settingsCustomSectionRegistry.consumePendingRequest(request), true);
-			assert.strictEqual(settingsCustomSectionRegistry.peekPendingRequest(), undefined);
 		} finally {
 			registration.dispose();
 		}
 		assert.strictEqual(settingsCustomSectionRegistry.get(id), undefined);
-		assert.throws(() => settingsCustomSectionRegistry.request(id));
 	});
 });

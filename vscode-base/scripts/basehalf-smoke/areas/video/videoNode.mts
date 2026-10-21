@@ -55,6 +55,7 @@ import {
 	waitForCanvasCardSelection
 } from '../../lib/canvas.mts';
 import { quickOpen, runCommand } from '../../lib/quickInput.mts';
+import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
 import { step, waitUntil } from '../../lib/steps.mts';
 import {
 	closeVideoProvidersPage,
@@ -198,10 +199,14 @@ async function assertVideoNodePromptSavesWithoutDialog(page) {
 // Criterion 6, and the start of 7: the page sets up the provider of the
 // catalog in a region of its own, and points it at the test provider, a relay
 // on this computer that mirrors the provider's own API. Its credentials come
-// in a later step, so the model menu first shows it as not set up.
+// in a later step, so the model menu first shows it as not set up. Settings,
+// opened for the first time in this window, shows the page from its first
+// frame on (settings pages, criterion 1).
 async function assertVideoProvidersSetUp(page) {
 	const provider = await videoSmokeProvider();
+	await watchSettingsFrames(page);
 	const providers = await openVideoProvidersPage(page);
+	await assertSettingsFramesShowedOnly(page, 'Video Providers', 'basehalf-video-providers', 'The command Video Providers');
 	await waitForReading(() => readVideoProviderRows(providers), seen => seen.some(row => row.id === VIDEO_PROVIDER), `the page to list ${VIDEO_PROVIDER}`, 30_000);
 	await providers.locator(`.basehalf-video-provider-row[data-provider="${VIDEO_PROVIDER}"]`).click();
 	let editor = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.provider === VIDEO_PROVIDER, `the page to show ${VIDEO_PROVIDER}`);
@@ -291,9 +296,12 @@ async function assertVideoPanelModelAndSettings(page) {
 	videoSmoke.summary = changed.settings;
 	videoSmoke.generation = stored;
 	await closeVideoPanelMenu(page, panel, 'settings');
-	// Set Up opens Video Providers at the provider that is not set up.
+	// Set Up opens Video Providers at the provider that is not set up, from
+	// the first frame of Settings on, though Settings was last closed there.
+	await watchSettingsFrames(page);
 	await panel.locator('button.bh-video-panel-reason-action').click();
 	const providers = await waitForVideoProvidersPage(page);
+	await assertSettingsFramesShowedOnly(page, 'Video Providers', 'basehalf-video-providers', 'Set Up of the Video panel');
 	await waitForReading(() => readVideoProviderEditor(providers), seen => seen.provider === VIDEO_PROVIDER, `Set Up to open Video Providers at ${VIDEO_PROVIDER}`);
 	await closeVideoProvidersPage(page, providers);
 	await clickBlankVideoCanvas(page);

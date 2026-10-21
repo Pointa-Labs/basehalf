@@ -3,10 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Emitter, Event } from '../../../../base/common/event.js';
 import { IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 
+/**
+ * BaseHalf: the pages that BaseHalf draws in Settings in place of a list of
+ * settings (docs/specs/settings-pages.md). A page has an entry in the table of
+ * contents marked `custom` in `settingsLayout.ts`; Settings opens at one with
+ * the option `customSection` of `ISettingsEditorOptions`.
+ */
 export interface ISettingsCustomSectionLayout {
 	readonly width: number;
 	readonly height: number;
@@ -25,17 +30,8 @@ export interface ISettingsCustomSectionDescriptor {
 	create(instantiationService: IInstantiationService): ISettingsCustomSection;
 }
 
-export interface ISettingsCustomSectionRequest {
-	readonly id: string;
-	readonly input?: string;
-}
-
 class SettingsCustomSectionRegistry {
 	private readonly descriptors = new Map<string, ISettingsCustomSectionDescriptor>();
-	private readonly _onDidRequest = new Emitter<ISettingsCustomSectionRequest>();
-	readonly onDidRequest: Event<ISettingsCustomSectionRequest> = this._onDidRequest.event;
-
-	private pendingRequest: ISettingsCustomSectionRequest | undefined;
 
 	register(descriptor: ISettingsCustomSectionDescriptor): IDisposable {
 		const id = descriptor.id.trim();
@@ -52,28 +48,6 @@ class SettingsCustomSectionRegistry {
 
 	get(id: string): ISettingsCustomSectionDescriptor | undefined {
 		return this.descriptors.get(id);
-	}
-
-	request(id: string, input?: string): ISettingsCustomSectionRequest {
-		const request = Object.freeze({ id: id.trim(), ...(input ? { input } : {}) });
-		if (!request.id || !this.descriptors.has(request.id)) {
-			throw new Error(`Unknown Settings custom section '${request.id}'.`);
-		}
-		this.pendingRequest = request;
-		this._onDidRequest.fire(request);
-		return request;
-	}
-
-	peekPendingRequest(): ISettingsCustomSectionRequest | undefined {
-		return this.pendingRequest;
-	}
-
-	consumePendingRequest(request: ISettingsCustomSectionRequest): boolean {
-		if (this.pendingRequest !== request) {
-			return false;
-		}
-		this.pendingRequest = undefined;
-		return true;
 	}
 }
 

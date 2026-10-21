@@ -40,10 +40,14 @@ registerAction2(class OpenBaseHalfVideoProvidersAction extends Action2 {
 		});
 	}
 
-	/** With a provider id of the catalog, the page shows that provider. */
+	/**
+	 * With a provider id of the catalog, the page shows that provider. Settings
+	 * opens on the page itself (settings pages, "Opening Settings at a page").
+	 */
 	override async run(accessor: ServicesAccessor, providerId?: unknown): Promise<void> {
-		const preferencesService = accessor.get(IPreferencesService);
-		await preferencesService.openSettings({ jsonEditor: false });
-		settingsCustomSectionRegistry.request(BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, typeof providerId === 'string' ? providerId : undefined);
+		await accessor.get(IPreferencesService).openSettings({
+			jsonEditor: false,
+			customSection: { id: BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, ...(typeof providerId === 'string' ? { input: providerId } : {}) }
+		});
 	}
 });

@@ -3,7 +3,9 @@
 Status: Active (2026-10-19)
 Decision: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
 Related: [Video node](video-node.md),
-[built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md)
+[built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md),
+[BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
+Video Providers page)
 
 This specification owns which video providers BaseHalf runs, the catalog that
 declares their models, the credentials users enter for them, and how a request
@@ -236,7 +238,9 @@ price has no estimate.
 
 ## Credentials, regions, and endpoints
 
-Settings has one **Video Providers** page. It lists the providers of the
+Settings has one **Video Providers** page
+([BaseHalf's pages in Settings](settings-pages.md) owns how it opens). It
+lists the providers of the
 catalog. For each:
 
 - **Region**, when the provider has more than one. It sets the base URL, the

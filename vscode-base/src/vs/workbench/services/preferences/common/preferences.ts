@@ -218,6 +218,21 @@ export interface ISettingsEditorOptions extends IEditorOptions {
 		edit?: boolean;
 	};
 	focusSearch?: boolean;
+	/**
+	 * BaseHalf: a page that BaseHalf draws in Settings, shown from the first
+	 * frame of Settings on, the way `query` is (docs/specs/settings-pages.md).
+	 */
+	customSection?: ISettingsEditorCustomSection;
+}
+
+/**
+ * BaseHalf: a page of Settings by the id of its entry in the table of
+ * contents (`settingsCustomSections.ts`), and what the page should show, such
+ * as a provider of Video Providers.
+ */
+export interface ISettingsEditorCustomSection {
+	readonly id: string;
+	readonly input?: string;
 }
 
 export interface IOpenSettingsOptions extends ISettingsEditorOptions {
