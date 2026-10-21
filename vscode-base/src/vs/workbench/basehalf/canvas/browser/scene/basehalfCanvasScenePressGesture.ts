@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './media/basehalfCanvasScenePressGesture.css';
 import { BaseHalfCanvasArrangement, baseHalfCanvasArrange, baseHalfCanvasCardsInMarquee } from '../../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneSelection } from '../../common/basehalfCanvasScene.js';
 import type { NodeChange, ReactFlowInstance, Viewport } from '@xyflow/react';

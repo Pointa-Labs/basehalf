@@ -3,6 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './media/basehalfCanvasAdjacentChrome.css';
+import './media/basehalfCanvasNoteToolbar.css';
+import './media/basehalfCanvasVideoSelectionControls.css';
 import { isMacintosh, isWindows } from '../../../../../base/common/platform.js';
 import { localize } from '../../../../../nls.js';
 import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';

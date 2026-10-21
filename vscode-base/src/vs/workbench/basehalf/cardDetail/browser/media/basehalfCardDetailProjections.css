@@ -1,0 +1,200 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.monaco-workbench .basehalf-card-detail-status {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 18px 22px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 13px;
+}
+
+.monaco-workbench .basehalf-card-detail-status.error {
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-workbench .basehalf-card-detail-status-retry {
+	padding: 4px 10px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 2px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-card-detail-status-retry:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .basehalf-card-detail-source {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-source-editor {
+	flex: 1;
+	min-height: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-source-notice {
+	flex: none;
+	padding: 24px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 13px;
+	text-align: center;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 48px max(28px, calc((100% - 760px) / 2)) 72px;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content {
+	/* The bar of a table that is scrolled sideways is placed in this box. */
+	position: relative;
+	max-width: 760px;
+	margin: 0 auto;
+	color: var(--vscode-editor-foreground);
+	font-size: 14px;
+	line-height: 1.65;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h1,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h2,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h3 {
+	margin-top: 1.4em;
+	margin-bottom: 0.7em;
+	line-height: 1.25;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h1:first-child,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h2:first-child,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h3:first-child {
+	margin-top: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content p,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content ul,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content ol,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content blockquote,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content pre {
+	margin-top: 0;
+	margin-bottom: 1em;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content pre {
+	padding: 12px;
+	overflow: auto;
+	background-color: var(--vscode-textCodeBlock-background);
+	border-radius: 4px;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content code {
+	font-family: var(--monaco-monospace-font);
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content img {
+	max-width: 100%;
+}
+
+/* The system's bar of a box that scrolls sideways grows and turns light under
+ * the pointer. The box shows the one bar of a note instead, while it is
+ * scrolled. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content table::-webkit-scrollbar,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content pre::-webkit-scrollbar {
+	display: none;
+}
+
+/* A table keeps the widths its columns need. When it is wider than the text
+ * column it scrolls sideways in its own box. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content table {
+	display: block;
+	width: max-content;
+	max-width: 100%;
+	margin-top: 0;
+	margin-bottom: 1em;
+	overflow-x: auto;
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content td {
+	padding: 5px 12px;
+	border: 1px solid color-mix(in srgb, var(--vscode-editor-foreground) 28%, transparent);
+	vertical-align: top;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th {
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th:not([align]) {
+	text-align: start;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-selection-reveal {
+	animation: basehalf-card-detail-selection-reveal 1.6s ease-out;
+	border-radius: 4px;
+}
+
+@keyframes basehalf-card-detail-selection-reveal {
+	0% {
+		background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c00) 55%, transparent);
+		box-shadow: 0 0 0 2px var(--vscode-editor-findMatchBorder, transparent);
+	}
+	100% {
+		background: transparent;
+		box-shadow: 0 0 0 0 transparent;
+	}
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* The iframe can load and measure while hidden, but it cannot take focus or
+   expose a half-initialized editor before its load/focus boundary settles. */
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview[data-basehalf-render-state="booting"],
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview[data-basehalf-render-state="settling"],
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview[data-basehalf-render-state="paused"] {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-card-detail-media,
+.monaco-workbench .basehalf-card-detail-media-webview {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}

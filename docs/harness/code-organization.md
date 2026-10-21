@@ -29,9 +29,25 @@ per feature:
 
 Inside a feature folder, files are in VS Code's layer folders: `common/`,
 `browser/`, and `electron-browser/`. Tests are in `test/<layer>/` of the same
-feature, stylesheets and images in `browser/media/`. File names keep their
-`basehalf` prefix, so a name in a document or in history still finds its
-file.
+feature, stylesheets and images in a `media/` folder beside the code that uses
+them. File names keep their `basehalf` prefix, so a name in a document or in
+history still finds its file.
+
+## Stylesheets
+
+- A stylesheet styles what one module draws and is imported by that module,
+  as VS Code's widgets import theirs. It sits in the `media/` folder beside the
+  module and is named after what it styles. A module that draws inside what
+  another one draws, such as the Video toolbar that has the look of a Note's
+  toolbar, imports that stylesheet too.
+- A rule goes into the stylesheet of the module that makes the element it
+  styles, the subject of its selector.
+- Stylesheets do not depend on the order they load in. Modules load in an
+  order that nothing fixes, so a rule that must win over a rule of another
+  stylesheet wins by its specificity, never by coming later. A rule that
+  overrides one of the same stylesheet may rely on coming after it. Before a
+  rule moves to another stylesheet, check that no rule it would move past can
+  style the same element with the same property at the same specificity.
 
 - A new file goes into the folder of the feature whose specification it
   implements. A feature with a specification of its own that fits none of
@@ -138,6 +154,13 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   a root component of about 2,000, is the scene object (about 300 lines) and
   19 files of 60 to 580 lines in `canvas/browser/scene/`: a factory for each
   component, and the root component's work in nine hooks.
+- 2026-10-21: the canvas stylesheet, which was one file of 3,442 lines with
+  no order between its concerns, is 19 stylesheets, each imported by the
+  module that draws what it styles: the view and its parts in
+  `canvas/browser/media/`, the scene's files in `canvas/browser/scene/media/`,
+  Card Detail's projections in `cardDetail/browser/media/`, and the item glyph
+  and the sideways scrollbar in `shell/browser/media/`. None depends on the
+  order they load in.
 - Next: parts that are features of their own move on into `canvasContrib/`,
   in the order of how often their code changed: the Video cards and their
   actions, connections, creating cards, the badge editor, Card Detail, and

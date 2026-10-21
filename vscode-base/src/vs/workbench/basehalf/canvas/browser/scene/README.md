@@ -52,6 +52,21 @@ Flow's nodes and edges, and small functions that several files use.
 the Video panel go beside a selection. `basehalfCanvasSceneNodeDrag.ts` holds
 the state of a drag of cards and puts cards back when it is cancelled.
 
+Each file that draws elements imports their stylesheet from `media/`, named
+after the file: `basehalfCanvasCardNode.css` (the card's place in React Flow,
+its connection handles, and its resize controls),
+`basehalfCanvasReferenceEdge.css`, `basehalfCanvasSceneOverlays.css`,
+`basehalfCanvasScenePressGesture.css` (the marquee),
+`basehalfCanvasSelectionToolbar.css` (with the box of a set),
+`basehalfCanvasNoteSelectionControls.css`, and
+`basehalfCanvasVideoSelectionControls.css`. Two stylesheets are shared:
+`basehalfCanvasAdjacentChrome.css`, how the controls beside a selection show
+and hide, imported by the three files of those controls, and
+`basehalfCanvasNoteToolbar.css`, the toolbar of a Note, whose look the Video
+toolbar has too. `basehalfCanvasSceneMouse.ts` imports the look of the bar of
+a box that scrolls sideways (`../../../shell/browser/media/`), as the places
+that install that bar do.
+
 ## Rules
 
 - New behavior on the canvas is a canvas feature in `../../../canvasContrib/`

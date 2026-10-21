@@ -1,0 +1,23 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The marquee is drawn in screen pixels over the scene and takes no pointer. */
+.monaco-workbench .basehalf-canvas-marquee {
+	position: absolute;
+	left: 0;
+	top: 0;
+	z-index: 5;
+	box-sizing: border-box;
+	pointer-events: none;
+	background: var(--bh-canvas-marquee-fill);
+	border: 1px dashed var(--bh-canvas-geometry);
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-marquee {
+		background: transparent;
+		border-color: Highlight;
+	}
+}

@@ -1,0 +1,58 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The released connection line kept while Create from Connection is open:
+ * the same stroke as React Flow's drag line. */
+.monaco-workbench .basehalf-canvas-connection-drop-line path {
+	fill: none;
+	stroke: var(--xy-connectionline-stroke, var(--xy-connectionline-stroke-default));
+	stroke-width: var(--xy-connectionline-stroke-width, var(--xy-connectionline-stroke-width-default));
+}
+
+.monaco-workbench .basehalf-canvas-snap-guides {
+	position: absolute;
+	inset: 0;
+	z-index: 4;
+	overflow: visible;
+	pointer-events: none;
+	color: color-mix(in srgb, var(--bh-canvas-geometry) 72%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-snap-guide-line {
+	fill: none;
+	stroke: currentColor;
+	stroke-linecap: round;
+	opacity: 0.48;
+}
+
+/* Capture circles lie below the viewport's edges and nodes (negative z-index
+ * in the viewport's stacking context): cards and edges keep the pointer over
+ * them. The scene sets --bh-connect-reach-limit (flow pixels) so a circle stays
+ * on the straight part of its side. */
+.monaco-workbench .basehalf-canvas-connect-capture-layer {
+	position: absolute;
+	left: 0;
+	top: 0;
+	z-index: -1;
+}
+
+.monaco-workbench .basehalf-canvas-connect-capture {
+	--bh-connect-reach: max(
+		calc(var(--bh-connect-size) / 2),
+		min(calc(24px / var(--bh-connect-zoom)), var(--bh-connect-reach-limit, 9999px))
+	);
+
+	position: absolute;
+	width: calc(2 * var(--bh-connect-reach));
+	height: calc(2 * var(--bh-connect-reach));
+	border-radius: 50%;
+	transform: translate(-50%, -50%);
+	pointer-events: auto;
+	cursor: crosshair;
+}
+
+.monaco-workbench .basehalf-canvas-react-island[data-card-resizing="true"] .basehalf-canvas-connect-capture {
+	pointer-events: none;
+}

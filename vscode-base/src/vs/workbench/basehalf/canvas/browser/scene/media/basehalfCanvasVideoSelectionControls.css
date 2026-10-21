@@ -1,0 +1,127 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * React Flow owns the live position of the Video panel. The panel stays at a
+ * constant screen size while the canvas viewport transforms, and it follows
+ * its card while the card moves or is resized. It lies above the toolbar of
+ * its card, so that its menus open over the toolbar; the toolbar rises above
+ * it while the toolbar's own menu is open.
+ */
+.monaco-workbench .basehalf-canvas-video-panel-surface {
+	position: absolute;
+	z-index: 1002;
+	box-sizing: border-box;
+	overflow: visible;
+	pointer-events: auto;
+	transform: scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
+	transform-origin: top left;
+}
+
+.monaco-workbench .basehalf-canvas-video-panel-surface[data-visible="false"] {
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-panel-surface[data-chrome-state="following"] {
+	opacity: 1;
+	visibility: visible !important;
+	pointer-events: none !important;
+	animation: none;
+	transition: none;
+}
+
+/*
+ * Result-video actions share the Note toolbar's screen-space material and
+ * controls. The distinct class is the semantic hook used by keyboard
+ * ownership and smoke coverage; actions only appear when the host advertises
+ * a real command for the selected sealed Result.
+ */
+.monaco-workbench .basehalf-video-result-toolbar {
+	justify-content: flex-start;
+	overscroll-behavior-x: contain;
+}
+
+.monaco-workbench .basehalf-video-context-toolbar {
+	justify-content: center;
+	/* The menu of Capture Frame opens outside the toolbar. */
+	overflow: visible;
+}
+
+/* An open menu lies over the panel of the card, which otherwise lies over the toolbar. */
+.monaco-workbench .basehalf-video-context-toolbar.menu-open {
+	z-index: 1003;
+}
+
+/* Capture Frame of the toolbar above a Video card, and its menu of frames. */
+.monaco-workbench .basehalf-canvas-note-toolbar-action.basehalf-video-capture-action {
+	width: 42px;
+	flex: 0 0 42px;
+	gap: 0;
+}
+
+.monaco-workbench .basehalf-video-result-toolbar-action > .codicon[class*='codicon-'] {
+	font-size: 16px;
+}
+
+.monaco-workbench .basehalf-video-result-toolbar-action > .basehalf-video-capture-chevron.codicon[class*='codicon-'] {
+	margin-left: -1px;
+	font-size: 10px;
+	opacity: 0.75;
+}
+
+.monaco-workbench .basehalf-video-capture-menu {
+	position: absolute;
+	left: 0;
+	display: flex;
+	min-width: 140px;
+	box-sizing: border-box;
+	flex-direction: column;
+	padding: 4px;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 8px;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+}
+
+.monaco-workbench .basehalf-video-capture-menu.above {
+	bottom: calc(100% + 6px);
+}
+
+.monaco-workbench .basehalf-video-capture-menu.below {
+	top: calc(100% + 6px);
+}
+
+.monaco-workbench .basehalf-video-capture-menu-item {
+	height: 26px;
+	flex: none;
+	padding: 0 10px;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	text-align: left;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-video-capture-menu-item:hover,
+.monaco-workbench .basehalf-video-capture-menu-item:focus-visible {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.basehalf-video-upload-action {
+	width: auto;
+	min-width: 0;
+	flex: 1 1 auto;
+	gap: 6px;
+	padding: 0 12px;
+	white-space: nowrap;
+	font-size: 12px;
+}

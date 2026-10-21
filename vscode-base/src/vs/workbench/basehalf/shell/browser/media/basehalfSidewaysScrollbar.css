@@ -1,0 +1,23 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The bar of a box that is being scrolled sideways. It lies over the box,
+ * inside its lower edge, takes no space and no press, and has one look. */
+.monaco-workbench .basehalf-sideways-scrollbar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 1;
+	border-radius: 3px;
+	background: var(--vscode-scrollbarSlider-background);
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.3s ease-out;
+}
+
+.monaco-workbench .basehalf-sideways-scrollbar.shown {
+	opacity: 1;
+	transition: none;
+}

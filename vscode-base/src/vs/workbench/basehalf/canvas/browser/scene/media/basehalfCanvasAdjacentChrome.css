@@ -1,0 +1,65 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Every node-adjacent surface follows one selection-chrome lifecycle. The
+ * React Flow portals remain mounted while a card moves so local editor state
+ * survives. Generic chrome retracts; the Video panel follows the card instead
+ * (see below).
+ */
+@keyframes basehalf-canvas-adjacent-chrome-emerge {
+	from {
+		translate: 0 var(--basehalf-adjacent-chrome-retract-y, var(--basehalf-adjacent-chrome-travel, 6px));
+	}
+
+	to {
+		translate: 0 0;
+	}
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome {
+	--basehalf-adjacent-chrome-retract-y: var(--basehalf-adjacent-chrome-travel, 6px);
+	opacity: 1;
+	visibility: visible;
+	translate: 0 0;
+	animation: basehalf-canvas-adjacent-chrome-emerge 140ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+	transition: translate 88ms cubic-bezier(0.4, 0, 1, 1), visibility 0ms linear 0ms;
+	will-change: translate;
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome[data-placement="below"] {
+	--basehalf-adjacent-chrome-retract-y: calc(0px - var(--basehalf-adjacent-chrome-travel, 6px));
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
+.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome:not(.basehalf-canvas-video-panel-surface) {
+	opacity: 1;
+	visibility: hidden !important;
+	translate: 0 var(--basehalf-adjacent-chrome-retract-y, var(--basehalf-adjacent-chrome-travel, 6px));
+	pointer-events: none !important;
+	animation: none;
+	/* Retract first, then hide in one discrete step. Revealing begins at the
+	 * card edge and travels outward, so the chrome never cross-fades. */
+	transition: translate 88ms cubic-bezier(0.4, 0, 1, 1), visibility 0ms linear 88ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-adjacent-chrome {
+		translate: 0 0;
+		animation: none;
+		transition: none;
+		will-change: auto;
+	}
+
+	.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
+	.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome:not(.basehalf-canvas-video-panel-surface) {
+		opacity: 1;
+		visibility: hidden !important;
+		translate: 0 0;
+		animation: none;
+		transition: none;
+		will-change: auto;
+	}
+}

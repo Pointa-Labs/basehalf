@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './media/basehalfCanvasAdjacentChrome.css';
+import './media/basehalfCanvasSelectionToolbar.css';
 import { localize } from '../../../../../nls.js';
 import { BaseHalfCanvasArrangement, IBaseHalfCanvasArrangeCard, baseHalfCanvasBoundingRect } from '../../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasSceneSelectionAction, baseHalfCanvasSceneSelectionActions, BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';

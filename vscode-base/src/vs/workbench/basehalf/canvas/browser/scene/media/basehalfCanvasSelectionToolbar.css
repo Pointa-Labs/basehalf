@@ -1,0 +1,177 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The box of a set lies over its cards, which the canvas library raises by
+ * 1000 when they are selected, and takes the pointer in its whole area. Its
+ * border width is set inline so that it stays one screen pixel at every zoom.
+ */
+.monaco-workbench .basehalf-canvas-set-box {
+	position: absolute;
+	z-index: 1001;
+	box-sizing: border-box;
+	pointer-events: auto;
+	cursor: grab;
+	background: color-mix(in srgb, var(--bh-canvas-geometry) 12%, transparent);
+	border: 0 solid color-mix(in srgb, var(--bh-canvas-geometry) 45%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-react-island[data-node-drag-chrome="dragging"] .basehalf-canvas-set-box {
+	cursor: grabbing;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-set-box {
+		background: transparent;
+		border-color: Highlight;
+	}
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar {
+	box-sizing: border-box;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	position: absolute;
+	z-index: 32;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	height: 36px;
+	padding: 3px;
+	border-radius: 18px;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.above {
+	transform: translate(-50%, calc(-100% - 10px)) scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
+	transform-origin: bottom center;
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.below {
+	transform: translate(-50%, 10px) scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
+	transform-origin: top center;
+}
+
+/* The toolbar of a set stays over the set box where the two meet at the edge
+ * of the view. */
+.monaco-workbench .basehalf-canvas-selection-toolbar.for-set {
+	z-index: 1002;
+}
+
+.monaco-workbench .basehalf-canvas-selection-arrange {
+	position: relative;
+	display: inline-flex;
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu {
+	position: absolute;
+	left: 0;
+	display: flex;
+	min-width: 112px;
+	flex-direction: column;
+	box-sizing: border-box;
+	padding: 4px;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 8px;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.above .basehalf-canvas-arrange-menu {
+	bottom: calc(100% + 8px);
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.below .basehalf-canvas-arrange-menu {
+	top: calc(100% + 8px);
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu-item {
+	height: 26px;
+	padding: 0 10px;
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	text-align: left;
+	white-space: nowrap;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu-item:hover,
+.monaco-workbench .basehalf-canvas-arrange-menu-item:focus-visible {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action {
+	display: inline-flex;
+	width: 28px;
+	height: 28px;
+	flex: 0 0 28px;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	color: var(--vscode-icon-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+/* The buttons of a set carry their names beside the icon. */
+.monaco-workbench .basehalf-canvas-selection-action.labeled {
+	width: auto;
+	flex: 0 0 auto;
+	gap: 6px;
+	padding: 0 10px;
+	border-radius: 14px;
+	color: var(--vscode-menu-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	line-height: 28px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled > .codicon {
+	color: var(--vscode-icon-foreground);
+	font-size: 16px;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled > .basehalf-canvas-selection-action-menu {
+	margin-left: -2px;
+	font-size: 12px;
+	opacity: 0.7;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled.danger:hover > .codicon {
+	color: inherit;
+}
+
+.monaco-workbench .basehalf-canvas-selection-separator {
+	flex: none;
+	width: 1px;
+	height: 16px;
+	margin: 0 4px;
+	background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
+}
+
+.monaco-workbench .basehalf-canvas-selection-action:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.danger:hover {
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-workbench .basehalf-canvas-selection-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}

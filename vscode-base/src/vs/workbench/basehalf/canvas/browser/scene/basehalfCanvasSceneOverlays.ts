@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './media/basehalfCanvasSceneOverlays.css';
 import { BaseHalfCanvasAnchor, baseHalfCanvasAnchorPoint } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import { baseHalfCanvasConnectHandleReachLimit } from '../../common/basehalfCanvasScene.js';

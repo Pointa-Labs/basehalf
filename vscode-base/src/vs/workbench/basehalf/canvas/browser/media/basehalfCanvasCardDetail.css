@@ -1,0 +1,250 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.monaco-workbench .basehalf-card-detail {
+	position: absolute;
+	inset: 0;
+	z-index: 10;
+	display: none;
+	flex-direction: column;
+	background-color: var(--vscode-editor-background);
+}
+
+.monaco-workbench .basehalf-card-detail.visible {
+	display: flex;
+}
+
+.monaco-workbench .basehalf-card-detail-header {
+	box-sizing: border-box;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+	align-items: center;
+	gap: 8px;
+	min-height: 36px;
+	padding: 0 6px 0 14px;
+	border-bottom: 1px solid var(--vscode-editorWidget-border);
+}
+
+.monaco-workbench .basehalf-card-detail-title-block {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-title {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	overflow: hidden;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-card-detail-title-button {
+	min-width: 0;
+	max-width: 100%;
+	padding: 2px 4px;
+	overflow: hidden;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	font: inherit;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: text;
+}
+
+.monaco-workbench .basehalf-card-detail-title-button:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-card-detail-title-button:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.monaco-workbench .basehalf-card-detail-title-input {
+	width: min(360px, 42vw);
+	min-width: 120px;
+}
+
+.monaco-workbench .basehalf-card-detail-title-input .monaco-inputbox {
+	width: 100%;
+}
+
+.monaco-workbench .basehalf-card-detail-meta {
+	flex: none;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-card-detail-meta:empty {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-actions {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-self: end;
+	gap: 4px;
+	flex: none;
+}
+
+/* Hidden while auto-save works; appears only as the "saving stopped
+   working" escape hatch (conflict/error), where clicking retries. */
+.monaco-workbench .basehalf-card-detail-save-status {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"] {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	box-sizing: border-box;
+	height: 22px;
+	padding: 0 6px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-editorWarning-foreground));
+	font-family: inherit;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1;
+	white-space: nowrap;
+	cursor: pointer;
+	animation: basehalf-detail-save-status-fade-in 180ms ease;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"]:hover,
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"]:focus-visible {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-card-detail-save-status-icon {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 12px;
+	height: 12px;
+	font-size: 12px;
+	line-height: 12px;
+	color: currentColor;
+}
+
+.monaco-workbench .basehalf-card-detail-projections {
+	display: none;
+	align-items: center;
+	gap: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-projections.visible {
+	display: flex;
+}
+
+.monaco-workbench .basehalf-card-detail-projection {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-card-detail-projection:hover {
+	color: var(--vscode-icon-foreground);
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-card-detail-projection:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.monaco-workbench .basehalf-card-detail-projection.checked {
+	color: var(--vscode-editor-foreground);
+	background-color: color-mix(in srgb, var(--vscode-toolbar-activeBackground) 62%, transparent);
+}
+
+.monaco-workbench .basehalf-card-detail-close {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+	margin-left: 2px;
+}
+
+.monaco-workbench .basehalf-card-detail-close:hover {
+	color: var(--vscode-icon-foreground);
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-card-detail-close:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-card-detail-projection.checked {
+		outline: 1px solid CanvasText;
+		outline-offset: -1px;
+	}
+}
+
+.monaco-workbench .basehalf-card-detail-body {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+
+/* One retained layer per projection of the open document. A booting layer
+   stays hidden (visibility keeps layout and lets the webview/editor measure
+   and render) until its first meaningful frame, then the swap is atomic —
+   the previous projection remains visible until that moment. */
+.monaco-workbench .basehalf-card-detail-surface {
+	position: absolute;
+	inset: 0;
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-card-detail-surface.active {
+	visibility: visible;
+}
+
+@keyframes basehalf-detail-save-status-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}

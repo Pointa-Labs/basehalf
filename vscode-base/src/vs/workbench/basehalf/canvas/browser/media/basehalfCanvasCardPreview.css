@@ -1,0 +1,562 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.monaco-workbench .basehalf-canvas-card-preview {
+	flex: 1;
+	min-height: 0;
+	padding: 8px 12px 12px;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--bh-card-text-secondary);
+	background: transparent;
+	font-family: var(--monaco-monospace-font);
+	font-size: 12px;
+	line-height: 1.5;
+	mask-image: linear-gradient(to bottom, #000 70%, transparent);
+	-webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-markdown {
+	--basehalf-canvas-note-inline-padding: 12px;
+	--basehalf-canvas-note-content-padding: 8px var(--basehalf-canvas-note-inline-padding) 12px;
+	--basehalf-canvas-note-scrollbar-width: 10px;
+	position: relative;
+	/* Both projections of a Note scroll. The space around the text belongs to
+	 * what they scroll: held by this box, it would cut the text of a scrolled
+	 * Note short of the card's outline. */
+	padding: 0;
+	font-family: inherit;
+	white-space: normal;
+	mask-image: none;
+	-webkit-mask-image: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-folder,
+.monaco-workbench .basehalf-canvas-card-preview.kind-media,
+.monaco-workbench .basehalf-canvas-card-preview.kind-node,
+.monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode,
+.monaco-workbench .basehalf-canvas-card-preview.kind-empty,
+.monaco-workbench .basehalf-canvas-card-preview.kind-richRequired,
+.monaco-workbench .basehalf-canvas-card-preview.kind-unavailable {
+	font-family: inherit;
+	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 9px 12px 10px;
+	mask-image: none;
+	-webkit-mask-image: none;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-title {
+	color: var(--vscode-errorForeground);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-message {
+	display: -webkit-box;
+	overflow: hidden;
+	font-size: 10px;
+	line-height: 1.35;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action {
+	align-self: flex-end;
+	margin-top: auto;
+	padding: 2px 0;
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+	border: 0;
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration: underline;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-node {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 9px 12px 10px;
+	mask-image: none;
+	-webkit-mask-image: none;
+	color: var(--bh-card-text-secondary);
+}
+
+.monaco-workbench .basehalf-canvas-card.node-kind-video .basehalf-canvas-card-preview.kind-node {
+	gap: 0;
+	padding: 0;
+	font-family: inherit;
+	white-space: normal;
+	mask-image: none;
+	-webkit-mask-image: none;
+	background: var(--bh-card-surface);
+}
+
+.monaco-workbench .basehalf-canvas-node-result {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-node-result-label {
+	margin-bottom: 3px;
+	color: var(--bh-card-text-tertiary);
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+.monaco-workbench .basehalf-canvas-node-result-value {
+	display: -webkit-box;
+	overflow: hidden;
+	color: var(--bh-card-text-primary);
+	font-size: 12px;
+	line-height: 1.4;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	white-space: normal;
+}
+
+.monaco-workbench .basehalf-canvas-node-result-media {
+	flex: 1;
+	min-height: 44px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--bh-card-surface) 82%, black);
+	border-radius: 4px;
+}
+
+.monaco-workbench .basehalf-canvas-node-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: auto;
+}
+
+.monaco-workbench .basehalf-canvas-node-action {
+	min-width: 48px;
+	height: 26px;
+	padding: 0 10px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	border: 0;
+	border-radius: 4px;
+	font: inherit;
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-node-action:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"] {
+	opacity: 0.52;
+	cursor: help;
+}
+
+.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"]:hover {
+	background: var(--vscode-button-background);
+}
+
+.monaco-workbench .basehalf-canvas-node-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-node-action:active {
+	transform: scale(0.97);
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-media {
+	position: relative;
+	padding: 0;
+	mask-image: none;
+	-webkit-mask-image: none;
+	background: color-mix(in srgb, var(--bh-card-surface) 82%, black);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-visual {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	background: rgb(0 0 0 / 16%);
+	user-select: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.media-image .basehalf-canvas-card-media-visual {
+	object-fit: cover;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-transport {
+	display: block;
+	width: calc(100% - 20px);
+	min-width: 0;
+	margin: auto 10px;
+	accent-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle {
+	display: flex;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 7px;
+	padding: 10px;
+	box-sizing: border-box;
+	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle-glyph {
+	display: flex;
+	opacity: 0.78;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle-label {
+	max-width: 100%;
+	overflow: hidden;
+	font-size: 10px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-canvas-card:not(.selected) .media-audio > .basehalf-canvas-card-media-transport,
+.monaco-workbench .basehalf-canvas-card.selected .media-audio > .basehalf-canvas-card-media-idle {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.media-audio,
+.monaco-workbench .basehalf-canvas-node-result-media.media-audio {
+	display: flex;
+	align-items: center;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback {
+	display: flex;
+	height: 100%;
+	min-height: 0;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 8px;
+	padding: 12px;
+	box-sizing: border-box;
+	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback-glyph {
+	display: flex;
+	opacity: 0.76;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback-label {
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-reload {
+	border: 0;
+	padding: 0;
+	background: transparent;
+	color: var(--vscode-textLink-foreground);
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-reload:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration: underline;
+}
+
+.monaco-workbench .bh-md-preview {
+	/* The bar of a table that is scrolled sideways is placed in this box. */
+	position: relative;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: hidden;
+	white-space: normal;
+	color: var(--bh-card-text-secondary);
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+/* The resting projection must remain draggable across its entire body, so it
+ * cannot own an invisible native scrollbar. Reserve the live editor's gutter
+ * as inert box space instead; both projections then keep the same line measure
+ * at every Canvas zoom without introducing a resting pointer target. */
+.monaco-workbench .basehalf-canvas-card-preview.kind-markdown .bh-md-preview:not(.basehalf-canvas-markdown-inline) {
+	padding: var(--basehalf-canvas-note-content-padding);
+	padding-right: calc(var(--basehalf-canvas-note-inline-padding) + var(--basehalf-canvas-note-scrollbar-width));
+}
+
+/* A part of a long note holds its blocks without a box of its own, so the
+ * blocks lie in the projection as they would if the note were built whole. */
+.monaco-workbench .bh-md-preview > .bh-md-part {
+	display: contents;
+}
+
+.monaco-workbench .basehalf-canvas-note-empty {
+	color: var(--bh-card-text-tertiary);
+	font-size: 13px;
+}
+
+.monaco-workbench .bh-md-preview h1,
+.monaco-workbench .bh-md-preview h2,
+.monaco-workbench .bh-md-preview h3,
+.monaco-workbench .bh-md-preview h4,
+.monaco-workbench .bh-md-preview h5,
+.monaco-workbench .bh-md-preview h6,
+.monaco-workbench .bh-md-preview p,
+.monaco-workbench .bh-md-preview blockquote,
+.monaco-workbench .bh-md-preview pre,
+.monaco-workbench .bh-md-preview ul,
+.monaco-workbench .bh-md-preview ol {
+	margin: 0;
+	padding-top: 3px;
+	padding-bottom: 3px;
+	line-height: 1.45;
+}
+
+.monaco-workbench .bh-md-preview h1 {
+	color: var(--bh-card-text-primary);
+	font-size: 18px;
+	font-weight: 700;
+}
+
+.monaco-workbench .bh-md-preview h2 {
+	color: var(--bh-card-text-primary);
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.monaco-workbench .bh-md-preview h3 {
+	color: var(--bh-card-text-primary);
+	font-size: 14px;
+	font-weight: 700;
+}
+
+.monaco-workbench .bh-md-preview h4,
+.monaco-workbench .bh-md-preview h5,
+.monaco-workbench .bh-md-preview h6 {
+	color: var(--bh-card-text-primary);
+	font-size: 13px;
+	font-weight: 700;
+}
+
+.monaco-workbench .bh-md-preview ul,
+.monaco-workbench .bh-md-preview ol {
+	padding-left: 22px;
+}
+
+.monaco-workbench .bh-md-preview blockquote {
+	padding-left: 10px;
+	border-left: 2px solid var(--bh-card-text-ghost);
+}
+
+.monaco-workbench .bh-md-preview code {
+	font-family: var(--monaco-monospace-font);
+	font-size: 0.92em;
+}
+
+/* A code block is a box of its own. Its lines are not broken: what is lined
+ * up in the file is lined up on the card. */
+.monaco-workbench .bh-md-preview pre {
+	margin: 3px 0;
+	padding: 8px 10px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--bh-card-text-primary) 7%, transparent);
+	font-family: var(--monaco-monospace-font);
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre;
+	tab-size: 4;
+}
+
+.monaco-workbench .bh-md-preview pre code {
+	font-size: inherit;
+}
+
+.monaco-workbench .bh-md-preview a {
+	color: var(--vscode-textLink-foreground);
+	text-decoration: none;
+}
+
+/* A table keeps its words whole. Its columns narrow until it fits the card. */
+.monaco-workbench .bh-md-preview table {
+	display: block;
+	width: max-content;
+	max-width: 100%;
+	margin: 3px 0;
+	border-collapse: collapse;
+	border-spacing: 0;
+	font-size: 12px;
+	line-height: 1.4;
+	/* The card and its editor wrap text in two different ways. A table wraps
+	 * between words in both, so that it is the same table in both. */
+	white-space: normal;
+	overflow-wrap: normal;
+	word-break: normal;
+}
+
+/* A table or a code block that does not fit the card is cut at the right and
+ * scrolls sideways in its own box. At rest the canvas scrolls it (canvas
+ * wheel gestures). */
+.monaco-workbench .bh-md-preview table,
+.monaco-workbench .bh-md-preview pre {
+	overflow-x: hidden;
+	animation: basehalf-canvas-note-sideways-fade linear both;
+	animation-timeline: scroll(self inline);
+}
+
+/* While the note is edited the box scrolls as any box does. The system's bar
+ * grows and turns light under the pointer; the box shows the one bar below
+ * instead, as it does at rest. */
+.monaco-workbench .basehalf-canvas-markdown-inline table,
+.monaco-workbench .basehalf-canvas-markdown-inline pre {
+	overflow-x: auto;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar,
+.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar {
+	display: none;
+}
+
+/* The side where content is out of view fades out. A box that shows all it
+ * holds has no scroll range, so the animation does not run and nothing fades. */
+@keyframes basehalf-canvas-note-sideways-fade {
+	0% {
+		mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+	}
+
+	1%,
+	99% {
+		mask-image: linear-gradient(to right, transparent, #000 20px, #000 calc(100% - 20px), transparent);
+	}
+
+	100% {
+		mask-image: linear-gradient(to right, transparent, #000 20px);
+	}
+}
+
+.monaco-workbench .bh-md-preview th,
+.monaco-workbench .bh-md-preview td {
+	min-width: 2em;
+	padding: 2px 5px;
+	border: 1px solid var(--bh-card-border-strong);
+	vertical-align: top;
+}
+
+.monaco-workbench .bh-md-preview th {
+	color: var(--bh-card-text-primary);
+	font-weight: 600;
+}
+
+.monaco-workbench .bh-md-preview th:not([align]) {
+	text-align: start;
+}
+
+.monaco-workbench .bh-md-preview img,
+.monaco-workbench .bh-md-preview video {
+	max-width: 100%;
+	height: auto;
+}
+
+/* The box of a task item stands where the bullet of a list item stands. A
+ * disabled box would swallow the press that drags the card. */
+.monaco-workbench .bh-md-preview li.bh-md-task {
+	list-style: none;
+}
+
+.monaco-workbench .bh-md-preview li.bh-md-task input[type="checkbox"] {
+	width: 13px;
+	height: 13px;
+	margin: 0 5px 0 -18px;
+	vertical-align: -2px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-list {
+	display: flex;
+	min-height: 0;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-glyph {
+	flex: none;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--bh-card-text-secondary);
+	font-family: var(--monaco-monospace-font);
+	font-size: 12px;
+	letter-spacing: 0;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-label.folder {
+	font-family: inherit;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-more,
+.monaco-workbench .basehalf-canvas-folder-empty {
+	padding-left: 18px;
+	color: var(--bh-card-text-tertiary);
+	font-size: 11px;
+}
+
+.monaco-workbench .basehalf-canvas-folder-note {
+	margin-top: 4px;
+	padding-top: 6px;
+	border-top: 1px solid var(--bh-card-border);
+	color: var(--bh-card-text-tertiary);
+	font-size: 11px;
+	line-height: 1.4;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}

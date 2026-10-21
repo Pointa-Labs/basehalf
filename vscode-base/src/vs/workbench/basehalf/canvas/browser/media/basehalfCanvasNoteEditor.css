@@ -1,0 +1,157 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.monaco-workbench .basehalf-canvas-note-editor {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	background: transparent;
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-note-inline-editor {
+	background: var(--basehalf-canvas-note-background, var(--bh-card-surface));
+}
+
+.monaco-workbench .basehalf-canvas-note-editor.ready {
+	visibility: visible;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor-fallback[aria-hidden="true"] {
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	padding: var(--basehalf-canvas-note-content-padding);
+	overflow-x: hidden;
+	overflow-y: scroll;
+	caret-color: var(--vscode-editorCursor-foreground);
+	cursor: text;
+	user-select: text;
+}
+
+/* The frame of the card shows that its note is being edited. A press on the
+ * margin around the text leaves the focus on this element, and the ring the
+ * workbench draws for a focused element would be a second frame inside it. */
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline:focus {
+	outline: none;
+}
+
+/* Keep every part of the Note in Canvas coordinates. React Flow scales the
+ * complete card; changing scrollbar layout with zoom would reflow text and
+ * move the caret or scroll anchor inside an otherwise unchanged document. */
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar {
+	width: var(--basehalf-canvas-note-scrollbar-width);
+	height: 0;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-track,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-track-piece,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-button {
+	display: none;
+	width: 0;
+	height: 0;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:hover,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:active {
+	min-height: 28px;
+	border: 2px solid transparent;
+	border-radius: 5px;
+	background: var(--vscode-scrollbarSlider-background);
+	background-clip: padding-box;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit {
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror {
+	min-height: 100%;
+	outline: none;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	cursor: text;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror.ProseMirror-hideselection *::selection {
+	background: transparent;
+}
+
+/* The selection stays visible while focus is elsewhere in the window, such as
+   in the Agent Area (the selection agents can see). It is the grey of a
+   selection that is not active, from the card's own palette, which does not
+   change with the window's theme. */
+.monaco-workbench .basehalf-canvas-markdown-inline .basehalf-canvas-markdown-inline-inactive-selection {
+	background: color-mix(in srgb, var(--bh-card-text-tertiary) 34%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit [data-tight="true"] > li > p {
+	margin-block: 0;
+	padding-block: 0;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit.unsupported {
+	cursor: default;
+	/* A fixed block keeps the line layout it has at rest. The editor around it
+	 * preserves white space, which would turn the line ends between its
+	 * elements into empty lines. */
+	white-space: normal;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 0 0 8px;
+	padding: 6px 8px;
+	border: 1px solid color-mix(in srgb, var(--vscode-editorError-foreground) 55%, transparent);
+	border-radius: 4px;
+	background: var(--bh-card-surface);
+	color: var(--vscode-editorError-foreground);
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-label {
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-actions {
+	display: flex;
+	flex: none;
+	gap: 5px;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-action {
+	padding: 2px 6px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 3px;
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	font: inherit;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-action:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}

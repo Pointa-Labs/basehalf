@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import '../media/basehalfCanvasBadgeEditor.css';
 import { $, append, clearNode, isHTMLElement } from '../../../../../base/browser/dom.js';
 import { DisposableStore, IDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import '../media/basehalfCanvasNameEditor.css';
 import * as DOM from '../../../../../base/browser/dom.js';
 import { $, append, isHTMLElement } from '../../../../../base/browser/dom.js';
 import { InputBox, MessageType } from '../../../../../base/browser/ui/inputbox/inputBox.js';

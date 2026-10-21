@@ -1,0 +1,46 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.monaco-workbench .basehalf-canvas-edge-path {
+	fill: none;
+	stroke: var(--bh-card-text-ghost);
+	stroke-width: 1.5px;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	transition: stroke 150ms cubic-bezier(0.16, 1, 0.3, 1), stroke-width 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.monaco-workbench .basehalf-canvas-edge-path.hover,
+.monaco-workbench .basehalf-canvas-edge-path.selected {
+	stroke: var(--bh-canvas-geometry-strong);
+	stroke-width: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-edge-path.reconnecting {
+	stroke: var(--bh-canvas-intent);
+	stroke-width: 2px;
+}
+
+.monaco-workbench .react-flow__edge:focus-visible .basehalf-canvas-edge-path {
+	stroke: var(--bh-canvas-focus-ring);
+	stroke-width: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-edge-hit {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 20px;
+	pointer-events: stroke;
+	cursor: grab;
+}
+
+.monaco-workbench .basehalf-canvas-edge-hit:active {
+	cursor: grabbing;
+}
+
+body.basehalf-canvas-edge-reconnecting,
+body.basehalf-canvas-edge-reconnecting * {
+	cursor: grabbing !important;
+}

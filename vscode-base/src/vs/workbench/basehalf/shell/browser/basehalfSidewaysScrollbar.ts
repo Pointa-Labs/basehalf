@@ -6,7 +6,11 @@
 // This module is also compiled into the rich editor's webview, whose type
 // check follows every import. It imports nothing.
 
-/** The class of the bar. Its look is a style rule of the place it is installed in. */
+/**
+ * The class of the bar. Its look is a style rule of the place it is installed in:
+ * in the workbench `media/basehalfSidewaysScrollbar.css`, which the places that
+ * install the bar import.
+ */
 export const BASEHALF_SIDEWAYS_SCROLLBAR_CLASS = 'basehalf-sideways-scrollbar';
 
 /** How long the bar stays after the last movement of its box, in milliseconds. */

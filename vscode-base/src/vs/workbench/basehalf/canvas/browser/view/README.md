@@ -26,6 +26,21 @@ the shared state and the other parts through `view`:
 `basehalfCanvasViewShared.ts` holds the types, constants, and small functions
 that several parts use. A helper that one part uses lives in that part's file.
 
+## Stylesheets
+
+The view and each part that draws elements import their stylesheets from
+`../media/`:
+
+| Stylesheet | Imported by | What it styles |
+| --- | --- | --- |
+| `basehalfCanvasWorkbench.css` | the view | The view in the editor area, its controls, the layers of the canvas, the empty canvas, and its notices. |
+| `basehalfCanvasCard.css` | `cardRenderer` | A card: its frame and its states, its caption and name, and its body. |
+| `basehalfCanvasCardPreview.css` | `cardRenderer` | What a card shows: a Note's Markdown, folders, media, and nodes. |
+| `basehalfCanvasBadgeEditor.css` | `badgeEditor` | The badge editor and its toggle, on a card and in Card Detail. |
+| `basehalfCanvasNoteEditor.css` | `noteEditing` | The editor of a Note in its card. |
+| `basehalfCanvasNameEditor.css` | `creation` | The editor of a card's name and of the name of a new card. |
+| `basehalfCanvasCardDetail.css` | `cardDetailHost` | Card Detail: its header, save status, and the layers of its projections. |
+
 ## Rules
 
 - New behavior on the canvas is a canvas feature in `../../../canvasContrib/`,

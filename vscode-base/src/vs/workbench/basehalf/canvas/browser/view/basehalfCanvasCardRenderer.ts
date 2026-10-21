@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import '../media/basehalfCanvasCard.css';
+import '../media/basehalfCanvasCardPreview.css';
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';

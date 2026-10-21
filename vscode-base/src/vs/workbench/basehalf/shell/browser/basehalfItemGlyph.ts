@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './media/basehalfItemGlyph.css';
 import { $ } from '../../../../base/browser/dom.js';
 import { BaseHalfAgentSelectionIcon } from '../../agentArea/common/basehalfAgentSelection.js';
 

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './media/basehalfCanvasCardNode.css';
 import { isHTMLElement, isSVGElement } from '../../../../../base/browser/dom.js';
 import { BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH } from '../../common/basehalfCanvasModel.js';
 import { baseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';

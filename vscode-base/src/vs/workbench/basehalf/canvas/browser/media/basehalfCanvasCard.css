@@ -1,0 +1,233 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.monaco-workbench .basehalf-canvas-card {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	text-align: left;
+	color: var(--bh-card-text-primary);
+	background: var(--bh-card-surface);
+	border: 1px solid var(--bh-card-border);
+	border-radius: var(--bh-card-radius);
+	box-shadow: 0 1px 3px rgb(7 8 9 / 46%), 0 6px 18px rgb(7 8 9 / 12%);
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+	overflow: visible;
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="red"] { --basehalf-canvas-note-background: #392626; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="orange"] { --basehalf-canvas-note-background: #3b2c22; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="yellow"] { --basehalf-canvas-note-background: #373320; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="green"] { --basehalf-canvas-note-background: #22332a; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="cyan"] { --basehalf-canvas-note-background: #203238; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="blue"] { --basehalf-canvas-note-background: #222f3d; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="purple"] { --basehalf-canvas-note-background: #30273c; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background]:not([data-note-background="default"]) {
+	background: var(--basehalf-canvas-note-background);
+}
+
+.monaco-workbench .basehalf-canvas-card.inline-editing {
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-card.folder {
+	background: var(--bh-card-folder);
+	border-color: var(--bh-card-folder-border);
+}
+
+.monaco-workbench .basehalf-canvas-workbench .react-flow__node-basehalf-card:focus,
+.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus:not(:focus-visible) {
+	outline: none;
+}
+
+/* A card in a marquee that is being drawn looks selected. It is selected
+ * when the button is released. */
+.monaco-workbench .basehalf-canvas-card.selected,
+.monaco-workbench .basehalf-canvas-card.marquee-selected {
+	border-color: var(--bh-canvas-active-border);
+	box-shadow: var(--bh-canvas-active-shadow);
+}
+
+/* The scene keeps the editing Note selected as an internal navigation owner,
+ * but document editing must not look like a structural card selection. */
+.monaco-workbench .basehalf-canvas-card[data-note-editing="true"] {
+	border-color: var(--bh-canvas-active-border);
+	box-shadow: var(--bh-canvas-active-shadow);
+	transition: none;
+}
+
+.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
+.monaco-workbench .basehalf-canvas-react-island .react-flow__node-basehalf-card:focus-visible .basehalf-canvas-card {
+	outline: 2px solid var(--bh-canvas-focus-ring);
+	outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.selected:not(:focus-visible),
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.marquee-selected:not(:focus-visible),
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card[data-note-editing="true"]:not(:focus-visible) {
+		outline: 1px solid CanvasText;
+		outline-offset: 1px;
+	}
+
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
+	.monaco-workbench .basehalf-canvas-react-island .react-flow__node-basehalf-card:focus-visible .basehalf-canvas-card {
+		outline: 2px solid Highlight;
+		outline-offset: 2px;
+	}
+}
+
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) .basehalf-canvas-card {
+	z-index: 2;
+}
+
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card {
+	cursor: grabbing;
+}
+
+.monaco-workbench .basehalf-canvas-card.connection-target {
+	border-color: var(--bh-canvas-intent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-canvas-intent) 70%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
+}
+
+.monaco-workbench .basehalf-canvas-card-content {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	border-radius: var(--bh-card-inner-radius);
+	/* Chromium's hit testing ignores a rounded overflow clip for descendants
+	 * that paint in their own layer, such as a positioned preview. The same
+	 * rounded clip-path keeps every preview from taking the pointer in the
+	 * empty corners outside the card's outline, where the resize bands live. */
+	clip-path: inset(0 round var(--bh-card-inner-radius));
+}
+
+.monaco-workbench .basehalf-canvas-card-active {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+}
+
+.monaco-workbench .basehalf-canvas-card-caption {
+	position: absolute;
+	/* Absolute children resolve against the card's padding box. Offset the
+	 * one-pixel frame so the external identity aligns with the painted frame,
+	 * while preserving an exact eight-pixel visual gap. */
+	left: -1px;
+	right: -1px;
+	bottom: calc(100% + 9px);
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: 24px;
+	min-width: 0;
+	padding: 0 2px;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card-caption-identity {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	flex: 1;
+}
+
+.monaco-workbench .basehalf-canvas-card-caption-icon {
+	flex: none;
+	display: flex;
+	align-items: center;
+	height: 20px;
+}
+
+.monaco-workbench .basehalf-canvas-card-caption-actions {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card-label {
+	min-width: 0;
+	/* As wide as its text: only the text shows the text cursor and takes the
+	 * double click that renames. */
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--bh-card-text-primary);
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 24px;
+	letter-spacing: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card-label.danger {
+	color: var(--bh-card-danger);
+}
+
+.monaco-workbench .basehalf-canvas-card-label.renamable {
+	cursor: text;
+}
+
+/* A drag and an input pick keep the card's cursor over the name. */
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card-label.renamable {
+	cursor: inherit;
+}
+
+.monaco-workbench .basehalf-canvas-card-body {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--bh-card-inner-radius);
+}
+
+.monaco-workbench .basehalf-canvas-card[data-note-save-state="error"] {
+	box-shadow: 0 0 0 1px var(--vscode-editorError-foreground) inset;
+}
+
+.monaco-workbench .basehalf-canvas-card-coverage {
+	flex: none;
+	height: 3px;
+	margin: 0 10px 6px;
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--bh-card-border-strong) 60%, transparent);
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-card-coverage-fill {
+	height: 100%;
+	border-radius: 2px;
+	background: var(--bh-card-accent);
+	opacity: 0.75;
+}

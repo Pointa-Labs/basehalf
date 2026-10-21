@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import '../media/basehalfCanvasNoteEditor.css';
 import { $, append, clearNode, isHTMLElement } from '../../../../../base/browser/dom.js';
 import { DeferredPromise, RunOnceScheduler } from '../../../../../base/common/async.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';

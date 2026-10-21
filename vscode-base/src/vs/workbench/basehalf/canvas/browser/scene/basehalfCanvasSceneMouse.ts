@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import '../../../shell/browser/media/basehalfSidewaysScrollbar.css';
 import { isHTMLElement } from '../../../../../base/browser/dom.js';
 import { BaseHalfCanvasSceneContextMenuRequest, IBaseHalfCanvasSceneSelection, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 import { installBaseHalfCanvasWheelGestures } from '../basehalfCanvasWheelGestures.js';
