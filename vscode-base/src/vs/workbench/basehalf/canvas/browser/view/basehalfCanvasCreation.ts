@@ -59,7 +59,6 @@ import { BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT, BASEHALF_CANVAS_DEFAULT_VIDE
  * A part of the canvas view (README.md in this folder): it keeps its own state,
  * and reaches the state the view shares and the other parts through `view`.
  */
-
 export class BaseHalfCanvasCreation {
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }

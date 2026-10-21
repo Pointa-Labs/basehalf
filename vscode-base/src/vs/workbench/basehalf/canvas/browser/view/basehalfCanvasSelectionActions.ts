@@ -39,7 +39,6 @@ const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
  * A part of the canvas view (README.md in this folder): it keeps its own state,
  * and reaches the state the view shares and the other parts through `view`.
  */
-
 export class BaseHalfCanvasSelectionActions {
 	/** Pick on Canvas while it waits for a click (IBaseHalfCanvasView.pickCard). */
 	private canvasCardPick: { readonly store: DisposableStore; finish(path: string | undefined): void } | undefined;

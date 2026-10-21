@@ -30,7 +30,6 @@ import { IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStam
  * Types, constants, and small functions that several parts of the canvas view
  * use (README.md in this folder).
  */
-
 export interface IBaseHalfActiveCanvasNoteEditor {
 	readonly sceneKey: string;
 	readonly structuralEpoch: number;

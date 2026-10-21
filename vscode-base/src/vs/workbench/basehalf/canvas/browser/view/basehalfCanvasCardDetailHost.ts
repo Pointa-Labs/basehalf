@@ -43,7 +43,6 @@ interface IBaseHalfCardDetailSurface {
  * A part of the canvas view (README.md in this folder): it keeps its own state,
  * and reaches the state the view shares and the other parts through `view`.
  */
-
 export class BaseHalfCanvasCardDetailHost {
 	private readonly detailChromeDisposables = this.view.register(new DisposableStore());
 	private readonly detailTitleDisposables = this.view.register(new DisposableStore());
