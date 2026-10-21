@@ -12,7 +12,7 @@ import { IBaseHalfCanvasCardStateTransition, IBaseHalfCanvasEdgeStateTransition,
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport } from '../../common/basehalfCanvasViewportState.js';
 import { baseHalfUserFacingErrorMessage } from '../../../shell/common/basehalfPlainFailureReason.js';
-import { BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
+import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
 import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
@@ -586,7 +586,7 @@ export class BaseHalfCanvasGeometry {
 	}
 
 	private async frameFreshFolderView(folder: IBaseHalfCanvasFolderState, sceneKey: string): Promise<void> {
-		const maxZoom = Math.min(1, this.defaultCanvasZoom(folder));
+		const maxZoom = Math.min(BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, this.defaultCanvasZoom(folder));
 		this.programmaticViewportSceneKey = sceneKey;
 		try {
 			await this.view.canvasScene.fit(undefined, { maxZoom, padding: 0.12 });

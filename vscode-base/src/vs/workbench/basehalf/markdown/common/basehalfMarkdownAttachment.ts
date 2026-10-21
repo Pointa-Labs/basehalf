@@ -65,13 +65,22 @@ export class BaseHalfMarkdownAttachmentService implements IBaseHalfMarkdownAttac
 }
 
 export function normalizeBaseHalfAttachmentsDirectory(value: unknown): string {
+	return parseBaseHalfAttachmentsDirectory(value) ?? BASEHALF_DEFAULT_ATTACHMENTS_DIRECTORY;
+}
+
+/**
+ * The attachments folder a setting names, inside the note's folder, or
+ * nothing when the value cannot be one. Settings refuses the same values
+ * (`BASEHALF_ATTACHMENTS_DIRECTORY_PATTERN`).
+ */
+export function parseBaseHalfAttachmentsDirectory(value: unknown): string | undefined {
 	if (typeof value !== 'string') {
-		return BASEHALF_DEFAULT_ATTACHMENTS_DIRECTORY;
+		return undefined;
 	}
 	const normalized = value.trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/g, '');
 	const segments = normalized.split('/');
 	if (!normalized || normalized.startsWith('/') || segments.some(segment => !isPortableAttachmentDirectorySegment(segment))) {
-		return BASEHALF_DEFAULT_ATTACHMENTS_DIRECTORY;
+		return undefined;
 	}
 	return segments.join('/');
 }

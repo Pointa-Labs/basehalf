@@ -132,9 +132,12 @@ VS Code storage and outside the workspace folder:
   - The map is least-recently-used, capped at 256 entries. Invalid values are
     ignored.
 - **Restore.** On canvas open, the stored viewport is restored when present.
-  Otherwise the canvas fits its content, as it does today. Restore for a folder
-  first waits up to 500 ms for the legacy import of that folder's workspace
-  folder to finish.
+  Otherwise the canvas fits its content, as it does today, at a zoom of at
+  most the setting `basehalf.canvas.defaultZoom` (0.2 to 1, 1 by default);
+  the fit after the user creates cards keeps to the same largest zoom.
+  Settings describes the setting as that largest zoom and refuses a value
+  above 1, which would change nothing. Restore for a folder first waits up to
+  500 ms for the legacy import of that folder's workspace folder to finish.
 - **Write.** A settled viewport is written after the existing 200 ms debounce.
   - Pan, zoom, fit, and zoom-menu changes are recorded with source `user`.
   - The automatic first fit is recorded with source `auto`. An `auto` value

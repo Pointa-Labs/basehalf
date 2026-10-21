@@ -11,11 +11,27 @@ import {
 	baseHalfAttachmentNameWithSuffix,
 	baseHalfMarkdownAttachmentHref,
 	normalizeBaseHalfAttachmentsDirectory,
+	parseBaseHalfAttachmentsDirectory,
 	sanitizeBaseHalfAttachmentName
 } from '../../common/basehalfMarkdownAttachment.js';
+import { BASEHALF_ATTACHMENTS_DIRECTORY_PATTERN } from '../../../shell/common/basehalfConfiguration.js';
 
 suite('BaseHalfMarkdownAttachment', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('Settings refuses exactly the attachments folders that the rule does not take', () => {
+		// Settings compiles a setting's pattern with the u flag.
+		const pattern = new RegExp(BASEHALF_ATTACHMENTS_DIRECTORY_PATTERN, 'u');
+		const long = 'a'.repeat(160);
+		const values = [
+			'attachments', 'assets/notes', 'media/images/', '  media  ', '.\\media\\', './media', 'a\\b/c', '.hidden', '..twice', 'my files', '附件', '图片/2026',
+			'console', 'com0', 'lpt10', 'nul-files', 'CONx/y', long, `${long}/b`,
+			'', '   ', '.', '..', './', '././media', '../outside', 'a/../b', 'a/./b', '/absolute', '\\server', 'C:/files', 'course:files', 'a//b', 'a\\\\b',
+			'course./files', 'trailing ', 'trailing./', 'CON', 'con.txt', 'Com1/x', 'x/LPT9.log', 'a\u0007b', 'what?', 'a*b', 'a<b', 'a|b', 'a"b', `${long}a`, `b/${long}a`
+		];
+		assert.deepStrictEqual(values.filter(value => pattern.test(value) !== (parseBaseHalfAttachmentsDirectory(value) !== undefined)), []);
+		assert.deepStrictEqual(['media/images', '附件', '../outside', '/absolute', 'C:/files', 'CON'].map(value => pattern.test(value)), [true, true, false, false, false, false]);
+	});
 
 	test('normalizes a workspace-owned relative attachment directory', () => {
 		assert.deepStrictEqual([

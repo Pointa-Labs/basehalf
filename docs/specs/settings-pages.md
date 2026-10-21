@@ -43,6 +43,10 @@ Measured in the real window on 2026-10-21:
   for the tag `basehalf`, and no setting had it.
 - **Enter did not reach a page.** Enter on the entry of a page moved the
   focus to the hidden settings list, so it stayed in the table of contents.
+- **Two settings took values that changed nothing, without a word.** An
+  attachments folder such as `../images` or `/Users/me/pics` was replaced by
+  `attachments`, and a default zoom above 1 was used as 1, while Settings
+  showed both as accepted and described the zoom as the initial one.
 
 ## Terms
 
@@ -69,6 +73,13 @@ About:
 
 - Every BaseHalf setting is in exactly one area, and every area holds a
   setting.
+- A value that a BaseHalf setting cannot take is refused in Settings, with
+  the reason, instead of being replaced by its default without a word: the
+  attachments folder (`basehalf.editor.attachmentsDirectory`) is a folder
+  inside the note's folder, by the same rule the rich editor uses, and the
+  default zoom (`basehalf.canvas.defaultZoom`) goes up to 1, the largest zoom
+  at which the canvas fits a folder
+  ([workspace state](workspace-state-and-legacy-cleanup.md#canvas-viewport-state)).
 - Every BaseHalf setting has the tag `basehalf`. The welcome page's **Open
   BaseHalf Settings…** searches Settings for it and lists them all.
 - Search results name the group as **BaseHalf**, such as "BaseHalf ›

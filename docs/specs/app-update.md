@@ -304,7 +304,8 @@ Decision: [D49](../decisions.md#d49--the-state-of-an-update-is-a-page-in-setting
 - Choosing the entry of the title bar in a state without an action, a
   download that runs, opens the About page.
 - **A check that the user asked for and that failed** is told in a
-  notification. The base told it in the card.
+  notification, once: in the window the user last worked in, though every
+  window hears of it. The base told it in the card.
 
 ### After an update
 

@@ -20,6 +20,7 @@ import {
 import { baseHalfMirrorRoot } from '../../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
+import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX } from '../../../shell/common/basehalfConfiguration.js';
 import { baseHalfUserFacingErrorMessage } from '../../../shell/common/basehalfPlainFailureReason.js';
 import { BASEHALF_NODE_DOCUMENT_EXTENSION } from '../../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneEdge } from '../../common/basehalfCanvasScene.js';
@@ -669,7 +670,7 @@ export class BaseHalfCanvasRenderer {
 					return;
 				}
 				void this.view.canvasScene.fit(pendingFit.paths, {
-					maxZoom: Math.min(1, this.view.geometry.defaultCanvasZoom(folder)),
+					maxZoom: Math.min(BASEHALF_CANVAS_DEFAULT_ZOOM_MAX, this.view.geometry.defaultCanvasZoom(folder)),
 					padding: 0.16
 				}).then(() => {
 					if (this.view.isCurrentSceneKey(pendingFit.sceneKey)

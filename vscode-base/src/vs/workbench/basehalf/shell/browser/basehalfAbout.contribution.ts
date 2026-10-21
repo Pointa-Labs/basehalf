@@ -11,6 +11,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IUpdateService } from '../../../../platform/update/common/update.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { settingsCustomSectionRegistry } from '../../../contrib/preferences/browser/settingsCustomSections.js';
+import { IHostService } from '../../../services/host/browser/host.js';
 import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
 import { BASEHALF_ABOUT_SETTINGS_SECTION_ID, BASEHALF_OPEN_ABOUT_COMMAND_ID, baseHalfUpdateCheckFailure } from '../common/basehalfAbout.js';
 import { BaseHalfAboutView } from './basehalfAbout.js';
@@ -37,20 +38,22 @@ registerAction2(class OpenBaseHalfAboutAction extends Action2 {
 
 /**
  * A check that the user asked for and that failed is told in a notification
- * (app update, "Where an update shows"). The base told it in the card of the
- * title bar's entry, which BaseHalf does not have.
+ * (app update, "Where an update shows"), once: every window hears it, and the
+ * window the user last worked in tells it, as the base told it in the card of
+ * the title bar's entry, which BaseHalf does not have.
  */
-class BaseHalfUpdateCheckFailureContribution extends Disposable implements IWorkbenchContribution {
+export class BaseHalfUpdateCheckFailureContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.updateCheckFailure';
 
 	constructor(
 		@IUpdateService updateService: IUpdateService,
-		@INotificationService notificationService: INotificationService
+		@INotificationService notificationService: INotificationService,
+		@IHostService hostService: IHostService
 	) {
 		super();
-		this._register(updateService.onStateChange(state => {
+		this._register(updateService.onStateChange(async state => {
 			const failure = baseHalfUpdateCheckFailure(state);
-			if (failure) {
+			if (failure && await hostService.hadLastFocus()) {
 				notificationService.error(localize('basehalf.about.checkFailed', "BaseHalf could not check for updates. {0}", failure));
 			}
 		}));
