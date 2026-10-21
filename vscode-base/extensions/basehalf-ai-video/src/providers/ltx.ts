@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
@@ -15,7 +15,6 @@ import type {
 	CatalogProvider,
 	CheckRequest,
 	CheckResult,
-	Estimate,
 	ModeId,
 	ModeLimits,
 	Params,
@@ -148,9 +147,6 @@ const TEXT = Object.freeze({
 
 // --- the models ---------------------------------------------------------------------------------
 
-/** US dollars per second by resolution. */
-type Prices = Readonly<Record<Resolution, number>>;
-
 interface LtxModel {
 	/** The catalog id, which is also the id LTX takes at every endpoint. */
 	readonly id: LtxModelId;
@@ -158,40 +154,18 @@ interface LtxModel {
 	readonly generation: '2.5' | '2.3';
 	/** Fast models make up to 20 seconds at 720p and 1080p with 24 or 25 fps; pro models 10. */
 	readonly fast: boolean;
-	/** Text and image to video. */
-	readonly prices: Prices;
-	/** Audio to video (References): the longest audio at 720p and 1080p, and the prices per second of audio. */
-	readonly audio?: { readonly longest: number; readonly prices: Prices };
+	/** Audio to video (References): the longest audio at 720p and 1080p. */
+	readonly audio?: { readonly longest: number };
 	/** Retake (Edit) and extend (Extend). */
 	readonly clips: boolean;
 }
 
 const MODELS: readonly LtxModel[] = Object.freeze([
-	{
-		id: 'ltx-2-5-fast', generation: '2.5', fast: true, clips: false,
-		prices: { '720p': 0.09, '1080p': 0.13, '2k': 0.19, '4k': 0.30 },
-		audio: { longest: 20, prices: { '720p': 0.09, '1080p': 0.13, '2k': 0.19, '4k': 0.30 } }
-	},
-	{
-		id: 'ltx-2-5-pro', generation: '2.5', fast: false, clips: false,
-		prices: { '720p': 0.12, '1080p': 0.17, '2k': 0.25, '4k': 0.39 },
-		audio: { longest: 10, prices: { '720p': 0.12, '1080p': 0.17, '2k': 0.25, '4k': 0.39 } }
-	},
-	{
-		id: 'ltx-2-3-fast', generation: '2.3', fast: true, clips: false,
-		prices: { '720p': 0.03, '1080p': 0.06, '2k': 0.12, '4k': 0.24 }
-	},
-	{
-		id: 'ltx-2-3-pro', generation: '2.3', fast: false, clips: true,
-		prices: { '720p': 0.04, '1080p': 0.08, '2k': 0.16, '4k': 0.32 },
-		audio: { longest: 20, prices: { '720p': 0.06, '1080p': 0.10, '2k': 0.18, '4k': 0.34 } }
-	}
+	{ id: 'ltx-2-5-fast', generation: '2.5', fast: true, clips: false, audio: { longest: 20 } },
+	{ id: 'ltx-2-5-pro', generation: '2.5', fast: false, clips: false, audio: { longest: 10 } },
+	{ id: 'ltx-2-3-fast', generation: '2.3', fast: true, clips: false },
+	{ id: 'ltx-2-3-pro', generation: '2.3', fast: false, clips: true, audio: { longest: 20 } }
 ]);
-
-/** The day the price list was read; the list states no date of its own. */
-const PRICE_DATE = '2026-10-19';
-/** Retake and extend on LTX-2.3 Pro, per second billed. */
-const CLIP_PRICE = 0.10;
 
 const MIB = 1024 * 1024;
 /** "Images are capped at 15 MB" when used in a generation. */
@@ -207,7 +181,7 @@ const DATA_URI_MAX_LENGTH = 7_000_000;
 const PROMPT_MAX_LENGTH = 5000;
 
 const AUTO_DURATION = -1;
-/** The shortest duration LTX lists, and the start of an Auto estimate. */
+/** The shortest duration LTX lists. */
 const SHORTEST_DURATION = 6;
 /** Retake and extend need 73 frames, "around 3 seconds at 24fps". */
 const SHORTEST_CLIP_SECONDS = 3;
@@ -372,15 +346,14 @@ function declareModel(model: LtxModel): CatalogModel {
 		providerModels: { global: model.id },
 		prompt: { required: 'withoutMedia', maxLength: PROMPT_MAX_LENGTH },
 		modes,
-		parameters: declareParameters(model, modes.map(mode => mode.id)),
-		estimate: true
+		parameters: declareParameters(model, modes.map(mode => mode.id))
 	};
 }
 
 const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'ltx',
 	label: LABELS.provider,
-	regions: [{ id: 'global', label: LABELS.region, baseUrl: 'https://api.ltx.io', currency: 'USD', console: 'https://console.ltx.io' }],
+	regions: [{ id: 'global', label: LABELS.region, baseUrl: 'https://api.ltx.io', console: 'https://console.ltx.io' }],
 	credentials: [{ id: 'apiKey', label: LABELS.apiKey }],
 	models: MODELS.map(declareModel)
 });
@@ -422,7 +395,7 @@ const FIELDS: Readonly<Record<Endpoint, Partial<Record<PlannedItem['slot'], stri
 	'extend': { source: 'video_uri' }
 });
 
-// --- checks and estimates -----------------------------------------------------------------------
+// --- checks -------------------------------------------------------------------------------------
 
 function seconds(value: number): string {
 	return Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -442,7 +415,7 @@ function longestAudio(model: LtxModel, resolution: Resolution): number {
 	return resolution === '2k' || resolution === '4k' ? Math.min(longest, LONGEST_AUDIO_AT_HIGH_RESOLUTIONS) : longest;
 }
 
-/** The longest video Frames makes at a resolution and frame rate, which also bounds Auto. */
+/** The longest video Frames makes at a resolution and frame rate. */
 function longestDuration(model: LtxModel, resolution: unknown, fps: unknown): number {
 	return model.fast && (resolution === '720p' || resolution === '1080p') && (fps === 24 || fps === 25) ? 20 : 10;
 }
@@ -499,58 +472,6 @@ function fileProblems(model: LtxModel, request: CheckRequest, measured: readonly
 		}
 	}
 	return problems;
-}
-
-function priced(min: number, max: number): Estimate {
-	return estimateOf('USD', min, max, PRICE_DATE);
-}
-
-/** The price per second × the seconds LTX bills (ltx.md, "Estimate"); a range where LTX measures the length after the run. */
-function estimateFor(model: LtxModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
-	const { params } = request;
-	const resolution = isResolution(params.resolution) ? params.resolution : undefined;
-	switch (endpointOf(request.mode, counts)) {
-		case 'text-to-video':
-		case 'image-to-video': {
-			// The generated video is billed.
-			const price = resolution ? model.prices[resolution] : undefined;
-			if (price === undefined || typeof params.duration !== 'number') {
-				return undefined;
-			}
-			return params.duration === AUTO_DURATION
-				? priced(SHORTEST_DURATION * price, longestDuration(model, resolution, params.fps) * price)
-				: priced(params.duration * price, params.duration * price);
-		}
-		case 'audio-to-video': {
-			// The input audio is billed.
-			if (!resolution || !model.audio) {
-				return undefined;
-			}
-			const price = model.audio.prices[resolution];
-			const audio = measured.find(item => item.slot === 'audio')?.facts.seconds;
-			return audio !== undefined ? priced(audio * price, audio * price) : priced(0, longestAudio(model, resolution) * price);
-		}
-		case 'retake': {
-			// The whole input clip is billed; LTX states no longest clip, so when its length cannot be read there is no estimate.
-			const clip = clipSeconds(measured);
-			return clip !== undefined ? priced(clip * CLIP_PRICE, clip * CLIP_PRICE) : undefined;
-		}
-		case 'extend': {
-			// The extension and the context LTX uses, at most 505 frames together, are billed.
-			const extension = params.extend_duration;
-			if (typeof extension !== 'number') {
-				return undefined;
-			}
-			const clip = clipSeconds(measured);
-			if (typeof params.context === 'number') {
-				const context = clip !== undefined ? Math.min(params.context, clip) : params.context;
-				return clip !== undefined
-					? priced((extension + context) * CLIP_PRICE, (extension + context) * CLIP_PRICE)
-					: priced(extension * CLIP_PRICE, (extension + context) * CLIP_PRICE);
-			}
-			return priced(extension * CLIP_PRICE, (extension + Math.min(LONGEST_CONTEXT, clip ?? LONGEST_CONTEXT)) * CLIP_PRICE);
-		}
-	}
 }
 
 // --- inputs -------------------------------------------------------------------------------------
@@ -875,8 +796,7 @@ export const LTX: ProviderModule = {
 		const counts = countsOf(request.inputs);
 		const measured = await measureItems(request.inputs, media);
 		const problems = [...ruleProblems(model, request, counts), ...fileProblems(model, request, measured)];
-		const estimate = estimateFor(model, request, counts, measured);
-		return estimate ? { problems, estimate } : { problems };
+		return { problems };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

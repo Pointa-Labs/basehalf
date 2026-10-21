@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems } from './check.ts';
+import { countsOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type FormPart, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Estimate, Params, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Params, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Runway's own video models on its API, Runway Dev (D59;
@@ -197,8 +197,7 @@ function declareModel(id: RunwayModelId, required: 'always' | 'withoutMedia', mo
 		providerModels: { global: id },
 		prompt: { required, maxLength: PROMPT_MAX_LENGTH },
 		modes: [mode],
-		parameters,
-		estimate: true
+		parameters
 	};
 }
 
@@ -206,7 +205,7 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'runway',
 	label: LABELS.provider,
 	regions: [
-		{ id: 'global', label: LABELS.region, baseUrl: 'https://api.dev.runwayml.com', currency: 'USD', console: 'https://dev.runway.com/' }
+		{ id: 'global', label: LABELS.region, baseUrl: 'https://api.dev.runwayml.com', console: 'https://dev.runway.com/' }
 	],
 	credentials: [{ id: 'apiKey', label: LABELS.apiKey, placeholder: LABELS.apiKeyPlaceholder }],
 	models: [
@@ -228,37 +227,6 @@ function modelOf(id: string): RunwayModelId {
 
 function labelOf(model: RunwayModelId): string {
 	return LABELS.models[model].label;
-}
-
-// --- estimates ----------------------------------------------------------------------------------
-
-/** Credits per second of video, from Runway's price list. */
-const CREDITS_PER_SECOND: Readonly<Record<RunwayModelId, number>> = Object.freeze({ 'gen4.5': 12, 'gen4_turbo': 5, 'aleph2': 28 });
-/** Aleph 2.0 costs at least 56 credits a generation. */
-const ALEPH_MINIMUM_CREDITS = 56;
-/** What a credit costs. */
-const USD_PER_CREDIT = 0.01;
-/** The day the price list was read; the list states no date of its own. */
-const PRICE_DATE = '2026-10-19';
-
-/**
- * Credits × $0.01 (runway.md, "Estimate"): a second of Gen-4.5 is 12
- * credits, of Gen-4 Turbo 5; Aleph 2.0's video is as long as its clip, 28
- * credits a second and at least 56, a range of 2 to 30 seconds when the
- * clip's length cannot be read.
- */
-function estimateFor(model: RunwayModelId, params: Params, clipSeconds: number | undefined): Estimate | undefined {
-	const rate = CREDITS_PER_SECOND[model];
-	if (model === 'aleph2') {
-		const [shortest, longest] = clipSeconds !== undefined ? [clipSeconds, clipSeconds] : CLIP_SECONDS;
-		const dollars = (seconds: number) => Math.max(ALEPH_MINIMUM_CREDITS, rate * seconds) * USD_PER_CREDIT;
-		return estimateOf('USD', dollars(shortest), dollars(longest), PRICE_DATE);
-	}
-	if (typeof params.duration !== 'number') {
-		return undefined;
-	}
-	const amount = rate * params.duration * USD_PER_CREDIT;
-	return estimateOf('USD', amount, amount, PRICE_DATE);
 }
 
 // --- requests -----------------------------------------------------------------------------------
@@ -512,18 +480,12 @@ export const RUNWAY: ProviderModule = Object.freeze<ProviderModule>({
 		if (model === 'gen4.5' && !counts.startFrame && !TEXT_TO_VIDEO_RATIOS.includes(String(request.params.ratio))) {
 			problems.push(LABELS.textToVideoRatio(label));
 		}
-		let clipSeconds: number | undefined;
 		for (const item of await measureItems(request.inputs, media)) {
-			if (item.kind !== 'video') {
-				continue;
-			}
-			if (item.facts.bytes < UPLOAD_MIN_BYTES) {
+			if (item.kind === 'video' && item.facts.bytes < UPLOAD_MIN_BYTES) {
 				problems.push(LABELS.clipTooSmall(item.label, describeBytes(item.facts.bytes), UPLOAD_MIN_BYTES));
 			}
-			clipSeconds = item.facts.seconds;
 		}
-		const estimate = estimateFor(model, request.params, clipSeconds);
-		return estimate ? { problems, estimate } : { problems };
+		return { problems };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

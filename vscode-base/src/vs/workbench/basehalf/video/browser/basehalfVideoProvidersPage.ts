@@ -408,7 +408,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		label.id = this.id('region-label');
 		label.textContent = localize('basehalf.video.providers.region', "Region");
 		const hint = append(field, $('p.basehalf-video-provider-field-hint'));
-		hint.textContent = localize('basehalf.video.providers.regionHint', "The region sets where requests go, the currency of the estimates, and which models are offered.");
+		hint.textContent = localize('basehalf.video.providers.regionHint', "The region sets where requests go and which models are offered.");
 		const group = append(field, $('.basehalf-video-provider-regions'));
 		group.setAttribute('role', 'radiogroup');
 		group.setAttribute('aria-labelledby', label.id);
@@ -424,7 +424,6 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			button.setAttribute('aria-checked', String(checked));
 			button.tabIndex = checked ? 0 : -1;
 			append(button, $('span.basehalf-video-provider-region-label')).textContent = region.label;
-			append(button, $('span.basehalf-video-provider-region-currency')).textContent = region.currency;
 			disposables.add(addDisposableListener(button, EventType.CLICK, () => {
 				if (region.id !== this.providerSettings.getStatus(provider).region.id) {
 					void this.save(provider, `region:${region.id}`, undefined, () => this.providerSettings.setRegion(provider, region.id), {

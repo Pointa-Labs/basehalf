@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
@@ -15,7 +15,6 @@ import type {
 	CatalogProvider,
 	CheckRequest,
 	CheckResult,
-	Estimate,
 	ModeId,
 	ModeInputs,
 	Params,
@@ -61,7 +60,7 @@ const TEXT = Object.freeze({
 		},
 		'grok-imagine-video-1.5-lite': {
 			label: 'Grok Imagine Video 1.5 Lite',
-			description: 'Text or a start frame to video with lip-synced sound at the lowest price, 1 to 15 seconds; 1080p is upscaled from 720p.'
+			description: 'Text or a start frame to video with lip-synced sound, 1 to 15 seconds; 1080p is upscaled from 720p.'
 		},
 		'grok-imagine-video': {
 			label: 'Grok Imagine Video',
@@ -101,34 +100,22 @@ interface XaiModel {
 	readonly referenceMaxSeconds?: number;
 	/** References, Edit, and Extend need a prompt (the API reference's rule). */
 	readonly promptBeyondFrames?: boolean;
-	/** US dollars per second of video, by resolution. */
-	readonly perSecond: Readonly<Partial<Record<Resolution, number>>>;
-	/** US dollars per input image: each frame and reference image. */
-	readonly perImage: number;
-	/** US dollars per second of an input video. */
-	readonly perVideoSecond?: number;
 }
 
 const MODELS: readonly XaiModel[] = Object.freeze([
 	{
 		id: 'grok-imagine-video-1.5', resolutions: ['480p', '720p', '1080p'], endFrame: true, references: 14, clips: false,
-		pinnedUpTo720p: true,
-		perSecond: { '480p': 0.08, '720p': 0.14, '1080p': 0.25 }, perImage: 0.01
+		pinnedUpTo720p: true
 	},
 	{
 		id: 'grok-imagine-video-1.5-lite', resolutions: ['480p', '720p', '1080p'], endFrame: false, references: 0, clips: false,
-		upscaled1080p: true,
-		perSecond: { '480p': 0.02, '720p': 0.03, '1080p': 0.14 }, perImage: 0.01
+		upscaled1080p: true
 	},
 	{
 		id: 'grok-imagine-video', resolutions: ['480p', '720p'], endFrame: false, references: 7, clips: true,
-		referenceMaxSeconds: 10, promptBeyondFrames: true,
-		perSecond: { '480p': 0.05, '720p': 0.07 }, perImage: 0.002, perVideoSecond: 0.01
+		referenceMaxSeconds: 10, promptBeyondFrames: true
 	}
 ] satisfies XaiModel[]);
-
-/** The day the model pages were read; their prices state no date of their own. */
-const PRICE_DATE = '2026-10-19';
 
 /** xAI states no longest prompt; the most AI Video takes. */
 const PROMPT_MAX_LENGTH = 1_048_576;
@@ -217,8 +204,7 @@ function declareModel(model: XaiModel): CatalogModel {
 		providerModels: { global: model.id },
 		prompt: { required: 'withoutMedia', maxLength: PROMPT_MAX_LENGTH },
 		modes: declareModes(model),
-		parameters: declareParameters(model),
-		estimate: true
+		parameters: declareParameters(model)
 	};
 }
 
@@ -226,7 +212,7 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'xai',
 	label: TEXT.provider,
 	regions: [
-		{ id: 'global', label: TEXT.region, baseUrl: 'https://api.x.ai/v1', currency: 'USD', console: 'https://console.x.ai/team/default/api-keys' }
+		{ id: 'global', label: TEXT.region, baseUrl: 'https://api.x.ai/v1', console: 'https://console.x.ai/team/default/api-keys' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
 	models: MODELS.map(declareModel)
@@ -420,7 +406,7 @@ function readXaiError(status: number, body: unknown): ProviderErrorReading | und
 	return text || mapped ? { ...(text ? { message: text } : {}), ...(mapped ? { code: mapped } : {}) } : undefined;
 }
 
-// --- checks and estimates -----------------------------------------------------------------------
+// --- checks -------------------------------------------------------------------------------------
 
 /** The rules between parameters and inputs that the declarations cannot express (xai.md, "Rules between parameters"). */
 function ruleProblems(model: XaiModel, request: CheckRequest, counts: PlannedCounts): string[] {
@@ -469,50 +455,6 @@ function fileProblems(model: XaiModel, request: CheckRequest, measured: readonly
 	return problems;
 }
 
-/** The length of the clip: measured, or the shortest and longest its mode allows when it cannot be read. */
-function clipSeconds(mode: ModeId, measured: readonly MeasuredItem[]): readonly [number, number] {
-	const seconds = measured.find(item => item.slot === 'source')?.facts.seconds;
-	if (seconds !== undefined) {
-		return [seconds, seconds];
-	}
-	return mode === 'edit' ? EDIT_CLIP_SECONDS : EXTEND_CLIP_SECONDS;
-}
-
-/**
- * The price of a generation in US dollars (xai.md, "Estimate"): the seconds
- * of video at the resolution's price, and each input image and second of
- * input video. An edited or extended video keeps the clip's resolution, which
- * AI Video does not measure, so its estimate spans the 480p and 720p prices;
- * an extension spans the seconds it adds and the whole result too.
- */
-function estimateFor(model: XaiModel, mode: ModeId, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
-	if (mode === 'frames' || mode === 'reference') {
-		const perSecond = model.perSecond[params.resolution as Resolution];
-		if (perSecond === undefined || typeof params.duration !== 'number') {
-			return undefined;
-		}
-		const images = (counts.startFrame ? 1 : 0) + (counts.endFrame ? 1 : 0) + counts.images;
-		const amount = params.duration * perSecond + images * model.perImage;
-		return estimateOf('USD', amount, amount, PRICE_DATE);
-	}
-	const low = model.perSecond['480p'];
-	const high = model.perSecond['720p'];
-	const input = model.perVideoSecond;
-	if (low === undefined || high === undefined || input === undefined) {
-		return undefined;
-	}
-	const [shortest, longest] = clipSeconds(mode, measured);
-	if (mode === 'edit') {
-		// The edited video is as long as the clip.
-		return estimateOf('USD', shortest * (low + input), longest * (high + input), PRICE_DATE);
-	}
-	if (typeof params.duration !== 'number') {
-		return undefined;
-	}
-	const added = params.duration;
-	return estimateOf('USD', added * low + shortest * input, (longest + added) * high + longest * input, PRICE_DATE);
-}
-
 // --- the module ---------------------------------------------------------------------------------
 
 export const XAI: ProviderModule = Object.freeze({
@@ -534,8 +476,7 @@ export const XAI: ProviderModule = Object.freeze({
 			...ruleProblems(model, request, counts),
 			...fileProblems(model, request, measured)
 		];
-		const estimate = estimateFor(model, request.mode, request.params, counts, measured);
-		return estimate ? { problems, estimate } : { problems };
+		return { problems };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

@@ -20,7 +20,7 @@ import test from 'node:test';
 import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import { RUNWAY } from '../src/providers/runway.ts';
-import type { CatalogModel, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import type { CatalogModel, PlannedMedia } from '../src/providers/types.ts';
 import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-runway-'));
@@ -66,9 +66,6 @@ const GIF = file('moving.gif', gifHeader(640, 360), 'image/gif');
 const CLIP = file('clip.mp4', isoMedia(7.5), 'video/mp4');
 const TAKE = file('take.mov', isoMedia(4, { brand: 'qt  ' }), 'video/quicktime');
 const LONG_CLIP = file('long.mp4', isoMedia(31), 'video/mp4');
-const SHORT_CLIP = file('short.mp4', isoMedia(1.5), 'video/mp4');
-/** An MP4 whose length AI Video cannot read. */
-const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 const TINY_CLIP = file('tiny.mp4', tinyMp4(4), 'video/mp4');
 // Runway takes an image data URI of at most 5,242,880 characters: `data:image/png;base64,` (22) and the base64 of the bytes.
 // 3,932,142 bytes are 1,310,714 groups of three, 5,242,856 base64 characters: 5,242,878 in all, inline.
@@ -79,7 +76,6 @@ const OVER_LIMIT = file('over-limit.png', largePng(3_932_143), 'image/png');
 const KEY = `key_${'0123456789abcdef'.repeat(8)}`;
 const VERSION = '2024-11-06';
 const PROMPT = 'A paper boat drifts down a rainy street.';
-const PRICE_DATE = '2026-10-19';
 
 function dataUri(media: FileMedia, type: string): string {
 	return `data:${type};base64,${readFileSync(media.fsPath).toString('base64')}`;
@@ -214,7 +210,7 @@ test('the catalog declares Runway with one region, one API key, and its three ow
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'runway',
 		label: 'Runway',
-		regions: [{ id: 'global', label: 'Runway Dev', baseUrl: 'https://api.dev.runwayml.com', currency: 'USD', console: 'https://dev.runway.com/' }],
+		regions: [{ id: 'global', label: 'Runway Dev', baseUrl: 'https://api.dev.runwayml.com', console: 'https://dev.runway.com/' }],
 		credentials: [{ id: 'apiKey', label: 'API Key', placeholder: 'key_…' }]
 	});
 	const none = { min: 0, max: 0 };
@@ -226,23 +222,22 @@ test('the catalog declares Runway with one region, one API key, and its three ow
 		sentAs: model.providerModels,
 		prompt: model.prompt,
 		modes: model.modes,
-		estimate: model.estimate,
 		deprecated: model.deprecated
 	})), [
 		{
 			id: 'gen4.5', label: 'Gen-4.5', sentAs: { global: 'gen4.5' }, prompt: { required: 'always', maxLength: 1000 },
 			modes: [{ id: 'frames', label: 'Frames', inputs: { startFrame: 'optional', endFrame: 'none', images: none, videos: none, audios: none, source: 'none' }, limits: { imageMaxSide: 8000, imageAspect: [0.5, 2], imageMaxBytes: fileMaxBytes } }],
-			estimate: true, deprecated: undefined
+			deprecated: undefined
 		},
 		{
 			id: 'gen4_turbo', label: 'Gen-4 Turbo', sentAs: { global: 'gen4_turbo' }, prompt: { required: 'withoutMedia', maxLength: 1000 },
 			modes: [{ id: 'frames', label: 'Frames', inputs: { startFrame: 'required', endFrame: 'none', images: none, videos: none, audios: none, source: 'none' }, limits: { imageMaxSide: 8000, imageAspect: [0.5, 2.358], imageMaxBytes: fileMaxBytes } }],
-			estimate: true, deprecated: undefined
+			deprecated: undefined
 		},
 		{
 			id: 'aleph2', label: 'Aleph 2.0', sentAs: { global: 'aleph2' }, prompt: { required: 'withoutMedia', maxLength: 1000 },
 			modes: [{ id: 'edit', label: 'Edit', inputs: { startFrame: 'none', endFrame: 'none', images: none, videos: none, audios: none, source: 'required' }, limits: { videoSeconds: [2, 30], videoMaxBytes: fileMaxBytes } }],
-			estimate: true, deprecated: undefined
+			deprecated: undefined
 		}
 	]);
 
@@ -831,36 +826,4 @@ test('check measures images and clips against Runway\'s limits, and submit sends
 	} finally {
 		await server.close();
 	}
-});
-
-// --- estimates ----------------------------------------------------------------------------------
-
-test('estimates follow the price list: credits a second at $0.01 a credit', async () => {
-	const providers = commands();
-	const estimate = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: PlannedMedia) =>
-		value(await providers.check({ provider: 'runway', region: 'global', model, mode, params, prompt: PROMPT, inputs })).estimate;
-	const measured = async (source: FileMedia) =>
-		value(await providers.check(generation('http://127.0.0.1:1', 'aleph2', 'edit', {}, { source }))).estimate;
-	const amount = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
-	assert.deepEqual({
-		// Gen-4.5 with its defaults, 5 seconds: 12 credits/s × 5 s = 60 credits × $0.01 = $0.60.
-		gen45Defaults: await estimate('gen4.5', 'frames', {}, plannedFiles()),
-		// Gen-4.5 from a start frame, 2 seconds: 12 × 2 = 24 credits = $0.24.
-		gen45Short: await estimate('gen4.5', 'frames', { duration: 2 }, plannedFiles({ startFrame: true })),
-		// Gen-4 Turbo, 10 seconds: 5 credits/s × 10 s = 50 credits = $0.50.
-		turbo: await estimate('gen4_turbo', 'frames', { duration: 10 }, plannedFiles({ startFrame: true })),
-		// Aleph 2.0 with the 7.5-second clip measured: 28 credits/s × 7.5 s = 210 credits = $2.10.
-		alephMeasured: await measured(CLIP),
-		// Aleph 2.0 with a clip whose length cannot be read, 2 to 30 seconds: 28 × 2 = 56 to 28 × 30 = 840 credits, $0.56 to $8.40.
-		alephUnreadable: await measured(UNREADABLE),
-		// A clip of 1.5 seconds, which check refuses: 28 × 1.5 = 42 credits, below the minimum of 56: $0.56.
-		alephMinimum: await measured(SHORT_CLIP)
-	}, {
-		gen45Defaults: amount(0.6),
-		gen45Short: amount(0.24),
-		turbo: amount(0.5),
-		alephMeasured: amount(2.1),
-		alephUnreadable: amount(0.56, 8.4),
-		alephMinimum: amount(0.56)
-	});
 });

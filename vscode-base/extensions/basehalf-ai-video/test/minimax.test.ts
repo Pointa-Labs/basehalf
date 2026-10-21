@@ -41,13 +41,10 @@ const END = file('end.jpg', jpegHeader(800, 600), 'image/jpeg');
 const CHARACTER = file('character.png', png(512, 768), 'image/png');
 const PLACE = file('place.webp', webpHeader('VP8X', 1024, 768), 'image/webp');
 const DANCE = file('dance.mp4', isoMedia(6), 'video/mp4');
-const CLIP = file('clip.mp4', isoMedia(5.5), 'video/mp4');
 const VOICE = file('voice.wav', wav(3), 'audio/wav');
 const SONG = file('song.m4a', isoMedia(4, { brand: 'M4A ' }), 'audio/mp4');
 const MOTION = file('motion.gif', gifHeader(640, 360), 'image/gif');
 const TINY = file('tiny.png', png(300, 300), 'image/png');
-/** An MP4 whose length AI Video cannot read. */
-const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 const VIDEO = isoMedia(2);
 
 const KEY = 'mm-test-key-0123456789abcdef';
@@ -254,8 +251,8 @@ test('the catalog entry declares both regions, the API key, and five models with
 		id: 'minimax',
 		label: 'MiniMax',
 		regions: [
-			{ id: 'cn', label: 'China', baseUrl: 'https://api.minimax.cn', currency: 'CNY', console: 'https://platform.minimax.cn/user-center/basic-information/interface-key' },
-			{ id: 'intl', label: 'International', baseUrl: 'https://api.minimax.io', currency: 'USD', console: 'https://platform.minimax.io/user-center/basic-information/interface-key' }
+			{ id: 'cn', label: 'China', baseUrl: 'https://api.minimax.cn', console: 'https://platform.minimax.cn/user-center/basic-information/interface-key' },
+			{ id: 'intl', label: 'International', baseUrl: 'https://api.minimax.io', console: 'https://platform.minimax.io/user-center/basic-information/interface-key' }
 		],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
@@ -264,8 +261,7 @@ test('the catalog entry declares both regions, the API key, and five models with
 		ids: model.providerModels,
 		prompt: `${model.prompt.required} ${model.prompt.maxLength}`,
 		modes: model.modes.map(mode => `${mode.id}: start ${mode.inputs.startFrame}, end ${mode.inputs.endFrame}, images ${mode.inputs.images.max}, videos ${mode.inputs.videos.max}, audio ${mode.inputs.audios.max}`),
-		parameters: model.parameters.map(summary),
-		estimate: model.estimate
+		parameters: model.parameters.map(summary)
 	}]));
 	const ratio = 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:16:9';
 	const h3Modes = ['frames: start optional, end optional, images 0, videos 0, audio 0', 'reference: start none, end none, images 9, videos 3, audio 3'];
@@ -276,40 +272,35 @@ test('the catalog entry declares both regions, the API key, and five models with
 			ids: { cn: 'MiniMax-H3', intl: 'MiniMax-H3' },
 			prompt: 'always 7000',
 			modes: h3Modes,
-			parameters: ['resolution=768p|2k:768p', ratio, 'duration=4-15/1:5', 'watermark:false (more)'],
-			estimate: true
+			parameters: ['resolution=768p|2k:768p', ratio, 'duration=4-15/1:5', 'watermark:false (more)']
 		},
 		'h3-max': {
 			label: 'MiniMax H3 Max',
 			ids: { cn: 'MiniMax-H3-Max', intl: 'MiniMax-H3-Max' },
 			prompt: 'always 7000',
 			modes: h3Modes,
-			parameters: ['resolution=480p|768p:768p', ratio, 'duration=5-15/1:5', 'prompt_expansion_mode=disabled|balanced|quality:balanced', 'watermark:false (more)'],
-			estimate: true
+			parameters: ['resolution=480p|768p:768p', ratio, 'duration=5-15/1:5', 'prompt_expansion_mode=disabled|balanced|quality:balanced', 'watermark:false (more)']
 		},
 		'hailuo-2.3': {
 			label: 'Hailuo 2.3',
 			ids: { cn: 'MiniMax-Hailuo-2.3', intl: 'MiniMax-Hailuo-2.3' },
 			prompt: 'withoutMedia 2000',
 			modes: ['frames: start optional, end none, images 0, videos 0, audio 0'],
-			parameters: hailuoParameters('768p|1080p'),
-			estimate: true
+			parameters: hailuoParameters('768p|1080p')
 		},
 		'hailuo-2.3-fast': {
 			label: 'Hailuo 2.3 Fast',
 			ids: { cn: 'MiniMax-Hailuo-2.3-Fast', intl: 'MiniMax-Hailuo-2.3-Fast' },
 			prompt: 'withoutMedia 2000',
 			modes: ['frames: start required, end none, images 0, videos 0, audio 0'],
-			parameters: hailuoParameters('768p|1080p'),
-			estimate: true
+			parameters: hailuoParameters('768p|1080p')
 		},
 		'hailuo-02': {
 			label: 'Hailuo 02',
 			ids: { cn: 'MiniMax-Hailuo-02', intl: 'MiniMax-Hailuo-02' },
 			prompt: 'withoutMedia 2000',
 			modes: ['frames: start optional, end optional, images 0, videos 0, audio 0'],
-			parameters: hailuoParameters('512p|768p|1080p'),
-			estimate: true
+			parameters: hailuoParameters('512p|768p|1080p')
 		}
 	});
 	// The shared resolution values, labelled as MiniMax writes them.
@@ -752,43 +743,6 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		m4a: ['Reference audio 1 song.m4a is M4A audio; MiniMax takes WAV or MP3.'],
 		tinyFrame: ['The start frame tiny.png is 300 × 300 px; each side must be at least 301 px.'],
 		canRun: []
-	});
-});
-
-test('the estimate follows each region\'s price list: per second for H3 and H3 Max with images and input videos, per video for Hailuo', async () => {
-	const providers = commands();
-	const estimate = async (region: string, model: string, mode: string, params: Record<string, unknown>, inputs: Record<string, unknown>) =>
-		value(await providers.check({ provider: 'minimax', region, model, mode, params, prompt: 'A storm over the pier.', inputs })).estimate;
-	const usd = (min: number, max = min) => ({ currency: 'USD', min, max, priceDate: '2026-10-18' });
-	const cny = (min: number, max = min) => ({ currency: 'CNY', min, max, priceDate: '2026-10-18' });
-	assert.deepEqual({
-		intl: [
-			// 5 s × 0.08
-			await estimate('intl', 'h3', 'frames', { resolution: '768p', duration: 5 }, plannedFiles()),
-			// 10 s × 0.13, 2 images beyond the 5 free × 0.04, a 6 s video × 0.13; audio is free
-			await estimate('intl', 'h3', 'reference', { resolution: '2k', duration: 10 }, { images: Array.from({ length: 7 }, () => CHARACTER), videos: [DANCE], audios: [VOICE] }),
-			// 8 s × 0.05, 2 images beyond the 2 free × 0.074
-			await estimate('intl', 'h3-max', 'reference', { resolution: '480p', duration: 8 }, plannedFiles({ images: 4 })),
-			await estimate('intl', 'hailuo-2.3-fast', 'frames', { resolution: '1080p', duration: 6 }, plannedFiles({ startFrame: true })),
-			await estimate('intl', 'hailuo-02', 'frames', { resolution: '512p', duration: 10 }, plannedFiles({ startFrame: true }))
-		],
-		cn: [
-			// 15 s × 0.80; two frames are within the 5 free images
-			await estimate('cn', 'h3', 'frames', { resolution: '2k', duration: 15, ratio: 'adaptive' }, plannedFiles({ startFrame: true, endFrame: true })),
-			// 15 s × 0.50, and a video whose length cannot be read, 2 to 15 s × 0.97
-			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 15 }, { images: [], videos: [UNREADABLE], audios: [] }),
-			// 6 s × 0.50, 7 images beyond the 2 free × 0.50
-			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 6 }, plannedFiles({ images: 9 })),
-			// 5 s × 0.50, and a 5.5 s video metered as 5 or 6 s × 0.50
-			await estimate('cn', 'h3', 'reference', { resolution: '768p', duration: 5 }, { images: [], videos: [CLIP], audios: [] }),
-			await estimate('cn', 'hailuo-2.3', 'frames', { resolution: '768p', duration: 10 }, plannedFiles()),
-			await estimate('cn', 'hailuo-02', 'frames', { resolution: '1080p', duration: 6 }, plannedFiles({ startFrame: true, endFrame: true }))
-		],
-		notPriced: await estimate('intl', 'hailuo-02', 'frames', { resolution: '1080p', duration: 10 }, plannedFiles())
-	}, {
-		intl: [usd(0.4), usd(2.16), usd(0.548), usd(0.33), usd(0.15)],
-		cn: [cny(12), cny(9.44, 22.05), cny(6.5), cny(5, 5.5), cny(4), cny(3.5)],
-		notPriced: undefined
 	});
 });
 

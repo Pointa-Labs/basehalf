@@ -185,7 +185,6 @@ export function readVideoPanel(panel) {
 				path: slot.querySelector('.bh-video-panel-remove')?.getAttribute('data-key')?.replace(/^remove:/, '') ?? null
 			} : null;
 		};
-		const estimate = element.querySelector('.bh-video-panel-estimate');
 		const reason = element.querySelector('.bh-video-panel-reason');
 		const action = element.querySelector('.bh-video-panel-reason-action');
 		return {
@@ -194,7 +193,6 @@ export function readVideoPanel(panel) {
 			prompt: prompt?.value ?? null,
 			promptFocused: !!prompt && element.ownerDocument.activeElement === prompt,
 			model: text('.bh-video-panel-model-label'),
-			estimate: estimate && !estimate.hidden ? { text: estimate.textContent, label: estimate.getAttribute('aria-label') } : null,
 			modelOutlined: element.querySelector('.bh-video-panel-model')?.classList.contains('outlined') ?? false,
 			settings: text('.bh-video-panel-settings-label'),
 			generate: generate ? {

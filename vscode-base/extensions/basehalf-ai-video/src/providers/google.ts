@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems } from './check.ts';
+import { countsOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Estimate, ModeId, Params, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, ModeId, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Google's video model on the Gemini API, Gemini Omni Flash, run through the
@@ -35,7 +35,7 @@ const TEXT = Object.freeze({
 	modes: { frames: 'Frames', reference: 'References', edit: 'Edit', extend: 'Extend' },
 	parameters: {
 		resolution: 'Resolution',
-		resolutionTooltip: '1080p and 4K are upscaled from the generated video. Google publishes the price of 720p only, so the other resolutions show no estimate.',
+		resolutionTooltip: '1080p and 4K are upscaled from the generated video.',
 		ratio: 'Ratio',
 		ratioTooltip: 'The shape of the video: landscape or portrait.',
 		seed: 'Seed',
@@ -148,52 +148,18 @@ const OMNI: CatalogModel = {
 	providerModels: { global: MODEL_ID },
 	prompt: { required: 'always', maxLength: PROMPT_MAX_LENGTH },
 	modes: MODES,
-	parameters: PARAMETERS,
-	estimate: true
+	parameters: PARAMETERS
 };
 
 const ENTRY: CatalogProvider = Object.freeze<CatalogProvider>({
 	id: 'google',
 	label: TEXT.provider,
 	regions: [
-		{ id: 'global', label: TEXT.region, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', currency: 'USD', console: 'https://aistudio.google.com/api-keys' }
+		{ id: 'global', label: TEXT.region, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', console: 'https://aistudio.google.com/api-keys' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
 	models: [OMNI]
 });
-
-// --- estimate ----------------------------------------------------------------------------------
-
-/** The date of the price list the rate below was read from (Gemini Developer API pricing). */
-export const OMNI_PRICE_DATE = '2026-10-16';
-/** "5,792 tokens per second of 720p video", the only resolution the price list gives a rate for. */
-const TOKENS_PER_SECOND_720P = 5792;
-/** Video output, per million tokens, paid tier, Standard. */
-const USD_PER_MILLION_VIDEO_TOKENS = 17.5;
-/** The length of a video the prompt decides: 3 to 10 seconds. */
-const OUTPUT_SECONDS: readonly [number, number] = [3, 10];
-
-/** The list price of `seconds` of 720p video in US dollars. */
-export function omniPrice(seconds: number): number {
-	return seconds * TOKENS_PER_SECOND_720P * USD_PER_MILLION_VIDEO_TOKENS / 1_000_000;
-}
-
-/**
- * The price of a generation: the seconds of video it answers at the 720p
- * rate, a range since the prompt decides the length. An extended video holds
- * the clip and 3 to 10 seconds more; without the clip's length, a clip of at
- * most 10 seconds. No estimate at the resolutions the price list gives no
- * rate for.
- */
-export function omniEstimate(mode: ModeId, params: Params, clipSeconds?: number): Estimate | undefined {
-	if (params.resolution !== '720p') {
-		return undefined;
-	}
-	const [shortest, longest] = mode === 'extend'
-		? [(clipSeconds ?? 0) + OUTPUT_SECONDS[0], (clipSeconds ?? CLIP_SECONDS[1]) + OUTPUT_SECONDS[1]]
-		: OUTPUT_SECONDS;
-	return estimateOf('USD', omniPrice(shortest), omniPrice(longest), OMNI_PRICE_DATE);
-}
 
 // --- check -------------------------------------------------------------------------------------
 
@@ -203,19 +169,14 @@ async function check(request: CheckRequest, media: MediaInspector): Promise<Chec
 	if (request.mode === 'reference' && counts.images === 0 && counts.videos === 0) {
 		problems.push(TEXT.referencesNeedInput);
 	}
-	let clipSeconds: number | undefined;
 	let size = REQUEST_OVERHEAD_BYTES + Buffer.byteLength(JSON.stringify(request.prompt), 'utf8');
 	for (const item of await measureItems(request.inputs, media)) {
 		size += base64Length(item.facts.bytes) + PART_OVERHEAD_BYTES;
-		if (item.slot === 'source') {
-			clipSeconds = item.facts.seconds;
-		}
 	}
 	if (size > REQUEST_MAX_BYTES) {
 		problems.push(TEXT.requestTooLarge((size / 1_000_000).toFixed(1)));
 	}
-	const estimate = omniEstimate(request.mode, request.params, clipSeconds);
-	return estimate ? { problems, estimate } : { problems };
+	return { problems };
 }
 
 // --- requests ----------------------------------------------------------------------------------

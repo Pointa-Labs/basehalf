@@ -284,7 +284,7 @@
 	min-width: 0;
 }
 
-/* The regions: one choice each, with its currency. */
+/* The regions: one choice each. */
 .basehalf-video-provider-regions {
 	display: flex;
 	flex-wrap: wrap;
@@ -293,8 +293,6 @@
 
 .basehalf-video-provider-region {
 	display: inline-flex;
-	align-items: baseline;
-	gap: 8px;
 	min-height: 30px;
 	padding: 5px 12px;
 	border: 1px solid var(--vscode-widget-border, transparent);
@@ -317,11 +315,6 @@
 .monaco-workbench .basehalf-video-providers .basehalf-video-provider-region:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
-}
-
-.basehalf-video-provider-region-currency {
-	font-size: 11px;
-	color: var(--vscode-descriptionForeground);
 }
 
 .basehalf-video-provider-console {

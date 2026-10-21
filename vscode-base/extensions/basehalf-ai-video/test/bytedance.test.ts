@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { MOCK_VIDEO_FIXTURE_URL, MOCK_VIDEO_PROVIDER_KEY, startMockVideoProvider } from '../../../scripts/basehalf-video-mock-provider.mts';
-import { BYTEDANCE, seedanceEstimate, seedanceTokens } from '../src/providers/bytedance.ts';
+import { BYTEDANCE } from '../src/providers/bytedance.ts';
 import { VideoProviderCommands } from '../src/providers/commands.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog } from '../src/providers/registry.ts';
@@ -81,8 +81,8 @@ test('the catalog entry declares the two regions, the API key, and every model w
 		id: 'bytedance',
 		label: 'ByteDance',
 		regions: [
-			{ id: 'cn', label: 'China · Volcengine Ark', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', currency: 'CNY', console: 'https://ark.volcengine.com/region:cn-beijing/apiKey' },
-			{ id: 'intl', label: 'International · BytePlus ModelArk', baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3', currency: 'USD', console: 'https://ai.byteplus.com/ark/region:ap-southeast-1/apiKey' }
+			{ id: 'cn', label: 'China · Volcengine Ark', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', console: 'https://ark.volcengine.com/region:cn-beijing/apiKey' },
+			{ id: 'intl', label: 'International · BytePlus ModelArk', baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3', console: 'https://ai.byteplus.com/ark/region:ap-southeast-1/apiKey' }
 		],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
@@ -344,41 +344,4 @@ test('check reports the rules between parameters, the provider\'s input rules, a
 	assert.deepEqual(value(await commands(undefined, large).check({ provider: 'bytedance', region: 'intl', model: 'seedance-2.0', mode: 'reference', params: {}, prompt: 'p', inputs: { images: [START, START, START], videos: [], audios: [] } })).problems, [
 		'The request with its inputs would be about 121.6 MB; Seedance takes at most 64 MB. Use fewer or smaller inputs.'
 	]);
-});
-
-test('the estimate follows each price list: tokens are seconds × width × height × 24 / 1024 at the output size', async () => {
-	const estimate = (model: string, region: string, params: Record<string, unknown>) => seedanceEstimate(model, region, params as Record<string, string | number | boolean>);
-	const cny = (min: number, max = min) => ({ currency: 'CNY', min, max, priceDate: '2026-10-17' });
-	const usd = (min: number, max = min) => ({ currency: 'USD', min, max, priceDate: '2026-10-18' });
-	assert.equal(seedanceTokens(5, 1280, 720), 108_000);
-	// Volcengine Ark, CNY, price list of 2026-10-17. Each matches its example on the page.
-	// 2.5, 720p 16:9, 5 s: 5 × 1280 × 720 × 24 / 1024 = 108,000 tokens × ¥70.00 / M = ¥7.56.
-	assert.deepEqual(estimate('seedance-2.5', 'cn', { resolution: '720p', ratio: '16:9', duration: 5 }), cny(7.56));
-	// 2.0, 1080p 16:9, 5 s: 5 × 1920 × 1080 × 24 / 1024 = 243,000 tokens × ¥51.00 / M = ¥12.393 (the page shows ¥12.39).
-	assert.deepEqual(estimate('seedance-2.0', 'cn', { resolution: '1080p', ratio: '16:9', duration: 5 }), cny(12.393));
-	// 2.0 Mini, 480p 16:9, 5 s: 5 × 864 × 496 × 24 / 1024 = 50,220 tokens × ¥23.00 / M = ¥1.15506 (the page shows ¥1.16).
-	assert.deepEqual(estimate('seedance-2.0-mini', 'cn', { resolution: '480p', ratio: '16:9', duration: 5 }), cny(1.15506));
-	// 1.0 Pro Fast, 1080p 16:9, 5 s: 5 × 1920 × 1088 × 24 / 1024 = 244,800 tokens × ¥4.20 / M = ¥1.02816.
-	assert.deepEqual(estimate('seedance-1.0-pro-fast', 'cn', { resolution: '1080p', ratio: '16:9', duration: 5 }), cny(1.02816));
-	// 2.5, 480p, Adaptive, Auto: the shortest (4 s) at the smallest 480p size (640 × 640 = 409,600 px): 38,400 tokens × ¥70 / M = ¥2.688,
-	// to the longest (30 s) at the largest (992 × 432 = 428,544 px): 301,320 tokens × ¥70 / M = ¥21.0924.
-	assert.deepEqual(estimate('seedance-2.5', 'cn', { resolution: '480p', ratio: 'adaptive', duration: -1 }), cny(2.688, 21.0924));
-	// BytePlus ModelArk, USD, price list of 2026-10-18. Each matches its example on the page.
-	// 2.5, 1080p 16:9, 5 s: 243,000 tokens × $11.70 / M = $2.8431 (the page shows $2.843).
-	assert.deepEqual(estimate('seedance-2.5', 'intl', { resolution: '1080p', ratio: '16:9', duration: 5 }), usd(2.8431));
-	// 2.0 Fast, 720p 16:9, 5 s: 108,000 tokens × $5.60 / M = $0.6048 (the page shows $0.60).
-	assert.deepEqual(estimate('seedance-2.0-fast', 'intl', { resolution: '720p', ratio: '16:9', duration: 5 }), usd(0.6048));
-	// 1.5 Pro, 480p 16:9, 5 s: 50,220 tokens × $2.40 / M = $0.120528 with sound, × $1.20 / M = $0.060264 silent (the page: $0.12 and $0.06).
-	assert.deepEqual(estimate('seedance-1.5-pro', 'intl', { resolution: '480p', ratio: '16:9', duration: 5, sound: true }), usd(0.120528));
-	assert.deepEqual(estimate('seedance-1.5-pro', 'intl', { resolution: '480p', ratio: '16:9', duration: 5, sound: false }), usd(0.060264));
-	// 1.0 Pro, 1080p 16:9, 5 s: 244,800 tokens (the page's usage) × $2.50 / M = $0.612 (the page shows $0.61).
-	assert.deepEqual(estimate('seedance-1.0-pro', 'intl', { resolution: '1080p', ratio: '16:9', duration: 5 }), usd(0.612));
-	// 2.0, 4K 16:9, 5 s: 5 × 3840 × 2160 × 24 / 1024 = 972,000 tokens × $4.00 / M = $3.888 (the page shows $3.89).
-	assert.deepEqual(estimate('seedance-2.0', 'intl', { resolution: '4k', ratio: '16:9', duration: 5 }), usd(3.888));
-	// Not offered in the region: no estimate.
-	assert.equal(estimate('seedance-1.5-pro', 'cn', { resolution: '480p', ratio: '16:9', duration: 5 }), undefined);
-	// Through check: the defaults of 2.0 (720p, Adaptive, 5 s) give the range over the six 720p sizes.
-	// 5 s × 921,600 px × 24 / 1024 = 108,000 tokens × ¥46 / M = ¥4.968; 5 s × 927,408 px → 108,680.625 tokens × ¥46 / M = ¥4.99930875.
-	const checked = value(await commands().check({ provider: 'bytedance', region: 'cn', model: 'seedance-2.0', mode: 'frames', params: {}, prompt: 'p', inputs: plannedFiles() }));
-	assert.deepEqual(checked, { problems: [], estimate: cny(4.968, 4.999309) });
 });

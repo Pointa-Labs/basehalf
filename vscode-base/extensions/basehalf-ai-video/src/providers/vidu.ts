@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
@@ -16,11 +16,9 @@ import type {
 	CheckRequest,
 	CheckResult,
 	CountSlot,
-	Currency,
 	Media,
 	ModeId,
 	ModeLimits,
-	Params,
 	PollState,
 	ProviderErrorCode,
 	SubmitRequest,
@@ -42,15 +40,6 @@ type Route = 'text2video' | 'img2video' | 'start-end2video' | 'reference2video';
 
 const MIB = 1024 * 1024;
 
-/** The day the price list was read (vidu.md, "Estimate"). */
-const PRICE_DATE = '2026-10-19';
-
-/** What one credit costs in each region. */
-const CREDIT_PRICES = Object.freeze<Record<RegionId, { readonly currency: Currency; readonly perCredit: number }>>({
-	cn: { currency: 'CNY', perCredit: 0.03125 },
-	intl: { currency: 'USD', perCredit: 0.005 }
-});
-
 /** The largest request body Vidu takes. */
 const MAX_BODY_BYTES = 20 * MIB;
 /** The largest input read for a request; no mode allows more. */
@@ -60,10 +49,6 @@ const BODY_FIELDS_BYTES = 512;
 const DATA_URL_PREFIX_BYTES = 40;
 /** The shape of the start frame against the end frame's (aspect ratio divided). */
 const FRAME_SHAPE: readonly [number, number] = [0.8, 1.25];
-/** Credits Q2 adds for sound from a start frame. */
-const Q2_SOUND_CREDITS = 15;
-/** Credits `prompt_extend` (Vidu's `is_rec`) may add (the update notice of 2025-11-03). */
-const PROMPT_EXTEND_CREDITS = 10;
 const SEED_MAX = 2147483647;
 /** The type of an MP3's data URL, as Vidu's pages write it. */
 const MP3_DATA_TYPE = 'video/mp3';
@@ -85,9 +70,9 @@ const TEXT = Object.freeze({
 	ratioWithAdaptive: 'Adaptive lets Vidu choose the shape from the reference images.',
 	sound: 'Sound',
 	soundTooltip: 'Dialogue and sound effects made together with the picture.',
-	soundFromStartFrame: 'Dialogue and sound made with the picture, from a start frame alone. It adds 15 credits.',
+	soundFromStartFrame: 'Dialogue and sound made with the picture, from a start frame alone.',
 	promptExtend: 'Expand Prompt',
-	promptExtendTooltip: 'Vidu writes a fuller prompt from yours and the start frame before it generates. It may add 10 credits.',
+	promptExtendTooltip: 'Vidu writes a fuller prompt from yours and the start frame before it generates.',
 	seed: 'Seed',
 	seedTooltip: 'The same seed and settings make a similar video. Empty or 0 makes a new one each time.',
 	models: Object.freeze<Record<string, { readonly label: string; readonly description: string }>>({
@@ -101,7 +86,7 @@ const TEXT = Object.freeze({
 		},
 		'q3-turbo': {
 			label: 'Vidu Q3 Turbo',
-			description: 'Faster and cheaper than Q3 Pro, with sound and changes of shot, from text, a start frame, or a start and an end frame.'
+			description: 'Faster than Q3 Pro, with sound and changes of shot, from text, a start frame, or a start and an end frame.'
 		},
 		'q3-pro-fast': {
 			label: 'Vidu Q3 Pro Fast',
@@ -117,7 +102,7 @@ const TEXT = Object.freeze({
 		},
 		'q3-turbo-reference': {
 			label: 'Vidu Q3 Turbo References',
-			description: 'Q3 Turbo from up to 7 reference images, fast and inexpensive. In China only.'
+			description: 'Q3 Turbo from up to 7 reference images. In China only.'
 		},
 		'q2-pro': {
 			label: 'Vidu Q2 Pro',
@@ -125,7 +110,7 @@ const TEXT = Object.freeze({
 		},
 		'q2-turbo': {
 			label: 'Vidu Q2 Turbo',
-			description: 'Fast and inexpensive, from a start frame or a start and an end frame; sound from a start frame on request.'
+			description: 'Fast, from a start frame or a start and an end frame; sound from a start frame on request.'
 		}
 	})
 });
@@ -153,12 +138,6 @@ interface PromptLimit {
 	readonly routes?: readonly Route[];
 }
 
-type Price =
-	/** Credits a second by resolution, for the routes named or for all. */
-	| { readonly kind: 'perSecond'; readonly rates: Readonly<Record<string, number>>; readonly routes?: readonly Route[] }
-	/** Credits for 1 second, for 2 seconds, and for each further second, by resolution. */
-	| { readonly kind: 'byLength'; readonly rates: Readonly<Record<string, readonly [number, number, number]>> };
-
 interface ViduModel {
 	/** The catalog id. */
 	readonly id: string;
@@ -176,7 +155,6 @@ interface ViduModel {
 	readonly sound?: { readonly default: boolean; readonly startFrameAlone?: boolean };
 	/** `prompt_extend` (Vidu's `is_rec`), which `img2video` takes. */
 	readonly promptExtend?: boolean;
-	readonly price: Price;
 }
 
 /** A resolution as the catalog names it, in lower case (video providers, "Shared names"). */
@@ -206,8 +184,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		resolutions: Q3_RESOLUTIONS,
 		durations: [1, 16],
 		ratio: { mode: 'frames', adaptive: false },
-		sound: { default: true },
-		price: { kind: 'perSecond', rates: { '540p': 9, '720p': 20, '1080p': 24 } }
+		sound: { default: true }
 	},
 	{
 		id: 'q3-turbo',
@@ -218,8 +195,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		resolutions: Q3_RESOLUTIONS,
 		durations: [1, 16],
 		ratio: { mode: 'frames', adaptive: false },
-		sound: { default: true },
-		price: { kind: 'perSecond', rates: { '540p': 7, '720p': 12, '1080p': 13 } }
+		sound: { default: true }
 	},
 	{
 		id: 'q3-pro-fast',
@@ -229,8 +205,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 20000 }],
 		resolutions: ['720p', '1080p'],
 		durations: [1, 16],
-		sound: { default: true },
-		price: { kind: 'perSecond', rates: { '720p': 12, '1080p': 15 }, routes: ['img2video'] }
+		sound: { default: true }
 	},
 	{
 		id: 'q4-preview',
@@ -243,8 +218,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		durations: [3, 16],
 		ratio: { mode: 'reference', adaptive: false },
 		sound: { default: true },
-		promptExtend: true,
-		price: { kind: 'perSecond', rates: { '540p': 9, '720p': 19, '1080p': 24, '2k': 38, '4k': 78 } }
+		promptExtend: true
 	},
 	{
 		id: 'q3',
@@ -255,8 +229,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		resolutions: Q3_RESOLUTIONS,
 		durations: [3, 16],
 		ratio: { mode: 'reference', adaptive: true },
-		sound: { default: true },
-		price: { kind: 'perSecond', rates: { '540p': 7, '720p': 12, '1080p': 15 } }
+		sound: { default: true }
 	},
 	{
 		id: 'q3-mix',
@@ -271,8 +244,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 20000 }, { max: 5000, region: 'intl' }],
 		resolutions: ['720p', '1080p'],
 		durations: [3, 15],
-		ratio: { mode: 'reference', adaptive: true },
-		price: { kind: 'perSecond', rates: { '720p': 24, '1080p': 29 } }
+		ratio: { mode: 'reference', adaptive: true }
 	},
 	{
 		id: 'q3-turbo-reference',
@@ -282,8 +254,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 5000 }],
 		resolutions: Q3_RESOLUTIONS,
 		durations: [3, 15],
-		ratio: { mode: 'reference', adaptive: true },
-		price: { kind: 'perSecond', rates: { '540p': 4, '720p': 10, '1080p': 13 } }
+		ratio: { mode: 'reference', adaptive: true }
 	},
 	{
 		id: 'q2-pro',
@@ -293,8 +264,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 5000 }, { max: 2000, routes: ['img2video'] }],
 		resolutions: Q3_RESOLUTIONS,
 		durations: [1, 10],
-		sound: { default: false, startFrameAlone: true },
-		price: { kind: 'byLength', rates: { '540p': [8, 10, 5], '720p': [15, 25, 10], '1080p': [55, 70, 15] } }
+		sound: { default: false, startFrameAlone: true }
 	},
 	{
 		id: 'q2-turbo',
@@ -304,8 +274,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 5000 }, { max: 2000, routes: ['img2video'] }],
 		resolutions: Q3_RESOLUTIONS,
 		durations: [1, 10],
-		sound: { default: false, startFrameAlone: true },
-		price: { kind: 'byLength', rates: { '540p': [6, 8, 2], '720p': [8, 10, 10], '1080p': [35, 45, 10] } }
+		sound: { default: false, startFrameAlone: true }
 	}
 ]);
 
@@ -387,8 +356,7 @@ function catalogModel(model: ViduModel): CatalogModel {
 		providerModels,
 		prompt: { required: model.promptRequired, maxLength: Math.max(...model.promptLimits.map(limit => limit.max)) },
 		modes: catalogModes(model),
-		parameters: catalogParameters(model),
-		estimate: true
+		parameters: catalogParameters(model)
 	};
 }
 
@@ -396,8 +364,8 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'vidu',
 	label: TEXT.provider,
 	regions: [
-		{ id: 'cn', label: TEXT.regions.cn, baseUrl: 'https://api.vidu.cn', currency: 'CNY', console: 'https://platform.vidu.cn' },
-		{ id: 'intl', label: TEXT.regions.intl, baseUrl: 'https://api.vidu.com', currency: 'USD', console: 'https://platform.vidu.com' }
+		{ id: 'cn', label: TEXT.regions.cn, baseUrl: 'https://api.vidu.cn', console: 'https://platform.vidu.cn' },
+		{ id: 'intl', label: TEXT.regions.intl, baseUrl: 'https://api.vidu.com', console: 'https://platform.vidu.com' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
 	models: MODELS.map(catalogModel)
@@ -498,32 +466,6 @@ function fileProblems(items: readonly MeasuredItem[], prompt: string): string[] 
 		problems.push(`The request with its inputs would be ${describeBytes(bytes)}; Vidu takes at most ${describeBytes(MAX_BODY_BYTES)}. Use fewer or smaller inputs.`);
 	}
 	return problems;
-}
-
-/** The credits of a generation, as the lowest and highest; undefined without a published price. */
-function creditsOf(model: ViduModel, route: Route, params: Params): readonly [number, number] | undefined {
-	const resolution = String(params.resolution);
-	const duration = Number(params.duration);
-	const price = model.price;
-	let credits: number;
-	if (price.kind === 'perSecond') {
-		const rate = price.rates[resolution];
-		if (rate === undefined || (price.routes && !price.routes.includes(route))) {
-			return undefined;
-		}
-		credits = rate * duration;
-	} else {
-		const steps = price.rates[resolution];
-		if (!steps) {
-			return undefined;
-		}
-		credits = duration <= 1 ? steps[0] : steps[1] + (duration - 2) * steps[2];
-		if (params.sound === true && route === 'img2video') {
-			credits += Q2_SOUND_CREDITS;
-		}
-	}
-	const extended = model.promptExtend === true && route === 'img2video' && params.prompt_extend === true;
-	return [credits, credits + (extended ? PROMPT_EXTEND_CREDITS : 0)];
 }
 
 async function readInput(media: Media, label: string): Promise<{ readonly base64: string; readonly format: MediaFormat | undefined }> {
@@ -787,12 +729,7 @@ export const VIDU = Object.freeze<ProviderModule>({
 			problems.push(`${label} takes reference audio only in ${audioRegions.map(id => TEXT.regions[id]).join(' and ')}.`);
 		}
 		problems.push(...fileProblems(await measureItems(request.inputs, media), request.prompt));
-		const credits = creditsOf(model, route, request.params);
-		if (!credits) {
-			return { problems };
-		}
-		const price = CREDIT_PRICES[region];
-		return { problems, estimate: estimateOf(price.currency, credits[0] * price.perCredit, credits[1] * price.perCredit, PRICE_DATE) };
+		return { problems };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

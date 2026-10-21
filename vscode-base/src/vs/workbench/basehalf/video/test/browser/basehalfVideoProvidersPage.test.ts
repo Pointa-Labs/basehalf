@@ -213,7 +213,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 		const console = descendants(container).find(element => element.tagName === 'A')!;
 		console.click();
 		assert.deepStrictEqual({ regions, defaultEndpoint, west, refused, relay, console: console.textContent, opened }, {
-			regions: ['East · Acme CloudCNY*', 'West · Acme GlobalUSD'],
+			regions: ['East · Acme Cloud*', 'West · Acme Global'],
 			defaultEndpoint: 'https://east.acme.example/api/v1',
 			west: { region: 'west', endpoint: 'https://west.acme.example/api/v1' },
 			refused: {

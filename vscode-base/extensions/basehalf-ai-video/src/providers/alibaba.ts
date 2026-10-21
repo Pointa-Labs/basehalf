@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { randomUUID } from 'node:crypto';
-import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type FormPart, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
@@ -16,8 +16,6 @@ import type {
 	CheckRequest,
 	CheckResult,
 	ChoiceParameter,
-	Currency,
-	Estimate,
 	Media,
 	ModeId,
 	ModeInputs,
@@ -45,7 +43,7 @@ import type {
 
 type Region = 'cn' | 'intl';
 
-/** How a task's request is built and its price counted. */
+/** How a task's request is built. */
 type Family =
 	| 'wan3'
 	| 'wan27-t2v'
@@ -59,18 +57,12 @@ type Family =
 	| 'happyhorse-r2v';
 
 type Resolution = '480p' | '720p' | '1080p';
-type PriceTable = Readonly<Partial<Record<Resolution, number>>>;
-type RegionPrices = Readonly<Record<Region, PriceTable>>;
 
 /** One of Alibaba's model ids: the task a generation of a catalog model runs. */
 interface Task {
 	/** Alibaba's model id, the same in both regions. */
 	readonly id: string;
 	readonly family: Family;
-	/** Per second of video, by resolution, in the region's currency. */
-	readonly prices: RegionPrices;
-	/** Per second of a video without sound, for a task whose price depends on it. */
-	readonly silentPrices?: RegionPrices;
 	/** The catalog's parameters this task sends, by their catalog names. */
 	readonly takes: ReadonlySet<string>;
 }
@@ -132,24 +124,7 @@ const LABELS = Object.freeze({
 	wan26FlashDescription: 'A start frame to video, faster, with or without sound; 2 to 15 seconds.'
 });
 
-// --- regions and prices ----------------------------------------------------------------------------
-
-const CURRENCIES: Readonly<Record<Region, Currency>> = Object.freeze({ cn: 'CNY', intl: 'USD' });
-
-/** The dates of the price lists the prices below were read from. */
-const PRICE_DATES: Readonly<Record<Region, string>> = Object.freeze({ cn: '2026-10-18', intl: '2026-10-15' });
-
-const PRICES = Object.freeze({
-	/** List prices; a limited-time 30% discount applies on 2026-10-19. */
-	wan3: { cn: { '480p': 0.3, '720p': 0.6, '1080p': 1.2 }, intl: { '480p': 0.05, '720p': 0.1, '1080p': 0.2 } },
-	wan3Prime: { cn: { '480p': 0.45, '720p': 0.9, '1080p': 1.8 }, intl: { '480p': 0.068, '720p': 0.14, '1080p': 0.28 } },
-	/** Every Wan 2.7 task, and Wan 2.6 text and image to video. */
-	wan27: { cn: { '720p': 0.6, '1080p': 1 }, intl: { '720p': 0.1, '1080p': 0.15 } },
-	wan26Flash: { cn: { '720p': 0.3, '1080p': 0.5 }, intl: { '720p': 0.05, '1080p': 0.075 } },
-	wan26FlashSilent: { cn: { '720p': 0.15, '1080p': 0.25 }, intl: { '720p': 0.025, '1080p': 0.0375 } },
-	happyHorse11: { cn: { '480p': 0.45, '720p': 0.9, '1080p': 1.2 }, intl: { '480p': 0.07, '720p': 0.14, '1080p': 0.18 } },
-	happyHorse10: { cn: { '720p': 0.9, '1080p': 1.6 }, intl: { '720p': 0.14, '1080p': 0.24 } }
-} satisfies Record<string, RegionPrices>);
+// --- resolutions -----------------------------------------------------------------------------------
 
 /** Alibaba writes resolutions in capitals, and takes them so. */
 const RESOLUTION_VALUES: Readonly<Record<Resolution, string>> = Object.freeze({ '480p': '480P', '720p': '720P', '1080p': '1080P' });
@@ -172,32 +147,31 @@ const WAN26_SIZES: ReadonlyMap<string, string> = new Map([
 
 const WAN_EXTRAS = ['negative_prompt', 'prompt_extend', 'watermark', 'seed'];
 
-function task(id: string, family: Family, prices: RegionPrices, takes: readonly string[], silentPrices?: RegionPrices): Task {
-	return { id, family, prices, takes: new Set(takes), ...(silentPrices ? { silentPrices } : {}) };
+function task(id: string, family: Family, takes: readonly string[]): Task {
+	return { id, family, takes: new Set(takes) };
 }
 
 function happyHorseTasks(version: '1.1' | '1.0'): { readonly t2v: Task; readonly i2v: Task; readonly r2v: Task } {
-	const prices = version === '1.1' ? PRICES.happyHorse11 : PRICES.happyHorse10;
 	return {
-		t2v: task(`happyhorse-${version}-t2v`, 'happyhorse-t2v', prices, ['resolution', 'ratio', 'duration', 'watermark', 'seed']),
-		i2v: task(`happyhorse-${version}-i2v`, 'happyhorse-i2v', prices, ['resolution', 'duration', 'watermark', 'seed']),
-		r2v: task(`happyhorse-${version}-r2v`, 'happyhorse-r2v', prices, ['resolution', 'ratio', 'duration', 'watermark', 'seed'])
+		t2v: task(`happyhorse-${version}-t2v`, 'happyhorse-t2v', ['resolution', 'ratio', 'duration', 'watermark', 'seed']),
+		i2v: task(`happyhorse-${version}-i2v`, 'happyhorse-i2v', ['resolution', 'duration', 'watermark', 'seed']),
+		r2v: task(`happyhorse-${version}-r2v`, 'happyhorse-r2v', ['resolution', 'ratio', 'duration', 'watermark', 'seed'])
 	};
 }
 
 const WAN3_TAKES = ['resolution', 'ratio', 'duration', 'sound', 'prompt_extend', 'watermark', 'seed'];
 
 const TASKS = Object.freeze({
-	wan3: task('wan3.0-video', 'wan3', PRICES.wan3, WAN3_TAKES),
-	wan3Prime: task('wan3.0-video-prime', 'wan3', PRICES.wan3Prime, WAN3_TAKES),
-	wan27T2v: task('wan2.7-t2v', 'wan27-t2v', PRICES.wan27, ['resolution', 'ratio', 'duration', ...WAN_EXTRAS]),
-	wan27I2v: task('wan2.7-i2v', 'wan27-i2v', PRICES.wan27, ['resolution', 'duration', ...WAN_EXTRAS]),
-	wan27R2v: task('wan2.7-r2v', 'wan27-r2v', PRICES.wan27, ['resolution', 'ratio', 'duration', ...WAN_EXTRAS]),
-	wan27Edit: task('wan2.7-videoedit', 'wan27-edit', PRICES.wan27, ['resolution', 'audio_setting', ...WAN_EXTRAS]),
+	wan3: task('wan3.0-video', 'wan3', WAN3_TAKES),
+	wan3Prime: task('wan3.0-video-prime', 'wan3', WAN3_TAKES),
+	wan27T2v: task('wan2.7-t2v', 'wan27-t2v', ['resolution', 'ratio', 'duration', ...WAN_EXTRAS]),
+	wan27I2v: task('wan2.7-i2v', 'wan27-i2v', ['resolution', 'duration', ...WAN_EXTRAS]),
+	wan27R2v: task('wan2.7-r2v', 'wan27-r2v', ['resolution', 'ratio', 'duration', ...WAN_EXTRAS]),
+	wan27Edit: task('wan2.7-videoedit', 'wan27-edit', ['resolution', 'audio_setting', ...WAN_EXTRAS]),
 	// Its resolution and ratio are sent together as a size.
-	wan26T2v: task('wan2.6-t2v', 'wan26-t2v', PRICES.wan27, ['resolution', 'ratio', 'duration', 'shot_type', ...WAN_EXTRAS]),
-	wan26I2v: task('wan2.6-i2v', 'wan26-i2v', PRICES.wan27, ['resolution', 'duration', 'shot_type', ...WAN_EXTRAS]),
-	wan26Flash: task('wan2.6-i2v-flash', 'wan26-i2v', PRICES.wan26Flash, ['resolution', 'duration', 'shot_type', 'sound', ...WAN_EXTRAS], PRICES.wan26FlashSilent),
+	wan26T2v: task('wan2.6-t2v', 'wan26-t2v', ['resolution', 'ratio', 'duration', 'shot_type', ...WAN_EXTRAS]),
+	wan26I2v: task('wan2.6-i2v', 'wan26-i2v', ['resolution', 'duration', 'shot_type', ...WAN_EXTRAS]),
+	wan26Flash: task('wan2.6-i2v-flash', 'wan26-i2v', ['resolution', 'duration', 'shot_type', 'sound', ...WAN_EXTRAS]),
 	happyHorse11: happyHorseTasks('1.1'),
 	happyHorse10: happyHorseTasks('1.0')
 });
@@ -207,7 +181,6 @@ const TASKS = Object.freeze({
 const MiB = 1024 * 1024;
 const WAN3_AUTO_DURATION = -1;
 const WAN3_LONGEST_SECONDS = 30;
-const WAN3_SHORTEST_OUTPUT = 2;
 
 const NO_INPUTS: ModeInputs = {
 	startFrame: 'none',
@@ -311,8 +284,7 @@ function wan3(id: string, label: string, description: string, only: Task): Model
 				PROMPT_EXTEND,
 				WAN_WATERMARK,
 				SEED
-			],
-			estimate: true
+			]
 		}
 	};
 }
@@ -338,8 +310,7 @@ function happyHorse(version: '1.1' | '1.0'): ModelSpec {
 				duration(3, 15),
 				HAPPYHORSE_WATERMARK,
 				SEED
-			],
-			estimate: true
+			]
 		}
 	};
 }
@@ -387,8 +358,7 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 					modes: ['edit']
 				},
 				...WAN_EXTRA_PARAMETERS
-			],
-			estimate: true
+			]
 		}
 	},
 	{
@@ -400,8 +370,7 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 			providerModels: both(TASKS.wan26T2v.id),
 			prompt: { required: 'withoutMedia', maxLength: 1500 },
 			modes: [{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'optional' }), limits: { imageMinSide: 240, imageMaxSide: 8000, imageMaxBytes: 20 * MiB } }],
-			parameters: [WAN27_RESOLUTION, ratio(WAN_RATIOS), duration(2, 15), SHOTS, ...WAN_EXTRA_PARAMETERS],
-			estimate: true
+			parameters: [WAN27_RESOLUTION, ratio(WAN_RATIOS), duration(2, 15), SHOTS, ...WAN_EXTRA_PARAMETERS]
 		}
 	},
 	{
@@ -413,8 +382,7 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 			providerModels: both(TASKS.wan26Flash.id),
 			prompt: { required: 'withoutMedia', maxLength: 1500 },
 			modes: [{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'required' }), limits: { imageMinSide: 240, imageMaxSide: 8000, imageMaxBytes: 20 * MiB } }],
-			parameters: [WAN27_RESOLUTION, duration(2, 15), SHOTS, SOUND, ...WAN_EXTRA_PARAMETERS],
-			estimate: true
+			parameters: [WAN27_RESOLUTION, duration(2, 15), SHOTS, SOUND, ...WAN_EXTRA_PARAMETERS]
 		}
 	},
 	happyHorse('1.0')
@@ -426,17 +394,14 @@ const PROVIDER: CatalogProvider = {
 	id: 'alibaba',
 	label: LABELS.provider,
 	regions: [
-		{ id: 'cn', label: LABELS.regionCn, baseUrl: 'https://dashscope.aliyuncs.com', currency: 'CNY', console: 'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key' },
-		{ id: 'intl', label: LABELS.regionIntl, baseUrl: 'https://dashscope-intl.aliyuncs.com', currency: 'USD', console: 'https://modelstudio.console.alibabacloud.com/ap-southeast-1/model/settings/api-key' }
+		{ id: 'cn', label: LABELS.regionCn, baseUrl: 'https://dashscope.aliyuncs.com', console: 'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key' },
+		{ id: 'intl', label: LABELS.regionIntl, baseUrl: 'https://dashscope-intl.aliyuncs.com', console: 'https://modelstudio.console.alibabacloud.com/ap-southeast-1/model/settings/api-key' }
 	],
 	credentials: [{ id: 'apiKey', label: LABELS.apiKey, placeholder: 'sk-…' }],
 	models: MODEL_SPECS.map(spec => spec.model)
 };
 
 // --- check -----------------------------------------------------------------------------------------
-
-/** The share of the 5 seconds of input video Wan 2.7 Reference to Video bills, per video, for one to five videos. */
-const WAN27_R2V_INPUT_CAPS: readonly number[] = [5, 2.5, 1.65, 1.25, 1];
 
 const RATE_LIMIT_NOTE = 'Alibaba Cloud takes at most 5 requests a second and runs at most 5 tasks at once for each video model.';
 const REGION_MEDIA_REASON = 'Alibaba Cloud takes videos and audio only as addresses, and the temporary upload BaseHalf sends them through works in China (Beijing) only.';
@@ -556,74 +521,6 @@ function formatProblems(measured: readonly MeasuredItem[]): string[] {
 
 function formatSeconds(value: number): string {
 	return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-// --- estimates -------------------------------------------------------------------------------------
-
-/** The input video seconds of a request, from the files; a video whose length AI Video cannot read counts from the shortest to the longest allowed length. */
-function inputVideoSeconds(measured: readonly MeasuredItem[], shortest: number, longest: number, total = Infinity): readonly [number, number] {
-	let low = 0;
-	let high = 0;
-	for (const item of measured) {
-		if (item.kind === 'video') {
-			low += item.facts.seconds ?? shortest;
-			high += item.facts.seconds ?? longest;
-		}
-	}
-	return [low, Math.max(low, Math.min(high, total))];
-}
-
-/** Wan 2.7 Reference to Video bills each reference video up to its share of 5 seconds. */
-function wan27ReferenceSeconds(measured: readonly MeasuredItem[]): readonly [number, number] {
-	const videos = measured.filter(item => item.kind === 'video');
-	if (videos.length === 0) {
-		return [0, 0];
-	}
-	const cap = WAN27_R2V_INPUT_CAPS[Math.min(videos.length, WAN27_R2V_INPUT_CAPS.length) - 1];
-	let low = 0;
-	let high = 0;
-	for (const video of videos) {
-		low += Math.min(video.facts.seconds ?? 1, cap);
-		high += Math.min(video.facts.seconds ?? cap, cap);
-	}
-	return [low, high];
-}
-
-/** The seconds of video the routed task bills, as a range when something is known only after the run. */
-function billedSeconds(routed: Task, mode: ModeId, params: Params, measured: readonly MeasuredItem[]): readonly [number, number] {
-	const duration = typeof params.duration === 'number' ? params.duration : 0;
-	switch (routed.family) {
-		case 'wan3': {
-			// Input videos and the output are billed; together they are at most 30 seconds.
-			const [low, high] = inputVideoSeconds(measured, 1, 15, 15);
-			if (mode === 'edit' || mode === 'extend' || duration === WAN3_AUTO_DURATION) {
-				return [Math.min(low + WAN3_SHORTEST_OUTPUT, WAN3_LONGEST_SECONDS), WAN3_LONGEST_SECONDS];
-			}
-			return [low + duration, Math.max(low + duration, Math.min(high + duration, WAN3_LONGEST_SECONDS))];
-		}
-		case 'wan27-r2v': {
-			const [low, high] = wan27ReferenceSeconds(measured);
-			return [low + duration, high + duration];
-		}
-		case 'wan27-edit': {
-			// The input video and the output, which keeps the length of the input, are billed.
-			const [low, high] = inputVideoSeconds(measured, 2, 10);
-			return [2 * low, 2 * high];
-		}
-		default:
-			return [duration, duration];
-	}
-}
-
-function estimateFor(routed: Task, request: CheckRequest, measured: readonly MeasuredItem[]): Estimate | undefined {
-	const region = regionOf(request.region);
-	const table = routed.silentPrices && request.params.sound === false ? routed.silentPrices : routed.prices;
-	const price = table[region][request.params.resolution as Resolution];
-	if (price === undefined) {
-		return undefined;
-	}
-	const [low, high] = billedSeconds(routed, request.mode, request.params, measured);
-	return estimateOf(CURRENCIES[region], price * low, price * high, PRICE_DATES[region]);
 }
 
 // --- requests --------------------------------------------------------------------------------------
@@ -924,8 +821,7 @@ export const ALIBABA: ProviderModule = Object.freeze({
 			...taskProblems(spec, routed, request, counts, measured),
 			...formatProblems(measured)
 		];
-		const estimate = estimateFor(routed, request, measured);
-		return { problems, ...(estimate ? { estimate } : {}), providerModel: routed.id };
+		return { problems, providerModel: routed.id };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

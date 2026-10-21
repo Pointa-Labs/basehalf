@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf } from './check.ts';
+import { countsOf } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, isAllowedAddress, type HttpCall, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.ts';
@@ -15,7 +15,6 @@ import type {
 	CatalogProvider,
 	CheckRequest,
 	CheckResult,
-	Estimate,
 	Media,
 	ModeId,
 	ModeInputs,
@@ -123,18 +122,6 @@ const RESOLUTION_CLASSES: Readonly<Record<Resolution, string>> = Object.freeze({
 const RESOLUTIONS = Object.freeze(Object.keys(RESOLUTION_CLASSES)) as readonly Resolution[];
 const RATIOS: readonly string[] = Object.freeze(['21:9', '2:1', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21']);
 
-/**
- * US dollars per second of output video (the rate card, whose published data
- * was last updated on 2026-10-15): text and image to video, continuation, and
- * the edit at every size.
- */
-const RATES = Object.freeze({
-	frames: Object.freeze<Record<Resolution, number>>({ '720p': 0.15, '1080p': 0.24, '2k': 0.28, '4k': 0.41 }),
-	extend: Object.freeze<Record<Resolution, number>>({ '720p': 0.21, '1080p': 0.27, '2k': 0.31, '4k': 0.45 }),
-	edit: 0.03
-});
-const PRICE_DATE = '2026-10-15';
-
 const NONE = Object.freeze({ min: 0, max: 0 });
 const NO_INPUTS = Object.freeze<ModeInputs>({ startFrame: 'none', endFrame: 'none', images: NONE, videos: NONE, audios: NONE, source: 'none' });
 
@@ -181,7 +168,7 @@ const PARAMETERS = Object.freeze<CatalogParameter[]>([
 		min: SHORTEST_SECONDS,
 		max: LONGEST_SECONDS,
 		step: 1,
-		// BFL's own default is Auto; 5 seconds gives an estimate of one price.
+		// BFL's own default is Auto; 5 seconds gives a video of a known length until the user chooses Auto.
 		default: 5,
 		auto: { value: AUTO_DURATION, label: TEXT.auto },
 		modes: GENERATING
@@ -197,14 +184,13 @@ const FLUX_3 = Object.freeze<CatalogModel>({
 	providerModels: { global: 'flux-3-video' },
 	prompt: { required: 'always', maxLength: PROMPT_MAX_LENGTH },
 	modes: MODES,
-	parameters: PARAMETERS,
-	estimate: true
+	parameters: PARAMETERS
 });
 
 const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'bfl',
 	label: TEXT.provider,
-	regions: [{ id: 'global', label: TEXT.region, baseUrl: 'https://api.bfl.ai/v1', currency: 'USD', console: 'https://dashboard.bfl.ai' }],
+	regions: [{ id: 'global', label: TEXT.region, baseUrl: 'https://api.bfl.ai/v1', console: 'https://dashboard.bfl.ai' }],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey, placeholder: 'bfl_…' }],
 	models: [FLUX_3]
 });
@@ -466,7 +452,7 @@ function readBflError(status: number, body: unknown): ProviderErrorReading | und
 	}
 }
 
-// --- checks and estimates -----------------------------------------------------------------------
+// --- checks -------------------------------------------------------------------------------------
 
 /** The rules the declarations cannot express (bfl.md, "Parameters"). */
 function ruleProblems(request: CheckRequest): string[] {
@@ -482,12 +468,11 @@ function ruleProblems(request: CheckRequest): string[] {
 	return problems;
 }
 
-/** A clip that is not an MP4, and a request larger than AI Video sends. Answers the clip's length too. */
-async function fileProblems(route: Route, request: CheckRequest, inputs: PlannedMedia, media: MediaInspector): Promise<{ readonly problems: string[]; readonly clipSeconds?: number }> {
+/** A clip that is not an MP4, and a request larger than AI Video sends. */
+async function fileProblems(route: Route, request: CheckRequest, inputs: PlannedMedia, media: MediaInspector): Promise<string[]> {
 	const problems: string[] = [];
 	const keyframes: string[] = [];
 	let clip: string | undefined;
-	let clipSeconds: number | undefined;
 	let mediaLength = 0;
 	for (const item of plannedItems(inputs)) {
 		const facts = await media.inspect(item.media);
@@ -501,9 +486,6 @@ async function fileProblems(route: Route, request: CheckRequest, inputs: Planned
 		if (facts.format === 'mov') {
 			problems.push(TEXT.notMp4(item.label));
 		}
-		if ((facts.format === 'mp4' || facts.format === 'mov') && facts.seconds !== undefined) {
-			clipSeconds = facts.seconds;
-		}
 	}
 	// The JSON with empty inputs, then the inputs as data URLs.
 	const body = requestBody(route, request.params, request.prompt, clip === undefined ? { keyframes } : { keyframes, clip });
@@ -511,30 +493,7 @@ async function fileProblems(route: Route, request: CheckRequest, inputs: Planned
 	if (size > REQUEST_MAX_BYTES) {
 		problems.push(TEXT.tooLarge(size, REQUEST_MAX_BYTES));
 	}
-	return clipSeconds === undefined ? { problems } : { problems, clipSeconds };
-}
-
-/**
- * The rate of the mode and resolution × the seconds of output video (bfl.md,
- * "Estimate"): the duration, or with Auto its range; for an edit the clip's
- * length, which the output keeps, or the range of clips it takes.
- */
-function estimateFor(mode: ModeId, params: Params, clipSeconds: number | undefined): Estimate | undefined {
-	if (mode === 'edit') {
-		const [shortest, longest] = clipSeconds !== undefined ? [clipSeconds, clipSeconds] : EDIT_CLIP_SECONDS;
-		return estimateOf('USD', RATES.edit * shortest, RATES.edit * longest, PRICE_DATE);
-	}
-	const rates = mode === 'extend' ? RATES.extend : RATES.frames;
-	const resolution = params.resolution;
-	const duration = params.duration;
-	if (typeof resolution !== 'string' || !Object.hasOwn(rates, resolution) || typeof duration !== 'number') {
-		return undefined;
-	}
-	const rate = rates[resolution as Resolution];
-	const [shortest, longest] = duration === AUTO_DURATION
-		? [SHORTEST_SECONDS, mode === 'extend' ? LONGEST_CONTINUATION_SECONDS : LONGEST_SECONDS]
-		: [duration, duration];
-	return estimateOf('USD', rate * shortest, rate * longest, PRICE_DATE);
+	return problems;
 }
 
 // --- the module ---------------------------------------------------------------------------------
@@ -553,10 +512,8 @@ export const BFL: ProviderModule = Object.freeze({
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 		const route = routeOf(request.mode, countsOf(request.inputs).startFrame);
 		const problems = ruleProblems(request);
-		const files = await fileProblems(route, request, request.inputs, media);
-		problems.push(...files.problems);
-		const estimate = estimateFor(request.mode, request.params, files.clipSeconds);
-		return { problems, ...(estimate ? { estimate } : {}), providerModel: route.id };
+		problems.push(...await fileProblems(route, request, request.inputs, media));
+		return { problems, providerModel: route.id };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

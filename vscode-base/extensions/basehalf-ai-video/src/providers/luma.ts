@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Estimate, Media, ModeLimits, Params, PlannedMedia, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Media, ModeLimits, Params, PlannedMedia, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Luma's video model, Ray 3.2, on the Luma Agents API (D59;
@@ -34,7 +34,7 @@ const TEXT = Object.freeze({
 	description: 'Text, or a start and an end frame, to video of 5 or 10 seconds from 360p to 1080p, looping or in HDR when asked; it also edits clips of up to 18 seconds.',
 	modes: Object.freeze({ frames: 'Frames', edit: 'Edit' }),
 	resolution: 'Resolution',
-	resolutionTooltip: '360p is Luma\'s draft tier, for fast, low-cost previews.',
+	resolutionTooltip: '360p is Luma\'s draft tier, for fast previews.',
 	ratio: 'Ratio',
 	adaptive: 'Adaptive',
 	ratioTooltip: 'The shape of the video. Adaptive lets Ray 3.2 choose it from the prompt and the frames.',
@@ -56,7 +56,7 @@ const TEXT = Object.freeze({
 		reimagine_3: 'Reimagine 3'
 	}),
 	hdr: 'HDR',
-	hdrTooltip: 'An HDR-encoded MP4 at 720p or 1080p, at twice the price. In Frames mode an HDR video is 5 seconds long and does not loop.',
+	hdrTooltip: 'An HDR-encoded MP4 at 720p or 1080p. In Frames mode an HDR video is 5 seconds long and does not loop.',
 	// The rules between parameters.
 	hdrResolution: 'Ray 3.2 makes HDR video at 720p or 1080p only.',
 	hdrDuration: 'Ray 3.2 makes HDR video of 5 seconds only.',
@@ -190,62 +190,16 @@ const MODEL: CatalogModel = Object.freeze<CatalogModel>({
 	providerModels: { [REGION]: MODEL_ID },
 	prompt: { required: 'always', maxLength: 6000 },
 	modes: MODES,
-	parameters: PARAMETERS,
-	estimate: true
+	parameters: PARAMETERS
 });
 
 const PROVIDER: CatalogProvider = Object.freeze<CatalogProvider>({
 	id: 'luma',
 	label: TEXT.provider,
-	regions: [{ id: REGION, label: TEXT.region, baseUrl: 'https://agents.lumalabs.ai/v1', currency: 'USD', console: 'https://platform.lumalabs.ai' }],
+	regions: [{ id: REGION, label: TEXT.region, baseUrl: 'https://agents.lumalabs.ai/v1', console: 'https://platform.lumalabs.ai' }],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey, placeholder: 'luma-api-…' }],
 	models: [MODEL]
 });
-
-// --- prices -------------------------------------------------------------------------------------
-
-/** The day the price list was read; the list states no date of its own. */
-const PRICE_DATE = '2026-10-19';
-
-/** Frames, the video-generation tier: the total of a video in US dollars, for 5 and 10 seconds, and for 5 seconds in HDR. */
-const GENERATION_PRICES: Readonly<Record<Resolution, { readonly seconds5: number; readonly seconds10: number; readonly hdr5?: number }>> = Object.freeze({
-	'360p': { seconds5: 0.06, seconds10: 0.18 },
-	'540p': { seconds5: 0.15, seconds10: 0.45 },
-	'720p': { seconds5: 0.3, seconds10: 0.9, hdr5: 0.6 },
-	'1080p': { seconds5: 1.2, seconds10: 3.6, hdr5: 2.4 }
-});
-
-/** Edit, the video-edit tier: the totals for 10 seconds, standard and HDR. Those for 5 seconds are half: one rate per second. */
-const EDIT_PRICES_10S: Readonly<Record<Resolution, { readonly standard: number; readonly hdr: number }>> = Object.freeze({
-	'360p': { standard: 1.08, hdr: 2.16 },
-	'540p': { standard: 1.44, hdr: 2.88 },
-	'720p': { standard: 2.16, hdr: 4.32 },
-	'1080p': { standard: 4.32, hdr: 8.64 }
-});
-
-/** The seconds an edit may be billed, at least one 5-second block: Luma lists edit totals for 5 and 10 seconds only. */
-function billedBlockSeconds(seconds: number): number {
-	return Math.max(1, Math.ceil((seconds - 0.05) / 5)) * 5;
-}
-
-function estimateFor(request: CheckRequest, measured: readonly MeasuredItem[]): Estimate | undefined {
-	const resolution = RESOLUTIONS.find(entry => entry === request.params.resolution);
-	if (!resolution) {
-		return undefined;
-	}
-	const hdr = request.params.hdr === true;
-	if (request.mode === 'frames') {
-		const row = GENERATION_PRICES[resolution];
-		const duration = request.params.duration;
-		const amount = hdr ? (duration === 5 ? row.hdr5 : undefined) : duration === 5 ? row.seconds5 : duration === 10 ? row.seconds10 : undefined;
-		return amount === undefined ? undefined : estimateOf('USD', amount, amount, PRICE_DATE);
-	}
-	// The edited video keeps the clip's length; when its length cannot be read, the clip is any length Luma takes.
-	const perSecond = (hdr ? EDIT_PRICES_10S[resolution].hdr : EDIT_PRICES_10S[resolution].standard) / 10;
-	const clip = measured.find(item => item.slot === 'source')?.facts.seconds;
-	const [shortest, longest] = clip !== undefined ? [clip, clip] : CLIP_SECONDS;
-	return estimateOf('USD', shortest * perSecond, Math.max(longest, billedBlockSeconds(longest)) * perSecond, PRICE_DATE);
-}
 
 // --- checks ---------------------------------------------------------------------------------------
 
@@ -637,8 +591,7 @@ export const LUMA: ProviderModule = Object.freeze({
 		const problems = ruleProblems(request, countsOf(request.inputs));
 		const measured = await measureItems(request.inputs, media);
 		problems.push(...fileProblems(request, request.inputs, measured));
-		const estimate = estimateFor(request, measured);
-		return estimate ? { problems, estimate } : { problems };
+		return { problems };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

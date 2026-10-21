@@ -16,7 +16,6 @@ import {
 	BaseHalfVideoModeId,
 	BaseHalfVideoParams,
 	BaseHalfVideoParamValue,
-	baseHalfVideoEstimateTooltip,
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoListedModels,
 	baseHalfVideoModelAbilities,
@@ -33,7 +32,6 @@ import {
 	buildBaseHalfVideoPrompt,
 	findBaseHalfVideoLabelTokens,
 	findBaseHalfVideoModel,
-	formatBaseHalfVideoEstimate,
 	formatBaseHalfVideoNumber,
 	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalogMode,
@@ -246,12 +244,6 @@ export interface IBaseHalfVideoPanelSettingsView {
 	readonly advanced: readonly BaseHalfVideoPanelControl[];
 }
 
-export interface IBaseHalfVideoPanelEstimate {
-	/** `≈ ¥7.56`, or `¥3.00–¥9.00`. */
-	readonly text: string;
-	readonly tooltip: string;
-}
-
 /** Why Generate cannot run, above the footer; with the action that fixes it, when one does. */
 export interface IBaseHalfVideoPanelReason {
 	readonly text: string;
@@ -285,16 +277,15 @@ export interface IBaseHalfVideoPanelPresentation {
 	readonly modelMenu: IBaseHalfVideoPanelModelMenu;
 	/** Absent until the catalog has the node's model. */
 	readonly settingsView?: IBaseHalfVideoPanelSettingsView;
-	readonly estimate?: IBaseHalfVideoPanelEstimate;
 	readonly generate: IBaseHalfVideoPanelGenerateButton;
 	readonly blocker?: BaseHalfVideoGenerateBlocker;
 	readonly blockerText?: string;
 	/** Why Generate cannot run, when the panel shows it as a line (video node specification, "The panel"). */
 	readonly reason?: IBaseHalfVideoPanelReason;
 	/**
-	 * What the panel asks `check` for the estimate and the problems, without the
-	 * inputs, which the panel adds with their files: absent while the region
-	 * does not offer the model.
+	 * What the panel asks `check` for the problems, without the inputs, which
+	 * the panel adds with their files: absent while the region does not offer
+	 * the model.
 	 */
 	readonly checkRequest?: Omit<IBaseHalfVideoCheckRequest, 'inputs'>;
 }
@@ -335,9 +326,6 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const modeLabel = mode?.label ?? localize('basehalf.video.panel.thisMode', "this mode");
 	const items = plan.map((item, index) => inputItem(item, index, modeInputs, modelLabel, modeLabel));
 	const row = inputRow(modeId, modeInputs, items);
-	const estimate = checkRequest && state.check?.estimate && ref
-		? Object.freeze({ text: formatBaseHalfVideoEstimate(state.check.estimate), tooltip: baseHalfVideoEstimateTooltip(state.check.estimate, ref.provider.label) })
-		: undefined;
 	return Object.freeze({
 		...(ref ? { ref } : {}),
 		...(mode ? { mode } : {}),
@@ -351,7 +339,6 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 		model: modelButton(state, ref, region, blocker, blockerText),
 		modelMenu: modelMenu(state),
 		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region) } : {}),
-		...(estimate ? { estimate } : {}),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
 		...(blocker && blockerText ? reasonOf(blocker, blockerText, ref?.provider.id) : {}),

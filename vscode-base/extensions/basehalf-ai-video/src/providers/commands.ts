@@ -171,7 +171,7 @@ export class VideoProviderCommands {
 		);
 	}
 
-	/** The checks of the declarations, then the module's own, with the estimate when the parameters are valid. */
+	/** The checks of the declarations, then the module's own, with the id the request would be sent with. */
 	private async runCheck(resolved: Resolved, request: CheckRequest, inspector: MediaInspector): Promise<CheckResult> {
 		const { model, region, provider } = resolved;
 		const mode = model.modes.find(entry => entry.id === request.mode);
@@ -197,10 +197,8 @@ export class VideoProviderCommands {
 		problems.push(...checkLimits(mode, await measureItems(request.inputs, inspector)));
 		const own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params, counts) }, inspector);
 		const all = [...problems, ...own.problems];
-		// Only a model declared with an estimate answers one, in its region's currency.
-		const estimate = model.estimate && own.estimate && own.estimate.currency === region.currency ? { estimate: own.estimate } : {};
 		const providerModel = typeof own.providerModel === 'string' && /^\S{1,256}$/.test(own.providerModel) ? { providerModel: own.providerModel } : {};
-		return { problems: all, ...estimate, ...providerModel };
+		return { problems: all, ...providerModel };
 	}
 }
 

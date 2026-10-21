@@ -47,7 +47,7 @@ test('catalog answers the validated catalog of the modules', () => {
 	assert.throws(() => new VideoProviderCommands([testModule({ describe: () => ({ ...testModule().describe(), regions: [] }) })]), /at least one region is needed/);
 });
 
-test('check runs the declarations\' checks, then the module\'s rules and estimate', async () => {
+test('check runs the declarations\' checks, then the module\'s rules', async () => {
 	const providers = commands();
 	const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', prompt: '', inputs: NO_INPUTS };
 	const empty = value(await providers.check({ ...base, params: {} }));
@@ -57,15 +57,12 @@ test('check runs the declarations\' checks, then the module\'s rules and estimat
 	const notOffered = value(await providers.check({ ...base, model: 'clip-away', region: 'home', prompt: 'p', params: {} }));
 	const withFiles = value(await providers.check({ ...base, prompt: 'p', params: {}, inputs: { startFrame: { fsPath: smallFrame, mimeType: 'image/png' }, ...NO_INPUTS } }));
 	assert.deepEqual({ empty, rule, badValue, away, notOffered, withFiles }, {
-		empty: { problems: ['Write a prompt or connect an image: Clip 1 needs one or the other.'], estimate: { currency: 'USD', min: 1, max: 1, priceDate: '2026-10-18' } },
-		rule: { problems: ['720p allows 10 seconds at most.'], estimate: { currency: 'USD', min: 1, max: 1, priceDate: '2026-10-18' } },
+		empty: { problems: ['Write a prompt or connect an image: Clip 1 needs one or the other.'] },
+		rule: { problems: ['720p allows 10 seconds at most.'] },
 		badValue: { problems: ['Resolution cannot be 4k for Clip 1; choose 480p, 720p.'] },
 		away: { problems: ['Test Provider does not offer Clip Away in Home.'] },
 		notOffered: { problems: ['Test Provider does not offer Clip Away in Home.'] },
-		withFiles: {
-			problems: ['The start frame small.png is 100 × 100 px; each side must be between 300 and 6000 px.'],
-			estimate: { currency: 'USD', min: 1, max: 1, priceDate: '2026-10-18' }
-		}
+		withFiles: { problems: ['The start frame small.png is 100 × 100 px; each side must be between 300 and 6000 px.'] }
 	});
 	const awayRegion = value(await providers.check({ ...base, region: 'away', model: 'clip-away', prompt: 'p', params: {} }));
 	assert.deepEqual(awayRegion, { problems: [] });

@@ -21,7 +21,7 @@ import { ALIBABA } from '../src/providers/alibaba.ts';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/providers/commands.ts';
 import { describeBytes, type MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { Estimate, Media } from '../src/providers/types.ts';
+import type { Media } from '../src/providers/types.ts';
 import { error, gifHeader, isoMedia, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav, type Received, type TestServer } from './providerTestKit.ts';
 
 const KEY = 'sk-alibaba-local-test-1';
@@ -189,13 +189,13 @@ test('the provider is shipped with two regions, one key, and one model per versi
 	assert.deepEqual({
 		id: provider.id,
 		label: provider.label,
-		regions: provider.regions.map(region => [region.id, region.baseUrl, region.currency]),
+		regions: provider.regions.map(region => [region.id, region.baseUrl]),
 		credentials: provider.credentials.map(credential => credential.id),
 		models: provider.models.map(model => [model.id, model.label, `${model.providerModels.cn} ${model.providerModels.intl}`, model.modes.map(mode => mode.id).join('+'), model.prompt.required])
 	}, {
 		id: 'alibaba',
 		label: 'Alibaba (Wan)',
-		regions: [['cn', 'https://dashscope.aliyuncs.com', 'CNY'], ['intl', 'https://dashscope-intl.aliyuncs.com', 'USD']],
+		regions: [['cn', 'https://dashscope.aliyuncs.com'], ['intl', 'https://dashscope-intl.aliyuncs.com']],
 		credentials: ['apiKey'],
 		models: [
 			['wan3.0', 'Wan 3.0', 'wan3.0-video wan3.0-video', 'frames+reference+edit+extend', 'withoutMedia'],
@@ -846,79 +846,74 @@ test('a submit that check refuses sends nothing, also outside China', async () =
 	}
 });
 
-// --- estimates ----------------------------------------------------------------------------------------------
-
-test('estimates follow the price list of the routed task in each region: three combinations each, and ranges where the length is known only later', async () => {
+test('check answers the routed task in each region, also with input videos, and refuses a video whose length cannot be read', async () => {
 	const providers = commands();
-	// A video whose length cannot be read is refused, and its estimate spans the lengths the mode allows.
-	const estimate = async (request: ReturnType<typeof checkRequest>, problems: readonly string[] = []): Promise<[Estimate | undefined, string | undefined]> => {
+	// A video whose length cannot be read is refused.
+	const routed = async (request: ReturnType<typeof checkRequest>, problems: readonly string[] = []): Promise<string | undefined> => {
 		const result = value(await providers.check(request));
 		assert.deepEqual(result.problems, problems);
-		return [result.estimate, result.providerModel];
+		return result.providerModel;
 	};
-	const cny = (min: number, max = min): Estimate => ({ currency: 'CNY', min, max, priceDate: '2026-10-18' });
-	const usd = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: '2026-10-15' });
 	const results = {
-		// China (CNY, price list of 2026-10-18).
-		// Wan 3.0 at 1080P, 10 seconds, no input video: 1.2 × 10 = 12.
-		cnWan3: await estimate(checkRequest('wan3.0', 'frames', { duration: 10 }, 'p', plannedFiles())),
-		// Wan 2.6 Flash at 720P without sound, 5 seconds: 0.15 × 5 = 0.75.
-		cnFlashSilent: await estimate(checkRequest('wan2.6-flash', 'frames', { resolution: '720p', sound: false }, '', plannedFiles({ startFrame: true }))),
-		// HappyHorse 1.1 text to video at 480P, 15 seconds: 0.45 × 15 = 6.75.
-		cnHappyHorseText: await estimate(checkRequest('happyhorse-1.1', 'frames', { resolution: '480p', duration: 15 }, 'p', plannedFiles())),
-		// International (USD, price list of 2026-10-15).
-		// Wan 3.0 Prime at 720P, 8 seconds: 0.14 × 8 = 1.12.
-		intlPrime: await estimate(checkRequest('wan3.0-prime', 'frames', { resolution: '720p', duration: 8 }, 'p', plannedFiles(), 'intl')),
-		// Wan 2.7 text to video at 1080P, 15 seconds: 0.15 × 15 = 2.25.
-		intlWan27Text: await estimate(checkRequest('wan2.7', 'frames', { duration: 15 }, 'p', plannedFiles(), 'intl')),
-		// HappyHorse 1.0 reference to video at 1080P, 4 seconds: 0.24 × 4 = 0.96.
-		intlHappyHorseReferences: await estimate(checkRequest('happyhorse-1.0', 'reference', { duration: 4 }, 'p', plannedFiles({ images: 2 }), 'intl')),
+		// China.
+		// Wan 3.0 at 1080P, 10 seconds, no input video.
+		cnWan3: await routed(checkRequest('wan3.0', 'frames', { duration: 10 }, 'p', plannedFiles())),
+		// Wan 2.6 Flash at 720P without sound, 5 seconds.
+		cnFlashSilent: await routed(checkRequest('wan2.6-flash', 'frames', { resolution: '720p', sound: false }, '', plannedFiles({ startFrame: true }))),
+		// HappyHorse 1.1 text to video at 480P, 15 seconds.
+		cnHappyHorseText: await routed(checkRequest('happyhorse-1.1', 'frames', { resolution: '480p', duration: 15 }, 'p', plannedFiles())),
+		// International.
+		// Wan 3.0 Prime at 720P, 8 seconds.
+		intlPrime: await routed(checkRequest('wan3.0-prime', 'frames', { resolution: '720p', duration: 8 }, 'p', plannedFiles(), 'intl')),
+		// Wan 2.7 text to video at 1080P, 15 seconds.
+		intlWan27Text: await routed(checkRequest('wan2.7', 'frames', { duration: 15 }, 'p', plannedFiles(), 'intl')),
+		// HappyHorse 1.0 reference to video at 1080P, 4 seconds.
+		intlHappyHorseReferences: await routed(checkRequest('happyhorse-1.0', 'reference', { duration: 4 }, 'p', plannedFiles({ images: 2 }), 'intl')),
 		// Routed tasks.
-		// Wan 2.6 text to video at 720P and 16:9 (1280×720), 5 seconds: 0.10 × 5 = 0.5.
-		intlWan26Text: await estimate(checkRequest('wan2.6', 'frames', { resolution: '720p' }, 'p', plannedFiles(), 'intl')),
-		// Wan 2.6 image to video at 1080P, 5 seconds: 0.15 × 5 = 0.75.
-		intlWan26Frame: await estimate(checkRequest('wan2.6', 'frames', {}, '', plannedFiles({ startFrame: true }), 'intl')),
-		// HappyHorse 1.1 image to video at 720P, 5 seconds: 0.9 × 5 = 4.5.
-		cnHappyHorseFrame: await estimate(checkRequest('happyhorse-1.1', 'frames', { resolution: '720p' }, '', plannedFiles({ startFrame: true }))),
-		// Wan 3.0 with Auto and no input video: 2 to 30 seconds at 0.20 = 0.4 to 6.
-		intlWan3Auto: await estimate(checkRequest('wan3.0', 'frames', { duration: -1 }, 'p', plannedFiles(), 'intl')),
-		// Wan 3.0 References with a measured 4-second video at 720P, 6 seconds: (4 + 6) × 0.6 = 6.
-		cnWan3Video: await estimate(checkRequest('wan3.0', 'reference', { resolution: '720p', duration: 6 }, 'p', { videos: [video(CLIP)] })),
-		// The same with a video whose length cannot be read: 1 to 15 seconds, (1 + 6) × 0.6 = 4.2 to (15 + 6) × 0.6 = 12.6.
-		cnWan3Unreadable: await estimate(checkRequest('wan3.0', 'reference', { resolution: '720p', duration: 6 }, 'p', { videos: [video(UNREADABLE)] }), [
+		// Wan 2.6 text to video at 720P and 16:9 (1280×720), 5 seconds.
+		intlWan26Text: await routed(checkRequest('wan2.6', 'frames', { resolution: '720p' }, 'p', plannedFiles(), 'intl')),
+		// Wan 2.6 image to video at 1080P, 5 seconds.
+		intlWan26Frame: await routed(checkRequest('wan2.6', 'frames', {}, '', plannedFiles({ startFrame: true }), 'intl')),
+		// HappyHorse 1.1 image to video at 720P, 5 seconds.
+		cnHappyHorseFrame: await routed(checkRequest('happyhorse-1.1', 'frames', { resolution: '720p' }, '', plannedFiles({ startFrame: true }))),
+		// Wan 3.0 with Auto and no input video.
+		intlWan3Auto: await routed(checkRequest('wan3.0', 'frames', { duration: -1 }, 'p', plannedFiles(), 'intl')),
+		// Wan 3.0 References with a measured 4-second video at 720P, 6 seconds.
+		cnWan3Video: await routed(checkRequest('wan3.0', 'reference', { resolution: '720p', duration: 6 }, 'p', { videos: [video(CLIP)] })),
+		// The same with a video whose length cannot be read.
+		cnWan3Unreadable: await routed(checkRequest('wan3.0', 'reference', { resolution: '720p', duration: 6 }, 'p', { videos: [video(UNREADABLE)] }), [
 			'Reference video 1 unreadable.mp4 is not a video whose length AI Video can read (MP4 or MOV).'
 		]),
-		// Wan 3.0 Edit with a 4-second video at 1080P: the output length is Auto, (4 + 2) × 1.2 = 7.2 to 30 × 1.2 = 36.
-		cnWan3Edit: await estimate(checkRequest('wan3.0', 'edit', {}, 'p', { source: video(CLIP) })),
-		// Wan 2.7 References, two 4-second videos at 1080P, 6 seconds: each billed up to 2.5 seconds,
-		// (2.5 + 2.5 + 6) × 1 = 11.
-		cnWan27References: await estimate(checkRequest('wan2.7', 'reference', { duration: 6 }, 'p', { videos: [video(CLIP), video(CLIP)] })),
-		// Wan 2.7 Edit of a 4-second video at 720P, which keeps its length: (4 + 4) × 0.6 = 4.8.
-		cnWan27Edit: await estimate(checkRequest('wan2.7', 'edit', { resolution: '720p' }, 'p', { source: video(CLIP) })),
-		// A video whose length cannot be read, 2 to 10 seconds: (2 + 2) × 0.6 = 2.4 to (10 + 10) × 0.6 = 12.
-		cnWan27EditUnreadable: await estimate(checkRequest('wan2.7', 'edit', { resolution: '720p' }, 'p', { source: video(UNREADABLE) }), [
+		// Wan 3.0 Edit with a 4-second video at 1080P: the output length is Auto.
+		cnWan3Edit: await routed(checkRequest('wan3.0', 'edit', {}, 'p', { source: video(CLIP) })),
+		// Wan 2.7 References, two 4-second videos at 1080P, 6 seconds.
+		cnWan27References: await routed(checkRequest('wan2.7', 'reference', { duration: 6 }, 'p', { videos: [video(CLIP), video(CLIP)] })),
+		// Wan 2.7 Edit of a 4-second video at 720P, which keeps its length.
+		cnWan27Edit: await routed(checkRequest('wan2.7', 'edit', { resolution: '720p' }, 'p', { source: video(CLIP) })),
+		// A video whose length cannot be read.
+		cnWan27EditUnreadable: await routed(checkRequest('wan2.7', 'edit', { resolution: '720p' }, 'p', { source: video(UNREADABLE) }), [
 			'The source video unreadable.mp4 is not a video whose length AI Video can read (MP4 or MOV).'
 		]),
-		// Wan 2.7 Extend bills the whole result: 9 seconds at 1080P, 1 × 9 = 9.
-		cnWan27Extend: await estimate(checkRequest('wan2.7', 'extend', { duration: 9 }, 'p', { source: video(CLIP) }))
+		// Wan 2.7 Extend, 9 seconds at 1080P.
+		cnWan27Extend: await routed(checkRequest('wan2.7', 'extend', { duration: 9 }, 'p', { source: video(CLIP) }))
 	};
 	assert.deepEqual(results, {
-		cnWan3: [cny(12), 'wan3.0-video'],
-		cnFlashSilent: [cny(0.75), 'wan2.6-i2v-flash'],
-		cnHappyHorseText: [cny(6.75), 'happyhorse-1.1-t2v'],
-		intlPrime: [usd(1.12), 'wan3.0-video-prime'],
-		intlWan27Text: [usd(2.25), 'wan2.7-t2v'],
-		intlHappyHorseReferences: [usd(0.96), 'happyhorse-1.0-r2v'],
-		intlWan26Text: [usd(0.5), 'wan2.6-t2v'],
-		intlWan26Frame: [usd(0.75), 'wan2.6-i2v'],
-		cnHappyHorseFrame: [cny(4.5), 'happyhorse-1.1-i2v'],
-		intlWan3Auto: [usd(0.4, 6), 'wan3.0-video'],
-		cnWan3Video: [cny(6), 'wan3.0-video'],
-		cnWan3Unreadable: [cny(4.2, 12.6), 'wan3.0-video'],
-		cnWan3Edit: [cny(7.2, 36), 'wan3.0-video'],
-		cnWan27References: [cny(11), 'wan2.7-r2v'],
-		cnWan27Edit: [cny(4.8), 'wan2.7-videoedit'],
-		cnWan27EditUnreadable: [cny(2.4, 12), 'wan2.7-videoedit'],
-		cnWan27Extend: [cny(9), 'wan2.7-i2v']
+		cnWan3: 'wan3.0-video',
+		cnFlashSilent: 'wan2.6-i2v-flash',
+		cnHappyHorseText: 'happyhorse-1.1-t2v',
+		intlPrime: 'wan3.0-video-prime',
+		intlWan27Text: 'wan2.7-t2v',
+		intlHappyHorseReferences: 'happyhorse-1.0-r2v',
+		intlWan26Text: 'wan2.6-t2v',
+		intlWan26Frame: 'wan2.6-i2v',
+		cnHappyHorseFrame: 'happyhorse-1.1-i2v',
+		intlWan3Auto: 'wan3.0-video',
+		cnWan3Video: 'wan3.0-video',
+		cnWan3Unreadable: 'wan3.0-video',
+		cnWan3Edit: 'wan3.0-video',
+		cnWan27References: 'wan2.7-r2v',
+		cnWan27Edit: 'wan2.7-videoedit',
+		cnWan27EditUnreadable: 'wan2.7-videoedit',
+		cnWan27Extend: 'wan2.7-i2v'
 	});
 });

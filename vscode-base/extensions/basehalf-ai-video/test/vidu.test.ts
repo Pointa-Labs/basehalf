@@ -111,8 +111,8 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 		id: 'vidu',
 		label: 'Vidu',
 		regions: [
-			{ id: 'cn', label: 'China', baseUrl: 'https://api.vidu.cn', currency: 'CNY', console: 'https://platform.vidu.cn' },
-			{ id: 'intl', label: 'International', baseUrl: 'https://api.vidu.com', currency: 'USD', console: 'https://platform.vidu.com' }
+			{ id: 'cn', label: 'China', baseUrl: 'https://api.vidu.cn', console: 'https://platform.vidu.cn' },
+			{ id: 'intl', label: 'International', baseUrl: 'https://api.vidu.com', console: 'https://platform.vidu.com' }
 		],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
@@ -122,8 +122,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 		providerModels: model.providerModels,
 		prompt: model.prompt,
 		modes: model.modes.map(mode => ({ id: mode.id, inputs: mode.inputs, limits: mode.limits })),
-		parameters: model.parameters.map(describeParameter),
-		estimate: model.estimate
+		parameters: model.parameters.map(describeParameter)
 	}));
 	const both = (id: string) => ({ cn: id, intl: id });
 	assert.deepEqual(models, [
@@ -133,8 +132,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3-pro'),
 			prompt: { required: 'withoutMedia', maxLength: 20000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'optional', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `ratio[frames]: ${RATIOS} = 16:9`, 'sound = true', SEED],
-			estimate: true
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `ratio[frames]: ${RATIOS} = 16:9`, 'sound = true', SEED]
 		},
 		{
 			id: 'q3-turbo',
@@ -142,8 +140,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3-turbo'),
 			prompt: { required: 'withoutMedia', maxLength: 20000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'optional', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `ratio[frames]: ${RATIOS} = 16:9`, 'sound = true', SEED],
-			estimate: true
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `ratio[frames]: ${RATIOS} = 16:9`, 'sound = true', SEED]
 		},
 		{
 			id: 'q3-pro-fast',
@@ -151,8 +148,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3-pro-fast'),
 			prompt: { required: 'withoutMedia', maxLength: 20000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'required', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 720p|1080p = 720p', 'duration: 1-16 = 5', 'sound = true', SEED],
-			estimate: true
+			parameters: ['resolution: 720p|1080p = 720p', 'duration: 1-16 = 5', 'sound = true', SEED]
 		},
 		{
 			id: 'q4-preview',
@@ -167,8 +163,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 					limits: { imageMaxBytes: 50 * MIB, audioSeconds: [3, 12], audioMaxBytes: 50 * MIB }
 				}
 			],
-			parameters: ['resolution: 540p|720p|1080p|2k|4k = 720p', 'duration: 3-16 = 5', `ratio[reference]: ${RATIOS} = 16:9`, 'sound = true', 'prompt_extend[frames] = false', SEED],
-			estimate: true
+			parameters: ['resolution: 540p|720p|1080p|2k|4k = 720p', 'duration: 3-16 = 5', `ratio[reference]: ${RATIOS} = 16:9`, 'sound = true', 'prompt_extend[frames] = false', SEED]
 		},
 		{
 			id: 'q3',
@@ -176,8 +171,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3'),
 			prompt: { required: 'always', maxLength: 20000 },
 			modes: [{ id: 'reference', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 1, max: 7 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: REFERENCE_IMAGE_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-16 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, 'sound = true', SEED],
-			estimate: true
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-16 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, 'sound = true', SEED]
 		},
 		{
 			id: 'q3-mix',
@@ -189,8 +183,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 				inputs: { startFrame: 'none', endFrame: 'none', images: { min: 1, max: 7 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 3 }, source: 'none' },
 				limits: { ...REFERENCE_IMAGE_LIMITS, audioSeconds: [3, 12], audioMaxBytes: 20 * MIB }
 			}],
-			parameters: ['resolution: 720p|1080p = 720p', 'duration: 3-15 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, SEED],
-			estimate: true
+			parameters: ['resolution: 720p|1080p = 720p', 'duration: 3-15 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, SEED]
 		},
 		{
 			id: 'q3-turbo-reference',
@@ -198,8 +191,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: { cn: 'viduq3-turbo' },
 			prompt: { required: 'always', maxLength: 5000 },
 			modes: [{ id: 'reference', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 1, max: 7 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: REFERENCE_IMAGE_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-15 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, SEED],
-			estimate: true
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-15 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, SEED]
 		},
 		{
 			id: 'q2-pro',
@@ -207,8 +199,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq2-pro'),
 			prompt: { required: 'withoutMedia', maxLength: 5000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'required', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'sound = false', SEED],
-			estimate: true
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'sound = false', SEED]
 		},
 		{
 			id: 'q2-turbo',
@@ -216,8 +207,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq2-turbo'),
 			prompt: { required: 'withoutMedia', maxLength: 5000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'required', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'sound = false', SEED],
-			estimate: true
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'sound = false', SEED]
 		}
 	]);
 	// The names and values every provider shares, with the labels Vidu writes.
@@ -659,63 +649,4 @@ test('check adds Vidu\'s own rules to the declarations\' checks, and submit then
 	} finally {
 		await server.close();
 	}
-});
-
-test('estimates follow Vidu\'s price list of 2026-10-19, three combinations in each region', async () => {
-	const providers = commands();
-	const estimate = async (overrides: Record<string, unknown>) => value(await providers.check(planned(overrides))).estimate;
-	const cny = (amount: number) => ({ currency: 'CNY', min: amount, max: amount, priceDate: '2026-10-19' });
-	const usd = (amount: number) => ({ currency: 'USD', min: amount, max: amount, priceDate: '2026-10-19' });
-	const results = {
-		china: [
-			// 20 credits a second at 720p for 5 seconds: 100 credits of ¥0.03125.
-			await estimate({ params: { resolution: '720p', duration: 5 } }),
-			// 78 credits a second at 4K for 16 seconds: 1,248 credits.
-			await estimate({ model: 'q4-preview', mode: 'reference', params: { resolution: '4k', duration: 16 }, inputs: plannedFiles({ images: 2 }) }),
-			// 40 credits for 5 seconds at 720p, and 15 for sound: 55 credits.
-			await estimate({ model: 'q2-turbo', params: { resolution: '720p', duration: 5, sound: true }, inputs: plannedFiles({ startFrame: true }) })
-		],
-		international: [
-			// 13 credits a second at 1080p for 10 seconds: 130 credits of $0.005.
-			await estimate({ region: 'intl', model: 'q3-turbo', params: { resolution: '1080p', duration: 10 } }),
-			// 29 credits a second at 1080p for 15 seconds: 435 credits.
-			await estimate({ region: 'intl', model: 'q3-mix', mode: 'reference', params: { resolution: '1080p', duration: 15 }, inputs: plannedFiles({ images: 1 }) }),
-			// 8 credits for 1 second at 540p, from start and end frames: no sound.
-			await estimate({ region: 'intl', model: 'q2-pro', params: { resolution: '540p', duration: 1 }, inputs: plannedFiles({ startFrame: true, endFrame: true }) })
-		],
-		// 24 credits a second for 5 seconds, and up to 10 more for Expand Prompt.
-		expandPrompt: await estimate({ model: 'q4-preview', params: { resolution: '1080p', duration: 5, prompt_extend: true }, inputs: plannedFiles({ startFrame: true }) }),
-		proFastFromStartFrame: await estimate({ region: 'intl', model: 'q3-pro-fast', params: { resolution: '1080p', duration: 16 }, inputs: plannedFiles({ startFrame: true }) }),
-		proFastWithEndFrame: await estimate({ model: 'q3-pro-fast', inputs: plannedFiles({ startFrame: true, endFrame: true }) }),
-		turboReferences: await estimate({ model: 'q3-turbo-reference', mode: 'reference', params: { resolution: '540p', duration: 15 }, inputs: plannedFiles({ images: 7 }) })
-	};
-	assert.deepEqual(results, {
-		china: [cny(3.125), cny(39), cny(1.71875)],
-		international: [usd(0.65), usd(2.175), usd(0.04)],
-		expandPrompt: { currency: 'CNY', min: 3.75, max: 4.0625, priceDate: '2026-10-19' },
-		proFastFromStartFrame: usd(1.2),
-		proFastWithEndFrame: undefined,
-		turboReferences: cny(1.875)
-	});
-});
-
-test('Q2 estimates match the platform\'s price table for every length and resolution', async () => {
-	const providers = commands();
-	// Credits of 1 to 10 seconds from a start frame, as the platform's pricing page lists them.
-	const table: Record<string, Record<string, number[]>> = {
-		'q2-turbo': { '540p': [6, 8, 10, 12, 14, 16, 18, 20, 22, 24], '720p': [8, 10, 20, 30, 40, 50, 60, 70, 80, 90], '1080p': [35, 45, 55, 65, 75, 85, 95, 105, 115, 125] },
-		'q2-pro': { '540p': [8, 10, 15, 20, 25, 30, 35, 40, 45, 50], '720p': [15, 25, 35, 45, 55, 65, 75, 85, 95, 105], '1080p': [55, 70, 85, 100, 115, 130, 145, 160, 175, 190] }
-	};
-	const computed: Record<string, Record<string, number[]>> = {};
-	for (const [model, resolutions] of Object.entries(table)) {
-		computed[model] = {};
-		for (const resolution of Object.keys(resolutions)) {
-			computed[model][resolution] = [];
-			for (let duration = 1; duration <= 10; duration++) {
-				const answered = value(await providers.check(planned({ model, params: { resolution, duration }, inputs: plannedFiles({ startFrame: true }) })));
-				computed[model][resolution].push(Math.round((answered.estimate?.min ?? Number.NaN) / 0.03125));
-			}
-		}
-	}
-	assert.deepEqual(computed, table);
 });

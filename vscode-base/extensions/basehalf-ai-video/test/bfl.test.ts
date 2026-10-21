@@ -19,7 +19,6 @@ import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/
 import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpAnswer, type HttpCall, type ProviderHttp } from '../src/providers/http.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { Estimate } from '../src/providers/types.ts';
 import { error, gifHeader, isoMedia, jpegHeader, png, recordingSleep, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-bfl-'));
@@ -41,16 +40,12 @@ const END = file('end.jpg', jpegHeader(1280, 720), 'image/jpeg');
 const WEBP = file('frame.webp', webpHeader('VP8X', 640, 360), 'image/webp');
 const GIF = file('moving.gif', gifHeader(640, 360), 'image/gif');
 const CLIP = file('clip.mp4', isoMedia(7.5), 'video/mp4');
-const TEN_SECONDS = file('ten.mp4', isoMedia(10), 'video/mp4');
 const LONG_CLIP = file('long.mp4', isoMedia(16), 'video/mp4');
 const SHORT_CLIP = file('short.mp4', isoMedia(0.5), 'video/mp4');
 const MOV = file('clip.mov', isoMedia(4, { brand: 'qt  ' }), 'video/quicktime');
-/** An MP4 whose length AI Video cannot read. */
-const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 
 const KEY = 'bfl_localTestKey0001';
 const PROMPT = 'A paper boat drifts down a rainy street; rain patters on the water.';
-const PRICE_DATE = '2026-10-15';
 const MiB = 1024 * 1024;
 
 function dataUrl(media: FileMedia, type: string): string {
@@ -115,16 +110,15 @@ test('the catalog declares Black Forest Labs with one region and one key, and FL
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'bfl',
 		label: 'Black Forest Labs',
-		regions: [{ id: 'global', label: 'Global', baseUrl: 'https://api.bfl.ai/v1', currency: 'USD', console: 'https://dashboard.bfl.ai' }],
+		regions: [{ id: 'global', label: 'Global', baseUrl: 'https://api.bfl.ai/v1', console: 'https://dashboard.bfl.ai' }],
 		credentials: [{ id: 'apiKey', label: 'API Key', placeholder: 'bfl_…' }]
 	});
 	assert.deepEqual(provider.models.map(model => model.id), ['flux-3']);
 	const model = provider.models[0];
-	assert.deepEqual({ label: model.label, providerModels: model.providerModels, prompt: model.prompt, estimate: model.estimate, deprecated: model.deprecated }, {
+	assert.deepEqual({ label: model.label, providerModels: model.providerModels, prompt: model.prompt, deprecated: model.deprecated }, {
 		label: 'FLUX 3',
 		providerModels: { global: 'flux-3-video' },
 		prompt: { required: 'always', maxLength: 20000 },
-		estimate: true,
 		deprecated: undefined
 	});
 	assert.ok(model.description && model.description.length > 0);
@@ -675,54 +669,4 @@ test('check refuses a MOV clip, clips outside their lengths, another image forma
 	} finally {
 		await server.close();
 	}
-});
-
-// --- estimates ----------------------------------------------------------------------------------
-
-test('estimates follow the rate card: one amount for a duration, a range for Auto, and the clip\'s length for an edit', async () => {
-	const providers = commands();
-	const estimate = async (mode: Mode, params: Record<string, unknown>, inputs: Inputs) =>
-		value(await providers.check(checkRequest(mode, params, planned(inputs)))).estimate;
-	const usd = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
-	assert.deepEqual({
-		// Text to video with the defaults, HD for 5 s: $0.15/s × 5 s = $0.75.
-		framesDefaults: await estimate('frames', {}, {}),
-		// A start and an end frame at UHD (4K) for 20 s: $0.41/s × 20 s = $8.20.
-		frames4k: await estimate('frames', { resolution: '4k', duration: 20 }, { startFrame: START, endFrame: END }),
-		// FHD with Auto, 5 to 20 s: $0.24/s × 5 s = $1.20 to $0.24/s × 20 s = $4.80.
-		framesAuto: await estimate('frames', { resolution: '1080p', duration: -1 }, {}),
-		// A continuation at QHD (2K) of 10 s, the new part only: $0.31/s × 10 s = $3.10.
-		extend2k: await estimate('extend', { resolution: '2k', duration: 10 }, { source: CLIP }),
-		// A continuation at HD with Auto, 5 to 15 s: $0.21/s × 5 s = $1.05 to $0.21/s × 15 s = $3.15.
-		extendAuto: await estimate('extend', { duration: -1 }, { source: CLIP }),
-		// An edit of a 7.5 s clip, whose length the output keeps: $0.03/s × 7.5 s = $0.225.
-		editClip: await estimate('edit', {}, { source: CLIP }),
-		// An edit of a clip whose length cannot be read, 0.7 to 15 s: $0.03/s × 0.7 s = $0.021 to $0.03/s × 15 s = $0.45.
-		editRange: await estimate('edit', {}, { source: UNREADABLE })
-	}, {
-		framesDefaults: usd(0.75),
-		frames4k: usd(8.2),
-		framesAuto: usd(1.2, 4.8),
-		extend2k: usd(3.1),
-		extendAuto: usd(1.05, 3.15),
-		editClip: usd(0.225),
-		editRange: usd(0.021, 0.45)
-	});
-});
-
-test('every rate of the card is used as listed, per second of output video', async () => {
-	// The rate card's published data, last updated 2026-10-15: dollars per second.
-	const rows: readonly [Mode, string, number][] = [
-		['frames', '720p', 0.15], ['frames', '1080p', 0.24], ['frames', '2k', 0.28], ['frames', '4k', 0.41],
-		['extend', '720p', 0.21], ['extend', '1080p', 0.27], ['extend', '2k', 0.31], ['extend', '4k', 0.45]
-	];
-	const providers = commands();
-	const round = (money: number) => Math.round(money * 1e6) / 1e6;
-	for (const [mode, resolution, rate] of rows) {
-		const answer = value(await providers.check(checkRequest(mode, { resolution, duration: 10 }, planned(mode === 'extend' ? { source: CLIP } : {}))));
-		assert.deepEqual(answer.estimate, { currency: 'USD', min: round(rate * 10), max: round(rate * 10), priceDate: PRICE_DATE }, `${mode} ${resolution}`);
-	}
-	// The edit: $0.03 per second of the clip at every size; a 10 s clip costs $0.30.
-	const edit = value(await providers.check(checkRequest('edit', {}, planned({ source: TEN_SECONDS }))));
-	assert.deepEqual(edit.estimate, { currency: 'USD', min: 0.3, max: 0.3, priceDate: PRICE_DATE });
 });

@@ -58,7 +58,6 @@ export function validateProvider(provider: CatalogProvider): void {
 		regions.add(region.id);
 		text(region.label, `${where}: label`);
 		check(isHttps(region.baseUrl) && !region.baseUrl.endsWith('/'), `${where}: the base URL must be an https address without a trailing slash`);
-		check(region.currency === 'CNY' || region.currency === 'USD', `${where}: the currency must be CNY or USD`);
 		check(region.console === undefined || isHttps(region.console), `${where}: the console must be an https address`);
 	}
 	check(provider.credentials.length > 0, `${at}: at least one credential is needed`);
@@ -102,7 +101,6 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 			}
 		}
 	}
-	check(typeof model.estimate === 'boolean', `${at}: estimate must be true or false`);
 	const names = new Set<string>();
 	for (const parameter of model.parameters) {
 		const where = `${at}, parameter ${parameter.name}`;

@@ -12,8 +12,6 @@
 
 // --- The catalog ------------------------------------------------------------------------------
 
-export type Currency = 'CNY' | 'USD';
-
 /** How a mode uses the node's inputs (video providers, "Modes and inputs"). */
 export type ModeId = 'frames' | 'reference' | 'extend' | 'edit';
 
@@ -29,7 +27,6 @@ export interface CatalogRegion {
 	readonly id: string;
 	readonly label: string;
 	readonly baseUrl: string;
-	readonly currency: Currency;
 	/** Where the user gets credentials for this region. */
 	readonly console?: string;
 }
@@ -63,8 +60,6 @@ export interface CatalogModel {
 	/** At least one. The first is the default. */
 	readonly modes: readonly CatalogMode[];
 	readonly parameters: readonly CatalogParameter[];
-	/** Whether `check` answers an estimate for this model. */
-	readonly estimate: boolean;
 	/** Listed only for nodes that already use it. */
 	readonly deprecated?: boolean;
 }
@@ -225,19 +220,9 @@ export interface CheckRequest {
 	readonly inputs: PlannedMedia;
 }
 
-export interface Estimate {
-	readonly currency: Currency;
-	readonly min: number;
-	/** Equal to `min` for a single amount. */
-	readonly max: number;
-	/** The date of the provider's price list, `YYYY-MM-DD`. */
-	readonly priceDate: string;
-}
-
 export interface CheckResult {
 	/** Plain sentences, the first being what blocks the generation. Empty when it can run. */
 	readonly problems: readonly string[];
-	readonly estimate?: Estimate;
 	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
 	readonly providerModel?: string;
 }

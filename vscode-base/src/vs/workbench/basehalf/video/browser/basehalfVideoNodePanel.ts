@@ -110,13 +110,13 @@ export interface IBaseHalfVideoNodePanelOptions {
 	readonly focusPromptWhenShown?: boolean;
 	/** How long after typing stops the prompt is saved. */
 	readonly saveDelay?: number;
-	/** How long after a change the panel asks for the estimate. */
+	/** How long after a change the panel asks for the problems. */
 	readonly checkDelay?: number;
 }
 
 /** How long after typing stops the prompt is saved. */
 export const BASEHALF_VIDEO_PANEL_PROMPT_SAVE_DELAY = 500;
-/** How long after the model, mode, values, prompt, or inputs change the panel asks for the estimate and the problems. */
+/** How long after the model, mode, values, prompt, or inputs change the panel asks for the problems. */
 export const BASEHALF_VIDEO_PANEL_CHECK_DELAY = 250;
 
 const PANEL_PADDING = 12;
@@ -163,7 +163,7 @@ interface IPendingCheck {
 /**
  * The panel under a selected Video node (D58, D59, video node specification,
  * "The panel"): the node's inputs, its prompt, and a footer with the model,
- * the settings, the estimate, and Generate, all drawn from the model catalog.
+ * the settings, and Generate, all drawn from the model catalog.
  * It reads and writes the node through the node store, edits its connections
  * through the reference edit service, and keeps its element and its prompt
  * for as long as it lives: updates never replace the prompt, so the text, the
@@ -197,7 +197,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private readonly modelLabel: HTMLElement;
 	private readonly settingsButton: HTMLButtonElement;
 	private readonly settingsLabel: HTMLElement;
-	private readonly estimate: HTMLElement;
 	private readonly generateButton: HTMLButtonElement;
 	private readonly generateIcon: HTMLElement;
 	private readonly layer: HTMLElement;
@@ -328,16 +327,12 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.settingsButton.setAttribute('aria-expanded', 'false');
 		this.settingsLabel = append(this.settingsButton, $('span.bh-video-panel-settings-label'));
 		append(footer, $('.bh-video-panel-footer-space'));
-		// The estimate is text with a tooltip; the price is read out with Generate's own label nearby.
-		this.estimate = append(footer, $('span.bh-video-panel-estimate'));
-		this.estimate.hidden = true;
 		this.generateButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-generate'));
 		this.generateButton.type = 'button';
 		this.generateButton.setAttribute('aria-keyshortcuts', isMacintosh ? 'Meta+Enter' : 'Control+Enter');
 		this.generateIcon = append(this.generateButton, renderCodicon(Codicon.arrowUp));
 		this._register(this.hoverService.setupDelayedHover(this.modelButton, () => ({ content: this.presentation?.model.title ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.settingsButton, () => ({ content: this.settingsTitle() }), { groupId: HOVER_GROUP }));
-		this._register(this.hoverService.setupDelayedHover(this.estimate, () => ({ content: this.presentation?.estimate?.tooltip ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.generateButton, () => ({ content: this.generateTitle() }), { groupId: HOVER_GROUP }));
 
 		this.layer = append(this.element, $('.bh-video-panel-layer'));
@@ -1052,13 +1047,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.settingsButton.hidden = !presentation.settingsView;
 		this.settingsLabel.textContent = presentation.settingsView?.summary ?? '';
 		this.settingsButton.setAttribute('aria-label', this.settingsTitle());
-		this.estimate.hidden = !presentation.estimate;
-		this.estimate.textContent = presentation.estimate?.text ?? '';
-		if (presentation.estimate) {
-			this.estimate.setAttribute('aria-label', localize('basehalf.video.panel.estimateLabel', "Estimated price: {0}. {1}", presentation.estimate.text, presentation.estimate.tooltip));
-		} else {
-			this.estimate.removeAttribute('aria-label');
-		}
 		const generate = presentation.generate;
 		const busy = this.starting && generate.kind === 'generate';
 		const enabled = generate.enabled && !busy;
@@ -1111,7 +1099,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	//#endregion
 
-	//#region The estimate and the problems
+	//#region The problems
 
 	/** The model whose answers of `check` the panel shows: the node's, in the region of its provider. */
 	private checkModelKey(fields: IBaseHalfVideoNodeFields): string | undefined {

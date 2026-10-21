@@ -558,7 +558,7 @@
 }
 
 .monaco-workbench .bh-video-panel-settings {
-	/* Ends in an ellipsis when the model's name, the estimate, and Generate need the room. */
+	/* Ends in an ellipsis when the model's name and Generate need the room. */
 	min-width: 72px;
 	flex: 0 1 auto;
 	padding: 0 12px;
@@ -581,16 +581,6 @@
 .monaco-workbench .bh-video-panel-footer-space {
 	min-width: 0;
 	flex: 1 1 auto;
-}
-
-/* The estimate: the price of one generation, beside Generate. */
-.monaco-workbench .bh-video-panel-estimate {
-	flex: none;
-	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
-	font-size: 12px;
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
-	cursor: default;
 }
 
 .monaco-workbench .bh-video-panel-generate {

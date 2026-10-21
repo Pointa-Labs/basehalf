@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { randomUUID } from 'node:crypto';
-import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
@@ -16,7 +16,6 @@ import type {
 	CatalogProvider,
 	CheckRequest,
 	CheckResult,
-	Estimate,
 	ModeId,
 	ModeInputs,
 	ModeLimits,
@@ -111,21 +110,6 @@ const TEXT = Object.freeze({
 
 // --- the models ---------------------------------------------------------------------------------
 
-type Credits = Readonly<Record<Resolution, number>>;
-
-/** Credits per second of video, without and with sound. */
-interface PerSecond {
-	readonly kind: 'second';
-	readonly silent: Credits;
-	readonly sound: Credits;
-}
-
-/** Credits per request, by duration, without and with sound; a resolution without a price is not made at that duration. */
-interface PerRequest {
-	readonly kind: 'request';
-	readonly tiers: Readonly<Record<number, { readonly silent: Partial<Credits>; readonly sound?: Partial<Credits> }>>;
-}
-
 interface PixVerseModel {
 	readonly id: ModelId;
 	/** PixVerse's `model`, the same at every endpoint. */
@@ -145,7 +129,6 @@ interface PixVerseModel {
 	readonly references: boolean;
 	/** Whether the model has the Extend mode (Video Extend). */
 	readonly extend: boolean;
-	readonly price: PerSecond | PerRequest;
 }
 
 const WIDE_RATIOS: readonly string[] = Object.freeze(['16:9', '9:16', '4:3', '3:4', '1:1', '2:3', '3:2', '21:9']);
@@ -154,44 +137,22 @@ const RATIOS: readonly string[] = Object.freeze(['16:9', '9:16', '4:3', '3:4', '
 const MODELS: readonly PixVerseModel[] = Object.freeze<PixVerseModel[]>([
 	{
 		id: 'pixverse-c1', sentAs: 'c1', ratios: WIDE_RATIOS, duration: { min: 1, max: 15, step: 1 },
-		sound: true, multiClip: false, references: false, extend: false,
-		price: { kind: 'second', silent: { '360p': 6, '540p': 8, '720p': 10, '1080p': 19 }, sound: { '360p': 8, '540p': 10, '720p': 13, '1080p': 24 } }
+		sound: true, multiClip: false, references: false, extend: false
 	},
 	{
 		id: 'pixverse-v6', sentAs: 'v6', ratios: WIDE_RATIOS, duration: { min: 1, max: 15, step: 1 }, durationTooltip: TEXT.v6DurationTooltip,
-		sound: true, multiClip: true, references: true, extend: true,
-		price: { kind: 'second', silent: { '360p': 5, '540p': 7, '720p': 9, '1080p': 18 }, sound: { '360p': 7, '540p': 9, '720p': 12, '1080p': 23 } }
+		sound: true, multiClip: true, references: true, extend: true
 	},
 	{
 		id: 'pixverse-v5.6', sentAs: 'v5.6', ratios: RATIOS, duration: { min: 5, max: 10, step: 1 },
 		durations: [5, 8, 10], durationsAt1080p: [5, 8], durationTooltip: TEXT.v56DurationTooltip,
-		sound: true, multiClip: false, references: false, extend: false,
-		price: {
-			kind: 'request',
-			tiers: {
-				5: { silent: { '360p': 35, '540p': 35, '720p': 45, '1080p': 75 }, sound: { '360p': 80, '540p': 80, '720p': 90, '1080p': 120 } },
-				8: { silent: { '360p': 70, '540p': 70, '720p': 90, '1080p': 150 }, sound: { '360p': 115, '540p': 115, '720p': 135, '1080p': 195 } },
-				10: { silent: { '360p': 77, '540p': 77, '720p': 99 }, sound: { '360p': 122, '540p': 122, '720p': 144 } }
-			}
-		}
+		sound: true, multiClip: false, references: false, extend: false
 	},
 	{
 		id: 'pixverse-v5', sentAs: 'v5', ratios: RATIOS, duration: { min: 5, max: 8, step: 3 },
-		sound: false, multiClip: false, references: false, extend: false,
-		price: {
-			kind: 'request',
-			tiers: {
-				5: { silent: { '360p': 45, '540p': 45, '720p': 60, '1080p': 120 } },
-				8: { silent: { '360p': 90, '540p': 90, '720p': 120, '1080p': 240 } }
-			}
-		}
+		sound: false, multiClip: false, references: false, extend: false
 	}
 ]);
-
-/** "225 Credits = USD 1." */
-const CREDITS_PER_DOLLAR = 225;
-/** The day the price list was read; the list states no date of its own. */
-const PRICE_DATE = '2026-10-19';
 
 const MiB = 1024 * 1024;
 /** Smaller than 20 MB, neither side over 10,000 px (Upload Image). */
@@ -211,8 +172,6 @@ const PROMPT_MAX_LENGTH = 5000;
 const IMAGE_TO_VIDEO_PROMPT_MAX_LENGTH = 2048;
 /** The largest file AI Video uploads: its request limit, less room for the form around the file. */
 const UPLOAD_MAX_BYTES = DEFAULT_HTTP_OPTIONS.maxRequestBytes - 64 * 1024;
-/** The shortest and the longest video V6 makes, for reference videos whose lengths cannot be read. */
-const V6_SECONDS: readonly [number, number] = [1, 15];
 
 const NO_INPUTS = Object.freeze({ min: 0, max: 0 });
 const FRAMES_ONLY: readonly ModeId[] = Object.freeze(['frames']);
@@ -310,8 +269,7 @@ function declareModel(model: PixVerseModel): CatalogModel {
 		providerModels: { global: model.sentAs },
 		prompt: { required: 'always', maxLength: PROMPT_MAX_LENGTH },
 		modes,
-		parameters: declareParameters(model, modes),
-		estimate: true
+		parameters: declareParameters(model, modes)
 	};
 }
 
@@ -319,7 +277,7 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'pixverse',
 	label: TEXT.provider,
 	regions: [
-		{ id: 'global', label: TEXT.region, baseUrl: 'https://app-api.pixverse.ai', currency: 'USD', console: 'https://platform.pixverse.ai' }
+		{ id: 'global', label: TEXT.region, baseUrl: 'https://app-api.pixverse.ai', console: 'https://platform.pixverse.ai' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
 	models: MODELS.map(declareModel)
@@ -679,7 +637,7 @@ function stateOf(task: Record<string, unknown>): PollState {
 	}
 }
 
-// --- checks and estimates -----------------------------------------------------------------------
+// --- checks -------------------------------------------------------------------------------------
 
 /** The rules between parameters and inputs that the declarations cannot express (pixverse.md, "Rules between parameters and inputs"). */
 function ruleProblems(model: PixVerseModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): string[] {
@@ -721,47 +679,6 @@ function fileProblems(measured: readonly MeasuredItem[]): string[] {
 		.map(item => TEXT.videoTooLarge(item.label, describeBytes(item.facts.bytes), describeBytes(UPLOAD_MAX_BYTES)));
 }
 
-/** The seconds of the longest reference video, which the result follows: to its next whole second, or V6's range when a length cannot be read. */
-function referenceSeconds(measured: readonly MeasuredItem[]): readonly [number, number] {
-	const lengths = measured.filter(item => item.kind === 'video').map(item => item.facts.seconds);
-	if (!lengths.length || lengths.some(length => length === undefined)) {
-		return V6_SECONDS;
-	}
-	const longest = Math.max(...lengths as number[]);
-	return [longest, Math.max(longest, Math.ceil(longest - 1e-6))];
-}
-
-function dollars(lowCredits: number, highCredits: number): Estimate {
-	return estimateOf('USD', lowCredits / CREDITS_PER_DOLLAR, highCredits / CREDITS_PER_DOLLAR, PRICE_DATE);
-}
-
-/** Credits by the price list, divided by 225 (pixverse.md, "Estimate"); none for a combination without a price. */
-function estimateFor(model: PixVerseModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
-	const resolution = RESOLUTIONS.find(entry => entry === request.params.resolution);
-	const duration = request.params.duration;
-	if (!resolution || typeof duration !== 'number') {
-		return undefined;
-	}
-	const sound = request.params.sound === true;
-	const price = model.price;
-	if (price.kind === 'request') {
-		const tier = price.tiers[duration];
-		const credits = (sound ? tier?.sound : tier?.silent)?.[resolution];
-		return credits === undefined ? undefined : dollars(credits, credits);
-	}
-	const perSecond = (withSound: boolean) => (withSound ? price.sound : price.silent)[resolution];
-	if (request.mode === 'extend') {
-		// Video Extend has no sound setting; it is billed at "the applicable ... audio" rate.
-		return dollars(perSecond(false) * duration, perSecond(true) * duration);
-	}
-	if (request.mode === 'reference' && counts.videos > 0) {
-		// Twice the standard V6 rate, for as long as the longest reference video.
-		const [low, high] = referenceSeconds(measured);
-		return dollars(2 * perSecond(sound) * low, 2 * perSecond(sound) * high);
-	}
-	return dollars(perSecond(sound) * duration, perSecond(sound) * duration);
-}
-
 // --- the module ---------------------------------------------------------------------------------
 
 export const PIXVERSE: ProviderModule = Object.freeze({
@@ -781,8 +698,7 @@ export const PIXVERSE: ProviderModule = Object.freeze({
 		const counts = countsOf(request.inputs);
 		const measured = await measureItems(request.inputs, media);
 		const problems = [...ruleProblems(model, request, counts, measured), ...fileProblems(measured)];
-		const estimate = estimateFor(model, request, counts, measured);
-		return estimate ? { problems, estimate } : { problems };
+		return { problems };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

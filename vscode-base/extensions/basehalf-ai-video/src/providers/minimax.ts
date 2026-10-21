@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Currency, Estimate, Params, ParamValue, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, ParamValue, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * MiniMax's video models on MiniMax's own API, in China (`api.minimax.cn`)
@@ -20,7 +20,6 @@ import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, Chec
  * data URLs and reports its errors in `base_resp` of an HTTP 200 answer.
  */
 
-type RegionId = 'cn' | 'intl';
 type MediaKind = 'image' | 'video' | 'audio';
 
 // --- the provider's English texts, in one place so they can be translated -----------------------
@@ -29,7 +28,7 @@ const MODEL_TEXTS: Readonly<Record<string, { readonly label: string; readonly de
 	'h3': { label: 'MiniMax H3', description: 'MiniMax\'s multimodal video model: 4 to 15 seconds at 768P or 2K, from a prompt, frames, or up to 9 images, 3 videos, and 3 audio clips.' },
 	'h3-max': { label: 'MiniMax H3 Max', description: 'A faster MiniMax H3 at 480P or 768P, 5 to 15 seconds, from the same inputs.' },
 	'hailuo-2.3': { label: 'Hailuo 2.3', description: '6 or 10 seconds at 768P, or 6 seconds at 1080P, from a prompt or a start frame.' },
-	'hailuo-2.3-fast': { label: 'Hailuo 2.3 Fast', description: 'A faster, lower-priced Hailuo 2.3 that brings a start frame to life: 6 or 10 seconds at 768P, or 6 seconds at 1080P.' },
+	'hailuo-2.3-fast': { label: 'Hailuo 2.3 Fast', description: 'A faster Hailuo 2.3 that brings a start frame to life: 6 or 10 seconds at 768P, or 6 seconds at 1080P.' },
 	'hailuo-02': { label: 'Hailuo 02', description: '6 or 10 seconds at 768P, or 6 seconds at 1080P, from a prompt, a start frame, or a start and an end frame; 512P from a start frame alone.' }
 });
 
@@ -86,21 +85,6 @@ const TEXT = Object.freeze({
 
 // --- the models --------------------------------------------------------------------------------
 
-/** The date of the price list the prices below were read from (the page carries none). */
-const PRICE_DATE = '2026-10-18';
-
-/** The prices of MiniMax H3 or H3 Max in one region. */
-interface H3Prices {
-	/** A second of output, by resolution. */
-	readonly output: Readonly<Record<string, number>>;
-	/** A second of reference video, by the resolution of the output. */
-	readonly inputVideo: Readonly<Record<string, number>>;
-	/** Images (frames and references together) without a price. */
-	readonly freeImages: number;
-	/** Each further image. */
-	readonly image: number;
-}
-
 /** MiniMax H3 and H3 Max, on the V2 API. */
 interface H3Model {
 	readonly api: 'v2';
@@ -111,7 +95,6 @@ interface H3Model {
 	readonly duration: { readonly min: number; readonly max: number };
 	/** `extra.prompt_expansion_mode`, which only H3 Max takes. */
 	readonly promptExpansion: boolean;
-	readonly prices: Readonly<Record<RegionId, H3Prices>>;
 }
 
 /** The Hailuo models, on the V1 API. */
@@ -125,8 +108,6 @@ interface HailuoModel {
 	readonly endFrame: boolean;
 	/** Resolutions made only from a start frame without an end frame (image to video). */
 	readonly startFrameOnly: readonly string[];
-	/** A price a video, by `<resolution> <seconds>`. */
-	readonly prices: Readonly<Record<RegionId, Readonly<Record<string, number>>>>;
 }
 
 type MiniMaxModel = H3Model | HailuoModel;
@@ -139,11 +120,7 @@ const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 		resolutions: ['768P', '2K'],
 		defaultResolution: '768P',
 		duration: { min: 4, max: 15 },
-		promptExpansion: false,
-		prices: {
-			cn: { output: { '768P': 0.5, '2K': 0.8 }, inputVideo: { '768P': 0.5, '2K': 0.8 }, freeImages: 5, image: 0.2 },
-			intl: { output: { '768P': 0.08, '2K': 0.13 }, inputVideo: { '768P': 0.08, '2K': 0.13 }, freeImages: 5, image: 0.04 }
-		}
+		promptExpansion: false
 	},
 	{
 		api: 'v2',
@@ -152,11 +129,7 @@ const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 		resolutions: ['480P', '768P'],
 		defaultResolution: '768P',
 		duration: { min: 5, max: 15 },
-		promptExpansion: true,
-		prices: {
-			cn: { output: { '480P': 0.33, '768P': 0.5 }, inputVideo: { '480P': 0.37, '768P': 0.97 }, freeImages: 2, image: 0.5 },
-			intl: { output: { '480P': 0.05, '768P': 0.08 }, inputVideo: { '480P': 0.0553, '768P': 0.143 }, freeImages: 2, image: 0.074 }
-		}
+		promptExpansion: true
 	},
 	{
 		api: 'v1',
@@ -165,11 +138,7 @@ const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 		durations: { '768P': [6, 10], '1080P': [6] },
 		startFrame: 'optional',
 		endFrame: false,
-		startFrameOnly: [],
-		prices: {
-			cn: { '768P 6': 2, '768P 10': 4, '1080P 6': 3.5 },
-			intl: { '768P 6': 0.28, '768P 10': 0.56, '1080P 6': 0.49 }
-		}
+		startFrameOnly: []
 	},
 	{
 		api: 'v1',
@@ -178,11 +147,7 @@ const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 		durations: { '768P': [6, 10], '1080P': [6] },
 		startFrame: 'required',
 		endFrame: false,
-		startFrameOnly: [],
-		prices: {
-			cn: { '768P 6': 1.35, '768P 10': 2.25, '1080P 6': 2.31 },
-			intl: { '768P 6': 0.19, '768P 10': 0.32, '1080P 6': 0.33 }
-		}
+		startFrameOnly: []
 	},
 	{
 		api: 'v1',
@@ -191,11 +156,7 @@ const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 		durations: { '512P': [6, 10], '768P': [6, 10], '1080P': [6] },
 		startFrame: 'optional',
 		endFrame: true,
-		startFrameOnly: ['512P'],
-		prices: {
-			cn: { '512P 6': 0.6, '512P 10': 1, '768P 6': 2, '768P 10': 4, '1080P 6': 3.5 },
-			intl: { '512P 6': 0.1, '512P 10': 0.15, '768P 6': 0.28, '768P 10': 0.56, '1080P 6': 0.49 }
-		}
+		startFrameOnly: ['512P']
 	}
 ]);
 
@@ -336,8 +297,7 @@ function catalogModel(model: MiniMaxModel): CatalogModel {
 		providerModels: { cn: model.providerModel, intl: model.providerModel },
 		prompt: model.api === 'v2' ? { required: 'always', maxLength: 7000 } : { required: 'withoutMedia', maxLength: 2000 },
 		modes: modesOf(model),
-		parameters: parametersOf(model),
-		estimate: true
+		parameters: parametersOf(model)
 	};
 }
 
@@ -345,14 +305,14 @@ const ENTRY: CatalogProvider = Object.freeze<CatalogProvider>({
 	id: 'minimax',
 	label: TEXT.provider,
 	regions: [
-		{ id: 'cn', label: TEXT.regions.cn, baseUrl: 'https://api.minimax.cn', currency: 'CNY', console: 'https://platform.minimax.cn/user-center/basic-information/interface-key' },
-		{ id: 'intl', label: TEXT.regions.intl, baseUrl: 'https://api.minimax.io', currency: 'USD', console: 'https://platform.minimax.io/user-center/basic-information/interface-key' }
+		{ id: 'cn', label: TEXT.regions.cn, baseUrl: 'https://api.minimax.cn', console: 'https://platform.minimax.cn/user-center/basic-information/interface-key' },
+		{ id: 'intl', label: TEXT.regions.intl, baseUrl: 'https://api.minimax.io', console: 'https://platform.minimax.io/user-center/basic-information/interface-key' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
 	models: MODELS_IN_ORDER.map(catalogModel)
 });
 
-// --- rules and estimates -----------------------------------------------------------------------
+// --- rules -------------------------------------------------------------------------------------
 
 function modelOf(id: string): MiniMaxModel {
 	const model = MODELS.get(id);
@@ -360,10 +320,6 @@ function modelOf(id: string): MiniMaxModel {
 		throw rejected(`MiniMax has no model "${id}".`);
 	}
 	return model;
-}
-
-function currencyOf(region: string): Currency {
-	return region === 'cn' ? 'CNY' : 'USD';
 }
 
 function h3Rules(model: H3Model, request: CheckRequest, counts: PlannedCounts): string[] {
@@ -425,54 +381,13 @@ function formatProblems(items: readonly MeasuredItem[]): string[] {
 	return problems;
 }
 
-/**
- * The whole seconds of reference video MiniMax meters: with every length
- * read, their sum rounded down to their sum rounded up; with a length AI
- * Video cannot read, from 2 seconds a video to the 15 seconds allowed
- * together.
- */
-function referenceVideoSeconds(measured: readonly MeasuredItem[]): readonly [number, number] {
-	const lengths = measured.filter(item => item.slot === 'video').map(item => item.facts.seconds);
-	if (lengths.length === 0) {
-		return [0, 0];
-	}
-	if (lengths.every(seconds => seconds !== undefined)) {
-		const total = lengths.reduce<number>((sum, seconds) => sum + (seconds ?? 0), 0);
-		return [Math.floor(total + 1e-6), Math.ceil(total - 1e-6)];
-	}
-	return [REFERENCE_VIDEO_SECONDS[0] * lengths.length, REFERENCE_TOTAL_SECONDS];
-}
-
-function h3Estimate(model: H3Model, region: string, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
-	const prices = model.prices[region as RegionId];
-	const resolution = minimaxResolution(params.resolution);
-	const output = resolution === undefined ? undefined : prices?.output[resolution];
-	const inputVideo = resolution === undefined ? undefined : prices?.inputVideo[resolution];
-	const duration = Number(params.duration);
-	if (!prices || output === undefined || inputVideo === undefined || !Number.isFinite(duration)) {
-		return undefined;
-	}
-	// The frames and the reference images count together.
-	const images = (counts.startFrame ? 1 : 0) + (counts.endFrame ? 1 : 0) + counts.images;
-	const fixed = duration * output + Math.max(0, images - prices.freeImages) * prices.image;
-	const [fewest, most] = referenceVideoSeconds(measured);
-	return estimateOf(currencyOf(region), fixed + fewest * inputVideo, fixed + most * inputVideo, PRICE_DATE);
-}
-
-function hailuoEstimate(model: HailuoModel, region: string, params: Params): Estimate | undefined {
-	const resolution = minimaxResolution(params.resolution);
-	const price = resolution === undefined ? undefined : model.prices[region as RegionId]?.[`${resolution} ${String(params.duration)}`];
-	return price === undefined ? undefined : estimateOf(currencyOf(region), price, price, PRICE_DATE);
-}
-
 async function check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 	const model = modelOf(request.model);
 	const counts = countsOf(request.inputs);
 	const problems = model.api === 'v2' ? h3Rules(model, request, counts) : hailuoRules(model, request, counts);
 	const measured = await measureItems(request.inputs, media);
 	problems.push(...formatProblems(measured));
-	const estimate = model.api === 'v2' ? h3Estimate(model, request.region, request.params, counts, measured) : hailuoEstimate(model, request.region, request.params);
-	return estimate ? { problems, estimate } : { problems };
+	return { problems };
 }
 
 // --- errors ------------------------------------------------------------------------------------

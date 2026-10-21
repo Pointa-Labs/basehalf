@@ -11,7 +11,6 @@ import {
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
 	baseHalfVideoChooseModel,
-	baseHalfVideoEstimateTooltip,
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoInitialGeneration,
 	baseHalfVideoInputKindOfPath,
@@ -25,7 +24,6 @@ import {
 	findBaseHalfVideoLabelTokens,
 	findBaseHalfVideoModel,
 	findBaseHalfVideoRegion,
-	formatBaseHalfVideoEstimate,
 	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoGenerateBlockerInput,
@@ -100,7 +98,7 @@ suite('BaseHalfVideoCatalog', () => {
 			found: ref ? `${ref.provider.label} / ${ref.model.label}` : undefined,
 			otherProvider: findBaseHalfVideoModel(TEST_VIDEO_CATALOG, 'borealis', 'acme-still'),
 			noProvider: findBaseHalfVideoModel(TEST_VIDEO_CATALOG, undefined, 'acme-still'),
-			region: findBaseHalfVideoRegion(TEST_VIDEO_CATALOG.providers[0], 'west').currency,
+			region: findBaseHalfVideoRegion(TEST_VIDEO_CATALOG.providers[0], 'west').id,
 			firstRegion: findBaseHalfVideoRegion(TEST_VIDEO_CATALOG.providers[0], 'north').id,
 			mode: baseHalfVideoModeOf(motion, 'reference').id,
 			firstMode: baseHalfVideoModeOf(motion, 'edit').id,
@@ -110,7 +108,7 @@ suite('BaseHalfVideoCatalog', () => {
 			found: 'Acme Video / Acme Still',
 			otherProvider: undefined,
 			noProvider: undefined,
-			region: 'USD',
+			region: 'west',
 			firstRegion: 'east',
 			mode: 'reference',
 			firstMode: 'frames',
@@ -283,27 +281,12 @@ suite('BaseHalfVideoCatalog', () => {
 		});
 	});
 
-	test('formats the estimate as one amount or a range in the region\'s currency, with its source', () => {
+	test('reads what check answered: its problems as plain text, and nothing that is no answer', () => {
 		assert.deepStrictEqual({
-			yuan: formatBaseHalfVideoEstimate({ currency: 'CNY', min: 7.555, max: 7.555, priceDate: '2026-10-18' }),
-			dollars: formatBaseHalfVideoEstimate({ currency: 'USD', min: 1.16, max: 1.16, priceDate: '2026-10-18' }),
-			range: formatBaseHalfVideoEstimate({ currency: 'CNY', min: 3, max: 9, priceDate: '2026-10-18' }),
-			large: formatBaseHalfVideoEstimate({ currency: 'USD', min: 1234.5, max: 1234.5, priceDate: '2026-10-18' }),
-			tooltip: baseHalfVideoEstimateTooltip({ currency: 'CNY', min: 3, max: 9, priceDate: '2026-10-18' }, 'Acme Video')
-		}, {
-			yuan: '≈ ¥7.56',
-			dollars: '≈ $1.16',
-			range: '¥3.00–¥9.00',
-			large: '≈ $1,234.50',
-			tooltip: 'An estimate from the prices Acme Video published on 2026-10-18. What Acme Video bills is what counts.'
-		});
-		assert.deepStrictEqual({
-			result: parseBaseHalfVideoCheckResult({ problems: ['  The prompt is <b>too long</b>.  ', ''], estimate: { currency: 'USD', min: 1, max: 2, priceDate: '2026-10-18' } }),
-			badEstimate: parseBaseHalfVideoCheckResult({ problems: [], estimate: { currency: 'EUR', min: 1, max: 2, priceDate: '2026-10-18' } }),
+			result: parseBaseHalfVideoCheckResult({ problems: ['  The prompt is <b>too long</b>.  ', ''] }),
 			notAResult: parseBaseHalfVideoCheckResult({ problems: [3] })
 		}, {
-			result: { problems: ['The prompt is too long .'], estimate: { currency: 'USD', min: 1, max: 2, priceDate: '2026-10-18' } },
-			badEstimate: { problems: [] },
+			result: { problems: ['The prompt is too long .'] },
 			notAResult: undefined
 		});
 	});

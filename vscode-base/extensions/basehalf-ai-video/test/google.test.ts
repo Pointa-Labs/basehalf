@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/providers/commands.ts';
-import { GOOGLE, OMNI_PRICE_DATE, omniEstimate, omniPrice } from '../src/providers/google.ts';
+import { GOOGLE } from '../src/providers/google.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog } from '../src/providers/registry.ts';
 import type { CatalogParameter, PollState } from '../src/providers/types.ts';
@@ -42,8 +42,6 @@ const CLIP = file('clip.mp4', isoMedia(4), 'video/mp4');
 const LONG_TAKE = file('long-take.mp4', isoMedia(4.5), 'video/mp4');
 const LONG_CLIP = file('long-clip.mp4', isoMedia(12), 'video/mp4');
 const SHORT_TAKE = file('short-take.mp4', isoMedia(2), 'video/mp4');
-/** An MP4 whose length AI Video cannot read. */
-const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 const VOICE = file('voice.wav', wav(3), 'audio/wav');
 const NO_INPUTS = { images: [], videos: [], audios: [] };
 
@@ -151,16 +149,16 @@ test('the catalog entry declares the Gemini API, its key, and Gemini Omni 1.1 Fl
 		regions: provider.regions,
 		credentials: provider.credentials,
 		models: provider.models.length,
-		model: { id: model.id, label: model.label, providerModels: model.providerModels, prompt: model.prompt, estimate: model.estimate, deprecated: model.deprecated },
+		model: { id: model.id, label: model.label, providerModels: model.providerModels, prompt: model.prompt, deprecated: model.deprecated },
 		modes: model.modes.map(mode => ({ mode: `${mode.id} ${mode.label}`, inputs: mode.inputs, limits: mode.limits })),
 		parameters: model.parameters.map(summary)
 	}, {
 		id: 'google',
 		label: 'Google',
-		regions: [{ id: 'global', label: 'Gemini API', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', currency: 'USD', console: 'https://aistudio.google.com/api-keys' }],
+		regions: [{ id: 'global', label: 'Gemini API', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', console: 'https://aistudio.google.com/api-keys' }],
 		credentials: [{ id: 'apiKey', label: 'API Key' }],
 		models: 1,
-		model: { id: 'gemini-omni-1.1-flash', label: 'Gemini Omni 1.1 Flash', providerModels: { global: 'gemini-omni-1.1-flash' }, prompt: { required: 'always', maxLength: 1_048_576 }, estimate: true, deprecated: undefined },
+		model: { id: 'gemini-omni-1.1-flash', label: 'Gemini Omni 1.1 Flash', providerModels: { global: 'gemini-omni-1.1-flash' }, prompt: { required: 'always', maxLength: 1_048_576 }, deprecated: undefined },
 		modes: [
 			{ mode: 'frames Frames', inputs: { startFrame: 'optional', endFrame: 'optional', images: { min: 0, max: 0 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} },
 			{ mode: 'reference References', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 6 }, videos: { min: 0, max: 3 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: { videoSeconds: [0.1, 3] } },
@@ -676,39 +674,4 @@ test('check reports the inputs each mode takes, the lengths of videos, the promp
 	} finally {
 		await gemini.close();
 	}
-});
-
-// --- estimate ----------------------------------------------------------------------------------
-
-test('the estimate is the seconds of 720p video at 5,792 tokens a second and $17.50 per million tokens, a range since the prompt sets the length', async () => {
-	const usd = (min: number, max: number) => ({ currency: 'USD', min, max, priceDate: OMNI_PRICE_DATE });
-	// Gemini Developer API pricing of 2026-10-16: 5,792 × $17.50 / 1,000,000 = $0.10136 a second ("approximately $0.10 per second").
-	assert.equal(OMNI_PRICE_DATE, '2026-10-16');
-	assert.equal(omniPrice(1), 0.10136);
-	const providers = commands();
-	const checked = async (mode: string, params: Record<string, unknown>, inputs: Record<string, unknown>) =>
-		value(await providers.check({ provider: 'google', region: 'global', model: MODEL, mode, params, prompt: PROMPT, inputs })).estimate;
-	assert.deepEqual({
-		// 1. Frames at 720p, the default: 3 s × $0.10136 = $0.30408 to 10 s × $0.10136 = $1.0136.
-		frames: await checked('frames', {}, plannedFiles()),
-		// 2. Extend at 720p with the 4-second clip measured: 7 s, $0.70952, to 14 s, $1.41904.
-		extendMeasured: await checked('extend', { resolution: '720p' }, { source: CLIP, ...NO_INPUTS }),
-		// 3. Extend at 720p of a clip whose length cannot be read: a clip of at most 10 s gives 3 s, $0.30408, to 20 s, $2.0272.
-		extendUnreadable: await checked('extend', {}, { source: UNREADABLE, ...NO_INPUTS }),
-		references: await checked('reference', { ratio: '9:16' }, plannedFiles({ images: 2 })),
-		edit: await checked('edit', {}, { source: CLIP, ...NO_INPUTS }),
-		// Google gives a rate for 720p only.
-		at1080p: await checked('frames', { resolution: '1080p' }, plannedFiles()),
-		at4k: await checked('edit', { resolution: '4k' }, plannedFiles({ source: true }))
-	}, {
-		frames: usd(0.30408, 1.0136),
-		extendMeasured: usd(0.70952, 1.41904),
-		extendUnreadable: usd(0.30408, 2.0272),
-		references: usd(0.30408, 1.0136),
-		edit: usd(0.30408, 1.0136),
-		at1080p: undefined,
-		at4k: undefined
-	});
-	assert.deepEqual(omniEstimate('extend', { resolution: '720p' }, 2.5), usd(0.557480, 1.26700));
-	assert.equal(omniEstimate('frames', { resolution: '360p' }), undefined);
 });

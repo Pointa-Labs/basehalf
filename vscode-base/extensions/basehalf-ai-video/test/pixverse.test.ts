@@ -19,7 +19,7 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import type { MediaFacts, MediaInspector } from '../src/providers/media.ts';
 import { PIXVERSE } from '../src/providers/pixverse.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogModel, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import type { CatalogModel, PlannedMedia } from '../src/providers/types.ts';
 import { error, isoMedia, jpegHeader, plannedFiles, png, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-pixverse-'));
@@ -48,12 +48,9 @@ const CLIPS = [
 	file('take.mov', isoMedia(4.5, { brand: 'qt  ' }), 'video/quicktime')
 ];
 const SOURCE = file('source.mp4', isoMedia(12), 'video/mp4');
-/** An MP4 whose length AI Video cannot read. */
-const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 
 const KEY = 'pixverse-test-key-0001';
 const PROMPT = 'A paper lantern drifts over a night market.';
-const PRICE_DATE = '2026-10-19';
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 type Mode = 'frames' | 'reference' | 'extend';
@@ -198,7 +195,7 @@ test('the catalog declares PixVerse with one region, one API key, and four model
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'pixverse',
 		label: 'PixVerse',
-		regions: [{ id: 'global', label: 'Global', baseUrl: 'https://app-api.pixverse.ai', currency: 'USD', console: 'https://platform.pixverse.ai' }],
+		regions: [{ id: 'global', label: 'Global', baseUrl: 'https://app-api.pixverse.ai', console: 'https://platform.pixverse.ai' }],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
 
@@ -211,13 +208,12 @@ test('the catalog declares PixVerse with one region, one API key, and four model
 		sentAs: model.providerModels,
 		prompt: model.prompt,
 		modes: model.modes.map(mode => [mode.id, mode.label, mode.inputs.startFrame, mode.inputs.endFrame, [mode.inputs.images.min, mode.inputs.images.max], [mode.inputs.videos.min, mode.inputs.videos.max], mode.inputs.source]),
-		estimate: model.estimate,
 		deprecated: model.deprecated
 	})), [
-		{ id: 'pixverse-c1', label: 'PixVerse C1', sentAs: { global: 'c1' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames], estimate: true, deprecated: undefined },
-		{ id: 'pixverse-v6', label: 'PixVerse V6', sentAs: { global: 'v6' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames, references, extend], estimate: true, deprecated: undefined },
-		{ id: 'pixverse-v5.6', label: 'PixVerse V5.6', sentAs: { global: 'v5.6' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames], estimate: true, deprecated: undefined },
-		{ id: 'pixverse-v5', label: 'PixVerse V5', sentAs: { global: 'v5' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames], estimate: true, deprecated: undefined }
+		{ id: 'pixverse-c1', label: 'PixVerse C1', sentAs: { global: 'c1' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames], deprecated: undefined },
+		{ id: 'pixverse-v6', label: 'PixVerse V6', sentAs: { global: 'v6' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames, references, extend], deprecated: undefined },
+		{ id: 'pixverse-v5.6', label: 'PixVerse V5.6', sentAs: { global: 'v5.6' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames], deprecated: undefined },
+		{ id: 'pixverse-v5', label: 'PixVerse V5', sentAs: { global: 'v5' }, prompt: { required: 'always', maxLength: 5000 }, modes: [frames], deprecated: undefined }
 	]);
 
 	// Images of every format the upload takes, within its size; reference videos and the source within Fusion's and Video Extend's limits; no audio.
@@ -853,101 +849,5 @@ test('check refuses what PixVerse cannot take, and submit then uploads and sends
 		});
 	} finally {
 		await server.close();
-	}
-});
-
-// --- estimates ----------------------------------------------------------------------------------
-
-/** An estimate in dollars as `estimateOf` rounds it: to millionths. */
-function dollars(min: number, max = min): Estimate {
-	const round = (amount: number) => Math.round(amount * 1e6) / 1e6;
-	return { currency: 'USD', min: round(min), max: round(max), priceDate: PRICE_DATE };
-}
-
-test('estimates follow the price list: its own calculation examples and other combinations, credits divided by 225', async () => {
-	const providers = commands();
-	const estimate = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: PlannedMedia = plannedFiles()) =>
-		value(await providers.check({ provider: 'pixverse', region: 'global', model, mode, params, prompt: PROMPT, inputs })).estimate;
-	const ofFiles = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: Inputs) =>
-		value(await providers.check(generation('https://app-api.pixverse.ai', model, mode, params, inputs))).estimate;
-	const examples = {
-		// The list's examples. C1, 1080p, sound off, 5 s: 19 credits/s × 5 s = 95 credits; 95 ÷ 225 = $0.422222 (the list: $0.422).
-		c1: await estimate('pixverse-c1', 'frames', { resolution: '1080p', duration: 5 }),
-		// V6, 720p, sound on, 8 s: 12 × 8 = 96 credits; 96 ÷ 225 = $0.426667 (the list: $0.427).
-		v6: await estimate('pixverse-v6', 'frames', { duration: 8, sound: true }),
-		// V6 references with a 5-second reference video, 720p, sound off: twice 9 credits/s × 5 s = 90 credits; $0.40 (the list: $0.400).
-		v6Video: await ofFiles('pixverse-v6', 'reference', {}, { videos: [file('five.mp4', isoMedia(5), 'video/mp4')] }),
-		// V5.6, 720p, sound on, 8 s: a fixed 135 credits; $0.60 (the list: $0.600).
-		v56: await estimate('pixverse-v5.6', 'frames', { duration: 8, sound: true })
-	};
-	assert.deepEqual(examples, { c1: dollars(95 / 225), v6: dollars(96 / 225), v6Video: dollars(90 / 225), v56: dollars(135 / 225) });
-	assert.deepEqual(Object.values(examples).map(entry => Math.round((entry?.min ?? 0) * 1000) / 1000), [0.422, 0.427, 0.4, 0.6]);
-	assert.deepEqual({
-		// V5 with its defaults, 720p and 5 s: a fixed 60 credits; 60 ÷ 225 = $0.266667.
-		v5Defaults: await estimate('pixverse-v5', 'frames', {}),
-		// C1 from a start frame, 360p, sound on, 15 s: 8 × 15 = 120 credits; $0.533333.
-		c1Frame: await estimate('pixverse-c1', 'frames', { resolution: '360p', duration: 15, sound: true }, plannedFiles({ startFrame: true })),
-		// V6 from three reference images, 360p, sound on, 3 s: 7 × 3 = 21 credits; $0.093333.
-		v6Images: await estimate('pixverse-v6', 'reference', { resolution: '360p', duration: 3, sound: true }, plannedFiles({ images: 3 })),
-		// V6 Extend at 1080p adding 10 s, without or with sound: 18 × 10 = 180 to 23 × 10 = 230 credits; $0.80 to $1.022222.
-		v6Extend: await estimate('pixverse-v6', 'extend', { resolution: '1080p', duration: 10 }, plannedFiles({ source: true })),
-		// V6 with a reference video whose length cannot be read, 720p, sound off: twice 9 × 1 to twice 9 × 15 = 18 to 270 credits; $0.08 to $1.20.
-		v6VideoUnreadable: await ofFiles('pixverse-v6', 'reference', {}, { videos: [UNREADABLE] }),
-		// V6 with reference videos of 5.5 and 4.5 s, 540p, sound on: twice 9 × 5.5 = 99 to twice 9 × 6 = 108 credits; $0.44 to $0.48.
-		v6VideosMeasured: await ofFiles('pixverse-v6', 'reference', { resolution: '540p', sound: true }, { videos: [file('five-and-a-half.mp4', isoMedia(5.5), 'video/mp4'), CLIPS[1]] }),
-		// V5.6 makes no 10 seconds at 1080p, which a rule refuses: no price.
-		v56NoPrice: await estimate('pixverse-v5.6', 'frames', { resolution: '1080p', duration: 10 })
-	}, {
-		v5Defaults: dollars(60 / 225),
-		c1Frame: dollars(120 / 225),
-		v6Images: dollars(21 / 225),
-		v6Extend: dollars(180 / 225, 230 / 225),
-		v6VideoUnreadable: dollars(18 / 225, 270 / 225),
-		v6VideosMeasured: dollars(99 / 225, 108 / 225),
-		v56NoPrice: undefined
-	});
-});
-
-test('every price of the list is its credits divided by 225: per second for C1 and V6, per request for V5.6 and V5', async () => {
-	// pixverse-api-pricing as read on 2026-10-19: credits per second (C1, V6) or per request (V5.6, V5), by resolution 360p, 540p, 720p, 1080p.
-	const perSecond: readonly [string, boolean, readonly number[]][] = [
-		['pixverse-c1', false, [6, 8, 10, 19]],
-		['pixverse-c1', true, [8, 10, 13, 24]],
-		['pixverse-v6', false, [5, 7, 9, 18]],
-		['pixverse-v6', true, [7, 9, 12, 23]]
-	];
-	const perRequest: readonly [string, number, boolean, readonly (number | undefined)[]][] = [
-		['pixverse-v5.6', 5, false, [35, 35, 45, 75]],
-		['pixverse-v5.6', 5, true, [80, 80, 90, 120]],
-		['pixverse-v5.6', 8, false, [70, 70, 90, 150]],
-		['pixverse-v5.6', 8, true, [115, 115, 135, 195]],
-		['pixverse-v5.6', 10, false, [77, 77, 99, undefined]],
-		['pixverse-v5.6', 10, true, [122, 122, 144, undefined]],
-		['pixverse-v5', 5, false, [45, 45, 60, 120]],
-		['pixverse-v5', 8, false, [90, 90, 120, 240]]
-	];
-	const resolutions = ['360p', '540p', '720p', '1080p'];
-	const providers = commands();
-	const estimate = async (model: string, params: Record<string, unknown>) =>
-		value(await providers.check({ provider: 'pixverse', region: 'global', model, mode: 'frames', params, prompt: PROMPT, inputs: plannedFiles() })).estimate;
-	for (const [model, sound, credits] of perSecond) {
-		for (const [index, resolution] of resolutions.entries()) {
-			assert.deepEqual(await estimate(model, { resolution, duration: 10, sound }), dollars(credits[index] * 10 / 225), `${model} ${resolution} ${sound}`);
-		}
-	}
-	for (const [model, duration, sound, credits] of perRequest) {
-		for (const [index, resolution] of resolutions.entries()) {
-			const price = credits[index];
-			const params = model === 'pixverse-v5' ? { resolution, duration } : { resolution, duration, sound };
-			assert.deepEqual(await estimate(model, params), price === undefined ? undefined : dollars(price / 225), `${model} ${duration} s ${resolution} ${sound}`);
-		}
-	}
-	// "V6 Fusion with video_references uses twice the standard V6 rate": the list's V6 video reference rows.
-	const videoReference = [[10, 14, 18, 36], [14, 18, 24, 46]];
-	for (const [row, sound] of [false, true].entries()) {
-		for (const [index, resolution] of resolutions.entries()) {
-			const answer = value(await providers.check(generation('https://app-api.pixverse.ai', 'pixverse-v6', 'reference', { resolution, sound }, { videos: [CLIPS[0]] }))).estimate;
-			assert.deepEqual(answer, dollars(videoReference[row][index] * 6 / 225), `video reference ${resolution} ${sound}`);
-		}
 	}
 });

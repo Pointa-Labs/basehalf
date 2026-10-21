@@ -9,9 +9,9 @@ import { localize } from '../../../../nls.js';
 /**
  * The model catalog as the window receives it from the AI Video extension,
  * and the payloads of the provider commands (D59, video providers and the
- * model catalog). The window draws the panel, the settings, the Video
- * Providers page, and the estimate from this catalog; nothing here names a
- * provider or a model. The extension mirrors these types in
+ * model catalog). The window draws the panel, the settings, and the Video
+ * Providers page from this catalog; nothing here names a provider or a
+ * model. The extension mirrors these types in
  * `extensions/basehalf-ai-video/src/providers/types.ts`; the two must stay
  * the same.
  *
@@ -23,8 +23,6 @@ import { localize } from '../../../../nls.js';
  */
 
 // --- The catalog ------------------------------------------------------------------------------
-
-export type BaseHalfVideoCurrency = 'CNY' | 'USD';
 
 /** How a mode uses the node's inputs (video providers, "Modes and inputs"). */
 export type BaseHalfVideoModeId = 'frames' | 'reference' | 'extend' | 'edit';
@@ -41,7 +39,6 @@ export interface IBaseHalfVideoCatalogRegion {
 	readonly id: string;
 	readonly label: string;
 	readonly baseUrl: string;
-	readonly currency: BaseHalfVideoCurrency;
 	/** Where the user gets credentials for this region. */
 	readonly console?: string;
 }
@@ -75,8 +72,6 @@ export interface IBaseHalfVideoCatalogModel {
 	/** At least one. The first is the default. */
 	readonly modes: readonly IBaseHalfVideoCatalogMode[];
 	readonly parameters: readonly BaseHalfVideoCatalogParameter[];
-	/** Whether `check` answers an estimate for this model. */
-	readonly estimate: boolean;
 	/** Listed only for nodes that already use it. */
 	readonly deprecated?: boolean;
 }
@@ -237,19 +232,9 @@ export interface IBaseHalfVideoCheckRequest {
 	readonly inputs: IBaseHalfVideoPlannedMedia;
 }
 
-export interface IBaseHalfVideoEstimate {
-	readonly currency: BaseHalfVideoCurrency;
-	readonly min: number;
-	/** Equal to `min` for a single amount. */
-	readonly max: number;
-	/** The date of the provider's price list, `YYYY-MM-DD`. */
-	readonly priceDate: string;
-}
-
 export interface IBaseHalfVideoCheckResult {
 	/** Plain sentences, the first being what blocks the generation. Empty when it can run. */
 	readonly problems: readonly string[];
-	readonly estimate?: IBaseHalfVideoEstimate;
 	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
 	readonly providerModel?: string;
 }
@@ -672,29 +657,6 @@ function summaryPart(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVi
 	}
 }
 
-/**
- * The estimate as the panel shows it: `≈ ¥7.56` for one amount, `¥3.00–¥9.00`
- * for a range, in the region's currency.
- */
-export function formatBaseHalfVideoEstimate(estimate: IBaseHalfVideoEstimate): string {
-	// Cents, half up: 7.555 is a little less than 7.555 in binary.
-	const amount = (value: number) => `${estimate.currency === 'CNY' ? '¥' : '$'}${groupThousands((Math.round(value * 100 + 1e-6) / 100).toFixed(2))}`;
-	return estimate.max > estimate.min
-		? `${amount(estimate.min)}–${amount(estimate.max)}`
-		: `≈ ${amount(estimate.min)}`;
-}
-
-/** What the estimate's tooltip says: where it comes from, and that the provider's bill counts. */
-export function baseHalfVideoEstimateTooltip(estimate: IBaseHalfVideoEstimate, providerLabel: string): string {
-	return localize('basehalf.video.catalog.estimateTooltip', "An estimate from the prices {0} published on {1}. What {0} bills is what counts.", providerLabel, estimate.priceDate);
-}
-
-function groupThousands(fixed: string): string {
-	const [whole, fraction] = fixed.split('.');
-	const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-	return fraction !== undefined ? `${grouped}.${fraction}` : grouped;
-}
-
 // --- Inputs ----------------------------------------------------------------------------------------
 
 export type BaseHalfVideoInputKind = 'image' | 'video' | 'audio' | 'text' | 'other';
@@ -994,9 +956,9 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
  * The catalog as `basehalf --list-capabilities` gives it to agents (video
  * node specification, "Agents"): each provider with whether it is set up, its
  * regions and the one in use, and each model with the regions that offer it,
- * its prompt rule, its modes with their slots and limits, its parameters,
- * whether it has an estimate, and whether it is deprecated. It holds no
- * credential, endpoint, or id sent to a provider.
+ * its prompt rule, its modes with their slots and limits, its parameters, and
+ * whether it is deprecated. It holds no credential, endpoint, or id sent to a
+ * provider.
  */
 export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup): readonly Readonly<Record<string, unknown>>[] {
 	return Object.freeze(catalog.providers.map(provider => {
@@ -1006,7 +968,7 @@ export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, se
 			label: provider.label,
 			setUp: status.setUp,
 			region: status.region.id,
-			regions: provider.regions.map(region => ({ id: region.id, label: region.label, currency: region.currency })),
+			regions: provider.regions.map(region => ({ id: region.id, label: region.label })),
 			models: provider.models.map(model => ({
 				id: model.id,
 				label: model.label,
@@ -1015,7 +977,6 @@ export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, se
 				prompt: { required: model.prompt.required, maxLength: model.prompt.maxLength },
 				modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits, ...(mode.regions ? { regions: mode.regions } : {}) })),
 				parameters: model.parameters,
-				estimate: model.estimate,
 				...(model.deprecated ? { deprecated: true } : {})
 			}))
 		});
@@ -1064,11 +1025,9 @@ export function parseBaseHalfVideoCheckResult(value: unknown): IBaseHalfVideoChe
 	if (!isRecord(value) || !Array.isArray(value.problems) || !value.problems.every(problem => typeof problem === 'string')) {
 		return undefined;
 	}
-	const estimate = parseEstimate(value.estimate);
 	const providerModel = typeof value.providerModel === 'string' && /^\S{1,256}$/.test(value.providerModel) ? value.providerModel : undefined;
 	return Object.freeze({
 		problems: Object.freeze(value.problems.map(problem => plainText(problem, 1000)).filter(problem => problem.length > 0)),
-		...(estimate ? { estimate } : {}),
 		...(providerModel ? { providerModel } : {})
 	});
 }
@@ -1129,15 +1088,11 @@ function parseRegion(value: unknown, path: string): IBaseHalfVideoCatalogRegion 
 	if (!isWebUrl(baseUrl)) {
 		throw new Error(`${path}.baseUrl must be an http or https URL.`);
 	}
-	if (record.currency !== 'CNY' && record.currency !== 'USD') {
-		throw new Error(`${path}.currency must be CNY or USD.`);
-	}
 	const console = record.console === undefined ? undefined : requireText(record.console, `${path}.console`);
 	return Object.freeze({
 		id,
 		label: requireText(record.label, `${path}.label`),
 		baseUrl,
-		currency: record.currency,
 		...(console !== undefined && isWebUrl(console) ? { console } : {})
 	});
 }
@@ -1198,7 +1153,6 @@ function parseModel(value: unknown, path: string, problems: string[]): IBaseHalf
 			prompt: Object.freeze({ required: prompt.required, maxLength: prompt.maxLength as number }),
 			modes: Object.freeze(modes),
 			parameters: Object.freeze(parameters),
-			estimate: record.estimate === true,
 			...(record.deprecated === true ? { deprecated: true } : {})
 		});
 	} catch (error) {
@@ -1352,15 +1306,6 @@ function parseParameter(value: unknown, path: string): BaseHalfVideoCatalogParam
 		default:
 			throw new Error(`${path}.kind must be choice, integer, number, boolean, or text.`);
 	}
-}
-
-function parseEstimate(value: unknown): IBaseHalfVideoEstimate | undefined {
-	if (!isRecord(value) || (value.currency !== 'CNY' && value.currency !== 'USD')
-		|| typeof value.min !== 'number' || typeof value.max !== 'number' || !Number.isFinite(value.min) || !Number.isFinite(value.max)
-		|| value.min < 0 || value.max < value.min || typeof value.priceDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.priceDate)) {
-		return undefined;
-	}
-	return Object.freeze({ currency: value.currency, min: value.min, max: value.max, priceDate: value.priceDate });
 }
 
 function requireRecord(value: unknown, path: string): Record<string, unknown> {

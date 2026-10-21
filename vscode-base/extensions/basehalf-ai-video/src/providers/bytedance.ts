@@ -3,17 +3,17 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, measureItems } from './check.ts';
+import { countsOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, CountSlot, Estimate, Params, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, CountSlot, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * ByteDance's Seedance models on Volcengine Ark (China) and BytePlus
  * ModelArk (international), which serve the same task API at two base URLs
- * with their own keys, model ids, and prices (video providers, "ByteDance
+ * with their own keys and model ids (video providers, "ByteDance
  * (Seedance)"). Images and audio travel as data URLs; reference videos are
  * not offered, since the API takes them only as public URLs or asset ids.
  */
@@ -29,7 +29,7 @@ const MODEL_TEXTS: Readonly<Record<string, { readonly label: string; readonly de
 	'seedance-2.5': { label: 'Seedance 2.5', description: 'Up to 30 seconds with sound, from a prompt, frames, or up to 30 images and 10 audio clips.' },
 	'seedance-2.0': { label: 'Seedance 2.0', description: 'Up to 15 seconds with sound and up to 4K, from a prompt, frames, or up to 9 images and 3 audio clips.' },
 	'seedance-2.0-fast': { label: 'Seedance 2.0 Fast', description: 'A faster Seedance 2.0 at 480p and 720p.' },
-	'seedance-2.0-mini': { label: 'Seedance 2.0 Mini', description: 'The lowest-cost Seedance 2.0, at 480p and 720p.' },
+	'seedance-2.0-mini': { label: 'Seedance 2.0 Mini', description: 'Seedance 2.0 at 480p and 720p, up to 15 seconds with sound.' },
 	'seedance-1.5-pro': { label: 'Seedance 1.5 Pro', description: 'Up to 12 seconds with sound, from a prompt or frames. BytePlus is retiring it for Seedance 2.0 Mini.' },
 	'seedance-1.0-pro': { label: 'Seedance 1.0 Pro', description: 'Up to 12 seconds without sound, from a prompt or frames. Volcengine Ark is retiring it.' },
 	'seedance-1.0-pro-fast': { label: 'Seedance 1.0 Pro Fast', description: 'A faster Seedance 1.0 Pro, from a prompt or a start frame. Volcengine Ark is retiring it.' }
@@ -46,7 +46,7 @@ const TEXT = Object.freeze({
 		ratioTooltip: 'The shape of the video. Adaptive follows the start frame, or lets the model choose from the prompt.',
 		adaptive: 'Adaptive',
 		duration: 'Duration',
-		durationTooltip: 'Seconds of video. Auto lets the model choose; the price is then a range.',
+		durationTooltip: 'Seconds of video. Auto lets the model choose.',
 		auto: 'Auto',
 		sound: 'Sound',
 		soundTooltip: 'Voices, effects, and music made with the video.',
@@ -76,44 +76,7 @@ const TEXT = Object.freeze({
 
 // --- the models --------------------------------------------------------------------------------
 
-/** Output sizes by resolution, in the order of {@link RATIOS}, from the create pages. */
-type SizeTable = Readonly<Partial<Record<Resolution, readonly (readonly [number, number])[]>>>;
-
 const RATIOS = Object.freeze(['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] as const);
-
-const SIZES_720P: readonly (readonly [number, number])[] = [[1280, 720], [1112, 834], [960, 960], [834, 1112], [720, 1280], [1470, 630]];
-const SIZES_1080P: readonly (readonly [number, number])[] = [[1920, 1080], [1664, 1248], [1440, 1440], [1248, 1664], [1080, 1920], [2206, 946]];
-
-const SIZES_2_5: SizeTable = {
-	'480p': [[854, 480], [752, 560], [640, 640], [560, 752], [480, 854], [992, 432]],
-	'720p': SIZES_720P,
-	'1080p': SIZES_1080P
-};
-
-/** Seedance 2.0, 2.0 Fast, 2.0 Mini, and 1.5 Pro. */
-const SIZES_2_0: SizeTable = {
-	'480p': [[864, 496], [752, 560], [640, 640], [560, 752], [496, 864], [992, 432]],
-	'720p': SIZES_720P,
-	'1080p': SIZES_1080P,
-	'4k': [[3840, 2160], [3326, 2494], [2880, 2880], [2494, 3326], [2160, 3840], [4398, 1886]]
-};
-
-const SIZES_1_0: SizeTable = {
-	'480p': [[864, 480], [736, 544], [640, 640], [544, 736], [480, 864], [960, 416]],
-	'720p': [[1248, 704], [1120, 832], [960, 960], [832, 1120], [704, 1248], [1504, 640]],
-	'1080p': [[1920, 1088], [1664, 1248], [1440, 1440], [1248, 1664], [1088, 1920], [2176, 928]]
-};
-
-/** Price per million tokens by resolution, for output without an input video; `silent` when sound changes it. */
-interface PriceTable {
-	readonly perMillion: Readonly<Partial<Record<Resolution, number>>>;
-	readonly silent?: Readonly<Partial<Record<Resolution, number>>>;
-}
-
-/** The dates of the price lists the prices below were read from. */
-const PRICE_DATES: Readonly<Record<RegionId, string>> = Object.freeze({ cn: '2026-10-17', intl: '2026-10-18' });
-
-const VIDEO_FPS = 24;
 
 interface Seedance {
 	readonly id: string;
@@ -126,13 +89,11 @@ interface Seedance {
 	readonly seedAndCamera: boolean;
 	readonly endFrame: boolean;
 	readonly references?: { readonly images: CountSlot; readonly audios: CountSlot; readonly audioSeconds: readonly [number, number]; readonly audioTotalSeconds: number };
-	readonly sizes: SizeTable;
 	readonly defaultRatio: 'adaptive' | '16:9';
 	/** Seedance 2.5 keeps the start frame's ratio: the start frame sets it, and Adaptive is sent. */
 	readonly startFrameSetsRatio: boolean;
 	/** Seedance 1.0 takes Adaptive only with a start frame. */
 	readonly adaptiveNeedsStartFrame: boolean;
-	readonly prices: Readonly<Partial<Record<RegionId, PriceTable>>>;
 	readonly deprecated?: boolean;
 }
 
@@ -149,14 +110,9 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		seedAndCamera: false,
 		endFrame: true,
 		references: { images: { min: 0, max: 30 }, audios: { min: 0, max: 10 }, audioSeconds: [2, 30], audioTotalSeconds: 30 },
-		sizes: SIZES_2_5,
 		defaultRatio: 'adaptive',
 		startFrameSetsRatio: true,
-		adaptiveNeedsStartFrame: false,
-		prices: {
-			cn: { perMillion: { '480p': 70, '720p': 70, '1080p': 77 } },
-			intl: { perMillion: { '480p': 10.7, '720p': 10.7, '1080p': 11.7 } }
-		}
+		adaptiveNeedsStartFrame: false
 	},
 	{
 		id: 'seedance-2.0',
@@ -168,14 +124,9 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		seedAndCamera: false,
 		endFrame: true,
 		references: SEEDANCE_2_REFERENCES,
-		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
 		startFrameSetsRatio: false,
-		adaptiveNeedsStartFrame: false,
-		prices: {
-			cn: { perMillion: { '480p': 46, '720p': 46, '1080p': 51, '4k': 26 } },
-			intl: { perMillion: { '480p': 7, '720p': 7, '1080p': 7.7, '4k': 4 } }
-		}
+		adaptiveNeedsStartFrame: false
 	},
 	{
 		id: 'seedance-2.0-fast',
@@ -187,14 +138,9 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		seedAndCamera: false,
 		endFrame: true,
 		references: SEEDANCE_2_REFERENCES,
-		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
 		startFrameSetsRatio: false,
-		adaptiveNeedsStartFrame: false,
-		prices: {
-			cn: { perMillion: { '480p': 37, '720p': 37 } },
-			intl: { perMillion: { '480p': 5.6, '720p': 5.6 } }
-		}
+		adaptiveNeedsStartFrame: false
 	},
 	{
 		id: 'seedance-2.0-mini',
@@ -206,14 +152,9 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		seedAndCamera: false,
 		endFrame: true,
 		references: SEEDANCE_2_REFERENCES,
-		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
 		startFrameSetsRatio: false,
-		adaptiveNeedsStartFrame: false,
-		prices: {
-			cn: { perMillion: { '480p': 23, '720p': 23 } },
-			intl: { perMillion: { '480p': 3.5, '720p': 3.5 } }
-		}
+		adaptiveNeedsStartFrame: false
 	},
 	{
 		id: 'seedance-1.5-pro',
@@ -224,13 +165,9 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		sound: true,
 		seedAndCamera: true,
 		endFrame: true,
-		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
 		startFrameSetsRatio: false,
 		adaptiveNeedsStartFrame: false,
-		prices: {
-			intl: { perMillion: { '480p': 2.4, '720p': 2.4, '1080p': 2.4 }, silent: { '480p': 1.2, '720p': 1.2, '1080p': 1.2 } }
-		},
 		deprecated: true
 	},
 	{
@@ -242,14 +179,9 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		sound: false,
 		seedAndCamera: true,
 		endFrame: true,
-		sizes: SIZES_1_0,
 		defaultRatio: '16:9',
 		startFrameSetsRatio: false,
-		adaptiveNeedsStartFrame: true,
-		prices: {
-			cn: { perMillion: { '480p': 15, '720p': 15, '1080p': 15 } },
-			intl: { perMillion: { '480p': 2.5, '720p': 2.5, '1080p': 2.5 } }
-		}
+		adaptiveNeedsStartFrame: true
 	},
 	{
 		id: 'seedance-1.0-pro-fast',
@@ -260,14 +192,9 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		sound: false,
 		seedAndCamera: true,
 		endFrame: false,
-		sizes: SIZES_1_0,
 		defaultRatio: '16:9',
 		startFrameSetsRatio: false,
-		adaptiveNeedsStartFrame: true,
-		prices: {
-			cn: { perMillion: { '480p': 4.2, '720p': 4.2, '1080p': 4.2 } },
-			intl: { perMillion: { '480p': 1, '720p': 1, '1080p': 1 } }
-		}
+		adaptiveNeedsStartFrame: true
 	}
 ] satisfies Seedance[]);
 
@@ -363,7 +290,6 @@ function catalogModel(model: Seedance): CatalogModel {
 		prompt: { required: 'withoutMedia', maxLength: PROMPT_MAX_LENGTH },
 		modes: modesOf(model),
 		parameters: parametersOf(model),
-		estimate: true,
 		...(model.deprecated ? { deprecated: true } : {})
 	};
 }
@@ -372,14 +298,14 @@ const ENTRY: CatalogProvider = Object.freeze<CatalogProvider>({
 	id: 'bytedance',
 	label: TEXT.provider,
 	regions: [
-		{ id: 'cn', label: TEXT.regions.cn, baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', currency: 'CNY', console: 'https://ark.volcengine.com/region:cn-beijing/apiKey' },
-		{ id: 'intl', label: TEXT.regions.intl, baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3', currency: 'USD', console: 'https://ai.byteplus.com/ark/region:ap-southeast-1/apiKey' }
+		{ id: 'cn', label: TEXT.regions.cn, baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', console: 'https://ark.volcengine.com/region:cn-beijing/apiKey' },
+		{ id: 'intl', label: TEXT.regions.intl, baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3', console: 'https://ai.byteplus.com/ark/region:ap-southeast-1/apiKey' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
 	models: SEEDANCE.map(catalogModel)
 });
 
-// --- rules and estimates -----------------------------------------------------------------------
+// --- rules -------------------------------------------------------------------------------------
 
 /** The API's settings written as text after the prompt, which would override the panel's. */
 const TEXT_SETTING = /(?:^|\s)(--(?:rs|resolution|rt|ratio|dur|duration|fps|framespersecond|frames|seed|cf|camerafixed|camera_fixed|wm|watermark))(?=[\s=]|$)/i;
@@ -393,32 +319,6 @@ function modelOf(id: string): Seedance {
 		throw rejected(`ByteDance has no model "${id}".`);
 	}
 	return model;
-}
-
-/** Tokens of a video: seconds × width × height × frames per second / 1024 (the pricing pages' formula). */
-export function seedanceTokens(seconds: number, width: number, height: number): number {
-	return seconds * width * height * VIDEO_FPS / 1024;
-}
-
-/** The price of a generation from the price list of the region, a range when the provider chooses the length or the ratio. */
-export function seedanceEstimate(modelId: string, region: string, params: Params): Estimate | undefined {
-	const model = MODELS.get(modelId);
-	const table = model?.prices[region as RegionId];
-	if (!model || !table) {
-		return undefined;
-	}
-	const resolution = params.resolution as Resolution;
-	const rate = (params.sound === false && table.silent ? table.silent : table.perMillion)[resolution];
-	const sizes = model.sizes[resolution];
-	if (rate === undefined || !sizes) {
-		return undefined;
-	}
-	const ratioIndex = RATIOS.indexOf(params.ratio as typeof RATIOS[number]);
-	const pixels = (ratioIndex >= 0 ? [sizes[ratioIndex]] : sizes).map(([width, height]) => width * height);
-	const duration = Number(params.duration);
-	const [shortest, longest] = duration === -1 ? [model.duration.min, model.duration.max] : [duration, duration];
-	const price = (seconds: number, area: number) => seedanceTokens(seconds, area, 1) * rate / 1_000_000;
-	return estimateOf(region === 'cn' ? 'CNY' : 'USD', price(shortest, Math.min(...pixels)), price(longest, Math.max(...pixels)), PRICE_DATES[region as RegionId]);
 }
 
 async function check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
@@ -446,8 +346,7 @@ async function check(request: CheckRequest, media: MediaInspector): Promise<Chec
 	if (size > REQUEST_MAX_BYTES) {
 		problems.push(TEXT.requestTooLarge((size / 1_000_000).toFixed(1)));
 	}
-	const estimate = seedanceEstimate(model.id, request.region, request.params);
-	return estimate ? { problems, estimate } : { problems };
+	return { problems };
 }
 
 // --- requests ----------------------------------------------------------------------------------

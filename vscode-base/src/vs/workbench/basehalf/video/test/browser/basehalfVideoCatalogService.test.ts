@@ -121,7 +121,7 @@ suite('BaseHalfVideoCatalogService', () => {
 		const seen: IBaseHalfVideoCheckRequest[] = [];
 		commands.check = checked => {
 			seen.push(checked);
-			return { ok: true, value: { problems: ['The start frame is smaller than 300 pixels.'], estimate: { currency: 'CNY', min: 1.2, max: 1.2, priceDate: '2026-10-18' } } };
+			return { ok: true, value: { problems: ['The start frame is smaller than 300 pixels.'] } };
 		};
 		const answered = await service.check(request);
 		commands.check = () => ({ ok: false, error: { code: 'unknownProvider', message: 'No such provider.' } });
@@ -129,7 +129,7 @@ suite('BaseHalfVideoCatalogService', () => {
 		commands.check = () => { throw new Error('Extension host terminated.'); };
 		const crashed = await service.check(request);
 		assert.deepStrictEqual({ answered, refused, crashed, seen }, {
-			answered: { problems: ['The start frame is smaller than 300 pixels.'], estimate: { currency: 'CNY', min: 1.2, max: 1.2, priceDate: '2026-10-18' } },
+			answered: { problems: ['The start frame is smaller than 300 pixels.'] },
 			refused: undefined,
 			crashed: undefined,
 			seen: [request]

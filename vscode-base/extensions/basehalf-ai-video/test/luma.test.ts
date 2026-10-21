@@ -21,7 +21,7 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { LUMA } from '../src/providers/luma.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogParameter, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import type { CatalogParameter, PlannedMedia } from '../src/providers/types.ts';
 import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-luma-'));
@@ -46,17 +46,10 @@ const GUIDE = file('guide.png', png(400, 300), 'image/png');
 const CLIP = file('clip.mp4', isoMedia(8), 'video/mp4');
 const MOV_CLIP = file('clip.mov', isoMedia(4, { brand: 'qt  ' }), 'video/quicktime');
 const LONG_CLIP = file('long.mp4', isoMedia(20), 'video/mp4');
-const CLIP_3S = file('three.mp4', isoMedia(3), 'video/mp4');
-/** An MP4 whose length AI Video cannot read. */
-const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
-const CLIP_5S = file('five.mp4', isoMedia(5), 'video/mp4');
-const CLIP_7_5S = file('seven-and-a-half.mp4', isoMedia(7.5), 'video/mp4');
-const CLIP_10S = file('ten.mp4', isoMedia(10), 'video/mp4');
 const DRAWN = `data:image/png;base64,${png(320, 180).toString('base64')}`;
 
 const KEY = 'luma-api-local-test-0001';
 const PROMPT = 'A paper boat drifts down a rainy street.';
-const PRICE_DATE = '2026-10-19';
 const MiB = 1024 * 1024;
 
 function base64(media: FileMedia): string {
@@ -193,17 +186,16 @@ test('the catalog declares Luma with one region, one API key, and Ray 3.2 with i
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'luma',
 		label: 'Luma',
-		regions: [{ id: 'global', label: 'Luma Agents API', baseUrl: 'https://agents.lumalabs.ai/v1', currency: 'USD', console: 'https://platform.lumalabs.ai' }],
+		regions: [{ id: 'global', label: 'Luma Agents API', baseUrl: 'https://agents.lumalabs.ai/v1', console: 'https://platform.lumalabs.ai' }],
 		credentials: [{ id: 'apiKey', label: 'API Key', placeholder: 'luma-api-…' }]
 	});
 	assert.equal(provider.models.length, 1);
 	const model = provider.models[0];
-	assert.deepEqual({ id: model.id, label: model.label, providerModels: model.providerModels, prompt: model.prompt, estimate: model.estimate, deprecated: model.deprecated }, {
+	assert.deepEqual({ id: model.id, label: model.label, providerModels: model.providerModels, prompt: model.prompt, deprecated: model.deprecated }, {
 		id: 'ray-3.2',
 		label: 'Ray 3.2',
 		providerModels: { global: 'ray-3.2' },
 		prompt: { required: 'always', maxLength: 6000 },
-		estimate: true,
 		deprecated: undefined
 	});
 	const none = { min: 0, max: 0 };
@@ -852,74 +844,5 @@ test('check takes WebP, refuses GIF, a clip too long, and requests larger than A
 		});
 	} finally {
 		await luma.close();
-	}
-});
-
-// --- estimates ----------------------------------------------------------------------------------
-
-test('estimates follow the price list: three combinations of each mode, and the range of an edit', async () => {
-	const providers = commands();
-	const planned = async (mode: 'frames', params: Record<string, unknown>, inputs = plannedFiles()) =>
-		value(await providers.check({ provider: 'luma', region: 'global', model: 'ray-3.2', mode, params, prompt: PROMPT, inputs })).estimate;
-	const withClip = async (clip: FileMedia, params: Record<string, unknown>) =>
-		value(await providers.check(generation('https://agents.lumalabs.ai/v1', 'edit', params, { source: clip }))).estimate;
-	const usd = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
-	assert.deepEqual({
-		// Frames with Luma's defaults, 720p and 5 seconds: the 5-second total, $0.30.
-		framesDefaults: await planned('frames', {}),
-		// Two frames at 1080p for 10 seconds: the 10-second total, $3.60.
-		frames1080p10s: await planned('frames', { resolution: '1080p', duration: 10 }, plannedFiles({ startFrame: true, endFrame: true })),
-		// HDR at 1080p, always 5 seconds: $2.40.
-		framesHdr: await planned('frames', { resolution: '1080p', hdr: true }),
-		// 360p, 10 seconds, looping or not: $0.18.
-		frames360p10s: await planned('frames', { resolution: '360p', duration: 10 }),
-		// Edit at 720p of a 7.5-second clip: r = $2.16 / 10 s = $0.216/s; 7.5 s × $0.216 = $1.62,
-		// up to two 5-second blocks, 10 s × $0.216 = $2.16.
-		edit720p: await withClip(CLIP_7_5S, {}),
-		// Edit in HDR at 1080p of a 10-second clip: r = $8.64 / 10 s = $0.864/s; 10 s × $0.864 = $8.64, a whole number of blocks.
-		edit1080pHdr: await withClip(CLIP_10S, { resolution: '1080p', hdr: true, strength: 'adhere_1' }),
-		// Edit at 360p of a 3-second clip: r = $1.08 / 10 s = $0.108/s; 3 s × $0.108 = $0.324, up to one block, 5 s × $0.108 = $0.54.
-		edit360p: await withClip(CLIP_3S, { resolution: '360p' }),
-		// Edit at 540p of a clip whose length cannot be read: r = $1.44 / 10 s = $0.144/s; from 0.1 s × $0.144 = $0.0144
-		// to 18 s, four 5-second blocks, 20 s × $0.144 = $2.88.
-		edit540pUnreadable: await withClip(UNREADABLE, { resolution: '540p' }),
-		// HDR at 540p and HDR for 10 seconds have no price; a rule refuses them.
-		noPriceHdr540p: await planned('frames', { resolution: '540p', hdr: true }),
-		noPriceHdr10s: await planned('frames', { resolution: '720p', hdr: true, duration: 10 })
-	}, {
-		framesDefaults: usd(0.3),
-		frames1080p10s: usd(3.6),
-		framesHdr: usd(2.4),
-		frames360p10s: usd(0.18),
-		edit720p: usd(1.62, 2.16),
-		edit1080pHdr: usd(8.64),
-		edit360p: usd(0.324, 0.54),
-		edit540pUnreadable: usd(0.0144, 2.88),
-		noPriceHdr540p: undefined,
-		noPriceHdr10s: undefined
-	});
-});
-
-test('every price of the list: the generation totals by resolution and length, and the edit totals of 5- and 10-second clips', async () => {
-	// guides/pricing as read on 2026-10-19.
-	const generations: readonly [string, Record<string, unknown>, number][] = [
-		['360p', { duration: 5 }, 0.06], ['360p', { duration: 10 }, 0.18],
-		['540p', { duration: 5 }, 0.15], ['540p', { duration: 10 }, 0.45],
-		['720p', { duration: 5 }, 0.3], ['720p', { duration: 10 }, 0.9], ['720p', { hdr: true }, 0.6],
-		['1080p', { duration: 5 }, 1.2], ['1080p', { duration: 10 }, 3.6], ['1080p', { hdr: true }, 2.4]
-	];
-	const edits: readonly [string, boolean, number, number][] = [
-		['360p', false, 0.54, 1.08], ['540p', false, 0.72, 1.44], ['720p', false, 1.08, 2.16], ['1080p', false, 2.16, 4.32],
-		['360p', true, 1.08, 2.16], ['540p', true, 1.44, 2.88], ['720p', true, 2.16, 4.32], ['1080p', true, 4.32, 8.64]
-	];
-	const providers = commands();
-	const usd = (amount: number): Estimate => ({ currency: 'USD', min: amount, max: amount, priceDate: PRICE_DATE });
-	for (const [resolution, params, total] of generations) {
-		const estimate = value(await providers.check({ provider: 'luma', region: 'global', model: 'ray-3.2', mode: 'frames', params: { resolution, ...params }, prompt: PROMPT, inputs: plannedFiles() })).estimate;
-		assert.deepEqual(estimate, usd(total), `frames ${resolution} ${JSON.stringify(params)}`);
-	}
-	for (const [resolution, hdr, fiveSeconds, tenSeconds] of edits) {
-		const estimate = async (clip: FileMedia) => value(await providers.check(generation('https://agents.lumalabs.ai/v1', 'edit', { resolution, hdr }, { source: clip }))).estimate;
-		assert.deepEqual([await estimate(CLIP_5S), await estimate(CLIP_10S)], [usd(fiveSeconds), usd(tenSeconds)], `edit ${resolution} ${hdr ? 'HDR' : 'standard'}`);
 	}
 });

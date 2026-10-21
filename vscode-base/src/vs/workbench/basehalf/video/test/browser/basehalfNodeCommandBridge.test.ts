@@ -223,6 +223,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 			providers: videoProviders.map(provider => `${provider.id} ${provider.setUp ? 'set up' : 'not set up'} in ${provider.region}: ${provider.models.map((model: Record<string, any>) => `${model.id} [${model.regions.join(' ')}] ${model.modes.map((mode: Record<string, unknown>) => mode.id).join('/')}`).join(', ')}`),
 			parameters: videoProviders[0].models[0].parameters.map((parameter: Record<string, unknown>) => parameter.name),
 			secretFree: !/apiKey"?\s*:|baseUrl|endpoint|providerModels|console/.test(JSON.stringify(response.host?.videoCatalog)),
+			priceFree: !/"(estimate|currency|price)"\s*:/.test(JSON.stringify(response.host?.videoCatalog)),
 			example: (response.host?.nodeDocument.authoring.examples as Record<string, any>).configured.generation,
 			error: response.host?.videoCatalog.error
 		}, {
@@ -232,6 +233,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 			],
 			parameters: ['resolution', 'ratio', 'duration', 'sound', 'seed', 'negative_prompt'],
 			secretFree: true,
+			priceFree: true,
 			example: { provider: 'borealis', model: 'borealis-one', mode: 'frames', params: { strength: 0.5, caption: '' } },
 			error: undefined
 		});

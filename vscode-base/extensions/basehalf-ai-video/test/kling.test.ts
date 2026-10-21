@@ -18,7 +18,7 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { KLING } from '../src/providers/kling.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogModel, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import type { CatalogModel, PlannedMedia } from '../src/providers/types.ts';
 import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, sendJson, startServer, value, webpHeader, type Received } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-kling-'));
@@ -47,7 +47,6 @@ const GIF = file('moving.gif', gifHeader(640, 360), 'image/gif');
 
 const KEY = 'kling-test-key-0001';
 const PROMPT = 'A paper boat drifts down a rainy street.';
-const PRICE_DATE = '2026-10-19';
 
 function base64(media: FileMedia): string {
 	return readFileSync(media.fsPath).toString('base64');
@@ -109,8 +108,8 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 		id: 'kling',
 		label: 'Kling',
 		regions: [
-			{ id: 'cn', label: 'China', baseUrl: 'https://api-beijing.klingai.com', currency: 'CNY', console: 'https://klingai.com/dev/api-key' },
-			{ id: 'intl', label: 'International', baseUrl: 'https://api-singapore.klingai.com', currency: 'USD', console: 'https://kling.ai/dev/api-key' }
+			{ id: 'cn', label: 'China', baseUrl: 'https://api-beijing.klingai.com', console: 'https://klingai.com/dev/api-key' },
+			{ id: 'intl', label: 'International', baseUrl: 'https://api-singapore.klingai.com', console: 'https://kling.ai/dev/api-key' }
 		],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
@@ -124,15 +123,14 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 		sentAs: model.providerModels,
 		prompt: model.prompt,
 		modes: model.modes.map(mode => [mode.id, mode.label, mode.inputs.startFrame, mode.inputs.endFrame, mode.inputs.images.min, mode.inputs.images.max]),
-		estimate: model.estimate,
 		deprecated: model.deprecated
 	})), [
-		{ id: 'kling-3.0-turbo', label: 'Kling 3.0 Turbo', sentAs: sentAs('kling-3.0-turbo'), prompt: { required: 'withoutMedia', maxLength: 3072 }, modes: [frames('none')], estimate: true, deprecated: undefined },
-		{ id: 'kling-3.0', label: 'Kling 3.0', sentAs: sentAs('kling-3.0'), prompt: { required: 'withoutMedia', maxLength: 3072 }, modes: [frames('optional')], estimate: true, deprecated: undefined },
-		{ id: 'kling-3.0-omni', label: 'Kling 3.0 Omni', sentAs: sentAs('kling-3.0-omni'), prompt: { required: 'withoutMedia', maxLength: 3072 }, modes: [frames('optional'), references], estimate: true, deprecated: undefined },
-		{ id: 'kling-o1', label: 'Kling O1', sentAs: sentAs('kling-o1'), prompt: { required: 'withoutMedia', maxLength: 2500 }, modes: [frames('optional'), references], estimate: true, deprecated: undefined },
-		{ id: 'kling-2.6', label: 'Kling 2.6', sentAs: sentAs('kling-2.6'), prompt: { required: 'withoutMedia', maxLength: 2500 }, modes: [frames('optional')], estimate: true, deprecated: undefined },
-		{ id: 'kling-2.5-turbo', label: 'Kling 2.5 Turbo', sentAs: sentAs('kling-2.5-turbo'), prompt: { required: 'withoutMedia', maxLength: 2500 }, modes: [frames('optional')], estimate: true, deprecated: undefined }
+		{ id: 'kling-3.0-turbo', label: 'Kling 3.0 Turbo', sentAs: sentAs('kling-3.0-turbo'), prompt: { required: 'withoutMedia', maxLength: 3072 }, modes: [frames('none')], deprecated: undefined },
+		{ id: 'kling-3.0', label: 'Kling 3.0', sentAs: sentAs('kling-3.0'), prompt: { required: 'withoutMedia', maxLength: 3072 }, modes: [frames('optional')], deprecated: undefined },
+		{ id: 'kling-3.0-omni', label: 'Kling 3.0 Omni', sentAs: sentAs('kling-3.0-omni'), prompt: { required: 'withoutMedia', maxLength: 3072 }, modes: [frames('optional'), references], deprecated: undefined },
+		{ id: 'kling-o1', label: 'Kling O1', sentAs: sentAs('kling-o1'), prompt: { required: 'withoutMedia', maxLength: 2500 }, modes: [frames('optional'), references], deprecated: undefined },
+		{ id: 'kling-2.6', label: 'Kling 2.6', sentAs: sentAs('kling-2.6'), prompt: { required: 'withoutMedia', maxLength: 2500 }, modes: [frames('optional')], deprecated: undefined },
+		{ id: 'kling-2.5-turbo', label: 'Kling 2.5 Turbo', sentAs: sentAs('kling-2.5-turbo'), prompt: { required: 'withoutMedia', maxLength: 2500 }, modes: [frames('optional')], deprecated: undefined }
 	]);
 
 	// Every mode takes images only, within Kling's limits.
@@ -578,79 +576,5 @@ test('check refuses WebP and GIF images and a request larger than AI Video sends
 		});
 	} finally {
 		await server.close();
-	}
-});
-
-// --- estimates ----------------------------------------------------------------------------------
-
-test('estimates follow the price list: three combinations in each region', async () => {
-	const providers = commands();
-	const estimate = async (region: string, model: string, mode: 'frames' | 'reference', params: Record<string, unknown>, inputs = plannedFiles()) =>
-		value(await providers.check({ provider: 'kling', region, model, mode, params, prompt: PROMPT, inputs })).estimate;
-	const amount = (currency: 'CNY' | 'USD', money: number): Estimate => ({ currency, min: money, max: money, priceDate: PRICE_DATE });
-	assert.deepEqual({
-		// China, 1 unit = ¥1. Kling 3.0 at 1080p with sound: 1.2 units/s × 10 s × ¥1 = ¥12.
-		cnSound: await estimate('cn', 'kling-3.0', 'frames', { resolution: '1080p', duration: 10, sound: true }),
-		// Kling 2.5 Turbo with its defaults, 720p and 5 s: 0.3 units/s × 5 s × ¥1 = ¥1.50.
-		cnDefaults: await estimate('cn', 'kling-2.5-turbo', 'frames', {}),
-		// Kling 3.0 Omni from two references at 4K with sound: 3.0 units/s × 15 s × ¥1 = ¥45.
-		cn4k: await estimate('cn', 'kling-3.0-omni', 'reference', { resolution: '4k', duration: 15, sound: true }, plannedFiles({ images: 2 })),
-		// International, 1 unit = $0.14. Kling 3.0 Turbo at 1080p, always with sound: 1.0 unit/s × 7 s × $0.14 = $0.98.
-		intlTurbo: await estimate('intl', 'kling-3.0-turbo', 'frames', { resolution: '1080p', duration: 7 }),
-		// Kling O1 from three references at 720p: 0.6 units/s × 3 s × $0.14 = $0.252.
-		intlO1: await estimate('intl', 'kling-o1', 'reference', { duration: 3 }, plannedFiles({ images: 3 })),
-		// Kling 2.6 at 1080p with sound: 1.0 unit/s × 10 s × $0.14 = $1.40.
-		intlSound: await estimate('intl', 'kling-2.6', 'frames', { resolution: '1080p', duration: 10, sound: true }),
-		// Kling 2.6 has no price for sound at 720p, which a rule refuses.
-		noPrice: await estimate('cn', 'kling-2.6', 'frames', { sound: true })
-	}, {
-		cnSound: amount('CNY', 12),
-		cnDefaults: amount('CNY', 1.5),
-		cn4k: amount('CNY', 45),
-		intlTurbo: amount('USD', 0.98),
-		intlO1: amount('USD', 0.252),
-		intlSound: amount('USD', 1.4),
-		noPrice: undefined
-	});
-});
-
-test('every price of the list is its units at ¥1 in China and its listed dollars internationally', async () => {
-	// pricing/base/video as read on 2026-10-19: the settings, the units per second, and the dollars per second of the international page.
-	const rows: readonly [string, Record<string, unknown>, number, number][] = [
-		['kling-3.0-turbo', { resolution: '720p' }, 0.8, 0.112],
-		['kling-3.0-turbo', { resolution: '1080p' }, 1.0, 0.14],
-		['kling-3.0', { resolution: '720p' }, 0.6, 0.084],
-		['kling-3.0', { resolution: '1080p' }, 0.8, 0.112],
-		['kling-3.0', { resolution: '4k' }, 3.0, 0.42],
-		['kling-3.0', { resolution: '720p', sound: true }, 0.9, 0.126],
-		['kling-3.0', { resolution: '1080p', sound: true }, 1.2, 0.168],
-		['kling-3.0', { resolution: '4k', sound: true }, 3.0, 0.42],
-		['kling-3.0-omni', { resolution: '720p' }, 0.6, 0.084],
-		['kling-3.0-omni', { resolution: '1080p' }, 0.8, 0.112],
-		['kling-3.0-omni', { resolution: '4k' }, 3.0, 0.42],
-		['kling-3.0-omni', { resolution: '720p', sound: true }, 0.8, 0.112],
-		['kling-3.0-omni', { resolution: '1080p', sound: true }, 1.0, 0.14],
-		['kling-3.0-omni', { resolution: '4k', sound: true }, 3.0, 0.42],
-		['kling-o1', { resolution: '720p' }, 0.6, 0.084],
-		['kling-o1', { resolution: '1080p' }, 0.8, 0.112],
-		['kling-2.6', { resolution: '720p' }, 0.3, 0.042],
-		['kling-2.6', { resolution: '1080p' }, 0.5, 0.07],
-		['kling-2.6', { resolution: '1080p', sound: true }, 1.0, 0.14],
-		['kling-2.5-turbo', { resolution: '720p' }, 0.3, 0.042],
-		['kling-2.5-turbo', { resolution: '1080p' }, 0.5, 0.07]
-	];
-	const providers = commands();
-	const tenSeconds = async (region: string, model: string, params: Record<string, unknown>) =>
-		value(await providers.check({ provider: 'kling', region, model, mode: 'frames', params: { ...params, duration: 10 }, prompt: PROMPT, inputs: plannedFiles() })).estimate;
-	const round = (money: number) => Math.round(money * 1e6) / 1e6;
-	for (const [model, params, units, dollars] of rows) {
-		assert.deepEqual(
-			[await tenSeconds('cn', model, params), await tenSeconds('intl', model, params)],
-			[
-				{ currency: 'CNY', min: round(units * 10), max: round(units * 10), priceDate: PRICE_DATE },
-				{ currency: 'USD', min: round(dollars * 10), max: round(dollars * 10), priceDate: PRICE_DATE }
-			],
-			`${model} ${JSON.stringify(params)}`
-		);
 	}
 });

@@ -97,8 +97,8 @@ export function testProvider(): CatalogProvider {
 		id: 'testprovider',
 		label: 'Test Provider',
 		regions: [
-			{ id: 'home', label: 'Home', baseUrl: 'https://api.example.com/v1', currency: 'USD' },
-			{ id: 'away', label: 'Away', baseUrl: 'https://api.example.cn/v1', currency: 'CNY' }
+			{ id: 'home', label: 'Home', baseUrl: 'https://api.example.com/v1' },
+			{ id: 'away', label: 'Away', baseUrl: 'https://api.example.cn/v1' }
 		],
 		credentials: [{ id: 'apiKey', label: 'API Key' }],
 		models: [
@@ -126,8 +126,7 @@ export function testProvider(): CatalogProvider {
 					{ name: 'duration', label: 'Duration', kind: 'integer', unit: 'seconds', min: 4, max: 12, step: 1, default: 5, auto: { value: -1, label: 'Auto' } },
 					{ name: 'ratio', label: 'Ratio', kind: 'choice', display: 'ratio', options: [{ value: '16:9', label: '16:9' }, { value: '9:16', label: '9:16' }], default: '16:9', modes: ['reference'] },
 					{ name: 'seed', label: 'Seed', kind: 'integer', min: 0, max: 100, step: 1, optional: true, advanced: true }
-				],
-				estimate: true
+				]
 			},
 			{
 				id: 'clip-away',
@@ -135,8 +134,7 @@ export function testProvider(): CatalogProvider {
 				providerModels: { away: 'clip-away' },
 				prompt: { required: 'always', maxLength: 100 },
 				modes: [{ id: 'frames', label: 'Frames', inputs: { startFrame: 'optional', endFrame: 'none', images: { min: 0, max: 0 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} }],
-				parameters: [],
-				estimate: false
+				parameters: []
 			}
 		]
 	};
@@ -149,8 +147,7 @@ export function testModule(overrides: Partial<ProviderModule> = {}): ProviderMod
 		headers: credentials => ({ Authorization: `Bearer ${credentials.apiKey}` }),
 		async check(request) {
 			return {
-				problems: request.params.duration === 12 && request.params.resolution === '720p' ? ['720p allows 10 seconds at most.'] : [],
-				estimate: { currency: request.region === 'away' ? 'CNY' : 'USD', min: 1, max: 1, priceDate: '2026-10-18' }
+				problems: request.params.duration === 12 && request.params.resolution === '720p' ? ['720p allows 10 seconds at most.'] : []
 			};
 		},
 		async submit(_request, http) {

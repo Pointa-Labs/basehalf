@@ -86,6 +86,8 @@ export const VIDEO_END_IMAGE = `${VIDEO_FOLDER}/end.png`;
 const VIDEO_PROMPT = 'A cyclist rides along the sea at dusk, the camera follows slowly';
 // The prompt once `@` has typed the name of the end frame into it.
 const VIDEO_PROMPT_WITH_NAME = `${VIDEO_PROMPT} Image 2`;
+// What the provider module of VIDEO_PROVIDER says of a prompt that sets the resolution itself.
+const VIDEO_PROMPT_FLAG_PROBLEM = 'The prompt sets --rs; choose it in the settings instead, so that what the panel shows is sent.';
 // The test provider makes a video in this long; Generate first asks 3 s after the task is made.
 const VIDEO_PROVIDER_DURATION_MS = 2_000;
 // The relay holds each create request this long, so the node's file is read while it is `submitting`.
@@ -98,7 +100,7 @@ const videoSmoke = { provider: undefined, model: undefined, summary: undefined, 
 
 // --- The Video node (D58, D59, docs/specs/video-node.md) -------------------------------------
 //
-// Acceptance criteria 2, 4, 6 to 17, 19, 20, and 22, and the two frames of 3,
+// Acceptance criteria 2, 4, 6 to 17, 19, and 20, and the two frames of 3,
 // through the window and against the local test provider with its test key,
 // reached through the provider module of VIDEO_PROVIDER; no paid provider is
 // called. The steps run in order, each where the one before ended.
@@ -229,14 +231,14 @@ async function assertVideoProvidersSetUp(page) {
 	await assertCanvasFolder(page, VIDEO_FOLDER);
 }
 
-// Criteria 7, 11, 12, and 22, and the model menu of 24: the model menu lists
-// the catalog's models by provider, says that the provider is not set up, and
+// Criteria 7, 11, and 12, and the model menu of 24: the model menu lists the
+// catalog's models by provider, says that the provider is not set up, and
 // ends with the way to Video Providers; opened by a click, it has no current
 // item and no ring; choosing the first model of VIDEO_PROVIDER stores it with
 // its mode and the defaults of its values, and leaves no ring on the model
 // button; Generate names the provider that is not set up; the settings
 // popover is drawn from the model's parameters, and a change is shown and
-// stored at once; the estimate shows before the credentials are set.
+// stored at once.
 async function assertVideoPanelModelAndSettings(page) {
 	const panel = await selectVideoCard(page, VIDEO_NODE);
 	await panel.locator('button.bh-video-panel-model').click();
@@ -269,11 +271,6 @@ async function assertVideoPanelModelAndSettings(page) {
 	// The reason shows above the footer too, with Set Up.
 	if (blocked.reason?.text !== blocked.generate.label || blocked.reason?.action !== 'Set Up') {
 		throw new Error(`The panel must say why Generate cannot run, with Set Up: ${JSON.stringify(blocked)}`);
-	}
-	// The estimate is asked for without the credentials.
-	const estimated = await waitForReading(() => readVideoPanel(panel), seen => seen.estimate !== null, 'the estimate to show beside Generate', 15_000);
-	if (!/^(≈ [¥$][\d,]+\.\d\d|[¥$][\d,]+\.\d\d–[¥$][\d,]+\.\d\d)$/.test(estimated.estimate.text) || !/What .+ bills is what counts\.$/.test(estimated.estimate.label ?? '')) {
-		throw new Error(`The estimate must show a price in the region's currency, with its source: ${JSON.stringify(estimated.estimate)}`);
 	}
 
 	let settings = await openVideoSettings(panel);
@@ -348,11 +345,12 @@ async function assertVideoProviderKeyStaysSecret(page) {
 	}
 }
 
-// Criteria 3, 4, 13: an image connected with Pick on Canvas and one connected
-// by a drawn line are the start and end frames, in upstream order; the swap
-// arrow exchanges their two entries and nothing else, in one undo step; `@`
-// lists the inputs by name and types the chosen one; a name of no input is
-// underlined.
+// Criteria 3, 4, 13, and the last blocker of 12: an image connected with Pick
+// on Canvas and one connected by a drawn line are the start and end frames, in
+// upstream order; the swap arrow exchanges their two entries and nothing else,
+// in one undo step; `@` lists the inputs by name and types the chosen one; a
+// name of no input is underlined; a problem that the provider module reports
+// for the prompt blocks Generate and shows above the footer until it is gone.
 async function assertVideoPanelInputsAndNames(page) {
 	let panel = await selectVideoCard(page, VIDEO_NODE);
 	const empty = await readVideoPanel(panel);
@@ -421,6 +419,18 @@ async function assertVideoPanelInputsAndNames(page) {
 		await page.keyboard.press('Backspace');
 	}
 	await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to end with the name of Image 2 again');
+
+	// The panel asks the provider module about the prompt as it changes.
+	await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === false, 'Generate to be enabled with the provider set up and both frames connected');
+	await page.keyboard.type(' --rs');
+	const flagged = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.label === VIDEO_PROMPT_FLAG_PROBLEM, 'the provider module\'s problem with --rs in the prompt to name Generate');
+	if (!flagged.generate.disabled || flagged.reason?.text !== VIDEO_PROMPT_FLAG_PROBLEM || flagged.reason.action !== null) {
+		throw new Error(`A problem the provider module reports must disable Generate and show above the footer, with no action: ${JSON.stringify(flagged)}`);
+	}
+	for (let index = 0; index < ' --rs'.length; index++) {
+		await page.keyboard.press('Backspace');
+	}
+	await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME && seen.generate?.disabled === false && seen.reason === null, 'Generate to be enabled again once the prompt no longer sets --rs');
 	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt with the name to be saved', 10_000);
 }
 

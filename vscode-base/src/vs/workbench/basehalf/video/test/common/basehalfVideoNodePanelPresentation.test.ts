@@ -348,16 +348,12 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		assert.deepStrictEqual([states.ready.generate.title, states.video.generate.title], [`Generate (${key})`, `Generate a new video in a new node beside this one (${key})`]);
 	});
 
-	test('asks check about what would be sent, without the inputs that the panel adds with their files, and shows its estimate in the region\'s currency', () => {
-		const estimate = { currency: 'CNY' as const, min: 7.555, max: 7.555, priceDate: '2026-10-18' };
-		const presentation = present({ check: { problems: [], estimate } });
-		const range = present({ check: { problems: [], estimate: { ...estimate, currency: 'USD', min: 3, max: 9 } } });
-		const notOffered = present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' }, check: { problems: [], estimate } });
+	test('asks check about what would be sent, without the inputs that the panel adds with their files', () => {
+		const presentation = present({ check: { problems: [] } });
+		const notOffered = present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' }, check: { problems: [] } });
 		assert.deepStrictEqual({
 			request: presentation.checkRequest,
-			estimate: presentation.estimate,
-			range: range.estimate?.text,
-			notOffered: [notOffered.checkRequest, notOffered.estimate],
+			notOffered: notOffered.checkRequest,
 			// The check is asked also before the provider is set up.
 			notSetUp: present({ generation: { provider: 'borealis', model: 'borealis-one' } }).checkRequest?.region
 		}, {
@@ -369,9 +365,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				params: { resolution: '720p', duration: 5, sound: true },
 				prompt: 'A slow push in.\n\nThe sea at dusk.'
 			},
-			estimate: { text: '≈ ¥7.56', tooltip: 'An estimate from the prices Acme Video published on 2026-10-18. What Acme Video bills is what counts.' },
-			range: '$3.00–$9.00',
-			notOffered: [undefined, undefined],
+			notOffered: undefined,
 			notSetUp: 'main'
 		});
 	});

@@ -16,7 +16,7 @@ import {
  * it, for the window's tests. The window knows no real provider or model, so
  * its tests do not either.
  *
- * - Acme Video (`acme`): regions `east` (CNY) and `west` (USD), one API key.
+ * - Acme Video (`acme`): regions `east` and `west`, one API key.
  *   - Acme Motion 2: frames (start and end) and references (4 images, 1 video,
  *     1 audio); resolution, a ratio for references only, duration 4 to 12 s
  *     with Auto, sound, and an advanced seed and negative prompt; both regions.
@@ -60,8 +60,7 @@ export const ACME_MOTION: IBaseHalfVideoCatalogModel = {
 		{ name: 'sound', label: 'Sound', kind: 'boolean', default: true },
 		{ name: 'seed', label: 'Seed', kind: 'integer', min: 0, max: 2147483647, step: 1, optional: true, advanced: true },
 		{ name: 'negative_prompt', label: 'Negative Prompt', kind: 'text', maxLength: 500, optional: true, advanced: true }
-	],
-	estimate: true
+	]
 };
 
 export const ACME_STILL: IBaseHalfVideoCatalogModel = {
@@ -73,8 +72,7 @@ export const ACME_STILL: IBaseHalfVideoCatalogModel = {
 	parameters: [
 		{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '720p', label: '720P' }, { value: '1080p', label: '1080P' }], default: '1080p' },
 		{ name: 'duration', label: 'Duration', kind: 'integer', unit: 'seconds', min: 5, max: 10, step: 5, default: 5 }
-	],
-	estimate: false
+	]
 };
 
 export const ACME_CLIP: IBaseHalfVideoCatalogModel = {
@@ -89,8 +87,7 @@ export const ACME_CLIP: IBaseHalfVideoCatalogModel = {
 	parameters: [
 		{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '720p', label: '720p' }], default: '720p' },
 		{ name: 'start', label: 'Start', kind: 'number', unit: 'seconds', min: 0, max: 20, step: 0.1, optional: true, modes: ['edit'], advanced: true }
-	],
-	estimate: true
+	]
 };
 
 export const ACME_LEGACY: IBaseHalfVideoCatalogModel = {
@@ -100,7 +97,6 @@ export const ACME_LEGACY: IBaseHalfVideoCatalogModel = {
 	prompt: { required: 'always', maxLength: 1000 },
 	modes: [FRAMES],
 	parameters: [],
-	estimate: false,
 	deprecated: true
 };
 
@@ -108,8 +104,8 @@ export const ACME: IBaseHalfVideoCatalogProvider = {
 	id: 'acme',
 	label: 'Acme Video',
 	regions: [
-		{ id: 'east', label: 'East · Acme Cloud', baseUrl: 'https://east.acme.example/api/v1', currency: 'CNY', console: 'https://console.acme.example/east' },
-		{ id: 'west', label: 'West · Acme Global', baseUrl: 'https://west.acme.example/api/v1', currency: 'USD', console: 'https://console.acme.example/west' }
+		{ id: 'east', label: 'East · Acme Cloud', baseUrl: 'https://east.acme.example/api/v1', console: 'https://console.acme.example/east' },
+		{ id: 'west', label: 'West · Acme Global', baseUrl: 'https://west.acme.example/api/v1', console: 'https://console.acme.example/west' }
 	],
 	credentials: [{ id: 'apiKey', label: 'API Key', placeholder: 'acme-…' }],
 	models: [ACME_MOTION, ACME_STILL, ACME_CLIP, ACME_LEGACY]
@@ -128,14 +124,13 @@ export const BOREALIS_ONE: IBaseHalfVideoCatalogModel = {
 		},
 		{ name: 'strength', label: 'Strength', kind: 'number', min: 0, max: 1, step: 0.1, default: 0.5 },
 		{ name: 'caption', label: 'Caption', kind: 'text', maxLength: 80 }
-	],
-	estimate: true
+	]
 };
 
 export const BOREALIS: IBaseHalfVideoCatalogProvider = {
 	id: 'borealis',
 	label: 'Borealis Media',
-	regions: [{ id: 'main', label: 'Borealis', baseUrl: 'https://api.borealis.example', currency: 'USD' }],
+	regions: [{ id: 'main', label: 'Borealis', baseUrl: 'https://api.borealis.example' }],
 	credentials: [{ id: 'accessKey', label: 'Access Key' }, { id: 'secretKey', label: 'Secret Key' }],
 	models: [BOREALIS_ONE]
 };

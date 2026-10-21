@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describeBytes, plannedItems, type MediaFacts, type MediaInspector, type PlannedItem } from './media.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, Currency, Estimate, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from './types.ts';
 
 /**
  * What every model is checked against before anything is sent, from its
@@ -326,12 +326,4 @@ export function cachingInspector(inspector: MediaInspector): MediaInspector {
 			return facts;
 		}
 	};
-}
-
-// --- estimates ----------------------------------------------------------------------------------
-
-/** An estimate in the region's currency, rounded to millionths. */
-export function estimateOf(currency: Currency, min: number, max: number, priceDate: string): Estimate {
-	const round = (value: number) => Math.round(value * 1e6) / 1e6;
-	return { currency, min: round(Math.min(min, max)), max: round(Math.max(min, max)), priceDate };
 }

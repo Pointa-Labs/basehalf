@@ -21,12 +21,11 @@ import zlib from 'node:zlib';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/providers/commands.ts';
 import { LTX } from '../src/providers/ltx.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogModel, Estimate, Media } from '../src/providers/types.ts';
+import type { CatalogModel, Media } from '../src/providers/types.ts';
 import { error, isoMedia, jpegHeader, mp3, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav, type Received, type TestServer } from './providerTestKit.ts';
 
 const KEY = 'ltx-local-test-key-0001';
 const PROMPT = 'A lighthouse keeper climbs the stairs as the beam sweeps the water.';
-const PRICE_DATE = '2026-10-19';
 const MIB = 1024 * 1024;
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-ltx-'));
@@ -219,7 +218,7 @@ test('the catalog declares LTX with one region, one API key, and four models wit
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'ltx',
 		label: 'LTX',
-		regions: [{ id: 'global', label: 'LTX API', baseUrl: 'https://api.ltx.io', currency: 'USD', console: 'https://console.ltx.io' }],
+		regions: [{ id: 'global', label: 'LTX API', baseUrl: 'https://api.ltx.io', console: 'https://console.ltx.io' }],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
 	assert.deepEqual(provider.models.map(model => ({
@@ -228,13 +227,12 @@ test('the catalog declares LTX with one region, one API key, and four models wit
 		sentAs: model.providerModels,
 		prompt: model.prompt,
 		modes: model.modes.map(mode => `${mode.id} ${mode.label}`),
-		estimate: model.estimate,
 		deprecated: model.deprecated
 	})), [
-		{ id: 'ltx-2-5-fast', label: 'LTX-2.5 Fast', sentAs: { global: 'ltx-2-5-fast' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames', 'reference References'], estimate: true, deprecated: undefined },
-		{ id: 'ltx-2-5-pro', label: 'LTX-2.5 Pro', sentAs: { global: 'ltx-2-5-pro' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames', 'reference References'], estimate: true, deprecated: undefined },
-		{ id: 'ltx-2-3-fast', label: 'LTX-2.3 Fast', sentAs: { global: 'ltx-2-3-fast' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames'], estimate: true, deprecated: undefined },
-		{ id: 'ltx-2-3-pro', label: 'LTX-2.3 Pro', sentAs: { global: 'ltx-2-3-pro' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames', 'reference References', 'edit Edit', 'extend Extend'], estimate: true, deprecated: undefined }
+		{ id: 'ltx-2-5-fast', label: 'LTX-2.5 Fast', sentAs: { global: 'ltx-2-5-fast' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames', 'reference References'], deprecated: undefined },
+		{ id: 'ltx-2-5-pro', label: 'LTX-2.5 Pro', sentAs: { global: 'ltx-2-5-pro' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames', 'reference References'], deprecated: undefined },
+		{ id: 'ltx-2-3-fast', label: 'LTX-2.3 Fast', sentAs: { global: 'ltx-2-3-fast' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames'], deprecated: undefined },
+		{ id: 'ltx-2-3-pro', label: 'LTX-2.3 Pro', sentAs: { global: 'ltx-2-3-pro' }, prompt: { required: 'withoutMedia', maxLength: 5000 }, modes: ['frames Frames', 'reference References', 'edit Edit', 'extend Extend'], deprecated: undefined }
 	]);
 
 	const none = { min: 0, max: 0 };
@@ -898,104 +896,51 @@ test('check refuses clips and audio LTX does not take; submit refuses PCM audio 
 	}
 });
 
-// --- estimates ----------------------------------------------------------------------------------
-
-test('estimates follow the price list: three or more combinations of each endpoint, with ranges where LTX measures the length', async () => {
+test('check refuses audio or a clip whose length cannot be read, and nothing else in three or more combinations of each mode', async () => {
 	const providers = commands();
-	// A file whose length cannot be read is refused, and the estimate spans what LTX may bill for it.
-	const estimate = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: Inputs, problems: readonly string[] = []): Promise<Estimate | undefined> => {
-		const result = value(await providers.check(checkRequest(model, mode, params, inputs)));
-		assert.deepEqual(result.problems, problems, `${model} ${mode} ${JSON.stringify(params)}`);
-		return result.estimate;
-	};
-	const usd = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
+	const problems = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: Inputs) =>
+		value(await providers.check(checkRequest(model, mode, params, inputs))).problems;
+	const unreadableAudio = ['Reference audio 1 unreadable.mp3 is not audio whose length AI Video can read (WAV, MP3, or M4A).'];
+	const unreadableClip = ['The source video unreadable.mp4 is not an MP4 or MOV video whose length AI Video can read.'];
 	assert.deepEqual({
-		// Text and image to video bill the generated video.
-		// LTX-2.5 Pro at 4K, 8 seconds: $0.39/s × 8 s = $3.12.
-		proAt4k: await estimate('ltx-2-5-pro', 'frames', { resolution: '4k', duration: 8 }, plannedFiles()),
-		// LTX-2.3 Fast with its defaults, 1080p and 6 seconds: $0.06/s × 6 s = $0.36.
-		fastDefaults: await estimate('ltx-2-3-fast', 'frames', {}, plannedFiles()),
-		// LTX-2.3 Pro from a start frame at 720p, 10 seconds: $0.04/s × 10 s = $0.40.
-		proFromFrame: await estimate('ltx-2-3-pro', 'frames', { resolution: '720p', duration: 10 }, plannedFiles({ startFrame: true })),
-		// LTX-2.5 Fast at 1440p and 3:2, 10 seconds: $0.19/s × 10 s = $1.90.
-		fastAt1440p: await estimate('ltx-2-5-fast', 'frames', { resolution: '2k', ratio: '3:2', duration: 10 }, plannedFiles()),
-		// Auto on LTX-2.5 Fast at 1080p and 24 fps: 6 s × $0.13 = $0.78 to 20 s × $0.13 = $2.60.
-		fastAuto: await estimate('ltx-2-5-fast', 'frames', { duration: -1 }, plannedFiles()),
-		// Auto at 48 fps, where the longest is 10 seconds: $0.78 to 10 s × $0.13 = $1.30.
-		fastAutoAt48: await estimate('ltx-2-5-fast', 'frames', { duration: -1, fps: 48 }, plannedFiles()),
-		// Audio to video bills the input audio.
-		// LTX-2.3 Pro with a measured 3-second M4A at 1080p: $0.10/s × 3 s = $0.30.
-		audioMeasured: await estimate('ltx-2-3-pro', 'reference', {}, { audios: [audio(VOICE)] }),
-		// LTX-2.5 Fast at 1080p with audio whose length cannot be read: $0 to 20 s × $0.13 = $2.60.
-		audioUnreadable: await estimate('ltx-2-5-fast', 'reference', {}, { audios: [audio(UNREADABLE_AUDIO)] }, ['Reference audio 1 unreadable.mp3 is not audio whose length AI Video can read (WAV, MP3, or M4A).']),
-		// LTX-2.5 Pro at 4K, the same: $0 to 10 s × $0.39 = $3.90.
-		audioProAt4k: await estimate('ltx-2-5-pro', 'reference', { resolution: '4k' }, { images: [image(START)], audios: [audio(UNREADABLE_AUDIO)] }, ['Reference audio 1 unreadable.mp3 is not audio whose length AI Video can read (WAV, MP3, or M4A).']),
-		// LTX-2.3 Pro at 1440p, where audio is at most 10 seconds: $0 to 10 s × $0.18 = $1.80.
-		audioAt1440p: await estimate('ltx-2-3-pro', 'reference', { resolution: '2k' }, { audios: [audio(UNREADABLE_AUDIO)] }, ['Reference audio 1 unreadable.mp3 is not audio whose length AI Video can read (WAV, MP3, or M4A).']),
-		// Retake bills the whole input clip.
-		// A 4-second MP4: $0.10/s × 4 s = $0.40.
-		retakeClip: await estimate('ltx-2-3-pro', 'edit', {}, { source: video(CLIP) }),
-		// A 6-second MOV, a short section of it: $0.10/s × 6 s = $0.60.
-		retakeMovie: await estimate('ltx-2-3-pro', 'edit', { start_time: 1, retake_duration: 2 }, { source: video(TAKE) }),
-		// A clip whose length cannot be read: LTX states no longest clip, so there is no estimate.
-		retakeUnreadable: await estimate('ltx-2-3-pro', 'edit', {}, { source: video(UNREADABLE_CLIP) }, ['The source video unreadable.mp4 is not an MP4 or MOV video whose length AI Video can read.']),
-		// Extend bills the extension and the context LTX uses.
-		// 5 seconds without a Context, of a clip whose length cannot be read: 5 s × $0.10 = $0.50 to (5 + 20) s × $0.10 = $2.50.
-		extendUnreadable: await estimate('ltx-2-3-pro', 'extend', {}, { source: video(UNREADABLE_CLIP) }, ['The source video unreadable.mp4 is not an MP4 or MOV video whose length AI Video can read.']),
-		// 5 seconds without a Context, with a 4-second clip: $0.50 to (5 + 4) s × $0.10 = $0.90.
-		extendClip: await estimate('ltx-2-3-pro', 'extend', {}, { source: video(CLIP) }),
-		// 12 seconds with a Context of 8, from a 4-second clip: (12 + 4) s × $0.10 = $1.60.
-		extendContextClip: await estimate('ltx-2-3-pro', 'extend', { extend_duration: 12, context: 8 }, { source: video(CLIP) }),
-		// 12 seconds with a Context of 8, of a clip whose length cannot be read: 12 s × $0.10 = $1.20 to (12 + 8) s × $0.10 = $2.00.
-		extendContextUnreadable: await estimate('ltx-2-3-pro', 'extend', { extend_duration: 12, context: 8 }, { source: video(UNREADABLE_CLIP) }, ['The source video unreadable.mp4 is not an MP4 or MOV video whose length AI Video can read.'])
+		// Text and image to video.
+		proAt4k: await problems('ltx-2-5-pro', 'frames', { resolution: '4k', duration: 8 }, plannedFiles()),
+		fastDefaults: await problems('ltx-2-3-fast', 'frames', {}, plannedFiles()),
+		proFromFrame: await problems('ltx-2-3-pro', 'frames', { resolution: '720p', duration: 10 }, plannedFiles({ startFrame: true })),
+		fastAt1440p: await problems('ltx-2-5-fast', 'frames', { resolution: '2k', ratio: '3:2', duration: 10 }, plannedFiles()),
+		fastAuto: await problems('ltx-2-5-fast', 'frames', { duration: -1 }, plannedFiles()),
+		fastAutoAt48: await problems('ltx-2-5-fast', 'frames', { duration: -1, fps: 48 }, plannedFiles()),
+		// Audio to video.
+		audioMeasured: await problems('ltx-2-3-pro', 'reference', {}, { audios: [audio(VOICE)] }),
+		audioUnreadable: await problems('ltx-2-5-fast', 'reference', {}, { audios: [audio(UNREADABLE_AUDIO)] }),
+		audioProAt4k: await problems('ltx-2-5-pro', 'reference', { resolution: '4k' }, { images: [image(START)], audios: [audio(UNREADABLE_AUDIO)] }),
+		audioAt1440p: await problems('ltx-2-3-pro', 'reference', { resolution: '2k' }, { audios: [audio(UNREADABLE_AUDIO)] }),
+		// Retake.
+		retakeClip: await problems('ltx-2-3-pro', 'edit', {}, { source: video(CLIP) }),
+		retakeMovie: await problems('ltx-2-3-pro', 'edit', { start_time: 1, retake_duration: 2 }, { source: video(TAKE) }),
+		retakeUnreadable: await problems('ltx-2-3-pro', 'edit', {}, { source: video(UNREADABLE_CLIP) }),
+		// Extend, without and with a Context.
+		extendUnreadable: await problems('ltx-2-3-pro', 'extend', {}, { source: video(UNREADABLE_CLIP) }),
+		extendClip: await problems('ltx-2-3-pro', 'extend', {}, { source: video(CLIP) }),
+		extendContextClip: await problems('ltx-2-3-pro', 'extend', { extend_duration: 12, context: 8 }, { source: video(CLIP) }),
+		extendContextUnreadable: await problems('ltx-2-3-pro', 'extend', { extend_duration: 12, context: 8 }, { source: video(UNREADABLE_CLIP) })
 	}, {
-		proAt4k: usd(3.12),
-		fastDefaults: usd(0.36),
-		proFromFrame: usd(0.4),
-		fastAt1440p: usd(1.9),
-		fastAuto: usd(0.78, 2.6),
-		fastAutoAt48: usd(0.78, 1.3),
-		audioMeasured: usd(0.3),
-		audioUnreadable: usd(0, 2.6),
-		audioProAt4k: usd(0, 3.9),
-		audioAt1440p: usd(0, 1.8),
-		retakeClip: usd(0.4),
-		retakeMovie: usd(0.6),
-		retakeUnreadable: undefined,
-		extendUnreadable: usd(0.5, 2.5),
-		extendClip: usd(0.5, 0.9),
-		extendContextClip: usd(1.6),
-		extendContextUnreadable: usd(1.2, 2)
+		proAt4k: [],
+		fastDefaults: [],
+		proFromFrame: [],
+		fastAt1440p: [],
+		fastAuto: [],
+		fastAutoAt48: [],
+		audioMeasured: [],
+		audioUnreadable: unreadableAudio,
+		audioProAt4k: unreadableAudio,
+		audioAt1440p: unreadableAudio,
+		retakeClip: [],
+		retakeMovie: [],
+		retakeUnreadable: unreadableClip,
+		extendUnreadable: unreadableClip,
+		extendClip: [],
+		extendContextClip: [],
+		extendContextUnreadable: unreadableClip
 	});
-});
-
-test('every price of the list is used as listed: per second of video, and per second of audio', async () => {
-	// pricing, as read on 2026-10-19: US dollars per second at 720p, 1080p, 1440p, and 4K.
-	const videoPrices: readonly [string, readonly number[]][] = [
-		['ltx-2-5-fast', [0.09, 0.13, 0.19, 0.30]],
-		['ltx-2-5-pro', [0.12, 0.17, 0.25, 0.39]],
-		['ltx-2-3-fast', [0.03, 0.06, 0.12, 0.24]],
-		['ltx-2-3-pro', [0.04, 0.08, 0.16, 0.32]]
-	];
-	const audioPrices: readonly [string, readonly number[]][] = [
-		['ltx-2-5-fast', [0.09, 0.13, 0.19, 0.30]],
-		['ltx-2-5-pro', [0.12, 0.17, 0.25, 0.39]],
-		['ltx-2-3-pro', [0.06, 0.10, 0.18, 0.34]]
-	];
-	const resolutions = ['720p', '1080p', '2k', '4k'];
-	const providers = commands();
-	const round = (money: number) => Math.round(money * 1e6) / 1e6;
-	for (const [model, prices] of videoPrices) {
-		for (const [index, resolution] of resolutions.entries()) {
-			const result = value(await providers.check(checkRequest(model, 'frames', { resolution, duration: 10 }, plannedFiles())));
-			assert.deepEqual(result.estimate, { currency: 'USD', min: round(prices[index] * 10), max: round(prices[index] * 10), priceDate: PRICE_DATE }, `${model} ${resolution}`);
-		}
-	}
-	for (const [model, prices] of audioPrices) {
-		for (const [index, resolution] of resolutions.entries()) {
-			// The 3-second M4A at every resolution.
-			const result = value(await providers.check(checkRequest(model, 'reference', { resolution }, { audios: [audio(VOICE)] })));
-			assert.deepEqual(result.estimate, { currency: 'USD', min: round(prices[index] * 3), max: round(prices[index] * 3), priceDate: PRICE_DATE }, `${model} ${resolution} audio`);
-		}
-	}
 });

@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, type PlannedCounts } from './check.ts';
+import { countsOf, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, describeBytes, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
@@ -15,8 +15,6 @@ import type {
 	CatalogProvider,
 	CheckRequest,
 	CheckResult,
-	Currency,
-	Estimate,
 	ImageFormat,
 	Params,
 	ParamValue,
@@ -81,12 +79,6 @@ const LABELS = Object.freeze({
 
 // --- the models ---------------------------------------------------------------------------------
 
-/** Units per generated second at one resolution, without and with sound. */
-interface UnitsPerSecond {
-	readonly silent?: number;
-	readonly sound?: number;
-}
-
 interface KlingModel {
 	/** The catalog id, which is also the id Kling takes in the path, in both regions. */
 	readonly id: KlingModelId;
@@ -107,57 +99,40 @@ interface KlingModel {
 	readonly soundOnlyAt1080p?: boolean;
 	readonly endFrameOnlyAt1080p?: boolean;
 	readonly endFrameOnlySilent?: boolean;
-	/** The price list, by resolution. */
-	readonly units: Readonly<Partial<Record<Resolution, UnitsPerSecond>>>;
 }
 
 const MODELS: readonly KlingModel[] = Object.freeze([
 	{
 		id: 'kling-3.0-turbo', api: 'split', endFrame: false, references: false,
 		resolutions: ['720p', '1080p'], duration: { min: 3, max: 15, step: 1 }, sound: 'always',
-		promptMaxLength: 3072, promptMaxLengthWithFrame: 2500,
-		units: { '720p': { sound: 0.8 }, '1080p': { sound: 1.0 } }
+		promptMaxLength: 3072, promptMaxLengthWithFrame: 2500
 	},
 	{
 		id: 'kling-3.0', api: 'split', endFrame: true, references: false,
 		resolutions: ['720p', '1080p', '4k'], duration: { min: 3, max: 15, step: 1 }, sound: 'setting',
-		promptMaxLength: 3072,
-		units: { '720p': { silent: 0.6, sound: 0.9 }, '1080p': { silent: 0.8, sound: 1.2 }, '4k': { silent: 3.0, sound: 3.0 } }
+		promptMaxLength: 3072
 	},
 	{
 		id: 'kling-3.0-omni', api: 'omni', endFrame: true, references: true,
 		resolutions: ['720p', '1080p', '4k'], duration: { min: 3, max: 15, step: 1 }, sound: 'setting',
-		promptMaxLength: 3072,
-		units: { '720p': { silent: 0.6, sound: 0.8 }, '1080p': { silent: 0.8, sound: 1.0 }, '4k': { silent: 3.0, sound: 3.0 } }
+		promptMaxLength: 3072
 	},
 	{
 		id: 'kling-o1', api: 'omni', endFrame: true, references: true,
 		resolutions: ['720p', '1080p'], duration: { min: 3, max: 10, step: 1 }, sound: 'never',
-		promptMaxLength: 2500, framesDurations: [5, 10],
-		units: { '720p': { silent: 0.6 }, '1080p': { silent: 0.8 } }
+		promptMaxLength: 2500, framesDurations: [5, 10]
 	},
 	{
 		id: 'kling-2.6', api: 'split', endFrame: true, references: false,
 		resolutions: ['720p', '1080p'], duration: { min: 5, max: 10, step: 5 }, sound: 'setting',
-		promptMaxLength: 2500, soundOnlyAt1080p: true, endFrameOnlyAt1080p: true, endFrameOnlySilent: true,
-		units: { '720p': { silent: 0.3 }, '1080p': { silent: 0.5, sound: 1.0 } }
+		promptMaxLength: 2500, soundOnlyAt1080p: true, endFrameOnlyAt1080p: true, endFrameOnlySilent: true
 	},
 	{
 		id: 'kling-2.5-turbo', api: 'split', endFrame: true, references: false,
 		resolutions: ['720p', '1080p'], duration: { min: 5, max: 10, step: 5 }, sound: 'never',
-		promptMaxLength: 2500, endFrameOnlyAt1080p: true,
-		units: { '720p': { silent: 0.3 }, '1080p': { silent: 0.5 } }
+		promptMaxLength: 2500, endFrameOnlyAt1080p: true
 	}
 ]);
-
-/** What one unit costs in each region: ¥1.0 in China and $0.14 elsewhere. */
-const UNIT_PRICES: Readonly<Record<string, { readonly currency: Currency; readonly perUnit: number }>> = Object.freeze({
-	cn: { currency: 'CNY', perUnit: 1 },
-	intl: { currency: 'USD', perUnit: 0.14 }
-});
-
-/** The day the price list was read; the list states no date of its own. */
-const PRICE_DATE = '2026-10-19';
 
 /** 50 MB, the largest image Kling takes. */
 const IMAGE_MAX_BYTES = 50 * 1024 * 1024;
@@ -226,8 +201,7 @@ function declareModel(model: KlingModel): CatalogModel {
 		providerModels: { cn: model.id, intl: model.id },
 		prompt: { required: 'withoutMedia', maxLength: model.promptMaxLength },
 		modes: declareModes(model),
-		parameters: declareParameters(model),
-		estimate: true
+		parameters: declareParameters(model)
 	};
 }
 
@@ -235,8 +209,8 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'kling',
 	label: LABELS.provider,
 	regions: [
-		{ id: 'cn', label: LABELS.regions.cn, baseUrl: 'https://api-beijing.klingai.com', currency: 'CNY', console: 'https://klingai.com/dev/api-key' },
-		{ id: 'intl', label: LABELS.regions.intl, baseUrl: 'https://api-singapore.klingai.com', currency: 'USD', console: 'https://kling.ai/dev/api-key' }
+		{ id: 'cn', label: LABELS.regions.cn, baseUrl: 'https://api-beijing.klingai.com', console: 'https://klingai.com/dev/api-key' },
+		{ id: 'intl', label: LABELS.regions.intl, baseUrl: 'https://api-singapore.klingai.com', console: 'https://kling.ai/dev/api-key' }
 	],
 	credentials: [{ id: 'apiKey', label: LABELS.apiKey }],
 	models: MODELS.map(declareModel)
@@ -409,7 +383,7 @@ function videoUrlOf(task: Record<string, unknown>): string | undefined {
 	return undefined;
 }
 
-// --- checks and estimates -----------------------------------------------------------------------
+// --- checks -------------------------------------------------------------------------------------
 
 /** The rules between parameters and inputs that the declarations cannot express (kling.md, "Rules between parameters"). */
 function ruleProblems(model: KlingModel, request: CheckRequest, counts: PlannedCounts): string[] {
@@ -459,20 +433,6 @@ async function fileProblems(model: KlingModel, request: CheckRequest, inputs: Pl
 	return problems;
 }
 
-/** Units per second × seconds × the region's unit price (kling.md, "Estimate"); none for a combination without a price. */
-function estimateFor(model: KlingModel, region: string, params: Params): Estimate | undefined {
-	const price = UNIT_PRICES[region];
-	const resolution = model.resolutions.find(entry => entry === params.resolution);
-	const rates = resolution !== undefined ? model.units[resolution] : undefined;
-	const withSound = model.sound === 'always' || (model.sound === 'setting' && params.sound === true);
-	const perSecond = withSound ? rates?.sound : rates?.silent;
-	if (!price || perSecond === undefined || typeof params.duration !== 'number') {
-		return undefined;
-	}
-	const amount = perSecond * params.duration * price.perUnit;
-	return estimateOf(price.currency, amount, amount, PRICE_DATE);
-}
-
 // --- the module ---------------------------------------------------------------------------------
 
 export const KLING: ProviderModule = {
@@ -500,8 +460,7 @@ export const KLING: ProviderModule = {
 		const model = modelOf(request.model);
 		const problems = ruleProblems(model, request, countsOf(request.inputs));
 		problems.push(...await fileProblems(model, request, request.inputs, media));
-		const estimate = estimateFor(model, request.region, request.params);
-		return estimate ? { problems, estimate } : { problems };
+		return { problems };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

@@ -24,8 +24,8 @@ import type { CatalogProvider, CheckRequest, CheckResult, PollState, SubmitReque
 export interface ProviderModule {
 	/**
 	 * The provider's entry of the catalog: its regions, the credentials it
-	 * needs, and every model with its modes, inputs, limits, parameters, and
-	 * whether it has an estimate. `buildCatalog` validates it. Labels are
+	 * needs, and every model with its modes, inputs, limits, and parameters.
+	 * `buildCatalog` validates it. Labels are
 	 * English for now; keep them in one table per module so they can be
 	 * translated later.
 	 */
@@ -49,7 +49,7 @@ export interface ProviderModule {
 
 	/**
 	 * The problems of a planned generation that the declarations cannot
-	 * express, in order, as plain sentences, and the estimate. The commands have
+	 * express, in order, as plain sentences. The commands have
 	 * already checked the request against the model's declarations (the inputs
 	 * the mode takes, the prompt rule, each parameter's value, and the mode's
 	 * limits); `request.params` arrive with every default filled in. This adds

@@ -29,7 +29,7 @@ providers answer no cross-origin requests from the window.
 | Command | Argument | Answer |
 | --- | --- | --- |
 | `basehalf.video.provider.catalog` | none | the catalog |
-| `basehalf.video.provider.check` | provider, region, model, mode, params, prompt, and the planned inputs as files or as counts | `{problems, estimate?}` |
+| `basehalf.video.provider.check` | provider, region, model, mode, params, prompt, and the planned inputs as files | `{problems, providerModel?}` |
 | `basehalf.video.provider.submit` | the same with the endpoint, the credentials, and the files | `{remoteId}` |
 | `basehalf.video.provider.poll` | the task | `{state: pending \| running, fraction?}`, `{state: succeeded, videoUrl?}`, or `{state: failed \| cancelled, message}` |
 | `basehalf.video.provider.download` | the task, `videoUrl?`, and a new `.part` file | `{size}` |
@@ -46,7 +46,7 @@ The payload types are in `src/providers/types.ts`, a copy of the window's
 | `module.ts` | `ProviderModule`, the interface every provider implements |
 | `registry.ts` | `PROVIDER_MODULES`, the modules in the order the window lists them, and `buildCatalog()`, which validates every declaration and throws on a bad one |
 | `commands.ts` | the six commands: strict payload parsing, dispatch by provider id (`unknownProvider` for an unknown one), the checks from the declarations, and message hygiene |
-| `check.ts` | the checks every model gets from its declarations: the inputs a mode takes, the prompt rule, each parameter's value, and the mode's limits; `resolveParams` and `estimateOf` |
+| `check.ts` | the checks every model gets from its declarations: the inputs a mode takes, the prompt rule, each parameter's value, and the mode's limits; `resolveParams` |
 | `http.ts` | `ProviderHttp`, HTTP bound to one command's endpoint and the module's credential headers |
 | `media.ts` | reading inputs under a byte cap, data URLs and base64, and image sizes and media lengths read from file headers |
 | `download.ts` | the download of a video to its `.part` file |
@@ -61,7 +61,7 @@ What every provider gets from the framework:
   are checked from the files' headers: image sizes and aspect (PNG, JPEG,
   WebP, GIF), video and audio lengths (MP4, MOV, and M4A movie headers, WAV,
   and MP3 frames), and bytes. `submit` runs the same checks and sends nothing
-  when one fails. An estimate is answered only for a model declared with one.
+  when one fails.
 - **Requests.** `http.create` sends the request that creates a task once. When
   its answer does not come back, is only a server error (408 or 5xx), or
   cannot be read, the outcome is `unknownOutcome`, and BaseHalf never sends it
@@ -90,8 +90,8 @@ What every provider gets from the framework:
    "Providers" in the video providers specification first: regions,
    credentials, models with their ids per region, modes with their inputs and
    limits, every parameter, the rules between parameters, endpoints, the
-   request mapping, task states, where the video is, cancellation, the
-   estimate with the date of its price list, and the pages followed.
+   request mapping, task states, where the video is, cancellation, and the
+   pages followed.
 2. Add `src/providers/<provider>.ts` exporting a `ProviderModule`:
    - `describe()` answers the catalog entry. Keep every English label and
      message in one table at the top of the file, so it can be translated.
@@ -101,10 +101,9 @@ What every provider gets from the framework:
    - `readError(status, body)`, when the provider has error codes that say
      more than the status (an empty balance answers `{code: 'balance'}`).
    - `check(request, media)` answers only what the declarations cannot say:
-     rules between parameters, the provider's own input rules (formats, the
-     size of the whole request), and the estimate (`estimateOf`). Read files
-     through `media` (or `measureItems`) only when `request.inputs` carries
-     media.
+     rules between parameters and the provider's own input rules (formats, the
+     size of the whole request). Read files through `media` (or
+     `measureItems`) only when `request.inputs` carries media.
    - `submit(request, http)` reads the inputs (`plannedItems`, `readMedia`,
      `dataUrlOf`, `base64Of`), uploads them first when the provider takes them
      that way (`http.request`), sends one `http.create`, and answers the task
@@ -120,9 +119,8 @@ What every provider gets from the framework:
    like the provider (`startServer` in `test/providerTestKit.ts`): create,
    poll through every state, download, cancel where offered, refused
    credentials, too many requests, and an answer that never comes, plus the
-   mapping of each model's parameters, the rules of `check`, and three
-   estimates per region checked against the price list, with the arithmetic in
-   a comment. Pass `{http: {sleep: async () => undefined}}` to
+   mapping of each model's parameters and the rules of `check`. Pass
+   `{http: {sleep: async () => undefined}}` to
    `VideoProviderCommands` to skip the waits between retries.
 
 Relative imports in `src/providers/` name the `.ts` file, which the compiler

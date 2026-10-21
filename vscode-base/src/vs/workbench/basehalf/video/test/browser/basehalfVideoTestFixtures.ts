@@ -154,9 +154,8 @@ type Handler<T> = (argument: T) => Promise<unknown> | unknown;
 
 /**
  * The provider commands of the AI Video extension, scripted, with the test
- * catalog of invented providers. The default check finds no problem and
- * estimates ¥1.20; the default download writes {@link FAKE_MP4} where it is
- * asked to.
+ * catalog of invented providers. The default check finds no problem; the
+ * default download writes {@link FAKE_MP4} where it is asked to.
  */
 export class FakeProviderCommands implements ICommandService {
 	declare readonly _serviceBrand: undefined;
@@ -165,7 +164,7 @@ export class FakeProviderCommands implements ICommandService {
 
 	readonly calls: { readonly id: string; readonly argument: unknown }[] = [];
 	catalog: Handler<unknown> = () => ({ ok: true, value: { schema: 1, providers: [ACME, BOREALIS] } });
-	check: Handler<IBaseHalfVideoCheckRequest> = () => ({ ok: true, value: { problems: [], estimate: { currency: 'CNY', min: 1.2, max: 1.2, priceDate: '2026-10-18' } } });
+	check: Handler<IBaseHalfVideoCheckRequest> = () => ({ ok: true, value: { problems: [] } });
 	submit: Handler<IBaseHalfVideoSubmitRequest> = () => ({ ok: true, value: { remoteId: 'cgt-remote-1' } });
 	poll: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/video.mp4' } });
 	download: Handler<IBaseHalfVideoDownloadRequest>;

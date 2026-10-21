@@ -127,7 +127,7 @@ class FakeCatalogService extends Disposable implements IBaseHalfVideoCatalogServ
 	state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_VIDEO_CATALOG };
 	loads = 0;
 	readonly checks: IBaseHalfVideoCheckRequest[] = [];
-	answer: (request: IBaseHalfVideoCheckRequest) => IBaseHalfVideoCheckResult | undefined = () => ({ problems: [], estimate: { currency: 'CNY', min: 1.2, max: 1.2, priceDate: '2026-10-18' } });
+	answer: (request: IBaseHalfVideoCheckRequest) => IBaseHalfVideoCheckResult | undefined = () => ({ problems: [] });
 
 	load(): void {
 		this.loads++;
@@ -500,25 +500,26 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('the first problem check reports blocks Generate, and the estimate shows the last answer for the model until the next one', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+	test('the first problem check reports blocks Generate, and the last answer for the model counts until the next one', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+		catalog.answer = () => ({ problems: ['The prompt is longer than 2,000 characters.'] });
 		const panel = await createPanel({ checkDelay: 250 });
-		const estimate = find(panel, '.bh-video-panel-estimate');
 		const generate = find(panel, '.bh-video-panel-generate');
 		await timeout(300);
-		const first = { text: estimate.textContent, hidden: estimate.hidden, tooltip: hovers.get(estimate)?.(), checks: catalog.checks.length };
-		catalog.answer = () => ({ problems: ['The prompt is longer than 2,000 characters.'], estimate: { currency: 'CNY', min: 3, max: 9, priceDate: '2026-10-18' } });
-		type(find<HTMLTextAreaElement>(panel, 'textarea'), 'A much longer prompt');
+		const first = { label: generate.getAttribute('aria-label'), checks: catalog.checks.length };
+		catalog.answer = () => ({ problems: [] });
+		type(find<HTMLTextAreaElement>(panel, 'textarea'), 'A shorter prompt');
 		await timeout(100);
-		const whileAsking = { text: estimate.textContent, checks: catalog.checks.length };
+		const whileAsking = { label: generate.getAttribute('aria-label'), checks: catalog.checks.length };
 		await timeout(200);
 		assert.deepStrictEqual({
 			first,
 			whileAsking,
-			after: { text: estimate.textContent, label: generate.getAttribute('aria-label'), checks: catalog.checks.length, prompt: catalog.checks.at(-1)?.prompt }
+			after: { label: generate.getAttribute('aria-label'), checks: catalog.checks.length, prompt: catalog.checks.at(-1)?.prompt }
 		}, {
-			first: { text: '≈ ¥1.20', hidden: false, tooltip: 'An estimate from the prices Acme Video published on 2026-10-18. What Acme Video bills is what counts.', checks: 1 },
-			whileAsking: { text: '≈ ¥1.20', checks: 1 },
-			after: { text: '¥3.00–¥9.00', label: 'The prompt is longer than 2,000 characters.', checks: 2, prompt: 'A much longer prompt' }
+			first: { label: 'The prompt is longer than 2,000 characters.', checks: 1 },
+			// The answer for the earlier prompt still blocks until the new one arrives.
+			whileAsking: { label: 'The prompt is longer than 2,000 characters.', checks: 1 },
+			after: { label: 'Generate', checks: 2, prompt: 'A shorter prompt' }
 		});
 	}));
 
@@ -888,15 +889,16 @@ suite('BaseHalfVideoNodePanel', () => {
 				return element.scrollWidth > element.clientWidth;
 			};
 			const outer = panel.element.getBoundingClientRect();
+			// What the footer holds: the model, the settings, and Generate, and no price (video node, acceptance criterion 22).
+			const footerHolds = Array.from(find(panel, '.bh-video-panel-footer').children).map(child => child.classList[0]);
 			// The controls of the footer that show, from left to right.
-			const shownInFooter = ['.bh-video-panel-model', '.bh-video-panel-settings', '.bh-video-panel-estimate', '.bh-video-panel-generate']
+			const shownInFooter = ['.bh-video-panel-model', '.bh-video-panel-settings', '.bh-video-panel-generate']
 				.filter(selector => !find(panel, selector).hidden)
 				.map(selector => box(selector));
 			const footer = box('.bh-video-panel-footer');
 			const slots = findAll(panel, '.bh-video-panel-slot').map(slot => slot.getBoundingClientRect());
 			const row = box('.bh-video-panel-inputs');
 			const settingsShown = !find(panel, '.bh-video-panel-settings').hidden;
-			const estimateShown = !find(panel, '.bh-video-panel-estimate').hidden;
 			let clippedChoices: (string | null)[] = [];
 			let popoverWidth = 0;
 			if (settingsShown) {
@@ -909,7 +911,7 @@ suite('BaseHalfVideoNodePanel', () => {
 				reported: panel.height,
 				modelClipped: clipped('.bh-video-panel-model-label'),
 				settingsClipped: settingsShown && clipped('.bh-video-panel-settings-label'),
-				estimateShown,
+				footerHolds,
 				footerInOrder: shownInFooter.every((rect, index) => index === 0 || shownInFooter[index - 1].right <= rect.left) && shownInFooter[shownInFooter.length - 1].right <= outer.right - 12,
 				footerInside: footer.bottom <= outer.bottom - 12,
 				slotsInside: slots.every(slot => slot.left >= row.left && slot.right <= row.right),
@@ -927,7 +929,7 @@ suite('BaseHalfVideoNodePanel', () => {
 				reported: 180,
 				modelClipped: false,
 				settingsClipped: false,
-				estimateShown: true,
+				footerHolds: ['bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
 				footerInOrder: true,
 				footerInside: true,
 				slotsInside: true,
