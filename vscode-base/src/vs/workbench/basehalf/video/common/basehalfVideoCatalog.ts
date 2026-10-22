@@ -393,7 +393,15 @@ export function baseHalfVideoRegionOffersModel(model: IBaseHalfVideoCatalogModel
 }
 
 /** The resolutions of the shared names, smallest first, to find a model's largest. */
-const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p', '540p', '720p', '768p', '1080p', '1k', '1.5k', '2k', '3k', '4k']);
+/**
+ * The `resolution` values of the catalog from the fewest pixels to the most,
+ * so that the abilities line names a model's largest: a `p` value counts a
+ * 16:9 frame of that height (1080p is 1920 × 1080, about 2.1 million pixels),
+ * and a `k` value a square of that many thousand pixels a side (1k is
+ * 1024 × 1024, about 1.0 million; 1.5k about 2.4 million). A value it does
+ * not know counts as the smallest.
+ */
+const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p', '540p', '720p', '768p', '1k', '1080p', '1.5k', '2k', '3k', '4k']);
 
 /**
  * A model's abilities in one line, from its declarations (generation cards,

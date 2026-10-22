@@ -412,6 +412,21 @@ suite('BaseHalfVideoCatalog', () => {
 			]);
 		});
 
+		test('the largest resolution is the one with the most pixels, whatever order the model lists them in', () => {
+			const withResolutions = (...values: string[]) => baseHalfVideoModelAbilities({
+				...print,
+				parameters: [{ name: 'resolution', label: 'Resolution', kind: 'choice', options: values.map(value => ({ value, label: value.toUpperCase() })), default: values[0] }]
+			});
+			assert.deepStrictEqual([
+				withResolutions('4k', '1k', '2k'),
+				withResolutions('1080p', '1k'),
+				withResolutions('1.5k', '1080p'),
+				withResolutions('3k', '2k', '1.5k'),
+				withResolutions('768p', '720p', '1k'),
+				withResolutions('unknown', '720p')
+			], ['4K', '1080P', '1.5K', '3K', '1K', '720P']);
+		});
+
 		test('a generation makes one file per image of its count, one for a video, and each file has the extension of its model\'s format', () => {
 			assert.deepStrictEqual({
 				counts: [baseHalfModelOutputCount(paint, 'reference', { count: 3 }), baseHalfModelOutputCount(paint, 'reference', {}), baseHalfModelOutputCount(paint, 'reference', { count: 9 }), baseHalfModelOutputCount(motion, 'frames', { count: 3 })],

@@ -471,7 +471,10 @@ From top to bottom:
      and Sound when it makes sound, such as "Frames · References · 15s ·
      1080p · Sound"; for an image its largest resolution and, when it can
      make more than one, how many images one generation can make, such as
-     "4K · Up to 4". A model the provider's region does not offer is shown
+     "4K · Up to 4". The largest resolution is the one with the most pixels:
+     a `p` value counts a 16:9 frame of that height and a `k` value a square
+     of that many thousand pixels a side, so 720p < 768p < 1k < 1080p <
+     1.5k < 2k < 3k < 4k. A model the provider's region does not offer is shown
      dimmed with the reason, and can still be chosen. Deprecated models are
      listed only for a card that uses one. The menu ends with **Providers…**.
    - While the catalog loads, the model button says so and its menu holds
