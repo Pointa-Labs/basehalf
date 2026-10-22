@@ -18,7 +18,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { IChecksumService } from '../../../../platform/checksum/common/checksumService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { FileOperationResult, FileSystemProviderCapabilities, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
+import { FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -93,6 +93,8 @@ import {
 	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoModelRef,
+	IBaseHalfVideoPlaceRequest,
+	IBaseHalfVideoPlaceResult,
 	IBaseHalfVideoPlannedMedia,
 	IBaseHalfVideoProviderAccess,
 	IBaseHalfVideoProviderError,
@@ -158,9 +160,6 @@ const LANDING_TRIES = 3;
 const LANDING_RETRY_DELAY = 5_000;
 /** How long landing waits for a move outside BaseHalf that is still being followed, each try. */
 const MOVES_SETTLE_WAIT = 10_000;
-/** A file up to this size is put in place by the file system's exclusive create, which never replaces a file. */
-const EXCLUSIVE_PUBLISH_MAX_BYTES = 256 * 1024 * 1024;
-const PUBLISH_TEMP_POSTFIX = '.basehalf-tmp';
 /** How often `made.yaml` is tried before the card says that the file landed without it. */
 const MADE_ATTEMPTS = 3;
 /** Windows that find a record stale look again at different moments, up to this much later. */
@@ -172,7 +171,7 @@ const RASTER_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.g
 const VIDEO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v', '.webm': 'video/webm' });
 const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac' });
 
-const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'balance', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'notImage', 'tooLarge', 'unknownProvider']);
+const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'balance', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'notImage', 'tooLarge', 'unknownProvider', 'exists']);
 
 /** Draws an image that providers do not take (SVG, GIF, AVIF, BMP) to a PNG data URL. */
 export type BaseHalfVideoImageRasterizer = (bytes: VSBuffer, mimeType: string) => Promise<string>;
@@ -1340,29 +1339,24 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	/**
-	 * Puts a received file at `target` without ever replacing what is there.
-	 * A file up to 256 MiB is written there with the file system's exclusive
-	 * create, which publishes it only under a name that no file has, even one
-	 * taken at the last moment; a larger one is moved there when the name is
-	 * free. Resolves `false` when the name is taken.
+	 * Puts a received file at `target` without ever replacing anything there,
+	 * and with nothing partial in the card's folder at any moment: AI Video
+	 * gives the complete partial download the card's name by a hard link,
+	 * which fails when the name is taken, and then removes the partial
+	 * download (providers, "Requests"). Resolves `false` when the name is
+	 * taken; rejects when the file could not be put in place, so that landing
+	 * tries again.
 	 */
 	private async publish(part: URI, target: URI): Promise<boolean> {
-		const size = (await this.fileService.stat(part)).size;
-		try {
-			if (size <= EXCLUSIVE_PUBLISH_MAX_BYTES && this.fileService.hasCapability(target, FileSystemProviderCapabilities.FileAtomicWriteExclusive)) {
-				const bytes = (await this.fileService.readFile(part)).value;
-				await this.fileService.writeFileWithExpectedContents(target, bytes, null, { atomic: { postfix: PUBLISH_TEMP_POSTFIX } });
-				await this.deleteQuietly(part);
-			} else {
-				await this.fileService.move(part, target, false);
-			}
+		const request: IBaseHalfVideoPlaceRequest = { from: part.fsPath, to: target.fsPath };
+		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.place, request, parsePlaceResult, false);
+		if (answer.ok) {
 			return true;
-		} catch (error) {
-			if (isNameTaken(error)) {
-				return false;
-			}
-			throw error;
 		}
+		if (!answer.unavailable && answer.error.code === 'exists') {
+			return false;
+		}
+		throw new Error(errorDetail(answer.error, []));
 	}
 
 	/** Landing, step 2: a file of another format than the draft's extension renames the draft to that format's extension, inside the lease that the landing holds. */
@@ -2123,6 +2117,10 @@ function parseOutputs(value: unknown): readonly BaseHalfVideoOutput[] | undefine
 	return outputs;
 }
 
+function parsePlaceResult(value: unknown): IBaseHalfVideoPlaceResult | undefined {
+	return isRecord(value) && value.placed === true ? { placed: true } : undefined;
+}
+
 function parseDownloadResult(value: unknown): IBaseHalfVideoDownloadResult | undefined {
 	if (!isRecord(value) || typeof value.size !== 'number' || !Number.isSafeInteger(value.size) || value.size < 0) {
 		return undefined;
@@ -2307,15 +2305,6 @@ function throwIfCancelled(token: CancellationToken): void {
 	if (token.isCancellationRequested) {
 		throw stoppedBeforeStartError();
 	}
-}
-
-/** Whether putting a file in place failed because its name is taken: by a move, or by an exclusive create. */
-function isNameTaken(error: unknown): boolean {
-	if (!(error instanceof Error)) {
-		return false;
-	}
-	const result = toFileOperationResult(error);
-	return result === FileOperationResult.FILE_MOVE_CONFLICT || result === FileOperationResult.FILE_MODIFIED_SINCE;
 }
 
 /** The command service's refusal of a command that no one registered: then the command did not run at all. */

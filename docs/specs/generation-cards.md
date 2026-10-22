@@ -762,11 +762,17 @@ BaseHalf that is still being followed is let finish, up to 10 seconds:
    move is still being followed, which is waited for first.
 4. Write in the record what is being landed: the path, the size, and the
    SHA-256 of the file.
-5. Put the file in place without ever replacing anything there: a file of up
-   to 256 MiB is written there by the file system's exclusive create, which
-   fails when the name is taken even at the last moment; a larger one is
-   moved there when the name is free. When the name is taken, the file goes
-   beside it as in step 3.
+5. Put the file in place without ever replacing anything there and with
+   nothing partial in the card's folder at any moment: AI Video gives the
+   complete partial download the card's name by a hard link, which fails when
+   the name is taken, and then removes the partial download
+   ([providers, Requests](providers.md#requests), `place`). When the name is
+   taken, the file goes beside it as in step 3. Where the file system cannot
+   link there (the workspace folder and its `.bh/cache/` on different
+   volumes, or a file system without hard links), AI Video copies the bytes
+   straight to the name by an exclusive create instead; in that rare case
+   alone, a crash during the copy can leave a partial file in the card's
+   folder.
 6. Write `made.yaml`, then, for a file that went beside its card, its
    `generation.yaml`; and when every file has landed, remove the record.
 
@@ -1132,7 +1138,8 @@ Card information
 
 1. A generated video lands as `<folder>/<card name>.mp4` and a generated image
    as `<folder>/<card name>.<png|jpg|webp>`, with nothing under `outputs/` and
-   no partial file in the folder at any time; `made.yaml` then holds the
+   no partial file in the folder at any time, short of a crash in the rare
+   case of [Landing](#landing), step 5; `made.yaml` then holds the
    request that the panel showed, with the paths of the text inputs and not
    their text.
 2. New Image and New Video make drafts: a card on the canvas, a
