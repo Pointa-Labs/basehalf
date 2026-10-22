@@ -71,9 +71,9 @@ once, and every poll is one short request.
 
 One credential, `apiKey` (**API Key**), sent as `x-goog-api-key: <key>`.
 Rate limits apply per project, not per key, and spend-based limits over a
-rolling 10 minutes ($10 to $200 by usage tier); exceeding either answers HTTP
-429 (`rate_limit_exceeded`, `quota_exceeded`, `too_many_requests`, or, for the
-spend limits, `RESOURCE_EXHAUSTED`).
+rolling 10 minutes, which grow with the usage tier; exceeding either answers
+HTTP 429 (`rate_limit_exceeded`, `quota_exceeded`, `too_many_requests`, or,
+for the spend limits, `RESOURCE_EXHAUSTED`).
 
 | Region | Label | Base URL | Console |
 | --- | --- | --- | --- |
