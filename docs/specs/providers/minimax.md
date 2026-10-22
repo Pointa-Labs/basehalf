@@ -1,7 +1,8 @@
 # MiniMax (Hailuo)
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19); image models Draft (2026-10-22)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
 Related: [Providers and the model catalog](../providers.md),
 [generation cards](../generation-cards.md#a-generation)
 
@@ -259,7 +260,8 @@ success; any other code is an error, read as follows:
   never 408 or 5xx, so a create answered by a server error keeps its unknown
   outcome.
 - A rate limit names MiniMax's limits: 20 requests a minute for the Hailuo
-  series; 300 requests a minute and 30 tasks at a time for H3.
+  series; 300 requests a minute and 30 tasks at a time for H3; 10 requests a
+  minute for the image models ([Image models](#image-models)).
 
 ## Left out
 
@@ -294,3 +296,129 @@ the provider commands against local servers that answer like MiniMax:
   in an HTTP 200, an unknown task, and a create whose connection drops,
   which is sent once and has an unknown outcome;
 - the rules of `check`.
+
+## Image models
+
+MiniMax's image models run on the same regions, keys, and base URLs as its
+video models (D64). Their API answers the request with the images: there is
+no task to poll or cancel.
+
+### Sources
+
+Read on 2026-10-22; no page carries a date. On both sites
+(`https://platform.minimax.io/docs/` and `https://platform.minimax.cn/docs/`):
+`guides/image-generation`, `api-reference/image-generation-t2i` and
+`api-reference/image-generation-i2i` with the files they are drawn from
+(`api-reference/image/generation/api/text-to-image.json` and
+`…/image-to-image.json`), `faq/models`, `guides/models-intro`, and
+`guides/rate-limits`; on the China site also
+`api-reference/image/generation/api/openapi.json`. The China text-to-image
+page was read again on 2026-10-22 for the names of its style fields.
+
+### Models
+
+| Model | Label | Id sent | Regions | Makes |
+| --- | --- | --- | --- | --- |
+| `image-01` | MiniMax Image-01 | `image-01` | `cn`, `intl` | 1 to 9 images from a prompt, or from a prompt and one reference image of a person |
+| `image-01-live` | MiniMax Image-01 Live | `image-01-live` | `cn` | the same, with drawing styles (comic, lively, medieval, watercolor) |
+
+- Both are of kind `image`, answer at once (`answersAtOnce`), and offer the one
+  mode References (`reference`). MiniMax states no output format; its guides
+  save the images as JPEG, so the models declare `jpeg` (`outputFormat`), and
+  an image that arrives as a PNG lands as one.
+- **Open: Image-01 Live outside China.** The international text-to-image page
+  leaves it out of its models, while the international image-to-image page
+  and model list name it, the latter as making images from a prompt and a
+  reference image. The catalog offers it in China only.
+- No retirement dates are published.
+
+### Modes and inputs
+
+- **References**: no image, or one: MiniMax's character reference
+  (`subject_reference` of type `character`), the person the images show.
+  MiniMax advises one front-facing portrait. It is a PNG or a JPEG of less
+  than 10 MiB (MiniMax writes 10 MB; a file's size is read as MiB, as for
+  video); the window draws any other image to PNG first. No pixel limits are
+  documented.
+- The prompt is required, at most 1,500 characters.
+
+### Parameters
+
+| Parameter | Label | Kind | Values | Default | Models | MiniMax's field |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ratio` | Ratio | choice, drawn as ratio shapes | 16:9 (1280 × 720), 4:3 (1152 × 864), 3:2 (1248 × 832), 1:1 (1024 × 1024), 2:3 (832 × 1248), 3:4 (864 × 1152), 9:16 (720 × 1280), and for Image-01 21:9 (1344 × 576) | 1:1 | both | `aspect_ratio` |
+| `count` | Images | whole number, 1 to 9 | | 1 | both | `n` |
+| `prompt_extend` | Prompt Optimizer | boolean | | off | both | `prompt_optimizer` |
+| `style_type` | Style | choice, optional | Comic (`comic`), Lively (`lively`), Medieval (`medieval`), Watercolor (`watercolor`) | none | Image-01 Live | `style.style_type`: `漫画`, `元气`, `中世纪`, `水彩` |
+| `style_weight` | Style Weight | number, 0.1 to 1, step 0.1, advanced | | 0.8 | Image-01 Live | `style.style_weight`, with a style only |
+| `seed` | Seed | whole number 0 to 2147483647, optional, advanced | | unset: a new seed for each image | both | `seed` |
+| `watermark` | Watermark | boolean, advanced | | off | both | `aigc_watermark`, in China only |
+
+- The ratio is always sent; MiniMax has no Adaptive, and its default is 1:1.
+  The sizes in parentheses are MiniMax's. MiniMax has no resolution.
+- The style's values are named in English in the catalog and sent as
+  MiniMax's own words. **Open: the style's field names.** The rendered China
+  pages and the files they are drawn from name `style_type` and
+  `style_weight`, while the China site's `openapi.json` names `type` and
+  `weight`; the module sends the names of the pages.
+- Rules that `check` reports: the AIGC watermark is offered in China only, as
+  for video (the international pages document no `aigc_watermark`).
+
+### Requests and answers
+
+`POST /v1/image_generation`, JSON: `model`, `prompt`, `aspect_ratio`, `n`,
+`prompt_optimizer`, `response_format: "base64"`, `seed` when it is set,
+`subject_reference: [{"type": "character", "image_file"}]` with a reference
+as a data URL of the format its header shows, for Image-01 Live
+`style: {"style_type", "style_weight"}` when a style is chosen, and in China
+`aigc_watermark`. Not sent: `width` and `height`.
+
+The images are asked for as base64: at about 1K, nine of them make a small
+answer, and no second download from MiniMax's file host is needed. The answer
+holds:
+
+- `base_resp`: a code other than 0 fails the request as the video V1 API's
+  codes do ([Errors](#errors)), such as 1026 for a prompt with sensitive
+  content (`rejected`) and 1000 for an unknown error (an unknown outcome);
+- `data.image_base64[]`: the images, written to their targets in order;
+  `data.image_urls[]`, as a relay may answer, are addresses;
+- `metadata.failed_count`, a number or a numeric text: that many images were
+  withheld by MiniMax's content check. Each is reported after the images made,
+  as refused with "MiniMax's content check stopped this image.", and its card
+  fails alone;
+- an answer without `data` and without withheld images leaves the outcome
+  unknown.
+
+An image model has no task: `poll` refuses it, and `cancel` answers false
+and sends nothing. The HTTP statuses and MiniMax's codes map as in
+[Errors](#errors); a rate limit names the image models' 10 requests a minute.
+
+### Left out
+
+- Image-01's `width` and `height` (512 to 2048 px, multiples of 8), which
+  `aspect_ratio` overrides: the catalog offers MiniMax's own sizes.
+- Image-01 Live in the international region (open, above).
+- Addresses (`response_format: "url"`) as what is asked for.
+
+### Acceptance criteria
+
+1. Image-01 is listed under Images in both regions, and Image-01 Live in China
+   only.
+2. A request without a reference sends no `subject_reference`; one with a
+   reference sends it as a character with a data URL.
+3. Images, Ratio, Prompt Optimizer, the seed, and the style map to `n`,
+   `aspect_ratio`, `prompt_optimizer`, `seed`, and `style`; the watermark is
+   sent as `aigc_watermark` in China only.
+4. Each image answered lands on its target in order, and each image the
+   content check withheld is reported as refused while the others land.
+5. A nonzero `base_resp`, the HTTP errors, and a dropped connection map as for
+   video, and the request is sent once.
+
+### Verification
+
+`extensions/basehalf-ai-video/test/minimax.test.ts` also runs the image
+models against a local server that answers like MiniMax's image API: the
+catalog entries, the body of each model with and without a reference and in
+each region, the answers as base64 and as addresses with withheld images,
+the codes of `base_resp`, refused keys, too many requests, an empty balance,
+a dropped connection, and the rules of `check`.

@@ -538,3 +538,42 @@ export function plannedFiles(count: PlannedCount = {}): PlannedMedia {
 		...(count.source ? { source: video('source') } : {})
 	};
 }
+
+// --- multipart forms ----------------------------------------------------------------------------
+
+/** One part of a multipart form a test server received: its name, a file's name and type, and its bytes. */
+export interface ReceivedPart {
+	readonly name: string;
+	readonly fileName?: string;
+	readonly contentType?: string;
+	readonly bytes: Buffer;
+}
+
+/** The parts of a multipart form a test server received, in order, also when several share a name (`image[]`). */
+export function multipartParts(request: Received): ReceivedPart[] {
+	const boundary = /boundary=(?<boundary>[^;\s]+)/.exec(String(request.headers['content-type']))?.groups?.boundary;
+	assert.ok(boundary, 'a multipart form has a boundary');
+	const delimiter = Buffer.from(`--${boundary}`, 'latin1');
+	const parts: ReceivedPart[] = [];
+	let start = request.body.indexOf(delimiter);
+	while (start >= 0) {
+		const next = request.body.indexOf(delimiter, start + delimiter.length);
+		if (next < 0) {
+			break;
+		}
+		// Each part starts after the delimiter's line break and ends before the next delimiter's.
+		const part = request.body.subarray(start + delimiter.length + 2, next - 2);
+		const headerEnd = part.indexOf('\r\n\r\n');
+		const head = part.subarray(0, headerEnd).toString('utf8');
+		const fileName = /filename="(?<file>[^"]*)"/.exec(head)?.groups?.file;
+		const contentType = /Content-Type: (?<type>.+)/i.exec(head)?.groups?.type.trim();
+		parts.push({
+			name: / name="(?<name>[^"]*)"/.exec(head)?.groups?.name ?? '',
+			...(fileName !== undefined ? { fileName } : {}),
+			...(contentType !== undefined ? { contentType } : {}),
+			bytes: part.subarray(headerEnd + 4)
+		});
+		start = next;
+	}
+	return parts;
+}

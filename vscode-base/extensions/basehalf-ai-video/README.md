@@ -132,10 +132,10 @@ parameter properties, namespaces).
 
 | Provider | Module | Specification |
 | --- | --- | --- |
-| ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/providers/bytedance.md) |
+| ByteDance (Seedance and Seedream) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance, Seedream)](../../../docs/specs/providers/bytedance.md) |
 | Kling | `kling.ts` | [Kling](../../../docs/specs/providers/kling.md) |
 | Alibaba Cloud Model Studio (Wan and HappyHorse) | `alibaba.ts` | [Alibaba (Wan)](../../../docs/specs/providers/alibaba.md) |
-| MiniMax (Hailuo and H3) | `minimax.ts` | [MiniMax (Hailuo)](../../../docs/specs/providers/minimax.md) |
+| MiniMax (Hailuo, H3, and Image-01) | `minimax.ts` | [MiniMax (Hailuo)](../../../docs/specs/providers/minimax.md) |
 | Vidu | `vidu.ts` | [Vidu](../../../docs/specs/providers/vidu.md) |
 | Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/providers/google.md) |
 | PixVerse | `pixverse.ts` | [PixVerse](../../../docs/specs/providers/pixverse.md) |
@@ -144,6 +144,7 @@ parameter properties, namespaces).
 | xAI (Grok Imagine) | `xai.ts` | [xAI (Grok Imagine)](../../../docs/specs/providers/xai.md) |
 | LTX | `ltx.ts` | [LTX](../../../docs/specs/providers/ltx.md) |
 | Black Forest Labs (FLUX) | `bfl.ts` | [Black Forest Labs (FLUX)](../../../docs/specs/providers/bfl.md) |
+| OpenAI (GPT Image) | `openai.ts` | [OpenAI](../../../docs/specs/providers/openai.md) |
 
 ## Sequence
 
@@ -239,8 +240,8 @@ node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types -
 
 The provider tests run every module against small local servers and against
 the local test provider; no test calls a real provider. The local test
-provider answers like ByteDance's Seedance task API under `/api/v3` and
-accepts the key `basehalf-mock-key`:
+provider answers like ByteDance's Seedance task API and Seedream's image API
+under `/api/v3`, and accepts the key `basehalf-mock-key`:
 
 ```sh
 node --experimental-strip-types scripts/basehalf-video-mock-provider.mts --port 8123 --seconds 3
@@ -249,13 +250,17 @@ node --experimental-strip-types scripts/basehalf-video-mock-provider.mts --port 
 It prints its base URL, `http://127.0.0.1:8123/api/v3`, to enter as the
 ByteDance endpoint in Providers with that key. A task is queued for a
 third of `--seconds`, then runs, then succeeds with a small MP4 served
-without a key. `DELETE` cancels a queued task. `--fail
+without a key. `DELETE` cancels a queued task. `POST /images/generations`
+answers at once with small PNGs, one per image asked for, as addresses it
+serves without a key or, with `response_format: b64_json`, as base64. `--fail
 key|reject|task|expire|drop|slow` makes every request fail that way; a prompt
 that contains `[mock:reject]`, `[mock:fail]`, `[mock:expire]`, `[mock:drop]`,
-or `[mock:slow]` fails only that request. `POST /__mock/configure` with
+or `[mock:slow]` fails only that request. Of images, `[mock:fail]` refuses the
+last one, `[mock:slow]` answers after `--seconds`, and `[mock:fewer]` makes a
+set one image smaller. `POST /__mock/configure` with
 `{"fail", "durationMs"}` changes the behavior while it runs, and `GET
-/__mock/requests` lists the create requests received, without keys and with
-inline media shortened.
+/__mock/requests` lists the create requests received, of tasks and of images,
+without keys and with inline media shortened.
 
 The packaged extension includes `out/` and `templates/`; source, tests, and
 internal product notes are excluded.
