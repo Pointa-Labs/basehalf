@@ -19,7 +19,7 @@ import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import type { ModeId, PlannedMedia } from '../src/providers/types.ts';
 import { XAI } from '../src/providers/xai.ts';
-import { error, isoMedia, jpegHeader, plannedFiles, png, sendJson, startServer, value, webpHeader, type Received } from './providerTestKit.ts';
+import { error, isoMedia, jpegHeader, partTargets, plannedFiles, png, sendJson, startServer, tinyJpeg, tinyPng, value, webpHeader, type Received } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-xai-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -105,7 +105,7 @@ function done(url: string) {
 
 // --- the catalog --------------------------------------------------------------------------------
 
-test('the catalog declares xAI with one region, one API key, and three models with their modes, limits, and settings', () => {
+test('the catalog declares xAI with one region, one API key, and three video models with their modes, limits, and settings', () => {
 	const provider = buildCatalog([XAI]).providers[0];
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'xai',
@@ -131,7 +131,8 @@ test('the catalog declares xAI with one region, one API key, and three models wi
 		limits: { videoSeconds: seconds }
 	});
 	const prompt = { required: 'withoutMedia', maxLength: 1048576 };
-	assert.deepEqual(provider.models.map(model => ({
+	const videoModels = provider.models.filter(model => model.kind === 'video');
+	assert.deepEqual(videoModels.map(model => ({
 		id: model.id,
 		label: model.label,
 		sentAs: model.providerModels,
@@ -150,7 +151,7 @@ test('the catalog declares xAI with one region, one API key, and three models wi
 	const duration = { name: 'duration', label: 'Duration', kind: 'integer', unit: 'seconds', min: 1, max: 15, step: 1, default: 5 };
 	const sound = { name: 'sound', label: 'Sound', tooltip: 'Turn it off for a silent video.', kind: 'boolean', default: true };
 	const generationModes = { modes: ['frames', 'reference'] };
-	assert.deepEqual(Object.fromEntries(provider.models.map(model => [model.id, model.parameters])), {
+	assert.deepEqual(Object.fromEntries(videoModels.map(model => [model.id, model.parameters])), {
 		[V15]: [
 			{ name: 'resolution', label: 'Resolution', tooltip: 'With an end frame or reference images, 720p at most.', kind: 'choice', options: resolutions(['480p', '720p', '1080p']), default: '480p' },
 			ratio,
@@ -412,7 +413,7 @@ test('too many requests, an empty balance, a team without permission, and a refu
 		}
 		assert.deepEqual({ outcomes, sent: server.received.length }, {
 			outcomes: [
-				['rateLimited', 429, 'Too many requests: the rate limit of your team for grok-imagine-video-1.5 is 10 requests per second. (Some resource has been exhausted) xAI takes 10 requests a second for each video model unless the team\'s limit was raised.'],
+				['rateLimited', 429, 'Too many requests: the rate limit of your team for grok-imagine-video-1.5 is 10 requests per second. (Some resource has been exhausted) xAI takes 10 requests a second for each video model and 6 for each image model at the first usage tier, unless the team\'s limit was raised.'],
 				['balance', 403, 'Your team has either used all available credits or reached its monthly spending limit. To continue making API requests, please purchase more credits or raise your spending limit. (Some requested entity was not found)'],
 				['auth', 403, 'Your API key does not have permission to use this model. (permission_denied)'],
 				['rejected', 400, 'Unsupported aspect ratio. (invalid_argument)']
@@ -650,6 +651,323 @@ test('check refuses a MOV clip, clips of the wrong length, and a request larger 
 				submittedMov: { code: 'rejected', message: 'The source video clip.mov is not an MP4 video; xAI edits and extends MP4 videos only.' },
 				submittedRule: { code: 'rejected', message: 'Grok Imagine Video 1.5 makes a video from reference images at 480p or 720p.' }
 			},
+			sent: 0
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+// --- image models ---------------------------------------------------------------------------------
+
+const IMAGE_2 = 'grok-imagine-image-2.0';
+const IMAGE_1 = 'grok-imagine-image';
+const IMAGE_PROMPT = 'A paper boat on a puddle that reflects a neon sign.';
+
+function imageGeneration(endpoint: string, model: string, params: Record<string, unknown>, images: readonly FileMedia[] = [], prompt = IMAGE_PROMPT) {
+	return { ...generation(endpoint, model, 'reference', params, { images }, prompt) };
+}
+
+function imageRef(endpoint: string, remoteId: string, model = IMAGE_2) {
+	return { ...taskRef(endpoint, remoteId), model };
+}
+
+test('the catalog declares two image models that run as tasks and deliver JPEG, each with its reference images, ratios, resolutions, quality, and count', () => {
+	const provider = buildCatalog([XAI]).providers[0];
+	const none = { min: 0, max: 0 };
+	const references = (max: number) => ({
+		id: 'reference', label: 'References',
+		inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max }, videos: none, audios: none, source: 'none' },
+		limits: {}
+	});
+	const ratio = (values: readonly string[]) => ({
+		name: 'ratio', label: 'Ratio', tooltip: 'The shape of the image. Adaptive lets xAI choose one for the prompt, or keeps the shape of the first reference image.',
+		kind: 'choice', display: 'ratio', options: [{ value: 'adaptive', label: 'Adaptive' }, ...values.map(entry => ({ value: entry, label: entry }))], default: 'adaptive'
+	});
+	const resolution = { name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '1k', label: '1K' }, { value: '2k', label: '2K' }], default: '1k' };
+	const quality = {
+		name: 'quality', label: 'Quality', tooltip: 'Auto lets xAI choose: it currently makes a new image at Low and an edit at Medium. Medium spends more effort on detail.',
+		kind: 'choice', options: [{ value: 'auto', label: 'Auto' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }], default: 'auto'
+	};
+	const count = { name: 'count', label: 'Images', kind: 'integer', min: 1, max: 10, step: 1, default: 1 };
+	const prompt = { required: 'always', maxLength: 1024 };
+	assert.deepEqual(provider.models.filter(model => model.kind === 'image').map(model => ({
+		id: model.id,
+		label: model.label,
+		sentAs: model.providerModels,
+		prompt: model.prompt,
+		outputFormat: model.outputFormat,
+		answersAtOnce: model.answersAtOnce,
+		deprecated: model.deprecated,
+		modes: model.modes,
+		parameters: model.parameters
+	})), [
+		{
+			id: IMAGE_2, label: 'Grok Imagine Image 2.0', sentAs: { global: IMAGE_2 }, prompt, outputFormat: 'jpeg', answersAtOnce: undefined, deprecated: undefined, modes: [references(5)],
+			parameters: [ratio(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2', '21:9', '5:2', '19.5:9', '9:19.5', '20:9', '9:20']), resolution, quality, count]
+		},
+		{
+			id: IMAGE_1, label: 'Grok Imagine Image', sentAs: { global: IMAGE_1 }, prompt, outputFormat: 'jpeg', answersAtOnce: undefined, deprecated: undefined, modes: [references(3)],
+			parameters: [ratio(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2', '19.5:9', '9:19.5', '20:9', '9:20']), resolution, count]
+		}
+	]);
+	assert.deepEqual(buildCatalog(PROVIDER_MODULES).providers.find(entry => entry.id === 'xai')?.models.map(model => `${model.kind} ${model.id}`), [
+		`video ${V15}`, `video ${LITE}`, `video ${CLASSIC}`, `image ${IMAGE_2}`, `image ${IMAGE_1}`
+	]);
+});
+
+test('an image request is a deferred generation without reference images and a deferred edit with them, sent once with the exact body and each image as a data URL', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { request_id: `image-${server.received.length}` }));
+	try {
+		const png = (media: FileMedia) => ({ url: dataUrl(media, 'image/png') });
+		const cases: readonly { model: string; params: Record<string, unknown>; images?: readonly FileMedia[]; path: string; body: () => unknown }[] = [
+			{
+				// The defaults: Adaptive sends no ratio, one image at 1K, and Auto quality.
+				model: IMAGE_2, params: {},
+				path: '/images/generations',
+				body: () => ({ model: IMAGE_2, prompt: IMAGE_PROMPT, n: 1, resolution: '1k', quality: 'auto', deferred: true })
+			},
+			{
+				model: IMAGE_2, params: { ratio: '19.5:9', resolution: '2k', quality: 'medium', count: 4 },
+				path: '/images/generations',
+				body: () => ({ model: IMAGE_2, prompt: IMAGE_PROMPT, n: 4, resolution: '2k', aspect_ratio: '19.5:9', quality: 'medium', deferred: true })
+			},
+			{
+				// One image is sent as `image` and keeps its own shape.
+				model: IMAGE_2, params: {}, images: [REFERENCES[0]],
+				path: '/images/edits',
+				body: () => ({ model: IMAGE_2, prompt: IMAGE_PROMPT, image: png(REFERENCES[0]), n: 1, resolution: '1k', quality: 'auto', deferred: true })
+			},
+			{
+				model: IMAGE_2, params: { ratio: '21:9', count: 2, quality: 'low' }, images: REFERENCES,
+				path: '/images/edits',
+				body: () => ({
+					model: IMAGE_2,
+					prompt: IMAGE_PROMPT,
+					images: [png(REFERENCES[0]), { url: dataUrl(REFERENCES[1], 'image/jpeg') }, { url: dataUrl(REFERENCES[2], 'image/webp') }],
+					n: 2,
+					resolution: '1k',
+					aspect_ratio: '21:9',
+					quality: 'low',
+					deferred: true
+				})
+			},
+			{
+				// 1.0 takes no quality.
+				model: IMAGE_1, params: { ratio: '9:20', count: 10 },
+				path: '/images/generations',
+				body: () => ({ model: IMAGE_1, prompt: IMAGE_PROMPT, n: 10, resolution: '1k', aspect_ratio: '9:20', deferred: true })
+			},
+			{
+				model: IMAGE_1, params: { resolution: '2k' }, images: [REFERENCES[0], REFERENCES[2]],
+				path: '/images/edits',
+				body: () => ({ model: IMAGE_1, prompt: IMAGE_PROMPT, images: [png(REFERENCES[0]), { url: dataUrl(REFERENCES[2], 'image/webp') }], n: 1, resolution: '2k', deferred: true })
+			}
+		];
+		const providers = commands();
+		const outcomes = [];
+		for (const entry of cases) {
+			const before = server.received.length;
+			const answer = await providers.submit(imageGeneration(server.url, entry.model, entry.params, entry.images));
+			outcomes.push({
+				answer,
+				sent: server.received.slice(before).map(request => ({ method: request.method, path: request.path, authorization: request.headers.authorization, type: request.headers['content-type'], body: sentBody(request) }))
+			});
+		}
+		assert.deepEqual(outcomes, cases.map((entry, index) => ({
+			answer: { ok: true, value: { remoteId: `image-${index + 1}` } },
+			sent: [{ method: 'POST', path: entry.path, authorization: `Bearer ${KEY}`, type: 'application/json', body: entry.body() }]
+		})));
+	} finally {
+		await server.close();
+	}
+});
+
+test('asking about an image task maps pending, done with one output per address, an image without an address or withheld, failed, and an unknown request', async () => {
+	const host = await startServer((request, response) => {
+		const image = request.path.endsWith('.png') ? tinyPng() : tinyJpeg();
+		response.writeHead(200, { 'Content-Type': request.path.endsWith('.png') ? 'image/png' : 'image/jpeg', 'Content-Length': String(image.byteLength) });
+		response.end(image);
+	});
+	const address = (name: string) => `${host.url}/xai-imgen/xai-tmp-imgen-${name}`;
+	const answers: Readonly<Record<string, readonly [number, unknown]>> = {
+		'i-1': [202, { request_id: 'i-1', status: 'pending' }],
+		'i-2': [202, ''],
+		'i-3': [200, { request_id: 'i-3', status: 'done', data: [{ url: address('1.jpg'), mime_type: 'image/jpeg' }, { url: address('2.jpg'), mime_type: 'image/jpeg' }, { url: address('3.png'), mime_type: 'image/png' }], usage: { cost_in_usd_ticks: 2000000000 } }],
+		'i-4': [200, { request_id: 'i-4', status: 'done', data: [{ url: address('4.jpg') }, { respect_moderation: false }, { mime_type: 'image/jpeg' }] }],
+		'i-5': [200, { request_id: 'i-5', status: 'failed', error: { code: 'permission_denied', message: 'Generated image rejected by content moderation.' } }],
+		'i-6': [200, { request_id: 'i-6', status: 'done', data: [] }],
+		'i-7': [200, { request_id: 'i-7', status: 'done' }],
+		'i-8': [200, { request_id: 'i-8', status: 'expired' }]
+	};
+	const api = await startServer((request, response) => {
+		const id = decodeURIComponent(request.path.slice('/images/'.length));
+		const answer = request.path.startsWith('/images/') ? answers[id] : undefined;
+		if (!answer) {
+			sendJson(response, 404, { code: 'not-found', error: `No deferred image could be found with the given request_id: ${id}` });
+			return;
+		}
+		const [status, body] = answer;
+		if (body === '') {
+			response.writeHead(status);
+			response.end();
+			return;
+		}
+		sendJson(response, status, body);
+	});
+	try {
+		const providers = commands();
+		const states = [];
+		for (const id of ['i-1', 'i-2', 'i-3', 'i-4', 'i-5', 'i-6']) {
+			states.push(value(await providers.poll(imageRef(api.url, id))));
+		}
+		const others = [];
+		for (const id of ['i-7', 'i-8', 'i-9']) {
+			const failed = error(await providers.poll(imageRef(api.url, id)));
+			others.push([failed.code, failed.message]);
+		}
+		const target = partTargets(3);
+		const downloads = [];
+		for (const [index, name] of ['1.jpg', '2.jpg', '3.png'].entries()) {
+			downloads.push(value(await providers.download({ ...imageRef(api.url, 'i-3'), kind: 'image', url: address(name), targetFsPath: target[index] })));
+		}
+		const asked = api.received.length;
+		const cancelled = value(await providers.cancel(imageRef(api.url, 'i-1', IMAGE_1)));
+		const first = api.received[0];
+		assert.deepEqual({
+			states,
+			others,
+			downloads,
+			files: [readFileSync(target[0]).equals(tinyJpeg()), readFileSync(target[2]).equals(tinyPng())],
+			keySent: host.received.map(request => request.headers.authorization ?? 'none'),
+			asked: { method: first.method, path: first.path, authorization: first.headers.authorization },
+			cancelled,
+			sentForCancel: api.received.length - asked
+		}, {
+			states: [
+				{ state: 'pending' },
+				{ state: 'pending' },
+				{ state: 'succeeded', outputs: [{ url: address('1.jpg') }, { url: address('2.jpg') }, { url: address('3.png') }] },
+				{ state: 'succeeded', outputs: [{ url: address('4.jpg') }, { refused: 'xAI withheld this image because it did not pass moderation; xAI still charges for the generation.' }, { refused: 'xAI gave no address for this image.' }] },
+				{ state: 'failed', message: 'Generated image rejected by content moderation. (permission_denied)' },
+				// Fewer images than asked: the window fails the cards left over.
+				{ state: 'succeeded', outputs: [] }
+			],
+			others: [
+				['invalidResponse', 'xAI reports that the images are ready but gives no list of them AI Video can read.'],
+				['invalidResponse', 'xAI reports a status AI Video does not know: expired.'],
+				['notFound', 'No deferred image could be found with the given request_id: i-9 (not-found)']
+			],
+			downloads: [{ size: tinyJpeg().byteLength, format: 'jpeg' }, { size: tinyJpeg().byteLength, format: 'jpeg' }, { size: tinyPng().byteLength, format: 'png' }],
+			files: [true, true],
+			keySent: ['none', 'none', 'none'],
+			asked: { method: 'GET', path: '/images/i-1', authorization: `Bearer ${KEY}` },
+			cancelled: { cancelled: false },
+			sentForCancel: 0
+		});
+	} finally {
+		await api.close();
+		await host.close();
+	}
+});
+
+test('an image create reads a refused key, an empty balance, too many requests, and a refused prompt, leaves a server error or a dropped connection unknown, and is sent once', async () => {
+	const replies: readonly ([number, unknown] | 'drop')[] = [
+		[401, { code: 'unauthenticated', error: 'No authorization header or an invalid authorization token was provided.' }],
+		[400, { code: 'Client specified an invalid argument', error: `Incorrect API key provided: ${KEY}. You can obtain an API key from https://console.x.ai.` }],
+		[403, { code: 'Some requested entity was not found', error: 'Your team has either used all available credits or reached its monthly spending limit.' }],
+		[429, { code: 'Some resource has been exhausted', error: 'Too many requests: the rate limit of your team for grok-imagine-image-2.0 is 6 requests per second.' }],
+		[400, { code: 'Client specified an invalid argument', error: 'Content violates usage guidelines. Failed check: SAFETY_CHECK_TYPE_BIO' }],
+		[500, { code: 'internal', error: 'internal error' }],
+		'drop',
+		[200, {}]
+	];
+	let next = 0;
+	const server = await startServer((request, response, socket) => {
+		const reply = replies[next++];
+		if (reply === 'drop') {
+			socket.destroy();
+			return;
+		}
+		sendJson(response, reply[0], reply[1]);
+	});
+	try {
+		const providers = commands();
+		const outcomes = [];
+		for (let index = 0; index < replies.length; index++) {
+			const failed = error(await providers.submit(imageGeneration(server.url, IMAGE_2, {}, index % 2 ? [REFERENCES[0]] : [])));
+			outcomes.push([failed.code, failed.status, failed.message]);
+		}
+		assert.deepEqual({ outcomes, paths: server.received.map(request => request.path) }, {
+			outcomes: [
+				['auth', 401, 'No authorization header or an invalid authorization token was provided. (unauthenticated)'],
+				['auth', 400, 'Incorrect API key provided: ***. You can obtain an API key from https://console.x.ai. (Client specified an invalid argument)'],
+				['balance', 403, 'Your team has either used all available credits or reached its monthly spending limit. (Some requested entity was not found)'],
+				['rateLimited', 429, 'Too many requests: the rate limit of your team for grok-imagine-image-2.0 is 6 requests per second. (Some resource has been exhausted) xAI takes 10 requests a second for each video model and 6 for each image model at the first usage tier, unless the team\'s limit was raised.'],
+				['rejected', 400, 'Content violates usage guidelines. Failed check: SAFETY_CHECK_TYPE_BIO (Client specified an invalid argument)'],
+				['unknownOutcome', 500, 'internal error (internal)'],
+				['unknownOutcome', undefined, outcomes[6][2]],
+				['unknownOutcome', undefined, 'xAI accepted the request but gave no request id AI Video can read.']
+			],
+			paths: ['/images/generations', '/images/edits', '/images/generations', '/images/edits', '/images/generations', '/images/edits', '/images/generations', '/images/edits']
+		});
+		assert.match(String(outcomes[6][2]), /^The connection ended after the request was sent/);
+	} finally {
+		await server.close();
+	}
+});
+
+test('check of an image model reports a ratio with one reference image, too many images, values the model does not take, the prompt rule, and the size of the request; nothing is sent then', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { request_id: 'image-1' }));
+	try {
+		const providers = commands();
+		const sized = (mebibytes: number) => commands({ inspector: () => ({ inspect: async () => ({ bytes: mebibytes * 1024 * 1024, format: 'png', width: 1920, height: 1080 }) }) });
+		const problems = async (model: string, params: Record<string, unknown>, inputs: PlannedMedia, text = IMAGE_PROMPT, checker = providers) =>
+			value(await checker.check({ provider: 'xai', region: 'global', model, mode: 'reference', params, prompt: text, inputs })).problems;
+		assert.deepEqual({
+			oneImageWithRatio: await problems(IMAGE_2, { ratio: '16:9' }, plannedFiles({ images: 1 })),
+			oneImageAdaptive: await problems(IMAGE_2, {}, plannedFiles({ images: 1 })),
+			twoImagesWithRatio: await problems(IMAGE_2, { ratio: '16:9' }, plannedFiles({ images: 2 })),
+			fiveImages: await problems(IMAGE_2, {}, plannedFiles({ images: 5 })),
+			sixImages: await problems(IMAGE_2, {}, plannedFiles({ images: 6 })),
+			fourOnTheFirst: await problems(IMAGE_1, {}, plannedFiles({ images: 4 })),
+			qualityOnTheFirst: await problems(IMAGE_1, { quality: 'low' }, plannedFiles()),
+			wideOnTheFirst: await problems(IMAGE_1, { ratio: '21:9' }, plannedFiles()),
+			between: await problems(IMAGE_2, { resolution: '1.5k' }, plannedFiles()),
+			high: await problems(IMAGE_2, { quality: 'high' }, plannedFiles()),
+			eleven: await problems(IMAGE_2, { count: 11 }, plannedFiles()),
+			noPrompt: await problems(IMAGE_2, {}, plannedFiles({ images: 1 }), ' '),
+			longPrompt: await problems(IMAGE_2, {}, plannedFiles(), 'x'.repeat(1025)),
+			video: await problems(IMAGE_2, {}, plannedFiles({ videos: 1 })),
+			large: await problems(IMAGE_2, {}, plannedFiles({ images: 1 }), IMAGE_PROMPT, sized(100)),
+			largeEnough: await problems(IMAGE_2, {}, plannedFiles({ images: 1 }), IMAGE_PROMPT, sized(90))
+		}, {
+			oneImageWithRatio: ['With one reference image, Grok Imagine Image 2.0 keeps the shape of that image. Choose Adaptive for Ratio, or connect another image.'],
+			oneImageAdaptive: [],
+			twoImagesWithRatio: [],
+			fiveImages: [],
+			sixImages: ['Grok Imagine Image 2.0 in References mode takes at most 5 reference images; 6 are planned.'],
+			fourOnTheFirst: ['Grok Imagine Image in References mode takes at most 3 reference images; 4 are planned.'],
+			qualityOnTheFirst: ['Grok Imagine Image has no setting named "quality".'],
+			wideOnTheFirst: ['Ratio cannot be 21:9 for Grok Imagine Image; choose Adaptive, 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20.'],
+			between: ['Resolution cannot be 1.5k for Grok Imagine Image 2.0; choose 1K, 2K.'],
+			high: ['Quality cannot be high for Grok Imagine Image 2.0; choose Auto, Low, Medium.'],
+			eleven: ['Images must be between 1 and 10.'],
+			noPrompt: ['Write a prompt: Grok Imagine Image 2.0 needs one.'],
+			longPrompt: ['The prompt is 1025 characters long; Grok Imagine Image 2.0 takes at most 1024.'],
+			video: ['Grok Imagine Image 2.0 in References mode takes no reference videos.'],
+			large: ['The inputs make a request of 133.3 MiB; AI Video sends at most 128 MiB. Use fewer or smaller inputs.'],
+			largeEnough: []
+		});
+		const refused = [
+			error(await providers.submit(imageGeneration(server.url, IMAGE_2, { ratio: '16:9' }, [REFERENCES[0]]))),
+			error(await providers.submit(imageGeneration(server.url, IMAGE_1, {}, REFERENCES.concat(REFERENCES[0]))))
+		];
+		assert.deepEqual({ refused, sent: server.received.length }, {
+			refused: [
+				{ code: 'rejected', message: 'With one reference image, Grok Imagine Image 2.0 keeps the shape of that image. Choose Adaptive for Ratio, or connect another image.' },
+				{ code: 'rejected', message: 'Grok Imagine Image in References mode takes at most 3 reference images; 4 are planned.' }
+			],
 			sent: 0
 		});
 	} finally {
