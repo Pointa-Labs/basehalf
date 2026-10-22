@@ -1,15 +1,17 @@
 # xAI
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; image models 2026-10-22)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the xAI module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/xai.ts`): the Grok
-Imagine video models it declares, the requests it sends, and how it reads
-xAI's answers. What is the same for every provider (the commands, the checks
-from the declarations, retries, the download, plain messages) is owned by the
-parent specification and is not repeated here.
+Imagine video models and image models it declares, the requests it sends, and
+how it reads xAI's answers. What is the same for every provider (the commands,
+the checks from the declarations, retries, the download, plain messages) is
+owned by the parent specification and is not repeated here. Everything above
+[Image models](#image-models) is about the video models.
 
 ## Sources
 
@@ -52,8 +54,8 @@ updated".
   <key>`. A key belongs to a team; the team's prepaid credits pay for it.
 - Paths are under the endpoint as it is entered: the base URL already ends
   in `/v1`, and a relay that mirrors xAI's API is entered with its own path.
-- The US regional endpoint (`https://us.api.x.ai/v1`) serves no video
-  generation and is not offered.
+- The US regional endpoint (`https://us.api.x.ai/v1`) serves no video or
+  image generation and is not offered.
 
 ## Following a task
 
@@ -246,7 +248,7 @@ reads two cases from the message:
 | 401, 403 | `auth` |
 | 404 for a create (an unknown model), 400, 415, 422, any other 4xx | `rejected` |
 | 404 for a poll | `notFound` |
-| 429 | `rateLimited`, with xAI's limit: 10 requests a second for each video model unless the team's limit was raised (Rate Limits; xAI's sales team raises Imagine limits) |
+| 429 | `rateLimited`, with xAI's limits: 10 requests a second for each video model and 6 for each image model at the first usage tier, unless the team's limit was raised (Rate Limits; xAI's sales team raises Imagine limits). The module reads the error without knowing the model, so the message names both |
 | 5xx | `unknownOutcome` for a create, `network` (asked again) otherwise |
 
 Authentication, unknown models, and rate limits come back on the request
@@ -315,3 +317,193 @@ as a failed task with one of the codes above.
 `vscode-base/extensions/basehalf-ai-video/test/xai.test.ts` runs the module
 through the provider commands against local servers that answer like xAI's
 API and its video host. No test calls xAI or uses a real key.
+
+## Image models
+
+xAI makes images with Grok Imagine Image on the same API, key, and errors as
+its video models. Its image calls answer with the images unless the request
+sets `deferred: true`; BaseHalf always sets it, so that an image generation is
+a task like a video: the create answers at once with a request id, BaseHalf
+records it, and asks about it until the images are ready, also after a
+reload. No request is held open while the images are made.
+
+### Sources
+
+Read on 2026-10-22 as Markdown, like the pages of the video models; the date
+is the page's own "Last updated".
+
+| Page (path) | Updated | What this part takes from it |
+| --- | --- | --- |
+| `/developers/model-capabilities/images/generation` | 2026-10-08 | `POST /v1/images/generations`; `n` from 1 to 10; the ratios and `auto`, the default, which "lets the model pick the best ratio for the prompt"; the resolutions "currently supported", `1k` (the default) and `2k`; `quality` `low`, `medium`, and `auto`, the default, which "currently uses low for image generation and medium for image editing", on 2.0 only; deferred generation: `deferred: true` answers a `request_id`, `GET /v1/images/{request_id}` answers `pending` with HTTP 202 and `done` or `failed` with HTTP 200, addresses only, results kept 24 hours; addresses are temporary |
+| `/developers/model-capabilities/images/editing` | 2026-10-08 | `POST /v1/images/edits` takes JSON, not multipart; a source image as a public URL, a base64 data URI, or a `file_id` |
+| `/developers/model-capabilities/images/multi-image-editing` | 2026-08-28 | up to five source images, in the order they are sent; the output takes the first image's shape unless `aspect_ratio` sets one |
+| `/developers/rest-api-reference/inference/images` and `/openapi.json` | 2026-10-02 | the fields of both creates and of the poll; `image` or `images`, never both, each JPEG, PNG, or WebP, referred to as `<IMAGE_0>`, `<IMAGE_1>`, … in the prompt; for single image editing, `aspect_ratio` must not be set; `resolution` `1k`, `2k`, `1.5k`; a failed generation is an answer, not an HTTP error, with the codes `invalid_argument`, `permission_denied`, `failed_precondition`, `service_unavailable`, `internal_error`; `mime_type` is `image/jpeg` "unless the requested quality produces PNG"; Zero Data Retention teams must set `output` to use `deferred` |
+| `/developers/migration/imagine-image-quality-nov-2` | 2026-09-02 | `grok-imagine-image-quality` retires on 2026-11-02 and is then served by 2.0 at `low`; 2.0 "additionally accepts `quality`, up to five source images for editing, and the `21:9` and `5:2` aspect ratios"; `grok-imagine-image` (1.0) "is not affected" |
+| `/developers/migration/may-15-retirement` | 2026-09-02 | `grok-imagine-image-pro` redirects to `grok-imagine-image-quality` since 2026-05-15 |
+| `/developers/release-notes` | 2026-10-15 | August 2026: `auto` quality, five source images "(was 3)", `21:9` and `5:2` |
+| `/developers/models`, `/developers/models/grok-imagine-image-2.0`, `/developers/models/grok-imagine-image` | 2026-09-21 | 2.0 is xAI's image model; both take text and images and make images; 1.0's alias `grok-imagine-image-2026-03-02` |
+| `/developers/rest-api-reference/inference/models` | 2026-04-13 | an image model's `max_prompt_length`, 1024 in the example |
+| `/developers/model-capabilities/imagine/files` | (read) | the generation address is an ephemeral one on `imgen.x.ai`, "only good for fetching the asset shortly after generation" |
+| `/developers/rate-limits` | 2026-10-05 | 6 requests a second for each image model at the first tier |
+| `/developers/advanced-api-usage/regions` | 2026-10-10 | the US endpoint serves "none of the image generation, video generation, or voice APIs" |
+| `/developers/pricing` | (read) | a request that breaks the usage guidelines is still charged |
+
+### Models
+
+| Catalog id | Label | Sent as (`global`) | Reference images | Ratios besides Adaptive | Quality |
+| --- | --- | --- | --- | --- | --- |
+| `grok-imagine-image-2.0` | Grok Imagine Image 2.0 | `grok-imagine-image-2.0` | 0 to 5 | the 15 | Auto, Low, Medium |
+| `grok-imagine-image` | Grok Imagine Image | `grok-imagine-image` | 0 to 3 | the 13 | none |
+
+- The 15 ratios are 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 21:9, 5:2,
+  19.5:9, 9:19.5, 20:9, and 9:20; the 13 are the same without 21:9 and 5:2.
+- Both are of kind `image`, deliver JPEG (`outputFormat: jpeg`; a PNG that
+  some quality produces lands under its own extension), run as tasks, and
+  offer the one mode `reference`. The prompt is required (`always`): xAI
+  requires one for an edit and needs one to generate.
+- The prompt is at most 1,024 characters. The models API gives each image
+  model a `max_prompt_length`, without a unit, and its example says 1024;
+  the catalog takes the smaller reading, characters.
+- 1.0 is declared with three source images and without 21:9 and 5:2. The
+  release notes give five images and the two ratios to image editing and
+  generation in general, but the migration guide of November credits them to
+  2.0, so the catalog offers 1.0 only what predates them.
+- **Left out.** `grok-imagine-image-quality`, retiring on 2026-11-02 and then
+  served by 2.0 at Low, and `grok-imagine-image-pro`, redirected since
+  2026-05-15. No card uses either before launch.
+
+### Inputs
+
+- Reference images travel inline as data URLs, `data:<type>;base64,<bytes>`
+  with `image/png`, `image/jpeg`, or `image/webp` read from the bytes, as the
+  video inputs do; nothing is uploaded. The window draws any other image to
+  PNG.
+- One image is sent as `image`, two or more as `images`, in the order of the
+  plan. A prompt may name them with xAI's tags, `<IMAGE_0>` for the first;
+  the prompt is sent as written.
+- A request whose inputs as data URLs would pass 128 MiB is refused, as for
+  video. xAI states no largest source image (the 20 MiB of the models page is
+  for images sent to its chat models).
+
+### Parameters
+
+| Name | Label | Kind | Values | Default | Models | Sent as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ratio` | Ratio | choice, ratio shapes | Adaptive (`adaptive`), then the model's ratios | Adaptive | both | `aspect_ratio`; nothing for Adaptive |
+| `resolution` | Resolution | choice | 1K (`1k`), 2K (`2k`) | 1K | both | `resolution` |
+| `quality` | Quality | choice | Auto (`auto`), Low (`low`), Medium (`medium`) | Auto | 2.0 | `quality` |
+| `count` | Images | whole number | 1 to 10 | 1 | both | `n` |
+
+- Adaptive is xAI's default, `auto`, and nothing is sent for it: a
+  generation takes the shape the model picks for the prompt, an edit the
+  shape of its first image. The tooltip says so.
+- Quality Auto is xAI's default; its tooltip says what xAI serves for it.
+  Every value is sent as it is.
+- `1.5k` is not offered: the API reference and the models API list it, but
+  the guide names `1k` and `2k` as the resolutions currently supported.
+- xAI documents no seed, negative prompt, mask, or watermark for images.
+
+### Rules between parameters
+
+`check` reports, after the checks of the declarations:
+
+| Model | Rule | Source |
+| --- | --- | --- |
+| both | a ratio other than Adaptive needs no reference image or at least two: the edit of one image takes that image's shape | the edit reference: "For single image editing, do not set this. It will always auto-detect from the input image." |
+
+`check` then reports a request larger than AI Video sends.
+
+### Requests
+
+Every request carries `Authorization: Bearer <key>`; a create is sent once,
+as JSON, and always with `deferred: true`.
+
+**Without reference images:** `POST /images/generations` with
+
+```json
+{ "model": "grok-imagine-image-2.0", "prompt": "<prompt>", "n": 4, "resolution": "2k", "aspect_ratio": "16:9", "quality": "medium", "deferred": true }
+```
+
+**With reference images:** `POST /images/edits` with `image` for one and
+`images` for two or more:
+
+```json
+{ "model": "grok-imagine-image-2.0", "prompt": "<prompt>", "images": [{ "url": "data:image/png;base64,<bytes>" }, { "url": "data:image/jpeg;base64,<bytes>" }], "n": 1, "resolution": "1k", "quality": "auto", "deferred": true }
+```
+
+- `quality` goes to 2.0 only; `aspect_ratio` only when the ratio is not
+  Adaptive, and so never with one image.
+- An image is sent as `{ "url": … }`, the reference's form; the guide's
+  examples add `"type": "image_url"`, which the reference does not list.
+- Not sent: `response_format` (a deferred request answers addresses only,
+  the default), `output`, `storage_options`, and `user`.
+- The answer is `{"request_id": "<id>"}`; the task id is that string. An
+  accepted answer without it leaves the outcome unknown.
+
+### Asking about a task
+
+`GET /images/{request_id}`:
+
+| xAI answer | State |
+| --- | --- |
+| `pending` (HTTP 202) | `pending`, or `running` with the progress should the answer give one, as for video |
+| HTTP 202 with no status AI Video can read or knows | `pending` |
+| `done` with `data` | `succeeded`, one output per entry in xAI's order: its `url`, or refused when the entry has no address or says `respect_moderation: false` |
+| `done` without `data` | the answer cannot be read |
+| `failed` | `failed` with `error.message` and `error.code` |
+| any other status with HTTP 200, or none | the answer cannot be read |
+| HTTP 404 | `notFound` |
+
+- **Result**: each `url` is a temporary address on `imgen.x.ai`; BaseHalf
+  downloads it at once, without the key, since it is not on the endpoint's
+  origin. Fewer entries than `n` leave the cards left over failed
+  ([generation cards](../generation-cards.md#several-images-from-one-generation)).
+- An entry without an address is refused with "xAI gave no address for this
+  image."; one that says `respect_moderation: false` with "xAI withheld this
+  image because it did not pass moderation; xAI still charges for the
+  generation." (Pricing).
+- **Cancel**: none, as for video: `cancel` sends nothing and answers false.
+
+### Errors
+
+As for the video models ([Errors](#errors)), the 429 message naming both
+limits. A prompt or an image refused when the request is made is `rejected`
+with xAI's message; one refused while the images are made is a failed task
+with xAI's message and code. A team with Zero Data Retention must give
+`output` to use `deferred`, which BaseHalf cannot (it has no storage of its
+own); xAI's refusal is shown as it words it.
+
+### Facts not confirmed
+
+- Whether `1.5k` is a resolution of any model.
+- Whether 1.0 takes five source images and the ratios 21:9 and 5:2.
+- The unit and the value of each model's `max_prompt_length`.
+- How REST reports a moderated image: `respect_moderation` appears only in
+  the SDK's examples.
+- The largest source image, and which quality produces PNG.
+
+### Acceptance criteria
+
+1. The catalog lists the two image models above under xAI with exactly their
+   reference images, ratios, resolutions, quality, and count, each of kind
+   `image`, delivering JPEG, and running as tasks; no other image model.
+2. A request without images goes to `/images/generations`, one with images
+   to `/images/edits` with `image` or `images` as data URLs in the plan's
+   order; each is sent once, with `deferred: true`, `n`, `resolution`,
+   `quality` on 2.0, and `aspect_ratio` unless Adaptive.
+3. A poll maps 202 to `pending`, `done` to one output per address in xAI's
+   order with an entry without an address or withheld by moderation refused
+   alone, `failed` to a failure with xAI's code, and 404 to `notFound`; the
+   images download without the key.
+4. `check` reports a ratio with one reference image, too many images, a
+   value the model does not take, and a prompt over 1,024 characters, and a
+   refused request sends nothing.
+5. 401 and a 400 about the API key answer `auth`, a message about credits
+   `balance`, 429 `rateLimited` with both limits, and a refused prompt
+   `rejected`; a create whose connection drops answers `unknownOutcome` and
+   was sent once.
+
+### Verification
+
+The same test file runs the image models through the provider commands
+against local servers that answer like xAI's API and its image host.
