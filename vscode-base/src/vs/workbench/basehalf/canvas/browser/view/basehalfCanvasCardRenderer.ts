@@ -18,13 +18,13 @@ import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../ca
 import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from '../../../shell/browser/basehalfItemGlyph.js';
 import { BASEHALF_GENERATION_EXTENSIONS } from '../../../video/common/basehalfGenerationInfo.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
-import { renderBaseHalfGenerationCardFace } from '../../../video/browser/basehalfVideoCard.js';
+import { IBaseHalfGenerationCardFace, renderBaseHalfGenerationCardFace } from '../../../video/browser/basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from '../../../video/browser/basehalfVideoFrameCapture.js';
-import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase } from '../../../video/common/basehalfVideoCardPresentation.js';
+import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase, IBaseHalfGenerationCardPresentation } from '../../../video/common/basehalfVideoCardPresentation.js';
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
-import { releaseBaseHalfCanvasCardMedia } from '../basehalfCanvasCardMedia.js';
+import { releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
 import {
 	BaseHalfCanvasSceneCardControls,
@@ -61,6 +61,8 @@ function glyphTone(type: BaseHalfCanvasGlyphType, orphan: boolean): string {
 export class BaseHalfCanvasCardRenderer {
 	/** The player of the video file drawn in each card element. */
 	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfCanvasCardVideoPlayer>();
+	/** The face drawn last for each generation card, while it is drawn. */
+	private readonly generationFaces = new Map<string, IBaseHalfGenerationCardFace>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -233,6 +235,8 @@ export class BaseHalfCanvasCardRenderer {
 		const content = append(card, $('.basehalf-canvas-card-content'));
 		this.view.creation.renderInlineRenameEditor(card, item);
 		this.view.renderedCardElementsByPath.set(item.path, card);
+		// The card of a file that was just saved says Saving until its picture can be drawn.
+		let carried = item.generation && !draft ? this.generationFaces.get(item.path)?.saving : undefined;
 
 		let renderedPresentation: BaseHalfCanvasCardPresentation | undefined;
 		let renderedHeight: number | undefined;
@@ -287,7 +291,7 @@ export class BaseHalfCanvasCardRenderer {
 			if (badgeOpen && canShowBadgeFace) {
 				this.view.badgeEditor.renderCardBadgeFace(body, item, nextListeners);
 			} else {
-				this.renderCardPreview(body, item, preview, orphan, presentationLevel === 'interactive', nextListeners, card, openCard);
+				this.renderCardPreview(body, item, preview, orphan, presentationLevel === 'interactive', nextListeners, card, openCard, carried, () => { carried = undefined; });
 			}
 			this.renderFolderCoverage(active, item, preview);
 			this.view.badgeEditor.restorePendingCanvasBadgeFocus(card, item.path);
@@ -349,7 +353,9 @@ export class BaseHalfCanvasCardRenderer {
 		interactive: boolean,
 		listeners: DisposableStore,
 		card: HTMLElement,
-		open: () => void
+		open: () => void,
+		carried?: IBaseHalfGenerationCardPresentation,
+		drawn?: () => void
 	): void {
 		const previewNode = append(container, $('.basehalf-canvas-card-preview'));
 		const previewKindClass = `kind-${preview?.kind ?? 'unavailable'}`;
@@ -363,6 +369,13 @@ export class BaseHalfCanvasCardRenderer {
 			previewNode.classList.remove(previewKindClass);
 			previewNode.classList.add('kind-markdown');
 			this.view.noteEditing.renderMarkdownPreview(previewNode, item, preview?.kind === 'markdown' ? preview.text : '', listeners, card);
+			return;
+		}
+		if (carried && item.generation && preview?.kind !== 'media') {
+			// The picture of a file that was just saved is on its way: the card keeps saying Saving.
+			previewNode.classList.remove(previewKindClass);
+			previewNode.classList.add('kind-generation');
+			this.trackGenerationFace(item.path, listeners, renderBaseHalfGenerationCardFace(previewNode, this.carriedFaceInput(item, carried), this.generationFaceServices()));
 			return;
 		}
 		if (!preview) {
@@ -385,7 +398,15 @@ export class BaseHalfCanvasCardRenderer {
 			// A generation card with its file shows its image or its video as the
 			// card of any such file does; one that cannot be shown says so.
 			const unshowable = item.generation ? () => this.renderGenerationFace(previewNode, item, listeners) : undefined;
-			this.renderMediaPreview(previewNode, preview, interactive, listeners, open, card, unshowable);
+			// One whose file was just saved says Saving over its picture until the
+			// picture can be drawn, so that the card goes from Saving straight to it.
+			const cover = item.generation && carried && (preview.mediaKind === 'image' || preview.mediaKind === 'video')
+				? this.renderSavingCover(previewNode, item, carried, listeners)
+				: undefined;
+			this.renderMediaPreview(previewNode, preview, interactive, listeners, open, card, unshowable, cover ? () => {
+				cover.dispose();
+				drawn?.();
+			} : undefined);
 			return;
 		}
 		previewNode.textContent = preview.text;
@@ -402,17 +423,59 @@ export class BaseHalfCanvasCardRenderer {
 		}
 		clearNode(container);
 		container.classList.add('kind-generation');
-		listeners.add(renderBaseHalfGenerationCardFace(container, {
+		this.trackGenerationFace(item.path, listeners, renderBaseHalfGenerationCardFace(container, {
 			resource: item.stat.resource,
 			path: item.path,
 			name: item.name,
 			kind: item.generation.kind,
 			hasFile: !item.generation.draft
-		}, {
+		}, this.generationFaceServices()));
+	}
+
+	/**
+	 * Draws what the face of a generation card showed while its file was saved
+	 * over the card's picture, which is still loading: the cover is disposed
+	 * once the picture can be drawn, or with the card's body.
+	 */
+	private renderSavingCover(container: HTMLElement, item: IBaseHalfCanvasItem, carried: IBaseHalfGenerationCardPresentation, listeners: DisposableStore): DisposableStore {
+		const cover = new DisposableStore();
+		listeners.add(cover);
+		const host = append(container, $('.basehalf-canvas-card-saving-cover'));
+		host.setAttribute('aria-hidden', 'true');
+		cover.add(toDisposable(() => host.remove()));
+		this.trackGenerationFace(item.path, cover, renderBaseHalfGenerationCardFace(host, this.carriedFaceInput(item, carried), this.generationFaceServices()));
+		return cover;
+	}
+
+	/** The face of the card of a file that was just saved, which shows what the card showed while it was saved. */
+	private carriedFaceInput(item: IBaseHalfCanvasItem, carried: IBaseHalfGenerationCardPresentation) {
+		return {
+			resource: item.stat.resource,
+			path: item.path,
+			name: item.name,
+			kind: item.generation?.kind ?? 'video',
+			hasFile: true,
+			carried
+		};
+	}
+
+	/** Keeps the face as the one drawn last for the card while it is drawn, for the drawing that replaces it. */
+	private trackGenerationFace(path: string, store: DisposableStore, face: IBaseHalfGenerationCardFace): void {
+		store.add(face);
+		this.generationFaces.set(path, face);
+		store.add(toDisposable(() => {
+			if (this.generationFaces.get(path) === face) {
+				this.generationFaces.delete(path);
+			}
+		}));
+	}
+
+	private generationFaceServices() {
+		return {
 			hoverService: this.view.hoverService,
 			generationService: this.view.videoGenerationService,
 			taskStore: this.view.generationTaskStore
-		}));
+		};
 	}
 
 	/** The player of the video that the card of `path` shows, while it shows one. */
@@ -507,15 +570,21 @@ export class BaseHalfCanvasCardRenderer {
 		listeners: DisposableStore,
 		open: () => void,
 		card?: HTMLElement,
-		unshowable?: () => void
+		unshowable?: () => void,
+		drawn?: () => void
 	): void {
 		container.classList.add(`media-${preview.mediaKind}`);
 		if (preview.mediaKind === 'image') {
-			const image = append(container, $('img.basehalf-canvas-card-media-visual')) as HTMLImageElement;
-			image.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
+			const image = $('img.basehalf-canvas-card-media-visual') as HTMLImageElement;
+			// Below the cover of a file that was just saved, when there is one.
+			container.insertBefore(image, container.firstChild);
 			image.alt = '';
 			image.draggable = false;
 			image.loading = 'lazy';
+			if (drawn) {
+				whenBaseHalfCanvasMediaDrawn(image, listeners, drawn);
+			}
+			image.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
 			image.addEventListener('error', () => {
 				image.remove();
 				if (unshowable) {
@@ -531,7 +600,7 @@ export class BaseHalfCanvasCardRenderer {
 		}
 		if (preview.mediaKind === 'video') {
 			// The video plays as the player of every card that shows a video does (generation cards, "The player").
-			const player = createBaseHalfCanvasCardVideoPlayer(container, null, {
+			const player = createBaseHalfCanvasCardVideoPlayer(container, container.firstChild, {
 				source: preview.resource,
 				videoClasses: ['basehalf-canvas-card-media-visual'],
 				open,
@@ -554,6 +623,9 @@ export class BaseHalfCanvasCardRenderer {
 			});
 			player.setSelected(interactive);
 			listeners.add(player);
+			if (drawn) {
+				whenBaseHalfCanvasMediaDrawn(player.video, listeners, drawn);
+			}
 			if (card) {
 				this.mediaVideoPlayers.set(card, player);
 				listeners.add(toDisposable(() => {
