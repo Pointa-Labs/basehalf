@@ -15,6 +15,7 @@ import { RUNWAY } from './runway.ts';
 import { XAI } from './xai.ts';
 import { LTX } from './ltx.ts';
 import { BFL } from './bfl.ts';
+import { OPENAI } from './openai.ts';
 import type { ProviderModule } from './module.ts';
 import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from './types.ts';
 
@@ -23,7 +24,7 @@ import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvi
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
-export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, RUNWAY, XAI, LTX, BFL]);
+export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, RUNWAY, XAI, LTX, BFL, OPENAI]);
 
 /** The most files one request makes: the largest `count` an image model may declare. */
 export const MAX_OUTPUTS = 16;

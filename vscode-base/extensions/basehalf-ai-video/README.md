@@ -144,6 +144,7 @@ parameter properties, namespaces).
 | xAI (Grok Imagine) | `xai.ts` | [xAI (Grok Imagine)](../../../docs/specs/providers/xai.md) |
 | LTX | `ltx.ts` | [LTX](../../../docs/specs/providers/ltx.md) |
 | Black Forest Labs (FLUX) | `bfl.ts` | [Black Forest Labs (FLUX)](../../../docs/specs/providers/bfl.md) |
+| OpenAI (GPT Image) | `openai.ts` | [OpenAI](../../../docs/specs/providers/openai.md) |
 
 ## Sequence
 
