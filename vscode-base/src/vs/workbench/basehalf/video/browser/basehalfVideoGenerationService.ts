@@ -1031,7 +1031,7 @@ function parseProviderAnswer<T>(raw: unknown, parse: (value: unknown) => T | und
 	return { ok: false, error: { code: 'invalidResponse', message: localize('basehalf.video.generation.unreadableAnswer', "AI Video answered in a form BaseHalf cannot read.") } };
 }
 
-function parseSubmitResult(value: unknown): IBaseHalfVideoSubmitResult | undefined {
+function parseSubmitResult(value: unknown): Extract<IBaseHalfVideoSubmitResult, { readonly remoteId: string }> | undefined {
 	if (!isRecord(value) || typeof value.remoteId !== 'string') {
 		return undefined;
 	}

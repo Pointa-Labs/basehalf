@@ -42,7 +42,9 @@ export function buildCatalog(modules: readonly ProviderModule[] = PROVIDER_MODUL
 		ids.add(provider.id);
 		validateProvider(provider);
 	}
-	return deepFreeze({ schema: 1, providers: structuredClone(providers) });
+	// Every model of the answer says what it makes: a module may leave out `kind` for a video model.
+	const answered = providers.map(provider => ({ ...provider, models: provider.models.map(model => ({ ...model, kind: model.kind ?? 'video' })) }));
+	return deepFreeze({ schema: 1, providers: structuredClone(answered) });
 }
 
 /** Validates one provider's entry. Throws an error that names the declaration at fault. */
@@ -84,6 +86,22 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 	for (const [region, providerModel] of offered) {
 		check(regions.has(region), `${at}: providerModels names the region ${region}, which the provider does not declare`);
 		check(typeof providerModel === 'string' && /^\S{1,256}$/.test(providerModel), `${at}: the id sent in ${region} must be one word`);
+	}
+	const kind = model.kind ?? 'video';
+	check(kind === 'image' || kind === 'video', `${at}: kind must be image or video`);
+	if (kind === 'image') {
+		check(model.outputFormat !== undefined && IMAGE_FORMATS.has(model.outputFormat), `${at}: an image model declares its outputFormat, png, jpeg, or webp`);
+		check(model.modes.every(mode => mode.id === 'reference' && mode.inputs.startFrame === 'none' && mode.inputs.endFrame === 'none' && mode.inputs.videos.max === 0 && mode.inputs.audios.max === 0 && mode.inputs.source === 'none'), `${at}: an image model offers the one mode reference, with images only`);
+	} else {
+		check(model.outputFormat === undefined, `${at}: only an image model declares an outputFormat`);
+	}
+	check(model.answersAtOnce === undefined || typeof model.answersAtOnce === 'boolean', `${at}: answersAtOnce must be true or false`);
+	if (model.deprecatedIn !== undefined) {
+		check(model.deprecatedIn.length > 0 && new Set(model.deprecatedIn).size === model.deprecatedIn.length && model.deprecatedIn.every(region => model.providerModels[region] !== undefined), `${at}: deprecatedIn must name regions that offer the model, each once`);
+	}
+	const count = model.parameters.find(parameter => parameter.name === 'count');
+	if (count) {
+		check(kind === 'image' && count.kind === 'integer' && count.min >= 1 && count.max <= 16 && count.step === 1, `${at}: count is a whole number from 1 to at most 16, on an image model`);
 	}
 	check(['always', 'withoutMedia', 'never'].includes(model.prompt.required), `${at}: prompt.required must be always, withoutMedia, or never`);
 	check(Number.isInteger(model.prompt.maxLength) && model.prompt.maxLength > 0, `${at}: prompt.maxLength must be a positive whole number`);

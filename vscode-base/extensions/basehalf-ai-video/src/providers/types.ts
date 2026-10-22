@@ -17,6 +17,9 @@ export type ModeId = 'frames' | 'reference' | 'extend' | 'edit';
 
 export type SlotUse = 'none' | 'optional' | 'required';
 
+/** What a model makes (D64). */
+export type ModelKind = 'image' | 'video';
+
 export interface Catalog {
 	/** Changes when the shape of the catalog changes. */
 	readonly schema: 1;
@@ -60,8 +63,16 @@ export interface CatalogModel {
 	/** At least one. The first is the default. */
 	readonly modes: readonly CatalogMode[];
 	readonly parameters: readonly CatalogParameter[];
-	/** Listed only for nodes that already use it. */
+	/** Listed only for cards that already use it. */
 	readonly deprecated?: boolean;
+	/** What the model makes; `video` when absent. `buildCatalog` always writes it. */
+	readonly kind?: ModelKind;
+	/** For an image model: the format its module asks the provider for, which a draft's extension follows. */
+	readonly outputFormat?: ImageFormat;
+	/** The provider answers the request with the files instead of a task (providers, "Requests"). */
+	readonly answersAtOnce?: boolean;
+	/** The regions that retire the model when not all of them do; it is deprecated only there. */
+	readonly deprecatedIn?: readonly string[];
 }
 
 export interface PromptRule {
@@ -233,32 +244,55 @@ export interface SubmitRequest extends ProviderAccess {
 	readonly params: Params;
 	readonly prompt: string;
 	readonly inputs: PlannedMedia;
+	/**
+	 * One new file per output the request may make, each ending in `.part`,
+	 * under `.bh/cache/generation/`. An output the provider answers inline is
+	 * written there under the checks of a download.
+	 */
+	readonly targets?: readonly string[];
 }
 
-export interface SubmitResult {
-	/** The provider's task id. */
-	readonly remoteId: string;
-}
+/** The format of a file a generation made. */
+export type OutputFormat = ImageFormat | 'mp4';
+
+/** One file of a generation: an address to download, a target already written, or why the provider refused it alone. */
+export type Output =
+	| { readonly url: string }
+	| { readonly written: string; readonly size: number; readonly format: OutputFormat }
+	| { readonly refused: string };
+
+/** A task to poll, or the outputs of a provider that answers at once. */
+export type SubmitResult =
+	| { readonly remoteId: string }
+	| { readonly outputs: readonly Output[] };
 
 export interface TaskRef extends ProviderAccess {
 	readonly model: string;
 	readonly remoteId: string;
+	/** As in {@link SubmitRequest.targets}, for a poll whose answer holds the files themselves. */
+	readonly targets?: readonly string[];
 }
 
 export type PollState =
 	| { readonly state: 'pending' | 'running'; readonly fraction?: number }
-	| { readonly state: 'succeeded'; readonly videoUrl?: string }
+	| { readonly state: 'succeeded'; readonly videoUrl?: string; readonly outputs?: readonly Output[] }
 	| { readonly state: 'failed' | 'cancelled'; readonly message: string };
 
 export interface DownloadRequest extends TaskRef {
 	/** From the poll; without it, the provider module knows where the video is. */
 	readonly videoUrl?: string;
+	/** An output's address from the poll or the submit, for an image. */
+	readonly url?: string;
+	/** What is downloaded; `video` when absent. */
+	readonly kind?: ModelKind;
 	/** A new file whose name ends in `.part`. */
 	readonly targetFsPath: string;
 }
 
 export interface DownloadResult {
 	readonly size: number;
+	/** The format the bytes start like. */
+	readonly format?: OutputFormat;
 }
 
 export interface CancelResult {
@@ -275,6 +309,7 @@ export type ProviderErrorCode =
 	| 'invalidResponse'
 	| 'notFound'
 	| 'notVideo'
+	| 'notImage'
 	| 'tooLarge'
 	| 'unknownProvider';
 

@@ -45,6 +45,7 @@ const REFERENCES: IBaseHalfVideoCatalogMode = {
 
 export const ACME_MOTION: IBaseHalfVideoCatalogModel = {
 	id: 'acme-motion-2',
+	kind: 'video',
 	label: 'Acme Motion 2',
 	description: 'Frames or references, with sound.',
 	providerModels: { east: 'acme-motion-2-e-260101', west: 'acme-motion-2-w-260101' },
@@ -65,6 +66,7 @@ export const ACME_MOTION: IBaseHalfVideoCatalogModel = {
 
 export const ACME_STILL: IBaseHalfVideoCatalogModel = {
 	id: 'acme-still',
+	kind: 'video',
 	label: 'Acme Still',
 	providerModels: { east: 'acme-still-260101' },
 	prompt: { required: 'never', maxLength: 1000 },
@@ -77,6 +79,7 @@ export const ACME_STILL: IBaseHalfVideoCatalogModel = {
 
 export const ACME_CLIP: IBaseHalfVideoCatalogModel = {
 	id: 'acme-clip',
+	kind: 'video',
 	label: 'Acme Clip',
 	providerModels: { east: 'acme-clip-1', west: 'acme-clip-1' },
 	prompt: { required: 'always', maxLength: 1000 },
@@ -92,6 +95,7 @@ export const ACME_CLIP: IBaseHalfVideoCatalogModel = {
 
 export const ACME_LEGACY: IBaseHalfVideoCatalogModel = {
 	id: 'acme-legacy',
+	kind: 'video',
 	label: 'Acme Legacy',
 	providerModels: { east: 'acme-legacy-1' },
 	prompt: { required: 'always', maxLength: 1000 },
@@ -113,6 +117,7 @@ export const ACME: IBaseHalfVideoCatalogProvider = {
 
 export const BOREALIS_ONE: IBaseHalfVideoCatalogModel = {
 	id: 'borealis-one',
+	kind: 'video',
 	label: 'Borealis One',
 	providerModels: { main: 'b1' },
 	prompt: { required: 'always', maxLength: 4000 },

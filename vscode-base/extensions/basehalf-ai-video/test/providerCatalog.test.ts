@@ -36,7 +36,26 @@ test('a valid provider builds a frozen copy of its declarations', () => {
 	const catalog = buildCatalog([testModule()]);
 	assert.deepEqual(catalog.providers.map(provider => provider.id), ['testprovider']);
 	assert.ok(Object.isFrozen(catalog) && Object.isFrozen(catalog.providers[0].models[0].parameters[0]));
-	assert.deepEqual(catalog.providers[0], testProvider());
+	// The answer says what every model makes; a module may leave it out for a video model.
+	const declared = testProvider();
+	assert.deepEqual(catalog.providers[0], { ...declared, models: declared.models.map(model => ({ ...model, kind: 'video' })) });
+});
+
+test('an image model declares its format and offers only references of images', () => {
+	const image = (change: (model: Mutable<CatalogModel>) => void) => catalogWith(provider => {
+		const model = firstModel(provider);
+		model.kind = 'image';
+		model.outputFormat = 'png';
+		model.modes = [{ id: 'reference', label: 'References', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 4 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} }];
+		model.parameters = [{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 4, step: 1, default: 1 }];
+		change(model);
+	});
+	assert.equal(image(() => { })().providers[0].models[0].kind, 'image');
+	assert.throws(image(model => { delete model.outputFormat; }), /declares its outputFormat/);
+	assert.throws(image(model => { model.modes[0].inputs.videos.max = 1; }), /the one mode reference, with images only/);
+	assert.throws(image(model => { model.parameters[0] = { name: 'count', label: 'Images', kind: 'integer', min: 1, max: 20, step: 1, default: 1 }; }), /count is a whole number from 1 to at most 16/);
+	assert.throws(catalogWith(provider => { firstModel(provider).outputFormat = 'png'; }), /only an image model declares an outputFormat/);
+	assert.throws(catalogWith(provider => { firstModel(provider).deprecatedIn = ['nowhere']; }), /deprecatedIn must name regions that offer the model/);
 });
 
 test('provider ids are unique, and so are model ids and parameter names within their parent', () => {

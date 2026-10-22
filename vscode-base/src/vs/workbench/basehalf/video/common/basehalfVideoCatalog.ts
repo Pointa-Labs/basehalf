@@ -29,6 +29,9 @@ export type BaseHalfVideoModeId = 'frames' | 'reference' | 'extend' | 'edit';
 
 export type BaseHalfVideoSlotUse = 'none' | 'optional' | 'required';
 
+/** What a model makes (D64). */
+export type BaseHalfModelKind = 'image' | 'video';
+
 export interface IBaseHalfVideoCatalog {
 	/** Changes when the shape of the catalog changes. */
 	readonly schema: 1;
@@ -72,8 +75,16 @@ export interface IBaseHalfVideoCatalogModel {
 	/** At least one. The first is the default. */
 	readonly modes: readonly IBaseHalfVideoCatalogMode[];
 	readonly parameters: readonly BaseHalfVideoCatalogParameter[];
-	/** Listed only for nodes that already use it. */
+	/** Listed only for cards that already use it. */
 	readonly deprecated?: boolean;
+	/** What the model makes. The extension writes it for every model. */
+	readonly kind: BaseHalfModelKind;
+	/** For an image model: the format its module asks the provider for, which a draft's extension follows. */
+	readonly outputFormat?: BaseHalfVideoImageFormat;
+	/** The provider answers the request with the files instead of a task (providers, "Requests"). */
+	readonly answersAtOnce?: boolean;
+	/** The regions that retire the model when not all of them do; it is deprecated only there. */
+	readonly deprecatedIn?: readonly string[];
 }
 
 export interface IBaseHalfVideoPromptRule {
@@ -245,32 +256,55 @@ export interface IBaseHalfVideoSubmitRequest extends IBaseHalfVideoProviderAcces
 	readonly params: BaseHalfVideoParams;
 	readonly prompt: string;
 	readonly inputs: IBaseHalfVideoPlannedMedia;
+	/**
+	 * One new file per output the request may make, each ending in `.part`,
+	 * under `.bh/cache/generation/`. An output the provider answers inline is
+	 * written there under the checks of a download.
+	 */
+	readonly targets?: readonly string[];
 }
 
-export interface IBaseHalfVideoSubmitResult {
-	/** The provider's task id. */
-	readonly remoteId: string;
-}
+/** The format of a file a generation made. */
+export type BaseHalfVideoOutputFormat = BaseHalfVideoImageFormat | 'mp4';
+
+/** One file of a generation: an address to download, a target already written, or why the provider refused it alone. */
+export type BaseHalfVideoOutput =
+	| { readonly url: string }
+	| { readonly written: string; readonly size: number; readonly format: BaseHalfVideoOutputFormat }
+	| { readonly refused: string };
+
+/** A task to poll, or the outputs of a provider that answers at once. */
+export type IBaseHalfVideoSubmitResult =
+	| { readonly remoteId: string }
+	| { readonly outputs: readonly BaseHalfVideoOutput[] };
 
 export interface IBaseHalfVideoTaskRef extends IBaseHalfVideoProviderAccess {
 	readonly model: string;
 	readonly remoteId: string;
+	/** As in {@link IBaseHalfVideoSubmitRequest.targets}, for a poll whose answer holds the files themselves. */
+	readonly targets?: readonly string[];
 }
 
 export type BaseHalfVideoPollState =
 	| { readonly state: 'pending' | 'running'; readonly fraction?: number }
-	| { readonly state: 'succeeded'; readonly videoUrl?: string }
+	| { readonly state: 'succeeded'; readonly videoUrl?: string; readonly outputs?: readonly BaseHalfVideoOutput[] }
 	| { readonly state: 'failed' | 'cancelled'; readonly message: string };
 
 export interface IBaseHalfVideoDownloadRequest extends IBaseHalfVideoTaskRef {
 	/** From the poll; without it, the provider module knows where the video is. */
 	readonly videoUrl?: string;
+	/** An output's address from the poll or the submit, for an image. */
+	readonly url?: string;
+	/** What is downloaded; `video` when absent. */
+	readonly kind?: BaseHalfModelKind;
 	/** A new file whose name ends in `.part`. */
 	readonly targetFsPath: string;
 }
 
 export interface IBaseHalfVideoDownloadResult {
 	readonly size: number;
+	/** The format the bytes start like. */
+	readonly format?: BaseHalfVideoOutputFormat;
 }
 
 export interface IBaseHalfVideoCancelResult {
@@ -287,6 +321,7 @@ export type BaseHalfVideoProviderErrorCode =
 	| 'invalidResponse'
 	| 'notFound'
 	| 'notVideo'
+	| 'notImage'
 	| 'tooLarge'
 	| 'unknownProvider';
 
@@ -1145,6 +1180,12 @@ function parseModel(value: unknown, path: string, problems: string[]): IBaseHalf
 			}
 		});
 		const description = typeof record.description === 'string' && record.description.trim() ? record.description.trim() : undefined;
+		const kind: BaseHalfModelKind = record.kind === undefined ? 'video' : record.kind === 'image' || record.kind === 'video' ? record.kind : (() => { throw new Error(`${path}.kind must be image or video.`); })();
+		const outputFormat = record.outputFormat === undefined ? undefined : BASEHALF_VIDEO_IMAGE_FORMATS.includes(record.outputFormat as BaseHalfVideoImageFormat) ? record.outputFormat as BaseHalfVideoImageFormat : undefined;
+		if (kind === 'image' && outputFormat === undefined) {
+			throw new Error(`${path}.outputFormat must be png, jpeg, or webp for an image model.`);
+		}
+		const deprecatedIn = Array.isArray(record.deprecatedIn) ? record.deprecatedIn.filter((region): region is string => typeof region === 'string' && offered[region] !== undefined) : [];
 		return Object.freeze({
 			id,
 			label: requireText(record.label, `${path}.label`),
@@ -1153,7 +1194,11 @@ function parseModel(value: unknown, path: string, problems: string[]): IBaseHalf
 			prompt: Object.freeze({ required: prompt.required, maxLength: prompt.maxLength as number }),
 			modes: Object.freeze(modes),
 			parameters: Object.freeze(parameters),
-			...(record.deprecated === true ? { deprecated: true } : {})
+			...(record.deprecated === true ? { deprecated: true } : {}),
+			kind,
+			...(kind === 'image' ? { outputFormat } : {}),
+			...(record.answersAtOnce === true ? { answersAtOnce: true } : {}),
+			...(deprecatedIn.length ? { deprecatedIn: Object.freeze(deprecatedIn) } : {})
 		});
 	} catch (error) {
 		problems.push(error instanceof Error ? error.message : String(error));
