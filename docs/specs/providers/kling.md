@@ -1,15 +1,17 @@
 # Kling
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; image models, 2026-10-22)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Kling module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/kling.ts`): the
 catalog entry it declares, the requests it sends, and how it reads Kling's
-answers. What is the same for every provider (the commands, checks from the
-declarations, retries, the download, plain messages) is owned by the parent
-specification and is not repeated here.
+answers, for its video models and, in [Image models](#image-models), its
+image models. What is the same for every provider (the commands, checks from
+the declarations, retries, the download, plain messages) is owned by the
+parent specification and is not repeated here.
 
 ## Sources
 
@@ -44,13 +46,18 @@ was read on 2026-10-18 and read again, unchanged, on 2026-10-19.
 
 - One credential, `apiKey` (**API Key**), sent as `Authorization: Bearer
   <key>`. It is made in the console of the region.
-- Every request uses the **new API**, where the model is part of the path
-  (`/text-to-video/kling-3.0`). It serves every model below in both regions
-  and takes API keys only. Kling O1 is not named in the update of 2026-07-15,
-  but its page gives its path on the new API, `/omni-video/kling-o1`. The
-  legacy API (`/v1/videos/...`, the model in `model_name`, a token signed
-  from an access key and a secret key, the state `succeed`, the result in
+- Every video request uses the **new API**, where the model is part of the
+  path (`/text-to-video/kling-3.0`). It serves every video model below in
+  both regions and takes API keys only. Kling O1 is not named in the update
+  of 2026-07-15, but its page gives its path on the new API,
+  `/omni-video/kling-o1`. The legacy video API (`/v1/videos/...`, the model in
+  `model_name`, the state `succeed`, the result in
   `data.task_result.videos`) is not used.
+- Kling's image models exist on the legacy API only (`/v1/images/...`), which
+  takes the same API key: the authentication page names the API key "for all
+  models", and the update of 2026-06-17 says that it works with every
+  existing model beside a token signed from an access key and a secret key,
+  which BaseHalf does not use ([Image models](#image-models)).
 
 ## Models
 
@@ -208,7 +215,7 @@ code.
 
 | Codes (status) | Meaning | Answer |
 | --- | --- | --- |
-| 1000–1004 (401) | authentication failed | `auth` |
+| 1000–1004 (401) | authentication failed | `auth`; the message says to check the key in Providers |
 | 1100 (429) | the account's status is abnormal | `rejected` |
 | 1101 (429) | the account is in arrears | `balance` |
 | 1102 (429) | the resource package is used up or expired | `balance` |
@@ -238,8 +245,8 @@ its place from `submitted` until it ends. Asking about tasks is not limited.
 - **Negative prompt and CFG scale**: the new API has neither; only the
   legacy API takes a `negative_prompt`. On the new API the prompt holds both
   what to show and what to avoid.
-- **Older models** such as Kling 2.1: the documentation gives them no path on
-  the new API.
+- **Older video models** such as Kling 2.1: the documentation gives them no
+  path on the new API.
 - **Watermarked results, callbacks, and custom task ids**: BaseHalf asks
   about tasks itself and keeps the video without a watermark.
 - **Avatar, lip sync, effects, and audio generation**: not video generation
@@ -261,8 +268,165 @@ its place from `submitted` until it ends. Asking about tasks is not limited.
 6. `check` reports each rule between parameters and refuses WebP and GIF
    images; a refused request sends nothing.
 
+## Image models
+
+### Image sources
+
+Read on 2026-10-22 under `https://kling.ai/document-api/` and
+`https://klingai.com/document-api/`, which agree on every field, value, and
+limit. Only the capability map shows a date.
+
+| Page (path) | What it settles |
+| --- | --- |
+| `api/image/3-0-omni/image-generation` (the same as `api/image/2-1/image-generation`) | `POST /v1/images/generations` and its query: Kling Image 3.0 and 2.1 |
+| `api/image/3-0-omni/image-omni` (the same as `api/image/o1/image-generation`) | `POST /v1/images/omni-image` and its query: Kling Image 3.0 Omni and O1 |
+| `api/image/2-1/multi-image-to-image` | Kling Image 2.1's subjects, scene, and style ([Images left out](#images-left-out)) |
+| `guides/capability-map/image` (updated 2026-05-19) | per model: ratios, resolutions, Adaptive (`auto`), series, references |
+| `api/get-started/authentication`, `updates/api` | the API key for every model (2026-06-17); the legacy API stays (2026-07-15) |
+| `api/get-started/concurrency-rules` | an image task holds one place for each image it makes |
+| `api/get-started/error-codes` | the codes, the same as for videos |
+
+### Image catalog
+
+| Catalog id | Label | Sent as (`cn`, `intl`) | Created at | Asked about at | References |
+| --- | --- | --- | --- | --- | --- |
+| `kling-image-3.0-omni` | Kling Image 3.0 Omni | `kling-v3-omni` | `POST /v1/images/omni-image` | `GET /v1/images/omni-image/{task_id}` | 0–10 |
+| `kling-image-3.0` | Kling Image 3.0 | `kling-v3` | `POST /v1/images/generations` | `GET /v1/images/generations/{task_id}` | 0–1 |
+| `kling-image-o1` | Kling Image O1 | `kling-image-o1` | `POST /v1/images/omni-image` | `GET /v1/images/omni-image/{task_id}` | 0–10 |
+
+- Every image model has the kind `image`, the one mode References
+  (`reference`) with `images.min` 0, and runs as a task. Its `outputFormat`
+  is `png`: Kling states no format, and its examples are PNG.
+- The prompt is always required (both calls require it) and at most 2,500
+  characters.
+- They follow the video models, in this order. Kling Image 3.0 Omni comes
+  first: it takes the most references and resolutions.
+- **Kling Image 2.1** (`kling-v2-1`) is left out. What it adds over the
+  three models is a subject or a face reference with their fidelities
+  (`image_reference`, `image_fidelity`, `human_fidelity`) and a multi-image
+  call of subjects, a scene, and a style (`/v1/images/multi-image2image`):
+  each gives an input a role, which references in order cannot say, so it
+  adds no mode BaseHalf can offer. Its text to image and single reference are
+  what Kling Image 3.0 does, newer.
+- Kling deletes results after 30 days; BaseHalf downloads them at once.
+
+### Image inputs
+
+- JPEG and PNG only (`imageFormats: ["png", "jpeg"]`), each side at least
+  300 px (`imageMinSide: 300`), width to height between 1:2.5 and 2.5:1
+  (`imageAspect: [0.4, 2.5]`), at most 10 MB (`imageMaxBytes: 10485760`,
+  read as MiB as for videos). The window draws any other image to PNG.
+- An image is its file's bytes as plain base64 without a `data:` prefix: the
+  one `image` of Kling Image 3.0, and `image_list` items `{ "image": … }` of
+  the omni models, in order.
+- An omni prompt names inputs `<<<image_1>>>`; the prompt is sent as written,
+  as for the video models.
+- `check` reports a request whose JSON with its images in base64 would be
+  larger than the 128 MiB AI Video sends.
+
+### Image parameters
+
+| Name | Label | Kind | Values | Default | Models | Sent as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ratio` | Ratio | choice, ratio shapes | `16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `3:2`, `2:3`, `21:9`; `adaptive` (Adaptive) on 3.0 Omni and O1 | `16:9` on 3.0 and 3.0 Omni, `adaptive` on O1 | all | `aspect_ratio`, Adaptive as `auto` |
+| `resolution` | Resolution | choice | `1k`, `2k` (1K, 2K); also `4k` (4K) on 3.0 Omni | `1k` | all | `resolution` |
+| `count` | Images | integer 1–9 | | 1 | all | `n` |
+| `negative_prompt` | Negative Prompt | text, 2,500, optional, More | | | 3.0 | `negative_prompt`, when not blank |
+
+- The defaults are Kling's own, except the ratio of 3.0 Omni: Kling's
+  default there is `auto`, which 3.0 Omni refuses without a reference, so its
+  default is `16:9`, Kling's default on its other call.
+- Adaptive lets Kling choose the shape from the inputs; the tooltip says so,
+  and on 3.0 Omni that it needs a reference image.
+- O1's 4K is not offered: its call lists `4k`, but the capability map gives
+  O1 1K and 2K only.
+- No seed and no prompt rewriting: Kling has neither. No watermark setting:
+  Kling's watermark makes a second, marked copy (`watermark_url`) beside the
+  clean `url`, which is the one BaseHalf downloads, so `watermark_info` is not
+  sent.
+
+Rules between parameters and inputs, reported by `check`:
+
+| Model | Rule | Source |
+| --- | --- | --- |
+| 3.0 Omni | Adaptive needs a reference image | capability map: text to image, "Auto ratio is not supported" |
+| 3.0 | a negative prompt only without a reference image | generations: "In the Image-to-Image scenario … negative prompts are not supported" |
+
+### Image requests
+
+- **Create**, once, with `Authorization: Bearer <key>` and
+  `Content-Type: application/json`. Kling Image 3.0:
+
+  ```json
+  { "model_name": "kling-v3", "prompt": "<prompt>", "negative_prompt": "<when set>", "image": "<base64, with a reference>", "resolution": "1k", "n": 2, "aspect_ratio": "16:9" }
+  ```
+
+  The omni models:
+
+  ```json
+  { "model_name": "kling-v3-omni", "prompt": "<prompt>", "image_list": [{ "image": "<base64>" }], "resolution": "4k", "n": 4, "aspect_ratio": "auto" }
+  ```
+
+  Nothing else is sent: no `result_type` (Kling's default makes single
+  images, not a series), `series_amount`, `element_list`, `watermark_info`,
+  `callback_url`, or `external_task_id`. The answer is
+  `{code: 0, message, request_id, data: {task_id, task_status, …}}`; the task
+  id is `data.task_id`. Another code is read as in [Errors](#errors).
+- **Asking about a task** at the model's own path, never at `GET /tasks`
+  (whether the new API sees these tasks is not documented). The answer is
+  `{code, message, data: {task_id, task_status, task_status_msg, task_result}}`:
+
+  | `task_status` | Answer |
+  | --- | --- |
+  | `submitted` | `pending` |
+  | `processing` | `running` (no progress) |
+  | `succeed` | `succeeded` with the `url` of each of `task_result.images`, in order, never its `watermark_url`; without one, the answer cannot be read |
+  | `failed` | `failed` with `task_status_msg` |
+  | any other | the answer cannot be read |
+
+- The images are on Kling's CDN and are downloaded without the key.
+- An image task holds one of the account's places for each image it makes
+  (`n`); over the limit, Kling answers 1303 (`rateLimited`).
+- **Cancel**: none, as for videos.
+
+### Images left out
+
+- **Kling Image 2.1** and its multi-image call ([Image catalog](#image-catalog)).
+- **Series** (`result_type: "series"`, `series_amount`) of 3.0 Omni: the
+  model may choose how many images it makes, while a generation makes its
+  cards before it sends.
+- **Elements** (`element_list`): assets of Kling's element library, which a
+  card's inputs are not.
+- **Outpainting** (`/v1/images/editing/expand`): editing, not generation
+  ([non-goals](../providers.md#non-goals)).
+
+### Image open questions
+
+1. The format of the images: not stated; PNG is declared, and an image in
+   another format lands under its own extension.
+2. 4K on O1: offered by the call, not by the capability map; not offered.
+3. Whether `GET /tasks` of the new API sees these tasks: not used.
+
+### Image acceptance criteria
+
+1. The catalog lists the three image models above, after the video models,
+   with the kind `image`, PNG, as tasks, in both regions, with exactly their
+   mode, limits, and parameters.
+2. Each model's create goes once to its path with the key and the body above,
+   its references as plain base64.
+3. Asking about a task goes to the model's own path and maps `submitted`,
+   `processing`, `succeed` (every image's `url` in order), and `failed`; an
+   image downloads without the key.
+4. A refused key answers `auth`, a 429 code as the error table says, a refused
+   content `rejected`, and a create whose connection drops `unknownOutcome`,
+   each after one request.
+5. `check` refuses Adaptive without a reference on 3.0 Omni and a negative
+   prompt with a reference on 3.0; a refused request sends nothing.
+
 ## Verification
 
 `vscode-base/extensions/basehalf-ai-video/test/kling.test.ts` runs the module
-through the provider commands against a local server that answers like Kling.
-No test calls Kling or uses a real key.
+through the provider commands against a local server that answers like Kling,
+for the video models and the image models
+([Image acceptance criteria](#image-acceptance-criteria)). No test calls Kling
+or uses a real key.

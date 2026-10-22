@@ -4,9 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Kling module (docs/specs/video-providers/kling.md) through the provider
- * commands, against a local server that answers like Kling's new API. No test
- * calls Kling or uses a real key.
+ * The Kling module (docs/specs/providers/kling.md) through the provider
+ * commands, against a local server that answers like Kling's new API for
+ * videos and its earlier API for images. No test calls Kling or uses a real
+ * key.
  */
 
 import assert from 'node:assert/strict';
@@ -18,8 +19,8 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { KLING } from '../src/providers/kling.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogModel, PlannedMedia } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, sendJson, startServer, value, webpHeader, type Received } from './providerTestKit.ts';
+import type { CatalogModel, CatalogParameter, PlannedMedia } from '../src/providers/types.ts';
+import { error, gifHeader, isoMedia, jpegHeader, partTargets, plannedFiles, png, routed, sendJson, serveFiles, startServer, tinyPng, value, webpHeader, type Received } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-kling-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -117,7 +118,8 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 	const frames = (endFrame: string) => ['frames', 'Frames', 'optional', endFrame, 0, 0];
 	const references = ['reference', 'References', 'none', 'none', 1, 7];
 	const sentAs = (id: string) => ({ cn: id, intl: id });
-	assert.deepEqual(provider.models.map(model => ({
+	const videoModels = provider.models.filter(model => model.kind === 'video');
+	assert.deepEqual(videoModels.map(model => ({
 		id: model.id,
 		label: model.label,
 		sentAs: model.providerModels,
@@ -134,7 +136,7 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 	]);
 
 	// Every mode takes images only, within Kling's limits.
-	for (const model of provider.models) {
+	for (const model of videoModels) {
 		for (const mode of model.modes) {
 			assert.deepEqual({ videos: mode.inputs.videos, audios: mode.inputs.audios, source: mode.inputs.source, limits: mode.limits }, {
 				videos: { min: 0, max: 0 },
@@ -154,7 +156,7 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 	});
 	const ratio = ['ratio', 'Ratio', ['16:9', '9:16', '1:1'], '16:9'];
 	const sound = ['sound', 'Sound', 'boolean', false];
-	assert.deepEqual(Object.fromEntries(provider.models.map(model => [model.id, settings(model)])), {
+	assert.deepEqual(Object.fromEntries(videoModels.map(model => [model.id, settings(model)])), {
 		'kling-3.0-turbo': [['resolution', 'Resolution', ['720p', '1080p'], '720p'], ratio, ['duration', 'Duration', 3, 15, 1, 'seconds', 5]],
 		'kling-3.0': [['resolution', 'Resolution', ['720p', '1080p', '4k'], '720p'], ratio, ['duration', 'Duration', 3, 15, 1, 'seconds', 5], sound],
 		'kling-3.0-omni': [['resolution', 'Resolution', ['720p', '1080p', '4k'], '720p'], ratio, ['duration', 'Duration', 3, 15, 1, 'seconds', 5], sound],
@@ -162,7 +164,7 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 		'kling-2.6': [['resolution', 'Resolution', ['720p', '1080p'], '720p'], ratio, ['duration', 'Duration', 5, 10, 5, 'seconds', 5], sound],
 		'kling-2.5-turbo': [['resolution', 'Resolution', ['720p', '1080p'], '720p'], ratio, ['duration', 'Duration', 5, 10, 5, 'seconds', 5]]
 	});
-	const parameters = provider.models.flatMap(model => model.parameters);
+	const parameters = videoModels.flatMap(model => model.parameters);
 	assert.ok(parameters.every(parameter => !parameter.advanced && !parameter.optional && !parameter.modes));
 	assert.ok(parameters.filter(parameter => parameter.name === 'ratio').every(parameter => parameter.kind === 'choice' && parameter.display === 'ratio'));
 	assert.ok(buildCatalog(PROVIDER_MODULES).providers.some(entry => entry.id === 'kling'), 'AI Video ships the Kling module');
@@ -308,7 +310,7 @@ test('a refused key answers auth for a create and for a poll, and no message car
 		const providers = commands();
 		const submitted = error(await providers.submit(generation(server.url, 'kling-3.0', 'frames', {})));
 		const polled = error(await providers.poll(taskRef(server.url, 'task-1')));
-		const message = 'Kling refused the API key. Check it in Video Providers. (1000: Authentication failed)';
+		const message = 'Kling refused the API key. Check it in Providers. (1000: Authentication failed)';
 		assert.deepEqual({ submitted, polled, sent: server.received.length }, {
 			submitted: { code: 'auth', message, status: 401 },
 			polled: { code: 'auth', message, status: 401 },
@@ -572,6 +574,349 @@ test('check refuses WebP and GIF images and a request larger than AI Video sends
 				submitted: { code: 'rejected', message: 'The start frame frame.webp is a WebP image; this mode takes PNG or JPEG images.' },
 				ruleSubmitted: { code: 'rejected', message: 'Kling 2.6 makes sound only at 1080p.' }
 			},
+			sent: 0
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+// --- image models -------------------------------------------------------------------------------
+
+const MiB = 1024 * 1024;
+const IMAGE_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9'];
+
+/** A request of an image model in References mode. */
+function imageGeneration(endpoint: string, model: string, params: Record<string, unknown>, images: readonly FileMedia[] = [], prompt = PROMPT, region = 'intl') {
+	return generation(endpoint, model, 'reference', params, { images }, prompt, region);
+}
+
+function imageTaskRef(endpoint: string, model: string, remoteId: string) {
+	return { provider: 'kling', region: 'intl', endpoint, credentials: { apiKey: KEY }, model, remoteId };
+}
+
+/** Kling's answer to an image create on its earlier API. */
+function imageCreated(taskId: string) {
+	return { code: 0, message: 'SUCCEED', request_id: `request-${taskId}`, data: { task_id: taskId, task_status: 'submitted', task_info: { external_task_id: '' }, created_at: 1781080778802, updated_at: 1781080778802 } };
+}
+
+/** A parameter in one line: its name, whether it is optional and under More, its values, its default, and its tooltip. */
+function describeImageParameter(parameter: CatalogParameter): string {
+	const name = `${parameter.name}${parameter.optional ? '?' : ''}${parameter.advanced ? ' (More)' : ''}`;
+	const tooltip = parameter.tooltip ? ` (${parameter.tooltip})` : '';
+	switch (parameter.kind) {
+		case 'choice':
+			return `${name}: ${parameter.options.map(option => `${option.value}=${option.label}`).join(' ')} = ${parameter.default}${tooltip}`;
+		case 'integer':
+		case 'number':
+			return `${name}: ${parameter.min}-${parameter.max} = ${parameter.default}${tooltip}`;
+		case 'boolean':
+			return `${name} = ${parameter.default}${tooltip}`;
+		case 'text':
+			return `${name}: text ${parameter.maxLength}${tooltip}`;
+	}
+}
+
+test('the image models follow the video models: PNG, as tasks of Kling\'s earlier API, with their references, limits, and settings', () => {
+	const provider = buildCatalog([KLING]).providers[0];
+	assert.deepEqual(provider.models.map(model => model.kind), [...Array(6).fill('video'), ...Array(3).fill('image')]);
+	const ratios = (adaptive: boolean) => [...IMAGE_RATIOS.map(ratio => `${ratio}=${ratio}`), ...(adaptive ? ['adaptive=Adaptive'] : [])].join(' ');
+	const references = (max: number) => ({ startFrame: 'none', endFrame: 'none', images: { min: 0, max }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' });
+	const limits = { imageFormats: ['png', 'jpeg'], imageMinSide: 300, imageAspect: [0.4, 2.5], imageMaxBytes: 10 * MiB };
+	const entry = (id: string, label: string, sentAs: string, max: number, parameters: string[]) => ({
+		id,
+		label,
+		sentAs: { cn: sentAs, intl: sentAs },
+		prompt: { required: 'always', maxLength: 2500 },
+		outputFormat: 'png',
+		answersAtOnce: undefined,
+		modes: [{ id: 'reference', label: 'References', inputs: references(max), limits }],
+		parameters
+	});
+	assert.deepEqual(provider.models.filter(model => model.kind === 'image').map(model => ({
+		id: model.id,
+		label: model.label,
+		sentAs: model.providerModels,
+		prompt: model.prompt,
+		outputFormat: model.outputFormat,
+		answersAtOnce: model.answersAtOnce,
+		modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits })),
+		parameters: model.parameters.map(describeImageParameter)
+	})), [
+		entry('kling-image-3.0-omni', 'Kling Image 3.0 Omni', 'kling-v3-omni', 10, [
+			`ratio: ${ratios(true)} = 16:9 (The shape of the image. Adaptive lets Kling choose it from the reference images, and needs one.)`,
+			'resolution: 1k=1K 2k=2K 4k=4K = 1k',
+			'count: 1-9 = 1'
+		]),
+		entry('kling-image-3.0', 'Kling Image 3.0', 'kling-v3', 1, [
+			`ratio: ${ratios(false)} = 16:9`,
+			'resolution: 1k=1K 2k=2K = 1k',
+			'count: 1-9 = 1',
+			'negative_prompt? (More): text 2500 (What the image should not show. Kling takes it only when no reference image is connected.)'
+		]),
+		entry('kling-image-o1', 'Kling Image O1', 'kling-image-o1', 10, [
+			`ratio: ${ratios(true)} = adaptive (The shape of the image. Adaptive lets Kling choose it from the prompt and the reference images.)`,
+			'resolution: 1k=1K 2k=2K = 1k',
+			'count: 1-9 = 1'
+		])
+	]);
+});
+
+test('each image model creates its task once at its call, with the key and the body Kling documents, its references as plain base64', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, imageCreated(`image-${server.received.length}`)));
+	try {
+		const cases: readonly { name: string; request: ReturnType<typeof imageGeneration>; path: string; body: () => unknown }[] = [
+			{
+				name: '3.0 Omni from the prompt, with Kling\'s defaults',
+				request: imageGeneration(server.url, 'kling-image-3.0-omni', {}),
+				path: '/v1/images/omni-image',
+				body: () => ({ model_name: 'kling-v3-omni', prompt: PROMPT, resolution: '1k', n: 1, aspect_ratio: '16:9' })
+			},
+			{
+				name: '3.0 Omni from three references, Adaptive, at 4K, four images',
+				request: imageGeneration(server.url, 'kling-image-3.0-omni', { ratio: 'adaptive', resolution: '4k', count: 4 }, REFERENCES, PROMPT, 'cn'),
+				path: '/v1/images/omni-image',
+				body: () => ({ model_name: 'kling-v3-omni', prompt: PROMPT, image_list: REFERENCES.map(media => ({ image: base64(media) })), resolution: '4k', n: 4, aspect_ratio: 'auto' })
+			},
+			{
+				name: '3.0 from the prompt with a negative prompt',
+				request: imageGeneration(server.url, 'kling-image-3.0', { ratio: '21:9', resolution: '2k', count: 9, negative_prompt: 'blurry, text' }),
+				path: '/v1/images/generations',
+				body: () => ({ model_name: 'kling-v3', prompt: PROMPT, negative_prompt: 'blurry, text', resolution: '2k', n: 9, aspect_ratio: '21:9' })
+			},
+			{
+				name: '3.0 from one reference, a blank negative prompt sends none',
+				request: imageGeneration(server.url, 'kling-image-3.0', { ratio: '1:1', negative_prompt: '  ' }, [START]),
+				path: '/v1/images/generations',
+				body: () => ({ model_name: 'kling-v3', prompt: PROMPT, image: base64(START), resolution: '1k', n: 1, aspect_ratio: '1:1' })
+			},
+			{
+				name: 'O1 from the prompt, Adaptive by default',
+				request: imageGeneration(server.url, 'kling-image-o1', {}),
+				path: '/v1/images/omni-image',
+				body: () => ({ model_name: 'kling-image-o1', prompt: PROMPT, resolution: '1k', n: 1, aspect_ratio: 'auto' })
+			},
+			{
+				name: 'O1 from two references at 2K',
+				request: imageGeneration(server.url, 'kling-image-o1', { ratio: '9:16', resolution: '2k', count: 2 }, REFERENCES.slice(0, 2)),
+				path: '/v1/images/omni-image',
+				body: () => ({ model_name: 'kling-image-o1', prompt: PROMPT, image_list: REFERENCES.slice(0, 2).map(media => ({ image: base64(media) })), resolution: '2k', n: 2, aspect_ratio: '9:16' })
+			}
+		];
+		const providers = commands();
+		const outcomes = [];
+		for (const entry of cases) {
+			const before = server.received.length;
+			const answer = await providers.submit(entry.request);
+			outcomes.push({
+				name: entry.name,
+				answer,
+				sent: server.received.slice(before).map(request => ({ method: request.method, path: request.path, authorization: request.headers.authorization, type: request.headers['content-type'], body: sentBody(request) }))
+			});
+		}
+		assert.deepEqual(outcomes, cases.map((entry, index) => ({
+			name: entry.name,
+			answer: { ok: true, value: { remoteId: `image-${index + 1}` } },
+			sent: [{ method: 'POST', path: entry.path, authorization: `Bearer ${KEY}`, type: 'application/json', body: entry.body() }]
+		})));
+	} finally {
+		await server.close();
+	}
+});
+
+test('an image task is asked about at its call\'s own path, and every state maps, its images in order without their watermarks', async () => {
+	const tasks: Readonly<Record<string, unknown>> = {
+		'i-1': { task_id: 'i-1', task_status: 'submitted', task_status_msg: '' },
+		'i-2': { task_id: 'i-2', task_status: 'processing', task_status_msg: '' },
+		'i-3': {
+			task_id: 'i-3',
+			task_status: 'succeed',
+			task_status_msg: '',
+			watermark_info: { enabled: false },
+			task_result: {
+				result_type: 'single',
+				images: [
+					{ index: 0, url: 'https://p1-kling.klingai.com/kcdn/i-3-0.png', watermark_url: 'https://p1-kling.klingai.com/kcdn/i-3-0-mark.png' },
+					{ index: 1, url: 'https://p1-kling.klingai.com/kcdn/i-3-1.png' },
+					{ index: 2, url: ' ' }
+				]
+			}
+		},
+		'i-4': { task_id: 'i-4', task_status: 'failed', task_status_msg: 'Failure to pass the risk control system' },
+		'i-5': { task_id: 'i-5', task_status: 'failed' },
+		'i-6': { task_id: 'i-6', task_status: 'paused' },
+		'i-7': { task_id: 'i-7', task_status: 'succeed', task_result: { images: [] } }
+	};
+	const server = await startServer((request, response) => {
+		const id = /^(?:\/relay)?\/v1\/images\/(?:generations|omni-image)\/([^/?]+)$/.exec(request.path)?.[1] ?? '';
+		if (id === 'gone') {
+			sendJson(response, 404, { code: 1203, message: 'task not found', request_id: 'r' });
+		} else if (id === 'gone-in-body') {
+			sendJson(response, 200, { code: 1203, message: 'task not found', request_id: 'r' });
+		} else if (tasks[id]) {
+			sendJson(response, 200, { code: 0, message: 'SUCCEED', request_id: 'r', data: tasks[id] });
+		} else {
+			sendJson(response, 200, { code: 0, message: 'SUCCEED', request_id: 'r' });
+		}
+	});
+	try {
+		const providers = commands();
+		const poll = (model: string, id: string, endpoint = server.url) => providers.poll(imageTaskRef(endpoint, model, id));
+		const states = [];
+		for (const id of ['i-1', 'i-2', 'i-3', 'i-4', 'i-5']) {
+			states.push(value(await poll('kling-image-3.0-omni', id)));
+		}
+		const others = [];
+		for (const id of ['i-6', 'i-7', 'no-data', 'gone', 'gone-in-body']) {
+			others.push(error(await poll('kling-image-o1', id)));
+		}
+		value(await poll('kling-image-3.0', 'i-1'));
+		value(await poll('kling-image-3.0', 'i-2', `${server.url}/relay`));
+		assert.deepEqual({
+			states,
+			others: others.map(entry => entry.code),
+			unreadable: others[1].message,
+			asked: server.received.map(request => `${request.method} ${request.path} ${request.headers.authorization} ${request.headers['content-type']}`)
+		}, {
+			states: [
+				{ state: 'pending' },
+				{ state: 'running' },
+				{ state: 'succeeded', outputs: [{ url: 'https://p1-kling.klingai.com/kcdn/i-3-0.png' }, { url: 'https://p1-kling.klingai.com/kcdn/i-3-1.png' }] },
+				{ state: 'failed', message: 'Failure to pass the risk control system' },
+				{ state: 'failed', message: 'Kling reports that the task failed.' }
+			],
+			others: ['invalidResponse', 'invalidResponse', 'invalidResponse', 'notFound', 'notFound'],
+			unreadable: 'Kling reports that the task succeeded but gives no address of its images.',
+			asked: [
+				...['i-1', 'i-2', 'i-3', 'i-4', 'i-5', 'i-6', 'i-7', 'no-data', 'gone', 'gone-in-body'].map(id => `GET /v1/images/omni-image/${id} Bearer ${KEY} application/json`),
+				`GET /v1/images/generations/i-1 Bearer ${KEY} application/json`,
+				`GET /relay/v1/images/generations/i-2 Bearer ${KEY} application/json`
+			]
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+test('an image downloads from the address of the poll without the key, and an image task is not cancelled', async () => {
+	const cdn = await startServer(routed(serveFiles({ '/kcdn/i-9-0.png': tinyPng() })));
+	const api = await startServer((request, response) => sendJson(response, 200, {
+		code: 0,
+		message: 'SUCCEED',
+		data: { task_id: 'i-9', task_status: 'succeed', task_result: { images: [{ index: 0, url: `${cdn.url}/kcdn/i-9-0.png`, watermark_url: `${cdn.url}/kcdn/i-9-0-mark.png` }] } }
+	}));
+	try {
+		const providers = commands();
+		const ref = imageTaskRef(api.url, 'kling-image-3.0', 'i-9');
+		const polled = value(await providers.poll(ref));
+		const target = partTargets(1)[0];
+		const url = (polled as { outputs: { url: string }[] }).outputs[0].url;
+		const downloaded = value(await providers.download({ ...ref, kind: 'image', url, targetFsPath: target }));
+		const cancelled = value(await providers.cancel(ref));
+		assert.deepEqual({
+			downloaded,
+			same: readFileSync(target).equals(tinyPng()),
+			cdn: cdn.received.map(request => `${request.path} ${request.headers.authorization ?? 'no key'}`),
+			cancelled,
+			api: api.received.length
+		}, {
+			downloaded: { size: tinyPng().byteLength, format: 'png' },
+			same: true,
+			cdn: ['/kcdn/i-9-0.png no key'],
+			cancelled: { cancelled: false },
+			api: 1
+		});
+	} finally {
+		await api.close();
+		await cdn.close();
+	}
+});
+
+test('image creates: a refused key, the codes of a 429, refused content, and lost answers, each sent once', async () => {
+	const replies: readonly [number, unknown][] = [
+		[401, { code: 1000, message: 'Authentication failed' }],
+		[429, { code: 1102, message: 'resource pack exhausted' }],
+		[429, { code: 1303, message: 'parallel task over resource pack limit' }],
+		[400, { code: 1301, message: 'risk control' }],
+		[200, { code: 1301, message: 'risk control' }],
+		[400, { code: 1201, message: 'aspect_ratio is invalid' }],
+		[500, { code: 5000, message: 'internal error' }],
+		[200, { code: 0, message: 'SUCCEED', data: { task_status: 'submitted' } }]
+	];
+	let next = 0;
+	const server = await startServer((request, response, socket) => {
+		if (next >= replies.length) {
+			socket.destroy();
+			return;
+		}
+		const [status, body] = replies[next++];
+		sendJson(response, status, body);
+	});
+	try {
+		const providers = commands();
+		const outcomes = [];
+		for (let index = 0; index <= replies.length; index++) {
+			const failed = error(await providers.submit(imageGeneration(server.url, 'kling-image-o1', { count: 3 }, REFERENCES.slice(0, 1))));
+			outcomes.push([failed.code, failed.status]);
+		}
+		const poll = error(await providers.poll(imageTaskRef(server.url, 'kling-image-o1', 'i-1')));
+		assert.deepEqual({ outcomes, poll: poll.code, sent: server.received.length }, {
+			outcomes: [
+				['auth', 401],
+				['balance', 429],
+				['rateLimited', 429],
+				['rejected', 400],
+				['rejected', undefined],
+				['rejected', 400],
+				['unknownOutcome', 500],
+				['unknownOutcome', undefined],
+				['unknownOutcome', undefined]
+			],
+			poll: 'network',
+			// One create each, and the poll's three retries after its first try.
+			sent: replies.length + 1 + 4
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+test('check adds the rules of the image models to the declarations\' own, and a request it refuses is not sent', async () => {
+	const providers = commands();
+	const problems = async (model: string, params: Record<string, unknown>, images: readonly FileMedia[] = [], checker = providers) =>
+		value(await checker.check({ provider: 'kling', region: 'cn', model, mode: 'reference', params, prompt: PROMPT, inputs: { images, videos: [], audios: [] } })).problems;
+	const sized = (bytes: number) => commands({ inspector: () => ({ inspect: async () => ({ bytes, format: 'png', width: 1024, height: 1024 }) }) });
+	const results = {
+		omniAdaptiveFromPrompt: await problems('kling-image-3.0-omni', { ratio: 'adaptive' }),
+		omniAdaptiveWithReference: await problems('kling-image-3.0-omni', { ratio: 'adaptive' }, [START]),
+		o1AdaptiveFromPrompt: await problems('kling-image-o1', {}),
+		negativePromptWithReference: await problems('kling-image-3.0', { negative_prompt: 'text' }, [START]),
+		negativePromptFromPrompt: await problems('kling-image-3.0', { negative_prompt: 'text' }),
+		twoReferencesOn30: await problems('kling-image-3.0', {}, REFERENCES.slice(0, 2)),
+		o1At4k: await problems('kling-image-o1', { resolution: '4k' }),
+		tenImages: await problems('kling-image-3.0', { count: 10 }),
+		webp: await problems('kling-image-o1', {}, [WEBP]),
+		largeReference: await problems('kling-image-o1', {}, [START], sized(11 * MiB)),
+		tooLargeTogether: await problems('kling-image-3.0-omni', {}, Array.from({ length: 10 }, () => START), sized(10 * MiB))
+	};
+	assert.deepEqual(results, {
+		omniAdaptiveFromPrompt: ['Kling Image 3.0 Omni chooses the shape itself only from reference images; choose a ratio, or connect an image.'],
+		omniAdaptiveWithReference: [],
+		o1AdaptiveFromPrompt: [],
+		negativePromptWithReference: ['Kling Image 3.0 takes a negative prompt only when no reference image is connected; clear the negative prompt, or remove the image.'],
+		negativePromptFromPrompt: [],
+		twoReferencesOn30: ['Kling Image 3.0 in References mode takes at most 1 reference image; 2 are planned.'],
+		o1At4k: ['Resolution cannot be 4k for Kling Image O1; choose 1K, 2K.'],
+		tenImages: ['Images must be between 1 and 9.'],
+		webp: ['Reference image 1 frame.webp is a WebP image; this mode takes PNG or JPEG images.'],
+		largeReference: ['Reference image 1 start.png is 11 MiB; an image may be at most 10 MiB.'],
+		tooLargeTogether: ['The images make a request of 133.3 MiB; AI Video sends at most 128 MiB. Use fewer or smaller images.']
+	});
+	const server = await startServer((request, response) => sendJson(response, 200, imageCreated('never')));
+	try {
+		const refused = error(await providers.submit(imageGeneration(server.url, 'kling-image-3.0-omni', { ratio: 'adaptive' })));
+		assert.deepEqual({ refused, sent: server.received.length }, {
+			refused: { code: 'rejected', message: 'Kling Image 3.0 Omni chooses the shape itself only from reference images; choose a ratio, or connect an image.' },
 			sent: 0
 		});
 	} finally {
