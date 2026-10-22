@@ -337,7 +337,7 @@ export class BaseHalfCanvasConnections {
 
 	/**
 	 * Connect on the canvas (D37): lists `from` in `to`'s own upstream store
-	 * (Markdown frontmatter, `.bhnode` `upstream`, or its sidecar) through the
+	 * (Markdown frontmatter, or its sidecar `upstream.yaml`) through the
 	 * reference edit service, then remembers the gesture's anchors in the
 	 * `canvas.yaml` row of the pair. The reference write is one canvas undo
 	 * step; the anchor row is not part of undo.
