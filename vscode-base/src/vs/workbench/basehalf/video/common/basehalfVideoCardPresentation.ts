@@ -87,7 +87,7 @@ export function baseHalfVideoCardPresentation(input: IBaseHalfVideoCardInput): I
 		case 'generating': {
 			const task = input.fields.task;
 			const startedAt = input.progress?.startedAt ?? (task ? Date.parse(task.startedAt) : Number.NaN);
-			const phaseText = baseHalfVideoCardPhaseText(input.progress?.phase ?? (task?.state === 'running' ? 'generating' : 'submitting'));
+			const phaseText = baseHalfVideoCardPhaseText(input.progress?.phase ?? (task?.state === 'running' ? 'generating' : 'waiting'));
 			const elapsedText = Number.isFinite(startedAt) ? formatBaseHalfVideoElapsed(input.now - startedAt) : undefined;
 			const fraction = input.progress?.fraction;
 			const exact = fraction !== undefined && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : undefined;
@@ -127,11 +127,11 @@ export function baseHalfVideoCardPresentation(input: IBaseHalfVideoCardInput): I
 	}
 }
 
-/** The phase in words: the provider has not started (Waiting), makes the video (Generating), or BaseHalf writes it (Downloading). */
+/** The phase in words: the provider has not started (Waiting), makes the video (Generating), or BaseHalf saves it (Saving). */
 export function baseHalfVideoCardPhaseText(phase: BaseHalfVideoGenerationPhase): string {
 	switch (phase) {
 		case 'generating': return localize('basehalf.video.card.phase.generating', "Generating");
-		case 'downloading': return localize('basehalf.video.card.phase.downloading', "Downloading");
+		case 'saving': return localize('basehalf.video.card.phase.saving', "Saving");
 		default: return localize('basehalf.video.card.phase.waiting', "Waiting");
 	}
 }

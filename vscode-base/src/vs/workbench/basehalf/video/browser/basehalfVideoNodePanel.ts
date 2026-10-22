@@ -412,8 +412,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.render();
 		try {
 			await this.flush();
-			const running = await this.generationService.generate(this.resource);
-			if (!isEqual(running, this.resource)) {
+			const [running] = await this.generationService.generate(this.resource);
+			if (running && !isEqual(running, this.resource)) {
 				this.host.didGenerateInNode?.(running);
 			}
 		} catch (error) {

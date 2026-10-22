@@ -198,16 +198,16 @@ class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerati
 		super();
 	}
 
-	async generate(resource: URI): Promise<URI> {
+	async generate(resource: URI): Promise<readonly URI[]> {
 		this.generated.push(this.store.fields.prompt ?? '');
-		return resource;
+		return [resource];
 	}
 
 	async stop(): Promise<void> {
 		this.stops++;
 	}
 
-	resume(): void { }
+	async releaseCard(): Promise<void> { }
 
 	/** The used inputs of each plan the panel had prepared for a check. */
 	readonly prepared: string[][] = [];

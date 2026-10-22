@@ -179,11 +179,12 @@ export interface IBaseHalfVideoProviderSettingsService {
 // --- generation ------------------------------------------------------------------------------
 
 /**
- * `preparing`: reading and encoding inputs. `submitting`: the request is on
- * its way. `queued` and `generating`: the provider has the task.
- * `downloading`: the video is being written into the workspace.
+ * The phase of a generation in words on its cards (generation cards, "The
+ * card"): `preparing` reads and checks the inputs; `waiting` sends the
+ * request or waits for the provider to start; `generating` is the provider at
+ * work; `saving` downloads and lands the files.
  */
-export type BaseHalfVideoGenerationPhase = 'preparing' | 'submitting' | 'queued' | 'generating' | 'downloading';
+export type BaseHalfVideoGenerationPhase = 'preparing' | 'waiting' | 'generating' | 'saving';
 
 export interface IBaseHalfVideoGenerationProgress {
 	readonly phase: BaseHalfVideoGenerationPhase;
@@ -200,44 +201,64 @@ export class BaseHalfVideoGenerationError extends Error {
 	}
 }
 
+/** How a generation was asked for. */
+export interface IBaseHalfGenerateOptions {
+	/**
+	 * An agent asked, with `basehalf --generate`: a value the model does not
+	 * accept stops the generation with that value instead of being made legal.
+	 */
+	readonly agent?: boolean;
+}
+
 export const IBaseHalfVideoGenerationService = createDecorator<IBaseHalfVideoGenerationService>('baseHalfVideoGenerationService');
 
+/**
+ * Runs the generations of generation cards (generation cards, "A
+ * generation"): from Generate through the task record of this computer to
+ * the files on their cards. One window follows each generation and says
+ * every 30 seconds that it is alive; another window takes a generation over
+ * only when it has not for 90 seconds. A request that may have reached a
+ * provider is never sent again.
+ */
 export interface IBaseHalfVideoGenerationService {
 	readonly _serviceBrand: undefined;
 
-	/** Fires when a node's progress in this window changes. */
+	/** Fires with a card whose generation changed, in this window or in a task record of this computer. */
 	readonly onDidChangeProgress: Event<URI>;
 
 	/**
-	 * Starts a generation from the node's prompt, settings, and inputs as its
-	 * file holds them. When the node already holds a video, a new node is made
-	 * beside it with the same prompt, settings, and inputs, and the generation
-	 * runs there. Resolves with the node that runs, once its task is in its
-	 * file. Rejects with a {@link BaseHalfVideoGenerationError} and writes
-	 * nothing when the node cannot generate.
+	 * Starts a generation of the card at `resource` from its prompt, settings,
+	 * and inputs as its card information holds them. A card with its file
+	 * generates into a new draft beside it, and an image model's `count`
+	 * makes further drafts in a row to the right. Resolves with every card the
+	 * generation lands on, in the order of its outputs, once its task record
+	 * is `submitting`. Rejects with a {@link BaseHalfVideoGenerationError}, and
+	 * leaves no record and no card it made, when it cannot generate.
 	 */
-	generate(resource: URI): Promise<URI>;
+	generate(resource: URI, options?: IBaseHalfGenerateOptions): Promise<readonly URI[]>;
 
-	/** Stops the node's generation. The node keeps no video and shows that it stopped. */
+	/** Stops the generation that lands on the card, for every card it lands on. A file that arrives later is not kept. */
 	stop(resource: URI): Promise<void>;
 
 	/**
-	 * Continues a generation that the node's file records and no window runs:
-	 * polls a `running` task, and settles a `submitting` one as failed. Safe to
-	 * call again; a node already followed is left alone.
+	 * The card is being deleted while it generates (generation cards,
+	 * "Deleting"): the generation stops when the card is its only card;
+	 * otherwise that card's file is not landed.
 	 */
-	resume(resource: URI): void;
+	releaseCard(resource: URI): Promise<void>;
 
 	/**
-	 * The planned inputs as a generation sends them (video node specification,
-	 * "The panel"): images in a format the mode takes, or drawn to PNG, and
-	 * videos and audio as files, for the panel's check. Rejects with a
+	 * The planned inputs as a generation sends them (generation cards, "The
+	 * panel"): images in a format the mode takes, or drawn to PNG, and videos
+	 * and audio as files, for the panel's check. Rejects with a
 	 * `BaseHalfVideoGenerationError` naming an input that is missing or not a
 	 * file on this computer.
 	 */
 	prepareInputMedia(plan: readonly IBaseHalfVideoInputPlanItem[], inputs: readonly IBaseHalfVideoResolvedInput[], imageFormats: readonly BaseHalfVideoImageFormat[]): Promise<IBaseHalfVideoPlannedMedia>;
 
+	/** Whether a generation that has not ended still lands on the card, followed by any window of this computer. */
 	isGenerating(resource: URI): boolean;
+	/** The phase and progress of the generation that lands on the card, when this window follows it. */
 	getProgress(resource: URI): IBaseHalfVideoGenerationProgress | undefined;
 }
 

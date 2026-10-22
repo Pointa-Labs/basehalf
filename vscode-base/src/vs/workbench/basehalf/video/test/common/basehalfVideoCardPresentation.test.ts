@@ -33,7 +33,7 @@ suite('BaseHalfVideoCardPresentation', () => {
 	};
 
 	test('shows each phase of the node as the card table says', () => {
-		const present = (fields: IBaseHalfVideoNodeFields, extra?: { readonly fraction?: number; readonly phase?: 'queued' | 'generating' | 'downloading'; readonly videoExists?: boolean; readonly videoPlayable?: boolean }) => {
+		const present = (fields: IBaseHalfVideoNodeFields, extra?: { readonly fraction?: number; readonly phase?: 'waiting' | 'generating' | 'saving'; readonly videoExists?: boolean; readonly videoPlayable?: boolean }) => {
 			const presentation = baseHalfVideoCardPresentation({
 				title: 'Shot 1',
 				fields,
@@ -50,7 +50,7 @@ suite('BaseHalfVideoCardPresentation', () => {
 			submitting: present({ task: task({}) }),
 			runningWithoutProgress: present({ task: task({ state: 'running', remoteId: 'cgt-1' }) }),
 			generatingExact: present({ task: task({ state: 'running', remoteId: 'cgt-1' }) }, { phase: 'generating', fraction: 0.42 }),
-			downloading: present({ task: task({ state: 'running', remoteId: 'cgt-1' }) }, { phase: 'downloading' }),
+			saving: present({ task: task({ state: 'running', remoteId: 'cgt-1' }) }, { phase: 'saving' }),
 			failed: present({ task: task({ state: 'failed', endedAt: startedAt, error: longError }) }),
 			stopped: present({ task: task({ state: 'stopped', endedAt: startedAt }) }),
 			video: present(video),
@@ -61,7 +61,7 @@ suite('BaseHalfVideoCardPresentation', () => {
 			submitting: { state: 'generating', phaseText: 'Waiting', elapsedText: '1:05', ariaLabel: 'Shot 1, Video, Waiting' },
 			runningWithoutProgress: { state: 'generating', phaseText: 'Generating', elapsedText: '1:05', ariaLabel: 'Shot 1, Video, Generating' },
 			generatingExact: { state: 'generating', phaseText: 'Generating', elapsedText: '1:05', fraction: 0.42, ariaLabel: 'Shot 1, Video, Generating, 42 percent' },
-			downloading: { state: 'generating', phaseText: 'Downloading', elapsedText: '1:05', ariaLabel: 'Shot 1, Video, Downloading' },
+			saving: { state: 'generating', phaseText: 'Saving', elapsedText: '1:05', ariaLabel: 'Shot 1, Video, Saving' },
 			failed: { state: 'failed', message: longError, tooltip: longError, ariaLabel: `Shot 1, Video, failed: ${longError}` },
 			stopped: { state: 'stopped', message: 'Stopped', ariaLabel: 'Shot 1, Video, stopped' },
 			video: { state: 'video', videoPath: 'outputs/7766/20261015T080000-k3f9.mp4', ariaLabel: 'Shot 1, Video' },

@@ -5,125 +5,225 @@
 
 import * as assert from 'assert';
 import { DeferredPromise, timeout } from '../../../../../base/common/async.js';
-import { decodeBase64, VSBuffer } from '../../../../../base/common/buffer.js';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../../base/common/network.js';
 import { joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
-import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
+import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
+import { testWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
+import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
+import { IBaseHalfReferenceEditService } from '../../../references/common/basehalfReferenceEdit.js';
+import { IBaseHalfReferenceIndexService } from '../../../references/common/basehalfReferenceIndex.js';
+import { BaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
+import { BaseHalfGenerationCardStore } from '../../browser/basehalfGenerationCardStore.js';
+import { baseHalfGenerationTaskFolder, BaseHalfGenerationTaskStore } from '../../browser/basehalfGenerationTaskStore.js';
 import { BaseHalfVideoCatalogService } from '../../browser/basehalfVideoCatalogService.js';
 import {
-	BASEHALF_VIDEO_ORPHANED_SUBMISSION_AGE,
 	BASEHALF_VIDEO_TASK_TIME_LIMIT,
-	BASEHALF_VIDEO_TRANSIENT_FAILURE_LIMIT,
 	BaseHalfVideoGenerationService,
+	closedWhileAnsweringMessage,
 	orphanedSubmissionMessage,
-	rasterizeBaseHalfVideoImage,
 	unknownOutcomeMessage
 } from '../../browser/basehalfVideoGenerationService.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
-import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoCheckRequest, IBaseHalfVideoDownloadRequest, IBaseHalfVideoGenerationChoice, IBaseHalfVideoSubmitRequest, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import {
+	createBaseHalfGenerationTask,
+	heartbeatBaseHalfGenerationTask,
+	IBaseHalfGenerationInfo,
+	IBaseHalfGenerationRequest,
+	IBaseHalfGenerationTask,
+	landBaseHalfGenerationTask,
+	parseBaseHalfGenerationMade,
+	parseBaseHalfGenerationTask,
+	recordBaseHalfGenerationLanding,
+	runBaseHalfGenerationTask,
+	serializeBaseHalfGenerationInfo,
+	serializeBaseHalfGenerationTask,
+	submitBaseHalfGenerationTask
+} from '../../common/basehalfGenerationInfo.js';
+import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoDownloadRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
-import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoNodeFields, IBaseHalfVideoTask } from '../../common/basehalfVideoNode.js';
-import { TEST_VIDEO_CATALOG, testVideoModel } from '../common/basehalfVideoCatalogFixture.js';
-import { FAKE_MP4, FakeProviderCommands, FakeVideoNodeStore, InMemoryCredentialStore } from './basehalfVideoTestFixtures.js';
+import { ACME, BOREALIS, CORVID, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import {
+	BaseHalfTestFileSystemProvider,
+	FAKE_JPEG,
+	FAKE_MP4,
+	FAKE_PNG,
+	FakeDraftOperations,
+	FakeProviderCommands,
+	InMemoryCredentialStore,
+	RecordingCanvasMirror,
+	RecordingUndoRedoService,
+	TestChecksumService,
+	testDigestHex
+} from './basehalfVideoTestFixtures.js';
 
-const START = Date.parse('2026-10-15T08:00:00.000Z');
+const START = Date.parse('2026-10-22T08:00:00.000Z');
 const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DOWNLOAD, cancel: CANCEL } = BASEHALF_VIDEO_PROVIDER_COMMANDS;
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgo=';
 const KEY = 'acme-test-key-0123';
-const [ACME, BOREALIS] = TEST_VIDEO_CATALOG.providers;
+const CORVID_KEY = 'corvid-test-key-4567';
+const [ACME_PROVIDER, , CORVID_PROVIDER] = TEST_GENERATION_CATALOG.providers;
+
+const VIDEO: IBaseHalfGenerationInfo = { prompt: '图片1 rides along the sea.', provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
+const IMAGE: IBaseHalfGenerationInfo = { prompt: 'A heron at dawn.', provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: { resolution: '1k', count: 1 } };
+const REQUEST: IBaseHalfGenerationRequest = {
+	provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: 'Rain.', inputs: []
+};
+
+interface IWindow {
+	readonly service: BaseHalfVideoGenerationService;
+	readonly tasks: BaseHalfGenerationTaskStore;
+	readonly cards: BaseHalfGenerationCardStore;
+	readonly commands: FakeProviderCommands;
+	readonly drafts: FakeDraftOperations;
+}
+
+interface IHarness {
+	readonly root: URI;
+	readonly fileService: FileService;
+	readonly providers: BaseHalfVideoProviderSettingsService;
+	readonly canvas: RecordingCanvasMirror;
+	readonly undo: RecordingUndoRedoService;
+	readonly rasterized: string[];
+	readonly first: IWindow;
+	/** Another window of the same workspace on this computer. */
+	window(): IWindow;
+	resource(path: string): URI;
+	write(path: string, content: string | VSBuffer): Promise<void>;
+	read(path: string): Promise<string | undefined>;
+	exists(path: string): Promise<boolean>;
+	/** Makes a card's generation information, and its upstream list when given. */
+	card(path: string, info: IBaseHalfGenerationInfo, upstream?: readonly string[]): Promise<URI>;
+	/** The task records on disk. */
+	records(): Promise<IBaseHalfGenerationTask[]>;
+	/** The names in `.bh/cache/generation/`. */
+	cache(): Promise<string[]>;
+	dispose(): void;
+}
 
 suite('BaseHalfVideoGenerationService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 	const root = URI.file('/workspace');
 
-	interface IHarness {
-		readonly fileService: FileService;
-		readonly store: FakeVideoNodeStore;
-		readonly commands: FakeProviderCommands;
-		readonly providers: BaseHalfVideoProviderSettingsService;
-		readonly service: BaseHalfVideoGenerationService;
-		readonly rasterized: string[];
-		window(commands: FakeProviderCommands): BaseHalfVideoGenerationService;
-	}
-
-	async function createHarness(options: { readonly key?: false } = {}): Promise<IHarness> {
+	async function createHarness(options: { readonly records?: readonly IBaseHalfGenerationTask[]; readonly files?: Readonly<Record<string, string | VSBuffer>> } = {}): Promise<IHarness> {
 		const owner = disposables.add(new DisposableStore());
 		const fileService = owner.add(new FileService(new NullLogService()));
-		owner.add(fileService.registerProvider(Schemas.file, owner.add(new InMemoryFileSystemProvider())));
+		owner.add(fileService.registerProvider(Schemas.file, owner.add(new BaseHalfTestFileSystemProvider())));
 		await fileService.createFolder(root);
-		const store = new FakeVideoNodeStore(root);
-		owner.add({ dispose: () => store.dispose() });
-		const commands = new FakeProviderCommands(fileService);
-		const providers = owner.add(new BaseHalfVideoProviderSettingsService(owner.add(new InMemoryStorageService()), new InMemoryCredentialStore(), commands, new NullLogService()));
-		if (options.key !== false) {
-			await providers.setCredential(ACME, 'apiKey', KEY);
+		for (const [path, content] of Object.entries(options.files ?? {})) {
+			await fileService.writeFile(joinPath(root, ...path.split('/')), typeof content === 'string' ? VSBuffer.fromString(content) : content);
 		}
+		for (const task of options.records ?? []) {
+			await fileService.writeFile(joinPath(baseHalfGenerationTaskFolder(root), `${task.id}.json`), VSBuffer.fromString(serializeBaseHalfGenerationTask(task)));
+		}
+		const resource = (path: string) => joinPath(root, ...path.split('/'));
+		const storage = owner.add(new InMemoryStorageService());
+		const credentials = new InMemoryCredentialStore();
+		const uriIdentity = owner.add(new UriIdentityService(fileService));
+		const canvas = new RecordingCanvasMirror(root);
+		const undo = new RecordingUndoRedoService();
 		const rasterized: string[] = [];
-		const window = (windowCommands: FakeProviderCommands) => {
-			const catalog = owner.add(new BaseHalfVideoCatalogService(0, windowCommands, new NullLogService()));
-			return owner.add(new BaseHalfVideoGenerationService(async (_bytes, mimeType) => {
-				rasterized.push(mimeType);
-				return PNG_DATA_URL;
-			}, store, catalog, providers, windowCommands, fileService, new NullLogService()));
+		const settingsCommands = new FakeProviderCommands(fileService);
+		const providers = owner.add(new BaseHalfVideoProviderSettingsService(storage, credentials, settingsCommands, new NullLogService()));
+		await providers.setCredential(ACME_PROVIDER, 'apiKey', KEY);
+		await providers.setCredential(CORVID_PROVIDER, 'apiKey', CORVID_KEY);
+		const window = (): IWindow => {
+			const commands = new FakeProviderCommands(fileService);
+			commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [ACME, BOREALIS, CORVID] } });
+			const context = new TestContextService(testWorkspace(root));
+			const catalogService = owner.add(new BaseHalfVideoCatalogService(0, commands, new NullLogService()));
+			const tasks = owner.add(new BaseHalfGenerationTaskStore(fileService, context, uriIdentity, new NullLogService()));
+			const cards = owner.add(new BaseHalfGenerationCardStore(
+				fileService,
+				context,
+				uriIdentity,
+				{} as IBaseHalfReferenceEditService,
+				{ acceptSavedContent: () => { } } as Partial<IBaseHalfReferenceIndexService> as IBaseHalfReferenceIndexService,
+				canvas.asService(),
+				catalogService,
+				new TestNotificationService(),
+				new NullLogService()
+			));
+			const drafts = new FakeDraftOperations(fileService, root);
+			drafts.taskStore = tasks;
+			const service = owner.add(new BaseHalfVideoGenerationService(
+				async (_bytes, mimeType) => {
+					rasterized.push(mimeType);
+					return PNG_DATA_URL;
+				},
+				cards,
+				tasks,
+				drafts,
+				catalogService,
+				providers,
+				new BaseHalfWorkspaceMutationCoordinator(),
+				canvas.asService(),
+				new TestChecksumService(fileService),
+				undo.asService(),
+				commands,
+				fileService,
+				context,
+				uriIdentity,
+				new TestNotificationService(),
+				new NullLogService()
+			));
+			return { service, tasks, cards, commands, drafts };
 		};
-		return { fileService, store, commands, providers, service: window(commands), rasterized, window };
-	}
-
-	function generation(overrides: Partial<IBaseHalfVideoGenerationChoice> = {}): IBaseHalfVideoGenerationChoice {
-		return { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, ...overrides };
-	}
-
-	async function writeInputs(harness: IHarness): Promise<void> {
-		await harness.fileService.writeFile(joinPath(root, 'frames/start.png'), VSBuffer.fromString('start-png'));
-		await harness.fileService.writeFile(joinPath(root, 'frames/end.png'), VSBuffer.fromString('end-png'));
-		await harness.fileService.writeFile(joinPath(root, 'frames/third.png'), VSBuffer.fromString('third-png'));
-		await harness.fileService.writeFile(joinPath(root, 'notes/scene.md'), VSBuffer.fromString('---\nupstream:\n  - brief.md\n---\n# Scene\n\nThe sea at dusk.\n'));
-		await harness.fileService.writeFile(joinPath(root, 'clips/ref.mp4'), FAKE_MP4);
-		for (const path of ['frames/start.png', 'frames/end.png', 'frames/third.png', 'notes/scene.md', 'clips/ref.mp4']) {
-			harness.store.addInput(path);
-		}
-		harness.store.addInput('docs/plan.pdf');
-	}
-
-	function shotNode(harness: IHarness, fields: Partial<IBaseHalfVideoNodeFields> = {}, upstream: readonly string[] = ['frames/start.png', 'frames/end.png', 'frames/third.png', 'clips/ref.mp4', 'notes/scene.md', 'docs/plan.pdf']): URI {
-		return harness.store.addNode('shots/Shot 1.bhnode', { prompt: '图片1里的人骑车经过海边', generation: generation(), ...fields }, upstream, 'Shot 1');
-	}
-
-	function record(overrides: Partial<IBaseHalfVideoGenerationRecord> = {}): IBaseHalfVideoGenerationRecord {
+		const read = async (path: string) => {
+			try {
+				return (await fileService.readFile(resource(path))).value.toString();
+			} catch {
+				return undefined;
+			}
+		};
+		const write = async (path: string, content: string | VSBuffer) => {
+			await fileService.writeFile(resource(path), typeof content === 'string' ? VSBuffer.fromString(content) : content);
+		};
 		return {
-			provider: 'acme',
-			region: 'east',
-			model: 'acme-motion-2',
-			providerModel: 'acme-motion-2-e-260101',
-			mode: 'frames',
-			params: { resolution: '720p', duration: 5, sound: true },
-			prompt: 'p',
-			inputs: [],
-			...overrides
+			root,
+			fileService,
+			providers,
+			canvas,
+			undo,
+			rasterized,
+			first: window(),
+			window,
+			resource,
+			write,
+			read,
+			exists: path => fileService.exists(resource(path)),
+			card: async (path, info, upstream) => {
+				await write(`.bh/mirror/${path}/generation.yaml`, serializeBaseHalfGenerationInfo(info));
+				if (upstream) {
+					await write(`.bh/mirror/${path}/upstream.yaml`, `upstream:\n${upstream.map(entry => `  - ${entry}\n`).join('')}`);
+				}
+				return resource(path);
+			},
+			records: async () => {
+				const stat = await fileService.resolve(baseHalfGenerationTaskFolder(root)).catch(() => undefined);
+				const records: IBaseHalfGenerationTask[] = [];
+				for (const child of stat?.children ?? []) {
+					if (child.name.endsWith('.json')) {
+						records.push(parseBaseHalfGenerationTask((await fileService.readFile(child.resource)).value.toString())!);
+					}
+				}
+				return records;
+			},
+			cache: async () => ((await fileService.resolve(baseHalfGenerationTaskFolder(root)).catch(() => undefined))?.children ?? []).map(child => child.name).sort(),
+			dispose: () => owner.dispose()
 		};
 	}
 
-	function runningTask(startedAt = START, overrides: Partial<IBaseHalfVideoTask> = {}): IBaseHalfVideoTask {
-		return {
-			id: '20261015T080000-abcd',
-			state: 'running',
-			startedAt: new Date(startedAt).toISOString(),
-			remoteId: 'cgt-resumed',
-			request: record(),
-			...overrides
-		} as IBaseHalfVideoTask;
-	}
-
-	async function until(condition: () => boolean, step = 500, limit = 3 * BASEHALF_VIDEO_TASK_TIME_LIMIT): Promise<void> {
-		for (let waited = 0; !condition(); waited += step) {
+	async function until(condition: () => boolean | Promise<boolean>, step = 500, limit = 3 * BASEHALF_VIDEO_TASK_TIME_LIMIT): Promise<void> {
+		for (let waited = 0; !await condition(); waited += step) {
 			if (waited > limit) {
 				throw new Error('The condition did not come true.');
 			}
@@ -131,601 +231,548 @@ suite('BaseHalfVideoGenerationService', () => {
 		}
 	}
 
-	async function outputFiles(harness: IHarness): Promise<string[]> {
-		const found: string[] = [];
-		const visit = async (folder: URI): Promise<void> => {
-			const stat = await harness.fileService.resolve(folder).catch(() => undefined);
-			for (const child of stat?.children ?? []) {
-				if (child.isDirectory) {
-					await visit(child.resource);
-				} else {
-					found.push(child.resource.path.slice(root.path.length + 1));
-				}
-			}
-		};
-		await visit(joinPath(root, 'outputs'));
-		return found.sort();
+	/** A record that a window which is gone left behind: said alive two minutes ago. */
+	function staleTask(state: 'preparing' | 'submitting' | 'running' | 'landing', options: { readonly id?: string; readonly cards?: readonly string[]; readonly answersAtOnce?: boolean; readonly kind?: 'image' | 'video'; readonly startedAt?: number } = {}): IBaseHalfGenerationTask {
+		const started = new Date(options.startedAt ?? START - 120_000).toISOString();
+		let task = createBaseHalfGenerationTask({ id: options.id ?? '20261022T075800-dead0001', kind: options.kind ?? 'video', cards: options.cards ?? ['shots/video.mp4'], follower: 'wgone', now: started });
+		if (state === 'preparing') {
+			return task;
+		}
+		task = submitBaseHalfGenerationTask(task, REQUEST, 'Rain.', options.answersAtOnce ?? false);
+		if (state === 'submitting') {
+			return task;
+		}
+		task = runBaseHalfGenerationTask(task, 'cgt-7');
+		return state === 'running' ? task : landBaseHalfGenerationTask(task);
 	}
 
-	function states(harness: IHarness, node: URI): string[] {
-		return harness.store.history(node).map(fields => fields.result ? `result ${fields.result.artifact.path}` : `${fields.task?.state}${fields.task?.remoteId ? ` ${fields.task.remoteId}` : ''}`);
-	}
-
-	const file = (path: string, mimeType: string) => ({ fsPath: joinPath(root, path).fsPath, mimeType });
-
-	test('runs a generation from the file to a video in outputs, through the check, submitting, and running', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('runs a task from Generate to the file on its card: preparing, submitting, running, landing, made.yaml, and the record removed', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
-		await writeInputs(harness);
-		const node = shotNode(harness);
+		await harness.write('frames/start.png', FAKE_PNG);
+		await harness.write('frames/end.png', FAKE_PNG);
+		await harness.write('notes/scene.md', '---\nupstream: []\n---\n# Scene\n\nThe sea at dusk.\n');
+		const video = await harness.card('shots/video.mp4', VIDEO, ['frames/start.png', 'frames/end.png', 'notes/scene.md']);
+		const { service, tasks, commands } = harness.first;
 		const polls = [
 			{ ok: true, value: { state: 'pending' } },
 			{ ok: true, value: { state: 'running', fraction: 0.4 } },
 			{ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/v.mp4' } }
 		];
-		harness.commands.poll = () => polls.shift();
+		commands.poll = () => polls.shift();
+		const states: string[] = [];
+		disposables.add(tasks.onDidChange(() => {
+			const state = tasks.list().map(task => `${task.state}${task.remoteId ? ` ${task.remoteId}` : ''}`).join() || 'removed';
+			if (states.at(-1) !== state) {
+				states.push(state);
+			}
+		}));
 		const phases: string[] = [];
-		disposables.add(harness.service.onDidChangeProgress(resource => {
-			const progress = harness.service.getProgress(resource);
+		disposables.add(service.onDidChangeProgress(card => {
+			const progress = service.getProgress(card);
 			const phase = progress ? `${progress.phase}${progress.fraction !== undefined ? ` ${progress.fraction}` : ''}` : 'ended';
 			if (phases.at(-1) !== phase) {
 				phases.push(phase);
 			}
 		}));
 
-		const ran = await harness.service.generate(node);
-		const task = harness.store.fields(node).task!;
-		assert.deepStrictEqual({ ran: ran.toString(), state: task.state, startedAt: task.startedAt, id: /^20261015T080000-[a-z0-9]{4}$/.test(task.id), generating: harness.service.isGenerating(node) },
-			{ ran: node.toString(), state: 'submitting', startedAt: '2026-10-15T08:00:00.000Z', id: true, generating: true });
+		const cards = await service.generate(video);
+		const started = tasks.forCard(video)!;
+		const whileSubmitting = [started.state, service.isGenerating(video)];
+		await until(() => !service.isGenerating(video));
 
-		await until(() => !harness.service.isGenerating(node));
-		const fields = harness.store.fields(node);
-		const target = `outputs/node-1/${task.id}.mp4`;
-		const sentPrompt = '图片1里的人骑车经过海边\n\n# Scene\n\nThe sea at dusk.';
-		const inputs = { startFrame: file('frames/start.png', 'image/png'), endFrame: file('frames/end.png', 'image/png'), images: [], videos: [], audios: [] };
-		assert.deepStrictEqual(states(harness, node), ['submitting', 'running cgt-remote-1', `result ${target}`]);
-		assert.deepStrictEqual(fields.task, undefined);
-		assert.deepStrictEqual(fields.result, {
-			source: 'generated',
-			artifact: { kind: 'video', path: target, size: FAKE_MP4.byteLength },
-			generation: {
-				taskId: task.id,
-				remoteId: 'cgt-remote-1',
-				startedAt: '2026-10-15T08:00:00.000Z',
-				completedAt: fields.result?.source === 'generated' ? fields.result.generation.completedAt : '',
-				request: record({ prompt: sentPrompt, inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md'] })
-			}
-		});
-		assert.deepStrictEqual(await outputFiles(harness), [target]);
-		assert.strictEqual((await harness.fileService.readFile(joinPath(root, target))).value.toString(), FAKE_MP4.toString());
-
-		const checked = harness.commands.calls.find(call => call.id === CHECK)?.argument as IBaseHalfVideoCheckRequest;
-		assert.deepStrictEqual(checked, { provider: 'acme', region: 'east', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: sentPrompt, inputs });
-		const request = harness.commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
-		assert.deepStrictEqual(request, {
-			provider: 'acme',
-			region: 'east',
-			endpoint: 'https://east.acme.example/api/v1',
-			credentials: { apiKey: KEY },
-			model: 'acme-motion-2',
-			mode: 'frames',
-			params: { resolution: '720p', duration: 5, sound: true },
-			prompt: sentPrompt,
-			inputs
-		});
-		const download = harness.commands.calls.find(call => call.id === DOWNLOAD)?.argument as IBaseHalfVideoDownloadRequest;
-		assert.deepStrictEqual({ remoteId: download.remoteId, model: download.model, videoUrl: download.videoUrl, part: download.targetFsPath.startsWith(joinPath(root, target).fsPath + '.') && download.targetFsPath.endsWith('.part') },
-			{ remoteId: 'cgt-remote-1', model: 'acme-motion-2', videoUrl: 'https://cdn.example.com/v.mp4', part: true });
-		assert.deepStrictEqual(harness.commands.calls.map(call => call.id), [CATALOG, CHECK, SUBMIT, POLL, POLL, POLL, DOWNLOAD]);
-		assert.deepStrictEqual(phases, ['preparing', 'submitting', 'queued', 'generating 0.4', 'downloading', 'ended']);
-		assert.deepStrictEqual(harness.providers.getLastUsed(), generation());
-	}));
-
-	test('sends the images and the video of references mode, with the defaults of the mode filled in, to the region set up', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		await writeInputs(harness);
-		await harness.providers.setRegion(ACME, 'west');
-		await harness.providers.setEndpoint(ACME, 'http://127.0.0.1:8123/relay');
-		const node = shotNode(harness, { generation: generation({ mode: 'reference', params: { duration: 8, seed: 'not a number' } }) });
-		harness.commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		await harness.service.generate(node);
-		const request = harness.commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
-		const task = harness.store.fields(node).task!;
+		const made = parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/video.mp4/made.yaml'))!);
+		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		const download = commands.calls.find(call => call.id === DOWNLOAD)?.argument as IBaseHalfVideoDownloadRequest;
+		const sentPrompt = '图片1 rides along the sea.\n\n# Scene\n\nThe sea at dusk.';
 		assert.deepStrictEqual({
-			request: { ...request, prompt: request.prompt.split('\n\n').length },
-			record: { region: task.request.region, providerModel: task.request.providerModel, params: task.request.params, inputs: task.request.inputs }
+			cards: cards.map(card => card.path),
+			whileSubmitting,
+			states,
+			phases,
+			file: (await harness.read('shots/video.mp4')) === FAKE_MP4.toString(),
+			made: { ...made, finishedAt: undefined },
+			cache: await harness.cache(),
+			calls: commands.calls.map(call => call.id),
+			submitted: { ...submitted, inputs: Object.keys(submitted.inputs), targets: submitted.targets?.map(target => target.slice(root.fsPath.length)) },
+			download: { url: download.url, kind: download.kind, remoteId: download.remoteId, target: download.targetFsPath.slice(root.fsPath.length) },
+			lastUsed: harness.providers.getLastUsed('video')
 		}, {
-			request: {
+			cards: ['/workspace/shots/video.mp4'],
+			whileSubmitting: ['submitting', true],
+			states: ['preparing', 'submitting', 'running cgt-remote-1', 'landing cgt-remote-1', 'removed'],
+			phases: ['preparing', 'waiting', 'generating 0.4', 'saving', 'ended'],
+			file: true,
+			made: {
+				id: started.id,
+				startedAt: started.startedAt,
+				finishedAt: undefined,
+				remoteId: 'cgt-remote-1',
 				provider: 'acme',
-				region: 'west',
-				endpoint: 'http://127.0.0.1:8123/relay',
+				region: 'east',
+				model: 'acme-motion-2',
+				providerModel: 'acme-motion-2-e-260101',
+				mode: 'frames',
+				params: { resolution: '720p', duration: 5, sound: true },
+				prompt: '图片1 rides along the sea.',
+				inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md']
+			},
+			cache: [],
+			calls: [CATALOG, CHECK, SUBMIT, POLL, POLL, POLL, DOWNLOAD],
+			submitted: {
+				provider: 'acme',
+				region: 'east',
+				endpoint: 'https://east.acme.example/api/v1',
 				credentials: { apiKey: KEY },
 				model: 'acme-motion-2',
-				mode: 'reference',
-				params: { resolution: '720p', ratio: '16:9', duration: 8, sound: true },
-				prompt: 3,
-				inputs: {
-					images: [file('frames/start.png', 'image/png'), file('frames/end.png', 'image/png'), file('frames/third.png', 'image/png')],
-					videos: [file('clips/ref.mp4', 'video/mp4')],
-					audios: []
-				}
+				mode: 'frames',
+				params: { resolution: '720p', duration: 5, sound: true },
+				prompt: sentPrompt,
+				inputs: ['startFrame', 'endFrame', 'images', 'videos', 'audios'],
+				targets: [`/.bh/cache/generation/${started.id}-1.part`]
 			},
-			record: {
-				region: 'west',
-				providerModel: 'acme-motion-2-w-260101',
-				params: { resolution: '720p', ratio: '16:9', duration: 8, sound: true },
-				inputs: ['frames/start.png', 'frames/end.png', 'frames/third.png', 'clips/ref.mp4', 'notes/scene.md']
-			}
+			download: { url: 'https://cdn.example.com/v.mp4', kind: 'video', remoteId: 'cgt-remote-1', target: `/.bh/cache/generation/${started.id}-1.part` },
+			lastUsed: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } }
 		});
-		await harness.service.stop(node);
+		harness.dispose();
 	}));
 
-	test('asks the provider 3 seconds after it accepted the task and then every 5 seconds', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('lands the files of a provider that answers at once without asking about a task, and keeps the last values of images apart', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
-		const node = shotNode(harness, {}, []);
-		const asked: number[] = [];
-		harness.commands.poll = () => {
-			asked.push(Date.now() - START);
-			return asked.length < 3 ? { ok: true, value: { state: 'running' } } : { ok: true, value: { state: 'succeeded' } };
-		};
-		await harness.service.generate(node);
-		await until(() => !harness.service.isGenerating(node));
-		assert.deepStrictEqual(asked, [3_000, 8_000, 13_000]);
-	}));
-
-	test('refuses with the first blocker, or the first problem the provider module reports, and writes nothing', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		await harness.fileService.writeFile(joinPath(root, 'frames/start.png'), VSBuffer.fromString('start-png'));
-		harness.store.addInput('frames/start.png');
-		const messages: string[] = [];
-		const attempt = async (fields: IBaseHalfVideoNodeFields, upstream: readonly string[] = []) => {
-			const node = harness.store.addNode(`n${messages.length}.bhnode`, fields, upstream);
-			try {
-				await harness.service.generate(node);
-				messages.push('ran');
-			} catch (error) {
-				messages.push(error instanceof BaseHalfVideoGenerationError ? error.message : `unexpected ${error}`);
-			}
-			assert.deepStrictEqual(harness.store.history(node), []);
-			assert.strictEqual(harness.service.isGenerating(node), false);
-		};
-		await attempt({ prompt: 'a', generation: { provider: 'acme' } });
-		await attempt({ prompt: 'a', generation: generation({ model: 'acme-motion-9' }) });
-		await attempt({ prompt: '', generation: generation() }, ['docs/plan.pdf']);
-		await attempt({ prompt: 'a', generation: generation(), task: runningTask() });
-		await attempt({ prompt: 'a', generation: { provider: 'borealis', model: 'borealis-one' } });
-		harness.commands.check = () => ({ ok: true, value: { problems: ['The start frame is smaller than 300 pixels.'] } });
-		await attempt({ prompt: 'a', generation: generation() }, ['frames/start.png']);
-		await harness.providers.setRegion(ACME, 'west');
-		await attempt({ prompt: 'a', generation: { provider: 'acme', model: 'acme-still' } });
-
-		assert.deepStrictEqual(messages, [
-			'Choose a model to generate.',
-			'acme-motion-9 is not a model BaseHalf offers. Choose another model.',
-			'Write a prompt or connect an input to generate.',
-			'This card is already generating.',
-			'Borealis Media is not set up. Set it up in Providers.',
-			'The start frame is smaller than 300 pixels.',
-			'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.'
-		]);
-		assert.strictEqual(harness.commands.count(SUBMIT), 0);
-		assert.deepStrictEqual(BOREALIS.credentials.map(credential => credential.id), ['accessKey', 'secretKey']);
-	}));
-
-	test('refuses with the reason when the catalog cannot be loaded', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		harness.commands.catalog = () => { throw new Error('command not found'); };
-		const node = shotNode(harness, {}, []);
-		await assert.rejects(() => harness.service.generate(node), (error: Error) => error instanceof BaseHalfVideoGenerationError
-			&& error.message === 'BaseHalf could not load the models: AI Video, which provides the video models, is not running.');
-		assert.deepStrictEqual([harness.store.history(node), harness.commands.count(SUBMIT)], [[], 0]);
-	}));
-
-	test('sends nothing when the provider module cannot check the generation', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, {}, []);
-		harness.commands.check = () => ({ ok: false, error: { code: 'unknownProvider', message: `No module answers for this provider with ${KEY}.` } });
-		await assert.rejects(() => harness.service.generate(node), (error: Error) => error instanceof BaseHalfVideoGenerationError
-			&& error.message === 'AI Video could not check the generation, and nothing was sent: No module answers for this provider with ***.');
-		harness.commands.check = () => { throw new Error('Extension host terminated.'); };
-		await assert.rejects(() => harness.service.generate(node), (error: Error) => error.message === 'AI Video could not check the generation, and nothing was sent: AI Video, which sends the request, is not running.');
-		assert.deepStrictEqual([harness.store.history(node), harness.commands.count(SUBMIT)], [[], 0]);
-	}));
-
-	test('draws an SVG start frame to PNG, has the provider module measure the files, and refuses a missing input by name', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		await harness.fileService.writeFile(joinPath(root, 'frames/start.svg'), VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'));
-		harness.store.addInput('frames/start.svg');
-		const svgNode = shotNode(harness, {}, ['frames/start.svg']);
-		harness.commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		await harness.service.generate(svgNode);
-		const request = harness.commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
-		assert.deepStrictEqual({ startFrame: request.inputs.startFrame, rasterized: harness.rasterized }, { startFrame: { dataUrl: PNG_DATA_URL }, rasterized: ['image/svg+xml'] });
-		await harness.service.stop(svgNode);
-
-		await harness.fileService.writeFile(joinPath(root, 'frames/huge.png'), VSBuffer.alloc(1024));
-		harness.store.addInput('frames/huge.png');
-		// The provider module measures the files it is given against the mode's limits.
-		harness.commands.check = checked => JSON.stringify(checked.inputs).includes('huge.png')
-			? { ok: true, value: { problems: ['huge.png is larger than 30 MiB, the most Acme Motion 2 takes.'] } }
-			: { ok: true, value: { problems: [] } };
-		const hugeNode = harness.store.addNode('shots/Huge.bhnode', { prompt: 'p', generation: generation() }, ['frames/huge.png']);
-		await assert.rejects(() => harness.service.generate(hugeNode), (error: Error) => error instanceof BaseHalfVideoGenerationError && error.message === 'huge.png is larger than 30 MiB, the most Acme Motion 2 takes.');
-
-		harness.store.addInput('frames/gone.png');
-		const goneNode = harness.store.addNode('shots/Gone.bhnode', { prompt: 'p', generation: generation() }, ['frames/gone.png']);
-		await assert.rejects(() => harness.service.generate(goneNode), (error: Error) => error.message === 'gone.png is missing. Connect it again or remove its connection.');
-		assert.deepStrictEqual([harness.store.history(hugeNode), harness.store.history(goneNode), harness.commands.count(SUBMIT)], [[], [], 1]);
-	}));
-
-	test('sends and records no value that the start frame sets, and keeps it in the node', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const frameSets = { ...ACME, models: ACME.models.map(model => model.id === 'acme-motion-2' ? { ...model, parameters: model.parameters.map(parameter => parameter.name === 'ratio' ? { ...parameter, modes: undefined, setByStartFrame: true } : parameter) } : model) };
-		const commands = new FakeProviderCommands(harness.fileService);
-		commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [frameSets, BOREALIS] } });
-		commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		const service = harness.window(commands);
-		await harness.fileService.writeFile(joinPath(root, 'frames/start.png'), VSBuffer.fromString('start-png'));
-		harness.store.addInput('frames/start.png');
-		const node = shotNode(harness, { generation: generation({ params: { resolution: '720p', duration: 5, sound: true, ratio: '9:16' } }) }, ['frames/start.png']);
-		await service.generate(node);
-		const checked = commands.calls.find(call => call.id === CHECK)?.argument as { params: Record<string, unknown> };
-		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
-		const fields = harness.store.fields(node);
-		assert.deepStrictEqual({ checked: checked.params, submitted: submitted.params, recorded: fields.task?.request.params, kept: fields.generation?.params }, {
-			checked: { resolution: '720p', duration: 5, sound: true },
-			submitted: { resolution: '720p', duration: 5, sound: true },
-			recorded: { resolution: '720p', duration: 5, sound: true },
-			kept: { resolution: '720p', duration: 5, sound: true, ratio: '9:16' }
-		});
-		await service.stop(node);
-	}));
-
-	test('draws an image of a format the mode does not take to PNG, and records the provider id the module would send', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const pngAndJpeg = { ...ACME, models: ACME.models.map(model => ({ ...model, modes: model.modes.map(mode => mode.id === 'frames' ? { ...mode, limits: { ...mode.limits, imageFormats: ['png', 'jpeg'] as const } } : mode) })) };
-		const commands = new FakeProviderCommands(harness.fileService);
-		commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [pngAndJpeg, BOREALIS] } });
-		commands.check = () => ({ ok: true, value: { problems: [], providerModel: 'acme-motion-2-image-260101' } });
-		commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		const service = harness.window(commands);
-		await harness.fileService.writeFile(joinPath(root, 'frames/start.webp'), VSBuffer.fromString('start-webp'));
-		await harness.fileService.writeFile(joinPath(root, 'frames/end.jpg'), VSBuffer.fromString('end-jpg'));
-		harness.store.addInput('frames/start.webp');
-		harness.store.addInput('frames/end.jpg');
-		const node = shotNode(harness, {}, ['frames/start.webp', 'frames/end.jpg']);
-		await service.generate(node);
-		const request = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		const image = await harness.card('shots/image.png', IMAGE);
+		const { service, commands } = harness.first;
+		commands.submit = async request => ({ ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_PNG)] } });
+		const cards = await service.generate(image);
+		await until(() => !service.isGenerating(image));
 		assert.deepStrictEqual({
-			startFrame: request.inputs.startFrame,
-			endFrame: request.inputs.endFrame,
-			rasterized: harness.rasterized,
-			providerModel: harness.store.fields(node).task?.request.providerModel
+			cards: cards.map(card => card.path),
+			file: (await harness.read('shots/image.png')) === FAKE_PNG.toString(),
+			made: parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/image.png/made.yaml'))!)?.providerModel,
+			calls: commands.calls.map(call => call.id),
+			cache: await harness.cache(),
+			lastUsed: [harness.providers.getLastUsed('image')?.model, harness.providers.getLastUsed('video')]
 		}, {
-			startFrame: { dataUrl: PNG_DATA_URL },
-			endFrame: file('frames/end.jpg', 'image/jpeg'),
-			rasterized: ['image/webp'],
-			providerModel: 'acme-motion-2-image-260101'
+			cards: ['/workspace/shots/image.png'],
+			file: true,
+			made: 'paint-n-1',
+			calls: [CATALOG, CHECK, SUBMIT],
+			cache: [],
+			lastUsed: ['corvid-paint', undefined]
 		});
-		await service.stop(node);
+		harness.dispose();
 	}));
 
-	test('prepares the planned inputs for the panel\'s check as a generation sends them, draws an image to PNG once until it changes, and names an input it cannot send', async () => {
+	test('several images make their drafts in a row to the right before sending, land one image on each, and fail a refused one alone', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		harness.canvas.place('shots', { path: 'shots/image.png', kind: 'file', x: 0, y: 0, width: 300, height: 220 });
+		const image = await harness.card('shots/image.png', { ...IMAGE, params: { count: 4 } }, ['refs/look.png']);
+		await harness.write('refs/look.png', FAKE_PNG);
+		const { service, commands, tasks } = harness.first;
+		let draftsWhenSent: boolean[] = [];
+		commands.submit = async request => {
+			draftsWhenSent = await Promise.all(['image-2.png', 'image-3.png', 'image-4.png'].map(name => harness.exists(`.bh/mirror/shots/${name}/generation.yaml`)));
+			const targets = request.targets!;
+			return { ok: true, value: { outputs: [await commands.write(targets[0], FAKE_PNG), await commands.write(targets[1], FAKE_PNG), { refused: 'The image showed a real person.' }, await commands.write(targets[3], FAKE_PNG)] } };
+		};
+		const cards = await service.generate(image);
+		await until(async () => (await harness.records()).some(task => task.state === 'failed'));
+		const record = (await harness.records())[0];
+		const madeOf = async (name: string) => {
+			const made = parseBaseHalfGenerationMade((await harness.read(`.bh/mirror/shots/${name}/made.yaml`)) ?? '');
+			return made ? `${made.id.slice(-2)} ${made.output}/${made.outputs}` : undefined;
+		};
+		assert.deepStrictEqual({
+			cards: cards.map(card => card.path.slice('/workspace/'.length)),
+			draftsWhenSent,
+			copies: [await harness.read('.bh/mirror/shots/image-2.png/generation.yaml'), await harness.read('.bh/mirror/shots/image-3.png/upstream.yaml')],
+			files: await Promise.all(['image.png', 'image-2.png', 'image-3.png', 'image-4.png'].map(name => harness.exists(`shots/${name}`))),
+			made: [await madeOf('image.png'), await madeOf('image-2.png'), await madeOf('image-3.png'), await madeOf('image-4.png')],
+			record: [record.state, record.cards.map(card => `${card.path}:${card.state}${card.error ? `: ${card.error}` : ''}`)],
+			refusedCard: tasks.forCard(harness.resource('shots/image-3.png'))?.state,
+			rows: harness.canvas.layouts.get('shots')?.map(card => `${card.path} ${card.x},${card.y} ${card.width}x${card.height}`),
+			undoSteps: harness.undo.elements.map(element => element.label)
+		}, {
+			cards: ['shots/image.png', 'shots/image-2.png', 'shots/image-3.png', 'shots/image-4.png'],
+			draftsWhenSent: [true, true, true],
+			copies: [serializeBaseHalfGenerationInfo({ ...IMAGE, params: { count: 4 } }), 'upstream:\n  - refs/look.png\n'],
+			files: [true, true, false, true],
+			made: ['-1 1/4', '-2 2/4', undefined, '-4 4/4'],
+			record: ['failed', [
+				'shots/image.png:landed',
+				'shots/image-2.png:landed',
+				'shots/image-3.png:failed: The provider refused this one: The image showed a real person.',
+				'shots/image-4.png:landed'
+			]],
+			refusedCard: 'failed',
+			rows: [
+				'shots/image.png 0,0 300x220',
+				'shots/image-2.png 340,0 300x220',
+				'shots/image-3.png 680,0 300x220',
+				'shots/image-4.png 1020,0 300x220'
+			],
+			undoSteps: ['Generate']
+		});
+		harness.dispose();
+	}));
+
+	test('the cards that the provider made no image for fail as such', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const image = await harness.card('shots/image.png', { ...IMAGE, params: { count: 3 } });
+		const { service, commands } = harness.first;
+		commands.submit = async request => ({ ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_PNG), await commands.write(request.targets![1], FAKE_PNG)] } });
+		await service.generate(image);
+		await until(async () => (await harness.records()).some(task => task.state === 'failed'));
+		assert.deepStrictEqual((await harness.records())[0].cards.map(card => `${card.state}${card.error ? `: ${card.error}` : ''}`), ['landed', 'landed', 'failed: The provider made fewer images than asked.']);
+		harness.dispose();
+	}));
+
+	test('an image that arrives in another format renames its draft to that format\'s extension and lands there', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const image = await harness.card('shots/image.png', IMAGE);
+		const { service, commands, drafts } = harness.first;
+		commands.submit = async request => ({ ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_JPEG)] } });
+		await service.generate(image);
+		await until(async () => !(await harness.records()).length && await harness.exists('.bh/mirror/shots/image.jpg/made.yaml'));
+		assert.deepStrictEqual({
+			moves: drafts.moves,
+			png: await harness.exists('shots/image.png'),
+			jpg: (await harness.read('shots/image.jpg')) === FAKE_JPEG.toString(),
+			made: !!parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/image.jpg/made.yaml'))!),
+			draftLeft: await harness.exists('.bh/mirror/shots/image.png')
+		}, { moves: ['shots/image.png -> shots/image.jpg'], png: false, jpg: true, made: true, draftLeft: false });
+		harness.dispose();
+	}));
+
+	test('a folder that is gone is made again for the file, and a path taken by then gets the next free name with a copy of the card\'s settings', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		harness.canvas.place('scenes/new', { path: 'scenes/new/clip.mp4', kind: 'file', x: 0, y: 0, width: 720, height: 405 });
+		const clip = await harness.card('scenes/new/clip.mp4', VIDEO);
+		const taken = await harness.card('shots/taken.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		let release: () => void = () => { };
+		const held = new Promise<void>(resolve => release = resolve);
+		commands.poll = async request => {
+			await held;
+			return { ok: true, value: { state: 'succeeded', videoUrl: `https://cdn.example.com/${request.remoteId}.mp4` } };
+		};
+		await service.generate(clip);
+		await service.generate(taken);
+		// A file appears at the path of the second draft while it generates: it becomes that draft's file.
+		await harness.write('shots/taken.mp4', 'dropped by the user');
+		release();
+		await until(async () => !(await harness.records()).length && await harness.exists('.bh/mirror/shots/taken-2.mp4/made.yaml') && await harness.exists('.bh/mirror/scenes/new/clip.mp4/made.yaml'));
+		assert.deepStrictEqual({
+			made: (await harness.read('scenes/new/clip.mp4')) === FAKE_MP4.toString(),
+			dropped: await harness.read('shots/taken.mp4'),
+			beside: (await harness.read('shots/taken-2.mp4')) === FAKE_MP4.toString(),
+			besideInfo: await harness.read('.bh/mirror/shots/taken-2.mp4/generation.yaml'),
+			besideMade: !!await harness.read('.bh/mirror/shots/taken-2.mp4/made.yaml'),
+			takenMade: await harness.exists('.bh/mirror/shots/taken.mp4/made.yaml')
+		}, {
+			made: true,
+			dropped: 'dropped by the user',
+			beside: true,
+			besideInfo: serializeBaseHalfGenerationInfo(VIDEO),
+			besideMade: true,
+			takenMade: false
+		});
+		harness.dispose();
+	}));
+
+	test('after a crash between the move and made.yaml, the window that takes the record over writes made.yaml without a second download', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const landing = recordBaseHalfGenerationLanding(staleTask('landing'), 0, { path: 'shots/video.mp4', size: FAKE_MP4.byteLength, sha256: testDigestHex(FAKE_MP4) });
+		// The window that followed it is gone; this one opens the workspace.
+		const harness = await createHarness({
+			records: [landing],
+			files: { 'shots/video.mp4': FAKE_MP4, '.bh/mirror/shots/video.mp4/generation.yaml': serializeBaseHalfGenerationInfo(VIDEO) }
+		});
+		await until(async () => !(await harness.records()).length);
+		const made = parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/video.mp4/made.yaml'))!);
+		assert.deepStrictEqual({
+			made: [made?.id, made?.remoteId],
+			calls: harness.first.commands.calls.map(call => call.id).filter(id => id !== CATALOG),
+			file: (await harness.read('shots/video.mp4')) === FAKE_MP4.toString()
+		}, { made: [landing.id, 'cgt-7'], calls: [], file: true });
+		harness.dispose();
+	}));
+
+	test('Stop ends the task as stopped, asks the provider to cancel, and keeps no file that arrives later', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const image = await harness.card('shots/image.png', IMAGE);
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running', fraction: 0.2 } });
+		await service.generate(video);
+		await until(() => service.getProgress(video)?.phase === 'generating');
+		await service.stop(video);
+		// A provider that answers at once answers after the stop.
+		const answer = new DeferredPromise<void>();
+		commands.submit = async request => {
+			await answer.p;
+			return { ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_PNG)] } };
+		};
+		await service.generate(image);
+		await service.stop(image);
+		answer.complete();
+		await timeout(20_000);
+		const records = await harness.records();
+		assert.deepStrictEqual({
+			states: records.map(task => `${task.cards[0].path}:${task.state}`).sort(),
+			cancelled: commands.calls.filter(call => call.id === CANCEL).map(call => (call.argument as IBaseHalfVideoTaskRef).remoteId),
+			files: [await harness.exists('shots/video.mp4'), await harness.exists('shots/image.png')],
+			cache: (await harness.cache()).filter(name => name.endsWith('.part')),
+			generating: [service.isGenerating(video), service.isGenerating(image)]
+		}, {
+			states: ['shots/image.png:stopped', 'shots/video.mp4:stopped'],
+			cancelled: ['cgt-remote-1'],
+			files: [false, false],
+			cache: [],
+			generating: [false, false]
+		});
+		harness.dispose();
+	}));
+
+	test('another window settles what a window that is gone left: a request on its way fails with the message of its provider, one not yet sent is removed, and one alive is left', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const tasks = staleTask('submitting', { id: '20261022T075800-dead0002', cards: ['shots/a.mp4'] });
+		const atOnce = staleTask('submitting', { id: '20261022T075800-dead0003', cards: ['shots/b.mp4'], answersAtOnce: true });
+		const preparing = staleTask('preparing', { id: '20261022T075800-dead0004', cards: ['shots/c.mp4'] });
+		const alive = heartbeatBaseHalfGenerationTask(staleTask('submitting', { id: '20261022T075800-dead0005', cards: ['shots/d.mp4'] }), 'walive', new Date(START - 10_000).toISOString());
+		const harness = await createHarness({ records: [tasks, atOnce, preparing, alive] });
+		const byId = async () => new Map((await harness.records()).map(task => [task.id, task]));
+		await until(async () => (await byId()).get(tasks.id)?.state === 'failed' && (await byId()).get(atOnce.id)?.state === 'failed' && !(await byId()).has(preparing.id));
+		const meanwhile = (await byId()).get(alive.id)?.state;
+		await until(async () => (await byId()).get(alive.id)?.state === 'failed');
+		const records = await byId();
+		assert.deepStrictEqual({
+			tasks: records.get(tasks.id)?.error,
+			atOnce: records.get(atOnce.id)?.error,
+			meanwhile,
+			alive: [records.get(alive.id)?.error, Date.now() - START >= 80_000],
+			sent: harness.first.commands.count(SUBMIT)
+		}, {
+			tasks: orphanedSubmissionMessage(),
+			atOnce: closedWhileAnsweringMessage(),
+			meanwhile: 'submitting',
+			alive: [orphanedSubmissionMessage(), true],
+			sent: 0
+		});
+		harness.dispose();
+	}));
+
+	test('another window takes over a running task that no window follows, asks about it in the region it records, and lands it', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const running = staleTask('running');
+		const harness = await createHarness({ records: [running], files: { '.bh/mirror/shots/video.mp4/generation.yaml': serializeBaseHalfGenerationInfo(VIDEO) } });
+		const { commands } = harness.first;
+		const polls = [{ ok: true, value: { state: 'running' } }, { ok: true, value: { state: 'running' } }];
+		commands.poll = () => polls.shift() ?? { ok: true, value: { state: 'succeeded' } };
+		await until(async () => (await harness.records()).some(task => task.follower === harness.first.service.follower));
+		const taken = (await harness.records())[0];
+		await until(async () => !(await harness.records()).length, 500, 60_000);
+		const poll = commands.calls.find(call => call.id === POLL)?.argument as IBaseHalfVideoTaskRef;
+		const download = commands.calls.find(call => call.id === DOWNLOAD)?.argument as IBaseHalfVideoDownloadRequest;
+		assert.deepStrictEqual({
+			taken: [taken.state, Date.parse(taken.aliveAt) >= START],
+			poll: [poll.remoteId, poll.region, poll.endpoint],
+			download: [download.remoteId, download.url],
+			file: (await harness.read('shots/video.mp4')) === FAKE_MP4.toString(),
+			made: parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/video.mp4/made.yaml'))!)?.id,
+			submits: commands.count(SUBMIT)
+		}, {
+			taken: ['running', true],
+			poll: ['cgt-7', 'east', 'https://east.acme.example/api/v1'],
+			download: ['cgt-7', undefined],
+			file: true,
+			made: running.id,
+			submits: 0
+		});
+		harness.dispose();
+	}));
+
+	test('a window says every 30 seconds that it follows its generation, and another window leaves that generation alone', () => runWithFakedTimers({ startTime: START, maxTaskCount: 20_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const other = harness.window();
+		await service.generate(video);
+		await timeout(200_000);
+		const record = (await harness.records())[0];
+		assert.deepStrictEqual({
+			follower: record.follower === service.follower,
+			alive: Date.now() - Date.parse(record.aliveAt) <= 31_000,
+			otherPolled: other.commands.count(POLL),
+			otherGenerating: other.service.isGenerating(video)
+		}, { follower: true, alive: true, otherPolled: 0, otherGenerating: true });
+		await service.stop(video);
+		harness.dispose();
+	}));
+
+	test('two windows that generate the same draft at once send one request; the other is told that the card is already generating', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const second = harness.window();
+		harness.first.commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		second.commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const results = await Promise.allSettled([harness.first.service.generate(video), second.service.generate(video)]);
+		const again = await second.service.generate(video).then(() => 'started', (error: Error) => error.message);
+		assert.deepStrictEqual({
+			outcomes: results.map(result => result.status === 'fulfilled' ? 'started' : (result.reason as Error).message).sort(),
+			sent: harness.first.commands.count(SUBMIT) + second.commands.count(SUBMIT),
+			records: (await harness.records()).length,
+			again
+		}, {
+			outcomes: ['This card is already generating.', 'started'],
+			sent: 1,
+			records: 1,
+			again: 'This card is already generating.'
+		});
+		await harness.first.service.stop(video);
+		harness.dispose();
+	}));
+
+	test('generating from a card with its file makes a draft to its right with the same prompt, settings, and inputs; a blocker stops before any draft', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		harness.canvas.place('shots', { path: 'shots/shot.mp4', kind: 'file', x: 100, y: 50, width: 720, height: 405 });
+		const shot = await harness.card('shots/shot.mp4', VIDEO, ['refs/a.png']);
+		await harness.write('shots/shot.mp4', FAKE_MP4);
+		await harness.write('shots/shot-2.mp4', FAKE_MP4);
+		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', 'id: "earlier"\n');
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const cards = await service.generate(shot);
+		const blocked = await harness.card('shots/other.mp4', { ...VIDEO, provider: 'borealis', model: 'borealis-one', mode: undefined, params: undefined });
+		await harness.write('shots/other.mp4', FAKE_MP4);
+		const refusal = await service.generate(blocked).then(() => 'started', (error: Error) => `${error instanceof BaseHalfVideoGenerationError}: ${error.message}`);
+		assert.deepStrictEqual({
+			cards: cards.map(card => card.path),
+			info: await harness.read('.bh/mirror/shots/shot-3.mp4/generation.yaml'),
+			upstream: await harness.read('.bh/mirror/shots/shot-3.mp4/upstream.yaml'),
+			original: [await harness.read('.bh/mirror/shots/shot.mp4/made.yaml'), service.isGenerating(shot)],
+			row: harness.canvas.layouts.get('shots')?.find(card => card.path === 'shots/shot-3.mp4'),
+			refusal,
+			noDraft: await harness.exists('.bh/mirror/shots/other-2.mp4'),
+			records: (await harness.records()).map(task => task.cards.map(card => card.path).join())
+		}, {
+			cards: ['/workspace/shots/shot-3.mp4'],
+			info: serializeBaseHalfGenerationInfo(VIDEO),
+			upstream: 'upstream:\n  - refs/a.png\n',
+			original: ['id: "earlier"\n', false],
+			row: { path: 'shots/shot-3.mp4', kind: 'file', x: 860, y: 50, width: 720, height: 405 },
+			refusal: 'true: Borealis Media is not set up. Set it up in Providers.',
+			noDraft: false,
+			records: ['shots/shot-3.mp4']
+		});
+		await service.stop(cards[0]);
+		harness.dispose();
+	}));
+
+	test('an agent\'s request stops with the first value the model does not accept, and a card whose input is a draft does not generate', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', { ...VIDEO, params: { duration: 99 } });
+		const withDraft = await harness.card('shots/next.mp4', VIDEO, ['shots/still.png']);
+		await harness.card('shots/still.png', IMAGE);
+		const { service, commands } = harness.first;
+		const refusals = await Promise.all([
+			service.generate(video, { agent: true }).then(() => 'started', (error: Error) => error.message),
+			service.generate(withDraft).then(() => 'started', (error: Error) => error.message)
+		]);
+		assert.deepStrictEqual({ refusals, sent: commands.count(SUBMIT), records: (await harness.records()).length }, {
+			refusals: ['Acme Motion 2 does not accept 99 for Duration.', 'still.png has no file yet. Generate it first, or remove its connection.'],
+			sent: 0,
+			records: 0
+		});
+		harness.dispose();
+	}));
+
+	test('ends with the provider\'s message when the credentials are refused, never showing them, and never sends again a request whose outcome is unknown', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const refused = await harness.card('shots/refused.mp4', VIDEO);
+		const unknown = await harness.card('shots/unknown.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		commands.submit = () => ({ ok: false, error: { code: 'auth', message: `The API key ${KEY} is incorrect.`, status: 401 } });
+		await service.generate(refused);
+		commands.submit = () => ({ ok: false, error: { code: 'unknownOutcome', message: 'The connection closed after the request was sent.' } });
+		await service.generate(unknown);
+		await until(async () => (await harness.records()).filter(task => task.state === 'failed').length === 2);
+		await timeout(60_000);
+		const errors = new Map((await harness.records()).map(task => [task.cards[0].path, task.error]));
+		assert.deepStrictEqual({ refused: errors.get('shots/refused.mp4'), unknown: errors.get('shots/unknown.mp4'), sent: commands.count(SUBMIT), polls: commands.count(POLL) }, {
+			refused: 'The provider refused the credentials: The API key *** is incorrect.',
+			unknown: `${unknownOutcomeMessage()} (The connection closed after the request was sent.)`,
+			sent: 2,
+			polls: 0
+		});
+		harness.dispose();
+	}));
+
+	test('a task that has not ended two hours after its start fails with a message that says so', () => runWithFakedTimers({ startTime: START, maxTaskCount: 50_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		await service.generate(video);
+		await until(async () => (await harness.records())[0]?.state === 'failed', 60_000);
+		assert.deepStrictEqual([(await harness.records())[0].error, Date.now() - START >= BASEHALF_VIDEO_TASK_TIME_LIMIT], ['The provider did not finish the video within two hours.', true]);
+		harness.dispose();
+	}));
+
+	test('a card deleted while its generation of several images runs gets no file, and the others land', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const image = await harness.card('shots/image.png', { ...IMAGE, model: 'corvid-print', params: { count: 2 } });
+		const { service, commands } = harness.first;
+		let polls = 0;
+		commands.poll = () => ++polls < 3
+			? { ok: true, value: { state: 'running' } }
+			: { ok: true, value: { state: 'succeeded', outputs: [{ url: 'https://cdn.corvid.example/1.jpg' }, { url: 'https://cdn.corvid.example/2.jpg' }] } };
+		commands.download = async request => {
+			await harness.fileService.writeFile(URI.file(request.targetFsPath), FAKE_JPEG);
+			return { ok: true, value: { size: FAKE_JPEG.byteLength, format: 'jpeg' } };
+		};
+		const [, second] = await service.generate(image);
+		await until(() => polls >= 1);
+		await service.releaseCard(second);
+		// The canvas deletes the draft's card information after releasing it.
+		await harness.fileService.del(harness.resource('.bh/mirror/shots/image-2.png'), { recursive: true });
+		await until(async () => !(await harness.records()).length);
+		const downloads = commands.calls.filter(call => call.id === DOWNLOAD).map(call => (call.argument as IBaseHalfVideoDownloadRequest).url);
+		assert.deepStrictEqual({
+			downloads,
+			files: [await harness.exists('shots/image.jpg'), await harness.exists('shots/image-2.jpg'), await harness.exists('shots/image-2.png')],
+			made: parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/image.jpg/made.yaml'))!)?.output
+		}, {
+			downloads: ['https://cdn.corvid.example/1.jpg'],
+			files: [true, false, false],
+			made: 1
+		});
+		harness.dispose();
+	}));
+
+	test('draws an SVG start frame to PNG, has the provider module measure the files, and refuses an input it cannot send by name', async () => {
 		const harness = await createHarness();
 		const remote = disposables.add(new DisposableStore());
-		remote.add(harness.fileService.registerProvider(Schemas.vscodeRemote, remote.add(new InMemoryFileSystemProvider())));
+		remote.add(harness.fileService.registerProvider(Schemas.vscodeRemote, remote.add(new BaseHalfTestFileSystemProvider())));
 		const far = URI.from({ scheme: Schemas.vscodeRemote, authority: 'host', path: '/workspace/frames/far.png' });
 		await harness.fileService.writeFile(far, VSBuffer.fromString('far-png'));
-		await harness.fileService.writeFile(joinPath(root, 'frames/start.svg'), VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'));
-		await harness.fileService.writeFile(joinPath(root, 'frames/end.png'), VSBuffer.fromString('end-png'));
-		const input = (path: string, file = joinPath(root, path)): IBaseHalfVideoResolvedInput => ({ path, kind: 'image', available: true, file });
-		const frames = testVideoModel('acme', 'acme-motion-2').modes[0].inputs;
-		const prepare = (inputs: IBaseHalfVideoResolvedInput[]) => harness.service.prepareInputMedia(planBaseHalfVideoInputs(frames, inputs, 'en'), inputs, ['png', 'jpeg', 'webp']);
+		await harness.write('frames/start.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+		await harness.write('frames/end.png', FAKE_PNG);
+		const input = (path: string, file = harness.resource(path)): IBaseHalfVideoResolvedInput => ({ path, kind: 'image', available: true, file });
+		const frames = TEST_GENERATION_CATALOG.providers[0].models[0].modes[0];
+		const prepare = (inputs: IBaseHalfVideoResolvedInput[]) => harness.first.service.prepareInputMedia(planBaseHalfVideoInputs(frames.inputs, inputs, 'en'), inputs, ['png', 'jpeg', 'webp']);
 		const planned = [input('frames/start.svg'), input('frames/end.png')];
 		const first = await prepare(planned);
-		const again = (await prepare(planned)).startFrame;
-		const drawnOnce = [...harness.rasterized];
-		await harness.fileService.writeFile(joinPath(root, 'frames/start.svg'), VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"/>'));
 		await prepare(planned);
+		const drawnOnce = [...harness.rasterized];
 		const refusal = (inputs: IBaseHalfVideoResolvedInput[]) => prepare(inputs).then(() => 'prepared', error => `${error instanceof BaseHalfVideoGenerationError}: ${error.message}`);
 		assert.deepStrictEqual({
 			first,
-			again,
 			drawnOnce,
-			drawnAfterTheChange: harness.rasterized,
 			notLocal: await refusal([input('frames/far.png', far)]),
 			missing: await refusal([input('frames/gone.png')])
 		}, {
-			first: { startFrame: { dataUrl: PNG_DATA_URL }, endFrame: file('frames/end.png', 'image/png'), images: [], videos: [], audios: [] },
-			again: { dataUrl: PNG_DATA_URL },
+			first: { startFrame: { dataUrl: PNG_DATA_URL }, endFrame: { fsPath: harness.resource('frames/end.png').fsPath, mimeType: 'image/png' }, images: [], videos: [], audios: [] },
 			drawnOnce: ['image/svg+xml'],
-			drawnAfterTheChange: ['image/svg+xml', 'image/svg+xml'],
 			notLocal: 'true: far.png is not a file on this computer.',
 			missing: 'true: gone.png is missing. Connect it again or remove its connection.'
 		});
+		harness.dispose();
 	});
-
-	test('ends with the provider\'s message when the credentials are refused, and never shows them', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, {}, []);
-		harness.commands.submit = () => ({ ok: false, error: { code: 'auth', message: `The API key ${KEY} is incorrect.`, status: 401 } });
-		await harness.service.generate(node);
-		await until(() => !harness.service.isGenerating(node));
-		const task = harness.store.fields(node).task!;
-		assert.deepStrictEqual({ state: task.state, error: task.error, states: states(harness, node), submits: harness.commands.count(SUBMIT) },
-			{ state: 'failed', error: 'The provider refused the credentials: The API key *** is incorrect.', states: ['submitting', 'failed'], submits: 1 });
-	}));
-
-	test('never sends a request again when its outcome is unknown', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
-		const harness = await createHarness();
-		const answered = shotNode(harness, {}, []);
-		harness.commands.submit = () => ({ ok: false, error: { code: 'unknownOutcome', message: 'The connection closed after the request was sent.' } });
-		await harness.service.generate(answered);
-		await until(() => !harness.service.isGenerating(answered));
-		await timeout(10 * 60_000);
-
-		// AI Video stopped while it sent the request.
-		disposables.add(CommandsRegistry.registerCommand(SUBMIT, () => undefined));
-		const crashed = harness.store.addNode('shots/Crashed.bhnode', { prompt: 'p', generation: generation() });
-		harness.commands.submit = () => { throw new Error('Extension host terminated.'); };
-		await harness.service.generate(crashed);
-		await until(() => !harness.service.isGenerating(crashed));
-		await timeout(10 * 60_000);
-
-		assert.deepStrictEqual({
-			answered: harness.store.fields(answered).task?.error,
-			crashed: harness.store.fields(crashed).task?.error,
-			submits: harness.commands.count(SUBMIT),
-			polls: harness.commands.count(POLL)
-		}, {
-			answered: `${unknownOutcomeMessage()} (The connection closed after the request was sent.)`,
-			crashed: `${unknownOutcomeMessage()} (Extension host terminated.)`,
-			submits: 2,
-			polls: 0
-		});
-	}));
-
-	test('stops: records the stop, cancels the task, and keeps no video that arrives later', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, {}, []);
-		harness.commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		await harness.service.generate(node);
-		await until(() => harness.commands.count(POLL) === 1);
-		harness.commands.poll = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/late.mp4' } });
-		await harness.service.stop(node);
-		await timeout(60_000);
-		assert.deepStrictEqual({
-			states: states(harness, node),
-			generating: harness.service.isGenerating(node),
-			cancel: harness.commands.calls.filter(call => call.id === CANCEL).map(call => (call.argument as { remoteId: string }).remoteId),
-			calls: harness.commands.calls.map(call => call.id),
-			files: await outputFiles(harness)
-		}, { states: ['submitting', 'running cgt-remote-1', 'stopped cgt-remote-1'], generating: false, cancel: ['cgt-remote-1'], calls: [CATALOG, CHECK, SUBMIT, POLL, CANCEL], files: [] });
-	}));
-
-	test('stops while the request is on its way and cancels the task the provider made after all', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, {}, []);
-		const submitted = new DeferredPromise<unknown>();
-		harness.commands.submit = () => submitted.p;
-		await harness.service.generate(node);
-		await harness.service.stop(node);
-		submitted.complete({ ok: true, value: { remoteId: 'cgt-late' } });
-		await timeout(30_000);
-		assert.deepStrictEqual({
-			states: states(harness, node),
-			calls: harness.commands.calls.filter(call => call.id !== CATALOG && call.id !== CHECK).map(call => `${call.id} ${(call.argument as { remoteId?: string }).remoteId ?? ''}`.trim())
-		}, { states: ['submitting', 'stopped'], calls: [SUBMIT, `${CANCEL} cgt-late`] });
-	}));
-
-	test('stops during the download and deletes what arrives', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, {}, []);
-		const downloading = new DeferredPromise<void>();
-		const release = new DeferredPromise<void>();
-		const original = harness.commands.download;
-		harness.commands.download = async request => {
-			downloading.complete();
-			await release.p;
-			return original(request);
-		};
-		await harness.service.generate(node);
-		await downloading.p;
-		await harness.service.stop(node);
-		release.complete();
-		await timeout(10_000);
-		assert.deepStrictEqual({ states: states(harness, node), files: await outputFiles(harness) }, { states: ['submitting', 'running cgt-remote-1', 'stopped cgt-remote-1'], files: [] });
-	}));
-
-	test('ends with the provider\'s failure, after 30 minutes without an answer, and after two hours', () => runWithFakedTimers({ startTime: START, maxTaskCount: 50_000 }, async () => {
-		const harness = await createHarness();
-		const failed = shotNode(harness, {}, []);
-		harness.commands.poll = () => ({ ok: true, value: { state: 'failed', message: 'The output video may contain sensitive content.' } });
-		await harness.service.generate(failed);
-		await until(() => !harness.service.isGenerating(failed));
-
-		const unreachable = harness.store.addNode('shots/Unreachable.bhnode', { prompt: 'p', generation: generation() });
-		let networkErrors = 0;
-		harness.commands.poll = () => {
-			networkErrors++;
-			return { ok: false, error: { code: 'network', message: 'getaddrinfo ENOTFOUND east.acme.example' } };
-		};
-		const unreachableStart = Date.now();
-		await harness.service.generate(unreachable);
-		await until(() => !harness.service.isGenerating(unreachable), 5_000);
-		const unreachableTook = Date.now() - unreachableStart;
-
-		const slow = harness.store.addNode('shots/Slow.bhnode', { prompt: 'p', generation: generation() });
-		harness.commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		const slowStart = Date.now();
-		await harness.service.generate(slow);
-		await until(() => !harness.service.isGenerating(slow), 5_000);
-		const slowTook = Date.now() - slowStart;
-
-		assert.deepStrictEqual({
-			failed: harness.store.fields(failed).task?.error,
-			unreachable: harness.store.fields(unreachable).task?.error,
-			unreachableInWindow: unreachableTook >= BASEHALF_VIDEO_TRANSIENT_FAILURE_LIMIT && unreachableTook < BASEHALF_VIDEO_TRANSIENT_FAILURE_LIMIT + 10_000,
-			retried: networkErrors > 300,
-			slow: harness.store.fields(slow).task?.error,
-			slowInWindow: slowTook >= BASEHALF_VIDEO_TASK_TIME_LIMIT && slowTook < BASEHALF_VIDEO_TASK_TIME_LIMIT + 10_000
-		}, {
-			failed: 'The provider could not make the video: The output video may contain sensitive content.',
-			unreachable: 'BaseHalf could not reach the provider for 30 minutes. The video may still be made there: check the provider\'s console. (getaddrinfo ENOTFOUND east.acme.example)',
-			unreachableInWindow: true,
-			retried: true,
-			slow: 'The provider did not finish the video within two hours.',
-			slowInWindow: true
-		});
-	}));
-
-	test('follows a running task again after a reload in the region its request records, and completes it', () => runWithFakedTimers({ startTime: START + 60_000, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		// The provider moved to another region since, with a relay of its own.
-		await harness.providers.setRegion(ACME, 'west');
-		await harness.providers.setEndpoint(ACME, 'https://relay.example.com/west');
-		const node = shotNode(harness, { task: runningTask() }, []);
-		harness.service.resume(node);
-		harness.service.resume(node);
-		await until(() => harness.service.isGenerating(node));
-		await until(() => !harness.service.isGenerating(node));
-		assert.deepStrictEqual({
-			states: states(harness, node),
-			polled: harness.commands.calls.filter(call => call.id === POLL).map(call => {
-				const ref = call.argument as { remoteId: string; region: string; endpoint: string; model: string };
-				return `${ref.remoteId} ${ref.region} ${ref.endpoint} ${ref.model}`;
-			}),
-			submits: harness.commands.count(SUBMIT)
-		}, { states: ['result outputs/node-1/20261015T080000-abcd.mp4'], polled: ['cgt-resumed east https://east.acme.example/api/v1 acme-motion-2'], submits: 0 });
-	}));
-
-	test('leaves a task whose provider is not set up on this computer to a window that can follow it', () => runWithFakedTimers({ startTime: START + 60_000, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness({ key: false });
-		const node = shotNode(harness, { task: runningTask() }, []);
-		harness.service.resume(node);
-		await timeout(30_000);
-		assert.deepStrictEqual({ generating: harness.service.isGenerating(node), state: harness.store.fields(node).task?.state, polls: harness.commands.count(POLL) }, { generating: false, state: 'running', polls: 0 });
-	}));
-
-	test('settles a request that was on its way when BaseHalf closed, once it is two minutes old, and never sends it', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const submitting = (startedAt: number): IBaseHalfVideoTask => {
-			const { remoteId: _remoteId, ...task } = runningTask(startedAt, { state: 'submitting' });
-			return task as IBaseHalfVideoTask;
-		};
-		const old = harness.store.addNode('shots/Old.bhnode', { prompt: 'p', generation: generation(), task: submitting(START - 3 * 60_000) });
-		const young = harness.store.addNode('shots/Young.bhnode', { prompt: 'p', generation: generation(), task: submitting(START - 30_000) });
-		const accepted = harness.store.addNode('shots/Accepted.bhnode', { prompt: 'p', generation: generation(), task: submitting(START - 30_000) });
-		for (const node of [old, young, accepted]) {
-			harness.service.resume(node);
-		}
-		await timeout(1_000);
-		const youngBefore = harness.store.fields(young).task?.state;
-		// Another window records the provider's task id meanwhile.
-		harness.store.replace(accepted, { ...harness.store.fields(accepted), task: runningTask(START - 30_000) });
-		harness.commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		await timeout(BASEHALF_VIDEO_ORPHANED_SUBMISSION_AGE);
-		assert.deepStrictEqual({
-			old: harness.store.fields(old).task?.error,
-			youngBefore,
-			young: harness.store.fields(young).task?.error,
-			accepted: harness.service.isGenerating(accepted),
-			submits: harness.commands.count(SUBMIT)
-		}, { old: orphanedSubmissionMessage(), youngBefore: 'submitting', young: orphanedSubmissionMessage(), accepted: true, submits: 0 });
-		await harness.service.stop(accepted);
-	}));
-
-	test('generates from a node with a video in a new node beside it and leaves the original unchanged', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		await writeInputs(harness);
-		const result: IBaseHalfVideoNodeFields['result'] = {
-			source: 'generated',
-			artifact: { kind: 'video', path: 'outputs/node-1/old.mp4', size: 10 },
-			generation: { taskId: 'old', remoteId: 'cgt-old', startedAt: '2026-10-14T08:00:00.000Z', completedAt: '2026-10-14T08:01:00.000Z', request: record() }
-		};
-		const original = shotNode(harness, { result }, ['frames/start.png', 'notes/scene.md']);
-		const before = harness.store.fields(original);
-		const ran = await harness.service.generate(original);
-		await until(() => !harness.service.isGenerating(ran));
-		const sibling = harness.store.fields(ran);
-		assert.deepStrictEqual({
-			ran: ran.path,
-			original: harness.store.fields(original) === before,
-			siblings: harness.store.siblings.map(entry => ({ from: entry.from.path, fields: entry.fields, upstream: entry.upstream })),
-			result: sibling.result?.artifact.path.startsWith('outputs/node-2/')
-		}, {
-			ran: '/workspace/shots/Shot 1-2.bhnode',
-			original: true,
-			siblings: [{ from: '/workspace/shots/Shot 1.bhnode', fields: { prompt: '图片1里的人骑车经过海边', generation: generation() }, upstream: ['frames/start.png', 'notes/scene.md'] }],
-			result: true
-		});
-	}));
-
-	test('of two windows that follow one task, the first that writes the result wins and the other deletes its download', () => runWithFakedTimers({ startTime: START + 60_000, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, { task: runningTask() }, []);
-		// Both windows download the video; this one finishes first.
-		const firstDownload = harness.commands.download;
-		harness.commands.download = async request => {
-			await timeout(1_000);
-			return firstDownload(request);
-		};
-		const otherCommands = new FakeProviderCommands(harness.fileService);
-		const otherDownloads: string[] = [];
-		otherCommands.download = async request => {
-			otherDownloads.push(request.targetFsPath);
-			await timeout(2_000);
-			await harness.fileService.writeFile(URI.file(request.targetFsPath), FAKE_MP4);
-			return { ok: true, value: { size: FAKE_MP4.byteLength } };
-		};
-		const other = harness.window(otherCommands);
-		harness.service.resume(node);
-		other.resume(node);
-		await until(() => harness.service.isGenerating(node) && other.isGenerating(node));
-		await until(() => !harness.service.isGenerating(node) && !other.isGenerating(node));
-		assert.deepStrictEqual({
-			states: states(harness, node),
-			otherDownloaded: otherDownloads.length,
-			files: await outputFiles(harness)
-		}, { states: ['result outputs/node-1/20261015T080000-abcd.mp4'], otherDownloaded: 1, files: ['outputs/node-1/20261015T080000-abcd.mp4'] });
-	}));
-
-	test('records a video another window moved into place but did not record', () => runWithFakedTimers({ startTime: START + 60_000, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, { task: runningTask() }, []);
-		const target = joinPath(root, 'outputs/node-1/20261015T080000-abcd.mp4');
-		await harness.fileService.writeFile(target, FAKE_MP4);
-		harness.service.resume(node);
-		await until(() => harness.service.isGenerating(node));
-		await until(() => !harness.service.isGenerating(node));
-		assert.deepStrictEqual({ states: states(harness, node), downloads: harness.commands.count(DOWNLOAD), files: await outputFiles(harness) },
-			{ states: ['result outputs/node-1/20261015T080000-abcd.mp4'], downloads: 1, files: ['outputs/node-1/20261015T080000-abcd.mp4'] });
-	}));
-
-	test('draws an SVG to a PNG on white in the window, at least 1024 pixels on its long side', async () => {
-		const svg = VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#f00"/></svg>');
-		const dataUrl = await rasterizeBaseHalfVideoImage(svg, 'image/svg+xml');
-		const png = decodeBase64(dataUrl.slice(dataUrl.indexOf(',') + 1)).buffer;
-		const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
-		assert.deepStrictEqual({
-			prefix: dataUrl.startsWith('data:image/png;base64,'),
-			signature: [...png.subarray(0, 4)],
-			width: view.getUint32(16),
-			height: view.getUint32(20)
-		}, { prefix: true, signature: [0x89, 0x50, 0x4e, 0x47], width: 1024, height: 512 });
-	});
-
-	test('deletes a download and writes nothing when the node no longer runs the task', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
-		const harness = await createHarness();
-		const node = shotNode(harness, {}, []);
-		const original = harness.commands.download;
-		harness.commands.download = async request => {
-			// The file is replaced while the video downloads.
-			harness.store.replace(node, { prompt: 'replaced', generation: generation() });
-			return original(request);
-		};
-		await harness.service.generate(node);
-		await until(() => !harness.service.isGenerating(node));
-		assert.deepStrictEqual({ fields: harness.store.fields(node), states: states(harness, node), files: await outputFiles(harness) },
-			{ fields: { prompt: 'replaced', generation: generation() }, states: ['submitting', 'running cgt-remote-1'], files: [] });
-	}));
 });
