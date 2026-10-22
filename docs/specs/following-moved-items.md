@@ -403,7 +403,8 @@ relocated in one run ([many items at once](#many-items-at-once)).
    It stays a pending pair. While it is held back it does not keep the
    canvas from redrawing. A generation card that generates, or a folder that
    holds one, is not held back: the same run writes the card's new path into
-   its task record, so that its files land where the card is
+   its task record, once the card's `generation.yaml` is at the new path, so
+   that its files land where the card is
    ([generation cards](generation-cards.md#moving-renaming-copying-and-undo)).
 4. **Mirror files and canvas rows** move piece by piece. A piece is one
    mirror file, or one row of a `canvas.yaml`.
@@ -423,6 +424,16 @@ relocated in one run ([many items at once](#many-items-at-once)).
      place.
    - A relocated `badge.yaml` gets its new `path` and loses an orphan mark.
      `generation.yaml` and `made.yaml` store no `path` and move as they are.
+   - **The path a task record names always holds the card's
+     `generation.yaml`.** A card's `generation.yaml` and then its `made.yaml`
+     are copied first, the task records take the new paths, and only then
+     are the old copies removed, `generation.yaml` first. A run that stops in
+     between leaves the generation information at both paths, and the next
+     run finishes it.
+   - **A card whose `generation.yaml` finds its place taken** keeps all of
+     its card information at the old path, its badge, appearance, and
+     upstream list included, so that a card's information stays together, and
+     its task record keeps naming the old path.
    - **A draft at the new path moves aside.** When the item arrives at the
      path of a draft, the draft's card information and card row first move
      to the next free name, as a rename of the draft does, and the item's
@@ -434,8 +445,7 @@ relocated in one run ([many items at once](#many-items-at-once)).
      a draft's path. The entries that named the draft's path name the item
      that took it from then on. A `generation.yaml` at the new path with
      exactly the bytes of the item's own at the old path is the item's, which
-     a run that stopped had begun to move, and not a draft's; the item's
-     `generation.yaml` moves after its `made.yaml` for the same reason.
+     a run that stopped had begun to move, and not a draft's.
    - **A card row that BaseHalf chose** at the new path is not something of
      the user's, and gives way
      ([canvas card placement](canvas-card-placement.md#a-row-follows-its-item)).

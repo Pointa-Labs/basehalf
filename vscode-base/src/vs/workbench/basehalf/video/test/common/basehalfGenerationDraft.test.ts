@@ -9,7 +9,7 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
-import { IFileService } from '../../../../../platform/files/common/files.js';
+import { createFileSystemProviderError, FileSystemProviderErrorCode, IFileService, IStat } from '../../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import {
@@ -21,14 +21,26 @@ import {
 	baseHalfWalkDraftInformation
 } from '../../common/basehalfGenerationDraft.js';
 
+/** A file system that cannot look at the paths a test names, as a disk with a read error cannot. */
+class FailingLookProvider extends InMemoryFileSystemProvider {
+	failing: ((resource: URI) => boolean) | undefined;
+
+	override async stat(resource: URI): Promise<IStat> {
+		if (this.failing?.(resource)) {
+			throw createFileSystemProviderError('EIO: i/o error', FileSystemProviderErrorCode.Unknown);
+		}
+		return super.stat(resource);
+	}
+}
+
 suite('BaseHalfGenerationDraft', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 	const folder = URI.from({ scheme: 'basehalf-draft-test', path: '/work' });
 
-	async function createFiles(files: Record<string, string>): Promise<IFileService> {
+	async function createFiles(files: Record<string, string>, provider: InMemoryFileSystemProvider = new InMemoryFileSystemProvider()): Promise<IFileService> {
 		const store = disposables.add(new DisposableStore());
 		const fileService = store.add(new FileService(new NullLogService()));
-		store.add(fileService.registerProvider(folder.scheme, store.add(new InMemoryFileSystemProvider())));
+		store.add(fileService.registerProvider(folder.scheme, store.add(provider)));
 		await fileService.createFolder(folder);
 		for (const [path, contents] of Object.entries(files)) {
 			await fileService.writeFile(URI.joinPath(folder, ...path.split('/')), VSBuffer.fromString(contents));
@@ -79,6 +91,37 @@ suite('BaseHalfGenerationDraft', () => {
 			holds: [true, false, false, false, true, false],
 			walk: ['ghost/far.mp4', 'shots/landed.mp4', 'shots/next.mp4', 'top.png'],
 			below: ['shots/landed.mp4', 'shots/next.mp4']
+		});
+	});
+
+	test('only "not found" reads as absent: a mirror file or an item that cannot be looked at rejects, and is never taken for a card that was deleted', async () => {
+		const provider = new FailingLookProvider();
+		const fileService = await createFiles({
+			'shots/notes.md': '# Notes\n',
+			'shots/landed.mp4': 'video',
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/landed.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/landed.mp4/made.yaml': 'id: "t1"\n'
+		}, provider);
+		provider.failing = resource => resource.path.endsWith('/next.mp4/generation.yaml') || resource.path === '/work/shots/landed.mp4';
+		const outcome = (promise: Promise<unknown>) => promise.then(() => 'answered', (error: Error) => /EIO/.test(error.message) ? 'rejected' : `failed otherwise: ${error.message}`);
+		assert.deepStrictEqual({
+			information: await outcome(baseHalfReadDraftFacts(fileService, folder, 'shots/next.mp4')),
+			shown: await outcome(baseHalfPathHoldsDraft(fileService, folder, 'shots/next.mp4')),
+			item: await outcome(baseHalfReadDraftFacts(fileService, folder, 'shots/landed.mp4')),
+			// Nothing at the path, and a file where a folder would be: absent.
+			absent: [
+				await baseHalfReadDraftFacts(fileService, folder, 'shots/none.mp4'),
+				await baseHalfReadDraftFacts(fileService, folder, 'shots/notes.md/inner.mp4')
+			]
+		}, {
+			information: 'rejected',
+			shown: 'rejected',
+			item: 'rejected',
+			absent: [
+				{ path: 'shots/none.mp4', hasGenerationInfo: false, hasMade: false, itemExists: false },
+				{ path: 'shots/notes.md/inner.mp4', hasGenerationInfo: false, hasMade: false, itemExists: false }
+			]
 		});
 	});
 
