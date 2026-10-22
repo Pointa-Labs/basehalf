@@ -25,7 +25,9 @@ import {
 	IBaseHalfVideoSubmitRequest,
 	IBaseHalfVideoTaskRef
 } from '../../common/basehalfVideoCatalog.js';
-import { IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationTaskStore } from '../../common/basehalfVideoGeneration.js';
+import { IBaseHalfDraftMoveOptions, IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationTaskStore } from '../../common/basehalfVideoGeneration.js';
+import { IBaseHalfReferenceEditOptions, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfReferenceStoreResult } from '../../../references/common/basehalfReferenceEdit.js';
+import { baseHalfSidecarUpstreamText, baseHalfUpstreamSidecarResource } from '../../../references/common/basehalfReferenceStore.js';
 import { ACME, BOREALIS } from '../common/basehalfVideoCatalogFixture.js';
 
 /** The first bytes of an MP4: a `ftyp` box. */
@@ -132,7 +134,8 @@ export class RecordingUndoRedoService {
 	readonly elements: IUndoRedoElement[] = [];
 
 	asService(): IUndoRedoService {
-		return { pushElement: (element: IUndoRedoElement) => { this.elements.push(element); } } as Partial<IUndoRedoService> as IUndoRedoService;
+		const service: Partial<IUndoRedoService> = { pushElement: (element: IUndoRedoElement) => { this.elements.push(element); } };
+		return service as IUndoRedoService;
 	}
 }
 
@@ -152,7 +155,7 @@ export class RecordingCanvasMirror {
 			const cards = this.layouts.get(folder.relativePath);
 			return cards ? { path: folder.relativePath, cards, edges: [] } : null;
 		};
-		return {
+		const service: Partial<IBaseHalfCanvasMirrorService> = {
 			readCanvas: async (folder: IBaseHalfCanvasFolderState) => layout(folder),
 			updateCardGeometries: async (folder: IBaseHalfCanvasFolderState, cards: readonly IBaseHalfCanvasCard[]) => {
 				for (const card of cards) {
@@ -161,7 +164,8 @@ export class RecordingCanvasMirror {
 				return layout(folder);
 			},
 			canvasResource: (folder: IBaseHalfCanvasFolderState) => joinPath(baseHalfMirrorRoot(this.root), ...folder.relativePath.split('/').filter(Boolean), 'canvas.yaml')
-		} as Partial<IBaseHalfCanvasMirrorService> as IBaseHalfCanvasMirrorService;
+		};
+		return service as IBaseHalfCanvasMirrorService;
 	}
 }
 
@@ -173,15 +177,18 @@ export class RecordingCanvasMirror {
 export class FakeDraftOperations implements IBaseHalfDraftOperations {
 	declare readonly _serviceBrand: undefined;
 	readonly moves: string[] = [];
+	/** For each move, whether the caller held the workspace mutation lease and passed it. */
+	readonly leased: boolean[] = [];
 	readonly deleted: string[] = [];
 	taskStore: IBaseHalfGenerationTaskStore | undefined;
 
 	constructor(private readonly fileService: IFileService, private readonly root: URI) { }
 
-	async move(draft: URI, target: URI): Promise<URI> {
+	async move(draft: URI, target: URI, options?: IBaseHalfDraftMoveOptions): Promise<URI> {
 		await this.fileService.move(this.mirror(draft), this.mirror(target), false);
 		await this.taskStore?.retarget(draft, target);
 		this.moves.push(`${this.path(draft)} -> ${this.path(target)}`);
+		this.leased.push(!!options?.lease);
 		return target;
 	}
 
@@ -208,6 +215,45 @@ export class FakeDraftOperations implements IBaseHalfDraftOperations {
 
 	private path(resource: URI): string {
 		return relativePath(this.root, resource)!;
+	}
+}
+
+/**
+ * The reference edit service as a draft that is being made uses it: an
+ * `append` writes the entries into the node's `upstream.yaml`, and a
+ * `transition` writes the entries it goes to, removing the file for none.
+ * Every edit and its options are kept.
+ */
+export class FakeReferenceEditService {
+	readonly edits: { readonly edit: IBaseHalfReferenceStoreEdit; readonly options: IBaseHalfReferenceEditOptions }[] = [];
+
+	constructor(private readonly fileService: IFileService) { }
+
+	asService(): IBaseHalfReferenceEditService {
+		const service: Partial<IBaseHalfReferenceEditService> = { apply: (edits: readonly IBaseHalfReferenceStoreEdit[], options: IBaseHalfReferenceEditOptions) => this.apply(edits, options) };
+		return service as IBaseHalfReferenceEditService;
+	}
+
+	private async apply(edits: readonly IBaseHalfReferenceStoreEdit[], options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
+		const stores: IBaseHalfReferenceStoreResult[] = [];
+		for (const edit of edits) {
+			this.edits.push({ edit, options });
+			const resource = baseHalfUpstreamSidecarResource(edit.node.workspaceFolder, edit.node.relativePath);
+			const before = await this.fileService.readFile(resource).then((content): string[] => content.value.toString().split('\n').flatMap(line => line.startsWith('  - ') ? [line.slice(4)] : []), (): string[] => []);
+			const operation = edit.operation;
+			const after = operation.kind === 'append' ? [...before, ...operation.entries.filter(entry => !before.includes(entry))]
+				: operation.kind === 'transition' ? operation.to.items.map(item => item.text)
+					: before;
+			const changed = after.join('\n') !== before.join('\n');
+			if (changed && after.length) {
+				await this.fileService.writeFile(resource, VSBuffer.fromString(baseHalfSidecarUpstreamText(after)));
+			} else if (changed) {
+				await this.fileService.del(resource);
+			}
+			const snapshot = (entries: readonly string[]) => ({ items: entries.map(text => ({ text, scalar: true })) });
+			stores.push({ node: edit.node, storeKind: 'sidecar', storeResource: resource, outcome: changed ? 'changed' : 'unchanged', expected: snapshot(before), next: snapshot(after) });
+		}
+		return { stores, changed: stores.some(store => store.outcome === 'changed') };
 	}
 }
 

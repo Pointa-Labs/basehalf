@@ -259,6 +259,8 @@ suite('BaseHalfGenerationInfo', () => {
 			assert.deepStrictEqual(retargetBaseHalfGenerationTask(task, 'shots', 'scenes').cards.map(card => card.path), ['scenes/image.png', 'scenes/image-2.png']);
 			assert.deepStrictEqual(retargetBaseHalfGenerationTask(task, 'shots/image.png', 'shots/hero.png').cards.map(card => card.path), ['shots/hero.png', 'shots/image-2.png']);
 			assert.strictEqual(retargetBaseHalfGenerationTask(task, 'shot', 'x'), task);
+			const landing = recordBaseHalfGenerationLanding(landBaseHalfGenerationTask(runBaseHalfGenerationTask(submitBaseHalfGenerationTask(task, request, request.prompt, false), 'r-1')), 0, { path: 'shots/image.png', size: 10, sha256: 'a'.repeat(64) });
+			assert.deepStrictEqual(retargetBaseHalfGenerationTask(landing, 'shots', 'scenes').cards[0], { path: 'scenes/image.png', state: 'waiting', landing: { path: 'scenes/image.png', size: 10, sha256: 'a'.repeat(64) } });
 		});
 
 		test('another window takes a task over only when it has not been said alive for 90 seconds', () => {

@@ -12,6 +12,7 @@ import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, dispose, IDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { basename, dirname, extname } from '../../../../base/common/resources.js';
+import { hasKey } from '../../../../base/common/types.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
@@ -27,7 +28,8 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
-import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfIsDraftInformation, baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import {
 	BASEHALF_GENERATION_HEARTBEAT_MS,
 	BASEHALF_GENERATION_MAX_FILE_BYTES,
@@ -688,13 +690,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	/** Step 8: send the request once; record the provider's task id, or land what it answered with. */
 	private async submit(follow: FollowedGeneration, request: IBaseHalfVideoSubmitRequest, lastUsed: IBaseHalfVideoGenerationChoice): Promise<void> {
 		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.submit, request, parseSubmitResult, true);
-		if (answer.ok && 'remoteId' in answer.value) {
+		if (answer.ok && hasKey(answer.value, { remoteId: true })) {
 			follow.remoteId = answer.value.remoteId;
 		}
 		if (follow.stopped || follow.ended) {
 			// Stopped while the request was on its way: a task the provider made
 			// after all is cancelled, and files that came with the answer go.
-			if (answer.ok && 'remoteId' in answer.value) {
+			if (answer.ok && hasKey(answer.value, { remoteId: true })) {
 				await this.cancelRemote(follow);
 			}
 			await this.deleteParts(follow);
@@ -705,7 +707,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		follow.lastUsed = lastUsed;
-		if ('outputs' in answer.value) {
+		if (hasKey(answer.value, { outputs: true })) {
 			await this.land(follow, answer.value.outputs.map(sourceOfOutput));
 			return;
 		}
@@ -923,7 +925,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			}
 		}
 		const checked = await this.checkFile(follow, part);
-		if ('problem' in checked) {
+		if (hasKey(checked, { problem: true })) {
 			await this.deleteQuietly(part);
 			await this.failCard(follow, index, checked.problem);
 			return 'failed';
@@ -1013,18 +1015,20 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	/**
-	 * Steps 2 to 6 of landing for one received file. A format other than the
-	 * card's extension first renames the draft, which is a move of its own and
-	 * writes the new path into the record. Then, inside the workspace mutation
-	 * lease, the path is read from the record again; a folder that is gone is
-	 * made again; the record says where the file is being moved; the file is
-	 * moved into place without replacing anything, to the next free name
-	 * beside the card with a copy of its `generation.yaml` when its path is
-	 * taken by then; and `made.yaml` is written.
+	 * Steps 2 to 6 of landing for one received file, inside the workspace
+	 * mutation lease, so that no move or rename runs between deciding the
+	 * file's place and moving it there. A format other than the draft's
+	 * extension first renames the draft, which writes its new path into the
+	 * record. Then the path is read from the record again; a draft that was
+	 * deleted meanwhile gets no file; a folder that is gone is made again; the
+	 * record says where the file is being moved; the file is moved into place
+	 * without replacing anything, to the next free name beside the card with a
+	 * copy of its `generation.yaml` when its path is taken by then; and
+	 * `made.yaml` is written.
 	 */
 	private async landFile(follow: FollowedGeneration, index: number, part: URI, format: BaseHalfVideoOutputFormat): Promise<void> {
-		await this.renameForFormat(follow, index, format);
 		await this.mutationCoordinator.runExclusive(follow.folder, async lease => {
+			await this.renameForFormat(follow, index, format, lease);
 			for (let attempt = 1; attempt <= LANDING_ATTEMPTS; attempt++) {
 				const task = await this.taskStore.update(follow.taskId, current => current);
 				const card = task?.cards[index];
@@ -1034,6 +1038,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 					return;
 				}
 				const resource = this.resourceOf(follow.folder, card.path);
+				const facts = await baseHalfReadDraftFacts(this.fileService, follow.folder, card.path);
+				if (!facts.itemExists && !baseHalfIsDraftInformation(facts)) {
+					// The draft was deleted while it generated (generation cards, "Deleting"): its file is not landed.
+					await this.deleteQuietly(part);
+					await this.failCard(follow, index, cardDeletedMessage());
+					return;
+				}
 				const parent = dirname(resource);
 				if (!await this.fileService.exists(parent)) {
 					await this.fileService.createFolder(parent);
@@ -1066,8 +1077,12 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		});
 	}
 
-	/** Landing, step 2: a file of another format than the draft's extension renames the draft to that format's extension. */
-	private async renameForFormat(follow: FollowedGeneration, index: number, format: BaseHalfVideoOutputFormat): Promise<void> {
+	/**
+	 * Landing, step 2: a file of another format than the draft's extension
+	 * renames the draft to that format's extension, inside the lease that the
+	 * landing holds.
+	 */
+	private async renameForFormat(follow: FollowedGeneration, index: number, format: BaseHalfVideoOutputFormat, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
 		const card = this.taskStore.get(follow.taskId)?.cards[index];
 		if (!card || baseHalfGenerationExtensionMatchesFormat(card.path, format)) {
 			return;
@@ -1083,7 +1098,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const extension = baseHalfGenerationFormatExtension(format);
 		const next = await this.cardStore.nextFreeName(dirname(resource), parts.base, extension, baseHalfGenerationNameOrdinal(name));
 		try {
-			await this.draftOperations.move(resource, URI.joinPath(dirname(resource), next));
+			await this.draftOperations.move(resource, URI.joinPath(dirname(resource), next), { lease });
 		} catch (error) {
 			// The file still lands, under the path the record holds.
 			this.logService.warn(`[BaseHalf generation] ${card.path} could not be renamed to ${next}: ${getErrorMessage(error)}`);
@@ -1147,7 +1162,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		if (await this.matches(part, landing.size, landing.sha256)) {
 			const checked = await this.checkFile(follow, part);
-			if ('format' in checked) {
+			if (hasKey(checked, { format: true })) {
 				await this.landFile(follow, index, part, checked.format);
 				return;
 			}
@@ -1267,7 +1282,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			await this.stop(resource);
 			return;
 		}
-		await this.taskStore.update(task.id, current => current.cards[index]?.state === 'waiting' ? failBaseHalfGenerationCard(current, index, localize('basehalf.video.generation.cardDeleted', "The card was deleted.")) : current);
+		await this.taskStore.update(task.id, current => current.cards[index]?.state === 'waiting' ? failBaseHalfGenerationCard(current, index, cardDeletedMessage()) : current);
 		const follow = this.followed.get(task.id);
 		if (follow && !follow.landing) {
 			await this.settle(follow);
@@ -1731,10 +1746,10 @@ export async function readBaseHalfVideoTextInput(fileService: IFileService, file
 }
 
 function sourceOfOutput(output: BaseHalfVideoOutput): LandingSource {
-	if ('refused' in output) {
+	if (hasKey(output, { refused: true })) {
 		return { kind: 'refused', reason: output.refused };
 	}
-	if ('written' in output) {
+	if (hasKey(output, { written: true })) {
 		return { kind: 'written', path: output.written };
 	}
 	return { kind: 'download', url: output.url };
@@ -1857,6 +1872,10 @@ export function orphanedSubmissionMessage(): string {
 /** The message of a `submitting` task of a provider that answers at once, found after BaseHalf closed. */
 export function closedWhileAnsweringMessage(): string {
 	return localize('basehalf.video.generation.closedWhileAnswering', "BaseHalf closed while the provider was making the files. They may have been made and charged, but BaseHalf could not receive them. Check the provider's console.");
+}
+
+function cardDeletedMessage(): string {
+	return localize('basehalf.video.generation.cardDeleted', "The card was deleted.");
 }
 
 function closedWhileSavingMessage(): string {

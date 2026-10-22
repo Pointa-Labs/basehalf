@@ -19,15 +19,15 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
+import { IBaseHalfReferenceEditService, IBaseHalfReferenceStoreResult } from '../../references/common/basehalfReferenceEdit.js';
 import { baseHalfNormalizeUpstreamEntry, baseHalfUpstreamEntryProblem, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../../references/common/basehalfReferenceEntries.js';
-import { IBaseHalfReferenceIndexService } from '../../references/common/basehalfReferenceIndex.js';
-import { baseHalfSidecarUpstreamText, baseHalfUpstreamSidecarResource, readBaseHalfSidecarUpstream } from '../../references/common/basehalfReferenceStore.js';
+import { baseHalfUpstreamSidecarResource, readBaseHalfSidecarUpstream } from '../../references/common/basehalfReferenceStore.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
+import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { BaseHalfMirrorWriteRejected } from '../../workspace/common/basehalfMirrorYaml.js';
+import { baseHalfIsDraft, baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import {
 	BASEHALF_GENERATION_FILE_MAX_BYTES,
 	BASEHALF_GENERATION_INFO_FILE,
@@ -95,7 +95,6 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
-		@IBaseHalfReferenceIndexService private readonly referenceIndexService: IBaseHalfReferenceIndexService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
 		@INotificationService private readonly notificationService: INotificationService,
@@ -112,12 +111,15 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		if (!card) {
 			return false;
 		}
-		const stat = await this.statQuietly(resource);
-		if (stat?.isDirectory) {
+		const facts = await baseHalfReadDraftFacts(this.fileService, card.workspaceFolder, card.relativePath);
+		if (!facts.itemExists) {
+			// A draft, by the one rule; a draft whose folder is not on this computer is not shown.
+			return baseHalfPathHoldsDraft(this.fileService, card.workspaceFolder, card.relativePath);
+		}
+		if (!facts.hasGenerationInfo && !facts.hasMade) {
 			return false;
 		}
-		const [info, made] = await Promise.all([this.readMirror(card, BASEHALF_GENERATION_INFO_FILE), this.readMirror(card, BASEHALF_GENERATION_MADE_FILE)]);
-		return info.kind !== 'absent' || made.kind !== 'absent';
+		return !(await this.statQuietly(resource))?.isDirectory;
 	}
 
 	async read(resource: URI): Promise<IBaseHalfGenerationCardSnapshot> {
@@ -145,7 +147,8 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		}
 		const drafts: IBaseHalfGenerationDraft[] = [];
 		for (const candidate of await this.generationDirectories(location)) {
-			if (candidate.holdsInfo && !candidate.holdsMade && !items.has(this.nameKey(folder, candidate.name))) {
+			const path = location.relativePath ? `${location.relativePath}/${candidate.name}` : candidate.name;
+			if (baseHalfIsDraft({ path, hasGenerationInfo: candidate.holdsInfo, hasMade: candidate.holdsMade, itemExists: items.has(this.nameKey(folder, candidate.name)) })) {
 				drafts.push(Object.freeze({ resource: URI.joinPath(folder, candidate.name), name: candidate.name, kind: candidate.kind }));
 			}
 		}
@@ -159,7 +162,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 
 	async nextFreeName(folder: URI, base: string, extension: string, startOrdinal = 1): Promise<string> {
 		const taken = await this.takenNames(folder);
-		const name = baseHalfGenerationNextFreeName(base, extension, candidate => taken.has(this.nameKey(folder, candidate)), startOrdinal);
+		const name = baseHalfGenerationNextFreeName(base, extension, candidate => taken.has(takenKey(candidate)), startOrdinal);
 		if (!name) {
 			throw new Error(localize('basehalf.generation.store.noFreeName', "Too many cards are named like {0}. Rename some of them and try again.", base));
 		}
@@ -279,18 +282,19 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		const card: ICardLocation = { resource, workspaceFolder: location.workspaceFolder, relativePath: location.relativePath ? `${location.relativePath}/${name}` : name, kind };
 		await this.assertNotMarked(card);
 		const taken = () => new Error(localize('basehalf.generation.store.taken', "{0} is already taken. Choose another name.", name));
-		if (await this.fileService.exists(resource) || (await this.readMirror(card, BASEHALF_GENERATION_MADE_FILE)).kind !== 'absent') {
+		// A draft is made only where no item and no card information is.
+		if (await this.fileService.exists(resource) || await this.holdsCardInformation(card)) {
 			throw taken();
 		}
 		const text = writeBaseHalfGenerationInfoFields(undefined, EMPTY_INFO, info);
 		const infoResource = baseHalfMirrorResource(card.workspaceFolder, card.relativePath, BASEHALF_GENERATION_INFO_FILE);
-		// The upstream list first, so that the draft shows with its connections.
-		const sidecar = upstream?.length ? await this.createUpstream(card, upstream) : undefined;
+		// The upstream list first, so that the draft is never there without its connections.
+		const connected = upstream?.length ? await this.connectNewDraft(card, upstream) : undefined;
 		try {
 			await this.commit(card, infoResource, VSBuffer.fromString(text), null);
 		} catch (error) {
-			if (sidecar) {
-				await this.removeCreatedUpstream(card, sidecar);
+			if (connected) {
+				await this.disconnectNewDraft(card, connected);
 			}
 			throw isConcurrentChange(error) ? taken() : error;
 		}
@@ -416,7 +420,10 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		}
 	}
 
-	/** An entry stands for the file it names; one that names a draft is of the draft's kind and has no file yet. */
+	/**
+	 * An entry stands for the file it names; one that names a draft, by the one
+	 * rule of drafts, is of the draft's kind and has no file yet.
+	 */
 	private async resolveInput(workspaceFolder: URI, path: string): Promise<IBaseHalfVideoResolvedInput> {
 		const resource = URI.joinPath(workspaceFolder, ...path.split('/'));
 		const stat = await this.statQuietly(resource);
@@ -427,18 +434,19 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			return Object.freeze({ path, kind: baseHalfVideoInputKindOfPath(path), available: true, file: resource });
 		}
 		const kind = baseHalfGenerationKindOfPath(path);
-		if (kind) {
-			const card: ICardLocation = { resource, workspaceFolder, relativePath: path, kind };
-			const [info, made] = await Promise.all([this.readMirror(card, BASEHALF_GENERATION_INFO_FILE).catch(() => undefined), this.readMirror(card, BASEHALF_GENERATION_MADE_FILE).catch(() => undefined)]);
-			if (info && info.kind !== 'absent' && made?.kind === 'absent') {
-				return Object.freeze({ path, kind, available: false, draft: true });
-			}
+		if (kind && await baseHalfPathHoldsDraft(this.fileService, workspaceFolder, path).catch(() => false)) {
+			return Object.freeze({ path, kind, available: false, draft: true });
 		}
 		return Object.freeze({ path, kind: baseHalfVideoInputKindOfPath(path), available: false });
 	}
 
-	/** Writes a new draft's upstream list, as the reference edit service writes a list that is not there yet. */
-	private async createUpstream(card: ICardLocation, upstream: readonly string[]): Promise<{ readonly resource: URI; readonly bytes: VSBuffer }> {
+	/**
+	 * Writes the upstream list of a draft that is being made through the
+	 * reference edit service, before its `generation.yaml` (reference graph,
+	 * "Creating connected nodes"), so that the connections show with the
+	 * draft. Resolves with what was written, for taking it back.
+	 */
+	private async connectNewDraft(card: ICardLocation, upstream: readonly string[]): Promise<IBaseHalfReferenceStoreResult | undefined> {
 		const identity = this.identity(card.workspaceFolder);
 		const entries: string[] = [];
 		const seen = new Set<string>();
@@ -452,31 +460,31 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 				entries.push(normalized);
 			}
 		}
-		const resource = baseHalfUpstreamSidecarResource(card.workspaceFolder, card.relativePath);
-		const text = baseHalfSidecarUpstreamText(entries);
-		const bytes = VSBuffer.fromString(text);
-		try {
-			await this.commit(card, resource, bytes, null);
-		} catch (error) {
-			if (isConcurrentChange(error)) {
-				throw new Error(localize('basehalf.generation.store.taken', "{0} is already taken. Choose another name.", this.label(card)));
-			}
-			throw error;
-		}
-		// The connections show at once, not after the file event.
-		this.referenceIndexService.acceptSavedContent(card, 'sidecar', text);
-		return { resource, bytes };
+		const result = await this.referenceEditService.apply([{ node: card, operation: { kind: 'append', entries } }], { label: connectLabel(), newDraft: true });
+		return result.stores.find(store => store.outcome === 'changed');
 	}
 
-	private async removeCreatedUpstream(card: ICardLocation, sidecar: { readonly resource: URI; readonly bytes: VSBuffer }): Promise<void> {
+	/** Takes back the upstream list of a draft whose `generation.yaml` could not be made, when nothing changed it since. */
+	private async disconnectNewDraft(card: ICardLocation, connected: IBaseHalfReferenceStoreResult): Promise<void> {
 		try {
-			const current = (await this.fileService.readFile(sidecar.resource)).value;
-			if (current.equals(sidecar.bytes)) {
-				await this.fileService.del(sidecar.resource, { useTrash: false });
-				this.referenceIndexService.acceptSavedContent(card, 'sidecar', undefined);
-			}
+			await this.referenceEditService.apply([{ node: card, operation: { kind: 'transition', from: connected.next, to: connected.expected } }], { label: connectLabel(), newDraft: true });
 		} catch (error) {
 			this.logService.warn(`[BaseHalf generation] The upstream list of ${card.relativePath} could not be taken back: ${getErrorMessage(error)}`);
+		}
+	}
+
+	/** Whether any card information is at the card's path: a file in its directory under `.bh/mirror/`. */
+	private async holdsCardInformation(card: ICardLocation): Promise<boolean> {
+		const directory = URI.joinPath(baseHalfMirrorRoot(card.workspaceFolder), ...baseHalfMirrorPathSegments(card.relativePath));
+		try {
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, card.workspaceFolder, directory);
+			const stat = await this.fileService.resolve(directory);
+			return !!stat.isDirectory && (stat.children ?? []).some(child => !child.isDirectory);
+		} catch (error) {
+			if (error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_NOT_FOUND) {
+				return false;
+			}
+			throw error;
 		}
 	}
 
@@ -518,17 +526,20 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 
 	/**
 	 * The names that are taken in a folder: every file and folder in it, and
-	 * every card name whose generation information is there, a draft's and a
-	 * missing file's, as comparison keys.
+	 * every name that any card information is kept under in `.bh/mirror/` (a
+	 * draft's, a missing file's, and what an item that is gone left), as a
+	 * draft that moves aside counts them. Names that differ only in letter
+	 * case count as the same name, so that a name stays free on every
+	 * computer the workspace is on.
 	 */
 	private async takenNames(folder: URI): Promise<ReadonlySet<string>> {
-		const taken = new Set<string>(await this.childNames(folder) ?? []);
+		const taken = new Set<string>();
 		const location = this.locateFolder(folder);
-		if (location) {
-			for (const candidate of await this.generationDirectories(location)) {
-				if (candidate.holdsInfo || candidate.holdsMade) {
-					taken.add(this.nameKey(folder, candidate.name));
-				}
+		const directories = [folder, ...(location ? [URI.joinPath(baseHalfMirrorRoot(location.workspaceFolder), ...baseHalfMirrorPathSegments(location.relativePath))] : [])];
+		for (const directory of directories) {
+			const stat = await this.fileService.resolve(directory).catch(() => undefined);
+			for (const child of stat?.isDirectory ? stat.children ?? [] : []) {
+				taken.add(takenKey(child.name));
 			}
 		}
 		return taken;
@@ -586,7 +597,9 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(resource)?.uri;
 		const relativePath = workspaceFolder ? this.uriIdentityService.extUri.relativePath(workspaceFolder, resource) : undefined;
 		const kind = relativePath ? baseHalfGenerationKindOfPath(relativePath) : undefined;
-		return workspaceFolder && relativePath && kind ? { resource, workspaceFolder, relativePath, kind } : undefined;
+		// BaseHalf's own folder holds no cards.
+		const own = relativePath === '.bh' || !!relativePath?.startsWith('.bh/');
+		return workspaceFolder && relativePath && kind && !own ? { resource, workspaceFolder, relativePath, kind } : undefined;
 	}
 
 	private locateFolder(folder: URI): IBaseHalfWorkspaceResource | undefined {
@@ -612,6 +625,16 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 	private label(card: IBaseHalfWorkspaceResource): string {
 		return card.relativePath.slice(card.relativePath.lastIndexOf('/') + 1) || card.relativePath;
 	}
+}
+
+/** A name as the names that are taken are compared: in one Unicode form, and in lower case. */
+function takenKey(name: string): string {
+	return name.normalize('NFC').toLowerCase();
+}
+
+/** The label of the reference edit that writes a new draft's connections. */
+function connectLabel(): string {
+	return localize('basehalf.generation.store.connect', "Connect");
 }
 
 function isConcurrentChange(error: unknown): boolean {

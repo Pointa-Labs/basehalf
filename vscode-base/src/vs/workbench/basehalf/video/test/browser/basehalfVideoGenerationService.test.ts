@@ -8,7 +8,7 @@ import { DeferredPromise, timeout } from '../../../../../base/common/async.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../../base/common/network.js';
-import { joinPath } from '../../../../../base/common/resources.js';
+import { dirname, joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
@@ -19,8 +19,6 @@ import { InMemoryStorageService } from '../../../../../platform/storage/common/s
 import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { testWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
-import { IBaseHalfReferenceEditService } from '../../../references/common/basehalfReferenceEdit.js';
-import { IBaseHalfReferenceIndexService } from '../../../references/common/basehalfReferenceIndex.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfGenerationCardStore } from '../../browser/basehalfGenerationCardStore.js';
 import { baseHalfGenerationTaskFolder, BaseHalfGenerationTaskStore } from '../../browser/basehalfGenerationTaskStore.js';
@@ -58,6 +56,7 @@ import {
 	FAKE_PNG,
 	FakeDraftOperations,
 	FakeProviderCommands,
+	FakeReferenceEditService,
 	InMemoryCredentialStore,
 	RecordingCanvasMirror,
 	RecordingUndoRedoService,
@@ -129,6 +128,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		const credentials = new InMemoryCredentialStore();
 		const uriIdentity = owner.add(new UriIdentityService(fileService));
 		const canvas = new RecordingCanvasMirror(root);
+		const references = new FakeReferenceEditService(fileService);
 		const undo = new RecordingUndoRedoService();
 		const rasterized: string[] = [];
 		const settingsCommands = new FakeProviderCommands(fileService);
@@ -145,8 +145,7 @@ suite('BaseHalfVideoGenerationService', () => {
 				fileService,
 				context,
 				uriIdentity,
-				{} as IBaseHalfReferenceEditService,
-				{ acceptSavedContent: () => { } } as Partial<IBaseHalfReferenceIndexService> as IBaseHalfReferenceIndexService,
+				references.asService(),
 				canvas.asService(),
 				catalogService,
 				new TestNotificationService(),
@@ -201,6 +200,8 @@ suite('BaseHalfVideoGenerationService', () => {
 			read,
 			exists: path => fileService.exists(resource(path)),
 			card: async (path, info, upstream) => {
+				// A card is on the canvas of a folder that exists.
+				await fileService.createFolder(dirname(resource(path)));
 				await write(`.bh/mirror/${path}/generation.yaml`, serializeBaseHalfGenerationInfo(info));
 				if (upstream) {
 					await write(`.bh/mirror/${path}/upstream.yaml`, `upstream:\n${upstream.map(entry => `  - ${entry}\n`).join('')}`);
@@ -434,11 +435,12 @@ suite('BaseHalfVideoGenerationService', () => {
 		await until(async () => !(await harness.records()).length && await harness.exists('.bh/mirror/shots/image.jpg/made.yaml'));
 		assert.deepStrictEqual({
 			moves: drafts.moves,
+			inTheLandingLease: drafts.leased,
 			png: await harness.exists('shots/image.png'),
 			jpg: (await harness.read('shots/image.jpg')) === FAKE_JPEG.toString(),
 			made: !!parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/image.jpg/made.yaml'))!),
 			draftLeft: await harness.exists('.bh/mirror/shots/image.png')
-		}, { moves: ['shots/image.png -> shots/image.jpg'], png: false, jpg: true, made: true, draftLeft: false });
+		}, { moves: ['shots/image.png -> shots/image.jpg'], inTheLandingLease: [true], png: false, jpg: true, made: true, draftLeft: false });
 		harness.dispose();
 	}));
 
@@ -455,6 +457,8 @@ suite('BaseHalfVideoGenerationService', () => {
 			return { ok: true, value: { state: 'succeeded', videoUrl: `https://cdn.example.com/${request.remoteId}.mp4` } };
 		};
 		await service.generate(clip);
+		// The folder of the first draft is deleted to the trash while it generates; its card information stays.
+		await harness.fileService.del(harness.resource('scenes/new'), { recursive: true });
 		await service.generate(taken);
 		// A file appears at the path of the second draft while it generates: it becomes that draft's file.
 		await harness.write('shots/taken.mp4', 'dropped by the user');
@@ -743,6 +747,27 @@ suite('BaseHalfVideoGenerationService', () => {
 			files: [true, false, false],
 			made: 1
 		});
+		harness.dispose();
+	}));
+
+	test('a draft whose card information is gone when its file arrives gets no file, however it was deleted', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		let polls = 0;
+		commands.poll = request => ++polls < 3
+			? { ok: true, value: { state: 'running' } }
+			: { ok: true, value: { state: 'succeeded', videoUrl: `https://cdn.example.com/${request.remoteId}.mp4` } };
+		await service.generate(video);
+		await until(() => polls >= 1);
+		// Deleted without the generation being released first.
+		await harness.fileService.del(harness.resource('.bh/mirror/shots/video.mp4'), { recursive: true });
+		await until(async () => !(await harness.records()).length);
+		assert.deepStrictEqual({
+			file: await harness.exists('shots/video.mp4'),
+			information: await harness.exists('.bh/mirror/shots/video.mp4'),
+			cache: await harness.cache()
+		}, { file: false, information: false, cache: [] });
 		harness.dispose();
 	}));
 

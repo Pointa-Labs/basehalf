@@ -837,7 +837,10 @@ is a file does:
 
 - Deleting a draft removes its card information and its card row, as one undo
   step. When it generates, the generation is stopped first, or, when it is one
-  of several cards of a generation, its image is not landed.
+  of several cards of a generation, its image is not landed. The canvas asks
+  the generation service to release the card before the draft operations
+  delete it; a draft whose card information is gone when its file arrives
+  gets no file either, however it was deleted.
 - Deleting a card with its file deletes the file as any file is deleted. A
   delete to the trash of a generated file keeps `generation.yaml` and
   `made.yaml`, as it keeps `upstream.yaml`: the card leaves the canvas as a
@@ -945,7 +948,10 @@ job, so that a name in history still finds its file.
 - `common/basehalfVideoGeneration.ts`: the generation card store, the task
   record store, the catalog, provider settings, and generation service
   interfaces. The card store reads and writes generation information, lists
-  drafts, and makes, renames, moves, and deletes them; the task record store
+  drafts by the one rule of `common/basehalfGenerationDraft.ts`, and makes
+  them, writing a new draft's `upstream.yaml` through the reference edit
+  service before its `generation.yaml`; the draft operations rename, move,
+  delete, and restore them; the task record store
   reads, writes, and watches `.bh/cache/generation/`; the catalog service asks
   for the catalog; the provider settings service keeps each provider's region,
   endpoint, and credentials and the last values used per kind.

@@ -846,14 +846,17 @@ export function heartbeatBaseHalfGenerationTask(task: IBaseHalfGenerationTask, f
  * its folder. Unchanged when no card is at or below `from`.
  */
 export function retargetBaseHalfGenerationTask(task: IBaseHalfGenerationTask, from: string, to: string): IBaseHalfGenerationTask {
+	const moved = (path: string) => path === from ? to : path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : undefined;
 	let changed = false;
 	const cards = task.cards.map(card => {
-		const next = card.path === from ? to : card.path.startsWith(`${from}/`) ? `${to}${card.path.slice(from.length)}` : undefined;
-		if (next === undefined) {
+		const next = moved(card.path);
+		// A file that was moved into place before a crash moves with its card, so a takeover still finds it.
+		const landing = card.landing ? moved(card.landing.path) : undefined;
+		if (next === undefined && landing === undefined) {
 			return card;
 		}
 		changed = true;
-		return { ...card, path: next };
+		return { ...card, ...(next !== undefined ? { path: next } : {}), ...(card.landing && landing !== undefined ? { landing: { ...card.landing, path: landing } } : {}) };
 	});
 	return changed ? normalizeBaseHalfGenerationTask({ ...task, cards }) : task;
 }

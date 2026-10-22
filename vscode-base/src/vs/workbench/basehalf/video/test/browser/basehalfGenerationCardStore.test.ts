@@ -278,7 +278,8 @@ suite('BaseHalfGenerationCardStore', () => {
 		const harness = await createHarness(disposables, {
 			'refs/a.png': 'png',
 			'shots/taken.png': 'png',
-			'.bh/mirror/shots/missing.png/made.yaml': 'id: "x"\n'
+			'.bh/mirror/shots/missing.png/made.yaml': 'id: "x"\n',
+			'.bh/mirror/shots/left.png/upstream.yaml': 'upstream:\n  - refs/a.png\n'
 		});
 		const shots = harness.resource('shots');
 		const draft = await harness.store.createDraft(shots, 'image.png', { prompt: 'A heron.', provider: 'corvid', model: 'corvid-paint' }, ['refs/a.png', 'refs/a.png']);
@@ -286,6 +287,8 @@ suite('BaseHalfGenerationCardStore', () => {
 		await assert.rejects(harness.store.createDraft(shots, 'image.png', { prompt: '' }), /image\.png is already taken/);
 		await assert.rejects(harness.store.createDraft(shots, 'taken.png', { prompt: '' }), /taken\.png is already taken/);
 		await assert.rejects(harness.store.createDraft(shots, 'missing.png', { prompt: '' }), /missing\.png is already taken/);
+		// The connections an item that is gone left are card information too.
+		await assert.rejects(harness.store.createDraft(shots, 'left.png', { prompt: '' }, ['refs/a.png']), /left\.png is already taken/);
 		await assert.rejects(harness.store.createDraft(shots, 'notes.md', { prompt: '' }), /cannot be the name of an image or video card/);
 		const snapshot = await harness.store.read(draft);
 		assert.deepStrictEqual({
@@ -312,21 +315,22 @@ suite('BaseHalfGenerationCardStore', () => {
 		assert.deepStrictEqual((await harness.store.read(harness.resource('shots/shot.mp4'))).made, made);
 	});
 
-	test('a file, a folder, a draft, and the card information of a missing file take a name; a badge alone does not', async () => {
+	test('a file, a folder, a draft, and any card information take a name, a badge or connections left by an item that is gone included', async () => {
 		const harness = await createHarness(disposables, {
 			'shots/video.mp4': 'video',
 			'shots/video-2.mp4/inner.txt': 'a folder of that name',
 			'.bh/mirror/shots/video-3.mp4/generation.yaml': 'prompt: ""\n',
 			'.bh/mirror/shots/video-4.mp4/made.yaml': 'id: "x"\n',
-			'.bh/mirror/shots/video-5.mp4/badge.yaml': 'path: "shots/video-5.mp4"\n'
+			'.bh/mirror/shots/video-5.mp4/badge.yaml': 'path: "shots/video-5.mp4"\n',
+			'.bh/mirror/shots/VIDEO-6.mp4/upstream.yaml': 'upstream:\n  - brief.md\n'
 		});
 		const shots = harness.resource('shots');
 		assert.deepStrictEqual([
 			await harness.store.nextFreeName(shots, 'video', 'mp4'),
-			await harness.store.nextFreeName(shots, 'video', 'mp4', 6),
+			await harness.store.nextFreeName(shots, 'video', 'mp4', 8),
 			await harness.store.nextFreeName(shots, 'image', 'png'),
 			await harness.store.nextFreeName(harness.resource('elsewhere'), 'video', 'mp4')
-		], ['video-5.mp4', 'video-6.mp4', 'image.png', 'video.mp4']);
+		], ['video-7.mp4', 'video-8.mp4', 'image.png', 'video.mp4']);
 	});
 
 	test('lists the drafts of a folder: generation information without made.yaml whose name names no item; none of a folder that is not there', async () => {
@@ -351,13 +355,15 @@ suite('BaseHalfGenerationCardStore', () => {
 		});
 	});
 
-	test('resolves its inputs: a file, a folder, a draft of its kind without a file, and an entry that names nothing', async () => {
+	test('resolves its inputs: a file, a folder, a draft of its kind without a file, and entries that name nothing, a draft whose folder is not there included', async () => {
 		const harness = await createHarness(disposables, {
 			'refs/a.png': 'png',
 			'refs/folder/x.md': 'x',
+			'shots/notes.md': 'x',
 			'.bh/mirror/shots/draft.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/away/draft.mp4/generation.yaml': 'prompt: ""\n',
 			'.bh/mirror/shots/hero.png/generation.yaml': 'prompt: ""\n',
-			'.bh/mirror/shots/hero.png/upstream.yaml': 'upstream:\n  - refs/a.png\n  - refs/folder\n  - shots/draft.mp4\n  - refs/gone.png\n'
+			'.bh/mirror/shots/hero.png/upstream.yaml': 'upstream:\n  - refs/a.png\n  - refs/folder\n  - shots/draft.mp4\n  - refs/gone.png\n  - away/draft.mp4\n'
 		});
 		const snapshot = await harness.store.read(harness.resource('shots/hero.png'));
 		const inputs = await harness.store.resolveInputs(snapshot);
@@ -365,7 +371,8 @@ suite('BaseHalfGenerationCardStore', () => {
 			{ path: 'refs/a.png', kind: 'image', available: true, file: '/work/refs/a.png' },
 			{ path: 'refs/folder', kind: 'other', available: true },
 			{ path: 'shots/draft.mp4', kind: 'video', available: false, draft: true },
-			{ path: 'refs/gone.png', kind: 'image', available: false }
+			{ path: 'refs/gone.png', kind: 'image', available: false },
+			{ path: 'away/draft.mp4', kind: 'video', available: false }
 		]);
 	});
 
