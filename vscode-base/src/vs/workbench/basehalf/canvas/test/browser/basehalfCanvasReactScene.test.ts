@@ -407,7 +407,7 @@ suite('BaseHalfCanvasReactScene', () => {
 			card: { left: number; top: number; right: number; bottom: number },
 			viewport: { x: number; y: number; zoom: number },
 			canvas: { width: number; height: number },
-			options: { height?: number; toolbarShown?: boolean; keepSide?: 'below' | 'above' } = {}
+			options: { height?: number; keepSide?: 'below' | 'above' } = {}
 		) => {
 			const placement = resolveBaseHalfCanvasVideoPanelPlacement({
 				...card,
@@ -415,11 +415,11 @@ suite('BaseHalfCanvasReactScene', () => {
 				viewportWidth: canvas.width,
 				viewportHeight: canvas.height,
 				height: options.height ?? 180,
-				toolbarShown: options.toolbarShown ?? false,
 				...(options.keepSide ? { keepSide: options.keepSide } : {})
 			});
 			return {
 				placement: placement.placement,
+				side: placement.side,
 				visible: placement.visible,
 				left: placement.left,
 				top: placement.top,
@@ -437,21 +437,26 @@ suite('BaseHalfCanvasReactScene', () => {
 			// that screen position mapped back through the viewport.
 			zoomedAndPanned: place(card, { x: -100, y: -80, zoom: 2 }, { width: 1000, height: 900 }),
 			// No room below: above the card, its name, and its toolbar.
-			aboveTheToolbar: place({ left: 100, top: 400, right: 500, bottom: 650 }, identity, { width: 800, height: 700 }, { toolbarShown: true }),
+			aboveTheToolbar: place({ left: 100, top: 400, right: 500, bottom: 650 }, identity, { width: 800, height: 700 }),
 			// Room for neither: inside the canvas, on the side with more room, and
 			// 52 px above its bottom, clear of the zoom controls.
 			clamped: place({ left: 100, top: 150, right: 500, bottom: 260 }, identity, { width: 800, height: 420 }),
+			// A new image card at the middle of a laptop's canvas: the room above
+			// counts the toolbar's place, which is empty while the card generates,
+			// so Generate does not send the panel to the other side.
+			clampedLaptop: place({ left: 100, top: 305, right: 400, bottom: 525 }, identity, { width: 1130, height: 831 }),
 			// While the card moves, the panel keeps its side and follows it.
 			following: place({ left: 100, top: 400, right: 500, bottom: 650 }, identity, { width: 800, height: 700 }, { keepSide: 'below' }),
 			narrow: place({ left: 0, top: 40, right: 240, bottom: 200 }, identity, { width: 300, height: 560 }),
 			offCanvas: place({ left: 100, top: 720, right: 500, bottom: 800 }, identity, { width: 800, height: 700 }).visible
 		}, {
-			below: { placement: 'below', visible: true, left: 44, top: 310, flowLeft: 44, flowTop: 310, width: 512, height: 180 },
-			zoomedAndPanned: { placement: 'below', visible: true, left: 244, top: 530, flowLeft: 172, flowTop: 305, width: 512, height: 180 },
-			aboveTheToolbar: { placement: 'above', visible: true, left: 44, top: 400 - 32 - 46 - 10 - 180, flowLeft: 44, flowTop: 400 - 32 - 46 - 10 - 180, width: 512, height: 180 },
-			clamped: { placement: 'clamped', visible: true, left: 44, top: 420 - 52 - 180, flowLeft: 44, flowTop: 420 - 52 - 180, width: 512, height: 180 },
-			following: { placement: 'below', visible: true, left: 44, top: 660, flowLeft: 44, flowTop: 660, width: 512, height: 180 },
-			narrow: { placement: 'below', visible: true, left: 12, top: 210, flowLeft: 12, flowTop: 210, width: 276, height: 180 },
+			below: { placement: 'below', side: 'below', visible: true, left: 44, top: 310, flowLeft: 44, flowTop: 310, width: 512, height: 180 },
+			zoomedAndPanned: { placement: 'below', side: 'below', visible: true, left: 244, top: 530, flowLeft: 172, flowTop: 305, width: 512, height: 180 },
+			aboveTheToolbar: { placement: 'above', side: 'above', visible: true, left: 44, top: 400 - 32 - 46 - 10 - 180, flowLeft: 44, flowTop: 400 - 32 - 46 - 10 - 180, width: 512, height: 180 },
+			clamped: { placement: 'clamped', side: 'below', visible: true, left: 44, top: 420 - 52 - 180, flowLeft: 44, flowTop: 420 - 52 - 180, width: 512, height: 180 },
+			clampedLaptop: { placement: 'clamped', side: 'below', visible: true, left: 12, top: 535, flowLeft: 12, flowTop: 535, width: 512, height: 180 },
+			following: { placement: 'below', side: 'below', visible: true, left: 44, top: 660, flowLeft: 44, flowTop: 660, width: 512, height: 180 },
+			narrow: { placement: 'below', side: 'below', visible: true, left: 12, top: 210, flowLeft: 12, flowTop: 210, width: 276, height: 180 },
 			offCanvas: false
 		});
 	});

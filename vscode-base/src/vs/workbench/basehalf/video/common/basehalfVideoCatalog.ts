@@ -886,6 +886,20 @@ export const BASEHALF_VIDEO_DEFAULT_MODE_INPUTS: IBaseHalfVideoModeInputs = Obje
 });
 
 /**
+ * What an image card assumes while no model is chosen: reference images, as
+ * every image model takes, as many as are connected. It is no model's
+ * declaration either.
+ */
+export const BASEHALF_IMAGE_DEFAULT_MODE_INPUTS: IBaseHalfVideoModeInputs = Object.freeze({
+	startFrame: 'none',
+	endFrame: 'none',
+	images: Object.freeze({ min: 0, max: Number.MAX_SAFE_INTEGER }),
+	videos: Object.freeze({ min: 0, max: 0 }),
+	audios: Object.freeze({ min: 0, max: 0 }),
+	source: 'none'
+});
+
+/**
  * How a generation uses each input, in upstream order, from the slots the
  * mode declares (video node specification, "Inputs"). An image fills the
  * start frame, then the end frame, then the reference images, as far as the
@@ -1075,6 +1089,10 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 	if (!baseHalfVideoRegionOffersMode(mode, setup.region.id)) {
 		const where = ref.provider.regions.filter(region => baseHalfVideoRegionOffersMode(mode, region.id) && baseHalfVideoRegionOffersModel(ref.model, region.id)).map(region => region.label).join(', ');
 		return { kind: 'modeRegion', model: ref.model, mode, where };
+	}
+	// Nothing written and nothing connected, as on a new card: the empty prompt says it, before what the model needs.
+	if (input.plan?.length === 0 && !input.prompt.trim()) {
+		return { kind: 'nothingToSend' };
 	}
 	const draft = input.plan?.find(item => item.reason === 'draft');
 	if (draft) {

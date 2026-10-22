@@ -173,13 +173,14 @@ export interface IBaseHalfCanvasVideoPanelPlacement extends IBaseHalfVideoPanelL
 /**
  * Places the panel of a selected Video card in screen space by
  * {@link resolveBaseHalfVideoPanelPlacement} and adds its position in canvas
- * coordinates. The card's name, and the toolbar when it shows, are above the
- * card, so a panel above the card goes above them.
+ * coordinates. The card's name and its toolbar are above the card, so a panel
+ * above the card goes above them. The toolbar's place counts also while the
+ * toolbar is hidden, as while the card generates: the panel does not change
+ * sides or move when the toolbar comes and goes.
  */
 export function resolveBaseHalfCanvasVideoPanelPlacement(
 	options: IBaseHalfCanvasAnchoredToolbarPlacementOptions & {
 		readonly height: number;
-		readonly toolbarShown: boolean;
 		readonly keepSide?: BaseHalfVideoPanelSide;
 	}
 ): IBaseHalfCanvasVideoPanelPlacement {
@@ -191,7 +192,7 @@ export function resolveBaseHalfCanvasVideoPanelPlacement(
 		bottom: options.bottom * zoom + options.viewport.y
 	};
 	const aboveClearance = (BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP + BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * zoom
-		+ (options.toolbarShown ? BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP + BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT : 0);
+		+ BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP + BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT;
 	const layout = resolveBaseHalfVideoPanelPlacement(card, { width: options.viewportWidth, height: options.viewportHeight }, {
 		height: options.height,
 		aboveClearance,

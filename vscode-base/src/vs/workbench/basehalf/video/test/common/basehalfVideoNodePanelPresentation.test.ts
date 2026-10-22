@@ -96,6 +96,37 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		});
 	}
 
+	test('without a model, an image card shows its inputs as references, and a video card as frames', () => {
+		const images: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_GENERATION_CATALOG };
+		const row = (presentation: IBaseHalfVideoPanelPresentation) => ({
+			mode: presentation.inputRow?.mode,
+			slots: presentation.inputRow?.slots.map(slot => `${slot.title}=${slot.item ? slot.item.path : 'empty'}`),
+			items: presentation.inputRow?.items.map(describe),
+			hint: presentation.inputRow?.emptyHint
+		});
+		assert.deepStrictEqual({
+			image: row(present({ kind: 'image', catalog: images, noModel: true })),
+			newImage: row(present({ kind: 'image', catalog: images, noModel: true, inputs: [] })),
+			video: row(present({ noModel: true })).slots
+		}, {
+			image: {
+				mode: 'reference',
+				slots: [],
+				items: [
+					'Image 1:reference',
+					'Image 2:reference',
+					'Image 3:reference',
+					'Video 1:unused (Not used: This model takes no videos in this mode.)',
+					'scene:text',
+					'brief.pdf:unused (Not used: this kind of file cannot be sent to an image model.)'
+				],
+				hint: undefined
+			},
+			newImage: { mode: 'reference', slots: [], items: [], hint: 'Add images as references' },
+			video: ['Start=frames/a.png', 'End=frames/b.png']
+		});
+	});
+
 	test('frames take the start and end slots from the first two images and dim the rest with their reasons', () => {
 		const presentation = present();
 		const row = presentation.inputRow!;

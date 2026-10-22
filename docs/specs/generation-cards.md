@@ -475,6 +475,9 @@ From top to bottom:
      thumbnails with their names, then a plus.
    - Text inputs show as small chips with their file names. An unused input
      is dimmed, and its tooltip says why.
+   - Until the card has a model, an image card shows its inputs as
+     references mode does, since every image model takes references, and a
+     video card as frames mode does.
    - Hovering an input shows a cross that removes its connection. The swap
      arrow swaps the order of the two frames' entries in `upstream`.
    - The plus offers **Pick on Canvas** (the next click on a card connects it
@@ -520,7 +523,8 @@ From top to bottom:
      Enter, and when the popover closes. Until the catalog has the card's
      model, there is no settings button.
    - The Generate button is a round arrow. While the card generates, it is a
-     stop square that stops the generation.
+     stop square that stops the generation. A tooltip it showed goes when it
+     changes under the pointer, so that it never names what it did before.
 
 The Generate button is enabled only when the card can generate. Otherwise its
 tooltip and accessible name say the first reason, in this order
@@ -528,12 +532,14 @@ tooltip and accessible name say the first reason, in this order
 loading or could not be loaded; no model is chosen; the catalog has no such
 model; the model makes the other kind; the provider is not set up; the
 provider's region does not offer the model; the provider's region does not
-offer the mode; an input is missing, is a draft without its file, or is not a
-file on this computer, or the first problem that the provider module reports
-for the planned generation ([check](providers.md#requests)); there is
-nothing to send. For no model, no such model, a model of the other kind, the
-provider, and the region, the model button is outlined and its tooltip says
-the same.
+offer the mode; there is nothing to send, since the prompt is empty and
+nothing is connected; an input is missing, is a draft without its file, or is
+not a file on this computer, or the first problem that the provider module
+reports for the planned generation ([check](providers.md#requests)); there
+is nothing to send. A new card therefore says nothing about the prompt its
+model needs before the user has written or connected anything. For no model,
+no such model, a model of the other kind, the provider, and the region, the
+model button is outlined and its tooltip says the same.
 
 The panel also shows that reason as a line above the footer, at most two
 lines tall, so it can be read without pointing at the button. When one
@@ -576,7 +582,10 @@ height follows its content, from 132 px without an input row to 260 px with
 one and a reason line of two lines. It keeps that size at every zoom. It sits
 10 px below the card, centered; above the card, clear of its name and toolbar,
 when there is no room below for the tallest panel; inside the canvas, clamped,
-when there is room for neither. The panel and its menus stay 12 px inside the
+when there is room for neither. The toolbar's place counts also while the
+toolbar is hidden, as while the card generates, so that the panel does not
+change sides or move when the toolbar comes and goes under the user's
+pointer. The panel and its menus stay 12 px inside the
 canvas and 52 px above its bottom edge, clear of the zoom controls there,
 which would otherwise cover the model button or a menu's last items. When the
 card is off the canvas, the panel is hidden. Opening the panel never pans or

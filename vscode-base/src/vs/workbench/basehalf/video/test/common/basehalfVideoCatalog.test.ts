@@ -357,6 +357,8 @@ suite('BaseHalfVideoCatalog', () => {
 			region: { setup: setup({ region: 'west' }), problems: ['Too long.'] },
 			draftInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, [{ path: 'shots/start.png', kind: 'image', available: false, draft: true }], 'en'), problems: ['Too long.'] },
 			check: { problems: ['', 'The start frame is smaller than 300 pixels.'] },
+			// A new card: nothing written and nothing connected says that before what the model needs.
+			nothingConnected: { plan: [], problems: ['Write a prompt: Acme Still needs one.'] },
 			nothingToSend: { plan: [] },
 			inputsUnknown: { plan: undefined },
 			ready: {}
@@ -373,6 +375,7 @@ suite('BaseHalfVideoCatalog', () => {
 			region: ['region', 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.', true],
 			draftInput: ['draftInput', 'start.png has no file yet. Generate it first, or remove its connection.', false],
 			check: ['check', 'The start frame is smaller than 300 pixels.', false],
+			nothingConnected: ['nothingToSend', 'Write a prompt or connect an input to generate.', false],
 			nothingToSend: ['nothingToSend', 'Write a prompt or connect an input to generate.', false],
 			inputsUnknown: undefined,
 			ready: undefined

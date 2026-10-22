@@ -7,6 +7,7 @@ import { isMacintosh, language } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import {
+	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
 	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
 	BaseHalfVideoCatalogParameter,
 	BaseHalfVideoCatalogState,
@@ -304,8 +305,9 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const mode = ref ? baseHalfVideoModeOf(ref.model, generation?.mode) : undefined;
 	const region = ref ? state.setup(ref.provider).region : undefined;
 	const params = ref && mode ? normalizeBaseHalfVideoParams(ref.model, mode.id, generation?.params) : Object.freeze({ ...generation?.params });
-	const modeInputs = mode?.inputs ?? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS;
-	const modeId = mode?.id ?? generation?.mode ?? 'frames';
+	// Without a model, an image card takes references, as every image model does, and a video card frames.
+	const modeInputs = mode?.inputs ?? (state.kind === 'image' ? BASEHALF_IMAGE_DEFAULT_MODE_INPUTS : BASEHALF_VIDEO_DEFAULT_MODE_INPUTS);
+	const modeId = mode?.id ?? generation?.mode ?? (state.kind === 'image' ? 'reference' : 'frames');
 	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs, displayLanguage);
 	const startFrame = plan.some(item => item.use === 'start-frame');
 	const checkRequest = ref && mode && region && baseHalfVideoRegionOffersModel(ref.model, region.id)

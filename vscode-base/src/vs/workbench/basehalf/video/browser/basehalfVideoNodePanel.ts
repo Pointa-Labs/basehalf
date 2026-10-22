@@ -255,6 +255,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private layout: IBaseHalfCanvasSceneVideoPanelLayout | undefined;
 	private focusWhenShown: boolean;
 	private starting = false;
+	/** What the Generate button was drawn as last: Generate or Stop. */
+	private generateKind: 'generate' | 'stop' | undefined;
 	private picking = false;
 	private mention: { readonly start: number; readonly query: string; readonly active: number } | undefined;
 	/** The control of the input row that takes the row's one tab stop. */
@@ -1086,6 +1088,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.settingsLabel.textContent = presentation.settingsView?.summary ?? '';
 		this.settingsButton.setAttribute('aria-label', this.settingsTitle());
 		const generate = presentation.generate;
+		// The button changed under the pointer: a tooltip it shows names what it did before.
+		if (this.generateKind !== undefined && this.generateKind !== generate.kind && this.generateButton.matches(':hover')) {
+			this.hoverService.hideHover(true);
+		}
+		this.generateKind = generate.kind;
 		const busy = this.starting && generate.kind === 'generate';
 		const enabled = generate.enabled && !busy;
 		this.generateButton.classList.toggle('stop', generate.kind === 'stop');

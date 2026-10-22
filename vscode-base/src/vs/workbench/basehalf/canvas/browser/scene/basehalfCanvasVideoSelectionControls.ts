@@ -375,14 +375,6 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 		const keptSide = vendor.useRef<BaseHalfVideoPanelSide | undefined>(undefined);
 		const lastSide = vendor.useRef<BaseHalfVideoPanelSide | undefined>(undefined);
 		const bounds = flowNodeBounds(node);
-		const toolbarActions = baseHalfCanvasSceneVideoSelectionActions(node.data.card.controls?.kind === 'video' ? node.data.card.controls.actions : []);
-		const toolbarShown = toolbarActions.length > 0 && resolveBaseHalfCanvasVideoSelectionPlacement({
-			...bounds,
-			viewport,
-			viewportWidth: viewportSize.width,
-			viewportHeight: viewportSize.height,
-			toolbarWidth: baseHalfCanvasVideoToolbarWidth(toolbarActions)
-		}).visible;
 		if (!following) {
 			keptSide.current = undefined;
 		} else if (!keptSide.current) {
@@ -394,7 +386,6 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			viewportWidth: viewportSize.width,
 			viewportHeight: viewportSize.height,
 			height: surface.screenHeight,
-			toolbarShown,
 			...(keptSide.current ? { keepSide: keptSide.current } : {})
 		});
 		lastSide.current = placement.side;
