@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './basehalfGenerationCardActions.js';
 import './basehalfGenerationCardStore.js';
 import './basehalfGenerationTaskStore.js';
 import './basehalfVideoCatalogService.js';

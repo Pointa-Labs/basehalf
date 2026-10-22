@@ -828,10 +828,14 @@ is a file does:
   prompt and settings; of a card with its file, a copy of the file with the
   same `generation.yaml` and a `made.yaml` whose `id` is new and which says it
   is a copy of the original's. Neither has upstream entries or a task.
-- **Undo.** Creating, renaming, moving, and deleting a draft are each one step
-  of the canvas undo stack, which keeps all of the draft's card information.
-  Undo and redo refuse while the draft generates, and when its card
-  information changed since. A generation itself is not undone.
+- **Undo.** Creating, renaming, moving, deleting, and copying a draft are each
+  one step of the canvas undo stack, which keeps all of the draft's card
+  information. Undo and redo refuse, and say why, while the draft generates;
+  when it is not a draft any more, or its prompt and settings changed since
+  the step, as when a prompt was typed into a new draft; and when its path is
+  taken. A refused undo stays the next step to undo. A generation itself is
+  not undone. **Upload** is not a step of undo: the file it copied is the
+  card's file from then on.
 
 ## Deleting
 

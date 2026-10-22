@@ -301,6 +301,12 @@ export interface IBaseHalfGenerationDraft {
 	readonly kind: BaseHalfGenerationKind;
 }
 
+/** A generation card of a folder, as its canvas lists it: a draft, or a file with generation information. */
+export interface IBaseHalfGenerationCardEntry extends IBaseHalfGenerationDraft {
+	/** Whether its file exists. A draft has none. */
+	readonly hasFile: boolean;
+}
+
 export const IBaseHalfGenerationCardStore = createDecorator<IBaseHalfGenerationCardStore>('baseHalfGenerationCardStore');
 
 /** Reads and writes the generation information of cards (generation cards, "Card information"). */
@@ -318,6 +324,14 @@ export interface IBaseHalfGenerationCardStore {
 
 	/** The drafts of a folder: generation information without `made.yaml` whose path names no item there. */
 	listDrafts(folder: URI): Promise<readonly IBaseHalfGenerationDraft[]>;
+
+	/**
+	 * The generation cards of a folder, in the order of their names: its drafts,
+	 * and its files with a generation extension that have generation
+	 * information. A generated file that is gone is neither: it is a missing
+	 * file. None of a folder that is not there.
+	 */
+	listCards(folder: URI): Promise<readonly IBaseHalfGenerationCardEntry[]>;
 
 	/**
 	 * Changes what the card's next generation uses. Writes only the fields that
@@ -349,6 +363,19 @@ export interface IBaseHalfGenerationCardStore {
 
 	/** Writes the card's `made.yaml` once. Rejects when the card has one. */
 	writeMade(resource: URI, made: IBaseHalfGenerationMade): Promise<void>;
+
+	/**
+	 * Gives `target` the card information of a copy of the generation card at
+	 * `source` (generation cards, "Moving, renaming, copying, and undo"): the
+	 * same `generation.yaml`, and for a source with a `made.yaml` a record with
+	 * the new `id` that says which record it copies; no upstream list and no
+	 * task. A copy of a card with its file is the file that was copied to
+	 * `target`; a copy of a draft is a new draft, at a path where no item is.
+	 * Writes nothing, and resolves `false`, where card information is already,
+	 * when `target` is not of the source's kind, or when the source is no
+	 * generation card or a generated file that is gone.
+	 */
+	writeCopy(source: URI, target: URI, newId: string): Promise<boolean>;
 }
 
 export const IBaseHalfGenerationTaskStore = createDecorator<IBaseHalfGenerationTaskStore>('baseHalfGenerationTaskStore');
@@ -410,6 +437,53 @@ export interface IBaseHalfGenerationTaskStore {
 	 * renaming, copying, and undo"). Called inside the exclusive run of the move.
 	 */
 	retarget(from: URI, to: URI): Promise<void>;
+}
+
+export const IBaseHalfGenerationCardActions = createDecorator<IBaseHalfGenerationCardActions>('baseHalfGenerationCardActions');
+
+/**
+ * What the user does with generation cards (generation cards, "Creating a
+ * generation card", "Moving, renaming, copying, and undo", "Deleting", and
+ * "The toolbar"). Making, renaming, moving, deleting, and copying a draft are
+ * each one step of the canvas undo stack, which keeps all of the draft's card
+ * information. A card is placed by its caller.
+ */
+export interface IBaseHalfGenerationCardActions {
+	readonly _serviceBrand: undefined;
+
+	/**
+	 * Makes a draft of a kind in `folder`: `image` or `video` with the
+	 * extension of its model's output and the next free number, an empty
+	 * prompt, and the provider, model, mode, and values of the last generation
+	 * of that kind on this computer made legal for the catalog. With `upstream`,
+	 * its upstream list is written first. Resolves with the draft.
+	 */
+	createDraft(folder: URI, kind: BaseHalfGenerationKind, upstream?: readonly string[]): Promise<URI>;
+
+	/**
+	 * Renames a draft, or moves it into another folder, to `target`. Refuses,
+	 * with the reason in plain words, a name that is taken or not of the
+	 * draft's kind. Resolves with `target`.
+	 */
+	moveDraft(draft: URI, target: URI): Promise<URI>;
+
+	/** Deletes drafts with all of their card information and their card rows; a generation that lands on one is released first. */
+	deleteDrafts(drafts: readonly URI[]): Promise<void>;
+
+	/**
+	 * A copy of a draft in `folder`: a new draft with the same prompt and
+	 * settings and no upstream list, named like it with the next free number.
+	 * `undoLabel` names the step. Resolves with the copy.
+	 */
+	copyDraft(draft: URI, folder: URI, undoLabel: string): Promise<URI>;
+
+	/**
+	 * Upload: copies `file` to the path of a draft that does not generate,
+	 * after renaming the draft to the file's extension when it has another one.
+	 * Refuses a file without a generation extension of the draft's kind.
+	 * Resolves with the card's path. Not a step of undo.
+	 */
+	upload(draft: URI, file: URI): Promise<URI>;
 }
 
 /** What undoing a draft operation needs: every piece of the draft's card information. */
