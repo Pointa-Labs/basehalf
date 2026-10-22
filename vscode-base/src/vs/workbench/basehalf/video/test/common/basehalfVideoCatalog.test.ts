@@ -405,8 +405,8 @@ suite('BaseHalfVideoCatalog', () => {
 
 		test('an image model says its largest resolution and how many images one generation makes; a video model its modes, length, size, and sound', () => {
 			assert.deepStrictEqual([baseHalfVideoModelAbilities(paint), baseHalfVideoModelAbilities(print), baseHalfVideoModelAbilities(motion), baseHalfVideoModelAbilities(reel)], [
-				'4K · Up to 4',
-				'2K · Up to 2',
+				'4K · Up to 4 images · 4 references',
+				'2K · Up to 2 images · 4 references',
 				'Frames · References · 12s · 1080p · Sound',
 				'Frames · 8s'
 			]);
@@ -424,7 +424,7 @@ suite('BaseHalfVideoCatalog', () => {
 				withResolutions('3k', '2k', '1.5k'),
 				withResolutions('768p', '720p', '1k'),
 				withResolutions('unknown', '720p')
-			], ['4K', '1080P', '1.5K', '3K', '1K', '720P']);
+			], ['4K · 4 references', '1080P · 4 references', '1.5K · 4 references', '3K · 4 references', '1K · 4 references', '720P · 4 references']);
 		});
 
 		test('a generation makes one file per image of its count, one for a video, and each file has the extension of its model\'s format', () => {

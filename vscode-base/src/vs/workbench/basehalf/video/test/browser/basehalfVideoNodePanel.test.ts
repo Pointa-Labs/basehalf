@@ -866,7 +866,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			moves: drafts.moves,
 			renamed
 		}, {
-			items: ['Corvid Paint (4K · Up to 4)', 'Corvid Print (2K · Up to 2)', 'Providers…'],
+			items: ['Corvid Paint (4K · Up to 4 images · 4 references)', 'Corvid Print (2K · Up to 2 images · 4 references)', 'Providers…'],
 			placeholder: 'Describe the image. Type @ to name an input.',
 			written: { provider: 'corvid', model: 'corvid-print', mode: 'reference', params: { resolution: '2k', count: 2 } },
 			moves: ['/workspace/shots/image.png -> /workspace/shots/image.jpg'],

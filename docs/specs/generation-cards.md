@@ -494,9 +494,10 @@ From top to bottom:
      chosen. Each model shows a second line drawn from its declarations: its
      modes, and for a video its longest duration, its largest resolution,
      and Sound when it makes sound, such as "Frames · References · 15s ·
-     1080p · Sound"; for an image its largest resolution and, when it can
-     make more than one, how many images one generation can make, such as
-     "4K · Up to 4". The largest resolution is the one with the most pixels:
+     1080p · Sound"; for an image its largest resolution, how many images
+     one generation can make when that is more than one, and how many
+     reference images it takes, such as "4K · Up to 4 images · 14
+     references". The largest resolution is the one with the most pixels:
      a `p` value counts a 16:9 frame of that height and a `k` value a square
      of that many thousand pixels a side, so 720p < 768p < 1k < 1080p <
      1.5k < 2k < 3k < 4k. A model the provider's region does not offer is shown

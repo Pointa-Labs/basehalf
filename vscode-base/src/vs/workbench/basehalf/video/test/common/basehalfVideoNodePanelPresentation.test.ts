@@ -368,7 +368,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			draftInput: [draftInput.inputRow?.items.map(item => `${item.name}: ${item.reason ?? item.use}`), draftInput.generate.label, draftInput.reason?.text],
 			noImages: present({ kind: 'image' }).modelMenu.message
 		}, {
-			menu: ['Corvid Studio: Corvid Paint (4K · Up to 4), Corvid Print (2K · Up to 2)'],
+			menu: ['Corvid Studio: Corvid Paint (4K · Up to 4 images · 4 references), Corvid Print (2K · Up to 2 images · 4 references)'],
 			end: 'Providers…',
 			videoModel: ['otherKind', 'Acme Motion 2 makes videos. Choose an image model.', true, 'Acme Motion 2 makes videos. Choose an image model.'],
 			draftInput: [

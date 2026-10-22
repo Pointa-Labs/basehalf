@@ -427,7 +427,16 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 	}
 	const most = image ? baseHalfModelMostOutputs(model) : 1;
 	if (most > 1) {
-		parts.push(localize('basehalf.video.catalog.abilityCount', "Up to {0}", most));
+		parts.push(localize('basehalf.video.catalog.abilityCount', "Up to {0} images", most));
+	}
+	if (image) {
+		// How many reference images the model takes is what tells image models apart when nothing else does.
+		const references = Math.max(0, ...model.modes.map(mode => mode.inputs.images.max));
+		if (references === 1) {
+			parts.push(localize('basehalf.video.catalog.abilityReference', "1 reference"));
+		} else if (references > 1) {
+			parts.push(localize('basehalf.video.catalog.abilityReferences', "{0} references", references));
+		}
 	}
 	return parts.join(' · ');
 }
