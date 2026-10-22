@@ -13,7 +13,7 @@ export const BASEHALF_AGENT_SKILL_NAME = 'basehalf';
 export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** Changes whenever the skill text changes, so that an installed copy of an
  * earlier text is offered an update. */
-export const BASEHALF_AGENT_SKILL_VERSION = '5';
+export const BASEHALF_AGENT_SKILL_VERSION = '6';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -41,6 +41,18 @@ export const BASEHALF_AGENT_SELECTION_SECTION: readonly string[] = [
 	'  - `cards`: two or more cards, listed under `paths`;',
 	'  - `text`: text in the note at `path`, on lines `first_line` to `last_line` of the file, counted from 1 with the frontmatter. `text` is the selected text as the note shows it, without Markdown marks. `text_is_cut: true` means the selection was longer and the text is cut; the lines are complete.',
 	'- Paths are relative to the workspace folder and use forward slashes. The workspace folder itself is `.`.'
+];
+
+/**
+ * Where an image that an agent made with a tool of its own goes (agent skill,
+ * "The skill", section 5): the folder of the canvas the user works on, which
+ * the record of the selection names. It names no tool, and it is not in the
+ * launch instruction.
+ */
+export const BASEHALF_AGENT_OWN_IMAGE_SECTION: readonly string[] = [
+	'## An image you make yourself',
+	'',
+	'When you make an image with a tool of your own, such as your own image generation, put it in the folder of the canvas the user works on, where it is a card. That folder is the one `.bh/cache/selection.yaml` names: the folder at `path` when `selected` is `folder`, and otherwise the folder that holds the selected card, cards, or note. When there is no record, ask the user which folder.'
 ];
 
 /**
@@ -80,6 +92,8 @@ export const BASEHALF_AGENT_SKILL_MARKDOWN = [
 	...BASEHALF_AGENT_SELECTION_SECTION,
 	'',
 	...BASEHALF_AGENT_SHARED_SECTIONS,
+	'',
+	...BASEHALF_AGENT_OWN_IMAGE_SECTION,
 	''
 ].join('\n');
 

@@ -329,19 +329,24 @@ export function isIntegratedTerminalProgram(termProgram: string | undefined): bo
 
 export const BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV = 'BASEHALF_NODE_COMMAND_BRIDGE_HOOK';
 /**
- * Version 4 (D58): `.bhnode` version 5. A node run starts a Video node's
- * generation and answers with the node that runs; discovery lists no recipes,
- * and its `nodeDocument` and `contextEdge` literals describe inputs in
- * upstream order. Both ends validate these literals, so they change together.
+ * Version 5 (D63): `basehalf --generate` starts a generation of a generation
+ * card and answers with every card it lands on; discovery describes
+ * generation cards in `generationCards` and the catalog in `modelCatalog`,
+ * and its `contextEdge` names no node document. Both ends validate these
+ * literals, so they change together.
  */
-export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 4;
+export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 5;
 
-/** `succeeded`: the generation started and its task is in the node's file. */
-export type BaseHalfNodeCommandOutcome = 'succeeded' | 'rejected';
+/** `succeeded`: the generation started; its task record is `submitting` on this computer. */
+export type BaseHalfGenerateCommandOutcome = 'succeeded' | 'rejected';
 
-export interface IBaseHalfRunNodeCommandRequest {
+/** The most cards a generation lands on, and so the most paths `basehalf --generate` prints. */
+export const BASEHALF_GENERATE_COMMAND_MAX_CARDS = 16;
+
+/** `basehalf --generate <path>`: a generation of the card at `relativePath`, relative to the workspace folder. */
+export interface IBaseHalfGenerateCommandRequest {
 	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
-	readonly type: 'runNode';
+	readonly type: 'generate';
 	readonly cwd: string;
 	readonly relativePath: string;
 }
@@ -363,19 +368,28 @@ export interface IBaseHalfAgentCapabilityDiscoveryRequest {
 }
 
 /** A single JSON request accepted from a BaseHalf-owned Agent Area terminal. */
-export type IBaseHalfNodeCommandRequest = IBaseHalfRunNodeCommandRequest | IBaseHalfAgentOperationCommandRequest | IBaseHalfAgentCapabilityDiscoveryRequest;
+export type IBaseHalfNodeCommandRequest = IBaseHalfGenerateCommandRequest | IBaseHalfAgentOperationCommandRequest | IBaseHalfAgentCapabilityDiscoveryRequest;
 
-export interface IBaseHalfRunNodeCommandResponse {
+/**
+ * What `basehalf --generate` prints: the path that was asked for and, once
+ * the generation is `submitting`, every card it lands on, or the plain reason
+ * it could not start.
+ */
+export interface IBaseHalfGenerateCommandResponse {
 	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
+	readonly type: 'generate';
 	readonly ok: boolean;
-	readonly outcome: BaseHalfNodeCommandOutcome;
-	readonly type?: 'runNode';
+	readonly outcome: BaseHalfGenerateCommandOutcome;
+	/** The path that was asked for. */
+	readonly path: string;
 	/**
-	 * The workspace-relative path of the node that runs: the requested node, or
-	 * a new node beside it when the requested node already held a video. For a
-	 * rejected request, the path that was asked for.
+	 * Succeeded only: the workspace-relative paths of the cards the generation
+	 * lands on, in the order of its outputs: the card itself when it is a
+	 * draft, a new draft beside it when it has its file, and one card per
+	 * image of several.
 	 */
-	readonly nodePath: string;
+	readonly cards?: readonly string[];
+	/** Rejected only: why, in plain words. */
 	readonly error?: string;
 }
 
@@ -394,26 +408,40 @@ export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES = 256;
 
 export type BaseHalfAgentCapabilityDiscoveryJsonValue = null | boolean | number | string | readonly BaseHalfAgentCapabilityDiscoveryJsonValue[] | { readonly [key: string]: BaseHalfAgentCapabilityDiscoveryJsonValue };
 
-export interface IBaseHalfAgentCapabilityDiscoveryNodeDocument {
-	readonly fileExtension: '.bhnode';
-	readonly documentVersion: number;
-	readonly nodeKinds: readonly ('file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
-	readonly lifecycle: {
-		/** The generation that runs, written by BaseHalf only. */
-		readonly task: 'host-owned';
-		/** The one file a node shows, written by BaseHalf only. */
-		readonly result: 'host-owned-single-file';
-	};
-	readonly runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>';
+/** The extensions of the cards of each kind, with the dot, in lower case (generation cards, "Terms"). */
+export const BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS = Object.freeze({
+	image: Object.freeze(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.bmp'] as const),
+	video: Object.freeze(['.mp4', '.mov', '.m4v', '.webm'] as const)
+});
+
+/** Where a card's card information is, for the card at `<path>` relative to the workspace folder. */
+export const BASEHALF_AGENT_DISCOVERY_GENERATION_FILE = '.bh/mirror/<path>/generation.yaml';
+export const BASEHALF_AGENT_DISCOVERY_INPUTS_FILE = '.bh/mirror/<path>/upstream.yaml';
+/** What BaseHalf alone writes: the record of what made a card's file, and the task records of this computer. */
+export const BASEHALF_AGENT_DISCOVERY_HOST_OWNED = Object.freeze(['.bh/mirror/<path>/made.yaml', '.bh/cache/generation/'] as const);
+export const BASEHALF_AGENT_DISCOVERY_GENERATE_COMMAND = 'basehalf --generate <workspace-relative-path>';
+
+/**
+ * What an agent may write to make a draft or change a card's next
+ * generation, and the command that generates it (generation cards, "What an
+ * agent may write" and "Agents").
+ */
+export interface IBaseHalfAgentCapabilityDiscoveryGenerationCards {
+	readonly fileExtensions: typeof BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS;
+	/** What the next generation of the card uses: agents write `prompt`, `provider`, `model`, `mode`, and `params` here. */
+	readonly generationFile: typeof BASEHALF_AGENT_DISCOVERY_GENERATION_FILE;
+	/** The card's inputs, in order. */
+	readonly inputsFile: typeof BASEHALF_AGENT_DISCOVERY_INPUTS_FILE;
+	readonly hostOwned: typeof BASEHALF_AGENT_DISCOVERY_HOST_OWNED;
+	readonly generateCommand: typeof BASEHALF_AGENT_DISCOVERY_GENERATE_COMMAND;
+	/** The authoring contract of `generation.yaml`: its version, schema, examples, and rules. */
 	readonly authoring: Readonly<Record<string, BaseHalfAgentCapabilityDiscoveryJsonValue>>;
 }
 
 export interface IBaseHalfAgentCapabilityDiscoveryHost {
-	readonly nodeDocument: IBaseHalfAgentCapabilityDiscoveryNodeDocument;
+	readonly generationCards: IBaseHalfAgentCapabilityDiscoveryGenerationCards;
 	readonly contextEdge: {
 		readonly source: 'direct-content';
-		/** A `.bhnode` upstream stands for the file it shows. */
-		readonly resultNodeSource: 'node-result';
 		readonly target: 'direct-context';
 		readonly autoRun: false;
 		readonly recursive: false;
@@ -421,9 +449,7 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 		readonly storedBy: 'downstream';
 		/** A Markdown target lists its upstream in this frontmatter key. */
 		readonly markdownFrontmatterKey: 'upstream';
-		/** A `.bhnode` target lists its upstream in this top-level field. */
-		readonly nodeDocumentField: 'upstream';
-		/** A Video node uses its inputs in the order of its `upstream` list. */
+		/** A generation card uses its inputs in the order of its `upstream` list. */
 		readonly inputOrder: 'target-upstream-order';
 		readonly label: 'none';
 	};
@@ -433,13 +459,13 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 		readonly description?: string;
 	}[];
 	readonly operations: readonly IBaseHalfAgentCapabilityDiscoveryOperation[];
-	/** The model catalog of AI Video, from which a Video node's `generation` is chosen. */
-	readonly videoCatalog: IBaseHalfAgentCapabilityDiscoveryVideoCatalog;
+	/** The model catalog of AI Video, from which a card's `provider`, `model`, `mode`, and `params` are chosen. */
+	readonly modelCatalog: IBaseHalfAgentCapabilityDiscoveryModelCatalog;
 }
 
-export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_VIDEO_PROVIDERS = 64;
+export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_PROVIDERS = 64;
 
-export interface IBaseHalfAgentCapabilityDiscoveryVideoCatalog {
+export interface IBaseHalfAgentCapabilityDiscoveryModelCatalog {
 	/**
 	 * Each provider with its label, whether it is set up on this computer, its
 	 * regions and the region in use, and its models with their modes, input
@@ -496,7 +522,7 @@ export interface IBaseHalfAgentCapabilityDiscoveryResponse {
 	readonly error?: string;
 }
 
-export type IBaseHalfNodeCommandResponse = IBaseHalfRunNodeCommandResponse | IBaseHalfAgentOperationCommandResponse | IBaseHalfAgentCapabilityDiscoveryResponse;
+export type IBaseHalfNodeCommandResponse = IBaseHalfGenerateCommandResponse | IBaseHalfAgentOperationCommandResponse | IBaseHalfAgentCapabilityDiscoveryResponse;
 
 export interface IBaseHalfNodeCommandRequestEvent {
 	readonly requestId: number;

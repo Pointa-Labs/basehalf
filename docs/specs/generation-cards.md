@@ -861,6 +861,20 @@ is a file does:
   path of every card the generation lands on (a new draft when the card had
   its file) once the task record is `submitting`. It does not wait for the
   files; each file and its `made.yaml` show when it lands.
+  - `<path>` is relative to the workspace folder and names a generation card:
+    a draft, or an image or video file with generation information. A path
+    that names anything else, lies outside the workspace folder or under
+    `.bh/`, or passes through a symbolic link is refused, and nothing is
+    written.
+  - It prints one line of JSON and exits with 0 once the generation is
+    `submitting`:
+    `{"version":5,"type":"generate","ok":true,"outcome":"succeeded","path":"<path>","cards":["<card>",…]}`,
+    the cards in the order of the outputs, each relative to the workspace
+    folder. When the generation cannot start, it prints
+    `{"version":5,"type":"generate","ok":false,"outcome":"rejected","path":"<path>","error":"<reason>"}`
+    and exits with 1; the reason is the plain sentence the panel would show,
+    such as "This card is already generating." or the first value the model
+    does not accept.
 - The command runs from any folder of the workspace in an Agent Area
   terminal, also when the workspace was opened through a symbolic link: a
   shell reports its folder by its real path (on macOS, a folder under `/tmp`
@@ -878,6 +892,14 @@ is a file does:
   It holds no credential, endpoint, id sent to a provider, or price. When the
   catalog could not be loaded, it lists no provider and says why in `error`.
   An agent chooses `provider`, `model`, `mode`, and `params` from it.
+- `basehalf --list-capabilities` also includes `host.generationCards`, the
+  contract of [what an agent may write](#what-an-agent-may-write): the
+  extensions of each kind; where `generation.yaml` and the inputs of the card
+  at `<path>` are; that `made.yaml` and `.bh/cache/generation/` are
+  BaseHalf's; the command that generates; and the authoring contract of
+  `generation.yaml` (contract version 5): its schema, an example of a card's
+  `generation.yaml` and `upstream.yaml` built through BaseHalf's own writer
+  with a model of the catalog, and the rules, the draft rule among them.
 - The skill that BaseHalf offers to agents describes drafts,
   `generation.yaml`, `made.yaml`, the input order and names, the catalog, and
   this command. An agent that makes an image with a tool of its own, such as
@@ -964,6 +986,16 @@ job, so that a name in history still finds its file.
 - The built-in AI Video extension owns the catalog and the provider modules
   and answers the commands of [Requests](providers.md#requests). The
   workbench passes the credentials with each call; the extension keeps
+  nothing.
+- The extension API `vscode.basehalf.inspectGenerationCard(uri)`
+  (`workbench/api/`, through the card store) answers
+  `{ kind, hasFile, generationId? }` for a generation card of an open
+  workspace folder: `image` or `video`, whether its file exists, and the
+  `id` of its `made.yaml` when it has one that can be read. It answers
+  `undefined` for every other path: a file without generation information,
+  a draft whose folder is not on this computer, a path outside the open
+  workspace folders or under `.bh/`, and one that is or passes through a
+  symbolic link. Only an admitted extension may call it, and it writes
   nothing.
 
 ## Acceptance criteria

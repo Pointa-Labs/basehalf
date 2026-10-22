@@ -255,7 +255,10 @@ Paths are under `vscode-base/` unless they start with a dot.
 - Release checks: `scripts/basehalf-plugin-release.mts` refuses a manifest
   that declares recipes or model catalogs, and a template draft with fields
   other than `path` and `prompt` (D58, D63). A template declares no
-  `.bhnode`.
+  `.bhnode`. It reads a template as the host does
+  ([reference graph](reference-graph.md#templates)): it refuses a `nodes`
+  list, a draft whose path has no generation extension, and a folder that
+  holds a draft and no file.
   An activation event must name something the manifest declares, with one
   exception: the official AI Video may activate on the four provider
   commands of the host, which it answers without declaring them.

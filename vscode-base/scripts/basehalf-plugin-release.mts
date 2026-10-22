@@ -40,8 +40,8 @@ const ALLOWED_CONTRIBUTION_POINTS = new Set([
 	'basehalfCanvasTemplates',
 	'basehalfStructuralCleanups'
 ]);
-// The `.bhnode` kinds a template may create, as the host's BASEHALF_NODE_KINDS.
-const TEMPLATE_NODE_KINDS = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
+// The extensions of the drafts a template may create, as the host's BASEHALF_GENERATION_EXTENSIONS (D63).
+const TEMPLATE_DRAFT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.bmp', '.mp4', '.mov', '.m4v', '.webm'] as const;
 const MAX_VSIX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
 const MAX_VSIX_BYTES = 100 * 1024 * 1024;
 const MAX_VSIX_ENTRIES = 4_096;
@@ -52,7 +52,7 @@ const MAX_TEMPLATE_RESOURCES = 64;
 const MAX_TEMPLATE_ENTRIES = 100;
 const MAX_TEMPLATE_TEXT_FILE_BYTES = 256 * 1024;
 const MAX_TEMPLATE_TEXT_BYTES = 2 * 1024 * 1024;
-const MAX_TEMPLATE_NODE_PROMPT_LENGTH = 64 * 1024;
+const MAX_TEMPLATE_DRAFT_PROMPT_LENGTH = 64 * 1024;
 export const MAX_CATALOG_BYTES = 5 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 16 * 1024;
 const MAX_RELEASE_METADATA_BYTES = 1024 * 1024;
@@ -1831,20 +1831,28 @@ function validateCanvasTemplate(bytes: Buffer, templateId: string): void {
 		throw new Error(`Reviewed plugin canvas template '${templateId}' is not valid UTF-8 JSON.`);
 	}
 	const root = manifestRecord(value, `${templateId} template`);
-	assertOnlyManifestKeys(root, ['version', 'files', 'nodes', 'cards', 'references'], `${templateId} template`);
+	// A template declares drafts, never `.bhnode` nodes (D63, reference graph, "Templates").
+	assertOnlyManifestKeys(root, ['version', 'files', 'drafts', 'cards', 'references'], `${templateId} template`);
 	if (root.version !== 1) {
 		throw new Error(`Reviewed plugin canvas template '${templateId}' has an unsupported version.`);
 	}
 	const files = templateArray(root.files, `${templateId}.files`).map((value, index) => parseTemplateFile(value, `${templateId}.files[${index}]`));
-	const nodes = templateArray(root.nodes, `${templateId}.nodes`).map((value, index) => parseTemplateNode(value, `${templateId}.nodes[${index}]`));
+	const drafts = templateArray(root.drafts, `${templateId}.drafts`).map((value, index) => parseTemplateDraft(value, `${templateId}.drafts[${index}]`));
 	const cards = templateArray(root.cards, `${templateId}.cards`).map((value, index) => parseTemplateCard(value, `${templateId}.cards[${index}]`));
 	const references = templateArray(root.references, `${templateId}.references`).map((value, index) => parseTemplateReference(value, `${templateId}.references[${index}]`));
-	if (files.length + nodes.length === 0) {
+	if (files.length + drafts.length === 0) {
 		throw new Error(`Reviewed plugin canvas template '${templateId}' does not create any resources.`);
 	}
-	const resources = [...files, ...nodes];
+	const resources = [...files, ...drafts];
 	assertUniqueInsensitive(resources.map(resource => resource.path), `${templateId} resource paths`);
 	assertNoPathPrefixConflicts(resources.map(resource => resource.path), `${templateId} resource paths`);
+	// Git keeps no folder without a file: a draft's folder holds a file of the template.
+	const fileFolders = new Set(files.map(file => templateParentPath(file.path).toLowerCase()));
+	for (const draft of drafts) {
+		if (!fileFolders.has(templateParentPath(draft.path).toLowerCase())) {
+			throw new Error(`Reviewed plugin canvas template '${templateId}' has draft '${draft.path}' in a folder that holds no file of the template.`);
+		}
+	}
 	const resourceByPath = new Map(resources.map(resource => [resource.path, resource]));
 	const totalTextBytes = files.reduce((total, file) => total + Buffer.byteLength(file.contents, 'utf8'), 0);
 	if (totalTextBytes > MAX_TEMPLATE_TEXT_BYTES) {
@@ -1870,7 +1878,7 @@ function parseTemplateFile(value: unknown, field: string): { path: string; conte
 	assertOnlyManifestKeys(file, ['path', 'contents'], field);
 	const projectPath = templateProjectPath(file.path, `${field}.path`);
 	if (projectPath.toLowerCase().endsWith('.bhnode')) {
-		throw new Error(`Reviewed plugin ${field}.path uses the reserved .bhnode extension.`);
+		throw new Error(`Reviewed plugin ${field}.path uses the retired .bhnode extension.`);
 	}
 	const contents = boundedManifestText(file.contents, `${field}.contents`, MAX_TEMPLATE_TEXT_FILE_BYTES, true);
 	if (Buffer.byteLength(contents, 'utf8') > MAX_TEMPLATE_TEXT_FILE_BYTES) {
@@ -1879,29 +1887,27 @@ function parseTemplateFile(value: unknown, field: string): { path: string; conte
 	return { path: projectPath, contents };
 }
 
-function parseTemplateNode(value: unknown, field: string): { path: string; kind: string; title: string; prompt?: string } {
-	const node = manifestRecord(value, field);
-	assertOnlyManifestKeys(node, ['path', 'kind', 'title', 'prompt'], field);
-	const projectPath = templateProjectPath(node.path, `${field}.path`);
-	if (!projectPath.toLowerCase().endsWith('.bhnode')) {
-		throw new Error(`Reviewed plugin ${field}.path must use the .bhnode extension.`);
+/** A draft is `{path, prompt?}`: an image or a video card without its file, as the host's template parser reads it (D63). */
+function parseTemplateDraft(value: unknown, field: string): { path: string; prompt?: string } {
+	const draft = manifestRecord(value, field);
+	assertOnlyManifestKeys(draft, ['path', 'prompt'], field);
+	const projectPath = templateProjectPath(draft.path, `${field}.path`);
+	const lower = projectPath.toLowerCase();
+	if (!TEMPLATE_DRAFT_EXTENSIONS.some(extension => lower.endsWith(extension) && !lower.endsWith(`/${extension}`) && lower !== extension)) {
+		throw new Error(`Reviewed plugin ${field}.path must name an image or a video file.`);
 	}
-	if (typeof node.kind !== 'string' || !TEMPLATE_NODE_KINDS.includes(node.kind as typeof TEMPLATE_NODE_KINDS[number])) {
-		throw new Error(`Reviewed plugin ${field}.kind is invalid.`);
-	}
-	const title = boundedManifestText(node.title, `${field}.title`, 240);
-	if (node.prompt !== undefined && node.kind !== 'video') {
-		throw new Error(`Reviewed plugin ${field}.prompt is allowed only for a Video node.`);
-	}
-	const prompt = node.prompt === undefined
+	const prompt = draft.prompt === undefined
 		? undefined
-		: boundedManifestText(node.prompt, `${field}.prompt`, MAX_TEMPLATE_NODE_PROMPT_LENGTH, true);
+		: boundedManifestText(draft.prompt, `${field}.prompt`, MAX_TEMPLATE_DRAFT_PROMPT_LENGTH, true);
 	return {
 		path: projectPath,
-		kind: node.kind,
-		title,
 		...(prompt === undefined ? {} : { prompt })
 	};
+}
+
+function templateParentPath(path: string): string {
+	const slash = path.lastIndexOf('/');
+	return slash < 0 ? '' : path.slice(0, slash);
 }
 
 function parseTemplateCard(value: unknown, field: string): { path: string } {

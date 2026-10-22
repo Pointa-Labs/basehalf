@@ -11,21 +11,27 @@ import { createRandomIPCHandle } from '../../../base/parts/ipc/node/ipc.net.js';
 import { ILogService } from '../../log/common/log.js';
 import {
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS,
+	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_PROVIDERS,
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES,
-	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_VIDEO_PROVIDERS,
+	BASEHALF_AGENT_DISCOVERY_GENERATE_COMMAND,
+	BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS,
+	BASEHALF_AGENT_DISCOVERY_GENERATION_FILE,
+	BASEHALF_AGENT_DISCOVERY_HOST_OWNED,
+	BASEHALF_AGENT_DISCOVERY_INPUTS_FILE,
+	BASEHALF_GENERATE_COMMAND_MAX_CARDS,
 	BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 	IBaseHalfAgentOperationCommandRequest,
 	IBaseHalfAgentOperationCommandResponse,
 	IBaseHalfAgentCapabilityDiscoveryExtension,
 	IBaseHalfAgentCapabilityDiscoveryRequest,
 	IBaseHalfAgentCapabilityDiscoveryResponse,
+	IBaseHalfGenerateCommandRequest,
+	IBaseHalfGenerateCommandResponse,
 	IBaseHalfNodeCommandRequest,
-	IBaseHalfNodeCommandResponse,
-	IBaseHalfRunNodeCommandRequest,
-	IBaseHalfRunNodeCommandResponse
+	IBaseHalfNodeCommandResponse
 } from '../common/terminal.js';
 
-const REQUEST_PATH = '/run-node';
+const GENERATE_REQUEST_PATH = '/generate';
 const OPERATION_REQUEST_PATH = '/run-operation';
 const CAPABILITY_DISCOVERY_REQUEST_PATH = '/list-capabilities';
 const MAX_REQUEST_BYTES = 16 * 1024;
@@ -56,7 +62,7 @@ export class BaseHalfNodeCommandServer {
 	readonly ipcHandlePath = createRandomIPCHandle();
 
 	constructor(
-		private readonly runNode: (request: IBaseHalfNodeCommandRequest, cancellationToken: CancellationToken) => Promise<IBaseHalfNodeCommandResponse>,
+		private readonly handleRequest: (request: IBaseHalfNodeCommandRequest, cancellationToken: CancellationToken) => Promise<IBaseHalfNodeCommandResponse>,
 		private readonly logService: ILogService
 	) { }
 
@@ -117,7 +123,7 @@ export class BaseHalfNodeCommandServer {
 				case CAPABILITY_DISCOVERY_REQUEST_PATH:
 					return baseHalfRejectedAgentCapabilityDiscoveryResponse(error);
 				default:
-					return baseHalfRejectedNodeCommandResponse('', error);
+					return baseHalfRejectedGenerateCommandResponse('', error);
 			}
 		};
 		const active = {
@@ -138,7 +144,7 @@ export class BaseHalfNodeCommandServer {
 			return;
 		}
 		if (request.method !== 'POST'
-			|| (request.url !== REQUEST_PATH && request.url !== OPERATION_REQUEST_PATH && request.url !== CAPABILITY_DISCOVERY_REQUEST_PATH)
+			|| (request.url !== GENERATE_REQUEST_PATH && request.url !== OPERATION_REQUEST_PATH && request.url !== CAPABILITY_DISCOVERY_REQUEST_PATH)
 			|| request.headers['content-type'] !== 'application/json') {
 			this.send(response, 404, rejectedForEndpoint('Unsupported Agent command request.'));
 			return;
@@ -191,7 +197,7 @@ export class BaseHalfNodeCommandServer {
 			}
 			active.request = parsed;
 			try {
-				const result = await this.runNode(parsed, active.cancellation.token);
+				const result = await this.handleRequest(parsed, active.cancellation.token);
 				active.runSettled = true;
 				this.send(response, 200, result);
 			} catch (error) {
@@ -227,8 +233,8 @@ export class BaseHalfNodeCommandServer {
 
 export async function requestBaseHalfNodeCommand(
 	ipcHandlePath: string,
-	request: IBaseHalfRunNodeCommandRequest
-): Promise<IBaseHalfRunNodeCommandResponse>;
+	request: IBaseHalfGenerateCommandRequest
+): Promise<IBaseHalfGenerateCommandResponse>;
 export async function requestBaseHalfNodeCommand(
 	ipcHandlePath: string,
 	request: IBaseHalfAgentOperationCommandRequest
@@ -286,12 +292,14 @@ export async function requestBaseHalfNodeCommand(
 	});
 }
 
-export function baseHalfRejectedNodeCommandResponse(nodePath: string, error: string): IBaseHalfRunNodeCommandResponse {
+/** What `basehalf --generate` prints when the generation of the card at `path` cannot start. */
+export function baseHalfRejectedGenerateCommandResponse(path: string, error: string): IBaseHalfGenerateCommandResponse {
 	return {
 		version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+		type: 'generate',
 		ok: false,
 		outcome: 'rejected',
-		nodePath,
+		path: path.slice(0, 1024),
 		error: error.slice(0, 16 * 1024)
 	};
 }
@@ -323,7 +331,7 @@ function rejectedResponseForRequest(request: IBaseHalfNodeCommandRequest | undef
 	}
 	return request?.type === 'listCapabilities'
 		? baseHalfRejectedAgentCapabilityDiscoveryResponse(error)
-		: baseHalfRejectedNodeCommandResponse(request?.relativePath ?? '', error);
+		: baseHalfRejectedGenerateCommandResponse(request?.relativePath ?? '', error);
 }
 
 function rejectedResponseForResponse(response: IBaseHalfNodeCommandResponse, error: string): IBaseHalfNodeCommandResponse {
@@ -332,7 +340,7 @@ function rejectedResponseForResponse(response: IBaseHalfNodeCommandResponse, err
 	}
 	return response.type === 'listCapabilities'
 		? baseHalfRejectedAgentCapabilityDiscoveryResponse(error)
-		: baseHalfRejectedNodeCommandResponse(typeof response.nodePath === 'string' ? response.nodePath : '', error);
+		: baseHalfRejectedGenerateCommandResponse(typeof response.path === 'string' ? response.path : '', error);
 }
 
 function isBaseHalfNodeCommandRequest(value: unknown): value is IBaseHalfNodeCommandRequest {
@@ -346,7 +354,7 @@ function isBaseHalfNodeCommandRequest(value: unknown): value is IBaseHalfNodeCom
 		|| record.cwd.length > 4096) {
 		return false;
 	}
-	if (record.type === 'runNode') {
+	if (record.type === 'generate') {
 		return Object.keys(record).length === 4
 			&& typeof record.relativePath === 'string'
 			&& record.relativePath.length > 0
@@ -398,18 +406,28 @@ function isBaseHalfNodeCommandResponse(value: unknown): value is IBaseHalfNodeCo
 			&& record.extensions === undefined
 			&& isBoundedText(record.error, 16 * 1024);
 	}
-	return (record.type === undefined || record.type === 'runNode')
-		&& ['succeeded', 'rejected'].includes(String(record.outcome))
-		&& record.ok === (record.outcome === 'succeeded')
-		&& typeof record.nodePath === 'string'
-		&& hasOnlyKeys(record, ['version', 'ok', 'outcome', 'nodePath'], ['type', 'error'])
-		&& (record.outcome !== 'succeeded' || record.error === undefined);
+	if (record.type !== 'generate' || typeof record.path !== 'string' || record.path.length > 1024) {
+		return false;
+	}
+	// A generation that started names every card it lands on; one that did not names none, and says why.
+	if (record.outcome === 'succeeded') {
+		return record.ok === true
+			&& hasOnlyKeys(record, ['version', 'type', 'ok', 'outcome', 'path', 'cards'])
+			&& Array.isArray(record.cards)
+			&& record.cards.length > 0
+			&& record.cards.length <= BASEHALF_GENERATE_COMMAND_MAX_CARDS
+			&& record.cards.every(card => isBoundedText(card, 1024));
+	}
+	return record.outcome === 'rejected'
+		&& record.ok === false
+		&& hasOnlyKeys(record, ['version', 'type', 'ok', 'outcome', 'path', 'error'])
+		&& isBoundedText(record.error, 16 * 1024);
 }
 
 function isCapabilityDiscoveryHost(value: unknown): boolean {
 	if (!isRecord(value)
-		|| !hasOnlyKeys(value, ['nodeDocument', 'contextEdge', 'templates', 'operations', 'videoCatalog'])
-		|| !isCapabilityDiscoveryVideoCatalog(value.videoCatalog)
+		|| !hasOnlyKeys(value, ['generationCards', 'contextEdge', 'templates', 'operations', 'modelCatalog'])
+		|| !isCapabilityDiscoveryModelCatalog(value.modelCatalog)
 		|| !Array.isArray(value.templates)
 		|| value.templates.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES
 		|| !value.templates.every(template => isRecord(template)
@@ -423,18 +441,16 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| !value.operations.every(isCapabilityDiscoveryOperation)
 		|| new Set(value.operations.map(operation => (operation as Record<string, unknown>).id)).size !== value.operations.length
 		|| !isRecord(value.contextEdge)
-		|| !hasOnlyKeys(value.contextEdge, ['source', 'resultNodeSource', 'target', 'autoRun', 'recursive', 'storedBy', 'markdownFrontmatterKey', 'nodeDocumentField', 'inputOrder', 'label'])
+		|| !hasOnlyKeys(value.contextEdge, ['source', 'target', 'autoRun', 'recursive', 'storedBy', 'markdownFrontmatterKey', 'inputOrder', 'label'])
 		|| value.contextEdge.source !== 'direct-content'
-		|| value.contextEdge.resultNodeSource !== 'node-result'
 		|| value.contextEdge.target !== 'direct-context'
 		|| value.contextEdge.autoRun !== false
 		|| value.contextEdge.recursive !== false
 		|| value.contextEdge.storedBy !== 'downstream'
 		|| value.contextEdge.markdownFrontmatterKey !== 'upstream'
-		|| value.contextEdge.nodeDocumentField !== 'upstream'
 		|| value.contextEdge.inputOrder !== 'target-upstream-order'
 		|| value.contextEdge.label !== 'none'
-		|| !isRecord(value.nodeDocument)) {
+		|| !isCapabilityDiscoveryGenerationCards(value.generationCards)) {
 		return false;
 	}
 	const templateIds = value.templates.map(template => (template as Record<string, unknown>).id);
@@ -454,46 +470,55 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 			return false;
 		}
 	}
-	const document = value.nodeDocument;
-	const nodeKinds = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'];
-	if (!hasOnlyKeys(document, ['fileExtension', 'documentVersion', 'nodeKinds', 'lifecycle', 'runCommand', 'authoring'])
-		|| document.fileExtension !== '.bhnode'
-		|| !Number.isSafeInteger(document.documentVersion)
-		|| (document.documentVersion as number) < 1
-		|| !Array.isArray(document.nodeKinds)
-		|| document.nodeKinds.length !== nodeKinds.length
-		|| !document.nodeKinds.every((kind, index) => kind === nodeKinds[index])
-		|| !isRecord(document.lifecycle)
-		|| !hasOnlyKeys(document.lifecycle, ['task', 'result'])
-		|| document.lifecycle.task !== 'host-owned'
-		|| document.lifecycle.result !== 'host-owned-single-file'
-		|| document.runCommand !== 'basehalf --run-node <workspace-relative-.bhnode-path>'
-		|| !isRecord(document.authoring)
-		|| !hasOnlyKeys(document.authoring, ['contractVersion', 'schema', 'examples', 'hostOwnedFields', 'rules'])
-		|| !Number.isSafeInteger(document.authoring.contractVersion)
-		|| !isRecord(document.authoring.schema)
-		|| !isRecord(document.authoring.examples)
-		|| !Array.isArray(document.authoring.hostOwnedFields)
-		|| !arraysEqual(document.authoring.hostOwnedFields, ['task', 'result'])
-		|| !Array.isArray(document.authoring.rules)
-		|| !document.authoring.rules.every(rule => isBoundedText(rule, 500))) {
+	return true;
+}
+
+/**
+ * The contract of what an agent may write to a generation card (D63): the
+ * literals that say where things are and what BaseHalf alone writes, and an
+ * authoring contract of bounded JSON with its version, schema, examples, and
+ * rules.
+ */
+function isCapabilityDiscoveryGenerationCards(value: unknown): boolean {
+	if (!isRecord(value)
+		|| !hasOnlyKeys(value, ['fileExtensions', 'generationFile', 'inputsFile', 'hostOwned', 'generateCommand', 'authoring'])
+		|| !isRecord(value.fileExtensions)
+		|| !hasOnlyKeys(value.fileExtensions, ['image', 'video'])
+		|| !Array.isArray(value.fileExtensions.image)
+		|| !arraysEqual(value.fileExtensions.image, BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS.image)
+		|| !Array.isArray(value.fileExtensions.video)
+		|| !arraysEqual(value.fileExtensions.video, BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS.video)
+		|| value.generationFile !== BASEHALF_AGENT_DISCOVERY_GENERATION_FILE
+		|| value.inputsFile !== BASEHALF_AGENT_DISCOVERY_INPUTS_FILE
+		|| !Array.isArray(value.hostOwned)
+		|| !arraysEqual(value.hostOwned, BASEHALF_AGENT_DISCOVERY_HOST_OWNED)
+		|| value.generateCommand !== BASEHALF_AGENT_DISCOVERY_GENERATE_COMMAND) {
 		return false;
 	}
-	return isBoundedCapabilityJson(document.authoring);
+	const authoring = value.authoring;
+	return isRecord(authoring)
+		&& hasOnlyKeys(authoring, ['contractVersion', 'schema', 'examples', 'rules'])
+		&& Number.isSafeInteger(authoring.contractVersion)
+		&& (authoring.contractVersion as number) >= 5
+		&& isRecord(authoring.schema)
+		&& isRecord(authoring.examples)
+		&& Array.isArray(authoring.rules)
+		&& authoring.rules.length > 0
+		&& authoring.rules.length <= 32
+		&& authoring.rules.every(rule => isBoundedText(rule, 500))
+		&& isBoundedCapabilityJson(authoring);
 }
 
 function requestPath(request: IBaseHalfNodeCommandRequest): string {
 	switch (request.type) {
-		case 'runNode': return REQUEST_PATH;
+		case 'generate': return GENERATE_REQUEST_PATH;
 		case 'runOperation': return OPERATION_REQUEST_PATH;
 		case 'listCapabilities': return CAPABILITY_DISCOVERY_REQUEST_PATH;
 	}
 }
 
 function responseMatchesRequest(request: IBaseHalfNodeCommandRequest, response: IBaseHalfNodeCommandResponse): boolean {
-	return request.type === 'runNode'
-		? response.type !== 'runOperation' && response.type !== 'listCapabilities'
-		: response.type === request.type;
+	return response.type === request.type;
 }
 
 function isCapabilityDiscoveryExtensions(value: readonly unknown[]): value is readonly IBaseHalfAgentCapabilityDiscoveryExtension[] {
@@ -584,11 +609,11 @@ function arraysEqual(left: readonly unknown[], right: readonly unknown[]): boole
 }
 
 /** The model catalog: a list of providers as bounded JSON, or none and why. */
-function isCapabilityDiscoveryVideoCatalog(value: unknown): boolean {
+function isCapabilityDiscoveryModelCatalog(value: unknown): boolean {
 	return isRecord(value)
 		&& hasOnlyKeys(value, ['providers'], ['error'])
 		&& Array.isArray(value.providers)
-		&& value.providers.length <= BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_VIDEO_PROVIDERS
+		&& value.providers.length <= BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_PROVIDERS
 		&& value.providers.every(provider => isRecord(provider) && typeof provider.id === 'string')
 		&& (value.error === undefined || isBoundedText(value.error, 2_000))
 		// A catalog declares every parameter of every model: it gets a larger budget than an authoring contract.

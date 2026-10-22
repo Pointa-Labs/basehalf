@@ -16,7 +16,7 @@ import { IWorkingCopyService } from '../../../services/workingCopy/common/workin
 import { IBaseHalfAgentAreaService } from '../../agentArea/common/basehalfAgentArea.js';
 import { IBaseHalfAgentCapabilityRegistryService } from '../../plugins/common/basehalfAgentCapabilities.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../canvas/common/basehalfCanvasTemplateRegistry.js';
-import { IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 import { BaseHalfNodeCommandHandler } from './basehalfNodeCommandHandler.js';
 
 export class BaseHalfNodeCommandBackendGeneration {
@@ -50,6 +50,7 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 		@IWorkingCopyService workingCopyService: IWorkingCopyService,
 		@IBaseHalfAgentAreaService agentAreaService: IBaseHalfAgentAreaService,
 		@IBaseHalfVideoGenerationService videoGenerationService: IBaseHalfVideoGenerationService,
+		@IBaseHalfGenerationCardStore generationCardStore: IBaseHalfGenerationCardStore,
 		@IBaseHalfAgentCapabilityRegistryService agentCapabilityRegistryService: IBaseHalfAgentCapabilityRegistryService,
 		@IBaseHalfCanvasTemplateRegistryService canvasTemplateRegistryService: IBaseHalfCanvasTemplateRegistryService,
 		@ICommandService commandService: ICommandService,
@@ -64,6 +65,7 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 			workingCopyService,
 			agentAreaService,
 			videoGenerationService,
+			generationCardStore,
 			agentCapabilityRegistryService,
 			canvasTemplateRegistryService,
 			commandService,

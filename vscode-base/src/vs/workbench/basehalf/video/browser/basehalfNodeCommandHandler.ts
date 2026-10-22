@@ -8,24 +8,29 @@ import { isAbsolute } from '../../../../base/common/path.js';
 import { raceCancellationError } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { CancellationError, isCancellationError } from '../../../../base/common/errors.js';
-import { extUri } from '../../../../base/common/resources.js';
+import { dirname, extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import {
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS,
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES,
+	BASEHALF_AGENT_DISCOVERY_GENERATE_COMMAND,
+	BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS,
+	BASEHALF_AGENT_DISCOVERY_GENERATION_FILE,
+	BASEHALF_AGENT_DISCOVERY_HOST_OWNED,
+	BASEHALF_AGENT_DISCOVERY_INPUTS_FILE,
 	BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 	IBaseHalfAgentCapabilityDiscoveryExtension,
+	IBaseHalfAgentCapabilityDiscoveryModelCatalog,
 	IBaseHalfAgentCapabilityDiscoveryRequest,
 	IBaseHalfAgentCapabilityDiscoveryResponse,
-	IBaseHalfAgentCapabilityDiscoveryVideoCatalog,
 	IBaseHalfAgentOperationCommandRequest,
 	IBaseHalfAgentOperationCommandResponse,
+	IBaseHalfGenerateCommandRequest,
+	IBaseHalfGenerateCommandResponse,
 	IBaseHalfNodeCommandRequestEvent,
-	IBaseHalfNodeCommandResponse,
-	IBaseHalfRunNodeCommandRequest,
-	IBaseHalfRunNodeCommandResponse
+	IBaseHalfNodeCommandResponse
 } from '../../../../platform/terminal/common/terminal.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
@@ -40,28 +45,23 @@ import {
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../canvas/common/basehalfCanvasTemplate.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../canvas/common/basehalfCanvasTemplateRegistry.js';
-import {
-	BASEHALF_NODE_DOCUMENT_EXTENSION,
-	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	BASEHALF_NODE_DOCUMENT_VERSION,
-	BASEHALF_NODE_KINDS,
-	baseHalfProjectPathProblem,
-	getBaseHalfNodeAgentAuthoringContract,
-	parseBaseHalfNodeDocumentBytes
-} from '../common/basehalfNodeDocument.js';
+import { baseHalfProjectPathProblem } from '../common/basehalfNodeDocument.js';
+import { getBaseHalfGenerationAgentContract } from '../common/basehalfGenerationAgentContract.js';
+import { baseHalfGenerationKindOfPath } from '../common/basehalfGenerationInfo.js';
 import { baseHalfVideoCatalogForAgents, baseHalfVideoExampleGeneration, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice } from '../common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 
 /** How long `--list-capabilities` waits for the model catalog while it loads. */
-const VIDEO_CATALOG_WAIT = 10_000;
+const MODEL_CATALOG_WAIT = 10_000;
 
 /**
- * Answers the commands of `basehalf` in an Agent Area terminal: `--run-node`
- * starts a Video node's generation exactly as Generate does, without a
- * question, and answers once the task is in the node's file (D58).
+ * Answers the commands of `basehalf` in an Agent Area terminal (D63,
+ * generation cards, "Agents"): `--generate` starts a generation of an image
+ * or video card exactly as Generate does, without a question, and answers
+ * with every card it lands on once its task record is `submitting`.
  * `--list-capabilities` and `--run-operation` describe and run what the host
- * and admitted extensions offer; the description includes the model catalog,
- * from which an agent chooses a Video node's generation (D59).
+ * and admitted extensions offer; the description includes what an agent may
+ * write to a generation card and the model catalog it chooses from (D59).
  */
 export class BaseHalfNodeCommandHandler {
 	constructor(
@@ -70,6 +70,7 @@ export class BaseHalfNodeCommandHandler {
 		private readonly workingCopyService: IWorkingCopyService,
 		private readonly agentAreaService: IBaseHalfAgentAreaService,
 		private readonly videoGenerationService: IBaseHalfVideoGenerationService,
+		private readonly generationCardStore: IBaseHalfGenerationCardStore,
 		private readonly agentCapabilityRegistryService: IBaseHalfAgentCapabilityRegistryService,
 		private readonly canvasTemplateRegistryService: IBaseHalfCanvasTemplateRegistryService,
 		private readonly commandService: ICommandService,
@@ -95,22 +96,34 @@ export class BaseHalfNodeCommandHandler {
 			return this.handleOperation(event.request, cancellationToken);
 		}
 
+		return this.handleGenerate(event.request, cancellationToken);
+	}
+
+	/**
+	 * `basehalf --generate <path>`: the path must name a generation card of
+	 * the workspace folder, a draft or a card with its file. The generation
+	 * runs exactly as Generate does, except that a value the model does not
+	 * accept stops it instead of being made legal.
+	 */
+	private async handleGenerate(request: IBaseHalfGenerateCommandRequest, cancellationToken: CancellationToken): Promise<IBaseHalfGenerateCommandResponse> {
 		try {
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			const node = await this.resolveNode(event);
-			await this.assertVideoNode(node);
+			const card = await this.resolveGenerationCard(request);
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			// Once the generation starts it belongs to the node: closing the
+			// Once the generation starts it belongs to its cards: closing the
 			// Agent session never stops it. No question is asked; the user asked
-			// the agent to work, and their own key pays (D58).
-			const [running] = await this.videoGenerationService.generate(node.resource, { agent: true });
-			return startedResponse((running ? extUri.relativePath(node.workspaceFolder, running) : undefined) ?? node.relativePath);
+			// the agent to work, and their own key pays.
+			const cards = await this.videoGenerationService.generate(card.resource, { agent: true });
+			const paths = cards.map(resource => extUri.relativePath(card.workspaceFolder, resource) ?? resource.path);
+			return paths.length ? generatedResponse(request.relativePath, paths) : rejectedGenerateResponse(request.relativePath, 'The generation lands on no card.');
 		} catch (error) {
-			return rejectedResponse(event.request.relativePath, errorMessage(error));
+			return rejectedGenerateResponse(request.relativePath, isCancellationError(error)
+				? 'The command was cancelled before the generation started.'
+				: errorMessage(error));
 		}
 	}
 
@@ -145,7 +158,7 @@ export class BaseHalfNodeCommandHandler {
 			})));
 			const templateIds = templates.map(template => template.id);
 			const hostOperations = Object.freeze(templateIds.length === 0 ? [] : [capabilityDiscoveryOperation(createFromTemplateOperation(templateIds))]);
-			const video = await this.videoCatalogForAgents();
+			const models = await this.modelCatalogForAgents();
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
@@ -155,35 +168,31 @@ export class BaseHalfNodeCommandHandler {
 				ok: true,
 				outcome: 'succeeded',
 				host: Object.freeze({
-					nodeDocument: Object.freeze({
-						fileExtension: BASEHALF_NODE_DOCUMENT_EXTENSION,
-						documentVersion: BASEHALF_NODE_DOCUMENT_VERSION,
-						nodeKinds: BASEHALF_NODE_KINDS,
-						lifecycle: Object.freeze({
-							task: 'host-owned' as const,
-							result: 'host-owned-single-file' as const
-						}),
-						runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
-						authoring: getBaseHalfNodeAgentAuthoringContract(video.example)
+					// D63: what an agent may write to make a draft or change a card's next generation.
+					generationCards: Object.freeze({
+						fileExtensions: BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS,
+						generationFile: BASEHALF_AGENT_DISCOVERY_GENERATION_FILE,
+						inputsFile: BASEHALF_AGENT_DISCOVERY_INPUTS_FILE,
+						hostOwned: BASEHALF_AGENT_DISCOVERY_HOST_OWNED,
+						generateCommand: BASEHALF_AGENT_DISCOVERY_GENERATE_COMMAND,
+						authoring: getBaseHalfGenerationAgentContract(models.example)
 					}),
 					// D37: the downstream node stores each edge once, in its own
 					// `upstream` list; the reverse direction is derived by the host.
-					// D58: a Video node uses its inputs in that list's order.
+					// A generation card uses its inputs in that list's order.
 					contextEdge: Object.freeze({
 						source: 'direct-content' as const,
-						resultNodeSource: 'node-result' as const,
 						target: 'direct-context' as const,
 						autoRun: false as const,
 						recursive: false as const,
 						storedBy: 'downstream' as const,
 						markdownFrontmatterKey: 'upstream' as const,
-						nodeDocumentField: 'upstream' as const,
 						inputOrder: 'target-upstream-order' as const,
 						label: 'none' as const
 					}),
 					templates,
 					operations: hostOperations,
-					videoCatalog: video.catalog
+					modelCatalog: models.catalog
 				}),
 				extensions
 			};
@@ -199,9 +208,9 @@ export class BaseHalfNodeCommandHandler {
 	}
 
 	/** The model catalog for agents, and a generation of it to show in the authoring example. */
-	private async videoCatalogForAgents(): Promise<{ readonly catalog: IBaseHalfAgentCapabilityDiscoveryVideoCatalog; readonly example?: IBaseHalfVideoGenerationChoice }> {
+	private async modelCatalogForAgents(): Promise<{ readonly catalog: IBaseHalfAgentCapabilityDiscoveryModelCatalog; readonly example?: IBaseHalfVideoGenerationChoice }> {
 		try {
-			const catalog = await this.videoCatalogService.whenReady(VIDEO_CATALOG_WAIT);
+			const catalog = await this.videoCatalogService.whenReady(MODEL_CATALOG_WAIT);
 			const setup = (provider: IBaseHalfVideoCatalogProvider) => this.videoProviderSettings.getStatus(provider);
 			const providers = JSON.parse(JSON.stringify(baseHalfVideoCatalogForAgents(catalog, setup)));
 			const example = baseHalfVideoExampleGeneration(catalog, setup);
@@ -286,57 +295,59 @@ export class BaseHalfNodeCommandHandler {
 		return { operation: descriptor.operation };
 	}
 
-	private async resolveNode(event: IBaseHalfNodeCommandRequestEvent): Promise<IBaseHalfWorkspaceResource> {
-		const request = event.request;
-		if (request.version !== BASEHALF_NODE_COMMAND_BRIDGE_VERSION || request.type !== 'runNode') {
-			throw new Error('This node command protocol version is not supported.');
-		}
-		if (!isAbsolute(request.cwd) || request.cwd.includes('\0')) {
-			throw new Error('Run the command from an absolute local workspace directory.');
+	/**
+	 * The card a `--generate` names: a portable path relative to the workspace
+	 * folder of the command directory, with an image or video extension, whose
+	 * folder is a real folder of that workspace folder, whose file, when it
+	 * has one, is a regular file there, and that the card store knows as a
+	 * generation card: a draft, or a file with generation information.
+	 */
+	private async resolveGenerationCard(request: IBaseHalfGenerateCommandRequest): Promise<IBaseHalfWorkspaceResource> {
+		if (request.version !== BASEHALF_NODE_COMMAND_BRIDGE_VERSION || request.type !== 'generate') {
+			throw new Error('This generate command protocol version is not supported.');
 		}
 		if (baseHalfProjectPathProblem(request.relativePath)) {
-			throw new Error('The node path must be a portable relative project path.');
+			throw new Error('The card path must be a portable path relative to the workspace folder, outside .bh.');
 		}
-		if (!request.relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			throw new Error(`The node path must end in ${BASEHALF_NODE_DOCUMENT_EXTENSION}.`);
+		if (!baseHalfGenerationKindOfPath(request.relativePath)) {
+			throw new Error(`'${request.relativePath}' is not an image or video card: its name has no image or video extension.`);
 		}
-
-		const { cwd, workspaceFolder } = await this.resolveCommandWorkspace(request.cwd);
+		const { workspaceFolder } = await this.resolveCommandWorkspace(request.cwd);
 		const resource = URI.joinPath(workspaceFolder.uri, ...request.relativePath.split('/'));
 		const workspaceRelativePath = extUri.relativePath(workspaceFolder.uri, resource);
 		if (!workspaceRelativePath || baseHalfProjectPathProblem(workspaceRelativePath)
 			|| !extUri.isEqualOrParent(resource, workspaceFolder.uri)
 			|| extUri.isEqual(resource, workspaceFolder.uri)) {
-			throw new Error('The node path does not resolve inside the selected workspace folder.');
+			throw new Error('The card path does not resolve inside the workspace folder.');
 		}
-
-		await this.assertNoSymbolicLinks(workspaceFolder.uri, cwd);
-		await this.assertNoSymbolicLinks(workspaceFolder.uri, resource);
-		const [workspaceRealpath, cwdRealpath, resourceRealpath, cwdStat, resourceStat] = await Promise.all([
+		// A draft has no file: its folder is what must be a real folder of the workspace.
+		const folder = dirname(resource);
+		if (!(await this.statQuietly(folder))?.isDirectory) {
+			throw new Error(`The folder of '${workspaceRelativePath}' does not exist.`);
+		}
+		await this.assertNoSymbolicLinks(workspaceFolder.uri, folder);
+		const [workspaceRealpath, folderRealpath, itemStat] = await Promise.all([
 			this.fileService.realpath(workspaceFolder.uri),
-			this.fileService.realpath(cwd),
-			this.fileService.realpath(resource),
-			this.fileService.stat(cwd),
-			this.fileService.stat(resource)
+			this.realpathQuietly(folder),
+			this.statQuietly(resource)
 		]);
-		if (!workspaceRealpath || !cwdRealpath || !resourceRealpath) {
-			throw new Error('The workspace node path could not be verified.');
+		if (!workspaceRealpath || !folderRealpath || !extUri.isEqualOrParent(folderRealpath, workspaceRealpath)) {
+			throw new Error(`The folder of '${workspaceRelativePath}' is not a folder of the workspace.`);
 		}
-		if (!cwdStat.isDirectory || cwdStat.isSymbolicLink) {
-			throw new Error('The command directory must be a regular workspace directory.');
+		if (itemStat) {
+			if (itemStat.isSymbolicLink || !itemStat.isFile) {
+				throw new Error(`'${workspaceRelativePath}' must be a regular file or a draft, not a folder or a symbolic link.`);
+			}
+			const itemRealpath = await this.realpathQuietly(resource);
+			if (!itemRealpath || !extUri.isEqualOrParent(itemRealpath, workspaceRealpath)) {
+				throw new Error(`'${workspaceRelativePath}' resolves outside the workspace folder.`);
+			}
 		}
-		if (!resourceStat.isFile || resourceStat.isDirectory || resourceStat.isSymbolicLink) {
-			throw new Error('The node path must identify a regular node document.');
+		if (!await this.generationCardStore.isGenerationCard(resource)) {
+			throw new Error(itemStat
+				? `'${workspaceRelativePath}' is not an image or video card: it has no prompt or settings. Write its .bh/mirror/${workspaceRelativePath}/generation.yaml first.`
+				: `'${workspaceRelativePath}' names no file and no draft. Write .bh/mirror/${workspaceRelativePath}/generation.yaml to make a draft there.`);
 		}
-		if (!extUri.isEqualOrParent(cwdRealpath, workspaceRealpath)
-			|| !extUri.isEqualOrParent(resourceRealpath, workspaceRealpath)
-			|| extUri.isEqual(resourceRealpath, workspaceRealpath)) {
-			throw new Error('The verified node path resolves outside the selected workspace folder.');
-		}
-		if (this.workingCopyService.isDirty(resource)) {
-			throw new Error('Save this node before running it.');
-		}
-
 		return {
 			resource,
 			workspaceFolder: workspaceFolder.uri,
@@ -344,17 +355,19 @@ export class BaseHalfNodeCommandHandler {
 		};
 	}
 
-	/** Only a Video node generates. */
-	private async assertVideoNode(node: IBaseHalfWorkspaceResource): Promise<void> {
-		const content = await this.fileService.readFile(node.resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-		let kind: string;
+	private async statQuietly(resource: URI): Promise<IFileStatWithPartialMetadata | undefined> {
 		try {
-			kind = parseBaseHalfNodeDocumentBytes(content.value.buffer).kind;
-		} catch (error) {
-			throw new Error(`'${node.relativePath}' can't be read: ${errorMessage(error)}`);
+			return await this.fileService.stat(resource);
+		} catch {
+			return undefined;
 		}
-		if (kind !== 'video') {
-			throw new Error(`Only a Video node runs; '${node.relativePath}' is not a Video node.`);
+	}
+
+	private async realpathQuietly(resource: URI): Promise<URI | undefined> {
+		try {
+			return await this.fileService.realpath(resource);
+		} catch {
+			return undefined;
 		}
 	}
 
@@ -443,7 +456,7 @@ export class BaseHalfNodeCommandHandler {
 	private async assertNoSymbolicLinks(root: URI, resource: URI): Promise<void> {
 		const relative = extUri.relativePath(root, resource);
 		if (relative === undefined || relative === '..' || relative.startsWith('../')) {
-			throw new Error('The requested node path leaves the selected workspace folder.');
+			throw new Error('The requested path leaves the selected workspace folder.');
 		}
 		let current = root;
 		if ((await this.fileService.stat(current)).isSymbolicLink) {
@@ -453,29 +466,31 @@ export class BaseHalfNodeCommandHandler {
 			current = URI.joinPath(current, segment);
 			const stat = await this.fileService.stat(current);
 			if (stat.isSymbolicLink) {
-				throw new Error('The requested node path contains a symbolic link.');
+				throw new Error('The requested path contains a symbolic link.');
 			}
 		}
 	}
 }
 
-/** The answer to `--run-node` once the generation's task is in the node's file. */
-export function startedResponse(nodePath: string): IBaseHalfRunNodeCommandResponse {
+/** The answer to `--generate` once the generation's task record is `submitting`: every card it lands on. */
+export function generatedResponse(path: string, cards: readonly string[]): IBaseHalfGenerateCommandResponse {
 	return {
 		version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
-		type: 'runNode',
+		type: 'generate',
 		ok: true,
 		outcome: 'succeeded',
-		nodePath
+		path,
+		cards: Object.freeze([...cards])
 	};
 }
 
-function rejectedResponse(nodePath: string, error: string): IBaseHalfRunNodeCommandResponse {
+function rejectedGenerateResponse(path: string, error: string): IBaseHalfGenerateCommandResponse {
 	return {
 		version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+		type: 'generate',
 		ok: false,
 		outcome: 'rejected',
-		nodePath,
+		path,
 		error: error.slice(0, 16 * 1024)
 	};
 }
@@ -511,13 +526,13 @@ function rejectedCapabilityDiscoveryResponse(error: string): IBaseHalfAgentCapab
 	};
 }
 
-function rejectedResponseForRequest(request: IBaseHalfRunNodeCommandRequest | IBaseHalfAgentOperationCommandRequest | IBaseHalfAgentCapabilityDiscoveryRequest, error: string): IBaseHalfNodeCommandResponse {
+function rejectedResponseForRequest(request: IBaseHalfGenerateCommandRequest | IBaseHalfAgentOperationCommandRequest | IBaseHalfAgentCapabilityDiscoveryRequest, error: string): IBaseHalfNodeCommandResponse {
 	if (request.type === 'runOperation') {
 		return rejectedOperationResponse(request.operationId, error);
 	}
 	return request.type === 'listCapabilities'
 		? rejectedCapabilityDiscoveryResponse(error)
-		: rejectedResponse(request.relativePath, error);
+		: rejectedGenerateResponse(request.relativePath, error);
 }
 
 function capabilityDiscoveryExtension(

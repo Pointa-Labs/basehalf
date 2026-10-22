@@ -10,11 +10,11 @@ import {
 	MOVE_SEQUENCE_ITEM_COMMAND_ID,
 	REMOVE_SEQUENCE_ITEM_COMMAND_ID,
 	REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID,
-	resolveAIVideoSequenceVideoNodePath,
+	resolveAIVideoSequenceVideoPath,
 	type AIVideoSequenceItemInspection
 } from './domain';
 import { addSequenceItemFromProjection, inspectLoadedSequence, loadSequence } from './sequenceCommands';
-import { canPlayEntireSequence, reloadSequencePreview, resolveSequencePlaybackRestore, sequenceProjectionWindow, SequenceProjectionArtifactPaths, SequenceProjectionNodePaths, SequenceProjectionRefreshState, SequenceProjectionRenderQueue } from './sequenceProjectionRefresh';
+import { canPlayEntireSequence, reloadSequencePreview, resolveSequencePlaybackRestore, sequenceCardOfGenerationRecord, sequenceProjectionWindow, SequenceProjectionArtifactPaths, SequenceProjectionRefreshState, SequenceProjectionRenderQueue, SequenceProjectionVideoPaths } from './sequenceProjectionRefresh';
 
 export const SEQUENCE_PROJECTION_ID = 'pointa.basehalf-ai-video.sequence';
 const MAX_SEQUENCE_PROJECTION_ITEMS = 200;
@@ -28,7 +28,7 @@ interface SequenceProjectionReadResult {
 	readonly items: readonly SequenceProjectionItem[];
 	readonly totalItems: number;
 	readonly truncated: boolean;
-	readonly nodeResourceKeys: readonly string[];
+	readonly videoResourceKeys: readonly string[];
 }
 
 type SequenceProjectionMessage =
@@ -64,7 +64,7 @@ export async function resolveSequenceProjection(
 	const parentCancellation = token.onCancellationRequested(() => projectionCancellation.cancel());
 	const refreshState = new SequenceProjectionRefreshState(view.visible);
 	const artifactPaths = new SequenceProjectionArtifactPaths(MAX_SEQUENCE_ITEMS);
-	const nodePaths = new SequenceProjectionNodePaths(MAX_SEQUENCE_ITEMS);
+	const videoPaths = new SequenceProjectionVideoPaths(MAX_SEQUENCE_ITEMS);
 	const renderOnce = async (): Promise<void> => {
 		const generation = ++renderGeneration;
 		const artifactGenerationAtStart = artifactEventGeneration;
@@ -75,12 +75,12 @@ export async function resolveSequenceProjection(
 			const projection = await readProjectionItems(
 				resource,
 				projectionCancellation.token,
-				resourceKeys => nodePaths.reconcile(resourceKeys)
+				resourceKeys => videoPaths.reconcile(resourceKeys)
 			);
 			if (projectionCancellation.token.isCancellationRequested || generation !== renderGeneration) {
 				return;
 			}
-			nodePaths.reconcile(projection.nodeResourceKeys);
+			videoPaths.reconcile(projection.videoResourceKeys);
 			artifactPaths.reconcile(projection.items.map(item => ({
 				resultKey: sequenceResultKey(item.inspection),
 				...(item.mediaResource ? { verifiedResourceKey: item.mediaResource.toString() } : {})
@@ -114,14 +114,17 @@ export async function resolveSequenceProjection(
 		}, 120);
 	};
 	const isTrackedDocument = (candidate: vscode.Uri): boolean => candidate.toString() === resource.toString()
-		|| nodePaths.hasResource(candidate.toString());
+		|| videoPaths.hasResource(candidate.toString());
 	const sequenceWatcher = vscode.workspace.createFileSystemWatcher(
 		new vscode.RelativePattern(vscode.Uri.file(dirname(resource.fsPath)), basename(resource.fsPath))
 	);
-	const nodeWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(workspace, '**/*.bhnode'));
 	const artifactWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(workspace, '**/*'));
+	// A clip's video, the last verified video of a clip, or the record of what
+	// made a clip's video, which can arrive after the video does.
 	const onArtifactFileEvent = (candidate: vscode.Uri): void => {
-		if (!artifactPaths.hasResource(candidate.toString())) {
+		const key = candidate.toString();
+		const card = sequenceCardOfGenerationRecord(workspace.uri.toString(), key);
+		if (!artifactPaths.hasResource(key) && !videoPaths.hasResource(key) && !(card && videoPaths.hasResource(card))) {
 			return;
 		}
 		artifactEventGeneration++;
@@ -129,26 +132,10 @@ export async function resolveSequenceProjection(
 	};
 	const refreshSubscriptions: vscode.Disposable[] = [
 		sequenceWatcher,
-		nodeWatcher,
 		artifactWatcher,
 		sequenceWatcher.onDidCreate(() => scheduleRender(true)),
 		sequenceWatcher.onDidChange(() => scheduleRender(true)),
 		sequenceWatcher.onDidDelete(() => scheduleRender(true)),
-		nodeWatcher.onDidCreate(candidate => {
-			if (isTrackedDocument(candidate)) {
-				scheduleRender(true);
-			}
-		}),
-		nodeWatcher.onDidChange(candidate => {
-			if (isTrackedDocument(candidate)) {
-				scheduleRender(true);
-			}
-		}),
-		nodeWatcher.onDidDelete(candidate => {
-			if (isTrackedDocument(candidate)) {
-				scheduleRender(true);
-			}
-		}),
 		artifactWatcher.onDidCreate(onArtifactFileEvent),
 		artifactWatcher.onDidChange(onArtifactFileEvent),
 		artifactWatcher.onDidDelete(onArtifactFileEvent),
@@ -210,8 +197,8 @@ export async function resolveSequenceProjection(
 				throw new Error('This clip is no longer in the Sequence.');
 			}
 			if (message.type === 'navigate') {
-				const nodeResource = vscode.Uri.file(resolveAIVideoSequenceVideoNodePath(resource.fsPath, item.videoNodePath));
-				await vscode.commands.executeCommand('basehalf.openResource', nodeResource);
+				const videoResource = vscode.Uri.file(resolveAIVideoSequenceVideoPath(resource.fsPath, item.videoPath));
+				await vscode.commands.executeCommand('basehalf.openResource', videoResource);
 				return;
 			}
 			if (message.type === 'move') {
@@ -237,7 +224,7 @@ export async function resolveSequenceProjection(
 		}
 		renderGeneration++;
 		artifactPaths.clear();
-		nodePaths.clear();
+		videoPaths.clear();
 		renderQueue.dispose();
 		messageSubscription.dispose();
 		disposeSubscription.dispose();
@@ -249,16 +236,16 @@ export async function resolveSequenceProjection(
 async function readProjectionItems(
 	resource: vscode.Uri,
 	token: vscode.CancellationToken,
-	onNodeResourcesLoaded: (resourceKeys: readonly string[]) => void
+	onVideoResourcesLoaded: (resourceKeys: readonly string[]) => void
 ): Promise<SequenceProjectionReadResult> {
 	const loaded = await loadSequence(resource);
 	if (token.isCancellationRequested) {
 		throw new vscode.CancellationError();
 	}
 	const projection = sequenceProjectionWindow(loaded.sequence.items, MAX_SEQUENCE_PROJECTION_ITEMS);
-	const nodeResourceKeys = loaded.sequence.items.map(item =>
-		vscode.Uri.file(resolveAIVideoSequenceVideoNodePath(resource.fsPath, item.videoNodePath)).toString());
-	onNodeResourcesLoaded(nodeResourceKeys);
+	const videoResourceKeys = loaded.sequence.items.map(item =>
+		vscode.Uri.file(resolveAIVideoSequenceVideoPath(resource.fsPath, item.videoPath)).toString());
+	onVideoResourcesLoaded(videoResourceKeys);
 	if (token.isCancellationRequested) {
 		throw new vscode.CancellationError();
 	}
@@ -271,7 +258,7 @@ async function readProjectionItems(
 		if (token.isCancellationRequested) {
 			throw new vscode.CancellationError();
 		}
-		const candidateResource = inspected.artifact?.resource;
+		const candidateResource = inspected.video?.resource;
 		const mediaResource = candidateResource instanceof vscode.Uri ? candidateResource : undefined;
 		items.push(Object.freeze({ inspection: inspected, ...(mediaResource ? { mediaResource } : {}) }));
 	}
@@ -279,7 +266,7 @@ async function readProjectionItems(
 		items: Object.freeze(items),
 		totalItems: projection.totalItems,
 		truncated: projection.truncated,
-		nodeResourceKeys: Object.freeze(nodeResourceKeys)
+		videoResourceKeys: Object.freeze(videoResourceKeys)
 	});
 }
 
@@ -343,7 +330,7 @@ function sequenceDocument(webview: vscode.Webview, items: readonly SequenceProje
 				<span class="index">${index + 1}</span><span class="copy"><strong>${escapeHtml(item.inspection.item.title)}</strong><small>${escapeHtml(state)}</small></span>
 			</button>
 			<div class="actions" aria-label="Actions for ${escapeAttribute(item.inspection.item.title)}">
-				<button title="Open source node" data-action="navigate">Open</button>
+				<button title="Open video" data-action="navigate">Open</button>
 				<button title="Move earlier" data-action="move-up" ${index === 0 ? 'disabled' : ''}>↑</button>
 				<button title="Move later" data-action="move-down" ${index === totalItems - 1 ? 'disabled' : ''}>↓</button>
 				${item.inspection.repairCandidatePath ? '<button data-action="repair">Repair</button>' : ''}
@@ -352,19 +339,19 @@ function sequenceDocument(webview: vscode.Webview, items: readonly SequenceProje
 		</li>`;
 	}).join('');
 	const content = `<main>
-		<header><div><h1>Sequence</h1><p>${totalItems} ${totalItems === 1 ? 'clip' : 'clips'} · sealed Video Results</p></div><div class="header-actions"><button data-add>Add clip</button><button class="primary" data-play-all title="${escapeAttribute(playAllLabel)}" aria-label="${escapeAttribute(playAllLabel)}" ${canPlayAll ? '' : 'disabled'}>Play all</button></div></header>
+		<header><div><h1>Sequence</h1><p>${totalItems} ${totalItems === 1 ? 'clip' : 'clips'}</p></div><div class="header-actions"><button data-add>Add clip</button><button class="primary" data-play-all title="${escapeAttribute(playAllLabel)}" aria-label="${escapeAttribute(playAllLabel)}" ${canPlayAll ? '' : 'disabled'}>Play all</button></div></header>
 		${truncated ? `<p class="limit-note">Showing the first ${items.length} clips. Open the local Sequence file to manage the remaining ${totalItems - items.length}.</p>` : ''}
 		<section class="player" aria-label="Active clip">
-			${first ? `<video controls preload="metadata" src="${escapeAttribute(first.src)}"></video><div class="now"><div class="now-copy" aria-live="polite"><span>Now playing</span><strong>${escapeHtml(first.title)}</strong></div><button data-reload-preview hidden title="Reload this sealed Video Result without running a model">Reload preview</button></div>` : '<div class="empty-player">No sealed Video Result is ready to play.</div>'}
+			${first ? `<video controls preload="metadata" src="${escapeAttribute(first.src)}"></video><div class="now"><div class="now-copy" aria-live="polite"><span>Now playing</span><strong>${escapeHtml(first.title)}</strong></div><button data-reload-preview hidden title="Load this clip's video again">Reload preview</button></div>` : '<div class="empty-player">No clip is ready to play.</div>'}
 		</section>
-		<section class="order"><h2>Playback order</h2>${totalItems > 0 ? `<ol>${rows}</ol>` : '<div class="empty-list">Add a Video Result to define playback order.</div>'}</section>
+		<section class="order"><h2>Playback order</h2>${totalItems > 0 ? `<ol>${rows}</ol>` : '<div class="empty-list">Add a video to define playback order.</div>'}</section>
 	</main>`;
 	return shellDocument(webview, content, sequenceScript(playable, canPlayAll));
 }
 
 function stateLabel(item: AIVideoSequenceItemInspection): string {
-	if (item.state === 'result') {
-		return 'Sealed Video Result';
+	if (item.state === 'available') {
+		return 'Available';
 	}
 	return item.message;
 }
@@ -401,7 +388,7 @@ function sequenceScript(playable: readonly { readonly index: number; readonly it
 }
 
 function sequenceResultKey(item: AIVideoSequenceItemInspection): string {
-	return [item.item.id, item.item.nodeId, item.item.videoNodePath].join('\u0000');
+	return [item.item.id, item.item.generationId ?? '', item.item.videoPath].join('\u0000');
 }
 
 function styles(): string {

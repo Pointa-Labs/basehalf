@@ -151,7 +151,8 @@ The instruction covers the following, in this order.
      does not exist yet. Write `prompt`, `provider`, `model`, `mode`, and
      `params` in its `generation.yaml` to make a draft or change its next
      generation; never write `made.yaml`. Its inputs are the entries of its
-     `upstream.yaml`, in order
+     `upstream.yaml`, in order. The user renames, moves, or deletes a draft on
+     the canvas
      ([generation cards](generation-cards.md#what-an-agent-may-write)).
    - Choose `provider`, `model`, `mode`, and `params` from
      `host.modelCatalog` of `basehalf --list-capabilities`: a model of the

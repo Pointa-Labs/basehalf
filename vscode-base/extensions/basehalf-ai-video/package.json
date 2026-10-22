@@ -1,7 +1,7 @@
 {
 	"name": "basehalf-ai-video",
 	"displayName": "BaseHalf AI Video",
-	"description": "The video providers and model catalog of BaseHalf's Video node, a starter video workflow, and Sequence playback.",
+	"description": "The providers and model catalog of BaseHalf's image and video cards, a starter video workflow, and Sequence playback.",
 	"version": "0.6.0",
 	"publisher": "pointa",
 	"license": "Apache-2.0",
@@ -36,7 +36,7 @@
 	"capabilities": {
 		"untrustedWorkspaces": {
 			"supported": false,
-			"description": "Video nodes send requests to the video providers set up on this computer and write their videos into the workspace."
+			"description": "Image and video cards send requests to the providers set up on this computer and write their files into the workspace."
 		},
 		"virtualWorkspaces": false
 	},
@@ -51,50 +51,44 @@
 				"defaultPriority": 300
 			}
 		],
-		"basehalfStructuralCleanups": [
-			{
-				"id": "pointa.basehalf-ai-video.sequence-membership",
-				"extensions": [".bhnode"]
-			}
-		],
 		"basehalfAgentCapabilities": [
 			{
 				"id": "pointa.basehalf-ai-video.sequence-capability",
 				"label": "Video Workflow Documents",
-				"description": "Describe shots and arrange Video nodes that hold a video, without adding another canvas, editor, or renderer.",
+				"description": "Describe shots and arrange videos in playback order, without adding another canvas, editor, or renderer.",
 				"documents": [
 					{
 						"kind": "pointa.basehalf-ai-video.shot",
 						"version": 1,
 						"fileExtensions": [".json"],
-						"schemaSummary": "A shot.json root object with version 1, kind pointa.basehalf-ai-video.shot, a stable id, a title, and clipNodePath ending in .bhnode. clipNodePath is relative to the directory containing that shot.json file."
+						"schemaSummary": "A shot.json root object with version 1, kind pointa.basehalf-ai-video.shot, a stable id, a title, and clipNodePath, the path of the shot's video card (.mp4, .mov, .m4v, or .webm), a draft until it generates. clipNodePath is relative to the directory containing that shot.json file."
 					},
 					{
 						"kind": "pointa.basehalf-ai-video.sequence",
 						"version": 1,
 						"fileExtensions": [".json"],
-						"schemaSummary": "A video-sequence.json root object with version 1, kind pointa.basehalf-ai-video.sequence, and ordered items. Every item requires a unique id, title, stable nodeId, and videoNodePath ending in .bhnode relative to the directory containing video-sequence.json. The referenced node must be a Video node that holds a video whose file exists."
+						"schemaSummary": "A video-sequence.json root object with version 1, kind pointa.basehalf-ai-video.sequence, and ordered items. Every item has a unique id, a title, and videoPath, a video file (.mp4, .mov, .m4v, or .webm) relative to the directory containing video-sequence.json; for a video BaseHalf generated, generationId is the id of its made.yaml. An item is available when its path is a video file and, with a generationId, that file's made.yaml has it."
 					}
 				],
 				"operations": [
 					{
 						"id": "pointa.basehalf-ai-video.sequence-inspect",
 						"command": "pointa.basehalf-ai-video.inspectSequence",
-						"description": "Check that every referenced node is a Video node that holds a video whose file exists, without changing the Sequence.",
+						"description": "Check that every clip names a video file and, with a generationId, the video of that generation, without changing the Sequence.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file in the open local workspace." }
 						],
-						"returns": { "type": "object", "description": "Validation status and the state of each item's Video node." }
+						"returns": { "type": "object", "description": "Validation status and the state of each clip: available, missing, or changed." }
 					},
 					{
 						"id": "pointa.basehalf-ai-video.sequence-add",
 						"command": "pointa.basehalf-ai-video.addSequenceItemFromVideoResult",
-						"description": "Append one Video node that holds a video to playback order.",
+						"description": "Append one video card with its file to playback order, with the id of its made.yaml when it has one.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
-							{ "name": "videoNode", "type": "uri", "required": true, "description": "URI of a Video node that holds a video, under the workflow root containing video-sequence.json." },
+							{ "name": "video", "type": "uri", "required": true, "description": "URI of a video file below the directory containing video-sequence.json." },
 							{ "name": "itemId", "type": "string", "required": true, "description": "Unique stable id for the new Sequence item." },
 							{ "name": "title", "type": "string", "required": false, "description": "Optional human-readable clip title." }
 						],
@@ -103,7 +97,7 @@
 					{
 						"id": "pointa.basehalf-ai-video.sequence-move",
 						"command": "pointa.basehalf-ai-video.moveSequenceItem",
-						"description": "Move one Video node reference by one position in playback order.",
+						"description": "Move one clip by one position in playback order.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
@@ -115,7 +109,7 @@
 					{
 						"id": "pointa.basehalf-ai-video.sequence-remove",
 						"command": "pointa.basehalf-ai-video.removeSequenceItem",
-						"description": "Remove one playback-order reference and keep its Video node and video.",
+						"description": "Remove one clip from playback order and keep its video.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
@@ -126,7 +120,7 @@
 					{
 						"id": "pointa.basehalf-ai-video.sequence-repair-path",
 						"command": "pointa.basehalf-ai-video.repairSequenceItemPath",
-						"description": "Repair one moved clip path after a bounded scan finds exactly one Video node with the same identity that holds a video.",
+						"description": "Update only the path of one clip after a bounded scan finds exactly one video whose made.yaml has the clip's generationId.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
@@ -173,7 +167,7 @@
 			{
 				"id": "pointa.basehalf-ai-video.starter-workflow",
 				"label": "Video Starter Workflow",
-				"description": "A brief, a script, and a first shot as ordinary notes, empty Video nodes, and an empty Sequence.",
+				"description": "A brief, a script, and a first shot as ordinary notes, a video draft, and an empty Sequence.",
 				"resource": "templates/starter-workflow.json"
 			}
 		]

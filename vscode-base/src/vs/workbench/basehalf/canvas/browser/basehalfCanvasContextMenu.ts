@@ -33,6 +33,7 @@ import {
 	IBaseHalfCanvasCreateFromTemplateCommandArguments,
 	IBaseHalfCanvasCreateFromTemplateCommandResult,
 	IBaseHalfCanvasTemplate,
+	IBaseHalfCanvasTemplateDraft,
 	IBaseHalfCanvasTemplateSidecarUpstream,
 	materializeBaseHalfCanvasTemplateUpstream,
 	parseBaseHalfCanvasTemplate
@@ -42,7 +43,11 @@ import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalf
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
-import { BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../video/common/basehalfNodeDocument.js';
+import { BASEHALF_NODE_DOCUMENT_EXTENSION, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../video/common/basehalfNodeDocument.js';
+import { baseHalfIsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
+import { IBaseHalfGenerationInfo } from '../../video/common/basehalfGenerationInfo.js';
+import { baseHalfVideoInitialGeneration } from '../../video/common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
@@ -70,11 +75,15 @@ const BASEHALF_CANVAS_CUT_COMMAND_ID = 'basehalf.canvas.cut';
 const BASEHALF_CANVAS_COPY_COMMAND_ID = 'basehalf.canvas.copy';
 const BASEHALF_CANVAS_RESUME_TEMPLATE_SETUP_COMMAND_ID = 'basehalf.canvas.resumeTemplateSetup';
 const MAX_UNDO_FILE_SIZE = 5_000_000;
+/** The largest text file a template creates, as its parser bounds it; a resumed setup reads no more. */
+const MAX_TEMPLATE_FILE_BYTES = 256 * 1024;
 /**
- * Version 2 (D37): created Markdown and `.bhnode` files carry their `upstream`
- * list in the recorded digests, and sidecar targets are written through the
- * reference edit service. Version 1 records came from the badge-pair model and
- * cannot be finished; they are discarded with a warning that names each setup.
+ * Version 2 (D37): created Markdown files carry their `upstream` list in the
+ * recorded digests, and sidecar targets are written through the reference
+ * edit service. Drafts are not files: they are made again from the template
+ * when a setup is finished (D63). Version 1 records came from the badge-pair
+ * model and cannot be finished; they are discarded with a warning that names
+ * each setup.
  */
 const PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v2';
 const LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v1';
@@ -115,9 +124,10 @@ interface IBaseHalfTemplateCanvasMutation {
 }
 
 /**
- * The canvas metadata of a template setup: card geometry and same-folder
- * anchor rows. References are not metadata: Markdown and `.bhnode` targets
- * carry their `upstream` list in their initial bytes, and sidecar targets are
+ * The canvas metadata of a template setup: card geometry, drafts' cards
+ * included, and same-folder anchor rows. References are not metadata:
+ * Markdown targets carry their `upstream` list in their initial bytes, a
+ * draft gets its list from the card store, and other sidecar targets are
  * written separately through the reference edit service.
  */
 interface IBaseHalfTemplateMetadataPlan {
@@ -167,6 +177,8 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		const undoRedoService = accessor.get(IUndoRedoService);
 		const workingCopyService = accessor.get(IWorkingCopyService);
 		const workspaceContextService = accessor.get(IWorkspaceContextService);
+		const generationCardStore = accessor.get(IBaseHalfGenerationCardStore);
+		const draftInfo = templateDraftInfo(accessor.get(IBaseHalfVideoCatalogService), accessor.get(IBaseHalfVideoProviderSettingsService));
 		const descriptor = templates.getTemplate(commandArguments.templateId);
 		if (!descriptor) {
 			throw new Error(localize('basehalf.canvas.template.notFound', "Canvas template '{0}' is not available.", commandArguments.templateId));
@@ -195,28 +207,17 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		// Each template reference is stored once, in its target's own store,
 		// rebased under the new project folder.
 		const upstream = materializeBaseHalfCanvasTemplateUpstream(template, projectRelativePath);
-		if (upstream.sidecars.length > 0 && await baseHalfIsWorkspaceFolderMarked(fileService, currentFolder.workspaceFolder)) {
+		if ((upstream.sidecars.length > 0 || template.drafts.length > 0) && await baseHalfIsWorkspaceFolderMarked(fileService, currentFolder.workspaceFolder)) {
 			throw new Error(localize(
 				'basehalf.canvas.template.markedFolder',
-				"'{0}' needs connections that BaseHalf can't save in a folder it is set to leave alone.",
+				"'{0}' makes cards and connections that BaseHalf can't save in a folder it is set to leave alone.",
 				descriptor.label
 			));
 		}
 		throwIfTemplateCreationCancelled(cancellationToken);
-		// Every node starts empty: a Video node with its prompt, if the template
-		// has one, and its inputs from the template's references.
-		const nodeDocuments = new Map(template.nodes.map(node => [node.path, serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: generateUuid(),
-			kind: node.kind,
-			title: node.title,
-			...(node.prompt !== undefined ? { prompt: node.prompt } : {}),
-			upstream: upstream.nodes.get(node.path) ?? []
-		}))]));
-		const allFiles: readonly IBaseHalfTemplateProjectFile[] = [
-			...template.files.map(file => ({ path: file.path, contents: VSBuffer.fromString(upstream.files.get(file.path) ?? file.contents) })),
-			...template.nodes.map(node => ({ path: node.path, contents: VSBuffer.fromString(nodeDocuments.get(node.path)!) }))
-		];
-		const directories = templateDirectories(allFiles.map(file => file.path));
+		// The files; the drafts are card information, which the card store makes after them (D63).
+		const allFiles: readonly IBaseHalfTemplateProjectFile[] = template.files.map(file => ({ path: file.path, contents: VSBuffer.fromString(upstream.files.get(file.path) ?? file.contents) }));
+		const directories = templateDirectories([...allFiles.map(file => file.path), ...template.drafts.map(draft => draft.path)]);
 
 		const pending: IBaseHalfPendingTemplateSetup = {
 			id: generateUuid(),
@@ -239,6 +240,9 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 			canvasMirror,
 			referenceEditService,
 			sidecars: upstream.sidecars,
+			draftUpstream: upstream.drafts,
+			generationCardStore,
+			draftInfo,
 			navigation,
 			editing,
 			postCreateIntent,
@@ -265,7 +269,8 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 				await applyPendingTemplateMetadata(runtime, lease, cancellationToken);
 			});
 			// Outside the structural lease: the reference edit service takes its
-			// own workspace mutation lease for every write.
+			// own workspace mutation lease for every write, a draft's list among them.
+			await applyTemplateDrafts(runtime);
 			await applyTemplateSidecarUpstream(runtime);
 		} catch (error) {
 			if (isCancellationError(error)) {
@@ -360,6 +365,8 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		const undoRedoService = accessor.get(IUndoRedoService);
 		const workingCopyService = accessor.get(IWorkingCopyService);
 		const notificationService = accessor.get(INotificationService);
+		const generationCardStore = accessor.get(IBaseHalfGenerationCardStore);
+		const draftInfo = templateDraftInfo(accessor.get(IBaseHalfVideoCatalogService), accessor.get(IBaseHalfVideoProviderSettingsService));
 		const confirmBeforeUndo = accessor.get(IConfigurationService).getValue<IFilesConfiguration>().explorer.confirmUndo === UndoConfirmLevel.Verbose;
 		discardLegacyBaseHalfPendingTemplateSetups(storageService, notificationService);
 		const pending = readPendingTemplateSetups(storageService);
@@ -413,6 +420,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 			));
 		}
 		const template = parseBaseHalfCanvasTemplate(templateSource);
+		const upstream = materializeBaseHalfCanvasTemplateUpstream(template, setup.projectRelativePath);
 		await finishPendingTemplateSetup({
 			pending: setup,
 			template,
@@ -420,7 +428,10 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 			projectResource,
 			canvasMirror,
 			referenceEditService,
-			sidecars: materializeBaseHalfCanvasTemplateUpstream(template, setup.projectRelativePath).sidecars,
+			sidecars: upstream.sidecars,
+			draftUpstream: upstream.drafts,
+			generationCardStore,
+			draftInfo,
 			navigation,
 			editing,
 			postCreateIntent,
@@ -823,6 +834,11 @@ interface IBaseHalfTemplateSetupRuntime {
 	readonly referenceEditService: IBaseHalfReferenceEditService;
 	/** Created sidecar-store targets and their workspace-relative entries. */
 	readonly sidecars: readonly IBaseHalfCanvasTemplateSidecarUpstream[];
+	/** The workspace-relative entries of each draft, by its template-relative path. */
+	readonly draftUpstream: ReadonlyMap<string, readonly string[]>;
+	readonly generationCardStore: IBaseHalfGenerationCardStore;
+	/** What a draft of the template starts with: its prompt and this computer's last values of its kind. */
+	readonly draftInfo: (draft: IBaseHalfCanvasTemplateDraft) => IBaseHalfGenerationInfo;
 	readonly navigation: IBaseHalfCanvasNavigationService;
 	readonly editing: IBaseHalfCanvasEditingService;
 	readonly postCreateIntent: IBaseHalfCanvasPostCreateIntent;
@@ -844,6 +860,7 @@ async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime
 			try {
 				await runtime.workspaceMutationCoordinator.runExclusive(runtime.workspaceFolder, lease => applyPendingTemplateMetadata(runtime, lease, CancellationToken.None, allowPartialRecovery));
 				allowPartialRecovery = false;
+				await applyTemplateDrafts(runtime);
 				await applyTemplateSidecarUpstream(runtime);
 				const files = await readExactTemplateProjectFiles(runtime);
 				removePendingTemplateSetup(runtime.storageService, runtime.pending.id);
@@ -936,9 +953,7 @@ async function readExactTemplateProjectFiles(runtime: IBaseHalfTemplateSetupRunt
 	if (!projectStat.isDirectory || projectStat.isSymbolicLink) {
 		throw new Error(localize('basehalf.canvas.template.resumeProjectMissing', "The incomplete project folder is missing or no longer a regular folder."));
 	}
-	const templatePaths = [...runtime.template.files.map(file => file.path), ...runtime.template.nodes.map(node => node.path)]
-		.map(baseHalfProjectPathKey)
-		.sort();
+	const templatePaths = runtime.template.files.map(file => baseHalfProjectPathKey(file.path)).sort();
 	const recordedPaths = runtime.pending.files.map(file => baseHalfProjectPathKey(file.path)).sort();
 	if (templatePaths.length !== recordedPaths.length || templatePaths.some((path, index) => path !== recordedPaths[index])) {
 		throw new Error(localize(
@@ -957,7 +972,7 @@ async function readExactTemplateProjectFiles(runtime: IBaseHalfTemplateSetupRunt
 		}
 		const contents = await runtime.fileService.readFile(resource, {
 			atomic: true,
-			limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
+			limits: { size: MAX_TEMPLATE_FILE_BYTES }
 		});
 		await assertTemplateProjectPathSafe(runtime.fileService, runtime.workspaceFolder, resource);
 		if (await templateBytesDigest(contents.value.buffer) !== file.digest) {
@@ -1024,6 +1039,29 @@ function createTemplateMetadataPlan(runtime: IBaseHalfTemplateSetupRuntime): IBa
 				transition
 			}))
 	};
+}
+
+/**
+ * Makes every draft of the template through the card store: its
+ * `upstream.yaml` with the template's references into it, then its
+ * `generation.yaml` with the template's prompt and this computer's last
+ * values of its kind (reference graph, "Templates"). A draft that an earlier
+ * run of the same setup made is kept; a path that anything else took is
+ * refused with its name, and nothing of that draft is written.
+ */
+async function applyTemplateDrafts(runtime: IBaseHalfTemplateSetupRuntime): Promise<void> {
+	for (const draft of runtime.template.drafts) {
+		const path = joinCanvasPath(runtime.pending.projectRelativePath, draft.path);
+		const facts = await baseHalfReadDraftFacts(runtime.fileService, runtime.workspaceFolder, path);
+		if (baseHalfIsDraft(facts)) {
+			continue;
+		}
+		if (facts.itemExists || facts.hasGenerationInfo || facts.hasMade) {
+			throw new Error(localize('basehalf.canvas.template.draftTaken', "'{0}' is taken by another item, so the template could not make its card there.", draft.path));
+		}
+		const resource = joinProjectPath(runtime.projectResource, draft.path);
+		await runtime.generationCardStore.createDraft(dirname(resource), basename(resource), runtime.draftInfo(draft), runtime.draftUpstream.get(draft.path) ?? []);
+	}
 }
 
 /**
@@ -1673,4 +1711,23 @@ function templateFolderState(
 		relativePath: joinCanvasPath(projectRelativePath, parent),
 		source: 'api'
 	} : projectFolder;
+}
+
+/**
+ * What a draft of a template starts with (reference graph, "Templates"): the
+ * template's prompt, and the provider, model, mode, and values of the last
+ * generation of its kind on this computer, made legal for the model, as New
+ * Image and New Video do. Read when the draft is made.
+ */
+function templateDraftInfo(catalogService: IBaseHalfVideoCatalogService, providerSettings: IBaseHalfVideoProviderSettingsService): (draft: IBaseHalfCanvasTemplateDraft) => IBaseHalfGenerationInfo {
+	return draft => {
+		const catalog = catalogService.state;
+		const choice = baseHalfVideoInitialGeneration(
+			providerSettings.getLastUsed(draft.kind),
+			catalog.kind === 'ready' ? catalog.catalog : undefined,
+			draft.kind,
+			provider => providerSettings.getStatus(provider).region.id
+		);
+		return { prompt: draft.prompt, ...choice };
+	};
 }

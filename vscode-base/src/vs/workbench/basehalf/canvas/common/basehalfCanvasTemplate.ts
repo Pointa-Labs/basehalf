@@ -8,19 +8,14 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
 import { BaseHalfCanvasAnchor } from './basehalfCanvasModel.js';
 import {
-	BASEHALF_NODE_KINDS,
-	BASEHALF_NODE_TITLE_MAX_LENGTH,
 	BASEHALF_PROJECT_PATH_MAX_LENGTH,
-	BaseHalfNodeKind,
 	baseHalfProjectPathKey,
 	baseHalfProjectPathProblem
 } from '../../video/common/basehalfNodeDocument.js';
-import { BASEHALF_VIDEO_PROMPT_MAX_LENGTH } from '../../video/common/basehalfVideoNode.js';
+import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, BaseHalfGenerationKind, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
 import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES } from '../../references/common/basehalfReferenceEntries.js';
 import {
 	isBaseHalfUpstreamMarkdownName,
-	isBaseHalfUpstreamNodeDocumentName,
-	isBaseHalfUpstreamReservedOutput,
 	planBaseHalfMarkdownUpstreamEdit,
 	readBaseHalfMarkdownUpstream
 } from '../../references/common/basehalfReferenceStore.js';
@@ -45,7 +40,8 @@ const MAX_ENTRIES = 100;
 const MAX_TEXT_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_TEXT_BYTES = 2 * 1024 * 1024;
 const ANCHORS = new Set<BaseHalfCanvasAnchor>(['north', 'east', 'south', 'west']);
-const NODE_KINDS = new Set<BaseHalfNodeKind>(BASEHALF_NODE_KINDS);
+/** The retired node document (D63): no path of a template has its extension. */
+const RETIRED_NODE_EXTENSION = '.bhnode';
 
 export interface IBaseHalfCanvasTemplateTextFile {
 	readonly path: string;
@@ -53,16 +49,17 @@ export interface IBaseHalfCanvasTemplateTextFile {
 }
 
 /**
- * One `.bhnode` a template creates: an empty node of its kind. A Video node
- * may start with a prompt; its connections come from the template's
+ * One draft a template creates (D63, reference graph, "Templates"): a
+ * generation card without its file, at a path whose generation extension
+ * gives its kind. It starts with the template's prompt and this computer's
+ * last values of its kind; its connections come from the template's
  * `references`.
  */
-export interface IBaseHalfCanvasTemplateNode {
+export interface IBaseHalfCanvasTemplateDraft {
 	readonly path: string;
-	readonly kind: BaseHalfNodeKind;
-	readonly title: string;
-	/** Video nodes only. */
-	readonly prompt?: string;
+	readonly kind: BaseHalfGenerationKind;
+	/** Empty when the template gives none. */
+	readonly prompt: string;
 }
 
 export interface IBaseHalfCanvasTemplateCard {
@@ -88,7 +85,7 @@ export interface IBaseHalfCanvasTemplateReference {
 export interface IBaseHalfCanvasTemplate {
 	readonly version: typeof BASEHALF_CANVAS_TEMPLATE_VERSION;
 	readonly files: readonly IBaseHalfCanvasTemplateTextFile[];
-	readonly nodes: readonly IBaseHalfCanvasTemplateNode[];
+	readonly drafts: readonly IBaseHalfCanvasTemplateDraft[];
 	readonly cards: readonly IBaseHalfCanvasTemplateCard[];
 	readonly references: readonly IBaseHalfCanvasTemplateReference[];
 }
@@ -102,11 +99,13 @@ export class BaseHalfCanvasTemplateError extends Error {
 
 /**
  * Parses the static, declarative template format accepted from reviewed
- * extensions. Templates create host-owned files, empty nodes, and references;
- * they cannot carry tasks, results, credentials, executable code, or private
- * extension state. A template never writes `upstream` itself: Markdown text
- * files whose frontmatter has an `upstream` key are rejected, and so are
- * references whose target cannot be downstream.
+ * extensions (reference graph, "Templates"). Templates create text files,
+ * drafts of image and video cards, card rows, and references; they cannot
+ * carry tasks, generated files, settings, credentials, executable code, or
+ * private extension state. A template never writes `upstream` itself:
+ * Markdown text files whose frontmatter has an `upstream` key are rejected.
+ * No path ends in `.bhnode`, and every folder that holds a draft also holds a
+ * file, so that the folder exists wherever the project is cloned.
  */
 export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemplate {
 	if (typeof source !== 'string' || VSBuffer.fromString(source).byteLength > BASEHALF_CANVAS_TEMPLATE_MAX_BYTES) {
@@ -119,34 +118,36 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 		throw invalid('The canvas template is not valid JSON.');
 	}
 	const root = record(parsed, 'template');
-	assertOnlyKeys(root, ['version', 'files', 'nodes', 'cards', 'references'], 'template');
+	assertOnlyKeys(root, ['version', 'files', 'drafts', 'cards', 'references'], 'template');
 	if (root.version !== BASEHALF_CANVAS_TEMPLATE_VERSION) {
 		throw invalid(`Unsupported canvas template version '${String(root.version)}'.`);
 	}
 
 	const files = array(root.files, 'template.files').map((value, index) => parseTextFile(value, `template.files[${index}]`));
-	const nodes = array(root.nodes, 'template.nodes').map((value, index) => parseNode(value, `template.nodes[${index}]`));
+	const drafts = array(root.drafts, 'template.drafts').map((value, index) => parseDraft(value, `template.drafts[${index}]`));
 	const cards = array(root.cards, 'template.cards').map((value, index) => parseCard(value, `template.cards[${index}]`));
 	const references = array(root.references, 'template.references').map((value, index) => parseReference(value, `template.references[${index}]`));
-	const paths = [...files.map(file => file.path), ...nodes.map(node => node.path)];
-	if (files.some(file => file.path.toLowerCase().endsWith('.bhnode'))) {
-		throw invalid('Template text files cannot use the reserved .bhnode extension.');
+	const paths = [...files.map(file => file.path), ...drafts.map(draft => draft.path)];
+	if (files.some(file => file.path.toLowerCase().endsWith(RETIRED_NODE_EXTENSION))) {
+		throw invalid('Template text files cannot use the retired .bhnode extension.');
 	}
-	assertUnique(paths.map(baseHalfProjectPathKey), 'template file and node paths');
-	assertNoPathPrefixCollisions(paths, 'template file and node paths');
+	assertUnique(paths.map(baseHalfProjectPathKey), 'template file and draft paths');
+	assertNoPathPrefixCollisions(paths, 'template file and draft paths');
 	const pathSet = new Set(paths);
 	if (paths.length === 0) {
-		throw invalid('The canvas template must create at least one file or node.');
+		throw invalid('The canvas template must create at least one file or draft.');
 	}
-	for (const node of nodes) {
-		if (!node.path.toLowerCase().endsWith('.bhnode')) {
-			throw invalid(`Template node '${node.path}' must use the .bhnode extension.`);
+	// Git keeps no folder without a file: a draft's folder holds a file of the template.
+	const fileFolders = new Set(files.map(file => baseHalfProjectPathKey(parentPath(file.path))));
+	for (const draft of drafts) {
+		if (!fileFolders.has(baseHalfProjectPathKey(parentPath(draft.path)))) {
+			throw invalid(`Template draft '${draft.path}' is in a folder that holds no file of the template, so git would not keep it.`);
 		}
 	}
 	assertUnique(cards.map(card => baseHalfProjectPathKey(card.path)), 'template card paths');
 	for (const card of cards) {
 		if (!pathSet.has(card.path)) {
-			throw invalid(`Template card '${card.path}' does not have a matching file or node.`);
+			throw invalid(`Template card '${card.path}' does not have a matching file or draft.`);
 		}
 	}
 	assertUnique(references.map(reference => `${baseHalfProjectPathKey(reference.from)}\u0000${baseHalfProjectPathKey(reference.to)}`), 'template references');
@@ -156,9 +157,6 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 		}
 		if (reference.from === reference.to) {
 			throw invalid(`Template reference '${reference.from}' cannot connect a resource to itself.`);
-		}
-		if (isBaseHalfUpstreamReservedOutput(reference.to)) {
-			throw invalid(`Template reference '${reference.from}' to '${reference.to}' targets the reserved outputs tree, which can't receive upstream context.`);
 		}
 	}
 	for (const file of files) {
@@ -177,7 +175,7 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 	const template: IBaseHalfCanvasTemplate = Object.freeze({
 		version: BASEHALF_CANVAS_TEMPLATE_VERSION,
 		files: Object.freeze(files),
-		nodes: Object.freeze(nodes),
+		drafts: Object.freeze(drafts),
 		cards: Object.freeze(cards),
 		references: Object.freeze(references)
 	});
@@ -199,10 +197,11 @@ export interface IBaseHalfCanvasTemplateUpstream {
 	/** Initial contents of every created text file, with the `upstream` list
 	 * merged into the frontmatter of each Markdown target by the planner. */
 	readonly files: ReadonlyMap<string, string>;
-	/** Workspace-relative `upstream` entries of each created `.bhnode`, keyed by
-	 * its template-relative path (empty for nodes without references). */
-	readonly nodes: ReadonlyMap<string, readonly string[]>;
-	/** Created nodes that keep their list in `.bh/mirror/<path>/upstream.yaml`. */
+	/** Workspace-relative `upstream` entries of each draft, keyed by its
+	 * template-relative path (empty for drafts without references). The card
+	 * store writes them when it makes the draft. */
+	readonly drafts: ReadonlyMap<string, readonly string[]>;
+	/** Created files other than notes that keep their list in `.bh/mirror/<path>/upstream.yaml`. */
 	readonly sidecars: readonly IBaseHalfCanvasTemplateSidecarUpstream[];
 }
 
@@ -211,9 +210,9 @@ export interface IBaseHalfCanvasTemplateUpstream {
  * nodes it creates under `projectRelativePath` (D37). Each path is rebased
  * from template-relative to workspace-relative. New Markdown files receive the
  * `upstream` list in their initial bytes, merged into any template frontmatter
- * by the minimal-edit planner; new `.bhnode` documents receive `upstream`;
- * every other target is a sidecar node whose `upstream.yaml` the host writes
- * through the reference edit service.
+ * by the minimal-edit planner; a draft receives its `upstream.yaml` from the
+ * card store when it is made; every other target is a sidecar node whose
+ * `upstream.yaml` the host writes through the reference edit service.
  */
 export function materializeBaseHalfCanvasTemplateUpstream(
 	template: IBaseHalfCanvasTemplate,
@@ -245,18 +244,18 @@ export function materializeBaseHalfCanvasTemplateUpstream(
 		}
 		files.set(file.path, plan.kind === 'edit' ? plan.text : file.contents);
 	}
-	const nodes = new Map<string, readonly string[]>();
-	for (const node of template.nodes) {
-		const entries = entriesByTarget.get(node.path) ?? [];
+	const drafts = new Map<string, readonly string[]>();
+	for (const draft of template.drafts) {
+		const entries = entriesByTarget.get(draft.path) ?? [];
 		if (entries.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES) {
-			throw invalid(`Template node '${node.path}' cannot list more than ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
+			throw invalid(`Template draft '${draft.path}' cannot list more than ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
 		}
-		nodes.set(node.path, Object.freeze([...entries]));
+		drafts.set(draft.path, Object.freeze([...entries]));
 	}
 	const sidecars = template.files
-		.filter(file => !isBaseHalfUpstreamMarkdownName(file.path) && !isBaseHalfUpstreamNodeDocumentName(file.path) && (entriesByTarget.get(file.path)?.length ?? 0) > 0)
+		.filter(file => !isBaseHalfUpstreamMarkdownName(file.path) && (entriesByTarget.get(file.path)?.length ?? 0) > 0)
 		.map(file => Object.freeze({ path: rebase(file.path), entries: Object.freeze([...entriesByTarget.get(file.path)!]) }));
-	return Object.freeze({ files, nodes, sidecars: Object.freeze(sidecars) });
+	return Object.freeze({ files, drafts, sidecars: Object.freeze(sidecars) });
 }
 
 function parseTextFile(value: unknown, path: string): IBaseHalfCanvasTemplateTextFile {
@@ -269,21 +268,19 @@ function parseTextFile(value: unknown, path: string): IBaseHalfCanvasTemplateTex
 	return Object.freeze({ path: projectPath(candidate.path, `${path}.path`), contents });
 }
 
-function parseNode(value: unknown, path: string): IBaseHalfCanvasTemplateNode {
+/** A draft declares its path and, optionally, its prompt; nothing else. */
+function parseDraft(value: unknown, path: string): IBaseHalfCanvasTemplateDraft {
 	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['path', 'kind', 'title', 'prompt'], path);
-	const kind = text(candidate.kind, `${path}.kind`, 16) as BaseHalfNodeKind;
-	if (!NODE_KINDS.has(kind)) {
-		throw invalid(`${path}.kind is not a supported node content kind.`);
-	}
-	if (candidate.prompt !== undefined && kind !== 'video') {
-		throw invalid(`${path}.prompt is allowed only for a Video node.`);
+	assertOnlyKeys(candidate, ['path', 'prompt'], path);
+	const draftPath = projectPath(candidate.path, `${path}.path`);
+	const kind = baseHalfGenerationKindOfPath(draftPath);
+	if (!kind) {
+		throw invalid(`${path}.path must name an image or a video file, such as clip.mp4 or frame.png.`);
 	}
 	return Object.freeze({
-		path: projectPath(candidate.path, `${path}.path`),
+		path: draftPath,
 		kind,
-		title: text(candidate.title, `${path}.title`, BASEHALF_NODE_TITLE_MAX_LENGTH),
-		...(candidate.prompt === undefined ? {} : { prompt: text(candidate.prompt, `${path}.prompt`, BASEHALF_VIDEO_PROMPT_MAX_LENGTH, true) })
+		prompt: candidate.prompt === undefined ? '' : text(candidate.prompt, `${path}.prompt`, BASEHALF_GENERATION_PROMPT_MAX_LENGTH, true)
 	});
 }
 
@@ -372,6 +369,11 @@ function assertUnique(values: readonly string[], path: string): void {
 	if (new Set(values).size !== values.length) {
 		throw invalid(`${path} must not contain duplicates.`);
 	}
+}
+
+function parentPath(path: string): string {
+	const slash = path.lastIndexOf('/');
+	return slash < 0 ? '' : path.slice(0, slash);
 }
 
 function assertNoPathPrefixCollisions(paths: readonly string[], path: string): void {

@@ -101,9 +101,14 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 		});
 	}
 
-	async inspectCanvasNode(extension: IExtensionDescription, resource: vscode.Uri): Promise<vscode.basehalf.CanvasNodeState | undefined> {
-		const state = await this.proxy.$inspectCanvasNode(toBaseHalfExtensionIdentity(extension), resource);
-		return state ? reviveCanvasNodeState(state) : undefined;
+	/** What the host knows of a generation card (D63): its kind, whether it has its file, and the `id` of its `made.yaml`. */
+	async inspectGenerationCard(extension: IExtensionDescription, resource: vscode.Uri): Promise<vscode.basehalf.GenerationCardState | undefined> {
+		const state = await this.proxy.$inspectGenerationCard(toBaseHalfExtensionIdentity(extension), resource);
+		return state ? Object.freeze({
+			kind: state.kind,
+			hasFile: state.hasFile,
+			...(state.generationId === undefined ? {} : { generationId: state.generationId })
+		}) : undefined;
 	}
 
 	applyProjectFileTransition(
@@ -224,37 +229,4 @@ function toBaseHalfExtensionIdentity(extension: IExtensionDescription): extHostP
 		isBuiltin: extension.isBuiltin,
 		isUnderDevelopment: extension.isUnderDevelopment
 	};
-}
-
-function reviveCanvasNodeState(state: extHostProtocol.IBaseHalfCanvasNodeStateDto): vscode.basehalf.CanvasNodeState {
-	return {
-		id: state.id,
-		kind: state.kind,
-		lifecycle: state.lifecycle,
-		...(state.result === undefined ? {} : {
-			result: reviveCanvasNodeResult(state.result)
-		}),
-		attempts: state.attempts.map(attempt => ({
-			id: attempt.id,
-			status: attempt.status,
-			createdAt: attempt.createdAt,
-			...(attempt.startedAt === undefined ? {} : { startedAt: attempt.startedAt }),
-			...(attempt.completedAt === undefined ? {} : { completedAt: attempt.completedAt }),
-			...(attempt.error === undefined ? {} : { error: attempt.error })
-		}))
-	};
-}
-
-function reviveCanvasNodeResult(result: extHostProtocol.IBaseHalfCanvasNodeResultDto): vscode.basehalf.CanvasNodeResult {
-	const artifact: vscode.basehalf.CanvasNodeResultArtifact = {
-		id: result.artifact.id,
-		outputId: result.artifact.outputId,
-		kind: result.artifact.kind,
-		resource: URI.revive(result.artifact.resource),
-		integrity: result.artifact.integrity,
-		...(result.artifact.label === undefined ? {} : { label: result.artifact.label })
-	};
-	return result.source === 'attempt'
-		? { source: 'attempt', attemptId: result.attemptId, artifact }
-		: { source: 'imported', artifact };
 }

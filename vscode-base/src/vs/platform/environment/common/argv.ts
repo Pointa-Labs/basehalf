@@ -141,7 +141,8 @@ export interface NativeParsedArgs {
 	editSessionId?: string;
 	continueOn?: string;
 	'locate-shell-integration-path'?: string;
-	'run-node'?: string;
+	// BaseHalf: the agent commands of an Agent Area terminal (D63).
+	'generate'?: string;
 	'run-operation'?: string;
 	'list-capabilities'?: boolean;
 	'profile'?: string;

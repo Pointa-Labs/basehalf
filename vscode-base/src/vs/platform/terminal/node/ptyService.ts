@@ -36,7 +36,7 @@ import pkg from '@xterm/headless';
 import { AutoRepliesPtyServiceContribution } from './terminalContrib/autoReplies/autoRepliesContribController.js';
 import { hasKey, isFunction, isNumber, isString } from '../../../base/common/types.js';
 import { getWindowsBuildNumberAsync } from '../../../base/node/windowsVersion.js';
-import { baseHalfRejectedAgentCapabilityDiscoveryResponse, baseHalfRejectedAgentOperationResponse, baseHalfRejectedNodeCommandResponse, BaseHalfNodeCommandServer, resolveBaseHalfCliDirectory } from './basehalfNodeCommandBridge.js';
+import { baseHalfRejectedAgentCapabilityDiscoveryResponse, baseHalfRejectedAgentOperationResponse, baseHalfRejectedGenerateCommandResponse, BaseHalfNodeCommandServer, resolveBaseHalfCliDirectory } from './basehalfNodeCommandBridge.js';
 
 const BASEHALF_NODE_COMMAND_REQUEST_TIMEOUT = 24 * 60 * 60 * 1000;
 
@@ -293,7 +293,7 @@ export class PtyService extends Disposable implements IPtyService {
 					? baseHalfRejectedAgentOperationResponse(pending.request.operationId, error)
 					: pending.request.type === 'listCapabilities'
 						? baseHalfRejectedAgentCapabilityDiscoveryResponse(error)
-						: baseHalfRejectedNodeCommandResponse(pending.request.relativePath, error));
+						: baseHalfRejectedGenerateCommandResponse(pending.request.relativePath, error));
 			}
 		}
 		this._baseHalfNodeCommandServers.get(persistentProcessId)?.dispose(error);
