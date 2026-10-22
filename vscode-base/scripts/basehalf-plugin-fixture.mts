@@ -222,7 +222,7 @@ try {
 	const reviewedTemplate = Buffer.from(JSON.stringify({
 		version: 1,
 		files: [{ path: 'brief.md', contents: '# Brief\n' }],
-		nodes: [],
+		drafts: [],
 		cards: [{ path: 'brief.md', x: 0, y: 0, width: 280, height: 180 }],
 		references: []
 	}));
@@ -436,7 +436,7 @@ try {
 	const unsafeTemplate = Buffer.from(JSON.stringify({
 		version: 1,
 		files: [{ path: '.BH/private.json', contents: '{}' }],
-		nodes: [],
+		drafts: [],
 		cards: [],
 		references: []
 	}));
@@ -448,49 +448,40 @@ try {
 			{ path: 'assets!', contents: '' },
 			{ path: 'assets/reference.md', contents: '' }
 		],
-		nodes: [],
+		drafts: [],
 		cards: [],
 		references: []
 	}));
 	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', prefixConflictTemplate]])), /resource and one of its descendants/);
-	for (const kind of ['file', 'image', 'video', 'audio', 'pdf', 'presentation']) {
-		const kindTemplate = Buffer.from(JSON.stringify({
-			version: 1,
-			files: [],
-			nodes: [{ path: `result-${kind}.bhnode`, kind, title: 'Result' }],
-			cards: [],
-			references: []
-		}));
-		validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', kindTemplate]]));
-	}
-	for (const kind of ['text', 'code']) {
-		const contentTemplate = Buffer.from(JSON.stringify({
-			version: 1,
-			files: [],
-			nodes: [{ path: `result-${kind}.bhnode`, kind, title: 'Result' }],
-			cards: [],
-			references: []
-		}));
-		assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', contentTemplate]])), /kind is invalid/);
-	}
-	// A template node is {path, kind, title, prompt?}, as the host's template parser (D58).
-	const nodeTemplate = (node: Record<string, unknown>) => new Map([['extension/templates/starter-workflow.json', Buffer.from(JSON.stringify({
+	// A template declares drafts by path and prompt, never `.bhnode` nodes (D63, reference graph, "Templates").
+	const draftTemplate = (fields: Record<string, unknown>) => new Map([['extension/templates/starter-workflow.json', Buffer.from(JSON.stringify({
 		version: 1,
-		files: [{ path: 'brief.md', contents: '# Brief\n' }],
-		nodes: [node],
-		cards: [{ path: 'shot.bhnode', x: 0, y: 0, width: 720, height: 405 }],
-		references: [{ from: 'brief.md', to: 'shot.bhnode', fromAnchor: 'east', toAnchor: 'west' }]
+		files: [{ path: 'brief.md', contents: '# Brief\n' }, { path: 'frames/plan.md', contents: '# Frames\n' }],
+		drafts: [{ path: 'shot.mp4' }],
+		cards: [{ path: 'shot.mp4', x: 0, y: 0, width: 720, height: 405 }],
+		references: [{ from: 'brief.md', to: 'shot.mp4', fromAnchor: 'east', toAnchor: 'west' }],
+		...fields
 	}))]]);
-	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', prompt: 'The rider in Image 1 cycles along the coast.' }));
-	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', prompt: '' }));
-	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'image', title: 'Shot', prompt: 'A frame.' })), /prompt is allowed only for a Video node/);
-	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', prompt: 'x'.repeat(64 * 1024 + 1) })), /field '.*\.prompt' is invalid/);
-	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video' })), /missing .*\.title/);
+	for (const path of ['shot.mp4', 'shot.MOV', 'shot.m4v', 'shot.webm', 'frames/frame.png', 'frames/frame.jpg', 'frames/frame.jpeg', 'frames/frame.webp', 'frames/frame.gif', 'frames/frame.avif', 'frames/frame.bmp']) {
+		validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path }], cards: [], references: [] }));
+	}
+	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shot.mp4', prompt: 'The rider in Image 1 cycles along the coast.' }] }));
+	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shot.mp4', prompt: '' }] }));
+	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ nodes: [{ path: 'shot.bhnode', kind: 'video', title: 'Shot' }] })), /unsupported fields: nodes\./);
+	for (const path of ['shot.bhnode', 'notes.md', 'frames/.png']) {
+		assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path }], cards: [], references: [] })), /must name an image or a video file/, path);
+	}
+	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ files: [{ path: 'forged.bhnode', contents: '{}' }], cards: [], references: [] })), /retired \.bhnode extension/);
+	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shots/one/clip.mp4' }], cards: [], references: [] })), /holds no file of the template/);
+	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shot.mp4', prompt: 'x'.repeat(64 * 1024 + 1) }] })), /field '.*\.prompt' is invalid/);
 	for (const [field, value] of [
+		['kind', 'video'],
+		['title', 'Shot'],
 		['role', 'result'],
-		['recipe', { recipeId: 'pointa.basehalf-ai-video.storyboard-frame', parameters: {}, inputBindings: [] }]
+		['recipe', { recipeId: 'pointa.basehalf-ai-video.storyboard-frame', parameters: {}, inputBindings: [] }],
+		['generation', { provider: 'acme', model: 'acme-motion-2' }]
 	] as const) {
-		assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', [field]: value })), new RegExp(`unsupported fields: ${field}\\.`));
+		assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shot.mp4', [field]: value }] })), new RegExp(`unsupported fields: ${field}\\.`));
 	}
 	const projectionManifest = {
 		...reviewedManifest,

@@ -9,14 +9,15 @@ import * as vscode from 'vscode';
 import {
 	addAIVideoSequenceItem,
 	inspectAIVideoSequence,
+	isAIVideoSequenceVideoPath,
 	isOrdinaryFilePathInside,
 	isPlainLocalFileResource,
 	moveAIVideoSequenceItem,
 	parseAIVideoSequenceDocument,
-	portableDescendantVideoNodePath,
+	portableDescendantVideoPath,
 	removeAIVideoSequenceItem,
-	resolveAIVideoSequenceVideoResult,
-	resolveAIVideoSequenceVideoNodePath,
+	resolveAIVideoSequenceVideo,
+	resolveAIVideoSequenceVideoPath,
 	SEQUENCE_INSPECTION_CONCURRENCY,
 	serializeAIVideoSequenceDocument,
 	updateAIVideoSequenceItemPath,
@@ -24,14 +25,17 @@ import {
 	type AIVideoSequenceInspection,
 	type AIVideoSequenceItem,
 	type AIVideoSequenceItemInspection,
-	type AIVideoSequenceNodeState,
-	type AIVideoSequenceNodeRelocation
+	type AIVideoSequenceRelocation,
+	type AIVideoSequenceVideoState
 } from './domain';
 import { readFileWithinLimit } from './boundedFileRead';
 import { SequenceConcurrencyLimiter } from './sequenceConcurrency';
 
-const MAX_SEQUENCE_NODE_RELOCATION_SCAN_RESULTS = 256;
+/** How many videos below the folder of a Sequence the search for a moved clip looks at. */
+const MAX_SEQUENCE_VIDEO_RELOCATION_SCAN_RESULTS = 256;
 const MAX_SEQUENCE_DOCUMENT_BYTES = 4 * 1024 * 1024;
+/** The videos below the folder of a Sequence, by their extensions in either case. */
+const VIDEO_FILE_GLOB = '**/*.{mp4,mov,m4v,webm,MP4,MOV,M4V,WEBM}';
 const REPAIR_PATH_ACTION = 'Repair path';
 const sequenceInspectionLimiter = new SequenceConcurrencyLimiter(SEQUENCE_INSPECTION_CONCURRENCY);
 
@@ -39,7 +43,7 @@ interface SequenceCommandArguments {
 	readonly sequence?: vscode.Uri;
 	readonly itemId?: string;
 	readonly direction?: 'up' | 'down';
-	readonly videoNode?: vscode.Uri;
+	readonly video?: vscode.Uri;
 	readonly title?: string;
 }
 
@@ -59,8 +63,8 @@ export interface LoadedSequence {
 
 interface SequenceVideoCandidate {
 	readonly resource: vscode.Uri;
-	readonly videoNodePath: string;
-	readonly nodeId: string;
+	readonly videoPath: string;
+	readonly generationId?: string;
 	readonly suggestedTitle: string;
 }
 
@@ -84,7 +88,7 @@ export async function inspectSequenceCommand(argument?: unknown, token?: vscode.
 			if (choice === REPAIR_PATH_ACTION) {
 				const repaired = await repairSequenceItemPathCommand({ sequence: resource, itemId: selected.item.id });
 				if (repaired) {
-					void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'. Its sealed Video Result reference was kept.`);
+					void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'.`);
 				}
 				return repaired;
 			}
@@ -96,7 +100,7 @@ export async function inspectSequenceCommand(argument?: unknown, token?: vscode.
 export async function addSequenceItemFromVideoResultCommand(argument?: unknown, token?: vscode.CancellationToken): Promise<AIVideoSequenceEditCommandResult | undefined> {
 	throwIfCommandCancelled(token);
 	const args = commandArguments(argument);
-	requireStructuredArguments(argument, args, ['sequence', 'videoNode', 'itemId']);
+	requireStructuredArguments(argument, args, ['sequence', 'video', 'itemId']);
 	return addSequenceItemFromVideoResult(args, argument === undefined, token);
 }
 
@@ -114,8 +118,8 @@ async function addSequenceItemFromVideoResult(
 		return undefined;
 	}
 	const workflowRoot = parentUri(resource);
-	const selectedCandidate = args.videoNode
-		? await loadVideoCandidate(workflowRoot, args.videoNode)
+	const selectedCandidate = args.video
+		? await loadVideoCandidate(workflowRoot, args.video)
 		: await pickVideoCandidate(workflowRoot);
 	if (!selectedCandidate) {
 		return undefined;
@@ -129,11 +133,11 @@ async function addSequenceItemFromVideoResult(
 
 	const loaded = await loadSequence(resource);
 	const candidate = await loadVideoCandidate(workflowRoot, selectedCandidate.resource);
-	const item = Object.freeze({
+	const item: AIVideoSequenceItem = Object.freeze({
 		id: args.itemId ?? uniqueSequenceItemId(loaded.sequence),
 		title,
-		nodeId: candidate.nodeId,
-		videoNodePath: candidate.videoNodePath
+		videoPath: candidate.videoPath,
+		...(candidate.generationId === undefined ? {} : { generationId: candidate.generationId })
 	});
 	const updated = addAIVideoSequenceItem(loaded.sequence, item);
 	const saved = await saveSequence(loaded, updated, token);
@@ -203,7 +207,7 @@ export async function removeSequenceItemCommand(argument?: unknown, token?: vsco
 		}
 		return undefined;
 	}
-	const itemId = args.itemId ?? await pickSequenceItem(initial.sequence, 'Choose a clip to remove. Its Video node and results will be kept.');
+	const itemId = args.itemId ?? await pickSequenceItem(initial.sequence, 'Choose a clip to remove. Its video is kept.');
 	if (!itemId) {
 		return undefined;
 	}
@@ -217,7 +221,7 @@ export async function removeSequenceItemCommand(argument?: unknown, token?: vsco
 	const saved = await saveSequence(loaded, updated, token);
 	const inspection = await inspectLoadedSequence(saved);
 	if (argument === undefined) {
-		void vscode.window.showInformationMessage(`Removed '${removedItem.title}' from the Video Sequence. Its node and results were kept.`);
+		void vscode.window.showInformationMessage(`Removed '${removedItem.title}' from the Video Sequence. Its video was kept.`);
 	}
 	return Object.freeze({
 		operation: 'removed',
@@ -250,8 +254,8 @@ export async function repairSequenceItemPathCommand(argument?: unknown, token?: 
 		return undefined;
 	}
 
-	// Re-read and re-verify the stable identity and sealed result immediately
-	// before the compare-and-save edit. Discovery never edits Sequence by itself.
+	// Re-read and re-verify the moved video by its generation immediately
+	// before the compare-and-save edit. Inspection never edits Sequence by itself.
 	const loaded = await loadSequence(resource);
 	const inspection = await inspectLoadedSequence(loaded);
 	const selected = inspection.items.find(item => item.item.id === itemId);
@@ -265,7 +269,7 @@ export async function repairSequenceItemPathCommand(argument?: unknown, token?: 
 	const saved = await saveSequence(loaded, updated, token);
 	const result = await inspectLoadedSequence(saved);
 	if (argument === undefined) {
-		void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'. Its sealed Video Result reference was kept.`);
+		void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'.`);
 	}
 	return result;
 }
@@ -278,14 +282,14 @@ function commandArguments(argument: unknown): SequenceCommandArguments {
 		return {};
 	}
 	const candidate = argument as Record<string, unknown>;
-	const supportedKeys = new Set(['sequence', 'videoNode', 'itemId', 'title', 'direction']);
+	const supportedKeys = new Set(['sequence', 'video', 'itemId', 'title', 'direction']);
 	for (const key of Object.keys(candidate)) {
 		if (!supportedKeys.has(key)) {
 			throw new Error(`Sequence command argument '${key}' is not supported.`);
 		}
 	}
 	assertOptionalUri(candidate, 'sequence');
-	assertOptionalUri(candidate, 'videoNode');
+	assertOptionalUri(candidate, 'video');
 	assertOptionalString(candidate, 'itemId');
 	assertOptionalString(candidate, 'title');
 	if (candidate.direction !== undefined && candidate.direction !== 'up' && candidate.direction !== 'down') {
@@ -295,7 +299,7 @@ function commandArguments(argument: unknown): SequenceCommandArguments {
 		...(isUri(candidate.sequence) ? { sequence: candidate.sequence } : {}),
 		...(typeof candidate.itemId === 'string' ? { itemId: candidate.itemId } : {}),
 		...(candidate.direction === 'up' || candidate.direction === 'down' ? { direction: candidate.direction } : {}),
-		...(isUri(candidate.videoNode) ? { videoNode: candidate.videoNode } : {}),
+		...(isUri(candidate.video) ? { video: candidate.video } : {}),
 		...(typeof candidate.title === 'string' ? { title: candidate.title } : {})
 	};
 }
@@ -395,89 +399,137 @@ async function readSequenceSource(resource: vscode.Uri): Promise<string> {
 
 export async function inspectLoadedSequence(loaded: LoadedSequence, token?: vscode.CancellationToken): Promise<AIVideoSequenceInspection> {
 	const workflowRoot = parentUri(loaded.resource);
-	const inspectNode = (resource: vscode.Uri) => sequenceInspectionLimiter.run(async () => {
+	const inspectVideo = (resource: vscode.Uri) => sequenceInspectionLimiter.run(async () => {
 		throwIfCommandCancelled(token);
-		const result = await inspectVideoResultNode(resource);
+		const result = await inspectVideoFile(resource);
 		throwIfCommandCancelled(token);
 		return result;
 	});
-	return inspectAIVideoSequence(loaded.sequence, async videoNodePath => {
-		const resource = vscode.Uri.file(resolveAIVideoSequenceVideoNodePath(loaded.resource.fsPath, videoNodePath));
-		return inspectNode(resource);
-	}, createMovedNodeLocator(workflowRoot, inspectNode, token), () => throwIfCommandCancelled(token));
+	return inspectAIVideoSequence(loaded.sequence, async videoPath => {
+		const resource = vscode.Uri.file(resolveAIVideoSequenceVideoPath(loaded.resource.fsPath, videoPath));
+		return inspectVideo(resource);
+	}, createMovedVideoLocator(workflowRoot, inspectVideo, token), () => throwIfCommandCancelled(token));
 }
 
-function createMovedNodeLocator(
+/**
+ * Finds the one video below the folder of the Sequence whose `made.yaml` has
+ * an item's `generationId`: a bounded scan of the video files there, each
+ * asked of the host through `inspectGenerationCard`. Nothing under `.bh/` is
+ * read.
+ */
+function createMovedVideoLocator(
 	workflowRoot: vscode.Uri,
-	inspectNode: (resource: vscode.Uri) => Promise<AIVideoSequenceNodeState | undefined>,
+	inspectVideo: (resource: vscode.Uri) => Promise<AIVideoSequenceVideoState>,
 	token?: vscode.CancellationToken
-): (item: AIVideoSequenceItem) => Promise<AIVideoSequenceNodeRelocation | undefined> {
-	let index: Promise<{ readonly truncated: boolean; readonly byId: ReadonlyMap<string, readonly vscode.Uri[]> }> | undefined;
+): (item: AIVideoSequenceItem) => Promise<AIVideoSequenceRelocation | undefined> {
+	let index: Promise<{ readonly truncated: boolean; readonly byGeneration: ReadonlyMap<string, readonly vscode.Uri[]> }> | undefined;
 	return async item => {
 		throwIfCommandCancelled(token);
-		index ??= buildSequenceNodeIdentityIndex(workflowRoot, inspectNode, token);
+		if (item.generationId === undefined) {
+			return undefined;
+		}
+		index ??= buildSequenceGenerationIndex(workflowRoot, inspectVideo, token);
 		const result = await index;
 		throwIfCommandCancelled(token);
 		if (result.truncated) {
-			return { kind: 'scanLimit', maximum: MAX_SEQUENCE_NODE_RELOCATION_SCAN_RESULTS };
+			return { kind: 'scanLimit', maximum: MAX_SEQUENCE_VIDEO_RELOCATION_SCAN_RESULTS };
 		}
-		const matches = result.byId.get(item.nodeId) ?? [];
+		const matches = result.byGeneration.get(item.generationId) ?? [];
 		if (matches.length === 0) {
 			return undefined;
 		}
 		if (matches.length !== 1) {
 			return { kind: 'ambiguous', matchCount: matches.length };
 		}
-		const resource = matches[0];
-		const videoNodePath = portableDescendantVideoNodePath(workflowRoot.fsPath, resource.fsPath);
-		const node = await inspectNode(resource);
-		if (!node || node.id !== item.nodeId) {
+		const video = await inspectVideo(matches[0]);
+		if (!video.isVideoFile || video.generationId !== item.generationId) {
 			return undefined;
 		}
-		return { kind: 'unique', videoNodePath, node };
+		return { kind: 'unique', videoPath: portableDescendantVideoPath(workflowRoot.fsPath, matches[0].fsPath) };
 	};
 }
 
-async function buildSequenceNodeIdentityIndex(
+async function buildSequenceGenerationIndex(
 	workflowRoot: vscode.Uri,
-	inspectNode: (resource: vscode.Uri) => Promise<AIVideoSequenceNodeState | undefined>,
+	inspectVideo: (resource: vscode.Uri) => Promise<AIVideoSequenceVideoState>,
 	token?: vscode.CancellationToken
-): Promise<{ readonly truncated: boolean; readonly byId: ReadonlyMap<string, readonly vscode.Uri[]> }> {
+): Promise<{ readonly truncated: boolean; readonly byGeneration: ReadonlyMap<string, readonly vscode.Uri[]> }> {
 	throwIfCommandCancelled(token);
-	const workspaceFolder = vscode.workspace.getWorkspaceFolder(workflowRoot);
-	if (!workspaceFolder) {
-		return { truncated: false, byId: new Map() };
+	if (!vscode.workspace.getWorkspaceFolder(workflowRoot)) {
+		return { truncated: false, byGeneration: new Map() };
 	}
-	const resources = await vscode.workspace.findFiles(
-		new vscode.RelativePattern(workflowRoot, '**/*.bhnode'),
-		new vscode.RelativePattern(workflowRoot, '**/.bh/**'),
-		MAX_SEQUENCE_NODE_RELOCATION_SCAN_RESULTS + 1
-	);
+	const resources = await findVideoFiles(workflowRoot, MAX_SEQUENCE_VIDEO_RELOCATION_SCAN_RESULTS + 1);
 	throwIfCommandCancelled(token);
-	if (resources.length > MAX_SEQUENCE_NODE_RELOCATION_SCAN_RESULTS) {
-		return { truncated: true, byId: new Map() };
+	if (resources.length > MAX_SEQUENCE_VIDEO_RELOCATION_SCAN_RESULTS) {
+		return { truncated: true, byGeneration: new Map() };
 	}
-	const byId = new Map<string, vscode.Uri[]>();
+	const byGeneration = new Map<string, vscode.Uri[]>();
 	let next = 0;
 	const workers = Array.from({ length: Math.min(SEQUENCE_INSPECTION_CONCURRENCY, resources.length) }, async () => {
 		while (next < resources.length) {
 			throwIfCommandCancelled(token);
 			const resource = resources[next++];
 			try {
-				const node = await inspectNode(resource);
-				if (node) {
-					const matches = byId.get(node.id) ?? [];
+				const video = await inspectVideo(resource);
+				if (video.isVideoFile && video.generationId !== undefined) {
+					const matches = byGeneration.get(video.generationId) ?? [];
 					matches.push(resource);
-					byId.set(node.id, matches);
+					byGeneration.set(video.generationId, matches);
 				}
 			} catch {
 				throwIfCommandCancelled(token);
-				// Invalid, dirty, or inaccessible nodes cannot be safe repair candidates.
+				// A file that cannot be inspected cannot be a safe repair.
 			}
 		}
 	});
 	await Promise.all(workers);
-	return { truncated: false, byId };
+	return { truncated: false, byGeneration };
+}
+
+/** The video files below a folder, never under `.bh/`. */
+function findVideoFiles(folder: vscode.Uri, maxResults: number): Thenable<vscode.Uri[]> {
+	return vscode.workspace.findFiles(
+		new vscode.RelativePattern(folder, VIDEO_FILE_GLOB),
+		new vscode.RelativePattern(folder, '**/.bh/**'),
+		maxResults
+	);
+}
+
+/**
+ * What a clip's path holds: whether it is a regular video file inside its
+ * open workspace folder, and the `id` of its `made.yaml`, which the host
+ * answers for a generation card with its file.
+ */
+async function inspectVideoFile(resource: vscode.Uri): Promise<AIVideoSequenceVideoState> {
+	if (!await isRegularVideoFile(resource)) {
+		return Object.freeze({ isVideoFile: false });
+	}
+	const card = await vscode.basehalf.inspectGenerationCard(resource);
+	return Object.freeze({
+		isVideoFile: true,
+		resource,
+		...(card?.hasFile && card.generationId !== undefined ? { generationId: card.generationId } : {})
+	});
+}
+
+async function isRegularVideoFile(resource: vscode.Uri): Promise<boolean> {
+	if (!isPlainLocalFileResource(resource.scheme, resource.query, resource.fragment) || !isAIVideoSequenceVideoPath(resource.path)) {
+		return false;
+	}
+	const workspaceFolder = vscode.workspace.getWorkspaceFolder(resource);
+	if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+		return false;
+	}
+	try {
+		const [entry, workspaceRealPath, videoRealPath] = await Promise.all([
+			lstat(resource.fsPath),
+			realpath(workspaceFolder.uri.fsPath),
+			realpath(resource.fsPath)
+		]);
+		return isOrdinaryFilePathInside(workspaceRealPath, videoRealPath, entry.isFile(), entry.isSymbolicLink());
+	} catch {
+		return false;
+	}
 }
 
 async function saveSequence(
@@ -510,60 +562,50 @@ function throwIfCommandCancelled(token: vscode.CancellationToken | undefined): v
 }
 
 async function pickVideoCandidate(workflowRoot: vscode.Uri): Promise<SequenceVideoCandidate | undefined> {
-	const resources = await vscode.workspace.findFiles(
-		new vscode.RelativePattern(workflowRoot, '**/*.bhnode'),
-		new vscode.RelativePattern(workflowRoot, '**/.bh/**'),
-		1_000
-	);
-	const candidates: SequenceVideoCandidate[] = [];
+	const resources = await findVideoFiles(workflowRoot, 1_000);
+	const candidates: { readonly resource: vscode.Uri; readonly videoPath: string }[] = [];
 	for (const resource of resources) {
 		try {
-			candidates.push(await loadVideoCandidate(workflowRoot, resource));
+			if (await isRegularVideoFile(resource)) {
+				candidates.push({ resource, videoPath: portableDescendantVideoPath(workflowRoot.fsPath, resource.fsPath) });
+			}
 		} catch {
-			// Only sealed Video Result nodes can enter Sequence.
+			// Only a video file below the folder of the Sequence can be a clip.
 		}
 	}
-	candidates.sort((left, right) => left.videoNodePath.localeCompare(right.videoNodePath));
+	candidates.sort((left, right) => left.videoPath.localeCompare(right.videoPath));
 	if (candidates.length === 0) {
-		void vscode.window.showInformationMessage('No sealed Video Result is available to add.');
+		void vscode.window.showInformationMessage('No video is available to add.');
 		return undefined;
 	}
-	if (candidates.length === 1) {
-		return candidates[0];
-	}
-	const selected = await vscode.window.showQuickPick(candidates.map(candidate => ({
-		label: candidate.suggestedTitle,
-		description: candidate.videoNodePath,
-		candidate
-	})), { placeHolder: 'Choose a Video Result to add to playback order' });
-	return selected?.candidate;
+	const selected = candidates.length === 1
+		? candidates[0]
+		: (await vscode.window.showQuickPick(candidates.map(candidate => ({
+			label: suggestedSequenceTitle(candidate.videoPath),
+			description: candidate.videoPath,
+			candidate
+		})), { placeHolder: 'Choose a video to add to playback order' }))?.candidate;
+	return selected ? loadVideoCandidate(workflowRoot, selected.resource) : undefined;
 }
 
 async function loadVideoCandidate(workflowRoot: vscode.Uri, resource: vscode.Uri): Promise<SequenceVideoCandidate> {
 	if (!isPlainLocalFileResource(resource.scheme, resource.query, resource.fragment)) {
-		throw new Error('The Video node must be an ordinary local file inside the workflow root.');
+		throw new Error('The video must be an ordinary local file below the folder of the Sequence.');
 	}
 	const sequenceWorkspace = vscode.workspace.getWorkspaceFolder(workflowRoot);
 	const candidateWorkspace = vscode.workspace.getWorkspaceFolder(resource);
 	if (!sequenceWorkspace || !candidateWorkspace || sequenceWorkspace.uri.toString() !== candidateWorkspace.uri.toString()) {
-		throw new Error('The Video node and Sequence must belong to the same open workspace folder.');
+		throw new Error('The video and the Sequence must belong to the same open workspace folder.');
 	}
-	const videoNodePath = portableDescendantVideoNodePath(workflowRoot.fsPath, resource.fsPath);
-	const node = await inspectVideoResultNode(resource);
-	if (!node) {
-		throw new Error(`'${videoNodePath}' is not a saved result node.`);
-	}
-	const result = resolveAIVideoSequenceVideoResult(node);
+	const videoPath = portableDescendantVideoPath(workflowRoot.fsPath, resource.fsPath);
+	const card = await vscode.basehalf.inspectGenerationCard(resource);
+	const { generationId } = resolveAIVideoSequenceVideo(videoPath, await isRegularVideoFile(resource), card);
 	return Object.freeze({
 		resource,
-		videoNodePath,
-		nodeId: result.nodeId,
-		suggestedTitle: suggestedSequenceTitle(videoNodePath)
+		videoPath,
+		...(generationId === undefined ? {} : { generationId }),
+		suggestedTitle: suggestedSequenceTitle(videoPath)
 	});
-}
-
-async function inspectVideoResultNode(resource: vscode.Uri): Promise<AIVideoSequenceNodeState | undefined> {
-	return vscode.basehalf.inspectCanvasNode(resource);
 }
 
 async function promptForSequenceTitle(suggestedTitle: string): Promise<string | undefined> {
@@ -583,9 +625,9 @@ async function promptForSequenceTitle(suggestedTitle: string): Promise<string | 
 	});
 }
 
-function suggestedSequenceTitle(videoNodePath: string): string {
-	const segments = videoNodePath.split('/');
-	const fileName = segments.at(-1)?.replace(/\.bhnode$/i, '') || 'Clip';
+function suggestedSequenceTitle(videoPath: string): string {
+	const segments = videoPath.split('/');
+	const fileName = segments.at(-1)?.replace(/\.[^.]+$/, '') || 'Clip';
 	const source = /^(clip|video)$/i.test(fileName) && segments.length > 1 ? segments[segments.length - 2] : fileName;
 	const words = source.replace(/[-_]+/g, ' ').trim();
 	return words ? words.replace(/^\p{Ll}/u, character => character.toUpperCase()) : 'Clip';
@@ -639,8 +681,8 @@ async function showSequenceInspection(inspection: AIVideoSequenceInspection): Pr
 		item
 	})), {
 		placeHolder: inspection.valid
-			? 'All Video Results are available'
-			: 'One or more Video Results need attention'
+			? 'All clips are available'
+			: 'One or more clips need attention'
 	});
 	return selected?.item;
 }
@@ -648,7 +690,7 @@ async function showSequenceInspection(inspection: AIVideoSequenceInspection): Pr
 async function pickSequenceItem(sequence: AIVideoSequenceDocument, placeHolder: string): Promise<string | undefined> {
 	const selected = await vscode.window.showQuickPick(sequence.items.map((item, index) => ({
 		label: `${index + 1}. ${item.title}`,
-		description: item.videoNodePath,
+		description: item.videoPath,
 		itemId: item.id
 	})), { placeHolder });
 	return selected?.itemId;
@@ -657,7 +699,7 @@ async function pickSequenceItem(sequence: AIVideoSequenceDocument, placeHolder: 
 async function pickSequenceInspection(items: readonly AIVideoSequenceItemInspection[], placeHolder: string): Promise<string | undefined> {
 	const selected = await vscode.window.showQuickPick(items.map(item => ({
 		label: item.item.title,
-		description: item.item.videoNodePath,
+		description: item.item.videoPath,
 		detail: item.message,
 		itemId: item.item.id
 	})), { placeHolder });
@@ -677,15 +719,17 @@ async function pickMoveDirection(index: number, total: number): Promise<'up' | '
 
 function sequenceStateIcon(item: AIVideoSequenceItemInspection): string {
 	switch (item.state) {
-		case 'result': return '$(check)';
-		case 'invalid': return '$(error)';
+		case 'available': return '$(check)';
+		case 'changed': return '$(warning)';
+		case 'missing': return '$(error)';
 	}
 }
 
 function sequenceStateLabel(item: AIVideoSequenceItemInspection): string {
 	switch (item.state) {
-		case 'result': return 'Video Result';
-		case 'invalid': return 'Unavailable';
+		case 'available': return 'Available';
+		case 'changed': return 'Changed';
+		case 'missing': return 'Missing';
 	}
 }
 

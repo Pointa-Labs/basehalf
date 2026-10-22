@@ -21231,80 +21231,42 @@ declare module 'vscode' {
 	 */
 	export namespace basehalf {
 
-		/** A content family rendered by the BaseHalf canvas host. */
-		export type CanvasContentKind =
-			| 'text'
-			| 'code'
-			| 'file'
-			| 'folder'
-			| 'image'
-			| 'video'
-			| 'audio'
-			| 'pdf'
-			| 'presentation';
-
-		/** A stable result container rendered and versioned by the BaseHalf canvas host. */
-		export type CanvasNodeKind = Exclude<CanvasContentKind, 'text' | 'code' | 'folder'>;
-
-		/** Availability of one immutable canvas-node artifact on local storage. */
-		export type CanvasArtifactIntegrity = 'available' | 'missing' | 'changed';
-
-		/** Lifecycle state of one immutable execution attempt. */
-		export type CanvasNodeAttemptStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+		/** What a generation card makes, by the extension of its file. */
+		export type GenerationCardKind = 'image' | 'video';
 
 		/**
-		 * Stable product lifecycle of a node: `result` when it holds its file,
-		 * `running` while its generation runs, `failed` or `cancelled` when its
-		 * last generation ended without a video, and `draft` otherwise.
+		 * What BaseHalf tells an extension of a generation card: an image or a
+		 * video file, or a draft whose file does not exist yet, whose card
+		 * information holds a `generation.yaml` or a `made.yaml`.
 		 */
-		export type CanvasNodeLifecycle = 'draft' | 'running' | 'result' | 'failed' | 'cancelled' | 'interrupted';
-
-		/** The single ordinary local file a node shows. */
-		export interface CanvasNodeResultArtifact {
-			readonly id: string;
-			readonly outputId: string;
-			readonly kind: CanvasNodeKind;
-			readonly resource: Uri;
-			readonly integrity: CanvasArtifactIntegrity;
-			readonly label?: string;
-		}
-
-		/** An execution attempt. Nodes keep no attempts since `.bhnode` version 5. */
-		export interface CanvasNodeAttempt {
-			readonly id: string;
-			readonly status: CanvasNodeAttemptStatus;
-			readonly createdAt: string;
-			readonly startedAt?: string;
-			readonly completedAt?: string;
-			readonly error?: string;
+		export interface GenerationCardState {
+			/** `image` or `video`, by the card's extension. */
+			readonly kind: GenerationCardKind;
+			/** Whether the card's file exists. A draft has none. */
+			readonly hasFile: boolean;
+			/**
+			 * The `id` of the card's `made.yaml`: the identity of the generation
+			 * that made its file, which never changes while the file is moved or
+			 * renamed. Absent for a draft, for a file BaseHalf did not generate,
+			 * and for a record that cannot be read.
+			 */
+			readonly generationId?: string;
 		}
 
 		/**
-		 * The file a node shows: one the user imported, or a generated video,
-		 * whose `attemptId` is the id of the generation that made it.
-		 */
-		export type CanvasNodeResult =
-			| { readonly source: 'imported'; readonly artifact: CanvasNodeResultArtifact }
-			| { readonly source: 'attempt'; readonly attemptId: string; readonly artifact: CanvasNodeResultArtifact };
-
-		/** Stable identity, lifecycle, and result of one node. `attempts` is always empty. */
-		export interface CanvasNodeState {
-			readonly id: string;
-			readonly kind: CanvasNodeKind;
-			readonly lifecycle: CanvasNodeLifecycle;
-			readonly result?: CanvasNodeResult;
-			readonly attempts: readonly CanvasNodeAttempt[];
-		}
-
-		/**
-		 * Reads one saved node through the host-owned document model.
+		 * Reads one generation card of an open local workspace folder.
 		 *
 		 * This is a read-only capability for reviewed domain plugins. It returns
-		 * `undefined` when the resource does not exist or is not a node document.
-		 * Dirty node documents must be saved before they can be inspected. A result
-		 * exposes exactly one ordinary local file, `available` while it exists.
+		 * `undefined` for every resource that is not a generation card: a file
+		 * without generation information, a draft whose folder is not on this
+		 * computer, a resource outside the open workspace folders or under
+		 * `.bh/`, and one that is a symbolic link or resolves outside its
+		 * workspace folder.
+		 *
+		 * @param resource An image or video file, or the path of a draft, in an open local workspace folder.
+		 * @returns The card's kind, whether it has its file, and the `id` of its `made.yaml`; `undefined` for any other resource.
 		 */
-		export function inspectCanvasNode(resource: Uri): Thenable<CanvasNodeState | undefined>;
+		export function inspectGenerationCard(resource: Uri): Thenable<GenerationCardState | undefined>;
 
 		/**
 		 * Atomically replaces one saved ordinary project file only while its bytes

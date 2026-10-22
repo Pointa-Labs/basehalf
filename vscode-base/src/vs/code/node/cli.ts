@@ -29,8 +29,8 @@ import { cwd } from '../../base/common/process.js';
 import { addUNCHostToAllowlist } from '../../base/node/unc.js';
 import { URI } from '../../base/common/uri.js';
 import { DeferredPromise } from '../../base/common/async.js';
-import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, BASEHALF_NODE_COMMAND_BRIDGE_VERSION, IBaseHalfAgentCapabilityDiscoveryResponse, IBaseHalfAgentOperationCommandRequest, IBaseHalfAgentOperationCommandResponse, IBaseHalfNodeCommandResponse } from '../../platform/terminal/common/terminal.js';
-import { baseHalfRejectedAgentCapabilityDiscoveryResponse, baseHalfRejectedAgentOperationResponse, baseHalfRejectedNodeCommandResponse, requestBaseHalfNodeCommand } from '../../platform/terminal/node/basehalfNodeCommandBridge.js';
+import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, BASEHALF_NODE_COMMAND_BRIDGE_VERSION, IBaseHalfAgentCapabilityDiscoveryResponse, IBaseHalfAgentOperationCommandRequest, IBaseHalfAgentOperationCommandResponse, IBaseHalfGenerateCommandResponse } from '../../platform/terminal/common/terminal.js';
+import { baseHalfRejectedAgentCapabilityDiscoveryResponse, baseHalfRejectedAgentOperationResponse, baseHalfRejectedGenerateCommandResponse, requestBaseHalfNodeCommand } from '../../platform/terminal/node/basehalfNodeCommandBridge.js';
 
 function shouldSpawnCliProcess(argv: NativeParsedArgs): boolean {
 	return !!argv['install-source']
@@ -45,7 +45,7 @@ function shouldSpawnCliProcess(argv: NativeParsedArgs): boolean {
 
 export async function main(argv: string[]): Promise<void> {
 	let args: NativeParsedArgs;
-	const rawRunNode = findRawRunNodeArgument(argv);
+	const rawGenerate = findRawGenerateArgument(argv);
 	const rawRunOperation = findRawRunOperationArgument(argv);
 	const rawListCapabilities = findRawListCapabilitiesArgument(argv);
 
@@ -62,16 +62,16 @@ export async function main(argv: string[]): Promise<void> {
 			process.exitCode = 1;
 			return;
 		}
-		if (rawRunNode.present) {
-			console.log(JSON.stringify(baseHalfRejectedNodeCommandResponse(rawRunNode.nodePath, err instanceof Error ? err.message : String(err))));
+		if (rawGenerate.present) {
+			console.log(JSON.stringify(baseHalfRejectedGenerateCommandResponse(rawGenerate.path, err instanceof Error ? err.message : String(err))));
 			process.exitCode = 1;
 			return;
 		}
 		console.error(err.message);
 		return;
 	}
-	if (rawRunNode.present && !args['run-node']) {
-		console.log(JSON.stringify(baseHalfRejectedNodeCommandResponse(rawRunNode.nodePath, 'The --run-node option requires a workspace-relative node path.')));
+	if (rawGenerate.present && !args['generate']) {
+		console.log(JSON.stringify(baseHalfRejectedGenerateCommandResponse(rawGenerate.path, 'The --generate option requires the workspace-relative path of an image or video card.')));
 		process.exitCode = 1;
 		return;
 	}
@@ -85,14 +85,14 @@ export async function main(argv: string[]): Promise<void> {
 		process.exitCode = 1;
 		return;
 	}
-	const agentCommandCount = Number(!!args['run-node']) + Number(!!args['run-operation']) + Number(!!args['list-capabilities']);
+	const agentCommandCount = Number(!!args['generate']) + Number(!!args['run-operation']) + Number(!!args['list-capabilities']);
 	if (agentCommandCount > 1) {
-		const error = 'Use exactly one of --run-node, --run-operation, or --list-capabilities.';
+		const error = 'Use exactly one of --generate, --run-operation, or --list-capabilities.';
 		console.log(JSON.stringify(args['list-capabilities']
 			? baseHalfRejectedAgentCapabilityDiscoveryResponse(error)
 			: args['run-operation']
 				? baseHalfRejectedAgentOperationResponse('', error)
-				: baseHalfRejectedNodeCommandResponse(args['run-node'] ?? '', error)));
+				: baseHalfRejectedGenerateCommandResponse(args['generate'] ?? '', error)));
 		process.exitCode = 1;
 		return;
 	}
@@ -141,22 +141,23 @@ export async function main(argv: string[]): Promise<void> {
 		}
 	}
 
-	if (args['run-node']) {
-		const nodePath = args['run-node'];
-		let response: IBaseHalfNodeCommandResponse;
+	if (args['generate']) {
+		// BaseHalf: a generation of the card at the path, as Generate does; prints every card it lands on (D63).
+		const cardPath = args['generate'];
+		let response: IBaseHalfGenerateCommandResponse;
 		const ipcHandlePath = process.env[BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV];
 		if (!ipcHandlePath) {
-			response = baseHalfRejectedNodeCommandResponse(nodePath, 'Node runs are available only inside a BaseHalf TUI Agent session.');
+			response = baseHalfRejectedGenerateCommandResponse(cardPath, 'Generating is available only inside a BaseHalf Agent Area terminal.');
 		} else {
 			try {
 				response = await requestBaseHalfNodeCommand(ipcHandlePath, {
 					version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
-					type: 'runNode',
+					type: 'generate',
 					cwd: cwd(),
-					relativePath: nodePath
+					relativePath: cardPath
 				});
 			} catch (error) {
-				response = baseHalfRejectedNodeCommandResponse(nodePath, error instanceof Error ? error.message : String(error));
+				response = baseHalfRejectedGenerateCommandResponse(cardPath, error instanceof Error ? error.message : String(error));
 			}
 		}
 		console.log(JSON.stringify(response));
@@ -706,16 +707,16 @@ function getAppRoot() {
 	return dirname(FileAccess.asFileUri('').fsPath);
 }
 
-function findRawRunNodeArgument(argv: readonly string[]): { readonly present: boolean; readonly nodePath: string } {
-	const argumentIndex = argv.indexOf('--run-node');
+function findRawGenerateArgument(argv: readonly string[]): { readonly present: boolean; readonly path: string } {
+	const argumentIndex = argv.indexOf('--generate');
 	if (argumentIndex >= 0) {
 		const candidate = argv[argumentIndex + 1];
-		return { present: true, nodePath: candidate && !candidate.startsWith('-') ? candidate : '' };
+		return { present: true, path: candidate && !candidate.startsWith('-') ? candidate : '' };
 	}
-	const inline = argv.find(argument => argument.startsWith('--run-node='));
+	const inline = argv.find(argument => argument.startsWith('--generate='));
 	return inline === undefined
-		? { present: false, nodePath: '' }
-		: { present: true, nodePath: inline.slice('--run-node='.length) };
+		? { present: false, path: '' }
+		: { present: true, path: inline.slice('--generate='.length) };
 }
 
 function findRawRunOperationArgument(argv: readonly string[]): { readonly present: boolean } {

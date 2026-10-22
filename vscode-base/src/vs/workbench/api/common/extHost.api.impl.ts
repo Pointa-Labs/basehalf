@@ -1953,8 +1953,8 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 		};
 
 		const basehalf: typeof vscode.basehalf = {
-			inspectCanvasNode(resource) {
-				return extHostBaseHalf.inspectCanvasNode(extension, resource);
+			inspectGenerationCard(resource) {
+				return extHostBaseHalf.inspectGenerationCard(extension, resource);
 			},
 			applyProjectFileTransition(resource, expected, next, label) {
 				return extHostBaseHalf.applyProjectFileTransition(extension, resource, expected, next, label);

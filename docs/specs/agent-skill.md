@@ -116,9 +116,9 @@ text is part of the application bundle, so no local process can change it.
    of the canvas the user works on, where it is a card
    ([generation cards](generation-cards.md#agents)). That folder is the one
    the record of what the user selected names: the folder itself, or the
-   folder of the selected cards or note. This section is not in the launch
-   instruction, which goes only to Claude Code sessions, and it names no
-   tool.
+   folder of the selected cards or note. Without a record, the agent asks the
+   user which folder. This section is not in the launch instruction, which
+   goes only to Claude Code sessions, and it names no tool.
 
 The body describes where things are and what they mean. Following D36, it
 does not tell an agent what to read or in what order. It stays under 500

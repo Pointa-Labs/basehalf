@@ -3,7 +3,7 @@
 	"files": [
 		{
 			"path": "README.md",
-			"contents": "# Video workflow\n\nThis folder keeps the brief, the script, the shot plans, and the clip order as ordinary local files. Ask an Agent to expand or revise the workflow, or edit any note and Video node directly.\n\n## Shots\n\nEach shot folder has a plan, a sound plan, and a Video node. The notes connected to a Video node join its prompt, so the plan of a shot describes its clip. Choose a model in the Video node's panel and press Generate; the video is written to `outputs/` in the workspace.\n\n## Clip order\n\n`video-sequence.json` lists Video nodes that hold a video, in playback order. Each item keeps the node's relative path and stable id. Use **BaseHalf: Add Video Result to Sequence…** to add a node with a video, **BaseHalf: Show Video Sequence Status…** to check every item, **BaseHalf: Move Video Sequence Clip…** to change the order, and **BaseHalf: Remove Video Sequence Clip…** to remove only the reference.\n"
+			"contents": "# Video workflow\n\nThis folder keeps the brief, the script, the shot plans, and the clip order as ordinary local files. Ask an Agent to expand or revise the workflow, or edit any note and video card directly.\n\n## Shots\n\nEach shot folder has a plan, a sound plan, and a video card, which waits for its video until it generates. The notes connected to a video card join its prompt, so the plan of a shot describes its clip. Choose a model in the card's panel and press Generate; the video is saved in the shot's folder under the card's name, `clip.mp4`.\n\n## Clip order\n\n`video-sequence.json` lists videos in playback order. Each item keeps the video's relative path and, for a video BaseHalf generated, which generation made it, so that a moved video can be found again. Use **BaseHalf: Add Video Result to Sequence…** to add a video, **BaseHalf: Show Video Sequence Status…** to check every item, **BaseHalf: Move Video Sequence Clip…** to change the order, **BaseHalf: Repair Moved Video Sequence Clip…** to follow a moved video, and **BaseHalf: Remove Video Sequence Clip…** to remove only the reference.\n"
 		},
 		{
 			"path": "brief.md",
@@ -23,19 +23,15 @@
 		},
 		{
 			"path": "shots/shot-01/shot.json",
-			"contents": "{\n  \"version\": 1,\n  \"kind\": \"pointa.basehalf-ai-video.shot\",\n  \"id\": \"shot-01\",\n  \"title\": \"Shot 01\",\n  \"clipNodePath\": \"clip.bhnode\"\n}\n"
+			"contents": "{\n  \"version\": 1,\n  \"kind\": \"pointa.basehalf-ai-video.shot\",\n  \"id\": \"shot-01\",\n  \"title\": \"Shot 01\",\n  \"clipNodePath\": \"clip.mp4\"\n}\n"
 		},
 		{
 			"path": "video-sequence.json",
 			"contents": "{\n  \"version\": 1,\n  \"kind\": \"pointa.basehalf-ai-video.sequence\",\n  \"items\": []\n}\n"
 		}
 	],
-	"nodes": [
-		{
-			"path": "shots/shot-01/clip.bhnode",
-			"kind": "video",
-			"title": "Shot 01 clip"
-		}
+	"drafts": [
+		{ "path": "shots/shot-01/clip.mp4" }
 	],
 	"cards": [
 		{ "path": "brief.md", "x": 40, "y": 120, "width": 300, "height": 220 },
@@ -43,13 +39,13 @@
 		{ "path": "video-sequence.json", "x": 800, "y": 120, "width": 300, "height": 220 },
 		{ "path": "shots/shot-01/storyboard.md", "x": 40, "y": 80, "width": 340, "height": 300 },
 		{ "path": "shots/shot-01/audio-plan.md", "x": 40, "y": 440, "width": 340, "height": 240 },
-		{ "path": "shots/shot-01/clip.bhnode", "x": 480, "y": 160, "width": 720, "height": 405 },
+		{ "path": "shots/shot-01/clip.mp4", "x": 480, "y": 160, "width": 720, "height": 405 },
 		{ "path": "shots/shot-01/shot.json", "x": 1280, "y": 160, "width": 300, "height": 220 }
 	],
 	"references": [
 		{ "from": "brief.md", "to": "script.md", "fromAnchor": "east", "toAnchor": "west" },
 		{ "from": "script.md", "to": "shots/shot-01/storyboard.md", "fromAnchor": "east", "toAnchor": "west" },
-		{ "from": "shots/shot-01/storyboard.md", "to": "shots/shot-01/clip.bhnode", "fromAnchor": "east", "toAnchor": "west" },
-		{ "from": "shots/shot-01/audio-plan.md", "to": "shots/shot-01/clip.bhnode", "fromAnchor": "east", "toAnchor": "west" }
+		{ "from": "shots/shot-01/storyboard.md", "to": "shots/shot-01/clip.mp4", "fromAnchor": "east", "toAnchor": "west" },
+		{ "from": "shots/shot-01/audio-plan.md", "to": "shots/shot-01/clip.mp4", "fromAnchor": "east", "toAnchor": "west" }
 	]
 }

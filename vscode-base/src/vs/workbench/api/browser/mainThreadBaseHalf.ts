@@ -7,27 +7,22 @@ import { mainWindow } from '../../../base/browser/window.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableMap } from '../../../base/common/lifecycle.js';
-import { basename, extUri } from '../../../base/common/resources.js';
+import { Schemas } from '../../../base/common/network.js';
+import { dirname, extUri } from '../../../base/common/resources.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { URI, UriComponents } from '../../../base/common/uri.js';
-import { IFileContent, IFileService, IFileStatWithPartialMetadata } from '../../../platform/files/common/files.js';
+import { IFileService, IFileStatWithPartialMetadata } from '../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../contrib/webview/browser/webview.js';
 import { IBaseHalfExtensionCardProjectionRuntimeService, IBaseHalfExtensionCardProjectionSession } from '../../basehalf/cardDetail/browser/basehalfExtensionCardProjection.js';
 import { IBaseHalfCardDetailState } from '../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCardProjectionRegistryService } from '../../basehalf/cardDetail/common/basehalfCardDetail.js';
-import {
-	BASEHALF_NODE_DOCUMENT_EXTENSION,
-	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	IBaseHalfNodeDocument,
-	parseBaseHalfNodeDocumentBytes
-} from '../../basehalf/video/common/basehalfNodeDocument.js';
-import { IBaseHalfNodeResult } from '../../basehalf/video/common/basehalfVideoNode.js';
+import { baseHalfGenerationKindOfPath } from '../../basehalf/video/common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore } from '../../basehalf/video/common/basehalfVideoGeneration.js';
 import { IBaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../basehalf/plugins/common/basehalfPluginAdmissionService.js';
 import { IBaseHalfPluginStructuralCleanupService } from '../../basehalf/plugins/common/basehalfPluginStructuralCleanup.js';
 import { IBaseHalfProjectFileTransitionService } from '../../basehalf/plugins/common/basehalfProjectFileTransitions.js';
 import { IExtHostContext } from '../../services/extensions/common/extHostCustomers.js';
-import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import * as extHostProtocol from '../common/extHost.protocol.js';
 import { MainThreadWebviews, reviveWebviewExtension } from './mainThreadWebviews.js';
 
@@ -35,12 +30,6 @@ interface IBaseHalfRegisteredProjection {
 	readonly extension: extHostProtocol.WebviewExtensionDescription;
 	readonly options: { readonly retainContextWhenHidden?: boolean };
 	readonly serializeBuffersForPostMessage: boolean;
-}
-
-interface IBaseHalfCanvasNodeReadState {
-	readonly workspaceRealpath: URI;
-	readonly nodeRealpath: URI;
-	readonly nodeStat: IFileStatWithPartialMetadata;
 }
 
 class MainThreadBaseHalfCardProjectionSession extends Disposable implements IBaseHalfExtensionCardProjectionSession {
@@ -139,7 +128,7 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		@IBaseHalfExtensionCardProjectionRuntimeService private readonly runtimeService: IBaseHalfExtensionCardProjectionRuntimeService,
 		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
+		@IBaseHalfGenerationCardStore private readonly generationCardStore: IBaseHalfGenerationCardStore,
 		@IBaseHalfProjectFileTransitionService private readonly projectFileTransitionService: IBaseHalfProjectFileTransitionService,
 		@IBaseHalfPluginStructuralCleanupService private readonly pluginStructuralCleanupService: IBaseHalfPluginStructuralCleanupService,
 		@IBaseHalfPluginAdmissionService private readonly pluginAdmissionService: IBaseHalfPluginAdmissionService
@@ -190,85 +179,78 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		this.sessions.get(handle)?.setDirty(dirty);
 	}
 
-	async $inspectCanvasNode(
+	/**
+	 * What an admitted extension learns of a generation card (D63, generation
+	 * cards, "Implementation boundaries"): its kind, whether it has its file,
+	 * and the `id` of its `made.yaml`, read through the card store. Every
+	 * resource that is not a generation card of an open local workspace folder
+	 * answers nothing, and so does one that is a symbolic link or resolves
+	 * outside its workspace folder. Nothing is written.
+	 */
+	async $inspectGenerationCard(
 		extension: extHostProtocol.IBaseHalfExtensionIdentityDto,
 		resource: UriComponents
-	): Promise<extHostProtocol.IBaseHalfCanvasNodeStateDto | undefined> {
+	): Promise<extHostProtocol.IBaseHalfGenerationCardStateDto | undefined> {
 		const contributor = reviveBaseHalfExtensionIdentity(extension);
 		if (!this.pluginAdmissionService.isAllowedContributor(contributor)) {
-			throw new Error(`Extension '${contributor.extensionId}' is not admitted to inspect BaseHalf canvas nodes.`);
+			throw new Error(`Extension '${contributor.extensionId}' is not admitted to inspect BaseHalf generation cards.`);
 		}
-		const nodeResource = URI.revive(resource);
-		if (nodeResource.query || nodeResource.fragment || !nodeResource.path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
+		const card = URI.revive(resource);
+		if (card.scheme !== Schemas.file || card.query || card.fragment) {
 			return undefined;
 		}
-		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(nodeResource);
-		if (!workspaceFolder || !await this.fileService.exists(nodeResource)) {
+		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(card)?.uri;
+		const relativePath = workspaceFolder ? extUri.relativePath(workspaceFolder, card) : undefined;
+		if (!workspaceFolder || !relativePath || relativePath === '..' || relativePath.startsWith('../')
+			|| relativePath.split('/').some(segment => segment.toLowerCase() === '.bh')
+			|| !baseHalfGenerationKindOfPath(relativePath)
+			|| !await this.resolvesInside(workspaceFolder, card)
+			|| !await this.generationCardStore.isGenerationCard(card)) {
 			return undefined;
 		}
-		const beforeRead = await this.resolveCanvasNodeReadState(workspaceFolder.uri, nodeResource);
-		if (!beforeRead) {
-			return undefined;
-		}
-		if (this.workingCopyService.isDirty(nodeResource)) {
-			throw new Error('Save this node before inspecting its lifecycle.');
-		}
-		const source = await this.fileService.readFile(beforeRead.nodeRealpath, {
-			atomic: true,
-			limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-		});
-		const afterRead = await this.resolveCanvasNodeReadState(workspaceFolder.uri, nodeResource);
-		if (!afterRead || !sameCanvasNodeReadState(beforeRead, source, afterRead)) {
-			return undefined;
-		}
-		const verifiedSource = await this.fileService.readFile(afterRead.nodeRealpath, {
-			atomic: true,
-			limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-		});
-		const finalRead = await this.resolveCanvasNodeReadState(workspaceFolder.uri, nodeResource);
-		if (!finalRead || !sameCanvasNodeReadState(afterRead, verifiedSource, finalRead) || !source.value.equals(verifiedSource.value)) {
-			return undefined;
-		}
-		let document: IBaseHalfNodeDocument;
+		let snapshot: IBaseHalfGenerationCardSnapshot;
 		try {
-			document = parseBaseHalfNodeDocumentBytes(verifiedSource.value.buffer);
+			snapshot = await this.generationCardStore.read(card);
 		} catch {
 			return undefined;
 		}
-		// The shape stays the one Sequence reads (D58): a node with a video is a
-		// `result`, a task maps to its phase, and version 6 nodes keep no attempts.
-		const lifecycle: extHostProtocol.BaseHalfCanvasNodeLifecycleDto = document.result
-			? 'result'
-			: document.task?.state === 'submitting' || document.task?.state === 'running'
-				? 'running'
-				: document.task?.state === 'failed'
-					? 'failed'
-					: document.task?.state === 'stopped'
-						? 'cancelled'
-						: 'draft';
-		const result = document.result === undefined
-			? undefined
-			: await this.toCanvasNodeResultDto(workspaceFolder.uri, document, document.result);
 		return {
-			id: document.id,
-			kind: document.kind,
-			lifecycle,
-			...(result === undefined ? {} : { result }),
-			attempts: []
+			kind: snapshot.kind,
+			hasFile: snapshot.hasFile,
+			...(snapshot.made ? { generationId: snapshot.made.id } : {})
 		};
 	}
 
-	private async resolveCanvasNodeReadState(workspaceFolder: URI, nodeResource: URI): Promise<IBaseHalfCanvasNodeReadState | undefined> {
-		const [workspaceRealpath, nodeRealpath, nodeStat] = await Promise.all([
-			this.fileService.realpath(workspaceFolder),
-			this.fileService.realpath(nodeResource),
-			this.fileService.stat(nodeResource)
-		]);
-		if (!workspaceRealpath || !nodeRealpath || !nodeStat.isFile || nodeStat.isSymbolicLink
-			|| !extUri.isEqualOrParent(nodeRealpath, workspaceRealpath) || extUri.isEqual(nodeRealpath, workspaceRealpath)) {
+	/**
+	 * Whether a card is a regular file that resolves inside its workspace
+	 * folder, or a draft whose folder does: never a symbolic link.
+	 */
+	private async resolvesInside(workspaceFolder: URI, card: URI): Promise<boolean> {
+		const [workspaceRealpath, stat] = await Promise.all([this.realpathQuietly(workspaceFolder), this.statQuietly(card)]);
+		if (!workspaceRealpath) {
+			return false;
+		}
+		if (stat && (stat.isSymbolicLink || !stat.isFile)) {
+			return false;
+		}
+		const realpath = await this.realpathQuietly(stat ? card : dirname(card));
+		return !!realpath && extUri.isEqualOrParent(realpath, workspaceRealpath) && (!stat || !extUri.isEqual(realpath, workspaceRealpath));
+	}
+
+	private async statQuietly(resource: URI): Promise<IFileStatWithPartialMetadata | undefined> {
+		try {
+			return await this.fileService.stat(resource);
+		} catch {
 			return undefined;
 		}
-		return { workspaceRealpath, nodeRealpath, nodeStat };
+	}
+
+	private async realpathQuietly(resource: URI): Promise<URI | undefined> {
+		try {
+			return await this.fileService.realpath(resource);
+		} catch {
+			return undefined;
+		}
 	}
 
 	async $applyProjectFileTransition(
@@ -329,58 +311,6 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		this.sessions.clear();
 		super.dispose();
 	}
-
-	/**
-	 * A generated video is reported as the result of an attempt whose id is its
-	 * task id; an imported file keeps its own source. The artifact is available
-	 * while its file exists.
-	 */
-	private async toCanvasNodeResultDto(
-		workspaceFolder: URI,
-		document: IBaseHalfNodeDocument,
-		result: IBaseHalfNodeResult
-	): Promise<extHostProtocol.IBaseHalfCanvasNodeResultDto> {
-		const resource = URI.joinPath(workspaceFolder, ...result.artifact.path.split('/'));
-		let integrity: extHostProtocol.BaseHalfCanvasArtifactIntegrityDto;
-		try {
-			integrity = (await this.fileService.stat(resource)).isFile ? 'available' : 'missing';
-		} catch {
-			integrity = 'missing';
-		}
-		const artifact: extHostProtocol.IBaseHalfCanvasNodeResultArtifactDto = {
-			id: result.source === 'generated' ? result.generation.taskId : document.id,
-			outputId: result.source,
-			kind: document.kind,
-			resource,
-			integrity,
-			label: basename(resource)
-		};
-		return result.source === 'generated'
-			? { source: 'attempt', attemptId: result.generation.taskId, artifact }
-			: { source: 'imported', artifact };
-	}
-}
-
-function sameCanvasNodeReadState(
-	beforeRead: IBaseHalfCanvasNodeReadState,
-	source: IFileContent,
-	afterRead: IBaseHalfCanvasNodeReadState
-): boolean {
-	return extUri.isEqual(beforeRead.workspaceRealpath, afterRead.workspaceRealpath)
-		&& extUri.isEqual(beforeRead.nodeRealpath, afterRead.nodeRealpath)
-		&& extUri.isEqual(source.resource, beforeRead.nodeRealpath)
-		&& sameCanvasNodeFileIdentity(beforeRead.nodeStat, source)
-		&& sameCanvasNodeFileIdentity(source, afterRead.nodeStat);
-}
-
-function sameCanvasNodeFileIdentity(
-	left: Pick<IFileStatWithPartialMetadata, 'ctime' | 'mtime' | 'etag' | 'size'>,
-	right: Pick<IFileStatWithPartialMetadata, 'ctime' | 'mtime' | 'etag' | 'size'>
-): boolean {
-	return left.ctime === right.ctime
-		&& left.mtime === right.mtime
-		&& left.etag === right.etag
-		&& left.size === right.size;
 }
 
 function reviveBaseHalfExtensionIdentity(extension: extHostProtocol.IBaseHalfExtensionIdentityDto): IBaseHalfPluginContributorIdentity {

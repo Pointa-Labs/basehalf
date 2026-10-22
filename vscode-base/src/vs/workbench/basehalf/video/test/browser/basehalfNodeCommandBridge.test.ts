@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { Event } from '../../../../../base/common/event.js';
 import { extUri } from '../../../../../base/common/resources.js';
@@ -20,11 +19,11 @@ import { BaseHalfNodeCommandHandler } from '../../browser/basehalfNodeCommandHan
 import { IBaseHalfAgentAreaService } from '../../../agentArea/common/basehalfAgentArea.js';
 import { IBaseHalfAgentCapabilityRegistryService } from '../../../plugins/common/basehalfAgentCapabilities.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../../canvas/common/basehalfCanvasTemplateRegistry.js';
-import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { readBaseHalfSidecarUpstream } from '../../../references/common/basehalfReferenceStore.js';
+import { BASEHALF_GENERATION_EXTENSIONS, baseHalfGenerationKindOfPath, parseBaseHalfGenerationInfo } from '../../common/basehalfGenerationInfo.js';
 import { IBaseHalfVideoCatalogProvider } from '../../common/basehalfVideoCatalog.js';
-import { BaseHalfVideoGenerationError, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../../common/basehalfVideoGeneration.js';
+import { BaseHalfVideoGenerationError, IBaseHalfGenerateOptions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../../common/basehalfVideoGeneration.js';
 import { TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
-import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 
 suite('BaseHalfNodeCommandBridge', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -43,86 +42,119 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.strictEqual(generation.isCurrent(generation.current), true);
 	});
 
-	test('starts the generation of a verified Agent Area Video node and prints the path of the node that runs', async () => {
+	test('starts the generation of a verified card as an agent and prints every card it lands on', async () => {
 		const harness = createHarness();
-		const response = await harness.handler.handle(requestEvent('/work/scenes', 'scenes/shot.bhnode'));
+		const response = await harness.handler.handle(requestEvent('/work/scenes', 'scenes/shot.mp4'));
 
-		assert.deepStrictEqual(harness.generateCalls.map(resource => resource.path), ['/work/scenes/shot.bhnode']);
-		assert.deepStrictEqual(response, {
-			version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
-			type: 'runNode',
-			ok: true,
-			outcome: 'succeeded',
-			nodePath: 'scenes/shot.bhnode'
+		assert.deepStrictEqual({
+			generated: harness.generateCalls.map(call => [call.resource.path, call.options]),
+			response
+		}, {
+			// An agent's values are refused, never made legal.
+			generated: [['/work/scenes/shot.mp4', { agent: true }]],
+			response: {
+				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+				type: 'generate',
+				ok: true,
+				outcome: 'succeeded',
+				path: 'scenes/shot.mp4',
+				cards: ['scenes/shot.mp4']
+			}
 		});
+	});
+
+	test('generates a draft, which has no file, and prints the new draft of a card that has its file and every image of several', async () => {
+		const draft = createHarness({ drafts: ['scenes/next.mp4'] });
+		const fromDraft = await draft.handler.handle(requestEvent('/work', 'scenes/next.mp4'));
+		const again = createHarness({ generated: ['/work/scenes/shot-2.mp4'] });
+		const fromFile = await again.handler.handle(requestEvent('/work', 'scenes/shot.mp4'));
+		const several = createHarness({ drafts: ['frames/image.png'], generated: ['/work/frames/image.png', '/work/frames/image-2.png', '/work/frames/image-3.png'] });
+		const images = await several.handler.handle(requestEvent('/work/frames', 'frames/image.png'));
+		assert.deepStrictEqual([fromDraft, fromFile, images].map(response => response?.type === 'generate' ? [response.ok, response.cards] : response), [
+			[true, ['scenes/next.mp4']],
+			[true, ['scenes/shot-2.mp4']],
+			[true, ['frames/image.png', 'frames/image-2.png', 'frames/image-3.png']]
+		]);
+		assert.deepStrictEqual(draft.generateCalls.map(call => call.resource.path), ['/work/scenes/next.mp4']);
 	});
 
 	test('finds the command directory of a workspace opened through a link by its real path', async () => {
 		// The shell reports /private/work/scenes for /work/scenes, as macOS does under /tmp and /var.
 		const harness = createHarness({ linkedFrom: '/private' });
-		const response = await harness.handler.handle(requestEvent('/private/work/scenes', 'scenes/shot.bhnode'));
-		const outside = await harness.handler.handle(requestEvent('/private/elsewhere', 'scenes/shot.bhnode'));
+		const response = await harness.handler.handle(requestEvent('/private/work/scenes', 'scenes/shot.mp4'));
+		const outside = await harness.handler.handle(requestEvent('/private/elsewhere', 'scenes/shot.mp4'));
 		assert.deepStrictEqual({
-			generated: harness.generateCalls.map(resource => resource.path),
-			response: response?.type === 'runNode' ? [response.ok, response.ok ? response.nodePath : undefined] : response,
+			generated: harness.generateCalls.map(call => call.resource.path),
+			response: response?.type === 'generate' ? [response.ok, response.cards] : response,
 			outside: outside?.ok
 		}, {
-			generated: ['/work/scenes/shot.bhnode'],
-			response: [true, 'scenes/shot.bhnode'],
+			generated: ['/work/scenes/shot.mp4'],
+			response: [true, ['scenes/shot.mp4']],
 			outside: false
 		});
 	});
 
-	test('prints the path of the new node when the node already held a video', async () => {
-		const harness = createHarness({ generated: URI.file('/work/scenes/shot-2.bhnode') });
-		const response = await harness.handler.handle(requestEvent('/work/scenes', 'scenes/shot.bhnode'));
-		assert.deepStrictEqual([response?.outcome, response?.type === 'runNode' ? response.nodePath : undefined], ['succeeded', 'scenes/shot-2.bhnode']);
-	});
-
 	test('ignores unknown processes but promptly rejects a released Agent Area process', async () => {
 		const wrongProcess = createHarness({ ownership: 'unknown' });
-		assert.strictEqual(await wrongProcess.handler.handle(requestEvent('/work', 'shot.bhnode')), undefined);
+		assert.strictEqual(await wrongProcess.handler.handle(requestEvent('/work', 'shot.mp4')), undefined);
 		assert.strictEqual(wrongProcess.generateCalls.length, 0);
 
 		const releasedProcess = createHarness({ ownership: 'released' });
-		assert.strictEqual((await releasedProcess.handler.handle(requestEvent('/work', 'shot.bhnode')))?.outcome, 'rejected');
+		assert.strictEqual((await releasedProcess.handler.handle(requestEvent('/work', 'shot.mp4')))?.outcome, 'rejected');
 		assert.strictEqual(releasedProcess.generateCalls.length, 0);
 
 		const wrongWorkspace = createHarness();
-		assert.strictEqual(await wrongWorkspace.handler.handle({ ...requestEvent('/work', 'shot.bhnode'), workspaceId: 'other' }), undefined);
+		assert.strictEqual(await wrongWorkspace.handler.handle({ ...requestEvent('/work', 'shot.mp4'), workspaceId: 'other' }), undefined);
 		assert.strictEqual(wrongWorkspace.generateCalls.length, 0);
 	});
 
-	test('rejects dirty, non-portable, non-node, and symbolic-link targets before generating', async () => {
-		for (const [event, options] of [
-			[requestEvent('/work', 'dirty.bhnode'), { dirty: true }],
-			[requestEvent('/work', '../outside.bhnode'), {}],
-			[requestEvent('/work', 'notes.md'), {}],
-			[requestEvent('/work', 'linked/shot.bhnode'), { symbolicLinkPath: '/work/linked' }]
+	test('refuses a path that is not a generation card of the workspace folder before generating', async () => {
+		const refusals: string[] = [];
+		for (const [path, options] of [
+			['../outside.mp4', {}],
+			['.bh/mirror/shot.mp4/generation.yaml', {}],
+			['scenes/notes.md', {}],
+			// The retired node document is an ordinary file (D63).
+			['scenes/shot.bhnode', {}],
+			// A video without generation information, and a path that names nothing.
+			['scenes/imported.mp4', { plainFiles: ['scenes/imported.mp4'] }],
+			['scenes/nothing.mp4', { missing: ['scenes/nothing.mp4'] }],
+			// A draft in a folder that is not on this computer.
+			['gone/draft.mp4', { drafts: ['gone/draft.mp4'], missing: ['gone'] }],
+			['linked/shot.mp4', { symbolicLinkPath: '/work/linked' }],
+			['scenes/link.mp4', { symbolicLinkPath: '/work/scenes/link.mp4' }],
+			['scenes/folder.mp4', { folders: ['scenes/folder.mp4'] }]
 		] as const) {
 			const harness = createHarness(options);
-			const response = await harness.handler.handle(event);
-			assert.strictEqual(response?.outcome, 'rejected');
-			assert.strictEqual(harness.generateCalls.length, 0);
+			const response = await harness.handler.handle(requestEvent('/work', path));
+			refusals.push(`${path}: ${response?.outcome} ${harness.generateCalls.length}`);
+			assert.strictEqual(response?.type === 'generate' ? response.cards : 'none', undefined, path);
 		}
+		assert.deepStrictEqual(refusals, [
+			'../outside.mp4: rejected 0',
+			'.bh/mirror/shot.mp4/generation.yaml: rejected 0',
+			'scenes/notes.md: rejected 0',
+			'scenes/shot.bhnode: rejected 0',
+			'scenes/imported.mp4: rejected 0',
+			'scenes/nothing.mp4: rejected 0',
+			'gone/draft.mp4: rejected 0',
+			'linked/shot.mp4: rejected 0',
+			'scenes/link.mp4: rejected 0',
+			'scenes/folder.mp4: rejected 0'
+		]);
 	});
 
-	test('rejects a node that is not a Video node or cannot be read, without generating', async () => {
-		const image = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({ id: baseHalfNodeTestId(2), kind: 'image', title: 'Frame' }));
-		const legacy = JSON.stringify({ version: 4, id: baseHalfNodeTestId(3), kind: 'video', title: 'Old', role: 'Clip', prompt: '', upstream: [], attempts: [] });
-		for (const [source, message] of [[image, /Only a Video node runs; 'shot\.bhnode' is not a Video node/], [legacy, /can't be read: document\.version 4 is no longer supported/]] as const) {
-			const harness = createHarness({ nodeSource: source });
-			const response = await harness.handler.handle(requestEvent('/work', 'shot.bhnode'));
-			assert.strictEqual(response?.outcome, 'rejected');
-			assert.match(response?.error ?? '', message);
-			assert.strictEqual(harness.generateCalls.length, 0);
-		}
-	});
-
-	test('reports a generation the node cannot start as rejected, with its reason', async () => {
-		const harness = createHarness({ generationError: new BaseHalfVideoGenerationError('Choose a model first.') });
-		const response = await harness.handler.handle(requestEvent('/work', 'shot.bhnode'));
-		assert.deepStrictEqual([response?.ok, response?.outcome, response?.error], [false, 'rejected', 'Choose a model first.']);
+	test('reports a generation the card cannot start as rejected, with its plain reason', async () => {
+		const harness = createHarness({ generationError: new BaseHalfVideoGenerationError('This card is already generating.') });
+		const response = await harness.handler.handle(requestEvent('/work', 'shot.mp4'));
+		assert.deepStrictEqual(response, {
+			version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+			type: 'generate',
+			ok: false,
+			outcome: 'rejected',
+			path: 'shot.mp4',
+			error: 'This card is already generating.'
+		});
 	});
 
 	test('keeps a started generation running when the Agent bridge disconnects', async () => {
@@ -131,12 +163,12 @@ suite('BaseHalfNodeCommandBridge', () => {
 		const harness = createHarness({ generationPromise });
 		const cancellation = new CancellationTokenSource();
 		try {
-			const responsePromise = harness.handler.handle(requestEvent('/work', 'shot.bhnode'), cancellation.token);
+			const responsePromise = harness.handler.handle(requestEvent('/work', 'shot.mp4'), cancellation.token);
 			await harness.generationStarted;
 			cancellation.cancel();
-			settleGeneration?.(URI.file('/work/shot.bhnode'));
+			settleGeneration?.(URI.file('/work/shot.mp4'));
 			const response = await responsePromise;
-			assert.deepStrictEqual([response?.outcome, response?.type === 'runNode' ? response.nodePath : undefined], ['succeeded', 'shot.bhnode']);
+			assert.deepStrictEqual([response?.outcome, response?.type === 'generate' ? response.cards : undefined], ['succeeded', ['shot.mp4']]);
 			assert.deepStrictEqual(harness.stopCalls, []);
 		} finally {
 			cancellation.dispose();
@@ -170,10 +202,10 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.strictEqual(harness.commandCalls[0].cancellationToken, CancellationToken.None);
 	});
 
-	test('lists no video provider and says why when the model catalog cannot be loaded', async () => {
-		const harness = createHarness({ videoCatalogFails: true });
+	test('lists no provider and says why when the model catalog cannot be loaded', async () => {
+		const harness = createHarness({ modelCatalogFails: true });
 		const response = await harness.handler.handle(operationDiscoveryEvent());
-		assert.deepStrictEqual(response?.type === 'listCapabilities' ? [response.outcome, response.host?.videoCatalog] : undefined, [
+		assert.deepStrictEqual(response?.type === 'listCapabilities' ? [response.outcome, response.host?.modelCatalog] : undefined, [
 			'succeeded',
 			{ providers: [], error: 'AI Video, which provides the video models, is not running.' }
 		]);
@@ -187,45 +219,58 @@ suite('BaseHalfNodeCommandBridge', () => {
 			throw new Error('Expected a capability discovery response.');
 		}
 		assert.strictEqual(response.outcome, 'succeeded');
-		assert.deepStrictEqual(Object.keys(response.host?.nodeDocument ?? {}), ['fileExtension', 'documentVersion', 'nodeKinds', 'lifecycle', 'runCommand', 'authoring']);
-		assert.strictEqual(response.host?.nodeDocument.fileExtension, '.bhnode');
-		assert.deepStrictEqual(response.host?.nodeDocument.nodeKinds, ['file', 'image', 'video', 'audio', 'pdf', 'presentation']);
+		// D63: generation cards replace the node document, and the catalog is the model catalog.
+		assert.deepStrictEqual(Object.keys(response.host ?? {}), ['generationCards', 'contextEdge', 'templates', 'operations', 'modelCatalog']);
+		const cards = response.host!.generationCards;
+		assert.deepStrictEqual({ ...cards, authoring: undefined }, {
+			fileExtensions: {
+				image: BASEHALF_GENERATION_EXTENSIONS.image.map(extension => `.${extension}`),
+				video: BASEHALF_GENERATION_EXTENSIONS.video.map(extension => `.${extension}`)
+			},
+			generationFile: '.bh/mirror/<path>/generation.yaml',
+			inputsFile: '.bh/mirror/<path>/upstream.yaml',
+			hostOwned: ['.bh/mirror/<path>/made.yaml', '.bh/cache/generation/'],
+			generateCommand: 'basehalf --generate <workspace-relative-path>',
+			authoring: undefined
+		});
 		assert.deepStrictEqual(response.host?.contextEdge, {
 			source: 'direct-content',
-			resultNodeSource: 'node-result',
 			target: 'direct-context',
 			autoRun: false,
 			recursive: false,
 			storedBy: 'downstream',
 			markdownFrontmatterKey: 'upstream',
-			nodeDocumentField: 'upstream',
 			inputOrder: 'target-upstream-order',
 			label: 'none'
 		});
+		// The example is a card of the catalog's, written and read back as BaseHalf writes and reads it.
+		const authoring = cards.authoring as Record<string, any>;
+		const example = parseBaseHalfGenerationInfo(authoring.examples.generation);
 		assert.deepStrictEqual({
-			documentVersion: response.host?.nodeDocument.documentVersion,
-			contractVersion: response.host?.nodeDocument.authoring.contractVersion,
-			hostOwnedFields: response.host?.nodeDocument.authoring.hostOwnedFields,
-			runCommand: response.host?.nodeDocument.runCommand
+			contractVersion: authoring.contractVersion,
+			schemaFields: Object.keys(authoring.schema.properties),
+			card: [authoring.examples.card, baseHalfGenerationKindOfPath(authoring.examples.card)],
+			files: [authoring.examples.generationFile, authoring.examples.inputsFile],
+			example: { readable: example.readable, provider: example.info.provider, model: example.info.model, mode: example.info.mode, params: example.info.params },
+			inputs: readBaseHalfSidecarUpstream(authoring.examples.inputs, { nodePath: authoring.examples.card }).items.map(item => item.path),
+			rules: (authoring.rules as string[]).filter(rule => /made\.yaml|draft|basehalf --generate|host\.modelCatalog|upstream\.yaml/.test(rule)).length
 		}, {
-			documentVersion: 6,
-			contractVersion: 4,
-			hostOwnedFields: ['task', 'result'],
-			runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>'
-		});
-		assert.deepStrictEqual(response.host?.nodeDocument.lifecycle, {
-			task: 'host-owned',
-			result: 'host-owned-single-file'
+			contractVersion: 5,
+			schemaFields: ['prompt', 'provider', 'model', 'mode', 'params'],
+			card: ['shots/shot-01/clip.mp4', 'video'],
+			files: ['.bh/mirror/shots/shot-01/clip.mp4/generation.yaml', '.bh/mirror/shots/shot-01/clip.mp4/upstream.yaml'],
+			example: { readable: true, provider: 'borealis', model: 'borealis-one', mode: 'frames', params: { caption: '', strength: 0.5 } },
+			inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
+			rules: 6
 		});
 		// The model catalog, from which an agent chooses a generation; the example is of a provider set up here.
-		const videoProviders = response.host?.videoCatalog.providers as readonly Record<string, any>[];
+		const providers = response.host?.modelCatalog.providers as readonly Record<string, any>[];
 		assert.deepStrictEqual({
-			providers: videoProviders.map(provider => `${provider.id} ${provider.setUp ? 'set up' : 'not set up'} in ${provider.region}: ${provider.models.map((model: Record<string, any>) => `${model.id} [${model.regions.join(' ')}] ${model.modes.map((mode: Record<string, unknown>) => mode.id).join('/')}`).join(', ')}`),
-			parameters: videoProviders[0].models[0].parameters.map((parameter: Record<string, unknown>) => parameter.name),
-			secretFree: !/apiKey"?\s*:|baseUrl|endpoint|providerModels|console/.test(JSON.stringify(response.host?.videoCatalog)),
-			priceFree: !/"(estimate|currency|price)"\s*:/.test(JSON.stringify(response.host?.videoCatalog)),
-			example: (response.host?.nodeDocument.authoring.examples as Record<string, any>).configured.generation,
-			error: response.host?.videoCatalog.error
+			providers: providers.map(provider => `${provider.id} ${provider.setUp ? 'set up' : 'not set up'} in ${provider.region}: ${provider.models.map((model: Record<string, any>) => `${model.id} [${model.regions.join(' ')}] ${model.modes.map((mode: Record<string, unknown>) => mode.id).join('/')}`).join(', ')}`),
+			parameters: providers[0].models[0].parameters.map((parameter: Record<string, unknown>) => parameter.name),
+			secretFree: !/apiKey"?\s*:|baseUrl|endpoint|providerModels|console/.test(JSON.stringify(response.host?.modelCatalog)),
+			priceFree: !/"(estimate|currency|price)"\s*:/.test(JSON.stringify(response.host?.modelCatalog)),
+			error: response.host?.modelCatalog.error
 		}, {
 			providers: [
 				'acme not set up in east: acme-motion-2 [east west] frames/reference, acme-still [east] frames, acme-clip [east west] extend/edit, acme-legacy [east] frames',
@@ -234,9 +279,9 @@ suite('BaseHalfNodeCommandBridge', () => {
 			parameters: ['resolution', 'ratio', 'duration', 'sound', 'seed', 'negative_prompt'],
 			secretFree: true,
 			priceFree: true,
-			example: { provider: 'borealis', model: 'borealis-one', mode: 'frames', params: { strength: 0.5, caption: '' } },
 			error: undefined
 		});
+		assert.doesNotMatch(JSON.stringify(response.host), /bhnode|--run-node|videoCatalog|nodeDocument|node-result|outputs\//);
 		assert.deepStrictEqual(response.host?.operations.map(operation => operation.id), ['basehalf.canvas.create-from-template']);
 		assert.deepStrictEqual(response.host?.templates, [{ id: 'studio.workflow.starter', label: 'starter' }]);
 		assert.deepStrictEqual(response.host?.operations[0].parameters[0].values, ['studio.workflow.starter']);
@@ -392,10 +437,16 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly ownership?: 'owned' | 'released' | 'unknown';
 		readonly dirty?: boolean;
 		readonly symbolicLinkPath?: string;
-		/** The text of every `.bhnode`; a Video node by default. */
-		readonly nodeSource?: string;
-		/** The node the generation runs in; the requested node by default. */
-		readonly generated?: URI;
+		/** Workspace-relative paths whose card information is a draft's: nothing is there. */
+		readonly drafts?: readonly string[];
+		/** Workspace-relative files with an image or video extension and no generation information. */
+		readonly plainFiles?: readonly string[];
+		/** Workspace-relative paths at which nothing is. */
+		readonly missing?: readonly string[];
+		/** Workspace-relative paths of folders, whatever their name. */
+		readonly folders?: readonly string[];
+		/** The cards the generation lands on, by path; the requested card by default. */
+		readonly generated?: readonly string[];
 		readonly generationError?: Error;
 		readonly generationPromise?: Promise<URI>;
 		readonly reviewedOperation?: boolean;
@@ -411,14 +462,13 @@ suite('BaseHalfNodeCommandBridge', () => {
 		/** The workspace folder is reached through a link: its real path starts with this. */
 		readonly linkedFrom?: string;
 		/** The model catalog could not be loaded. */
-		readonly videoCatalogFails?: boolean;
+		readonly modelCatalogFails?: boolean;
 	} = {}) {
-		const generateCalls: URI[] = [];
+		const generateCalls: { readonly resource: URI; readonly options: IBaseHalfGenerateOptions | undefined }[] = [];
 		const stopCalls: URI[] = [];
 		const commandCalls: Array<{ id: string; argument: unknown; cancellationToken?: CancellationToken }> = [];
 		let notifyGenerationStarted: (() => void) | undefined;
 		const generationStarted = new Promise<void>(resolve => notifyGenerationStarted = resolve);
-		const nodeSource = options.nodeSource ?? serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({ id: baseHalfNodeTestId(1), kind: 'video', title: 'Shot' }));
 		let notifyCommandStarted: (() => void) | undefined;
 		const commandStarted = new Promise<void>(resolve => notifyCommandStarted = resolve);
 		const workspace = {
@@ -428,6 +478,11 @@ suite('BaseHalfNodeCommandBridge', () => {
 				: extUri.isEqualOrParent(resource, workspaceFolder) ? { uri: workspaceFolder } : undefined
 		} as unknown as IWorkspaceContextService;
 		const files = options.files?.map(path => URI.joinPath(workspaceFolder, path).path);
+		const absolute = (paths: readonly string[] | undefined) => new Set((paths ?? []).map(path => URI.joinPath(workspaceFolder, path).path));
+		const drafts = absolute(options.drafts);
+		const missing = absolute([...(options.drafts ?? []), ...(options.missing ?? [])]);
+		const folders = absolute(options.folders);
+		const plainFiles = absolute(options.plainFiles);
 		const stat = async (resource: URI) => {
 			if (files) {
 				const isFile = files.includes(resource.path);
@@ -437,20 +492,20 @@ suite('BaseHalfNodeCommandBridge', () => {
 				}
 				return { isFile, isDirectory, isSymbolicLink: resource.fsPath === options.symbolicLinkPath };
 			}
-			return {
-				isFile: resource.path.endsWith('.bhnode'),
-				isDirectory: !resource.path.endsWith('.bhnode'),
-				isSymbolicLink: resource.fsPath === options.symbolicLinkPath
-			};
+			if ([...missing].some(path => resource.path === path || resource.path.startsWith(`${path}/`))) {
+				throw new FileOperationError('not found', FileOperationResult.FILE_NOT_FOUND);
+			}
+			// Everything named like an image, a video, a note, or a node file is a file; the rest are folders.
+			const isFile = !folders.has(resource.path) && /\.(?:mp4|png|md|bhnode)$/.test(resource.path);
+			return { isFile, isDirectory: !isFile, isSymbolicLink: resource.fsPath === options.symbolicLinkPath };
 		};
 		const fileService = {
-			realpath: async (resource: URI) => options.linkedFrom && !resource.path.startsWith(`${options.linkedFrom}/`) ? URI.file(`${options.linkedFrom}${resource.path}`) : resource,
+			realpath: async (resource: URI) => {
+				await stat(resource);
+				return options.linkedFrom && !resource.path.startsWith(`${options.linkedFrom}/`) ? URI.file(`${options.linkedFrom}${resource.path}`) : resource;
+			},
 			stat,
 			exists: async (resource: URI) => stat(resource).then(() => true, () => false),
-			readFile: async (resource: URI) => {
-				await stat(resource);
-				return { resource, value: VSBuffer.fromString(nodeSource) };
-			},
 			resolve: async (resource: URI) => {
 				await stat(resource);
 				const names = new Set((files ?? [])
@@ -460,8 +515,14 @@ suite('BaseHalfNodeCommandBridge', () => {
 			},
 			hasCapability: () => !options.caseInsensitive
 		} as unknown as IFileService;
+		const cardStore = {
+			// A draft whose folder is here, or a file with an image or video extension that has generation information.
+			isGenerationCard: async (resource: URI) => drafts.has(resource.path)
+				? await stat(URI.joinPath(resource, '..')).then(folder => folder.isDirectory, () => false)
+				: !!baseHalfGenerationKindOfPath(resource.path) && !plainFiles.has(resource.path) && await stat(resource).then(item => item.isFile, () => false)
+		} as unknown as IBaseHalfGenerationCardStore;
 		const workingCopies = {
-			isDirty: (resource: URI) => options.dirty === true && resource.path.endsWith('dirty.bhnode')
+			isDirty: (resource: URI) => options.dirty === true && resource.path.endsWith('dirty.md')
 		} as unknown as IWorkingCopyService;
 		const agentArea = {
 			onDidReleaseTerminalProcess: Event.None,
@@ -470,13 +531,16 @@ suite('BaseHalfNodeCommandBridge', () => {
 		} as unknown as IBaseHalfAgentAreaService;
 		const generation = {
 			onDidChangeProgress: Event.None,
-			generate: (resource: URI) => {
-				generateCalls.push(resource);
+			generate: (resource: URI, generateOptions?: IBaseHalfGenerateOptions) => {
+				generateCalls.push({ resource, options: generateOptions });
 				notifyGenerationStarted?.();
 				if (options.generationError) {
 					return Promise.reject(options.generationError);
 				}
-				return (options.generationPromise ?? Promise.resolve(options.generated ?? resource)).then(card => [card]);
+				if (options.generationPromise) {
+					return options.generationPromise.then(card => [card]);
+				}
+				return Promise.resolve(options.generated?.map(path => URI.file(path)) ?? [resource]);
 			},
 			stop: async (resource: URI) => { stopCalls.push(resource); },
 			isGenerating: () => false
@@ -531,9 +595,9 @@ suite('BaseHalfNodeCommandBridge', () => {
 				return options.commandPromise ?? options.commandResult;
 			}
 		} as unknown as ICommandService;
-		const videoCatalog = {
+		const modelCatalog = {
 			whenReady: async () => {
-				if (options.videoCatalogFails) {
+				if (options.modelCatalogFails) {
 					throw new Error('AI Video, which provides the video models, is not running.');
 				}
 				return TEST_VIDEO_CATALOG;
@@ -549,7 +613,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 			})
 		} as unknown as IBaseHalfVideoProviderSettingsService;
 		return {
-			handler: new BaseHalfNodeCommandHandler(workspace, fileService, workingCopies, agentArea, generation, capabilities, templates, commands, videoCatalog, videoProviders),
+			handler: new BaseHalfNodeCommandHandler(workspace, fileService, workingCopies, agentArea, generation, cardStore, capabilities, templates, commands, modelCatalog, videoProviders),
 			generateCalls,
 			stopCalls,
 			commandCalls,
@@ -582,7 +646,7 @@ function requestEvent(cwd: string, relativePath: string): IBaseHalfNodeCommandRe
 		workspaceId: 'workspace',
 		request: {
 			version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
-			type: 'runNode',
+			type: 'generate',
 			cwd,
 			relativePath
 		}

@@ -16,7 +16,6 @@ import {
 } from './domain';
 import { addSequenceItemFromVideoResultCommand, inspectSequenceCommand, moveSequenceItemCommand, removeSequenceItemCommand, repairSequenceItemPathCommand } from './sequenceCommands';
 import { resolveSequenceProjection, SEQUENCE_PROJECTION_ID } from './sequenceProjection';
-import { SequenceCleanupService } from './sequenceCleanup';
 import { VideoProviderCommands } from './providers/commands.ts';
 import { PROVIDER_MODULES } from './providers/registry.ts';
 import { VIDEO_PROVIDER_COMMANDS } from './providers/types.ts';
@@ -29,19 +28,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	context.subscriptions.push(vscode.commands.registerCommand(MOVE_SEQUENCE_ITEM_COMMAND_ID, moveSequenceItemCommand));
 	context.subscriptions.push(vscode.commands.registerCommand(REMOVE_SEQUENCE_ITEM_COMMAND_ID, removeSequenceItemCommand));
 	context.subscriptions.push(vscode.commands.registerCommand(REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID, repairSequenceItemPathCommand));
+	// Deleting a video changes no Sequence: its clip shows as missing (D63).
 	context.subscriptions.push(vscode.basehalf.registerCardProjectionProvider(SEQUENCE_PROJECTION_ID, {
 		resolveCardProjection: resolveSequenceProjection
 	}));
-	const sequenceCleanup = new SequenceCleanupService();
-	context.subscriptions.push(sequenceCleanup);
-	context.subscriptions.push(vscode.basehalf.registerCanvasStructuralCleanupProvider({
-		prepareDelete: sequenceCleanup.prepareDelete
-	}));
 
-	// The model catalog and the provider requests of a Video node generation
-	// (D59). The window passes the credentials with every call; nothing is kept
-	// here between calls. The log gets the method, path, status, and time of
-	// each exchange with a provider, and nothing else.
+	// The model catalog and the provider requests of the generations of image
+	// and video cards (D59, D64). The window passes the credentials with every
+	// call; nothing is kept here between calls. The log gets the method, path,
+	// status, and time of each exchange with a provider, and nothing else.
 	const log = vscode.window.createOutputChannel('BaseHalf AI Video', { log: true });
 	context.subscriptions.push(log);
 	const providers = new VideoProviderCommands(PROVIDER_MODULES, { http: { log } });

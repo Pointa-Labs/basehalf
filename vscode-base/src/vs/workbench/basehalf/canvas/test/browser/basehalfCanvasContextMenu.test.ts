@@ -45,9 +45,13 @@ import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../..
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../common/basehalfCanvasTemplate.js';
 import { BaseHalfCanvasTemplateRegistryService, IBaseHalfCanvasTemplateRegistryService } from '../../common/basehalfCanvasTemplateRegistry.js';
-import { parseBaseHalfNodeDocument } from '../../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../../../references/common/basehalfReferenceEdit.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
+import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
+import { BaseHalfGenerationCardStore } from '../../../video/browser/basehalfGenerationCardStore.js';
+import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
+import { IBaseHalfVideoGenerationChoice } from '../../../video/common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../../video/common/basehalfVideoGeneration.js';
 
 suite('BaseHalf canvas context menu', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -134,36 +138,39 @@ suite('BaseHalf canvas context menu', () => {
 		assert.strictEqual(baseHalfTemplateFolderBaseName('Cafe\u0301'), 'Café');
 	});
 
-	test('creates one reversible template transaction with stable files, node identity, canvas, and upstream lists', async () => {
+	test('creates one reversible template transaction with stable files, a draft, canvas rows, and upstream lists', async () => {
 		const harness = await createTemplateHarness(disposables);
 		await harness.create();
 
 		assert.strictEqual(harness.undoRedo.pushed.length, 1);
 		assert.deepStrictEqual(harness.undoRedo.getElements(harness.projectResource).past.length, 1);
 		const created = await readCreatedTemplateState(harness);
-		assert.ok(created.nodeId);
-		// The reference is stored once, in the target's own document.
-		assert.deepStrictEqual({ upstream: created.upstream, brief: created.brief }, {
-			upstream: ['Starter/brief.md'],
-			brief: '# Brief\n\nKeep the subject centered.\n'
+		// The draft is card information without a file; its connection is written by the card store, first (D63).
+		assert.deepStrictEqual({ brief: created.brief, draft: created.draft, frameFile: await harness.fileService.exists(joinPath(harness.projectResource, 'frame.png')), referenceEdits: harness.referenceEdits }, {
+			brief: '# Brief\n\nKeep the subject centered.\n',
+			draft: 'prompt: ""\nprovider: "acme"\nmodel: "acme-still"\nmode: "frames"\nparams:\n  resolution: "2k"\n',
+			frameFile: false,
+			referenceEdits: [{ node: 'Starter/frame.png', operation: { kind: 'append', entries: ['Starter/brief.md'] } }]
 		});
+		assert.deepStrictEqual(harness.lastUsedKinds, ['image']);
 		assert.strictEqual(await harness.fileService.exists(joinPath(harness.workspaceFolder, '.bh', 'mirror', 'Starter', 'brief.md', 'badge.yaml')), false);
 		assert.deepStrictEqual(created.canvas?.cards, [
 			{ path: 'Starter/brief.md', kind: 'file', x: 40, y: 80, width: 240, height: 140 },
-			{ path: 'Starter/frame.bhnode', kind: 'file', x: 380, y: 80, width: 260, height: 180 }
+			{ path: 'Starter/frame.png', kind: 'file', x: 380, y: 80, width: 260, height: 180 }
 		]);
 		assert.deepStrictEqual(created.canvas?.edges, [{
 			from: 'Starter/brief.md',
 			from_anchor: 'east',
-			to: 'Starter/frame.bhnode',
+			to: 'Starter/frame.png',
 			to_anchor: 'west'
 		}]);
 		assert.deepStrictEqual(harness.selections, [{ folder: harness.workspaceFolder, resources: [harness.projectResource] }]);
-		assert.deepStrictEqual(harness.referenceEdits, []);
 
 		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 		assert.strictEqual(await harness.fileService.exists(harness.projectResource), false);
 		assert.strictEqual(await harness.canvasMirror.readCanvas(harness.projectFolder), null);
+		// Like a delete to the trash, undo keeps the draft's card information.
+		assert.strictEqual(await readDraft(harness), created.draft);
 		assert.deepStrictEqual(harness.undoRedo.getElements(harness.projectResource).future.length, 1);
 
 		await harness.undoRedo.redo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
@@ -178,6 +185,7 @@ suite('BaseHalf canvas context menu', () => {
 		await assert.rejects(() => harness.createWithCancellation(CancellationToken.Cancelled), /Canceled/);
 
 		assert.strictEqual(await harness.fileService.exists(harness.projectResource), false);
+		assert.strictEqual(await readDraft(harness), undefined);
 		assert.strictEqual(harness.undoRedo.pushed.length, 0);
 		assert.deepStrictEqual(parseBaseHalfPendingTemplateSetups(
 			harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE)
@@ -185,7 +193,7 @@ suite('BaseHalf canvas context menu', () => {
 	});
 
 	test('refuses template undo before writing when any owned file or metadata row changed', async () => {
-		for (const change of ['file', 'extra-file', 'card', 'edge', 'upstream'] as const) {
+		for (const change of ['file', 'extra-file', 'card', 'edge'] as const) {
 			const harness = await createTemplateHarness(disposables);
 			await harness.create();
 			await changeCreatedTemplateState(harness, change);
@@ -198,8 +206,16 @@ suite('BaseHalf canvas context menu', () => {
 		}
 	});
 
+	test('undoes the creation after an agent changed the draft, and keeps what the agent wrote', async () => {
+		const harness = await createTemplateHarness(disposables);
+		await harness.create();
+		await changeCreatedTemplateState(harness, 'draft');
+		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		assert.deepStrictEqual([await harness.fileService.exists(harness.projectResource), await readDraft(harness)], [false, 'prompt: "A red kite over the dunes."\n']);
+	});
+
 	test('refuses incomplete setup recovery before writing after files or metadata were changed', async () => {
-		for (const change of ['file', 'card', 'edge', 'upstream', 'card-and-edge'] as const) {
+		for (const change of ['file', 'card', 'edge', 'card-and-edge'] as const) {
 			const harness = await createTemplateHarness(disposables);
 			await harness.create();
 			await storeRecoveryRecord(harness);
@@ -220,30 +236,56 @@ suite('BaseHalf canvas context menu', () => {
 		}
 	});
 
-	test('finishes an unchanged setup with one undo element and the original stable node identity', async () => {
+	test('finishes an unchanged setup with one undo element, making the draft that is missing and keeping one that is there', async () => {
+		for (const draft of ['missing', 'changed'] as const) {
+			const harness = await createTemplateHarness(disposables);
+			await harness.create();
+			const created = await readCreatedTemplateState(harness);
+			assert.ok(created.canvas);
+			await harness.canvasMirror.transitionCanvasState(harness.projectFolder, {
+				cards: created.canvas.cards.map(card => ({ path: card.path, expected: card, next: null })),
+				edges: created.canvas.edges.map(edge => ({ from: edge.from, to: edge.to, expected: edge, next: null }))
+			});
+			if (draft === 'missing') {
+				// The window closed before the template made its draft.
+				await harness.fileService.del(joinPath(harness.workspaceFolder, '.bh', 'mirror', 'Starter', 'frame.png'), { recursive: true });
+			} else {
+				await changeCreatedTemplateState(harness, 'draft');
+			}
+			clearCapturedUndo(harness);
+			await storeRecoveryRecord(harness);
+
+			await harness.resume();
+
+			assert.deepStrictEqual(await readCreatedTemplateState(harness), draft === 'missing' ? created : { ...created, draft: 'prompt: "A red kite over the dunes."\n' }, draft);
+			assert.strictEqual(harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE), undefined, draft);
+			assert.strictEqual(harness.undoRedo.pushed.length, 1, draft);
+		}
+	});
+
+	test('refuses to finish a setup whose draft\'s path another item took, and writes nothing of the draft', async () => {
 		const harness = await createTemplateHarness(disposables);
 		await harness.create();
-		const created = await readCreatedTemplateState(harness);
-		assert.ok(created.canvas);
-		await harness.canvasMirror.transitionCanvasState(harness.projectFolder, {
-			cards: created.canvas.cards.map(card => ({ path: card.path, expected: card, next: null })),
-			edges: created.canvas.edges.map(edge => ({ from: edge.from, to: edge.to, expected: edge, next: null }))
-		});
+		await harness.fileService.del(joinPath(harness.workspaceFolder, '.bh', 'mirror', 'Starter', 'frame.png'), { recursive: true });
+		await harness.fileService.writeFile(joinPath(harness.projectResource, 'frame.png'), VSBuffer.fromString('not a draft'));
 		clearCapturedUndo(harness);
 		await storeRecoveryRecord(harness);
+		const beforeStorage = harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE);
 
 		await harness.resume();
 
-		assert.deepStrictEqual(await readCreatedTemplateState(harness), created);
-		assert.strictEqual(harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE), undefined);
-		assert.strictEqual(harness.undoRedo.pushed.length, 1);
+		assert.deepStrictEqual({
+			draft: await readDraft(harness),
+			pending: harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE) === beforeStorage,
+			undo: harness.undoRedo.pushed.length
+		}, { draft: undefined, pending: true, undo: 0 });
 	});
 
 	test('resumes an interrupted metadata commit only after explicit confirmation', async () => {
 		const harness = await createTemplateHarness(disposables, { selectContinueIfOffered: true });
 		await harness.create();
 		const created = await readCreatedTemplateState(harness);
-		const frameCard = created.canvas?.cards.find(card => card.path === 'Starter/frame.bhnode');
+		const frameCard = created.canvas?.cards.find(card => card.path === 'Starter/frame.png');
 		assert.ok(frameCard);
 		await harness.canvasMirror.transitionCanvasState(harness.projectFolder, {
 			cards: [{ path: frameCard.path, expected: frameCard, next: null }]
@@ -273,7 +315,7 @@ suite('BaseHalf canvas context menu', () => {
 		assert.strictEqual(harness.promptLabels[0].some(label => label.includes('Stop Setup')), false);
 	});
 
-	test('materializes Markdown targets in their first bytes and sidecar targets through the reference edit service', async () => {
+	test('materializes Markdown targets in their first bytes, drafts through the card store, and sidecar targets through the reference edit service', async () => {
 		const templateSource = JSON.stringify({
 			version: 1,
 			files: [
@@ -281,17 +323,17 @@ suite('BaseHalf canvas context menu', () => {
 				{ path: 'script.md', contents: '# Script\n' },
 				{ path: 'shot.json', contents: '{}\n' }
 			],
-			nodes: [{ path: 'frame.bhnode', kind: 'video', title: 'Shot 1', prompt: 'Keep the subject centered.' }],
+			drafts: [{ path: 'frame.mp4', prompt: 'Keep the subject centered.' }],
 			cards: [],
 			references: [
 				{ from: 'script.md', to: 'brief.md', fromAnchor: 'east', toAnchor: 'west' },
 				{ from: 'brief.md', to: 'script.md', fromAnchor: 'east', toAnchor: 'west' },
 				{ from: 'brief.md', to: 'shot.json', fromAnchor: 'east', toAnchor: 'west' },
 				{ from: 'script.md', to: 'shot.json', fromAnchor: 'east', toAnchor: 'west' },
-				{ from: 'shot.json', to: 'frame.bhnode', fromAnchor: 'east', toAnchor: 'west' }
+				{ from: 'shot.json', to: 'frame.mp4', fromAnchor: 'east', toAnchor: 'west' }
 			]
 		});
-		const harness = await createTemplateHarness(disposables, { templateSource });
+		const harness = await createTemplateHarness(disposables, { templateSource, lastUsed: undefined });
 		await harness.create();
 
 		const read = async (path: string) => (await harness.fileService.readFile(joinPath(harness.projectResource, path))).value.toString();
@@ -299,16 +341,21 @@ suite('BaseHalf canvas context menu', () => {
 			brief: await read('brief.md'),
 			script: await read('script.md'),
 			shot: await read('shot.json'),
-			frame: (({ version, kind, title, prompt, upstream }) => ({ version, kind, title, prompt, upstream }))(parseBaseHalfNodeDocument(await read('frame.bhnode'))),
+			// A video draft with the template's prompt, and no model when none was used on this computer.
+			frame: await readDraft(harness, 'frame.mp4'),
+			kinds: harness.lastUsedKinds,
 			referenceEdits: harness.referenceEdits,
 			pending: harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE)
 		}, {
 			brief: '---\ntitle: Brief\nupstream:\n  - Starter/script.md\n---\n# Brief\n',
 			script: '---\nupstream:\n  - Starter/brief.md\n---\n# Script\n',
 			shot: '{}\n',
-			// A Video node of version 5, empty but for its title, prompt, and inputs.
-			frame: { version: 6, kind: 'video', title: 'Shot 1', prompt: 'Keep the subject centered.', upstream: ['Starter/shot.json'] },
+			frame: 'prompt: "Keep the subject centered."\n',
+			kinds: ['video'],
 			referenceEdits: [{
+				node: 'Starter/frame.mp4',
+				operation: { kind: 'append', entries: ['Starter/shot.json'] }
+			}, {
 				node: 'Starter/shot.json',
 				operation: {
 					kind: 'transition',
@@ -320,21 +367,31 @@ suite('BaseHalf canvas context menu', () => {
 		});
 	});
 
-	test('refuses a template with sidecar targets in a marked folder before creating anything', async () => {
-		const templateSource = JSON.stringify({
+	test('refuses a template with sidecar targets or drafts in a marked folder before creating anything', async () => {
+		const sidecarTemplate = JSON.stringify({
 			version: 1,
 			files: [{ path: 'brief.md', contents: '# Brief\n' }, { path: 'shot.json', contents: '{}\n' }],
-			nodes: [],
+			drafts: [],
 			cards: [],
 			references: [{ from: 'brief.md', to: 'shot.json', fromAnchor: 'east', toAnchor: 'west' }]
 		});
-		const harness = await createTemplateHarness(disposables, { templateSource, marked: true });
-		await assert.rejects(() => harness.create(), /a folder it is set to leave alone/);
-		assert.deepStrictEqual({
-			project: await harness.fileService.exists(harness.projectResource),
-			referenceEdits: harness.referenceEdits,
-			pending: harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE)
-		}, { project: false, referenceEdits: [], pending: undefined });
+		const draftTemplate = JSON.stringify({
+			version: 1,
+			files: [{ path: 'brief.md', contents: '# Brief\n' }],
+			drafts: [{ path: 'clip.mp4' }],
+			cards: [],
+			references: []
+		});
+		for (const templateSource of [sidecarTemplate, draftTemplate]) {
+			const harness = await createTemplateHarness(disposables, { templateSource, marked: true });
+			await assert.rejects(() => harness.create(), /a folder it is set to leave alone/);
+			assert.deepStrictEqual({
+				project: await harness.fileService.exists(harness.projectResource),
+				mirror: await harness.fileService.exists(joinPath(harness.workspaceFolder, '.bh')),
+				referenceEdits: harness.referenceEdits,
+				pending: harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE)
+			}, { project: false, mirror: false, referenceEdits: [], pending: undefined });
+		}
 	});
 
 	test('discards version 1 pending setups with a warning that names each setup', async () => {
@@ -406,6 +463,8 @@ interface ITemplateHarness {
 	readonly referenceEdits: readonly { readonly node: string; readonly operation: IBaseHalfReferenceStoreEdit['operation'] }[];
 	readonly promptLabels: readonly (readonly string[])[];
 	readonly selections: readonly { readonly folder: URI; readonly resources: readonly URI[] }[];
+	/** The kinds whose last values the drafts of the template asked for. */
+	readonly lastUsedKinds: readonly BaseHalfGenerationKind[];
 	create(): Promise<void>;
 	createWithCancellation(token: CancellationToken): Promise<void>;
 	resume(): Promise<void>;
@@ -450,6 +509,8 @@ async function createTemplateHarness(
 		readonly selectContinueIfOffered?: boolean;
 		readonly templateSource?: string;
 		readonly marked?: boolean;
+		/** The last values of a generation on this computer; a still image model by default. */
+		readonly lastUsed?: IBaseHalfVideoGenerationChoice;
 	} = {}
 ): Promise<ITemplateHarness> {
 	const scheme = 'basehalf-template-test';
@@ -466,12 +527,12 @@ async function createTemplateHarness(
 	const templateSource = options.templateSource ?? JSON.stringify({
 		version: 1,
 		files: [{ path: 'brief.md', contents: '# Brief\n\nKeep the subject centered.\n' }],
-		nodes: [{ path: 'frame.bhnode', kind: 'image', title: 'Frame' }],
+		drafts: [{ path: 'frame.png' }],
 		cards: [
 			{ path: 'brief.md', x: 40, y: 80, width: 240, height: 140 },
-			{ path: 'frame.bhnode', x: 380, y: 80, width: 260, height: 180 }
+			{ path: 'frame.png', x: 380, y: 80, width: 260, height: 180 }
 		],
-		references: [{ from: 'brief.md', to: 'frame.bhnode', fromAnchor: 'east', toAnchor: 'west' }]
+		references: [{ from: 'brief.md', to: 'frame.png', fromAnchor: 'east', toAnchor: 'west' }]
 	});
 	await fileService.createFile(joinPath(extensionLocation, 'starter.json'), VSBuffer.fromString(templateSource));
 
@@ -544,8 +605,32 @@ async function createTemplateHarness(
 		getWorkspace: () => ({
 			id: 'workspace',
 			folders: [{ uri: workspaceFolder, name: 'workspace', index: 0 }]
-		})
+		}),
+		getWorkspaceFolder: (resource: URI) => resource.scheme === workspaceFolder.scheme && (resource.path === workspaceFolder.path || resource.path.startsWith(`${workspaceFolder.path}/`))
+			? { uri: workspaceFolder, name: 'workspace', index: 0, toResource: (path: string) => joinPath(workspaceFolder, path) }
+			: null
 	} as unknown as IWorkspaceContextService;
+	const catalogService = { state: { kind: 'loading' } } as unknown as IBaseHalfVideoCatalogService;
+	const lastUsed = Object.hasOwn(options, 'lastUsed') ? options.lastUsed : { provider: 'acme', model: 'acme-still', mode: 'frames' as const, params: { resolution: '2k' } };
+	const lastUsedKinds: BaseHalfGenerationKind[] = [];
+	const providerSettings = {
+		getLastUsed: (kind: BaseHalfGenerationKind) => {
+			lastUsedKinds.push(kind);
+			return lastUsed;
+		}
+	} as unknown as IBaseHalfVideoProviderSettingsService;
+	const notificationService = new TestNotificationService();
+	// The real card store: a draft is its generation.yaml, made after its upstream list.
+	const cardStore = disposables.add(new BaseHalfGenerationCardStore(
+		fileService,
+		workspaceContextService,
+		disposables.add(new UriIdentityService(fileService)),
+		referenceEditService as unknown as IBaseHalfReferenceEditService,
+		canvasMirror,
+		catalogService,
+		notificationService,
+		new NullLogService()
+	));
 	const services = new Map<unknown, unknown>([
 		[IBaseHalfCanvasTemplateRegistryService, templates],
 		[IFileService, fileService],
@@ -553,7 +638,10 @@ async function createTemplateHarness(
 		[IBaseHalfCanvasEditingService, editing],
 		[IBaseHalfCanvasMirrorService, canvasMirror],
 		[IBaseHalfReferenceEditService, referenceEditService],
-		[INotificationService, new TestNotificationService()],
+		[IBaseHalfGenerationCardStore, cardStore],
+		[IBaseHalfVideoCatalogService, catalogService],
+		[IBaseHalfVideoProviderSettingsService, providerSettings],
+		[INotificationService, notificationService],
 		[IConfigurationService, configurationService],
 		[IStorageService, storageService],
 		[IDialogService, dialogService],
@@ -588,6 +676,7 @@ async function createTemplateHarness(
 		referenceEdits: referenceEditService.edits,
 		promptLabels,
 		selections,
+		lastUsedKinds,
 		create: async () => createCommand.handler(accessor, TEMPLATE_ID),
 		createWithCancellation: async cancellationToken => createCommand.handler(accessor, {
 			templateId: TEMPLATE_ID,
@@ -600,20 +689,22 @@ async function createTemplateHarness(
 
 async function readCreatedTemplateState(harness: ITemplateHarness) {
 	const brief = (await harness.fileService.readFile(joinPath(harness.projectResource, 'brief.md'))).value.toString();
-	const node = (await harness.fileService.readFile(joinPath(harness.projectResource, 'frame.bhnode'))).value.toString();
-	const document = parseBaseHalfNodeDocument(node);
 	return {
 		brief,
-		node,
-		nodeId: document.id,
-		upstream: document.upstream,
+		draft: await readDraft(harness),
 		canvas: await harness.canvasMirror.readCanvas(harness.projectFolder)
 	};
 }
 
+/** The `generation.yaml` of a draft of the project, or `undefined` when it has none. */
+async function readDraft(harness: ITemplateHarness, path = 'frame.png'): Promise<string | undefined> {
+	const resource = joinPath(harness.workspaceFolder, '.bh', 'mirror', 'Starter', ...path.split('/'), 'generation.yaml');
+	return await harness.fileService.exists(resource) ? (await harness.fileService.readFile(resource)).value.toString() : undefined;
+}
+
 async function changeCreatedTemplateState(
 	harness: ITemplateHarness,
-	change: 'file' | 'extra-file' | 'card' | 'edge' | 'upstream'
+	change: 'file' | 'extra-file' | 'card' | 'edge' | 'draft'
 ): Promise<void> {
 	switch (change) {
 		case 'file':
@@ -624,7 +715,7 @@ async function changeCreatedTemplateState(
 			return;
 		case 'card': {
 			const canvas = await harness.canvasMirror.readCanvas(harness.projectFolder);
-			const card = canvas?.cards.find(candidate => candidate.path === 'Starter/frame.bhnode');
+			const card = canvas?.cards.find(candidate => candidate.path === 'Starter/frame.png');
 			assert.ok(card);
 			await harness.canvasMirror.updateCardGeometry(harness.projectFolder, { ...card, x: card.x + 17 });
 			return;
@@ -632,21 +723,17 @@ async function changeCreatedTemplateState(
 		case 'edge':
 			await harness.canvasMirror.removeCanvasEdge(harness.projectFolder, {
 				from: 'Starter/brief.md',
-				to: 'Starter/frame.bhnode'
+				to: 'Starter/frame.png'
 			});
 			return;
-		case 'upstream': {
-			// An agent edits the node's own upstream list after creation.
-			const resource = joinPath(harness.projectResource, 'frame.bhnode');
-			const document = JSON.parse((await harness.fileService.readFile(resource)).value.toString()) as Record<string, unknown>;
-			document.upstream = [];
-			await harness.fileService.writeFile(resource, VSBuffer.fromString(JSON.stringify(document)));
-		}
+		case 'draft':
+			// An agent rewrites the draft's generation.yaml after creation.
+			await harness.fileService.writeFile(joinPath(harness.workspaceFolder, '.bh', 'mirror', 'Starter', 'frame.png', 'generation.yaml'), VSBuffer.fromString('prompt: "A red kite over the dunes."\n'));
 	}
 }
 
 async function storeRecoveryRecord(harness: ITemplateHarness): Promise<void> {
-	const files = await Promise.all(['brief.md', 'frame.bhnode'].map(async path => ({
+	const files = await Promise.all(['brief.md'].map(async path => ({
 		path,
 		digest: await sha256((await harness.fileService.readFile(joinPath(harness.projectResource, path))).value.buffer)
 	})));

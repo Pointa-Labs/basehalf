@@ -1145,42 +1145,14 @@ export interface IBaseHalfExtensionIdentityDto {
 	readonly isUnderDevelopment: boolean;
 }
 
-export type BaseHalfCanvasContentKindDto = 'text' | 'code' | 'file' | 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation';
-export type BaseHalfCanvasNodeKindDto = Exclude<BaseHalfCanvasContentKindDto, 'text' | 'code' | 'folder'>;
+/** What a generation card makes, by the extension of its file (D63). */
+export type BaseHalfGenerationCardKindDto = 'image' | 'video';
 
-export type BaseHalfCanvasNodeAttemptStatusDto = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
-export type BaseHalfCanvasNodeLifecycleDto = 'draft' | 'running' | 'result' | 'failed' | 'cancelled' | 'interrupted';
-export type BaseHalfCanvasArtifactIntegrityDto = 'available' | 'missing' | 'changed';
-
-export interface IBaseHalfCanvasNodeResultArtifactDto {
-	readonly id: string;
-	readonly outputId: string;
-	readonly kind: BaseHalfCanvasNodeKindDto;
-	readonly resource: UriComponents;
-	readonly integrity: BaseHalfCanvasArtifactIntegrityDto;
-	readonly label?: string;
-}
-
-/** Version 5 nodes record no attempts (D58): the list is always empty. */
-export interface IBaseHalfCanvasNodeAttemptDto {
-	readonly id: string;
-	readonly status: BaseHalfCanvasNodeAttemptStatusDto;
-	readonly createdAt: string;
-	readonly startedAt?: string;
-	readonly completedAt?: string;
-	readonly error?: string;
-}
-
-export type IBaseHalfCanvasNodeResultDto =
-	| { readonly source: 'imported'; readonly artifact: IBaseHalfCanvasNodeResultArtifactDto }
-	| { readonly source: 'attempt'; readonly attemptId: string; readonly artifact: IBaseHalfCanvasNodeResultArtifactDto };
-
-export interface IBaseHalfCanvasNodeStateDto {
-	readonly id: string;
-	readonly kind: BaseHalfCanvasNodeKindDto;
-	readonly lifecycle: BaseHalfCanvasNodeLifecycleDto;
-	readonly result?: IBaseHalfCanvasNodeResultDto;
-	readonly attempts: readonly IBaseHalfCanvasNodeAttemptDto[];
+/** What an admitted extension learns of a generation card: its kind, whether it has its file, and the `id` of its `made.yaml`. */
+export interface IBaseHalfGenerationCardStateDto {
+	readonly kind: BaseHalfGenerationCardKindDto;
+	readonly hasFile: boolean;
+	readonly generationId?: string;
 }
 
 export interface IBaseHalfProjectFileTransitionDto {
@@ -1194,7 +1166,7 @@ export interface MainThreadBaseHalfShape extends IDisposable {
 	$registerCardProjectionProvider(extension: WebviewExtensionDescription, projectionId: string, options: { readonly retainContextWhenHidden?: boolean }, serializeBuffersForPostMessage: boolean): void;
 	$unregisterCardProjectionProvider(projectionId: string): void;
 	$setCardProjectionDirty(handle: WebviewHandle, dirty: boolean): void;
-	$inspectCanvasNode(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfCanvasNodeStateDto | undefined>;
+	$inspectGenerationCard(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfGenerationCardStateDto | undefined>;
 	$applyProjectFileTransition(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents, expected: VSBuffer, next: VSBuffer, label: string): Promise<void>;
 	$registerCanvasStructuralCleanupProvider(extension: IBaseHalfExtensionIdentityDto): void;
 	$unregisterCanvasStructuralCleanupProvider(extensionId: string): void;

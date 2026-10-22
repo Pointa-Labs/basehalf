@@ -8,6 +8,7 @@ import { parse as parseYaml } from '../../../../../base/common/yaml.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { BASEHALF_AGENT_SHARED_SECTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
 import {
+	BASEHALF_AGENT_OWN_IMAGE_SECTION,
 	BASEHALF_AGENT_SKILL_DESCRIPTION,
 	BASEHALF_AGENT_SKILL_MARKDOWN,
 	BASEHALF_AGENT_SKILL_TARGETS,
@@ -67,7 +68,11 @@ suite('BaseHalfAgentSkill', () => {
 			'under the `upstream` key of its frontmatter',
 			'It is stored nowhere. Find it by searching',
 			'Read it from disk when you need it, and again before you rely on it later.',
-			'You can move and rename files and folders with ordinary tools.'
+			'You can move and rename files and folders with ordinary tools.',
+			// D63: generation cards and their drafts.
+			'`.bh/mirror/<path>/generation.yaml`',
+			'`made.yaml`',
+			'basehalf --generate'
 		];
 		assert.deepStrictEqual({
 			missing: phrases.filter(phrase => !body.includes(phrase)),
@@ -75,8 +80,22 @@ suite('BaseHalfAgentSkill', () => {
 			// It publishes where things are; it does not tell an agent what to read first.
 			dictatesOrder: /read (?:its|the) upstream (?:items |files )?first/i.test(body),
 			// A skill is used outside Agent Area too.
-			claimsAgentArea: body.includes('started from BaseHalf\'s Agent Area')
-		}, { missing: [], sharedSections: true, dictatesOrder: false, claimsAgentArea: false });
+			claimsAgentArea: body.includes('started from BaseHalf\'s Agent Area'),
+			retired: ['.bhnode', '--run-node', 'outputs/', 'host.videoCatalog', 'Video node'].filter(phrase => BASEHALF_AGENT_SKILL_MARKDOWN.includes(phrase))
+		}, { missing: [], sharedSections: true, dictatesOrder: false, claimsAgentArea: false, retired: [] });
+	});
+
+	test('says where an image the agent made itself goes: the folder of the canvas the selection names, after the shared sections and outside the launch instruction', () => {
+		const body = BASEHALF_AGENT_SKILL_MARKDOWN.slice(BASEHALF_AGENT_SKILL_MARKDOWN.indexOf('\n---\n') + 5);
+		const section = BASEHALF_AGENT_OWN_IMAGE_SECTION.join('\n');
+		assert.deepStrictEqual({
+			version: BASEHALF_AGENT_SKILL_VERSION,
+			inBody: body.includes(section),
+			afterShared: body.indexOf(section) > body.indexOf(BASEHALF_AGENT_SHARED_SECTIONS.join('\n')),
+			last: body.trimEnd().endsWith(section),
+			missing: ['a tool of your own', 'the folder of the canvas the user works on', '`.bh/cache/selection.yaml`', '`folder`', 'ask the user'].filter(phrase => !section.includes(phrase)),
+			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('image you make')
+		}, { version: '6', inBody: true, afterShared: true, last: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('describes the record of what the user selected, and names the request it answers', () => {
@@ -97,7 +116,7 @@ suite('BaseHalfAgentSkill', () => {
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '5', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '6', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('goes to Claude Code\'s folder and the shared one, and is offered while a location lacks the bundled text', () => {
