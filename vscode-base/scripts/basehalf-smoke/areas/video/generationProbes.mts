@@ -427,10 +427,11 @@ export async function clickBlankCanvas(page) {
 
 /**
  * Pans the canvas, as the user does, until the card is inside it, when it is
- * not: the cards of the steps go to the right of each other, and a step can
- * leave the view elsewhere.
+ * not, or always with `always`: then the card is at the top, in the middle.
+ * The cards of the steps go to the right of each other, and a step can leave
+ * the view elsewhere.
  */
-export async function showCardOnCanvas(page, cardPath) {
+export async function showCardOnCanvas(page, cardPath, always = false) {
 	const card = canvasCard(page, cardPath);
 	const canvas = await page.locator('.basehalf-canvas-cards').boundingBox();
 	const box = await card.boundingBox();
@@ -439,7 +440,7 @@ export async function showCardOnCanvas(page, cardPath) {
 	}
 	// Clear of the edges, and of the zoom controls along the bottom.
 	const inside = box.x >= canvas.x + 12 && box.y >= canvas.y + 12 && box.x + box.width <= canvas.x + canvas.width - 12 && box.y + box.height <= canvas.y + canvas.height - 60;
-	if (!inside) {
+	if (always || !inside) {
 		await panCanvasCardTo(page, card, { x: Math.round(canvas.x + (canvas.width - Math.min(box.width, canvas.width - 24)) / 2), y: Math.round(canvas.y + Math.max(12, (canvas.height - box.height) / 4)) });
 	}
 }

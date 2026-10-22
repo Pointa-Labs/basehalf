@@ -34,6 +34,8 @@ export interface VideoSmokeProvider {
 	requestsSince(count: number): readonly MockVideoProviderRequest[];
 	/** When the relay received each request that creates a task or images, in milliseconds since the epoch, oldest first. */
 	readonly creates: readonly number[];
+	/** How long the relay holds each request that creates a task or images from now on. */
+	holdCreates(milliseconds: number): void;
 	close(): Promise<void>;
 }
 
@@ -57,6 +59,7 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 	const sockets = new Set<Socket>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
 	const creates: number[] = [];
+	let holdCreateMs = options.holdCreateMs;
 	const relay = createServer((request: IncomingMessage, response: ServerResponse) => {
 		const receivedAt = Date.now();
 		const chunks: Buffer[] = [];
@@ -84,7 +87,7 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 				const timer = setTimeout(() => {
 					timers.delete(timer);
 					forward();
-				}, options.holdCreateMs);
+				}, holdCreateMs);
 				timers.add(timer);
 			} else {
 				forward();
@@ -109,6 +112,9 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 		isJpeg: bytes => bytes.byteLength > jpeg.byteLength && bytes.readUInt16BE(0) === 0xffd8 && bytes.readUInt16BE(2) === 0xfffe && bytes.subarray(bytes.byteLength - jpeg.byteLength + 2).equals(jpeg.subarray(2)),
 		requestsSince: count => mock.requests.slice(count),
 		creates,
+		holdCreates: milliseconds => {
+			holdCreateMs = milliseconds;
+		},
 		async close() {
 			for (const timer of timers) {
 				clearTimeout(timer);

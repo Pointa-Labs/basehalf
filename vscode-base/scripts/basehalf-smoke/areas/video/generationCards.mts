@@ -86,6 +86,7 @@ import {
 	clickCanvasCreateAction,
 	emptyCanvasPoint,
 	panCanvasCardTo,
+	panCanvasToward,
 	readCanvasCardGeometry,
 	readCanvasView,
 	setCanvasZoomPercent,
@@ -284,6 +285,19 @@ async function createDraftFromMenu(page, label) {
 	const panel = await waitForGenerationPanel(page, cardPath);
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.promptFocused, `the prompt of ${cardPath} to have the keyboard focus`);
 	return { cardPath, panel };
+}
+
+/** Pans the canvas, as the user does, until no card is in sight: the cards lie above the visible part of the canvas. */
+async function panBelowTheCards(page) {
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	for (let attempt = 0; attempt < 12; attempt++) {
+		const lowest = await page.evaluate(() => Math.max(...Array.from(document.querySelectorAll('.react-flow__node')).map(node => node.getBoundingClientRect().bottom)));
+		if (lowest < canvasBox.y - 20) {
+			return;
+		}
+		await panCanvasToward(page, canvasBox, 0, -(lowest - canvasBox.y + 40));
+	}
+	throw new Error('The canvas did not move to a part of it where no card is');
 }
 
 /**
@@ -827,7 +841,9 @@ async function assertPanelInputsAndNames(page) {
 // Criterion 16: opening the panel moves the canvas neither way; it sits 10
 // px below its card, centered, as wide as the specification says, when there
 // is room below; it hides while its card is off the canvas and comes back
-// with it; and it goes when the card is deselected.
+// with it; it sits above the card when there is no room below, and inside
+// the canvas, clamped, when there is room for neither; and it goes when the
+// card is deselected.
 async function assertPanelPlacement(page) {
 	await clickBlankCanvas(page);
 	const card = canvasCard(page, VIDEO);
@@ -856,8 +872,29 @@ async function assertPanelPlacement(page) {
 	await waitForReading(() => readPanelGeometry(page, VIDEO), seen => seen?.visible === 'false' && seen.visibility === 'hidden', 'the panel to hide while its card is off the canvas');
 	await panCanvasCardTo(page, card, top);
 	await waitForReading(() => readPanelGeometry(page, VIDEO), seen => seen?.visible === 'true' && seen.visibility === 'visible' && seen.placement === 'below', 'the panel to show again below its card');
+	// With no room below the card for the tallest panel, it sits above the
+	// card, clear of its name and toolbar.
+	await clickBlankCanvas(page);
+	await panCanvasCardTo(page, card, { x: top.x, y: canvasBox.y + canvasBox.height - 52 - placed.card.height - 120 });
+	await clickCanvasCardOnTop(page, VIDEO);
+	await waitForGenerationPanel(page, VIDEO);
+	const above = await waitForReading(() => readPanelGeometry(page, VIDEO), seen => seen !== null && !seen.moving && seen.placement !== 'below', 'the panel to go above its card when there is no room below');
+	if (above.placement !== 'above' || above.panel.bottom > above.card.top - 10 + 1.5 || above.panel.top < 12 - 1.5) {
+		throw new Error(`Without room below its card, the panel must sit above it: ${JSON.stringify(above)}`);
+	}
+	// At full size the card leaves room for neither: the panel is clamped inside the canvas.
+	await clickBlankCanvas(page);
+	await setCanvasZoomPercent(page, 100);
+	await panCanvasCardTo(page, card, { x: canvasBox.x + 40, y: canvasBox.y + 120 });
+	await clickCanvasCardOnTop(page, VIDEO);
+	await waitForGenerationPanel(page, VIDEO);
+	const clamped = await waitForReading(() => readPanelGeometry(page, VIDEO), seen => seen !== null && !seen.moving && seen.visible === 'true', 'the panel to come to rest at full size');
+	if (clamped.placement !== 'clamped' || clamped.panel.top < 12 - 1.5 || clamped.panel.bottom > clamped.host.height - 52 + 1.5 || clamped.panel.left < 12 - 1.5 || clamped.panel.right > clamped.host.width - 12 + 1.5) {
+		throw new Error(`With room for neither, the panel must be clamped inside the canvas: ${JSON.stringify(clamped)}`);
+	}
 	await clickBlankCanvas(page);
 	await waitForReading(() => page.locator('.basehalf-canvas-video-panel-surface').count(), count => count === 0, 'the panel to go when its card is deselected');
+	await setCanvasZoomPercent(page, 50);
 	await panCanvasCardTo(page, card, { x: home.x, y: home.y });
 }
 
@@ -1551,8 +1588,10 @@ async function assertImageGenerations(page) {
 	}
 	await waitForReading(() => readGenerationCard(page, IMAGE), card => card?.generation === 'file' && card.image?.complete === true && card.image.width > 0, 'the card to show the image');
 
-	// Four images from one generation.
+	// Four images from one generation, from a draft made where the canvas is
+	// empty, so that the drafts of the further images have the room to its right.
 	await clickBlankCanvas(page);
+	await panBelowTheCards(page);
 	const four = await createDraftFromMenu(page, 'New Image');
 	await setImageCount(page, four.panel, four.cardPath, 4);
 	await savePrompt(page, four.panel, four.cardPath, 'Four views of the pier');
@@ -1580,7 +1619,7 @@ async function assertImageGenerations(page) {
 		made = readMade(card);
 		const row = readCardRow(card);
 		if (made.id !== `${seen.id}-${index + 1}` || made.output !== index + 1 || made.outputs !== 4 || made.prompt !== fourInfo.prompt || !pngSize(fs.readFileSync(workspaceFile(card)))
-			|| canonicalJson(readGenerationInfo(card)) !== canonicalJson(fourInfo) || (index > 0 && (!row || row.x < fourRow.x + fourRow.width))) {
+			|| canonicalJson(readGenerationInfo(card)) !== canonicalJson(fourInfo) || (index > 0 && (!row || row.x < fourRow.x + fourRow.width || row.y !== fourRow.y))) {
 			throw new Error(`Image ${index + 1} of 4 must land on its own card, to the right of the first, with the same prompt and settings: ${JSON.stringify({ card, made, row, fourRow, info: readGenerationInfo(card) })}`);
 		}
 	}
@@ -1639,6 +1678,9 @@ async function assertImageGenerations(page) {
 // as `.jpg`, with its card information, its connections, and its place.
 async function assertImageArrivesAsJpeg(page) {
 	const provider = await videoSmokeProvider();
+	// The draft is made where start.png is in sight, to pick it on the canvas.
+	await clickBlankCanvas(page);
+	await showCardOnCanvas(page, START_IMAGE, true);
 	const { cardPath, panel } = await createDraftFromMenu(page, 'New Image');
 	if (!cardPath.endsWith('.png')) {
 		throw new Error(`The last image model used delivers PNG, so a new image draft is named .png: ${cardPath}`);
@@ -1677,8 +1719,10 @@ async function assertImageArrivesAsJpeg(page) {
 // for 90 seconds, and lands; it is never sent again. An image of a provider
 // that answers at once, whose answer was on its way when the window reloaded,
 // ends with the message about files that may have been made and charged, and
-// nothing is sent again. The two minutes are made by writing the record as it
-// is when its window last said it was alive then.
+// a video request still on its way to a provider with tasks ends with the
+// message about the provider's console; nothing is sent again. The two
+// minutes are made by writing the record as it is when its window last said
+// it was alive then.
 async function assertReloadContinuesGenerations(page) {
 	const provider = await videoSmokeProvider();
 	// The provider takes long over this video, and over the image's answer.
@@ -1731,8 +1775,36 @@ async function assertReloadContinuesGenerations(page) {
 		if (provider.creates.length !== createsBefore + 1 || provider.requestsSince(imageRequestsBefore).length > 1) {
 			throw new Error(`The image request was sent again after the reload: ${JSON.stringify(provider.requestsSince(imageRequestsBefore))}`);
 		}
+
+		// A video request still on its way to a provider with tasks when the
+		// window reloads: the relay holds it until after the reload.
+		provider.holdCreates(10_000);
+		await clickBlankCanvas(page);
+		const shot = await createDraftFromMenu(page, 'New Video');
+		await page.keyboard.type('The pier in the fog, after another reload');
+		const shotCreatesBefore = provider.creates.length;
+		watch = watchGenerations();
+		await clickGenerate(shot.panel);
+		await watch.until(w => w.first()?.record.state === 'submitting', 'the video request to be on its way');
+		const onItsWay = watch.first().record;
+		await reloadWindow(page, GENERATION_FOLDER);
+		await waitForReading(() => readGenerationCard(page, shot.cardPath), card => card?.face?.state === 'generating', 'the reloaded window to show the video card waiting', 30_000);
+		ageTaskRecord(onItsWay.id);
+		await watch.until(w => w.first()?.record.state === 'failed', 'the reloaded window to end the request that BaseHalf closed on');
+		watch.stop();
+		const orphaned = 'BaseHalf closed while the request was on its way to the provider. Check the provider\'s console before generating again: a second request may be charged again.';
+		if (watch.first().record.error !== orphaned || watch.first().record.answersAtOnce) {
+			throw new Error(`A request on its way when the window closed must end the card with the message about the provider's console: ${JSON.stringify(watch.first().record)}`);
+		}
+		await waitForReading(() => readGenerationCard(page, shot.cardPath), card => card?.face?.state === 'failed' && card.face.message === orphaned, 'the video card to say why');
+		// The relay passes the held request on, once: nothing sends it again.
+		await page.waitForTimeout(10_000 + 2_000);
+		if (provider.creates.length !== shotCreatesBefore + 1) {
+			throw new Error(`The video request was sent again after the reload: ${provider.creates.length - shotCreatesBefore} requests`);
+		}
 	} finally {
 		provider.mock.configure({ durationMs: VIDEO_PROVIDER_DURATION_MS });
+		provider.holdCreates(VIDEO_PROVIDER_CREATE_HOLD_MS);
 	}
 	await clickBlankCanvas(page);
 }
