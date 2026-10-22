@@ -45,7 +45,8 @@ test('contributes the commands, Sequence, template, and Agent contracts, and not
 		'onCommand:basehalf.video.provider.submit',
 		'onCommand:basehalf.video.provider.poll',
 		'onCommand:basehalf.video.provider.download',
-		'onCommand:basehalf.video.provider.cancel'
+		'onCommand:basehalf.video.provider.cancel',
+		'onCommand:basehalf.video.provider.place'
 	]);
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].id, STARTER_TEMPLATE_ID);
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].resource, 'templates/starter-workflow.json');

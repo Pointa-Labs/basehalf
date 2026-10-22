@@ -10,6 +10,7 @@ import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unre
 import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.ts';
 import { createMediaInspector, type MediaInspector } from './media.ts';
 import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.ts';
+import { checkPlace, placeFile, type PlaceFileSystem } from './place.ts';
 import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.ts';
 import type {
 	CancelResult,
@@ -28,6 +29,8 @@ import type {
 	OutputFormat,
 	Params,
 	ParamValue,
+	PlaceRequest,
+	PlaceResult,
 	PlannedMedia,
 	PollState,
 	ProviderAccess,
@@ -38,7 +41,7 @@ import type {
 } from './types.ts';
 
 /**
- * The six provider commands of AI Video (providers, "Requests"). Each
+ * The provider commands of AI Video (providers, "Requests"). Each
  * answers `{ok: true, value}` or `{ok: false, error}` and never throws; keeps
  * nothing between calls; validates its payload strictly; and dispatches to the
  * provider module by its id (`unknownProvider` for an id no module has).
@@ -50,6 +53,8 @@ export interface VideoProviderCommandOptions {
 	readonly download?: DownloadOptions;
 	/** How inputs are measured; the file system by default. */
 	readonly inspector?: () => MediaInspector;
+	/** How a received file is put in place; Node's file system by default. */
+	readonly files?: PlaceFileSystem;
 }
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
@@ -181,6 +186,20 @@ export class VideoProviderCommands {
 			const file = await downloadFile(http, location, request.targetFsPath, kind, this.options.download);
 			return { size: file.size, format: file.format };
 		}, undefined, () => http?.secretValues);
+	}
+
+	/**
+	 * Puts a file a generation received into its card's place: a hard link of
+	 * the complete partial download to the card's name, which never replaces
+	 * anything and leaves nothing partial there, and then the partial download
+	 * goes ({@link placeFile}). Answers `{placed: true}`, or `exists` when a
+	 * file already has the name.
+	 */
+	place(argument: unknown): Promise<ProviderResponse<PlaceResult>> {
+		return answer([], async () => {
+			const request = parsePlaceRequest(argument);
+			return placeFile(request.from, request.to, this.options.files);
+		});
 	}
 
 	cancel(argument: unknown): Promise<ProviderResponse<CancelResult>> {
@@ -592,6 +611,14 @@ function parseAddress(value: unknown): string | undefined {
 		throw cannotRead('a download');
 	}
 	return value;
+}
+
+export function parsePlaceRequest(value: unknown): PlaceRequest {
+	if (!isRecord(value) || typeof value.from !== 'string' || typeof value.to !== 'string' || value.from.length > MAX_PATH_LENGTH || value.to.length > MAX_PATH_LENGTH) {
+		throw cannotRead('a file to put in place');
+	}
+	checkPlace(value.from, value.to);
+	return { from: value.from, to: value.to };
 }
 
 export function parseDownloadRequest(value: unknown): DownloadRequest {

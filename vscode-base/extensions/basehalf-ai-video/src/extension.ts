@@ -46,4 +46,5 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.poll, (task: unknown) => providers.poll(task)));
 	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.download, (request: unknown) => providers.download(request)));
 	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.cancel, (task: unknown) => providers.cancel(task)));
+	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.place, (request: unknown) => providers.place(request)));
 }

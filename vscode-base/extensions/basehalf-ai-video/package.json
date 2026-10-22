@@ -27,7 +27,8 @@
 		"onCommand:basehalf.video.provider.submit",
 		"onCommand:basehalf.video.provider.poll",
 		"onCommand:basehalf.video.provider.download",
-		"onCommand:basehalf.video.provider.cancel"
+		"onCommand:basehalf.video.provider.cancel",
+		"onCommand:basehalf.video.provider.place"
 	],
 	"basehalf": {
 		"primaryCommand": "pointa.basehalf-ai-video.createWorkflow",
