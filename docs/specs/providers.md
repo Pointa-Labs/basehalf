@@ -240,7 +240,7 @@ provider module maps it to its provider's field and value.
 
 | Name | Kind | Values | Means |
 | --- | --- | --- | --- |
-| `resolution` | choice | lower case: for videos `360p`, `480p`, `512p`, `540p`, `720p`, `768p`, `1080p`, `2k`, `4k`; for images `1k`, `1.5k`, `2k`, `3k`, `4k`; labeled the same at every provider: 720p, 1080p, 1K, 1.5K, 2K, 3K, 4K | the size of the video or of the image |
+| `resolution` | choice | lower case: for videos `360p`, `480p`, `512p`, `540p`, `720p`, `768p`, `1080p`, `2k`, `4k`; for images `1k`, `1.5k`, `2k`, `3k`, `4k`, and `720p` and `1080p` where the provider names its image sizes that way (Runway, Vidu); labeled the same at every provider: 720p, 1080p, 1K, 1.5K, 2K, 3K, 4K | the size of the video or of the image |
 | `ratio` | choice, drawn as ratio shapes | width to height, such as `16:9`; `adaptive` (**Adaptive**) when the provider takes the shape from the inputs or the prompt | the shape of the video or of the image |
 | `duration` | whole seconds | the model's range; Auto is `-1` where the provider can choose | the length of the video |
 | `count` | whole number | 1 to the most images one request makes | how many images one generation makes |
