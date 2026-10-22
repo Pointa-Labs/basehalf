@@ -130,6 +130,9 @@ it by path, and where an edit to the file changes nothing.
 - **Followed item**: an item that has any card information. Every card has
   a row since [canvas card placement](canvas-card-placement.md), so every
   item whose card was shown is followed, also one the user never touched.
+  The folders above a draft are followed too, also one the canvas never
+  showed, such as a folder where an agent wrote a draft: a draft has no file
+  to be recognized by, and comes along when its folder does (rule 4).
 - **Fingerprint** of a file:
   - its size in bytes and the SHA-256 of its content. For a file larger than
     16 MiB the hash covers three windows of 1 MiB: the first, the last, and
@@ -920,7 +923,9 @@ with the same expectations.
 29. **In the real window, many at once.** Recorded, not automated: the table
     under [many items at once](#many-items-at-once).
 30. **Generation cards.** A folder that holds a draft and a file is renamed
-    outside: the draft is at the new path with its prompt and place. A folder
+    outside: the draft is at the new path with its prompt and place, and its
+    own list names the new paths of what moved with it, as a file's does;
+    also when the canvas never showed the folder. A folder
     renamed outside while a card in it generates is followed at once, and the
     file lands in the renamed folder. A file recognized as moved onto a
     draft's path keeps its own card, and the draft moves to the next free

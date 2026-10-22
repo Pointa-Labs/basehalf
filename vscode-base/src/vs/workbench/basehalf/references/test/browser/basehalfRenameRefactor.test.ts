@@ -894,6 +894,27 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 		});
 	});
 
+	test('a folder moved outside BaseHalf takes its drafts along, and a draft\'s own list follows what moved with it, as a file\'s does', async () => {
+		const harness = await createHarness(disposables, {
+			'shots/hills.jpg': 'jpg',
+			'shots/image.png': 'png',
+			'.bh/mirror/shots/image.png/upstream.yaml': 'upstream:\n  - shots/hills.jpg\n',
+			'.bh/mirror/shots/clip.mp4/generation.yaml': 'prompt: "a draft"\n',
+			'.bh/mirror/shots/clip.mp4/upstream.yaml': 'upstream:\n  - shots/hills.jpg\n'
+		});
+		await until(() => harness.index.getDrafts(folder).join() === 'shots/clip.mp4', 'the index did not know the draft');
+		// Moved outside BaseHalf, and followed: the folder's card information moved with it.
+		await harness.fileService.move(joinPath(folder, 'shots'), joinPath(folder, 'scenes'));
+		await harness.fileService.move(joinPath(folder, '.bh', 'mirror', 'shots'), joinPath(folder, '.bh', 'mirror', 'scenes'));
+		harness.movedItems.relocated([{ from: 'shots', to: 'scenes', kind: 'folder', rule: 'folderFiles' }]);
+		await until(async () => (await harness.read('.bh/mirror/scenes/image.png/upstream.yaml'))?.includes('scenes/hills.jpg') === true, 'the file\'s list was not updated');
+		await until(async () => (await harness.read('.bh/mirror/scenes/clip.mp4/upstream.yaml'))?.includes('scenes/hills.jpg') === true, 'the draft\'s list was not updated');
+		assert.deepStrictEqual({ draft: await harness.read('.bh/mirror/scenes/clip.mp4/upstream.yaml'), owed: harness.movedItems.owed }, {
+			draft: 'upstream:\n  - scenes/hills.jpg\n',
+			owed: []
+		});
+	});
+
 	test('a delete to the trash keeps a generated file\'s prompt and record, a file without a record loses its prompt with any delete, and a permanent delete removes them all', async () => {
 		const unreadable = '<<<<<<< ours\nprompt: "a"\n=======\nprompt: "b"\n>>>>>>> theirs\n';
 		// A whole record, which a permanent delete removes without a copy.

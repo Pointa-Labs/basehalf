@@ -126,6 +126,28 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		});
 	});
 
+	test('the list of a draft that moved with its folder is listed once, at either path, while the index does not show the draft there', () => {
+		const moves: IBaseHalfPathMove[] = [{ from: 'shots', to: 'scenes' }];
+		const missing = { sidecarState: 'missingNode' as const };
+		const snapshot = baseHalfSnapshotRenameStores([
+			// At its old path once the folder was gone there, and at its new path before its generation.yaml followed.
+			indexed('shots/clip.mp4', 'sidecar', ['shots/hills.jpg'], BASEHALF_EXACT_UPSTREAM_IDENTITY, missing),
+			indexed('scenes/next.mp4', 'sidecar', ['shots/hills.jpg'], BASEHALF_EXACT_UPSTREAM_IDENTITY, missing),
+			// Listed at both paths: one store.
+			indexed('shots/still.png', 'sidecar', ['shots/hills.jpg']),
+			indexed('scenes/still.png', 'sidecar', ['shots/hills.jpg']),
+			// Elsewhere, a list whose node is missing names nothing.
+			indexed('gone.pdf', 'sidecar', ['shots/hills.jpg'], BASEHALF_EXACT_UPSTREAM_IDENTITY, missing),
+			// A note's sidecar is not the note's list, wherever it is.
+			indexed('shots/notes.md', 'sidecar', ['shots/hills.jpg'], BASEHALF_EXACT_UPSTREAM_IDENTITY, { sidecarState: 'wrongOwner' })
+		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY);
+		assert.deepStrictEqual(baseHalfRelocateRenameStores(snapshot, moves, BASEHALF_EXACT_UPSTREAM_IDENTITY).map(store => `${store.nodePath} [${store.entries.join(', ')}]`), [
+			'scenes/next.mp4 [shots/hills.jpg]',
+			'scenes/clip.mp4 [shots/hills.jpg]',
+			'scenes/still.png [shots/hills.jpg]'
+		]);
+	});
+
 	test('a case-only rename on a case-insensitive file system updates only the spelling', () => {
 		const moves: IBaseHalfPathMove[] = [{ from: 'docs/Guide.md', to: 'docs/guide.md' }];
 		const snapshot = baseHalfSnapshotRenameStores([

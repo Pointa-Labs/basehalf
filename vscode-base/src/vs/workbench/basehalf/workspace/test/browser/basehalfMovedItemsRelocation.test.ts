@@ -524,6 +524,32 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		});
 	});
 
+	test('a folder the canvas never showed, where only a draft has card information, is followed, and the draft comes along', async () => {
+		const generation = 'prompt: "A road along the coast"\n';
+		const fileService = await createFiles({
+			'shots/road.jpg': `${PDF}a photo of the road`,
+			'shots/coast.jpg': `${PDF}a photo of the coast`,
+			// An agent wrote a draft here; the canvas never showed the folder.
+			'.bh/mirror/shots/next.mp4/generation.yaml': generation,
+			'.bh/mirror/shots/next.mp4/upstream.yaml': 'upstream:\n  - shots/road.jpg\n'
+		});
+		const session = await open(fileService);
+		await fileService.move(resource('shots'), resource('scenes'));
+		await settle();
+		await settle();
+		const after = await hidden(fileService);
+
+		assert.deepStrictEqual({
+			moved: Object.keys(after).filter(path => path.startsWith('mirror/scenes/')),
+			left: Object.keys(after).filter(path => path.startsWith('mirror/shots/')),
+			pending: session.movedItems.getPendingMoves(folder).length
+		}, {
+			moved: ['mirror/scenes/next.mp4/generation.yaml', 'mirror/scenes/next.mp4/upstream.yaml'],
+			left: [],
+			pending: 0
+		});
+	});
+
 	test('the task record of a draft below a folder moved outside takes the new path only once the draft\'s generation.yaml is there', async () => {
 		const generation = 'prompt: "A harbor at dawn"\n';
 		const fileService = await createFiles({

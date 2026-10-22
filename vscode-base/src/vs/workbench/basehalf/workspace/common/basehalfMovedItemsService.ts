@@ -24,6 +24,8 @@ import { baseHalfIsWorkspaceFolderMarked } from './basehalfLegacyCleanup.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from './basehalfMirrorTree.js';
 import { baseHalfComputeFileFingerprint, baseHalfMovedItemPath, baseHalfRecognizeMovedItems, IBaseHalfFileFingerprint, IBaseHalfFollowedItem, IBaseHalfMovedItem } from './basehalfMovedItems.js';
 import { BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES, IBaseHalfReferenceIndexService } from '../../references/common/basehalfReferenceIndex.js';
+import { baseHalfIsDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../video/common/basehalfGenerationInfo.js';
 
 export const IBaseHalfMovedItemsService = createDecorator<IBaseHalfMovedItemsService>('baseHalfMovedItemsService');
 
@@ -1495,7 +1497,9 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 
 	/**
 	 * The paths that have card information: a file under `.bh/mirror/<path>/`,
-	 * a card row or an edge end in a `canvas.yaml`, or an entry that names them.
+	 * a card row or an edge end in a `canvas.yaml`, or an entry that names them,
+	 * and the folders above a draft, which has no file to be recognized by and
+	 * comes along when its folder does.
 	 */
 	private async collectFollowed(state: FolderSnapshot): Promise<Set<string>> {
 		const candidates = new Set<string>();
@@ -1508,6 +1512,8 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 			} catch {
 				continue;
 			}
+			let hasGenerationInfo = false;
+			let hasMade = false;
 			for (const child of children) {
 				if (child.isSymbolicLink) {
 					continue;
@@ -1519,6 +1525,8 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				if (current.relativePath) {
 					candidates.add(current.relativePath);
 				}
+				hasGenerationInfo ||= child.name === BASEHALF_GENERATION_INFO_FILE;
+				hasMade ||= child.name === BASEHALF_GENERATION_MADE_FILE;
 				if (child.name === CANVAS_FILE_NAME) {
 					try {
 						const canvas = await this.canvasMirrorService.readCanvas({ workspaceFolder: state.folder, relativePath: current.relativePath, resource: this.resource(state, current.relativePath), source: 'api' });
@@ -1532,6 +1540,11 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 					} catch {
 						// A layout that cannot be read names no cards.
 					}
+				}
+			}
+			if (current.relativePath && baseHalfIsDraftInformation({ path: current.relativePath, hasGenerationInfo, hasMade })) {
+				for (let slash = current.relativePath.lastIndexOf('/'); slash > 0; slash = current.relativePath.lastIndexOf('/', slash - 1)) {
+					candidates.add(current.relativePath.slice(0, slash));
 				}
 			}
 		}

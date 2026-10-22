@@ -95,6 +95,12 @@ export interface IBaseHalfRenameStore {
  * path is not listed (a case-only rename on a case-insensitive file system).
  * Entries covered by `exclude` (the old paths of earlier unanswered plans,
  * which own them) are not listed either.
+ *
+ * A sidecar whose node is missing at or below either end of a move is listed
+ * too: it moves with its item, and the update reads it where it is now. A
+ * draft below a folder moved outside BaseHalf has no file: the index stops
+ * showing it at its old path once the folder is gone there, and at its new
+ * path until its `generation.yaml` has followed its `upstream.yaml`.
  */
 export function baseHalfSnapshotRenameStores(
 	stores: readonly IBaseHalfIndexedStore[],
@@ -103,8 +109,12 @@ export function baseHalfSnapshotRenameStores(
 	exclude: readonly string[] = []
 ): IBaseHalfRenameStore[] {
 	const out: IBaseHalfRenameStore[] = [];
+	const movedPaths = moves.flatMap(move => [move.from, move.to]);
+	// A store the index still lists at its old path and already at its new one is one store.
+	const listed = new Set<string>();
 	for (const store of stores) {
-		if ((store.storeKind === 'sidecar' && store.sidecarState !== 'active') || !store.read.readable) {
+		const movedWithItem = store.sidecarState === 'missingNode' && baseHalfPathIsCovered(store.node.relativePath, movedPaths, identity);
+		if ((store.storeKind === 'sidecar' && store.sidecarState !== 'active' && !movedWithItem) || !store.read.readable) {
 			continue;
 		}
 		const entries = store.read.items.flatMap(item => {
@@ -114,7 +124,9 @@ export function baseHalfSnapshotRenameStores(
 			const target = baseHalfRemapMovedPath(item.path, moves, identity);
 			return target !== undefined && target !== item.path ? [item.text] : [];
 		});
-		if (entries.length > 0) {
+		const key = `${store.storeKind}:${identity.key(baseHalfRemapMovedPath(store.node.relativePath, moves, identity) ?? store.node.relativePath)}`;
+		if (entries.length > 0 && !listed.has(key)) {
+			listed.add(key);
 			out.push({ nodePath: store.node.relativePath, storeKind: store.storeKind, entries });
 		}
 	}

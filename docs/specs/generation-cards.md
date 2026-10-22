@@ -1164,9 +1164,11 @@ Card information
    card is already generating." and sends nothing.
 5. Renaming a card with its file in Finder, and renaming a draft on the
    canvas, keep the card's prompt, settings, record, connections, and place;
-   renaming the folder of a generating draft in Finder lands the file in the
-   renamed folder; a rename of a generating draft that fails part-way leaves
-   the draft whole where its task record names it.
+   renaming the folder of a draft in Finder keeps the draft's prompt,
+   connections, and place, also in a folder the canvas never showed, and
+   lands the file of a generating draft in the renamed folder; a rename of a
+   generating draft that fails part-way leaves the draft whole where its task
+   record names it.
 6. Deleting a generated file to the trash takes its card off the canvas and
    offers nothing to generate; restoring it brings the card back with its
    prompt and record, and renaming a draft to its name meanwhile is refused.
