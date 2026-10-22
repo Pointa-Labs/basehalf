@@ -229,7 +229,7 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual((describe(render(note, view(note, []))) as { text: string[] }[])[1].text, ['Nothing draws on this card yet.']);
 	});
 
-	test('every node can be downstream: a file under outputs and a generated file are editable, and the entries of a node are removable in every phase', () => {
+	test('every node can be downstream: a file under outputs and a generated file are editable, and their entries are removable', () => {
 		const output = node('outputs/run/frame.png');
 		assert.deepStrictEqual((describe(render(output, view(output, [entry(0, 'a/overview.md', 'valid')], { storeKind: 'sidecar' }))) as unknown[])[0], {
 			title: 'Upstream',
@@ -238,12 +238,12 @@ suite('BaseHalfUpstreamActions', () => {
 			add: '+ Add Upstream'
 		});
 
-		const video = node('video.bhnode');
+		const video = node('shots/video.mp4');
 		const rows = (describe(render(video, view(video, [
 			entry(0, 'a/overview.md', 'valid'),
 			entry(1, 'sources/book.pdf', 'valid'),
 			entry(2, 'old.png', 'dangling')
-		], { storeKind: 'node' }))) as { rows: unknown[] }[])[0].rows;
+		], { storeKind: 'sidecar' }))) as { rows: unknown[] }[])[0].rows;
 		assert.deepStrictEqual(rows, [
 			{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] },
 			{ status: 'valid', label: 'book.pdf', role: undefined, remove: { disabled: false, title: 'Remove sources/book.pdf from upstream' }, actions: [] },
@@ -269,11 +269,9 @@ suite('BaseHalfUpstreamActions', () => {
 			blockEntries: issueRows(node('quote.md'), { storeKind: 'sidecar', readable: true, writable: true, problem: 'frontmatterRejected' }),
 			foreignNote: issueRows(node('feed.md'), { problem: 'foreignValue' }),
 			sidecar: issueRows(node('sources/book.pdf'), { storeKind: 'sidecar', problem: 'mappingValue' }),
-			// Not BaseHalf's to edit, a node document, and a file the disk
-			// refuses: the reason, and no action. A file under outputs is a
-			// file like any other.
+			// Not BaseHalf's to edit, and a file the disk refuses: the reason,
+			// and no action. A file under outputs is a file like any other.
 			toml: issueRows(node('toml.md'), { problem: 'tomlFrontmatter' }),
-			nodeDocument: issueRows(node('clip.bhnode'), { storeKind: 'node', problem: 'invalidDocument' }),
 			readError: issueRows(node('sources/locked.pdf'), { storeKind: 'sidecar', readError: 'permission denied' }),
 			output: issueRows(node('outputs/run/frame.png'), { storeKind: 'sidecar', problem: 'mappingValue' })
 		}, {
@@ -282,7 +280,6 @@ suite('BaseHalfUpstreamActions', () => {
 			foreignNote: [['store', ['Rebuild List']]],
 			sidecar: [['store', ['Rebuild List']]],
 			toml: [['store', []]],
-			nodeDocument: [['store', []]],
 			readError: [['store', []]],
 			output: [['store', ['Rebuild List']]]
 		});

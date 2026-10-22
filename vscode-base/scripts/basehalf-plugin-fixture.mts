@@ -399,7 +399,7 @@ try {
 			commands: reviewedManifest.contributes.commands,
 			basehalfStructuralCleanups: [{
 				id: 'pointa.basehalf-ai-video.sequence-membership',
-				extensions: ['.bhnode']
+				extensions: ['.mp4']
 			}]
 		}
 	}, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map());
@@ -409,7 +409,7 @@ try {
 			...reviewedManifest.contributes,
 			basehalfStructuralCleanups: [{
 				id: 'pointa.basehalf-ai-video.sequence-membership',
-				extensions: ['../bhnode']
+				extensions: ['../mp4']
 			}]
 		}
 	}, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /invalid file extensions/);
@@ -453,7 +453,7 @@ try {
 		references: []
 	}));
 	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', prefixConflictTemplate]])), /resource and one of its descendants/);
-	// A template declares drafts by path and prompt, never `.bhnode` nodes (D63, reference graph, "Templates").
+	// A template declares drafts by path and prompt, and no `nodes` list of earlier builds (D63, reference graph, "Templates").
 	const draftTemplate = (fields: Record<string, unknown>) => new Map([['extension/templates/starter-workflow.json', Buffer.from(JSON.stringify({
 		version: 1,
 		files: [{ path: 'brief.md', contents: '# Brief\n' }, { path: 'frames/plan.md', contents: '# Frames\n' }],
@@ -468,10 +468,9 @@ try {
 	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shot.mp4', prompt: 'The rider in Image 1 cycles along the coast.' }] }));
 	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shot.mp4', prompt: '' }] }));
 	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ nodes: [{ path: 'shot.bhnode', kind: 'video', title: 'Shot' }] })), /unsupported fields: nodes\./);
-	for (const path of ['shot.bhnode', 'notes.md', 'frames/.png']) {
+	for (const path of ['notes.md', 'frames/.png']) {
 		assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path }], cards: [], references: [] })), /must name an image or a video file/, path);
 	}
-	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ files: [{ path: 'forged.bhnode', contents: '{}' }], cards: [], references: [] })), /retired \.bhnode extension/);
 	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shots/one/clip.mp4' }], cards: [], references: [] })), /holds no file of the template/);
 	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, draftTemplate({ drafts: [{ path: 'shot.mp4', prompt: 'x'.repeat(64 * 1024 + 1) }] })), /field '.*\.prompt' is invalid/);
 	for (const [field, value] of [

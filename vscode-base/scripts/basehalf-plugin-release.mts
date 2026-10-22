@@ -1831,7 +1831,7 @@ function validateCanvasTemplate(bytes: Buffer, templateId: string): void {
 		throw new Error(`Reviewed plugin canvas template '${templateId}' is not valid UTF-8 JSON.`);
 	}
 	const root = manifestRecord(value, `${templateId} template`);
-	// A template declares drafts, never `.bhnode` nodes (D63, reference graph, "Templates").
+	// A template declares files and drafts, and no `nodes` list of earlier builds (D63, reference graph, "Templates").
 	assertOnlyManifestKeys(root, ['version', 'files', 'drafts', 'cards', 'references'], `${templateId} template`);
 	if (root.version !== 1) {
 		throw new Error(`Reviewed plugin canvas template '${templateId}' has an unsupported version.`);
@@ -1877,9 +1877,6 @@ function parseTemplateFile(value: unknown, field: string): { path: string; conte
 	const file = manifestRecord(value, field);
 	assertOnlyManifestKeys(file, ['path', 'contents'], field);
 	const projectPath = templateProjectPath(file.path, `${field}.path`);
-	if (projectPath.toLowerCase().endsWith('.bhnode')) {
-		throw new Error(`Reviewed plugin ${field}.path uses the retired .bhnode extension.`);
-	}
 	const contents = boundedManifestText(file.contents, `${field}.contents`, MAX_TEMPLATE_TEXT_FILE_BYTES, true);
 	if (Buffer.byteLength(contents, 'utf8') > MAX_TEMPLATE_TEXT_FILE_BYTES) {
 		throw new Error(`Reviewed plugin ${field}.contents exceeds ${MAX_TEMPLATE_TEXT_FILE_BYTES} bytes.`);

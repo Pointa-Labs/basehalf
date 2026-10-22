@@ -42,8 +42,8 @@ import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvas
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
+import { baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
-import { baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../video/common/basehalfNodeDocument.js';
 import { baseHalfIsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
 import { IBaseHalfGenerationInfo } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfVideoInitialGeneration } from '../../video/common/basehalfVideoCatalog.js';

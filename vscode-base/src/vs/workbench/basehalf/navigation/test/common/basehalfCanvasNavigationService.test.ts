@@ -107,7 +107,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 	});
 
 	test('opens a file over the canvas of a requested folder in its workspace folder, which closing shows again', async () => {
-		const video = URI.file('/workspace/outputs/node-1/task-1.mp4');
+		const video = URI.file('/workspace/renders/clip.mp4');
 		const service = createService(new Map([
 			[video.fsPath, aFileStat(video, FileType.File)]
 		]), [workspaceFolder, URI.file('/elsewhere')]);
@@ -120,15 +120,15 @@ suite('BaseHalfCanvasNavigationService', () => {
 		await service.openResource(video, { source: 'api', canvasFolder: URI.file('/elsewhere/shots') });
 
 		assert.deepStrictEqual({ opened, closed, elsewhere: service.state.canvasFolder?.resource.fsPath }, {
-			opened: { canvas: 'shots', detail: 'outputs/node-1/task-1.mp4' },
+			opened: { canvas: 'shots', detail: 'renders/clip.mp4' },
 			closed: { canvas: 'shots', detail: undefined },
-			elsewhere: '/workspace/outputs/node-1'
+			elsewhere: '/workspace/renders'
 		});
 	});
 
 	test('Card Detail opened again in place keeps the canvas chosen for it, and one over its own folder follows its file', async () => {
-		const video = URI.file('/workspace/outputs/node-1/task-1.mp4');
-		const renamed = URI.file('/workspace/outputs/node-1/take.mp4');
+		const video = URI.file('/workspace/renders/clip.mp4');
+		const renamed = URI.file('/workspace/renders/take.mp4');
 		const note = URI.file('/workspace/docs/guide.md');
 		const moved = URI.file('/workspace/notes/guide.md');
 		const service = createService(new Map());

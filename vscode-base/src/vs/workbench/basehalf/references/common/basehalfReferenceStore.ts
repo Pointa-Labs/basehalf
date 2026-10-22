@@ -7,7 +7,6 @@ import { URI } from '../../../../base/common/uri.js';
 import { parse as parseYaml, YamlMapNode, YamlNode, YamlParseError } from '../../../../base/common/yaml.js';
 import { isBaseHalfMarkdownFrontmatterMapping } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { baseHalfMirrorResource } from '../../workspace/common/basehalfMirrorTree.js';
-import { BASEHALF_NODE_DOCUMENT_EXTENSION, baseHalfIsReservedOutputTreePath, baseHalfNodeUpstreamItemValues, extractBaseHalfNodeUpstreamLenient } from '../../video/common/basehalfNodeDocument.js';
 import {
 	BASEHALF_EXACT_UPSTREAM_IDENTITY,
 	baseHalfAnalyzeUpstreamItems,
@@ -31,7 +30,7 @@ import {
 /** Frontmatter must close within this many UTF-8 bytes of the document start. */
 export const BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES = 64 * 1024;
 
-export type BaseHalfUpstreamStoreKind = 'markdown' | 'node' | 'sidecar';
+export type BaseHalfUpstreamStoreKind = 'markdown' | 'sidecar';
 
 /** The file name of a sidecar store inside a node's mirror directory. */
 export const BASEHALF_UPSTREAM_SIDECAR_FILE_NAME = 'upstream.yaml';
@@ -41,43 +40,21 @@ export function isBaseHalfUpstreamMarkdownName(name: string): boolean {
 	return /\.(?:md|markdown)$/i.test(name);
 }
 
-/** Whether a file name has the `.bhnode` extension (any case). */
-export function isBaseHalfUpstreamNodeDocumentName(name: string): boolean {
-	return name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION);
-}
-
 /**
  * Where a downstream node keeps its upstream list: Markdown files in their
- * frontmatter, `.bhnode` documents in their `upstream` field, and every other
- * node (folders included) in `.bh/mirror/<path>/upstream.yaml`.
+ * frontmatter, and every other node (folders, drafts, and generated files
+ * included) in `.bh/mirror/<path>/upstream.yaml`.
  */
 export function baseHalfUpstreamStoreKind(relativePath: string, isDirectory: boolean): BaseHalfUpstreamStoreKind {
 	if (isDirectory) {
 		return 'sidecar';
 	}
-	const name = relativePath.slice(relativePath.lastIndexOf('/') + 1);
-	if (isBaseHalfUpstreamMarkdownName(name)) {
-		return 'markdown';
-	}
-	return isBaseHalfUpstreamNodeDocumentName(name) ? 'node' : 'sidecar';
+	return isBaseHalfUpstreamMarkdownName(relativePath.slice(relativePath.lastIndexOf('/') + 1)) ? 'markdown' : 'sidecar';
 }
 
 /** The sidecar store resource of a node. */
 export function baseHalfUpstreamSidecarResource(workspaceFolder: URI, relativePath: string): URI {
 	return baseHalfMirrorResource(workspaceFolder, relativePath, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME);
-}
-
-/**
- * Whether a path lies in the tree that generations of the Video node wrote
- * (first segment `outputs`, any case).
- *
- * @deprecated Since D63 `outputs/` is an ordinary folder and every node can
- * be downstream: the reference graph, the index, the edit service, and
- * following moved items no longer ask this. Only the template validation of
- * the canvas still does, until its owner removes that rule.
- */
-export function isBaseHalfUpstreamReservedOutput(relativePath: string): boolean {
-	return baseHalfIsReservedOutputTreePath(relativePath) || relativePath.split('/')[0].toLowerCase() === 'outputs';
 }
 
 /**
@@ -1322,27 +1299,22 @@ export type BaseHalfUpstreamRawState =
 	| { readonly readable: true; readonly entries: readonly string[] };
 
 /**
- * Reads the upstream state of a project file's text with the index reader
- * (the lenient extractor for `.bhnode`). `undefined` text means the file is
- * absent, which reads as an empty list. Returns `undefined` for files that
- * are not Markdown or `.bhnode` stores.
+ * Reads the upstream state of a project file's text with the index reader.
+ * `undefined` text means the file is absent, which reads as an empty list.
+ * Returns `undefined` for a file that is not a Markdown note: its list is
+ * under `.bh/`, which no project file transition reaches.
  */
 export function readBaseHalfUpstreamRawState(relativePath: string, text: string | undefined): BaseHalfUpstreamRawState | undefined {
-	const storeKind = baseHalfUpstreamStoreKind(relativePath, false);
-	if (storeKind === 'sidecar') {
+	if (baseHalfUpstreamStoreKind(relativePath, false) !== 'markdown') {
 		return undefined;
 	}
 	if (text === undefined) {
 		return { readable: true, entries: [] };
 	}
-	if (storeKind === 'markdown') {
-		const read = readBaseHalfMarkdownUpstream(text);
-		// The entries inside an unrecognized leading block are carried into
-		// the note's sidecar, so a change to them is a change to the list.
-		return read.readable ? { readable: true, entries: [...read.items.map(item => item.text), ...(read.blockEntries ?? [])] } : { readable: false };
-	}
-	const extract = extractBaseHalfNodeUpstreamLenient(text);
-	return extract.readable ? { readable: true, entries: baseHalfNodeUpstreamItemValues(extract.upstream).map(item => item.text) } : { readable: false };
+	const read = readBaseHalfMarkdownUpstream(text);
+	// The entries inside an unrecognized leading block are carried into the
+	// note's sidecar, so a change to them is a change to the list.
+	return read.readable ? { readable: true, entries: [...read.items.map(item => item.text), ...(read.blockEntries ?? [])] } : { readable: false };
 }
 
 /**

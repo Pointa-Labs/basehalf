@@ -20,75 +20,25 @@ import {
 	IBaseHalfVideoProviderAccess,
 	IBaseHalfVideoProviderSetup
 } from './basehalfVideoCatalog.js';
-import { IBaseHalfVideoNodeFields } from './basehalfVideoNode.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationInfo, IBaseHalfGenerationMade, IBaseHalfGenerationTask } from './basehalfGenerationInfo.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 
 /**
- * The services a Video node uses (D58, D59). The node store reads and writes
- * the video fields of a `.bhnode`; the catalog service holds the model
- * catalog of AI Video; the provider settings service holds how the user set
- * up each provider on this computer; the generation service runs a generation
- * from the node's file to its video. The panel, the card, the Video Providers
- * page, the Agent command line, and the tests meet only these interfaces.
+ * The services of generation cards (D63, D64): the catalog service holds the
+ * model catalog of AI Video; the provider settings service holds how the user
+ * set up each provider on this computer; the generation service runs a
+ * generation from Generate to the files on its cards; the card store, the
+ * task record store, the card actions, and the draft operations keep a
+ * card's generation information, the records of this computer, and its
+ * drafts. The panel, the card, the Providers page, the Agent command line,
+ * and the tests meet only these interfaces.
  */
-
-// --- node store ------------------------------------------------------------------------------
-
-export interface IBaseHalfVideoNodeSnapshot {
-	readonly resource: URI;
-	/** Workspace-relative path of the `.bhnode`. */
-	readonly path: string;
-	readonly id: string;
-	readonly title: string;
-	/** The valid upstream entries, in document order. */
-	readonly upstream: readonly string[];
-	readonly fields: IBaseHalfVideoNodeFields;
-}
 
 /** One upstream entry resolved for a generation: what it is and which file holds its content. */
 export interface IBaseHalfVideoResolvedInput extends IBaseHalfVideoInputSource {
-	/** The file to read: the entry itself, or the file a `.bhnode` shows. Absent when unavailable. */
+	/** The file to read: the entry itself. Absent when unavailable, as for an entry that names a draft. */
 	readonly file?: URI;
-}
-
-export const IBaseHalfVideoNodeStore = createDecorator<IBaseHalfVideoNodeStore>('baseHalfVideoNodeStore');
-
-export interface IBaseHalfVideoNodeStore {
-	readonly _serviceBrand: undefined;
-
-	/** Fires after BaseHalf wrote a Video node, with its resource. */
-	readonly onDidWrite: Event<URI>;
-
-	/** Reads a Video node. Rejects when the file is not a readable Video node. */
-	read(resource: URI): Promise<IBaseHalfVideoNodeSnapshot>;
-
-	/**
-	 * Applies `mutate` to the node's video fields and writes the file when they
-	 * changed. Reads the file again and retries when it changed underneath;
-	 * `mutate` may run more than once and must not have side effects. Rejects
-	 * with `mutate`'s error, or when the file is gone.
-	 *
-	 * With `undoLabel`, the write is one step of the canvas undo stack.
-	 */
-	update(resource: URI, mutate: (fields: IBaseHalfVideoNodeFields) => IBaseHalfVideoNodeFields, options?: { readonly undoLabel?: string }): Promise<IBaseHalfVideoNodeSnapshot>;
-
-	/** Replaces the node's upstream entries with the same entries in a new order, as one undo step. */
-	reorderUpstream(resource: URI, upstream: readonly string[]): Promise<IBaseHalfVideoNodeSnapshot>;
-
-	/** Resolves the node's upstream entries in order. */
-	resolveInputs(snapshot: IBaseHalfVideoNodeSnapshot): Promise<readonly IBaseHalfVideoResolvedInput[]>;
-
-	/**
-	 * Creates a Video node beside `resource`, in the same folder, with the given
-	 * fields and upstream entries, and returns its resource. Its card appears to
-	 * the right of the original card.
-	 */
-	createSibling(resource: URI, fields: IBaseHalfVideoNodeFields, upstream: readonly string[]): Promise<URI>;
-
-	/** Where a generated video of the node is written, inside the workspace. */
-	videoTarget(snapshot: IBaseHalfVideoNodeSnapshot, taskId: string): URI;
 }
 
 // --- catalog ---------------------------------------------------------------------------------
@@ -243,9 +193,11 @@ export interface IBaseHalfVideoGenerationService {
 	stop(resource: URI): Promise<void>;
 
 	/**
-	 * The card is being deleted while it generates (generation cards,
-	 * "Deleting"): the generation stops when the card is its only card;
-	 * otherwise that card's file is not landed.
+	 * The card is being deleted (generation cards, "Deleting"). While it
+	 * generates, the generation stops when the card is its only card, and
+	 * otherwise that card's file is not landed. The record of a generation
+	 * that ended without the card's file, or that ends now, goes with the card
+	 * unless another card of it that got no file is still there to say why.
 	 */
 	releaseCard(resource: URI): Promise<void>;
 
@@ -269,8 +221,7 @@ export interface IBaseHalfVideoGenerationService {
 // The services of a generation card: the card store reads and writes its
 // generation information and lists drafts; the task record store keeps the
 // records of `.bh/cache/generation/` of this computer; the draft operations
-// rename, move, and delete a draft with all of its card information. They
-// replace the node store above, which goes once nothing reads `.bhnode` files.
+// rename, move, and delete a draft with all of its card information.
 
 /** What a window knows of a generation card. */
 export interface IBaseHalfGenerationCardSnapshot {

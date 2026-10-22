@@ -16,7 +16,7 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 
 	test('activates exact reviewed descriptors and returns cloned transitions', async () => {
 		const service = new BaseHalfPluginStructuralCleanupService();
-		const descriptor = service.registerDescriptor('pointa.video', 'pointa.video.sequence-membership', ['.bhnode']);
+		const descriptor = service.registerDescriptor('pointa.video', 'pointa.video.sequence-membership', ['.mp4']);
 		const expected = VSBuffer.fromString('before');
 		const provider = service.registerProvider('pointa.video', {
 			prepareDelete: () => Promise.resolve([{
@@ -27,9 +27,9 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 			}])
 		});
 
-		assert.deepStrictEqual(service.activationEvents(URI.file('/workspace/clip.bhnode')), ['onBaseHalfStructuralCleanup:pointa.video.sequence-membership']);
-		assert.deepStrictEqual(service.activationEvents(URI.file('/workspace/clip.mp4')), []);
-		const transitions = await service.prepareDelete(URI.file('/workspace/clip.bhnode'), CancellationToken.None);
+		assert.deepStrictEqual(service.activationEvents(URI.file('/workspace/clip.mp4')), ['onBaseHalfStructuralCleanup:pointa.video.sequence-membership']);
+		assert.deepStrictEqual(service.activationEvents(URI.file('/workspace/notes.md')), []);
+		const transitions = await service.prepareDelete(URI.file('/workspace/clip.mp4'), CancellationToken.None);
 		assert.strictEqual(transitions.length, 1);
 		assert.notStrictEqual(transitions[0].expected, expected);
 		assert.strictEqual(transitions[0].expected.toString(), 'before');
@@ -40,18 +40,18 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 
 	test('never lets a plugin cleanup claim the host origin that exempts it from the upstream guard', async () => {
 		const service = new BaseHalfPluginStructuralCleanupService();
-		const descriptor = service.registerDescriptor('pointa.video', 'pointa.video.sequence-membership', ['.bhnode']);
+		const descriptor = service.registerDescriptor('pointa.video', 'pointa.video.sequence-membership', ['.mp4']);
 		const provider = service.registerProvider('pointa.video', {
 			prepareDelete: () => Promise.resolve([{
 				resource: URI.file('/workspace/note.md'),
-				expected: VSBuffer.fromString('---\nupstream:\n  - clip.bhnode\n---\n'),
+				expected: VSBuffer.fromString('---\nupstream:\n  - clip.mp4\n---\n'),
 				next: VSBuffer.fromString(''),
 				label: 'Remove dangling entry',
 				origin: 'host'
 			}])
 		});
 
-		const transitions = await service.prepareDelete(URI.file('/workspace/clip.bhnode'), CancellationToken.None);
+		const transitions = await service.prepareDelete(URI.file('/workspace/clip.mp4'), CancellationToken.None);
 		assert.deepStrictEqual(transitions.map(transition => Object.keys(transition).sort()), [['expected', 'label', 'next', 'resource']]);
 
 		provider.dispose();
@@ -62,7 +62,7 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 		const service = new BaseHalfPluginStructuralCleanupService();
 		const registrations = [];
 		for (const id of ['one.plugin', 'two.plugin']) {
-			registrations.push(service.registerDescriptor(id, `${id}.cleanup`, ['.bhnode']));
+			registrations.push(service.registerDescriptor(id, `${id}.cleanup`, ['.mp4']));
 			registrations.push(service.registerProvider(id, {
 				prepareDelete: () => Promise.resolve([{
 					resource: URI.file('/workspace/sequence.json'),
@@ -72,7 +72,7 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 				}])
 			}));
 		}
-		await assert.rejects(service.prepareDelete(URI.file('/workspace/clip.bhnode'), CancellationToken.None), /More than one/);
+		await assert.rejects(service.prepareDelete(URI.file('/workspace/clip.mp4'), CancellationToken.None), /More than one/);
 		for (const registration of registrations) {
 			registration.dispose();
 		}
@@ -82,8 +82,8 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 		const service = new BaseHalfPluginStructuralCleanupService();
 		const calls: string[] = [];
 		const registrations = [
-			service.registerDescriptor('one.plugin', 'one.plugin.node-cleanup', ['.bhnode']),
-			service.registerDescriptor('two.plugin', 'two.plugin.media-cleanup', ['.mp4']),
+			service.registerDescriptor('one.plugin', 'one.plugin.video-cleanup', ['.mp4']),
+			service.registerDescriptor('two.plugin', 'two.plugin.image-cleanup', ['.png']),
 			service.registerProvider('one.plugin', {
 				prepareDelete: () => {
 					calls.push('one.plugin');
@@ -98,7 +98,7 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 			})
 		];
 
-		await service.prepareDelete(URI.file('/workspace/clip.bhnode'), CancellationToken.None);
+		await service.prepareDelete(URI.file('/workspace/clip.mp4'), CancellationToken.None);
 		assert.deepStrictEqual(calls, ['one.plugin']);
 
 		for (const registration of registrations) {
@@ -114,17 +114,17 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 			label: 'Cleanup'
 		}));
 		const service = new BaseHalfPluginStructuralCleanupService();
-		const descriptor = service.registerDescriptor('one.plugin', 'one.plugin.cleanup', ['.bhnode']);
+		const descriptor = service.registerDescriptor('one.plugin', 'one.plugin.cleanup', ['.mp4']);
 		let count = BASEHALF_PLUGIN_STRUCTURAL_CLEANUP_MAX_TRANSITIONS;
 		const provider = service.registerProvider('one.plugin', {
 			prepareDelete: () => Promise.resolve(createTransitions(count))
 		});
 
-		const accepted = await service.prepareDelete(URI.file('/workspace/clip.bhnode'), CancellationToken.None);
+		const accepted = await service.prepareDelete(URI.file('/workspace/clip.mp4'), CancellationToken.None);
 		assert.strictEqual(accepted.length, BASEHALF_PLUGIN_STRUCTURAL_CLEANUP_MAX_TRANSITIONS);
 		count++;
 		await assert.rejects(
-			service.prepareDelete(URI.file('/workspace/clip.bhnode'), CancellationToken.None),
+			service.prepareDelete(URI.file('/workspace/clip.mp4'), CancellationToken.None),
 			/too many structural cleanup changes/
 		);
 
@@ -135,7 +135,7 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 	test('cancellation after a provider response rejects instead of returning partial cleanup', async () => {
 		const service = new BaseHalfPluginStructuralCleanupService();
 		const source = new CancellationTokenSource();
-		const descriptor = service.registerDescriptor('one.plugin', 'one.plugin.cleanup', ['.bhnode']);
+		const descriptor = service.registerDescriptor('one.plugin', 'one.plugin.cleanup', ['.mp4']);
 		const registration = service.registerProvider('one.plugin', {
 			prepareDelete: async () => {
 				source.cancel();
@@ -148,7 +148,7 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 			}
 		});
 		await assert.rejects(
-			service.prepareDelete(URI.file('/workspace/clip.bhnode'), source.token),
+			service.prepareDelete(URI.file('/workspace/clip.mp4'), source.token),
 			error => isCancellationError(error)
 		);
 		registration.dispose();

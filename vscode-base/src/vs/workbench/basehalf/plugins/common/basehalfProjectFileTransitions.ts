@@ -14,8 +14,8 @@ import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoR
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
-import { baseHalfProjectPathProblem } from '../../video/common/basehalfNodeDocument.js';
 import { baseHalfTransitionChangesUpstream } from '../../references/common/basehalfReferenceStore.js';
+import { baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 
 export const BASEHALF_PROJECT_FILE_TRANSITION_MAX_BYTES = 4 * 1024 * 1024;

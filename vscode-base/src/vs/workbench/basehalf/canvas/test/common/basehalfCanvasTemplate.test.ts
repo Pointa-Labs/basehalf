@@ -37,7 +37,7 @@ suite('BaseHalfCanvasTemplate', () => {
 		});
 	});
 
-	test('refuses node documents and every draft field but path and prompt (D63)', () => {
+	test('refuses the nodes list of earlier builds, a draft without an image or video extension, and every draft field but path and prompt (D63)', () => {
 		const source = (fields: Record<string, unknown>) => JSON.stringify({
 			version: 1,
 			files: [{ path: 'brief.md', contents: '# Brief\n' }],
@@ -48,8 +48,6 @@ suite('BaseHalfCanvasTemplate', () => {
 		});
 		const refusals = [
 			source({ nodes: [{ path: 'shot.bhnode', kind: 'video', title: 'Shot 1' }] }),
-			source({ drafts: [{ path: 'shot.bhnode' }] }),
-			source({ files: [{ path: 'forged.bhnode', contents: '{}' }] }),
 			source({ drafts: [{ path: 'notes.md' }] }),
 			source({ drafts: [{ path: 'shot.mp4', kind: 'video' }] }),
 			source({ drafts: [{ path: 'shot.mp4', title: 'Shot 1' }] }),
@@ -63,7 +61,7 @@ suite('BaseHalfCanvasTemplate', () => {
 				return error instanceof Error ? error.message : String(error);
 			}
 		});
-		assert.deepStrictEqual(refusals.map(message => /unsupported property 'nodes'|image or a video file|retired \.bhnode|unsupported property '(kind|title|generation|task)'/.test(message)), refusals.map(() => true), refusals.join('\n'));
+		assert.deepStrictEqual(refusals.map(message => /unsupported property 'nodes'|image or a video file|unsupported property '(kind|title|generation|task)'/.test(message)), refusals.map(() => true), refusals.join('\n'));
 	});
 
 	test('bounds a draft\'s prompt', () => {

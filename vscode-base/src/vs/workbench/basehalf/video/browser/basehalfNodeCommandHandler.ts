@@ -45,7 +45,7 @@ import {
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../canvas/common/basehalfCanvasTemplate.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../canvas/common/basehalfCanvasTemplateRegistry.js';
-import { baseHalfProjectPathProblem } from '../common/basehalfNodeDocument.js';
+import { baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { getBaseHalfGenerationAgentContract } from '../common/basehalfGenerationAgentContract.js';
 import { baseHalfGenerationKindOfPath } from '../common/basehalfGenerationInfo.js';
 import { baseHalfVideoCatalogForAgents, baseHalfVideoExampleGeneration, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice } from '../common/basehalfVideoCatalog.js';

@@ -46,7 +46,6 @@ import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../..
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
-import { createBaseHalfNodeDocument, IBaseHalfNodeDocument, parseBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
 import { serializeBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
 import { BaseHalfDraftOperations } from '../../../workspace/browser/basehalfDraftOperations.js';
@@ -54,7 +53,6 @@ import { BaseHalfRecordingGenerationTaskStore } from '../../../workspace/test/br
 import { IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../common/basehalfReferenceIndex.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
-import { baseHalfNodeTestId } from '../../../video/test/common/basehalfNodeTestFixtures.js';
 import { BaseHalfInMemoryFileSearchService, baseHalfNoMovedItems } from './basehalfReferenceTestFixtures.js';
 
 /** What BaseHalf last saw, reduced to what the entries of a move need: the moves that are owed, and the items it followed. */
@@ -334,21 +332,6 @@ async function until(condition: () => boolean | Promise<boolean>, message: strin
 	assert.fail(message);
 }
 
-function nodeDocument(id: number, upstream: string[], task?: IBaseHalfNodeDocument['task']): string {
-	return serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-		id: baseHalfNodeTestId(id),
-		kind: 'video',
-		title: 'Clip',
-		upstream,
-		...(task ? { task } : {})
-	}));
-}
-
-function upstreamOf(text: string | undefined): { upstream: unknown; task: unknown } {
-	const document = parseBaseHalfNodeDocument(text ?? '');
-	return { upstream: document.upstream, task: document.task?.state };
-}
-
 suite('BaseHalfRenameRefactor (workbench moves)', () => {
 	const disposables = new DisposableStore();
 	teardown(() => disposables.clear());
@@ -363,20 +346,19 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 			'hidden/h.md': '---\nupstream: [docs/a.md]\n---\n',
 			'pic.png': 'png',
 			'.bh/mirror/pic.png/upstream.yaml': 'upstream:\n  - docs\n',
-			'clip.bhnode': nodeDocument(1, ['docs/a.md', 'other.md']),
-			'generating.bhnode': nodeDocument(2, ['docs/a.md'], {
-				id: 'task-1',
-				state: 'running',
-				startedAt: '2026-10-15T08:00:00.000Z',
-				remoteId: 'cgt-1',
-				request: { provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: '', inputs: ['docs/a.md'] }
-			})
+			// A generated file and a draft keep their inputs in their upstream.yaml.
+			'clip.mp4': 'video',
+			'.bh/mirror/clip.mp4/generation.yaml': 'prompt: "x"\n',
+			'.bh/mirror/clip.mp4/made.yaml': 'id: "t1"\n',
+			'.bh/mirror/clip.mp4/upstream.yaml': 'upstream:\n  - docs/a.md\n  - other.md\n',
+			'.bh/mirror/next.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/next.mp4/upstream.yaml': 'upstream:\n  - docs/a.md\n'
 		};
 		const harness = await createHarness(disposables, fixture);
 		const before = await harness.tree();
 
 		await harness.move('docs', 'archive');
-		await until(async () => (await harness.read('notes.md'))?.includes('archive/a.md') === true && (await harness.read('generating.bhnode'))?.includes('archive/a.md') === true, 'the entries were not updated after the move');
+		await until(async () => (await harness.read('notes.md'))?.includes('archive/a.md') === true && (await harness.read('.bh/mirror/next.mp4/upstream.yaml'))?.includes('archive/a.md') === true, 'the entries were not updated after the move');
 		const updated = await harness.tree();
 
 		assert.deepStrictEqual({
@@ -388,8 +370,8 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 				'notes.md': updated['notes.md'],
 				'hidden/h.md': updated['hidden/h.md'],
 				'.bh/mirror/pic.png/upstream.yaml': updated['.bh/mirror/pic.png/upstream.yaml'],
-				clip: upstreamOf(updated['clip.bhnode']),
-				generating: upstreamOf(updated['generating.bhnode'])
+				'.bh/mirror/clip.mp4/upstream.yaml': updated['.bh/mirror/clip.mp4/upstream.yaml'],
+				'.bh/mirror/next.mp4/upstream.yaml': updated['.bh/mirror/next.mp4/upstream.yaml']
 			}
 		}, {
 			shown: [],
@@ -400,15 +382,14 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 				'notes.md': '---\ntitle: Notes\nupstream:\n  - archive/a.md\n  - archive\n  - other.md\n---\n# Notes\n',
 				'hidden/h.md': '---\nupstream:\n  - archive/a.md\n---\n',
 				'.bh/mirror/pic.png/upstream.yaml': 'upstream:\n  - archive\n',
-				clip: { upstream: ['archive/a.md', 'other.md'], task: undefined },
-				// A node that is generating is written at once; its task stays.
-				generating: { upstream: ['archive/a.md'], task: 'running' }
+				'.bh/mirror/clip.mp4/upstream.yaml': 'upstream:\n  - archive/a.md\n  - other.md\n',
+				'.bh/mirror/next.mp4/upstream.yaml': 'upstream:\n  - archive/a.md\n'
 			}
 		});
 
 		// Undoing the move is a move back, which updates the entries back.
 		await harness.move('archive', 'docs', true);
-		const restored = ['notes.md', '.bh/mirror/pic.png/upstream.yaml', 'clip.bhnode', 'generating.bhnode'];
+		const restored = ['notes.md', '.bh/mirror/pic.png/upstream.yaml', '.bh/mirror/clip.mp4/upstream.yaml', '.bh/mirror/next.mp4/upstream.yaml'];
 		await until(async () => (await harness.read('notes.md')) === before['notes.md'], 'moving the folder back did not update the entries back');
 		const undone = await harness.tree();
 		assert.deepStrictEqual({

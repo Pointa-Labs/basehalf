@@ -954,6 +954,13 @@ is a file does:
   delete it; a draft whose card information is all gone when its file
   arrives, while no move is being followed, gets no file either, however it
   was deleted.
+- The task record goes with the card it is kept for. Releasing a card
+  removes the record of a generation that ended without its file, and the
+  record of one that ends because the card is released, unless another card
+  of the record that got no file is still there to say why; the card being
+  released counts as gone. Undoing the delete brings the draft back as a
+  draft, without the old error. A record that the window which sent its
+  request took up again meanwhile is not ended, and stays.
 - The draft operations do not delete a draft that a generation that has not
   ended still lands on. They refuse with "This card is generating. Stop it
   first." and change nothing, so that a file that is paid for always has its

@@ -1483,9 +1483,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	/**
 	 * When every card has landed or failed: the record of a generation that
 	 * landed every file is removed; one with a card that got no file stays, so
-	 * that the card can say why, unless every such card is gone.
+	 * that the card can say why, unless every such card is gone or, as the
+	 * card at `released` is, being deleted.
 	 */
-	private async settle(follow: FollowedGeneration): Promise<void> {
+	private async settle(follow: FollowedGeneration, released?: number): Promise<void> {
 		const task = await this.taskStore.update(follow.taskId, current => current);
 		if (!task || !isBaseHalfGenerationTaskSettled(task)) {
 			return;
@@ -1495,13 +1496,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			// Step 11.
 			this.providerSettings.setLastUsed(follow.lastUsed, follow.kind);
 		}
-		let gone = true;
-		for (const card of task.cards) {
-			if (card.state !== 'landed' && await this.cardExists(follow.folder, card.path)) {
-				gone = false;
-				break;
-			}
-		}
+		const gone = !await this.keepsRecord(follow.folder, task, released);
 		if (gone) {
 			await this.taskStore.remove(follow.taskId);
 		} else if (!isBaseHalfGenerationTaskEnded(task)) {
@@ -1510,6 +1505,21 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		await this.deleteParts(follow);
 		this.untrack(follow);
+	}
+
+	/**
+	 * Whether a record that ends without some of its files is still needed: a
+	 * card of it that got no file is there, with its file or as a draft, to say
+	 * why. A card that landed keeps no record, and neither does the card at
+	 * `released`, which is being deleted.
+	 */
+	private async keepsRecord(folder: URI, task: IBaseHalfGenerationTask, released?: number): Promise<boolean> {
+		for (const [index, card] of task.cards.entries()) {
+			if (index !== released && card.state !== 'landed' && await this.cardExists(folder, card.path)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Whether a card has its file or is a draft. */
@@ -1567,7 +1577,11 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	async releaseCard(resource: URI): Promise<void> {
 		const located = this.locate(resource);
 		const task = this.taskStore.forCard(resource);
-		if (!located || !task || isBaseHalfGenerationTaskEnded(task)) {
+		if (!located || !task) {
+			return;
+		}
+		if (isBaseHalfGenerationTaskEnded(task)) {
+			await this.removeEndedRecordsOfReleased(located.folder, located.path);
 			return;
 		}
 		const index = baseHalfGenerationTaskCardIndex(task, located.path, this.pathKey(located.folder));
@@ -1583,7 +1597,28 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		await this.taskStore.update(task.id, current => current.cards[index]?.state === 'waiting' ? failBaseHalfGenerationCard(current, index, cardDeletedMessage()) : current);
 		const follow = this.followed.get(task.id);
 		if (follow && !follow.landing) {
-			await this.settle(follow);
+			await this.settle(follow, index);
+		}
+	}
+
+	/**
+	 * A card is deleted after its generation ended without its file: each
+	 * record of this computer that ended so and names it goes with it, once no
+	 * other card of the record that got no file is left to say why (generation
+	 * cards, "The task record"). Undoing the delete brings the card back as a
+	 * draft, without the old error. A record that the window that sent its
+	 * request took up again meanwhile is not ended any more, and stays.
+	 */
+	private async removeEndedRecordsOfReleased(folder: URI, path: string): Promise<void> {
+		const key = this.pathKey(folder);
+		for (const task of this.taskStore.list()) {
+			if (!isBaseHalfGenerationTaskEnded(task) || this.taskStore.folderOf(task.id)?.toString() !== folder.toString()) {
+				continue;
+			}
+			const index = baseHalfGenerationTaskCardIndex(task, path, key);
+			if (index >= 0 && !await this.keepsRecord(folder, task, index)) {
+				await this.taskStore.remove(task.id, current => isBaseHalfGenerationTaskEnded(current));
+			}
 		}
 	}
 

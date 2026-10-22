@@ -39,8 +39,8 @@ export const baseHalfNoMovedItems: IBaseHalfMovedItemsService = {
 
 /**
  * File search over an in-memory file system for reference index tests. It
- * returns every Markdown and `.bhnode` file and ignores exclude patterns on
- * purpose, so the index's own eligibility filter is what a test observes.
+ * returns every Markdown file and ignores exclude patterns on purpose, so the
+ * index's own eligibility filter is what a test observes.
  */
 export class BaseHalfInMemoryFileSearchService implements Pick<ISearchService, 'fileSearch'> {
 	constructor(private readonly fileService: IFileService) { }
@@ -59,7 +59,7 @@ export class BaseHalfInMemoryFileSearchService implements Pick<ISearchService, '
 				for (const child of stat.children ?? []) {
 					if (child.isDirectory) {
 						stack.push(child.resource);
-					} else if (/\.(?:md|markdown|bhnode)$/i.test(child.name)) {
+					} else if (/\.(?:md|markdown)$/i.test(child.name)) {
 						results.push({ resource: child.resource });
 					}
 				}

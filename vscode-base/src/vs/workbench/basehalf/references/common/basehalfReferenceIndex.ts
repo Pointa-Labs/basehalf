@@ -23,14 +23,6 @@ import { baseHalfPlainFailureReason } from '../../shell/common/basehalfPlainFail
 import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfIsDraft, baseHalfIsDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
 import {
-	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	baseHalfNodeUpstreamItemValues,
-	BaseHalfNodeUpstreamExtract,
-	extractBaseHalfNodeUpstreamLenient
-} from '../../video/common/basehalfNodeDocument.js';
-import {
-	BASEHALF_UPSTREAM_MAX_NODE_ENTRIES,
-	baseHalfAnalyzeUpstreamItems,
 	baseHalfResolveFileRelativeUpstreamEntry,
 	baseHalfUpstreamIdentity,
 	baseHalfUpstreamResourceKey,
@@ -47,7 +39,6 @@ import {
 	baseHalfUpstreamStoreKind,
 	IBaseHalfUpstreamStoreRead,
 	isBaseHalfUpstreamMarkdownName,
-	isBaseHalfUpstreamNodeDocumentName,
 	readBaseHalfMarkdownUpstream,
 	readBaseHalfSidecarUpstream
 } from './basehalfReferenceStore.js';
@@ -80,7 +71,7 @@ export type BaseHalfReferenceIndexPartialReason =
 	/** The file watcher reported an error. */
 	| 'watcherError';
 
-/** A sidecar is active, belongs in its Markdown or `.bhnode` file, or names no node. */
+/** A sidecar is active, belongs in its Markdown file, or names no node. */
 export type BaseHalfUpstreamSidecarState = 'active' | 'wrongOwner' | 'missingNode';
 
 /** The saved-disk state of one indexed store. */
@@ -88,7 +79,7 @@ export interface IBaseHalfIndexedStore {
 	/** The downstream node that owns the list. */
 	readonly node: IBaseHalfWorkspaceResource;
 	readonly storeKind: BaseHalfUpstreamStoreKind;
-	/** The Markdown file, the `.bhnode` document, or the `upstream.yaml`. */
+	/** The Markdown file or the `upstream.yaml`. */
 	readonly storeResource: URI;
 	readonly read: IBaseHalfUpstreamStoreRead;
 	/** Sidecars only. Only `active` sidecars contribute edges. */
@@ -139,16 +130,10 @@ export interface IBaseHalfUpstreamView {
 	/** One issue row for an unreadable, foreign, or not-writable store. */
 	readonly storeIssue: boolean;
 	readonly entries: readonly IBaseHalfUpstreamEntryView[];
-	/**
-	 * @deprecated Never set since D63: every node can be downstream, a
-	 * generated file and a file under `outputs/` included. Kept until the
-	 * canvas stops reading it; a later cleanup removes it.
-	 */
-	readonly upstreamOnly?: 'reservedOutput' | 'resultArtifact';
-	/** A sidecar whose list could live in this Markdown or `.bhnode` file (the
-	 * issue offers Move into File). It contributes no edges when the file has
-	 * an `upstream` key of its own; otherwise it is this note's store, and
-	 * `storeKind` is `sidecar`. */
+	/** A sidecar whose list could live in this Markdown file (the issue offers
+	 * Move into File). It contributes no edges when the file has an `upstream`
+	 * key of its own; otherwise it is this note's store, and `storeKind` is
+	 * `sidecar`. */
 	readonly misplacedSidecar?: { readonly resource: URI; readonly items: readonly IBaseHalfUpstreamItem[] };
 	/** The store could not be read (I/O error). */
 	readonly readError?: string;
@@ -230,12 +215,6 @@ export interface IBaseHalfReferenceIndexService {
 	getDrafts(workspaceFolder: URI): readonly string[];
 	/** Whether the node is a draft the index knows ({@link getDrafts}). */
 	isDraft(node: IBaseHalfWorkspaceResource): boolean;
-	/**
-	 * @deprecated Always `undefined` since D63: every node can be downstream,
-	 * a generated file and a file under `outputs/` included (reference graph,
-	 * "Stores"). Kept until the canvas stops asking; a later cleanup removes it.
-	 */
-	getUpstreamOnlyReason(node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'resultArtifact' | undefined;
 
 	/**
 	 * The reference edit service calls this after a BaseHalf save succeeds,
@@ -552,10 +531,6 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return this.folderIndex(node.workspaceFolder)?.drafts.has(this.resourceKey(node.resource)) ?? false;
 	}
 
-	getUpstreamOnlyReason(_node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'resultArtifact' | undefined {
-		return undefined;
-	}
-
 	acceptSavedContent(node: IBaseHalfWorkspaceResource, storeKind: BaseHalfUpstreamStoreKind, content: string | undefined): void {
 		const index = this.folderIndex(node.workspaceFolder);
 		if (!index || index.disposed || !this.isIndexable(index, node.relativePath)) {
@@ -705,7 +680,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				ignoreSymlinks: true,
 				ignoreGlobCase: true
 			}],
-			includePattern: { '**/*.md': true, '**/*.markdown': true, '**/*.bhnode': true },
+			includePattern: { '**/*.md': true, '**/*.markdown': true },
 			excludePattern: Object.fromEntries(BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES.map(name => [`**/${name}`, true])),
 			ignoreGlobCase: true,
 			maxResults: BASEHALF_REFERENCE_INDEX_STORE_LIMIT + 1
@@ -860,9 +835,6 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			if (storeKind === 'markdown') {
 				const file = await this.fileService.readFile(storeResource, { length: BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES });
 				content = decodeUtf8(file.value.buffer);
-			} else if (storeKind === 'node') {
-				const file = await this.fileService.readFile(storeResource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-				content = decodeUtf8(file.value.buffer);
 			} else {
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, storeResource);
 				const file = await this.fileService.readFile(storeResource, { limits: { size: SIDECAR_MAX_BYTES } });
@@ -872,7 +844,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			if (storeKind === 'sidecar') {
 				sidecarState = !nodeStat
 					? nodeIsDraft ? 'active' : 'missingNode'
-					: !nodeStat.isDirectory && (isBaseHalfUpstreamMarkdownName(node.relativePath) || isBaseHalfUpstreamNodeDocumentName(node.relativePath))
+					: !nodeStat.isDirectory && isBaseHalfUpstreamMarkdownName(node.relativePath)
 						? 'wrongOwner'
 						: 'active';
 			}
@@ -894,14 +866,9 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		content: string,
 		sidecarState: BaseHalfUpstreamSidecarState | undefined
 	): IStoreRecord {
-		let read: IBaseHalfUpstreamStoreRead;
-		if (storeKind === 'markdown') {
-			read = readBaseHalfMarkdownUpstream(content, { nodePath: node.relativePath, identity });
-		} else if (storeKind === 'sidecar') {
-			read = readBaseHalfSidecarUpstream(content, { nodePath: node.relativePath, identity });
-		} else {
-			read = baseHalfNodeUpstreamStoreRead(extractBaseHalfNodeUpstreamLenient(content), node.relativePath, identity);
-		}
+		const read: IBaseHalfUpstreamStoreRead = storeKind === 'markdown'
+			? readBaseHalfMarkdownUpstream(content, { nodePath: node.relativePath, identity })
+			: readBaseHalfSidecarUpstream(content, { nodePath: node.relativePath, identity });
 		const active = storeKind !== 'sidecar' || sidecarState === 'active';
 		const targets: (readonly [string, number])[] = [];
 		if (active && read.readable) {
@@ -1576,8 +1543,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 	}
 
 	private isStoreFileName(relativePath: string): boolean {
-		const name = relativePath.slice(relativePath.lastIndexOf('/') + 1);
-		return isBaseHalfUpstreamMarkdownName(name) || isBaseHalfUpstreamNodeDocumentName(name);
+		return isBaseHalfUpstreamMarkdownName(relativePath.slice(relativePath.lastIndexOf('/') + 1));
 	}
 
 	/**
@@ -1677,22 +1643,6 @@ function decodeUtf8(bytes: Uint8Array): string {
 function isFileNotFound(error: unknown): boolean {
 	const result = error instanceof Error ? toFileOperationResult(error) : undefined;
 	return result === FileOperationResult.FILE_NOT_FOUND || result === FileOperationResult.FILE_IS_DIRECTORY;
-}
-
-/**
- * The store read of a `.bhnode` document from the lenient extractor. Every
- * item problem (non-string, grammar, self, duplicate, past the 64th) is per
- * entry; an unreadable document is an unreadable store.
- */
-export function baseHalfNodeUpstreamStoreRead(extract: BaseHalfNodeUpstreamExtract, nodePath: string, identity: IBaseHalfUpstreamIdentity): IBaseHalfUpstreamStoreRead {
-	if (!extract.readable) {
-		return { readable: false, writable: false, items: [], hasKey: true, problem: 'invalidDocument', issue: true };
-	}
-	const items = baseHalfAnalyzeUpstreamItems(baseHalfNodeUpstreamItemValues(extract.upstream), nodePath, identity, {
-		maxEntries: BASEHALF_UPSTREAM_MAX_NODE_ENTRIES,
-		nonScalarProblem: 'notString'
-	});
-	return { readable: true, writable: true, items, hasKey: true, issue: false };
 }
 
 registerSingleton(IBaseHalfReferenceIndexService, BaseHalfReferenceIndexService, InstantiationType.Delayed);
