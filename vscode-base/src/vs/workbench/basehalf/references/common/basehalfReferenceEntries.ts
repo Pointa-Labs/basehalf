@@ -14,14 +14,10 @@ import { URI } from '../../../../base/common/uri.js';
  * `2024`. One trailing `/` is removed before validation.
  */
 
-/** The largest upstream list a `.bhnode` document may be written with. */
-export const BASEHALF_UPSTREAM_MAX_NODE_ENTRIES = 64;
-
 /**
  * Why one upstream item is not a valid entry.
  * - `empty`: an empty item, an empty string, or `~`.
  * - `notScalar`: a mapping or sequence item.
- * - `notString`: a non-string `.bhnode` item.
  * - `absolute`: starts with `/`.
  * - `backslash`: contains `\`.
  * - `controlCharacter`: contains NUL or another control character.
@@ -29,28 +25,24 @@ export const BASEHALF_UPSTREAM_MAX_NODE_ENTRIES = 64;
  * - `metadata`: the first segment is `.bh`.
  * - `self`: names the downstream node itself.
  * - `duplicate`: repeats an earlier entry.
- * - `overLimit`: a `.bhnode` entry past the 64th.
  */
 export type BaseHalfUpstreamEntryProblem =
 	| 'empty'
 	| 'notScalar'
-	| 'notString'
 	| 'absolute'
 	| 'backslash'
 	| 'controlCharacter'
 	| 'invalidSegment'
 	| 'metadata'
 	| 'self'
-	| 'duplicate'
-	| 'overLimit';
+	| 'duplicate';
 
 /** The value of one upstream item, independent of its store. */
 export interface IBaseHalfUpstreamItemValue {
 	/**
 	 * For a scalar item, the decoded scalar text (plain scalars are taken
 	 * verbatim, quoted scalars are unescaped). For every other item (`~`, an
-	 * empty item, a mapping, a sequence, a non-string `.bhnode` value) the raw
-	 * source text of the item (JSON text for `.bhnode`).
+	 * empty item, a mapping, a sequence) the raw source text of the item.
 	 */
 	readonly text: string;
 	/** True when `text` is an entry string that BaseHalf may re-quote. */
@@ -159,21 +151,19 @@ export function baseHalfUpstreamEntryProblem(
 /**
  * Analyzes an ordered list of item values. Validation is per item: one
  * invalid item never hides the valid items of the same list. A later
- * duplicate of an earlier entry is invalid. `maxEntries` marks every item past
- * that position as `overLimit` (the `.bhnode` rule).
+ * duplicate of an earlier entry is invalid.
  */
 export function baseHalfAnalyzeUpstreamItems(
 	values: readonly IBaseHalfUpstreamItemValue[],
 	nodePath: string | undefined,
-	identity: IBaseHalfUpstreamIdentity = BASEHALF_EXACT_UPSTREAM_IDENTITY,
-	options: { readonly maxEntries?: number; readonly nonScalarProblem?: BaseHalfUpstreamEntryProblem } = {}
+	identity: IBaseHalfUpstreamIdentity = BASEHALF_EXACT_UPSTREAM_IDENTITY
 ): IBaseHalfUpstreamItem[] {
 	const seen = new Set<string>();
 	return values.map((value, index): IBaseHalfUpstreamItem => {
 		let problem: BaseHalfUpstreamEntryProblem | undefined;
 		let path: string | undefined;
 		if (!value.scalar) {
-			problem = options.nonScalarProblem ?? (value.text === '' || value.text === '~' ? 'empty' : 'notScalar');
+			problem = value.text === '' || value.text === '~' ? 'empty' : 'notScalar';
 		} else {
 			problem = baseHalfUpstreamEntryProblem(value.text, nodePath, identity);
 			if (!problem) {
@@ -186,9 +176,6 @@ export function baseHalfAnalyzeUpstreamItems(
 			} else if (problem === 'self') {
 				seen.add(identity.key(baseHalfNormalizeUpstreamEntry(value.text)));
 			}
-		}
-		if (!problem && options.maxEntries !== undefined && index >= options.maxEntries) {
-			problem = 'overLimit';
 		}
 		return Object.freeze({
 			index,

@@ -409,13 +409,9 @@ export function swapBaseHalfVideoUpstreamEntries(upstream: readonly string[], fi
 	return Object.freeze(next);
 }
 
-/** The name an input is shown by: a note without its extension, a node without `.bhnode`, any other file by its file name. */
+/** The name an input is shown by: a note without its extension, any other file by its file name. */
 export function baseHalfVideoPanelInputFileName(path: string): string {
-	const name = path.slice(path.lastIndexOf('/') + 1);
-	if (name.toLowerCase().endsWith('.bhnode') && name.length > '.bhnode'.length) {
-		return name.slice(0, -'.bhnode'.length);
-	}
-	return baseHalfItemDisplayName(name, false);
+	return baseHalfItemDisplayName(path.slice(path.lastIndexOf('/') + 1), false);
 }
 
 /** `⌘Enter` on macOS and `Ctrl+Enter` elsewhere. */

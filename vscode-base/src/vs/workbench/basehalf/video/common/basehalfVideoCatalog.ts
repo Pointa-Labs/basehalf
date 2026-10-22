@@ -824,7 +824,7 @@ const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'webm']);
 const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac']);
 const TEXT_EXTENSIONS = new Set(['md', 'markdown', 'txt']);
 
-/** The input kind of an ordinary file, by its extension. A `.bhnode` is resolved by its owner. */
+/** The input kind of a file, by its extension (generation cards, "Inputs"). */
 export function baseHalfVideoInputKindOfPath(path: string): BaseHalfVideoInputKind {
 	const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
 	const dot = name.lastIndexOf('.');

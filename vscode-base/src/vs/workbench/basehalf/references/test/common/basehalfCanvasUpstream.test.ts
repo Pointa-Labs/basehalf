@@ -86,7 +86,7 @@ suite('BaseHalfCanvasUpstream', () => {
 
 	test('states every store and entry problem without code words', () => {
 		const storeProblems = ['mappingValue', 'duplicateKey', 'anchorAliasTag', 'blockScalar', 'invalidDocument', 'foreignValue', 'frontmatterRejected', 'tomlFrontmatter', 'mappingNotBlock', 'frontmatterBeyondWindow', 'multilineItem', undefined] as const;
-		const entryProblems = ['empty', 'notScalar', 'notString', 'absolute', 'backslash', 'controlCharacter', 'invalidSegment', 'metadata', 'self', 'duplicate', 'overLimit', undefined] as const;
+		const entryProblems = ['empty', 'notScalar', 'absolute', 'backslash', 'controlCharacter', 'invalidSegment', 'metadata', 'self', 'duplicate', undefined] as const;
 		const messages = [
 			...(['markdown', 'sidecar'] as const).flatMap(storeKind => storeProblems.map(problem => baseHalfUpstreamStoreProblemMessage(storeKind, problem))),
 			baseHalfUpstreamStoreProblemMessage('sidecar', undefined, 'permission denied'),

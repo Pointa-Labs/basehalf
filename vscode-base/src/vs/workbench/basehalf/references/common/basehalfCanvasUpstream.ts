@@ -160,7 +160,6 @@ export function baseHalfUpstreamEntryProblemMessage(problem: BaseHalfUpstreamEnt
 	switch (problem) {
 		case 'empty': return localize('basehalf.upstream.problem.empty', "This entry is empty.");
 		case 'notScalar': return localize('basehalf.upstream.problem.notScalar', "This entry is not a path.");
-		case 'notString': return localize('basehalf.upstream.problem.notString', "This entry is not a path.");
 		case 'absolute': return localize('basehalf.upstream.problem.absolute', "Paths start at the workspace folder, without a leading /.");
 		case 'backslash': return localize('basehalf.upstream.problem.backslash', "Paths use / between folders, not \\.");
 		case 'controlCharacter': return localize('basehalf.upstream.problem.controlCharacter', "This path contains a character that can't be used.");
@@ -168,7 +167,6 @@ export function baseHalfUpstreamEntryProblemMessage(problem: BaseHalfUpstreamEnt
 		case 'metadata': return localize('basehalf.upstream.problem.metadata', "This path points into BaseHalf's own files.");
 		case 'self': return localize('basehalf.upstream.problem.self', "This entry names the card itself.");
 		case 'duplicate': return localize('basehalf.upstream.problem.duplicate', "This path is already listed above.");
-		case 'overLimit': return localize('basehalf.upstream.problem.overLimit', "A node lists at most 64 upstream entries.");
 		default: return localize('basehalf.upstream.problem.invalid', "This entry is not a valid path.");
 	}
 }
