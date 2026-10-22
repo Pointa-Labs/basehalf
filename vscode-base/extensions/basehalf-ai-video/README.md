@@ -256,11 +256,11 @@ serves without a key or, with `response_format: b64_json`, as base64. `--fail
 key|reject|task|expire|drop|slow` makes every request fail that way; a prompt
 that contains `[mock:reject]`, `[mock:fail]`, `[mock:expire]`, `[mock:drop]`,
 or `[mock:slow]` fails only that request. Of images, `[mock:fail]` refuses the
-last one, `[mock:slow]` answers after `--seconds`, and `[mock:fewer]` makes a
-set one image smaller. `POST /__mock/configure` with
-`{"fail", "durationMs"}` changes the behavior while it runs, and `GET
-/__mock/requests` lists the create requests received, of tasks and of images,
-without keys and with inline media shortened.
+last one, `[mock:slow]` answers after `--seconds`, `[mock:fewer]` makes a set
+one image smaller, and `[mock:jpeg]` answers JPEG images. `POST
+/__mock/configure` with `{"fail", "durationMs"}` changes the behavior while it
+runs, and `GET /__mock/requests` lists the create requests received, of tasks
+and of images, without keys and with inline media shortened.
 
 The packaged extension includes `out/` and `templates/`; source, tests, and
 internal product notes are excluded.
