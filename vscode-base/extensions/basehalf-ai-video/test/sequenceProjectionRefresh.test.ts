@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canPlayEntireSequence, reloadSequencePreview, resolveSequencePlaybackRestore, sequenceProjectionWindow, SequenceProjectionArtifactPaths, SequenceProjectionNodePaths, SequenceProjectionRefreshState, SequenceProjectionRenderQueue } from '../src/sequenceProjectionRefresh.ts';
+import { canPlayEntireSequence, reloadSequencePreview, resolveSequencePlaybackRestore, sequenceCardOfGenerationRecord, sequenceProjectionWindow, SequenceProjectionArtifactPaths, SequenceProjectionRefreshState, SequenceProjectionRenderQueue, SequenceProjectionVideoPaths } from '../src/sequenceProjectionRefresh.ts';
 
 test('bounds the projection to a deterministic prefix without changing the portable Sequence', () => {
 	const items = Object.freeze([
@@ -30,25 +30,36 @@ test('bounds the projection to a deterministic prefix without changing the porta
 	assert.throws(() => sequenceProjectionWindow(items, 1.5), /positive integer/);
 });
 
-test('tracks only exact node resources belonging to the current Sequence', () => {
-	const paths = new SequenceProjectionNodePaths(3);
+test('tracks only the exact video files of the clips of the current Sequence', () => {
+	const paths = new SequenceProjectionVideoPaths(3);
 	paths.reconcile([
-		'file:///project/shots/opening.bhnode',
-		'file:///project/shots/close.bhnode'
+		'file:///project/shots/opening.mp4',
+		'file:///project/shots/close.mp4'
 	]);
 
-	assert.equal(paths.hasResource('file:///project/shots/opening.bhnode'), true);
-	assert.equal(paths.hasResource('file:///project/shots/opening.bhnode?changed=1'), false);
-	assert.equal(paths.hasResource('file:///project/shots/other.bhnode'), false);
+	assert.equal(paths.hasResource('file:///project/shots/opening.mp4'), true);
+	assert.equal(paths.hasResource('file:///project/shots/opening.mp4?changed=1'), false);
+	assert.equal(paths.hasResource('file:///project/shots/other.mp4'), false);
 
-	paths.reconcile(['file:///project/shots/close.bhnode']);
-	assert.equal(paths.hasResource('file:///project/shots/opening.bhnode'), false);
-	assert.equal(paths.hasResource('file:///project/shots/close.bhnode'), true);
+	paths.reconcile(['file:///project/shots/close.mp4']);
+	assert.equal(paths.hasResource('file:///project/shots/opening.mp4'), false);
+	assert.equal(paths.hasResource('file:///project/shots/close.mp4'), true);
 
 	paths.clear();
-	assert.equal(paths.hasResource('file:///project/shots/close.bhnode'), false);
+	assert.equal(paths.hasResource('file:///project/shots/close.mp4'), false);
 	assert.throws(() => paths.reconcile(['one', 'two', 'three', 'four']), /more than 3/);
-	assert.throws(() => new SequenceProjectionNodePaths(0), /positive integer/);
+	assert.throws(() => new SequenceProjectionVideoPaths(0), /positive integer/);
+});
+
+test('maps the record of what made a video to the video, so that a record that arrives later inspects its clip again', () => {
+	assert.deepEqual([
+		sequenceCardOfGenerationRecord('file:///project', 'file:///project/.bh/mirror/shots/close.mp4/made.yaml'),
+		sequenceCardOfGenerationRecord('file:///project/', 'file:///project/.bh/mirror/close%20up.mp4/made.yaml'),
+		sequenceCardOfGenerationRecord('file:///project', 'file:///project/.bh/mirror/shots/close.mp4/generation.yaml'),
+		sequenceCardOfGenerationRecord('file:///project', 'file:///project/shots/close.mp4'),
+		sequenceCardOfGenerationRecord('file:///project', 'file:///other/.bh/mirror/close.mp4/made.yaml'),
+		sequenceCardOfGenerationRecord('file:///project', 'file:///project/.bh/mirror/made.yaml')
+	], ['file:///project/shots/close.mp4', 'file:///project/close%20up.mp4', undefined, undefined, undefined, undefined]);
 });
 
 test('plays the saved order only when every exact clip is available', () => {
@@ -197,21 +208,21 @@ test('coalesces overlapping projection refreshes into one in-flight inspection',
 test('tracks only referenced Sequence results while retaining a temporarily unavailable artifact path', () => {
 	const paths = new SequenceProjectionArtifactPaths(3);
 	paths.reconcile([
-		{ resultKey: 'opening:node-1', verifiedResourceKey: 'file:///project/opening.mp4' },
-		{ resultKey: 'close:node-2', verifiedResourceKey: 'file:///project/close.mp4' }
+		{ resultKey: 'opening:task-1', verifiedResourceKey: 'file:///project/opening.mp4' },
+		{ resultKey: 'close:task-2', verifiedResourceKey: 'file:///project/close.mp4' }
 	]);
 	assert.equal(paths.size, 2);
 	assert.equal(paths.hasResource('file:///project/opening.mp4'), true);
 
 	paths.reconcile([
-		{ resultKey: 'opening:node-1' },
-		{ resultKey: 'close:node-2', verifiedResourceKey: 'file:///project/close-replaced.mp4' }
+		{ resultKey: 'opening:task-1' },
+		{ resultKey: 'close:task-2', verifiedResourceKey: 'file:///project/close-replaced.mp4' }
 	]);
 	assert.equal(paths.hasResource('file:///project/opening.mp4'), true);
 	assert.equal(paths.hasResource('file:///project/close.mp4'), false);
 	assert.equal(paths.hasResource('file:///project/close-replaced.mp4'), true);
 
-	paths.reconcile([{ resultKey: 'close:node-3', verifiedResourceKey: 'file:///project/close-result.mp4' }]);
+	paths.reconcile([{ resultKey: 'close:task-3', verifiedResourceKey: 'file:///project/close-result.mp4' }]);
 	assert.equal(paths.size, 1);
 	assert.equal(paths.hasResource('file:///project/opening.mp4'), false);
 	assert.equal(paths.hasResource('file:///project/close-replaced.mp4'), false);

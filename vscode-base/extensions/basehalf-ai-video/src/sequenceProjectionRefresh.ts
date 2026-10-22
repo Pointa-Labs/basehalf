@@ -94,20 +94,21 @@ export function sequenceProjectionWindow<T>(items: readonly T[], maximumVisibleI
 	});
 }
 
-export class SequenceProjectionNodePaths {
+/** The video file of every clip of the Sequence, by resource key, so that a change of one shows. */
+export class SequenceProjectionVideoPaths {
 	private resources = new Set<string>();
 	private readonly maximumPaths: number;
 
 	constructor(maximumPaths: number) {
 		if (!Number.isInteger(maximumPaths) || maximumPaths < 1) {
-			throw new Error('The Sequence node watch limit must be a positive integer.');
+			throw new Error('The Sequence video watch limit must be a positive integer.');
 		}
 		this.maximumPaths = maximumPaths;
 	}
 
 	reconcile(resourceKeys: readonly string[]): void {
 		if (resourceKeys.length > this.maximumPaths) {
-			throw new Error(`Sequence has more than ${this.maximumPaths} node paths to watch.`);
+			throw new Error(`Sequence has more than ${this.maximumPaths} video paths to watch.`);
 		}
 		this.resources = new Set(resourceKeys.filter(resourceKey => !!resourceKey));
 	}
@@ -121,15 +122,32 @@ export class SequenceProjectionNodePaths {
 	}
 }
 
+/**
+ * The card whose generation record a file event concerns: for
+ * `<workspace>/.bh/mirror/<path>/made.yaml`, the resource key of
+ * `<workspace>/<path>`, so that a record that arrives after its video, as it
+ * does when the video is moved back, inspects the clip again. Keys are
+ * resource strings, as `Uri.toString()` writes them.
+ */
+export function sequenceCardOfGenerationRecord(workspaceKey: string, candidateKey: string): string | undefined {
+	const root = `${workspaceKey.replace(/\/+$/, '')}/.bh/mirror/`;
+	const record = '/made.yaml';
+	if (!candidateKey.startsWith(root) || !candidateKey.endsWith(record)) {
+		return undefined;
+	}
+	const card = candidateKey.slice(root.length, candidateKey.length - record.length);
+	return card ? `${workspaceKey.replace(/\/+$/, '')}/${card}` : undefined;
+}
+
 export interface SequenceProjectionArtifactBinding {
 	readonly resultKey: string;
 	readonly verifiedResourceKey?: string;
 }
 
 /**
- * Playback of the saved order is available only when every Video Result
- * resolves to a verified local artifact. Individual verified clips remain
- * previewable while an incomplete order is repaired.
+ * Playback of the saved order is available only when every clip resolves to
+ * a verified local video. Individual verified clips remain previewable while
+ * an incomplete order is repaired.
  */
 export function canPlayEntireSequence(totalItems: number, playableItems: number): boolean {
 	return totalItems > 0 && playableItems === totalItems;
@@ -151,7 +169,7 @@ export interface SequenceProjectionPlaybackRestore {
 /**
  * Restores a refreshed projection by stable Sequence item identity. A changed
  * or missing artifact remains selected when possible, but playback resumes
-	 * only when the sealed result source is unchanged.
+	 * only when the source of the clip is unchanged.
  */
 export function resolveSequencePlaybackRestore(
 	playable: readonly SequenceProjectionPlayableItem[],
@@ -198,8 +216,8 @@ export interface SequencePreviewMediaElement {
 
 /**
  * Reloads only the already verified resource selected by the Sequence item.
-	 * The caller supplies that sealed node's source instead of asking an executor
-	 * for another result.
+	 * The caller supplies the source of that clip's video instead of asking for
+	 * another one.
  */
 export function reloadSequencePreview(media: SequencePreviewMediaElement, verifiedSource: string | undefined): boolean {
 	if (!verifiedSource) {

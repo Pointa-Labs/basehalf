@@ -10,51 +10,45 @@ import { mock } from '../../../../base/test/common/mock.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { ExtensionIdentifier, IExtensionDescription, TargetPlatform } from '../../../../platform/extensions/common/extensions.js';
 import { ExtHostBaseHalf } from '../../common/extHostBaseHalf.js';
-import { IBaseHalfCanvasNodeStateDto, IBaseHalfExtensionIdentityDto, MainThreadBaseHalfShape } from '../../common/extHost.protocol.js';
+import { IBaseHalfExtensionIdentityDto, IBaseHalfGenerationCardStateDto, MainThreadBaseHalfShape } from '../../common/extHost.protocol.js';
 import { SingleProxyRPCProtocol } from '../common/testRPCProtocol.js';
 
 suite('ExtHostBaseHalf', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('revives an inspected Video node with its video, sends the host-derived identity, and lists no attempts', async () => {
+	test('inspects a generation card with the host-derived identity and answers its kind, its file, and the id of its made.yaml', async () => {
 		let receivedIdentity: IBaseHalfExtensionIdentityDto | undefined;
-		let receivedResource: URI | undefined;
+		const received: string[] = [];
 		const proxy = new class extends mock<MainThreadBaseHalfShape>() {
-			override $inspectCanvasNode(extensionIdentity: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfCanvasNodeStateDto> {
+			override $inspectGenerationCard(extensionIdentity: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfGenerationCardStateDto | undefined> {
 				receivedIdentity = extensionIdentity;
-				receivedResource = URI.revive(resource);
-				return Promise.resolve({
-					id: 'clip-node',
-					kind: 'video',
-					lifecycle: 'result',
-					result: {
-						source: 'attempt',
-						attemptId: 'run-2',
-						artifact: {
-							id: 'clip',
-							outputId: 'video',
-							kind: 'video',
-							resource: URI.file('/workspace/outputs/clip.mp4'),
-							integrity: 'available'
-						}
-					},
-					attempts: []
-				});
+				const path = URI.revive(resource).path;
+				received.push(path);
+				return Promise.resolve(path.endsWith('clip.mp4')
+					? { kind: 'video', hasFile: true, generationId: '20261019T080000-k3f9' }
+					: path.endsWith('draft.mp4') ? { kind: 'video', hasFile: false } : undefined);
 			}
 		};
 		const extHost = disposables.add(new ExtHostBaseHalf(SingleProxyRPCProtocol(proxy), undefined!));
 
-		const state = await extHost.inspectCanvasNode(extension(), URI.file('/workspace/clip.bhnode'));
+		const generated = await extHost.inspectGenerationCard(extension(), URI.file('/workspace/shots/clip.mp4'));
+		const draft = await extHost.inspectGenerationCard(extension(), URI.file('/workspace/shots/draft.mp4'));
+		const other = await extHost.inspectGenerationCard(extension(), URI.file('/workspace/notes.md'));
 
-		assert.strictEqual(receivedIdentity?.id.value, 'reviewed.workflow');
-		assert.strictEqual(receivedIdentity?.version, '1.2.3');
-		assert.strictEqual(receivedResource?.path, '/workspace/clip.bhnode');
-		assert.strictEqual(state?.id, 'clip-node');
-		assert.strictEqual(state?.lifecycle, 'result');
-		assert.strictEqual(state?.result?.artifact.resource.path, '/workspace/outputs/clip.mp4');
-		assert.strictEqual(state?.result?.artifact.integrity, 'available');
-		assert.strictEqual(state?.result?.source, 'attempt');
-		assert.deepStrictEqual(state?.attempts, []);
+		assert.deepStrictEqual({
+			identity: [receivedIdentity?.id.value, receivedIdentity?.version],
+			received,
+			generated,
+			draft,
+			other
+		}, {
+			identity: ['reviewed.workflow', '1.2.3'],
+			received: ['/workspace/shots/clip.mp4', '/workspace/shots/draft.mp4', '/workspace/notes.md'],
+			generated: { kind: 'video', hasFile: true, generationId: '20261019T080000-k3f9' },
+			draft: { kind: 'video', hasFile: false },
+			other: undefined
+		});
+		assert.strictEqual(Object.hasOwn(draft!, 'generationId'), false);
 	});
 
 	test('registers one structural cleanup provider and serializes exact transitions', async () => {
@@ -76,11 +70,11 @@ suite('ExtHostBaseHalf', () => {
 		assert.strictEqual(registered?.id.value, 'reviewed.workflow');
 		const transitions = await extHost.$prepareCanvasStructuralCleanup(
 			'reviewed.workflow',
-			URI.file('/workspace/clip.bhnode'),
+			URI.file('/workspace/clip.mp4'),
 			CancellationToken.None
 		);
 		assert.strictEqual(transitions.length, 1);
-		assert.strictEqual(transitions[0].expected.toString(), '/workspace/clip.bhnode');
+		assert.strictEqual(transitions[0].expected.toString(), '/workspace/clip.mp4');
 		assert.strictEqual(transitions[0].next.toString(), 'next');
 		registration.dispose();
 		assert.strictEqual(unregistered, 'reviewed.workflow');

@@ -26,9 +26,10 @@ interface TemplateDraft {
 	readonly prompt?: string;
 }
 
-test('contributes the commands, Sequence, cleanup, template, and Agent contracts, and nothing of the retired recipe platform', () => {
+test('contributes the commands, Sequence, template, and Agent contracts, and nothing of the retired recipe platform or node documents', () => {
 	assert.equal(manifest.basehalf.primaryCommand, CREATE_WORKFLOW_COMMAND_ID);
-	assert.deepEqual(Object.keys(manifest.contributes).sort(), ['basehalfAgentCapabilities', 'basehalfCanvasTemplates', 'basehalfCardProjections', 'basehalfStructuralCleanups', 'commands']);
+	// Deleting a video changes no Sequence, so AI Video contributes no structural cleanup (D63).
+	assert.deepEqual(Object.keys(manifest.contributes).sort(), ['basehalfAgentCapabilities', 'basehalfCanvasTemplates', 'basehalfCardProjections', 'commands']);
 	assert.deepEqual(manifest.contributes.commands.map((command: { command: string }) => command.command), [
 		CREATE_WORKFLOW_COMMAND_ID,
 		INSPECT_SEQUENCE_COMMAND_ID,
@@ -60,6 +61,8 @@ test('contributes the commands, Sequence, cleanup, template, and Agent contracts
 		REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID
 	]);
 	assert.ok(capability.operations.every((operation: { deterministic: boolean }) => operation.deterministic));
+	// Add Video Result to Sequence takes a video card with its file.
+	assert.deepEqual(capability.operations[1].parameters.map((parameter: { name: string }) => parameter.name), ['sequence', 'video', 'itemId', 'title']);
 	assert.deepEqual(manifest.contributes.basehalfCardProjections, [{
 		id: 'pointa.basehalf-ai-video.sequence',
 		label: 'Sequence',
@@ -68,12 +71,8 @@ test('contributes the commands, Sequence, cleanup, template, and Agent contracts
 		order: 400,
 		defaultPriority: 300
 	}]);
-	assert.deepEqual(manifest.contributes.basehalfStructuralCleanups, [{
-		id: 'pointa.basehalf-ai-video.sequence-membership',
-		extensions: ['.bhnode']
-	}]);
 	const text = JSON.stringify(manifest);
-	for (const retired of ['basehalfCanvasRecipes', 'basehalfModelProviderCatalogs', 'basehalfVideoModelCatalogs', 'models/', '.aivideo']) {
+	for (const retired of ['basehalfCanvasRecipes', 'basehalfModelProviderCatalogs', 'basehalfVideoModelCatalogs', 'basehalfStructuralCleanups', 'models/', '.aivideo', '.bhnode', 'Video node', 'nodeId', 'videoNodePath']) {
 		assert.equal(text.includes(retired), false, retired);
 	}
 });

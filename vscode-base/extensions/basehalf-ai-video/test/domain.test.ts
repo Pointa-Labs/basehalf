@@ -9,73 +9,76 @@ import {
 	SEQUENCE_INSPECTION_CONCURRENCY,
 	addAIVideoSequenceItem,
 	inspectAIVideoSequence,
+	isAIVideoSequenceVideoPath,
 	isFilePathInside,
 	isOrdinaryFilePathInside,
 	isPlainLocalFileResource,
 	moveAIVideoSequenceItem,
 	parseAIVideoSequenceDocument,
 	parseAIVideoShotDocument,
-	portableDescendantVideoNodePath,
+	portableDescendantVideoPath,
 	removeAIVideoSequenceItem,
-	removeAIVideoSequenceItemsForNodeIdentity,
-	resolveAIVideoSequenceVideoNodePath,
-	resolveAIVideoSequenceVideoResult,
+	resolveAIVideoSequenceVideo,
+	resolveAIVideoSequenceVideoPath,
 	resolveAIVideoShotClipNodePath,
 	serializeAIVideoSequenceDocument,
 	updateAIVideoSequenceItemPath,
 	type AIVideoSequenceDocument,
 	type AIVideoSequenceItem,
-	type AIVideoSequenceNodeState
+	type AIVideoSequenceVideoState
 } from '../src/domain.ts';
 
-test('parses a portable Sequence of sealed Video Result nodes without version pins', () => {
+test('parses a portable Sequence of video files, with the id of the made.yaml of a generated one', () => {
 	const sequence = sequenceDocument([
-		sequenceItem('shot-01', 'clip-node-01', 'shots/shot-01/clip.bhnode'),
-		sequenceItem('shot-02', 'clip-node-02', 'shots/shot-02/clip.bhnode')
+		sequenceItem('shot-01', 'shots/shot-01/clip.mp4', '20261019T080000-k3f9'),
+		sequenceItem('shot-02', 'shots/shot-02/imported.MOV')
 	]);
 	assert.deepEqual(sequence.items, [
-		{ id: 'shot-01', title: 'Shot 01', nodeId: 'clip-node-01', videoNodePath: 'shots/shot-01/clip.bhnode' },
-		{ id: 'shot-02', title: 'Shot 02', nodeId: 'clip-node-02', videoNodePath: 'shots/shot-02/clip.bhnode' }
+		{ id: 'shot-01', title: 'Shot 01', videoPath: 'shots/shot-01/clip.mp4', generationId: '20261019T080000-k3f9' },
+		{ id: 'shot-02', title: 'Shot 02', videoPath: 'shots/shot-02/imported.MOV' }
 	]);
 	assert.deepEqual(parseAIVideoSequenceDocument(serializeAIVideoSequenceDocument(sequence)), sequence);
-	assert.throws(() => parseAIVideoSequenceDocument(JSON.stringify({
-		...sequence,
-		items: [{ ...sequence.items[0], versionId: 'run-1' }]
-	})), /unsupported field 'versionId'/);
+	assert.equal(serializeAIVideoSequenceDocument(sequence).includes('generationId'), true);
+	// The retired fields of a clip that named a Video node are not read (D63).
+	for (const retired of [{ nodeId: 'clip-node' }, { videoNodePath: 'shots/clip.bhnode' }, { versionId: 'run-1' }]) {
+		assert.throws(() => parseAIVideoSequenceDocument(JSON.stringify({ ...sequence, items: [{ ...sequence.items[0], ...retired }] })), /unsupported field/);
+	}
+	assert.throws(() => parseAIVideoSequenceDocument(JSON.stringify({ ...sequence, items: [{ id: 'old', title: 'Old', nodeId: 'n', videoNodePath: 'shots/clip.bhnode' }] })), /unsupported field 'nodeId'/);
 });
 
-test('validates only sealed result lifecycle and one available Video artifact', async () => {
-	const sequence = sequenceDocument([sequenceItem('shot', 'clip-node', 'clip.bhnode')]);
+test('an item is available when its path is a video file and, with a generationId, that file\'s made.yaml has it', async () => {
+	const generated = sequenceItem('generated', 'clip.mp4', 'task-1');
+	const imported = sequenceItem('imported', 'imported.mp4');
 	const resource = Object.freeze({ scheme: 'file', path: '/project/clip.mp4' });
-	const inspection = await inspectAIVideoSequence(sequence, async () => videoResultNode('clip-node', videoArtifact('available', resource)));
-	assert.deepEqual(inspection, {
+	const available = await inspectAIVideoSequence(sequenceDocument([generated, imported]), async path => path === 'clip.mp4'
+		? { isVideoFile: true, generationId: 'task-1', resource }
+		: { isVideoFile: true });
+	assert.deepEqual(available, {
 		valid: true,
-		items: [{
-			item: sequence.items[0],
-			state: 'result',
-			message: 'Sealed Video Result is available.',
-			artifact: { kind: 'video', integrity: 'available', resource }
-		}]
+		items: [
+			{ item: generated, state: 'available', message: 'The video is available.', video: { resource } },
+			{ item: imported, state: 'available', message: 'The video is available.', video: {} }
+		]
 	});
 
-	for (const [node, message] of [
-		[{ ...videoResultNode('clip-node'), kind: 'image' as const }, /not a Video node/],
-		[videoResultNode('other-node'), /identity changed/],
-		[videoResultNode('clip-node', videoArtifact(), 'running'), /lifecycle 'running'/],
-		[videoResultNode('clip-node', null), /does not have/],
-		[videoResultNode('clip-node', videoArtifact('missing')), /does not have/],
-		[videoResultNode('clip-node', { kind: 'image', integrity: 'available' }), /does not have/]
+	for (const [video, state, message] of [
+		[{ isVideoFile: false }, 'missing', /'clip\.mp4' is missing/],
+		// Another video took its path: one without a record, and one of another generation.
+		[{ isVideoFile: true }, 'changed', /not the one this clip names/],
+		[{ isVideoFile: true, generationId: 'task-2' }, 'changed', /not the one this clip names/]
 	] as const) {
-		const invalid = await inspectAIVideoSequence(sequence, async () => node);
-		assert.equal(invalid.valid, false);
-		assert.equal(invalid.items[0].state, 'invalid');
-		assert.match(invalid.items[0].message, message);
+		const inspection = await inspectAIVideoSequence(sequenceDocument([generated]), async () => video);
+		assert.equal(inspection.valid, false);
+		assert.equal(inspection.items[0].state, state);
+		assert.match(inspection.items[0].message, message);
+		assert.equal(inspection.items[0].video, undefined);
 	}
+	const failing = await inspectAIVideoSequence(sequenceDocument([imported]), async () => { throw new Error('The disk is gone.'); });
+	assert.deepEqual([failing.items[0].state, failing.items[0].message], ['missing', 'The disk is gone.']);
 });
 
-test('inspects each Sequence result once with bounded concurrency', async () => {
-	const items = Array.from({ length: SEQUENCE_INSPECTION_CONCURRENCY * 3 }, (_, index) =>
-		sequenceItem(`shot-${index}`, `node-${index}`, `shot-${index}.bhnode`));
+test('inspects each clip once with bounded concurrency', async () => {
+	const items = Array.from({ length: SEQUENCE_INSPECTION_CONCURRENCY * 3 }, (_, index) => sequenceItem(`shot-${index}`, `shot-${index}.mp4`, `task-${index}`));
 	let active = 0;
 	let maximumActive = 0;
 	const calls = new Map<string, number>();
@@ -85,8 +88,7 @@ test('inspects each Sequence result once with bounded concurrency', async () => 
 		maximumActive = Math.max(maximumActive, active);
 		await new Promise(resolve => setTimeout(resolve, 1));
 		active--;
-		const index = Number(path.slice('shot-'.length, -'.bhnode'.length));
-		return videoResultNode(`node-${index}`);
+		return { isVideoFile: true, generationId: `task-${Number(path.slice('shot-'.length, -'.mp4'.length))}` };
 	});
 	assert.equal(inspection.valid, true);
 	assert.equal(calls.size, items.length);
@@ -94,17 +96,16 @@ test('inspects each Sequence result once with bounded concurrency', async () => 
 	assert.equal(maximumActive <= SEQUENCE_INSPECTION_CONCURRENCY, true);
 });
 
-test('stops scheduling new Sequence inspections after cancellation', async () => {
-	const items = Array.from({ length: 100 }, (_, index) => sequenceItem(`shot-${index}`, `node-${index}`, `shot-${index}.bhnode`));
+test('stops scheduling new inspections after cancellation', async () => {
+	const items = Array.from({ length: 100 }, (_, index) => sequenceItem(`shot-${index}`, `shot-${index}.mp4`));
 	let calls = 0;
 	let cancelled = false;
 	await assert.rejects(() => inspectAIVideoSequence(
 		sequenceDocument(items),
-		async path => {
+		async () => {
 			calls++;
 			cancelled = true;
-			const index = Number(path.slice('shot-'.length, -'.bhnode'.length));
-			return videoResultNode(`node-${index}`);
+			return { isVideoFile: true };
 		},
 		undefined,
 		() => {
@@ -116,64 +117,62 @@ test('stops scheduling new Sequence inspections after cancellation', async () =>
 	assert.equal(calls <= SEQUENCE_INSPECTION_CONCURRENCY, true);
 });
 
-test('offers only a unique moved sealed-result path for explicit repair', async () => {
-	const sequence = sequenceDocument([sequenceItem('shot', 'clip-node', 'old/clip.bhnode')]);
-	const inspection = await inspectAIVideoSequence(
-		sequence,
-		async () => undefined,
-		async () => ({ kind: 'unique', videoNodePath: 'moved/clip.bhnode', node: videoResultNode('clip-node') })
-	);
-	assert.equal(inspection.valid, false);
-	assert.equal(inspection.items[0].repairCandidatePath, 'moved/clip.bhnode');
-	assert.match(inspection.items[0].message, /Video Result moved/);
+test('offers to repair the path of a missing or changed clip only when exactly one video of its generation is found', async () => {
+	const item = sequenceItem('shot', 'old/clip.mp4', 'task-1');
+	const missing: AIVideoSequenceVideoState = { isVideoFile: false };
+	const located: string[] = [];
+	const repair = await inspectAIVideoSequence(sequenceDocument([item]), async () => missing, async candidate => {
+		located.push(candidate.generationId!);
+		return { kind: 'unique', videoPath: 'moved/clip.mp4' };
+	});
+	assert.deepEqual([repair.valid, repair.items[0].state, repair.items[0].repairCandidatePath, located], [false, 'missing', 'moved/clip.mp4', ['task-1']]);
+	assert.match(repair.items[0].message, /moved to 'moved\/clip\.mp4'/);
+	const changed = await inspectAIVideoSequence(sequenceDocument([item]), async () => ({ isVideoFile: true, generationId: 'task-9' }), async () => ({ kind: 'unique', videoPath: 'moved/clip.mp4' }));
+	assert.deepEqual([changed.items[0].state, changed.items[0].repairCandidatePath], ['changed', 'moved/clip.mp4']);
 
-	for (const relocation of [
-		{ kind: 'ambiguous' as const, matchCount: 2 },
-		{ kind: 'scanLimit' as const, maximum: 256 },
-		{ kind: 'unique' as const, videoNodePath: '../unsafe.bhnode', node: videoResultNode('clip-node') },
-		{ kind: 'unique' as const, videoNodePath: 'moved/clip.bhnode', node: videoResultNode('other-node') },
-		{ kind: 'unique' as const, videoNodePath: 'moved/clip.bhnode', node: videoResultNode('clip-node', null, 'running') }
-	]) {
-		const invalid = await inspectAIVideoSequence(sequence, async () => undefined, async () => relocation);
+	for (const [relocation, message] of [
+		[undefined, /No video of its generation was found/],
+		[{ kind: 'ambiguous' as const, matchCount: 2 }, /2 videos/],
+		[{ kind: 'scanLimit' as const, maximum: 256 }, /more than 256 videos/],
+		[{ kind: 'unique' as const, videoPath: '../unsafe.mp4' }, /safe relative path/],
+		[{ kind: 'unique' as const, videoPath: 'moved/clip.bhnode' }, /safe relative path/],
+		[{ kind: 'unique' as const, videoPath: 'old/clip.mp4' }, /is missing/]
+	] as const) {
+		const invalid = await inspectAIVideoSequence(sequenceDocument([item]), async () => missing, async () => relocation);
 		assert.equal(invalid.items[0].repairCandidatePath, undefined);
+		assert.match(invalid.items[0].message, message);
 	}
+	// A clip without a generationId is never looked for.
+	const plain = await inspectAIVideoSequence(sequenceDocument([sequenceItem('plain', 'old/clip.mp4')]), async () => missing, async () => {
+		throw new Error('must not look');
+	});
+	assert.deepEqual([plain.items[0].state, plain.items[0].repairCandidatePath], ['missing', undefined]);
 });
 
-test('adds, moves, repairs, and removes node references without changing Video Results', () => {
+test('adds, moves, repairs, and removes clips without changing their videos; Repair Moved changes only the path', () => {
 	const empty = sequenceDocument([]);
-	const one = sequenceItem('one', 'node-1', 'one.bhnode');
-	const two = sequenceItem('two', 'node-2', 'two.bhnode');
+	const one = sequenceItem('one', 'one.mp4', 'task-1');
+	const two = sequenceItem('two', 'two.mp4');
 	const added = addAIVideoSequenceItem(addAIVideoSequenceItem(empty, one), two);
 	assert.deepEqual(added.items.map(item => item.id), ['one', 'two']);
-	assert.throws(() => addAIVideoSequenceItem(added, { ...one, id: 'duplicate' }), /already in the Sequence/);
+	assert.throws(() => addAIVideoSequenceItem(added, { ...one, id: 'same-path' }), /already in the Sequence/);
+	assert.throws(() => addAIVideoSequenceItem(added, { ...one, id: 'same-generation', videoPath: 'copy.mp4' }), /already in the Sequence/);
 	assert.deepEqual(moveAIVideoSequenceItem(added, 'two', 'up').items.map(item => item.id), ['two', 'one']);
-	assert.equal(updateAIVideoSequenceItemPath(added, 'one', 'moved/one.bhnode').items[0].videoNodePath, 'moved/one.bhnode');
+	assert.deepEqual(updateAIVideoSequenceItemPath(added, 'one', 'moved/one.mp4').items[0], { ...one, videoPath: 'moved/one.mp4' });
 	assert.deepEqual(removeAIVideoSequenceItem(added, 'one').items, [two]);
 	assert.throws(() => moveAIVideoSequenceItem(added, 'missing', 'up'), /does not exist/);
-	assert.throws(() => updateAIVideoSequenceItemPath(added, 'missing', 'moved.bhnode'), /does not exist/);
+	assert.throws(() => updateAIVideoSequenceItemPath(added, 'missing', 'moved.mp4'), /does not exist/);
+	assert.throws(() => updateAIVideoSequenceItemPath(added, 'one', 'moved.bhnode'), /safe relative path/);
 	assert.throws(() => removeAIVideoSequenceItem(empty, 'missing'), /does not exist/);
 });
 
-test('deleting a Video Result removes only memberships with its identity and rooted path', () => {
-	const sequence = sequenceDocument([
-		sequenceItem('exact', 'video-node', 'shots/clip.bhnode'),
-		sequenceItem('same-identity-other-path', 'video-node', 'other/clip.bhnode'),
-		sequenceItem('same-path-other-identity', 'other-node', 'shots/clip.bhnode')
-	]);
-	const cleaned = removeAIVideoSequenceItemsForNodeIdentity(sequence, 'video-node', 'shots/clip.bhnode');
-	assert.deepEqual(cleaned.items.map(item => item.id), ['same-identity-other-path', 'same-path-other-identity']);
-	assert.throws(() => removeAIVideoSequenceItemsForNodeIdentity(sequence, 'video-node', '../clip.bhnode'), /safe relative path/);
-});
-
-test('allows Sequence additions only from a sealed Video Result with one playable artifact', () => {
-	assert.deepEqual(resolveAIVideoSequenceVideoResult(videoResultNode('clip-node')), {
-		nodeId: 'clip-node',
-		artifact: { kind: 'video', integrity: 'available' }
-	});
-	assert.throws(() => resolveAIVideoSequenceVideoResult({ ...videoResultNode('clip-node'), kind: 'image' }), /not a Video node/);
-	assert.throws(() => resolveAIVideoSequenceVideoResult(videoResultNode('clip-node', null, 'draft')), /lifecycle 'draft'/);
-	assert.throws(() => resolveAIVideoSequenceVideoResult(videoResultNode('clip-node', null)), /does not have/);
-	assert.throws(() => resolveAIVideoSequenceVideoResult(videoResultNode('clip-node', videoArtifact('changed'))), /does not have/);
+test('adds a video card with its file, with the id of its made.yaml when it has one', () => {
+	assert.deepEqual(resolveAIVideoSequenceVideo('clip.mp4', true, { kind: 'video', hasFile: true, generationId: 'task-1' }), { generationId: 'task-1' });
+	assert.deepEqual(resolveAIVideoSequenceVideo('uploaded.mp4', true, { kind: 'video', hasFile: true }), {});
+	assert.deepEqual(resolveAIVideoSequenceVideo('imported.mp4', true, undefined), {});
+	assert.throws(() => resolveAIVideoSequenceVideo('draft.mp4', false, { kind: 'video', hasFile: false }), /has no video yet/);
+	assert.throws(() => resolveAIVideoSequenceVideo('frame.png', true, { kind: 'image', hasFile: true }), /image card/);
+	assert.throws(() => resolveAIVideoSequenceVideo('gone.mp4', false, undefined), /not a video file/);
 });
 
 test('uses the directory containing video-sequence.json as the workflow root', () => {
@@ -185,9 +184,11 @@ test('uses the directory containing video-sequence.json as the workflow root', (
 	assert.equal(isFilePathInside('/workspace', '/workspace'), false);
 	assert.equal(isOrdinaryFilePathInside('/workspace', '/workspace/video/video-sequence.json', true, false), true);
 	assert.equal(isOrdinaryFilePathInside('/workspace', '/workspace/video/video-sequence.json', true, true), false);
-	assert.equal(portableDescendantVideoNodePath('/workspace/project', '/workspace/project/shots/clip.bhnode'), 'shots/clip.bhnode');
-	assert.equal(resolveAIVideoSequenceVideoNodePath('/workspace/project/video-sequence.json', 'shots/clip.bhnode'), '/workspace/project/shots/clip.bhnode');
-	assert.throws(() => portableDescendantVideoNodePath('/workspace/one', '/workspace/two/clip.bhnode'), /inside the workflow root/);
+	assert.equal(portableDescendantVideoPath('/workspace/project', '/workspace/project/shots/clip.mp4'), 'shots/clip.mp4');
+	assert.equal(resolveAIVideoSequenceVideoPath('/workspace/project/video-sequence.json', 'shots/clip.mp4'), '/workspace/project/shots/clip.mp4');
+	assert.throws(() => portableDescendantVideoPath('/workspace/one', '/workspace/two/clip.mp4'), /inside the folder of the Sequence/);
+	assert.throws(() => portableDescendantVideoPath('/workspace/one', '/workspace/one/notes.md'), /video file/);
+	assert.deepEqual(['a.mp4', 'a.MOV', 'b/c.m4v', 'd.webm', 'e.bhnode', 'f.mp4.md', '.mp4', 'g/.mp4'].map(isAIVideoSequenceVideoPath), [true, true, true, true, false, false, false, false]);
 });
 
 test('parses a shot as portable metadata around its video card, a draft until it generates', () => {
@@ -201,7 +202,6 @@ test('parses a shot as portable metadata around its video card, a draft until it
 	assert.equal(shot.clipNodePath, 'clip.mp4');
 	assert.equal(resolveAIVideoShotClipNodePath('/workspace/shots/shot-01/shot.json', shot.clipNodePath), '/workspace/shots/shot-01/clip.mp4');
 	assert.throws(() => parseAIVideoShotDocument(JSON.stringify({ ...shot, clipNodePath: 'clip.bhnode' })), /video file/);
-	assert.throws(() => parseAIVideoShotDocument(JSON.stringify({ ...shot, clipNodePath: '../clip.mp4' })), /safe relative path/);
 });
 
 test('rejects ambiguous, legacy, and unsafe Sequence documents', () => {
@@ -210,19 +210,26 @@ test('rejects ambiguous, legacy, and unsafe Sequence documents', () => {
 	assert.throws(() => parseAIVideoSequenceDocument(JSON.stringify({
 		version: 1,
 		kind: 'pointa.basehalf-ai-video.sequence',
-		items: [sequenceItem('same', 'node-1', 'one.bhnode'), sequenceItem('same', 'node-2', 'two.bhnode')]
+		items: [sequenceItem('same', 'one.mp4'), sequenceItem('same', 'two.mp4')]
 	})), /duplicate item id/);
-	for (const videoNodePath of ['../clip.bhnode', '.BH/clip.bhnode', 'shots/.BH/clip.bhnode', 'shots/e\u0301/clip.bhnode', 'shots/AUX/clip.bhnode', ' shots/clip.bhnode ']) {
+	for (const videoPath of ['../clip.mp4', '.BH/clip.mp4', 'shots/.BH/clip.mp4', 'shots/é/clip.mp4', 'shots/AUX/clip.mp4', ' shots/clip.mp4 ', 'shots/clip.bhnode', 'shots/notes.md']) {
 		assert.throws(() => parseAIVideoSequenceDocument(JSON.stringify({
 			version: 1,
 			kind: 'pointa.basehalf-ai-video.sequence',
-			items: [sequenceItem('shot', 'node-1', videoNodePath)]
-		})), /safe relative path/);
+			items: [sequenceItem('shot', videoPath)]
+		})), /safe relative path/, videoPath);
+	}
+	for (const generationId of ['', ' task', 'task/1', 'x'.repeat(129), 42]) {
+		assert.throws(() => parseAIVideoSequenceDocument(JSON.stringify({
+			version: 1,
+			kind: 'pointa.basehalf-ai-video.sequence',
+			items: [{ ...sequenceItem('shot', 'clip.mp4'), generationId }]
+		})), /generationId/, String(generationId));
 	}
 	assert.throws(() => parseAIVideoSequenceDocument(JSON.stringify({
 		version: 1,
 		kind: 'pointa.basehalf-ai-video.sequence',
-		items: [{ ...sequenceItem('shot', 'node-1', 'clip.bhnode'), runId: 'run-1' }]
+		items: [{ ...sequenceItem('shot', 'clip.mp4'), runId: 'run-1' }]
 	})), /unsupported field 'runId'/);
 });
 
@@ -234,21 +241,11 @@ function sequenceDocument(items: readonly AIVideoSequenceItem[]): AIVideoSequenc
 	}));
 }
 
-function sequenceItem(id: string, nodeId: string, videoNodePath: string): AIVideoSequenceItem {
-	return { id, title: id.replace(/^./, character => character.toUpperCase()).replace(/-/g, ' '), nodeId, videoNodePath };
-}
-
-function videoResultNode(
-	id: string,
-	artifact: NonNullable<AIVideoSequenceNodeState['result']>['artifact'] | null = videoArtifact(),
-	lifecycle: AIVideoSequenceNodeState['lifecycle'] = 'result'
-): AIVideoSequenceNodeState {
-	return { id, kind: 'video', lifecycle, ...(artifact === null ? {} : { result: { artifact } }) };
-}
-
-function videoArtifact(
-	integrity: 'available' | 'missing' | 'changed' = 'available',
-	resource?: unknown
-): NonNullable<AIVideoSequenceNodeState['result']>['artifact'] {
-	return { kind: 'video', integrity, ...(resource === undefined ? {} : { resource }) };
+function sequenceItem(id: string, videoPath: string, generationId?: string): AIVideoSequenceItem {
+	return {
+		id,
+		title: id.replace(/^./, character => character.toUpperCase()).replace(/-/g, ' '),
+		videoPath,
+		...(generationId === undefined ? {} : { generationId })
+	};
 }
