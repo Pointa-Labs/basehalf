@@ -12,7 +12,6 @@ import { mock } from '../../../../../base/test/common/mock.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IFileService, IFileStatWithMetadata } from '../../../../../platform/files/common/files.js';
 import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
-import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
 import { ActivationKind, IExtensionService } from '../../../../services/extensions/common/extensions.js';
 import { SourceTargetPair } from '../../../../services/workingCopy/common/workingCopyFileService.js';
 import { BaseHalfPluginStructuralDeleteCleanupService, rollbackBaseHalfUncompletedDeleteCleanups, settleBaseHalfStagedDeleteCleanups } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
@@ -24,13 +23,13 @@ suite('BaseHalfPluginStructuralDeleteCleanupService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('stages every ordinary file delete and can join the caller file undo group', async () => {
-		const one = URI.file('/workspace/one.bhnode');
-		const two = URI.file('/workspace/two.bhnode');
+		const one = URI.file('/workspace/one.mp4');
+		const two = URI.file('/workspace/two.mp4');
 		const sequence = URI.file('/workspace/video-sequence.json');
 		const lease = {} as IBaseHalfWorkspaceMutationLease;
 		let sequenceText = 'one,two';
 		const cleanup = new BaseHalfPluginStructuralCleanupService();
-		const descriptor = cleanup.registerDescriptor('pointa.video', 'pointa.video.membership', ['.bhnode']);
+		const descriptor = cleanup.registerDescriptor('pointa.video', 'pointa.video.membership', ['.mp4']);
 		const prepared: string[] = [];
 		const provider = cleanup.registerProvider('pointa.video', {
 			prepareDelete: async resource => {
@@ -38,7 +37,7 @@ suite('BaseHalfPluginStructuralDeleteCleanupService', () => {
 				return [{
 					resource: sequence,
 					expected: VSBuffer.fromString(sequenceText),
-					next: VSBuffer.fromString(sequenceText.split(',').filter(value => value !== basename(resource).replace('.bhnode', '')).join(',')),
+					next: VSBuffer.fromString(sequenceText.split(',').filter(value => value !== basename(resource).replace('.mp4', '')).join(',')),
 					label: 'Update Sequence'
 				}];
 			}
@@ -67,8 +66,7 @@ suite('BaseHalfPluginStructuralDeleteCleanupService', () => {
 				}
 			},
 			cleanup,
-			transitionService,
-			testWorkspaceContextService()
+			transitionService
 		);
 
 		const staged = await service.stageDelete(deleteFiles(one, two), CancellationToken.None, lease);
@@ -110,22 +108,20 @@ suite('BaseHalfPluginStructuralDeleteCleanupService', () => {
 		assert.deepStrictEqual(committed, []);
 	});
 
-	test('finds matching folder descendants without touching reserved outputs or symlinks', async () => {
+	test('finds matching folder descendants without following symbolic links', async () => {
 		const folder = URI.file('/workspace/shots');
-		const one = URI.file('/workspace/shots/one.bhnode');
+		const one = URI.file('/workspace/shots/one.mp4');
 		const nested = URI.file('/workspace/shots/nested');
-		const two = URI.file('/workspace/shots/nested/two.bhnode');
-		const symlink = URI.file('/workspace/shots/linked.bhnode');
+		const two = URI.file('/workspace/shots/nested/two.mp4');
+		const symlink = URI.file('/workspace/shots/linked.mp4');
+		const linkedFolder = URI.file('/workspace/shots/linked');
 		const ordinary = URI.file('/workspace/shots/readme.md');
-		const reserved = URI.file('/workspace/outputs');
-		const frozen = URI.file('/workspace/outputs/frozen.bhnode');
 		const stats = [
-			fileStat(folder, true, [fileStat(one), fileStat(nested, true), fileStat(symlink, false, undefined, true), fileStat(ordinary), fileStat(reserved, true)]),
-			fileStat(nested, true, [fileStat(two)]),
-			fileStat(reserved, true, [fileStat(frozen)])
+			fileStat(folder, true, [fileStat(one), fileStat(nested, true), fileStat(symlink, false, undefined, true), fileStat(linkedFolder, true, undefined, true), fileStat(ordinary)]),
+			fileStat(nested, true, [fileStat(two)])
 		];
 		const cleanup = new BaseHalfPluginStructuralCleanupService();
-		const descriptor = cleanup.registerDescriptor('pointa.video', 'pointa.video.membership', ['.bhnode']);
+		const descriptor = cleanup.registerDescriptor('pointa.video', 'pointa.video.membership', ['.mp4']);
 		const prepared: string[] = [];
 		const provider = cleanup.registerProvider('pointa.video', {
 			prepareDelete: async resource => { prepared.push(resource.path); return []; }
@@ -144,8 +140,7 @@ suite('BaseHalfPluginStructuralDeleteCleanupService', () => {
 				override async activateByEvent(): Promise<void> { }
 			},
 			cleanup,
-			new class extends mock<IBaseHalfProjectFileTransitionService>() { },
-			testWorkspaceContextService()
+			new class extends mock<IBaseHalfProjectFileTransitionService>() { }
 		);
 
 		const staged = await service.stageDelete(deleteFiles(folder), CancellationToken.None, {} as IBaseHalfWorkspaceMutationLease);
@@ -158,20 +153,20 @@ suite('BaseHalfPluginStructuralDeleteCleanupService', () => {
 	});
 
 	test('rolls back its staged prefix when later preparation fails', async () => {
-		const one = URI.file('/workspace/one.bhnode');
-		const two = URI.file('/workspace/two.bhnode');
+		const one = URI.file('/workspace/one.mp4');
+		const two = URI.file('/workspace/two.mp4');
 		const sequence = URI.file('/workspace/video-sequence.json');
 		const lease = {} as IBaseHalfWorkspaceMutationLease;
 		let sequenceText = 'one,two';
 		let stageIndex = 0;
 		let rolledBack = false;
 		const cleanup = new BaseHalfPluginStructuralCleanupService();
-		const descriptor = cleanup.registerDescriptor('pointa.video', 'pointa.video.membership', ['.bhnode']);
+		const descriptor = cleanup.registerDescriptor('pointa.video', 'pointa.video.membership', ['.mp4']);
 		const provider = cleanup.registerProvider('pointa.video', {
 			prepareDelete: async resource => [{
 				resource: sequence,
 				expected: VSBuffer.fromString(sequenceText),
-				next: VSBuffer.fromString(sequenceText.split(',').filter(value => value !== basename(resource).replace('.bhnode', '')).join(',')),
+				next: VSBuffer.fromString(sequenceText.split(',').filter(value => value !== basename(resource).replace('.mp4', '')).join(',')),
 				label: 'Update Sequence'
 			}]
 		});
@@ -200,8 +195,7 @@ suite('BaseHalfPluginStructuralDeleteCleanupService', () => {
 				override async activateByEvent(): Promise<void> { }
 			},
 			cleanup,
-			transitionService,
-			testWorkspaceContextService()
+			transitionService
 		);
 
 		await assert.rejects(service.stageDelete(deleteFiles(one, two), CancellationToken.None, lease), /second transition failed/);
@@ -243,22 +237,6 @@ function fileServiceFor(stats: readonly IFileStatWithMetadata[]): IFileService {
 				throw new Error(`Unexpected resolve: ${resource.path}`);
 			}
 			return stat;
-		}
-	};
-}
-
-function testWorkspaceContextService(): IWorkspaceContextService {
-	return new class extends mock<IWorkspaceContextService>() {
-		override getWorkspaceFolder(resource: URI): IWorkspaceFolder | null {
-			if (resource.path === '/workspace' || resource.path.startsWith('/workspace/')) {
-				return {
-					uri: URI.file('/workspace'),
-					name: 'workspace',
-					index: 0,
-					toResource: relativePath => URI.joinPath(URI.file('/workspace'), relativePath)
-				};
-			}
-			return null;
 		}
 	};
 }
