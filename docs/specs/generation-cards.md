@@ -256,17 +256,28 @@ inputs:
 - **States.** `preparing` (the inputs are read and checked; nothing is sent),
   `submitting` (the request is on its way, or, for a provider that answers at
   once, waiting for that answer), `running` (the provider has the task),
-  `landing` (the files are being moved into place), `failed`, and `stopped`.
+  `landing` (the provider has made the files; they are received and moved
+  into place), `failed`, and `stopped`.
 - **One follower.** The window that started a generation follows it and writes
   that it is alive every 30 seconds. Another window takes a generation over
   only when that has not happened for 90 seconds.
+- **Every change of a record is written against the bytes that were read**,
+  and planned again from the new bytes when they changed underneath, so that
+  a heartbeat, a takeover, a stop, and a move that writes a card's new path
+  never write over one another; of two windows that take over the same
+  record, one does.
 - The record of a generation that ended without its files stays until the
   card generates again or is deleted, so that the card can say why. The record
-  of a generation that landed is removed once each `made.yaml` is written.
+  of a generation that landed is removed once each `made.yaml` is written, and
+  so is one whose cards that got no file are all gone, such as an image of
+  several whose draft was deleted.
 - BaseHalf watches `.bh/cache/generation/` and nothing else of `.bh/cache/`, so
   every window of the workspace on this computer shows the same state.
 - When the workspace opens, BaseHalf removes partial downloads that no record
-  is landing, and ended records whose cards are gone.
+  that has not ended names, and ended records whose cards are gone (no file
+  and no draft). A record that has not ended keeps its partial downloads:
+  another window may be receiving them, as AI Video writes the files of a
+  provider that answers at once while the record is `submitting`.
 - A teammate who pulls a draft through git gets its prompt, settings, and
   connections, and no task: a generation is followed and settled only on the
   computer that started it.
@@ -453,11 +464,11 @@ From top to bottom:
      chosen. Each model shows a second line drawn from its declarations: its
      modes, and for a video its longest duration, its largest resolution,
      and Sound when it makes sound, such as "Frames · References · 15s ·
-     1080p · Sound"; for an image its largest resolution and how many images
-     one generation can make, such as "4K · Up to 4". A model the provider's
-     region does not offer is shown dimmed with the reason, and can still be
-     chosen. Deprecated models are listed only for a card that uses one. The
-     menu ends with **Providers…**.
+     1080p · Sound"; for an image its largest resolution and, when it can
+     make more than one, how many images one generation can make, such as
+     "4K · Up to 4". A model the provider's region does not offer is shown
+     dimmed with the reason, and can still be chosen. Deprecated models are
+     listed only for a card that uses one. The menu ends with **Providers…**.
    - While the catalog loads, the model button says so and its menu holds
      only **Providers…**; when it could not be loaded, the menu says why. The
      window asks AI Video for the catalog once and keeps it; a failed request
@@ -481,8 +492,9 @@ provider's region does not offer the model; the provider's region does not
 offer the mode; an input is missing, is a draft without its file, or is not a
 file on this computer, or the first problem that the provider module reports
 for the planned generation ([check](providers.md#requests)); there is
-nothing to send. For no model, no such model, the provider, and the region,
-the model button is outlined and its tooltip says the same.
+nothing to send. For no model, no such model, a model of the other kind, the
+provider, and the region, the model button is outlined and its tooltip says
+the same.
 
 The panel also shows that reason as a line above the footer, at most two
 lines tall, so it can be read without pointing at the button. When one
@@ -648,14 +660,16 @@ and leaves no card it made:
    when another record that is not ended names one of them, the record that
    was written first keeps it, and the other generation removes its record
    and stops with "This card is already generating." Then make the new drafts
-   of step 4, one undo step together.
+   of step 4, one undo step together, named Generate.
 6. Read the provider's region, endpoint, and credentials. Plan the inputs,
    read the text inputs, and build the prompt. Prepare the used images,
    videos, and audio, and have the provider module check the planned
    generation with its files; stop with the first problem, or when an input is
    missing. The values sent are the card's `params` made legal for the model
    and mode, with every default filled in.
-7. Write the request record and the state `submitting`.
+7. Check the claim again, since another window may have written its record
+   while this one prepared, and stop as in step 5 when that record keeps a
+   card. Then write the request record and the state `submitting`.
 8. Send the request through the AI Video extension. When the provider returns
    its task id, write it and the state `running`. When it answers with the
    files at once, continue at step 10.
@@ -667,18 +681,22 @@ and leaves no card it made:
 
 ### Landing
 
-Each file the generation made lands on its card, inside the workspace
-mutation lease, so that no move or rename runs between deciding its place and
-moving it there:
+Each file the generation made lands on its card. Steps 2 to 6 run inside the
+workspace mutation lease, so that no move or rename runs between deciding its
+place and moving it there:
 
 1. Download the file to `.bh/cache/generation/<task id>-<n>.part`, never into
    the user's folder. Check it: a video is an MP4 of at most 512 MiB; an image
    is a PNG, JPEG, or WebP of at most 64 MiB. A file the provider answered with
-   at once is checked the same way.
+   at once is checked the same way. Write its size and SHA-256 in the record
+   as soon as it is received in full, so that a window that takes the record
+   over lands it without downloading it again. A file received only in part
+   is removed and asked for again; the file of a provider that answers at once
+   cannot be asked for again, and its card fails with a message saying so.
 2. Read the card's path from the record, where every move or rename of the
    card has written it. When the file's format differs from the card's
-   extension, the draft is first renamed to the format's extension, with the
-   next free number if that name is taken.
+   extension and the card is still a draft, the draft is first renamed to the
+   format's extension, with the next free number if that name is taken.
 3. When the card's folder is gone, create it again.
 4. Write in the record what is being landed: the path, the size, and the
    SHA-256 of the file.
@@ -833,8 +851,9 @@ is a file does:
   `host.modelCatalog`: each provider with its label, whether it is set up, its
   regions (id and label) and the region in use, and each model with its
   kind, label, description, the regions that offer it and those that retire
-  it, the format an image model delivers, its prompt rule, its modes with
-  their input slots and limits, its parameters, and whether it is deprecated.
+  it, the format an image model delivers, whether the provider answers with
+  the files at once, its prompt rule, its modes with their input slots and
+  limits, its parameters, and whether it is deprecated.
   It holds no credential, endpoint, id sent to a provider, or price. When the
   catalog could not be loaded, it lists no provider and says why in `error`.
   An agent chooses `provider`, `model`, `mode`, and `params` from it.
