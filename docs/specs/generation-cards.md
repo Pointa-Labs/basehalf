@@ -1190,6 +1190,17 @@ The player
   the regions on Providers, and the catalog that `--list-capabilities` gives
   agents; the player's gestures, controls, and sound
   (`basehalfCanvasCardVideoPlayer.test.ts`).
+- Unit tests of the canvas and its interface: the folder's model with its
+  drafts (`basehalfCanvasModel.test.ts`), the card's face
+  (`basehalfVideoCard.test.ts`), the panel host
+  (`basehalfCanvasVideoPanel.contribution.test.ts`), New Image, New Video,
+  and the draft operations as steps of undo
+  (`basehalfGenerationCardActions.test.ts`), the names a paste, a duplicate,
+  and a copy take (`basehalfCanvasFileOperations.test.ts`), copies through
+  the workbench (`basehalfGenerationCardCopy.test.ts`), the action context
+  of a draft (`basehalfCanvasActionContext.test.ts`), a selected draft for
+  agents (`basehalfAgentSelection.test.ts`), and what Card Detail says made
+  a file (`basehalfGenerationProvenance.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, and 32
   to 38, against the local test provider through the ByteDance module, with a
