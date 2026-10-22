@@ -23,7 +23,7 @@ environment, and the scene component's factory makes the other parts.
 | `createBaseHalfCanvasReferenceEdge` | `basehalfCanvasReferenceEdge.ts` | A connection, and reconnecting it by dragging either half of its line. |
 | `createBaseHalfCanvasSelectionToolbar` | `basehalfCanvasSelectionToolbar.ts` | The toolbar over selected cards, and the box around a set. |
 | `createBaseHalfCanvasNoteSelectionControls` | `basehalfCanvasNoteSelectionControls.ts` | The format toolbar and background colors of a selected Note. |
-| `createBaseHalfCanvasVideoSelectionControls` | `basehalfCanvasVideoSelectionControls.ts` | The toolbar of a selected Video card, and the place beside it for the Video panel. |
+| `createBaseHalfCanvasVideoSelectionControls` | `basehalfCanvasVideoSelectionControls.ts` | The toolbar of a selected generation card, and the place beside it for its panel. |
 | `createBaseHalfCanvasSceneOverlays` | `basehalfCanvasSceneOverlays.ts` | The circles that begin a connection, the line kept after one is let go on the canvas, the snap guides, and the bridge to React Flow's store. |
 
 ## What the scene component does
@@ -49,7 +49,7 @@ as `BaseHalfCanvasPendingConnectionState` and `baseHalfCanvasAutoPanStep`.
 `basehalfCanvasSceneShared.ts` holds the environment, the types of React
 Flow's nodes and edges, and small functions that several files use.
 `basehalfCanvasSelectionControlsPlacement.ts` works out where the toolbars and
-the Video panel go beside a selection. `basehalfCanvasSceneNodeDrag.ts` holds
+the panel of a generation card go beside a selection. `basehalfCanvasSceneNodeDrag.ts` holds
 the state of a drag of cards and puts cards back when it is cancelled.
 
 Each file that draws elements imports their stylesheet from `media/`, named

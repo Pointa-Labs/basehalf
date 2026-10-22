@@ -577,7 +577,9 @@ deselected with the pointer elsewhere, which pauses it.
 
 The card's caption is its name, as for every file
 ([canvas card name](canvas-card-name.md)); a draft's caption is the name its
-file will have, and renaming it renames the draft.
+file will have, and renaming it renames the draft. A draft has no file to
+open: a double click on it, Enter, and **Open** in its menu select it, and its
+panel shows. Its card has no badge face until it has its file.
 
 ### The player
 

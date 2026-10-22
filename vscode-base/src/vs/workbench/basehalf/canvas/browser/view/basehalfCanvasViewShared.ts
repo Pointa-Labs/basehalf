@@ -6,7 +6,6 @@
 import { $, append } from '../../../../../base/browser/dom.js';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
-import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { IFileStat } from '../../../../../platform/files/common/files.js';
@@ -19,11 +18,10 @@ import { BaseHalfCanvasCreateKind } from '../../common/basehalfCanvasEditing.js'
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { baseHalfItemDisplayName } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfItemKindIcon, baseHalfItemIcon } from '../../../agentArea/common/basehalfAgentSelection.js';
-import { BaseHalfNodeKind } from '../../../video/common/basehalfNodeDocument.js';
 import { BaseHalfCanvasMarkdownInlineEditor, IBaseHalfCanvasMarkdownInlineSelection } from '../basehalfCanvasMarkdownInlineEditor.js';
 import { IBaseHalfCanvasNoteEditPoint } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../../markdown/common/basehalfMarkdownFormatting.js';
-import { BaseHalfCanvasCardPreview, BaseHalfCanvasNodePreview } from '../../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 
 /**
@@ -143,23 +141,6 @@ export interface IBaseHalfCanvasCardRenderCacheEntry {
 	readonly element: HTMLElement;
 }
 
-export function canvasResultNodeKindLabel(kind: BaseHalfNodeKind): string {
-	switch (kind) {
-		case 'file':
-			return localize('basehalf.canvas.resultKind.file', "File");
-		case 'image':
-			return localize('basehalf.canvas.resultKind.image', "Image");
-		case 'video':
-			return localize('basehalf.canvas.resultKind.video', "Video");
-		case 'audio':
-			return localize('basehalf.canvas.resultKind.audio', "Audio");
-		case 'pdf':
-			return localize('basehalf.canvas.resultKind.pdf', "PDF");
-		case 'presentation':
-			return localize('basehalf.canvas.resultKind.presentation', "Presentation");
-	}
-}
-
 export interface IBaseHalfBadgeDescriptionDraft {
 	readonly node: IBaseHalfBadgeNode;
 	readonly guard: IBaseHalfCanvasMutationGuard;
@@ -189,12 +170,6 @@ export interface IBaseHalfCanvasUndoNode {
 	readonly kind: IBaseHalfCanvasItem['kind'];
 }
 
-export interface IBaseHalfCanvasNodeDocumentTransition {
-	readonly resource: URI;
-	readonly expected: VSBuffer;
-	readonly next: VSBuffer;
-}
-
 export type BaseHalfCanvasInlineEdit =
 	| {
 		readonly kind: 'rename';
@@ -217,7 +192,7 @@ export type BaseHalfCanvasInlineEdit =
 		readonly kind: 'create';
 		readonly context: IBaseHalfCanvasActionContext;
 		readonly parent: URI;
-		readonly createKind: Exclude<BaseHalfCanvasCreateKind, 'note' | 'resultNode'>;
+		readonly createKind: Extract<BaseHalfCanvasCreateKind, 'file' | 'folder'>;
 		readonly initialValue: string;
 		readonly anchor: { readonly x: number; readonly y: number };
 		readonly canvasPosition: { readonly x: number; readonly y: number };
@@ -231,13 +206,6 @@ export const CANVAS_MARKDOWN_FULL_EDITOR_LABEL = localize(
 	'basehalf.canvas.note.fullEditorRequired',
 	"This Markdown file is too large for quick edit. Double-click to open the full editor."
 );
-
-// Video is the authored object on this canvas, not a thumbnail inside a generic
-// result card. Its title is external chrome, so the node itself is a true 16:9
-// stage rather than a media frame plus an internal header.
-export const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH = 720;
-
-export const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT = 405;
 
 /** The key of the scene the canvas shows when no folder is open. */
 export const BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY = 'no-folder';
@@ -277,17 +245,14 @@ export function baseHalfReferenceLabel(relativePath: string): string {
 	return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
-export function isVideoNodePreview(preview: BaseHalfCanvasCardPreview | undefined): preview is BaseHalfCanvasNodePreview {
-	return preview?.kind === 'node' && preview.document.kind === 'video';
-}
-
 /** The preview of a video file's card: its player stays while the card is selected or deselected. */
 export function isVideoMediaPreview(preview: BaseHalfCanvasCardPreview | undefined): boolean {
 	return preview?.kind === 'media' && preview.mediaKind === 'video';
 }
 
-export function cardDisplayName(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): string {
-	return preview?.kind === 'node' ? preview.document.title : baseHalfItemDisplayName(item.name, item.kind === 'folder');
+/** The name a card's caption shows: a note's name without its extension, and every other file's and folder's name, a draft's the name its file will have. */
+export function cardDisplayName(item: IBaseHalfCanvasItem): string {
+	return baseHalfItemDisplayName(item.name, item.kind === 'folder');
 }
 
 export function baseHalfBadgeResourceIdentity(stat: Pick<IFileStat, 'ctime' | 'isFile' | 'isDirectory' | 'isSymbolicLink'>): string {

@@ -13,7 +13,9 @@ import {
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasChildPath,
+	baseHalfCanvasFolderWithDrafts,
 	IBaseHalfCanvasFile,
+	IBaseHalfCanvasGenerationCard,
 	IBaseHalfCanvasItem,
 	IBaseHalfCanvasItemRelationships
 } from '../../common/basehalfCanvasModel.js';
@@ -22,11 +24,11 @@ import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfC
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX } from '../../../shell/common/basehalfConfiguration.js';
 import { baseHalfUserFacingErrorMessage } from '../../../shell/common/basehalfPlainFailureReason.js';
-import { BASEHALF_NODE_DOCUMENT_EXTENSION } from '../../../video/common/basehalfNodeDocument.js';
+import { IBaseHalfGenerationCardEntry } from '../../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneEdge } from '../../common/basehalfCanvasScene.js';
-import { BaseHalfCanvasCardPreview, baseHalfCanvasCardPreviewCanRetainElement } from '../../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, IBaseHalfCanvasCardRenderCacheEntry, baseHalfBadgeResourceIdentity, baseHalfCanvasLayoutNotice, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasRetainedCardChromeIsStale, isVideoNodePreview } from './basehalfCanvasViewShared.js';
+import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, IBaseHalfCanvasCardRenderCacheEntry, baseHalfBadgeResourceIdentity, baseHalfCanvasLayoutNotice, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasRetainedCardChromeIsStale } from './basehalfCanvasViewShared.js';
 
 /**
  * The longest the canvas waits with a redraw for items that are being
@@ -72,8 +74,32 @@ export class BaseHalfCanvasRenderer {
 	private renderedRelationships: ReadonlyMap<string, IBaseHalfCanvasItemRelationships> = new Map();
 	private renderQueuedBehindGesture = false;
 	private canvasLayoutReconcileQueuedBehindGesture = false;
+	/** The generation cards of the folder that was drawn last, as the card store listed them, and the folder. */
+	private renderedGenerationCards: { readonly folder: string; readonly cards: readonly IBaseHalfGenerationCardEntry[] } | undefined;
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
+
+	/**
+	 * The generation cards of a folder, through the card store (generation
+	 * cards, "Drafts and missing files"). The canvas draws the folder without
+	 * them when they cannot be listed.
+	 */
+	private async listGenerationCards(folder: IBaseHalfCanvasFolderState): Promise<readonly IBaseHalfGenerationCardEntry[]> {
+		try {
+			return await this.view.generationCardStore.listCards(folder.resource);
+		} catch (error) {
+			this.view.logService.warn(`BaseHalf could not list the image and video cards of '${folder.relativePath}'`, error);
+			return [];
+		}
+	}
+
+	/** The folder's stat with its drafts among its children, and the generation cards by path, for the model. */
+	private withGenerationCards(folder: IBaseHalfCanvasFolderState, stat: IFileStat, cards: readonly IBaseHalfGenerationCardEntry[]): { readonly stat: IFileStat; readonly generationCards: ReadonlyMap<string, IBaseHalfCanvasGenerationCard> } {
+		return {
+			stat: baseHalfCanvasFolderWithDrafts(stat, cards.filter(card => !card.hasFile)),
+			generationCards: new Map(cards.map(card => [baseHalfCanvasChildPath(folder.relativePath, card.name), Object.freeze({ kind: card.kind, draft: !card.hasFile })]))
+		};
+	}
 
 	/**
 	 * Render driven by disk activity rather than user navigation. Auto-save
@@ -265,6 +291,7 @@ export class BaseHalfCanvasRenderer {
 			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
+			this.renderedGenerationCards = undefined;
 			if (this.view.activeCanvasNoteEditor && !await this.view.noteEditing.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
@@ -306,6 +333,13 @@ export class BaseHalfCanvasRenderer {
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
+		// A draft is an item of its folder: its card is drawn with the folder's files.
+		const generationCards = await this.listGenerationCards(folder);
+		if (!this.isRenderCurrent(seq)) {
+			return;
+		}
+		const withCards = this.withGenerationCards(folder, stat, generationCards);
+		stat = withCards.stat;
 
 		// What waits for a write, as it is before the layout is read: a save that
 		// lands while this drawing is prepared must not take a card out of it.
@@ -357,8 +391,8 @@ export class BaseHalfCanvasRenderer {
 		}
 
 		// A card that appears gets its place in this drawing and keeps it (canvas
-		// card placement). The place depends on its size, so BaseHalf reads first
-		// what kind of node a new node file is.
+		// card placement). The place depends on its size, which for a generation
+		// card is known from the card store.
 		const pathKey = this.view.creation.canvasPathKey(folder);
 		const childPaths = (stat.children ?? []).map(child => baseHalfCanvasChildPath(folder.relativePath, basename(child.resource)));
 		// This listing can be ahead of the file events for the same change. What
@@ -381,10 +415,7 @@ export class BaseHalfCanvasRenderer {
 				return;
 			}
 		}
-		const [newCardSizes, goneRows] = await Promise.all([
-			this.view.previews.sizesOfNewNodeCards(folder, stat, canvas, waitingPlaces),
-			canvasReadInFull ? this.view.chosenCanvasPlaces.goneRows(folder, childPaths, canvas, pathKey) : []
-		]);
+		const goneRows = canvasReadInFull ? await this.view.chosenCanvasPlaces.goneRows(folder, childPaths, canvas, pathKey) : [];
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
@@ -395,7 +426,7 @@ export class BaseHalfCanvasRenderer {
 			badges: badgeRead.badges,
 			relationships: connections.relationships,
 			waiting: waitingPlaces,
-			newCardSizes,
+			generationCards: withCards.generationCards,
 			pathKey,
 			released: new Set(goneRows)
 		});
@@ -424,23 +455,8 @@ export class BaseHalfCanvasRenderer {
 			}
 		}
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
-		const retainedResultNodePaths: string[] = [];
 		for (const item of items) {
-			const cached = this.reusableCardPreview(item);
-			if (cached) {
-				previews.set(item.path, cached);
-				if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
-					&& this.view.renderedCardsByPath.get(item.path)?.element.dataset.previewLevel !== 'shell') {
-					retainedResultNodePaths.push(item.path);
-				}
-				continue;
-			}
-			previews.set(
-				item.path,
-				item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
-					? { kind: 'nodeLoading', text: 'Checking content…' }
-					: { kind: 'loading', text: 'Loading preview…' }
-			);
+			previews.set(item.path, this.view.previews.cardPreviewWithoutFile(item) ?? this.reusableCardPreview(item) ?? { kind: 'loading', text: 'Loading preview…' });
 		}
 		if (this.view.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
 			return;
@@ -552,7 +568,6 @@ export class BaseHalfCanvasRenderer {
 			const visualKey = this.cardVisualKey(displayedItem);
 			const cached = previousRenderedCards.get(item.path);
 			const element = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey, currentSceneKey)
-				|| this.retainVideoNodeCard(cached, displayedItem, preview, visualKey, currentSceneKey)
 				? cached.element
 				: this.view.cardRenderer.createCard(displayedItem, bounds, preview, currentSceneKey);
 			const controls = this.view.cardRenderer.sceneCardControls(displayedItem, preview);
@@ -570,7 +585,6 @@ export class BaseHalfCanvasRenderer {
 				path: item.path,
 				kind: item.kind,
 				...(controls ? { controls } : {}),
-				...(item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) ? { renameChangesPathOnly: true as const } : {}),
 				...bounds,
 				element,
 				updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.view.cardPresentationUpdaters.get(element)?.(presentation),
@@ -597,6 +611,7 @@ export class BaseHalfCanvasRenderer {
 		this.view.renderedSceneCards = Object.freeze(sceneCards);
 		this.view.renderedSceneEdges = Object.freeze(sceneEdges);
 		this.view.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
+		this.renderedGenerationCards = { folder: currentSceneKey, cards: generationCards };
 		if (pendingSelection && (!pendingSelectionRequest
 			|| this.view.pendingCanvasSelection !== pendingSelectionRequest
 			|| !this.view.isCanvasPostCreateOwnerCurrent(pendingSelectionRequest.owner))) {
@@ -625,9 +640,6 @@ export class BaseHalfCanvasRenderer {
 			// read from the committed host snapshot itself; React presentation
 			// callbacks are intentionally lazy and cannot be the sole wake-up edge.
 			this.view.previews.scheduleCardPreviewHydration(this.view.canvasNoteSurfacePath, 2);
-		}
-		for (const path of retainedResultNodePaths) {
-			this.view.previews.scheduleCardPreviewHydration(path);
 		}
 		if (pendingSelection && this.view.pendingCanvasSelection === pendingSelectionRequest) {
 			this.view.pendingCanvasSelection = undefined;
@@ -690,7 +702,6 @@ export class BaseHalfCanvasRenderer {
 	resetCardPreviewHydrationScene(): void {
 		const folder = this.view.getCurrentFolder();
 		this.view.cardPreviewHydrationQueue.resetScene(folder ? this.view.sceneKey(folder) : 'no-folder');
-		this.view.cardPreviewVerificationQueue.reset();
 		if (this.view.cardPreviewHydrationTimer !== undefined) {
 			mainWindow.clearTimeout(this.view.cardPreviewHydrationTimer);
 			this.view.cardPreviewHydrationTimer = undefined;
@@ -738,31 +749,13 @@ export class BaseHalfCanvasRenderer {
 
 	private reusableCardPreview(item: IBaseHalfCanvasItem): BaseHalfCanvasCardPreview | undefined {
 		const cached = this.view.renderedCardPreviewsByPath.get(item.path);
-		if (!cached
-			|| cached.preview.kind === 'nodeLoading'
-			|| cached.preview.kind === 'unavailable') {
+		if (!cached || cached.preview.kind === 'unavailable' || !baseHalfCanvasItemsSharePreviewVersion(cached.item, item)) {
 			return undefined;
 		}
-		if (!baseHalfCanvasItemsSharePreviewVersion(cached.item, item)) {
-			// The file of a Video node changes while the user works with it: the
-			// panel saves the prompt and the settings, and a generation records its
-			// task. Its card shows the last state until the new one is read, and then
-			// changes in place, so a playing video goes on playing (video node, "The
-			// card").
-			return isVideoNodePreview(cached.preview)
-				&& item.stat.isFile
-				&& this.view.uriIdentityService.extUri.isEqual(cached.item.stat.resource, item.stat.resource)
-				? cached.preview
-				: undefined;
-		}
-		if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
-			&& cached.preview.kind !== 'node'
-			&& cached.preview.kind !== 'invalidNode') {
-			return undefined;
-		}
-		// Result nodes are still re-verified after the retained frame is mounted.
-		// Keeping this last complete preview avoids replacing a playing video (or
-		// another media element) with a loading face during unrelated renders.
+		// The last complete preview of a file that did not change: a playing video,
+		// or another media element, is not replaced with a loading face. A
+		// generation card's information is no part of it, so a prompt the panel
+		// saves keeps the card as it is (generation cards, "The card").
 		return cached.preview;
 	}
 
@@ -795,34 +788,6 @@ export class BaseHalfCanvasRenderer {
 				message: ownProblem.message
 			} : undefined
 		});
-	}
-
-	/**
-	 * Keeps the card of a Video node whose node changed and shows the new state
-	 * in it, so that its player, and a video that plays in it, stay (video node,
-	 * "The card"). Anything else that changed rebuilds the card as before.
-	 */
-	retainVideoNodeCard(
-		cached: IBaseHalfCanvasCardRenderCacheEntry | undefined,
-		item: IBaseHalfCanvasItem,
-		preview: BaseHalfCanvasCardPreview | undefined,
-		visualKey: string,
-		sceneKey: string
-	): cached is IBaseHalfCanvasCardRenderCacheEntry {
-		const retain = cached ? this.view.videoCardRetainers.get(cached.element) : undefined;
-		if (!cached
-			|| !retain
-			|| !isVideoNodePreview(cached.preview)
-			|| !isVideoNodePreview(preview)
-			|| cached.sceneKey !== sceneKey
-			|| cached.visualKey !== visualKey
-			|| this.view.openBadgeFaces.has(item.path)
-			|| (this.view.inlineEdit?.kind === 'rename' && this.view.inlineEdit.path === item.path)
-			|| !this.view.uriIdentityService.extUri.isEqual(cached.item.stat.resource, item.stat.resource)) {
-			return false;
-		}
-		retain(item, preview);
-		return true;
 	}
 
 	canReuseRenderedCard(
@@ -871,16 +836,12 @@ export class BaseHalfCanvasRenderer {
 			// after the atomic editor-to-preview handoff.
 			return true;
 		}
-		const resultNode = item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION);
-		const previewUnchanged = baseHalfCanvasCardPreviewCanRetainElement(resultNode, cached?.preview, preview);
-		// Result nodes are re-verified on every requested render, but an equivalent
-		// verified result must retain its media DOM and playback state. Ordinary
-		// previews already share their cached object identity.
+		// A preview that did not change is the cached object itself.
 		return !!cached
 			&& cached.sceneKey === sceneKey
 			&& !this.view.openBadgeFaces.has(item.path)
 			&& renameKeepsElement
-			&& previewUnchanged
+			&& cached.preview === preview
 			&& cached.visualKey === visualKey
 			&& baseHalfCanvasItemsSharePreviewVersion(cached.item, item);
 	}
@@ -943,7 +904,10 @@ export class BaseHalfCanvasRenderer {
 		const structuralStamp = this.view.workspaceMutationCoordinator.capture(folder.workspaceFolder);
 		// Taken before the layout is read, as in a full drawing.
 		const waitingPlaces = this.view.chosenCanvasPlaces.waitingFor(folder);
-		const stat = await this.view.fileService.resolve(folder.resource, { resolveMetadata: true });
+		// A layout change changes no draft: the drafts of the last drawing are the folder's.
+		const lastCards = this.renderedGenerationCards?.folder === sceneKey ? this.renderedGenerationCards.cards : [];
+		const withCards = this.withGenerationCards(folder, await this.view.fileService.resolve(folder.resource, { resolveMetadata: true }), lastCards);
+		const stat = withCards.stat;
 		const canvas = await this.view.canvasMirrorService.readCanvas(folder);
 		if (this.view.disposed
 			|| this.view.canvasLayoutReconcileGeneration !== generation
@@ -965,6 +929,7 @@ export class BaseHalfCanvasRenderer {
 			relationships: this.renderedRelationships,
 			// A card whose place is not saved yet stays where it was drawn.
 			waiting: waitingPlaces,
+			generationCards: withCards.generationCards,
 			pathKey: this.view.creation.canvasPathKey(folder)
 		});
 		this.view.renderedLayoutRows = canvas?.cards ?? [];

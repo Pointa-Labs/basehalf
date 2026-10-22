@@ -4,19 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { $, append } from '../../../../../base/browser/dom.js';
-import { VSBuffer } from '../../../../../base/common/buffer.js';
-import { generateUuid } from '../../../../../base/common/uuid.js';
 import { IAction, Separator, toAction } from '../../../../../base/common/actions.js';
-import { basename, dirname, joinPath } from '../../../../../base/common/resources.js';
-import { URI } from '../../../../../base/common/uri.js';
+import { basename } from '../../../../../base/common/resources.js';
 import { localize } from '../../../../../nls.js';
 import { IFileStat } from '../../../../../platform/files/common/files.js';
-import { UndoRedoElementType } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
 	baseHalfCanvasChildPath,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
+	baseHalfCanvasGenerationCardSize,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasItemRelationships,
 	isBaseHalfCanvasEntry
@@ -27,17 +24,7 @@ import { IBaseHalfReferenceEditResult } from '../../../references/common/basehal
 import { BaseHalfReferenceIndexState, IBaseHalfUpstreamView } from '../../../references/common/basehalfReferenceIndex.js';
 import { baseHalfUpstreamStoreKind } from '../../../references/common/basehalfReferenceStore.js';
 import { IBaseHalfUpstreamActionContext, IBaseHalfUpstreamActionNode } from '../../../references/browser/basehalfUpstreamActions.js';
-import { IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
-import { baseHalfEnsureMirrorIgnoreFile } from '../../../workspace/common/basehalfMirrorIgnore.js';
-import { baseHalfMirrorResource } from '../../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import {
-	BASEHALF_NODE_DOCUMENT_EXTENSION,
-	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	BaseHalfNodeKind,
-	createBaseHalfNodeDocument,
-	serializeBaseHalfNodeDocument
-} from '../../../video/common/basehalfNodeDocument.js';
 import {
 	IBaseHalfCanvasSceneConnection,
 	IBaseHalfCanvasSceneConnectionDrop,
@@ -46,59 +33,7 @@ import {
 	baseHalfCanvasConnectionTargetOrigin,
 	baseHalfCanvasOppositeAnchor
 } from '../../common/basehalfCanvasScene.js';
-import { IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT, BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, IBaseHalfCanvasNodeDocumentTransition, IBaseHalfCanvasUndoNode, canvasResultNodeKindLabel, reverseCanvasStateTransition, roundCanvasPosition, uniqueUris } from './basehalfCanvasViewShared.js';
-
-/**
- * A canvas change that undo replays by exact states: card and anchor rows of
- * `canvas.yaml` and whole `.bhnode` documents (whose `upstream` list travels
- * inside the document bytes). Reference operations on other
- * stores use the reference edit service's own undo element instead.
- */
-interface IBaseHalfCanvasConnectionTransition {
-	readonly folder: IBaseHalfCanvasFolderState;
-	readonly nodes: readonly IBaseHalfCanvasUndoNode[];
-	readonly canvas: IBaseHalfCanvasStateTransition;
-	readonly documents: readonly IBaseHalfCanvasNodeDocumentTransition[];
-}
-
-interface IBaseHalfCanvasCreatedNodeTransition {
-	readonly folder: IBaseHalfCanvasFolderState;
-	readonly targetPath: string;
-	readonly targetResource: URI;
-	readonly contents: VSBuffer;
-	readonly stashResource: URI;
-	readonly connection: IBaseHalfCanvasConnectionTransition;
-}
-
-/**
- * Runs every step whose condition holds, in order, also after one fails, and
- * returns every failure so none hides the first one.
- */
-async function settleEveryStep(steps: readonly (readonly [boolean, () => Promise<void>])[]): Promise<readonly unknown[]> {
-	const errors: unknown[] = [];
-	for (const [applies, step] of steps) {
-		if (!applies) {
-			continue;
-		}
-		try {
-			await step();
-		} catch (error) {
-			errors.push(error);
-		}
-	}
-	return errors;
-}
-
-function reverseDocumentTransitions(
-	transitions: readonly IBaseHalfCanvasNodeDocumentTransition[],
-	reverse: boolean
-): readonly IBaseHalfCanvasNodeDocumentTransition[] {
-	return reverse
-		? transitions.map(transition => ({ ...transition, expected: transition.next, next: transition.expected }))
-		: transitions;
-}
 
 /**
  * Connections on the canvas: reading them from the reference graph,
@@ -207,67 +142,6 @@ export class BaseHalfCanvasConnections {
 			: localize('basehalf.canvas.connections.partial', "Some files weren't scanned, so connections may be missing.");
 	}
 
-	private async applyCanvasConnectionTransition(
-		transition: IBaseHalfCanvasConnectionTransition,
-		reverse: boolean,
-		lease: IBaseHalfWorkspaceMutationLease
-	): Promise<void> {
-		const canvas = reverseCanvasStateTransition(transition.canvas, reverse);
-		const documents = reverseDocumentTransitions(transition.documents, reverse);
-		await this.view.resolveLiveWorkspaceNodes(transition.folder.workspaceFolder, transition.nodes);
-
-		for (const document of documents) {
-			if (this.view.workingCopyService.isDirty(document.resource)) {
-				throw new Error(`Save '${basename(document.resource)}' before changing this connection.`);
-			}
-			const current = await this.view.fileService.readFile(document.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-			if (!current.value.equals(document.expected)) {
-				throw new Error(`'${basename(document.resource)}' changed before this connection update could be applied.`);
-			}
-		}
-
-		let canvasApplied = false;
-		const written: IBaseHalfCanvasNodeDocumentTransition[] = [];
-		try {
-			await this.view.canvasMirrorService.transitionCanvasState(transition.folder, canvas, lease);
-			canvasApplied = true;
-			for (const document of documents) {
-				await this.view.fileService.writeFileWithExpectedContents(
-					document.resource,
-					document.next,
-					document.expected,
-					{ atomic: { postfix: '.basehalf-canvas-undo-tmp' } }
-				);
-				written.push(document);
-			}
-		} catch (error) {
-			const rollbackErrors: unknown[] = [];
-			for (const document of written.reverse()) {
-				try {
-					await this.view.fileService.writeFileWithExpectedContents(
-						document.resource,
-						document.expected,
-						document.next,
-						{ atomic: { postfix: '.basehalf-canvas-undo-rollback-tmp' } }
-					);
-				} catch (rollbackError) {
-					rollbackErrors.push(rollbackError);
-				}
-			}
-			if (canvasApplied) {
-				try {
-					await this.view.canvasMirrorService.transitionCanvasState(transition.folder, reverseCanvasStateTransition(canvas, true), lease);
-				} catch (rollbackError) {
-					rollbackErrors.push(rollbackError);
-				}
-			}
-			if (rollbackErrors.length > 0) {
-				throw new AggregateError([error, ...rollbackErrors], 'The canvas connection and its safe rollback both failed. Reopen the project before continuing.');
-			}
-			throw error;
-		}
-	}
-
 	/** The reference operation context of the current canvas: its undo stack and re-render. */
 	upstreamActionContext(folder: IBaseHalfCanvasFolderState | undefined, onDidChange: () => void): IBaseHalfUpstreamActionContext {
 		return {
@@ -319,8 +193,10 @@ export class BaseHalfCanvasConnections {
 
 	/**
 	 * Create from Connection: a drop on empty canvas opens the create menu at
-	 * the release point. Every item creates a node whose first bytes list the
-	 * source as upstream (D37); closing the menu writes nothing.
+	 * the release point. Every item creates a node that lists the source as its
+	 * upstream before it exists (D37): a note in its first bytes, and a draft in
+	 * its `upstream.yaml`, written before its `generation.yaml`. Closing the
+	 * menu writes nothing.
 	 */
 	async showConnectionCreateMenu(
 		sceneKey: string,
@@ -344,13 +220,9 @@ export class BaseHalfCanvasConnections {
 					resolve(false);
 				});
 			};
-			// Every kind takes any source as its first input: a Video node uses
-			// it by its kind, and the other kinds keep it as context (D58).
-			const nodeAction = (kind: BaseHalfNodeKind): IAction => toAction({
-				id: `basehalf.canvas.createFromConnection.${kind}`,
-				label: canvasResultNodeKindLabel(kind),
-				run: run(() => this.createNodeFromConnection(sceneKey, structuralEpoch, drop, kind))
-			});
+			// An image or a video draft takes any source as its first input; the
+			// panel says how a generation uses it (reference graph, "Creating
+			// connected nodes").
 			const actions: IAction[] = [
 				toAction({
 					id: 'basehalf.canvas.createFromConnection.note',
@@ -358,9 +230,16 @@ export class BaseHalfCanvasConnections {
 					run: run(() => this.createNoteFromConnection(sceneKey, structuralEpoch, drop))
 				}),
 				new Separator(),
-				...(['image', 'video', 'audio'] as const).map(nodeAction),
-				new Separator(),
-				...(['file', 'pdf', 'presentation'] as const).map(nodeAction)
+				toAction({
+					id: 'basehalf.canvas.createFromConnection.image',
+					label: localize('basehalf.canvas.createFromConnection.image', "Image"),
+					run: run(() => this.createDraftFromConnection(sceneKey, structuralEpoch, drop, 'image'))
+				}),
+				toAction({
+					id: 'basehalf.canvas.createFromConnection.video',
+					label: localize('basehalf.canvas.createFromConnection.video', "Video"),
+					run: run(() => this.createDraftFromConnection(sceneKey, structuralEpoch, drop, 'video'))
+				})
 			];
 
 			mainWindow.setTimeout(() => {
@@ -424,292 +303,36 @@ export class BaseHalfCanvasConnections {
 		});
 	}
 
-	private async createNodeFromConnection(
+	/**
+	 * Image or Video from Connection: a draft named `image` or `video` that lists
+	 * the source as its first input, at the point where the line was released
+	 * and not moved from there, selected with its prompt focused. Making it is
+	 * one step of the canvas undo stack, which removes the draft with its card
+	 * information, its card, and its edge together.
+	 */
+	private async createDraftFromConnection(
 		sceneKey: string,
 		structuralEpoch: number,
 		drop: IBaseHalfCanvasSceneConnectionDrop,
-		kind: BaseHalfNodeKind
+		kind: 'image' | 'video'
 	): Promise<void> {
-		const queuedFolder = this.view.folderForSceneMutation(sceneKey);
-		const stamp = this.view.sceneMutationStamp(queuedFolder, structuralEpoch);
-		if (!this.view.workspaceMutationCoordinator.isStampCurrent(queuedFolder.workspaceFolder, stamp) || !this.view.isCurrentSceneKey(sceneKey)) {
+		const folder = this.view.folderForSceneMutation(sceneKey);
+		if (!this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch)) || !this.view.isCurrentSceneKey(sceneKey)) {
 			return;
 		}
 		this.view.markCanvasUserInteraction();
-		const postCreateOwner = this.view.captureCanvasPostCreateOwner();
-
-		const name = await this.findAvailableConnectedNodeName(queuedFolder, kind);
-		const targetPath = baseHalfCanvasChildPath(queuedFolder.relativePath, name);
-		const targetResource = joinPath(queuedFolder.workspaceFolder, ...targetPath.split('/'));
-		// The source is the node's only upstream entry in its first bytes (D37):
-		// creating the file is the connection.
-		const generation = kind === 'video' ? this.view.creation.initialVideoGeneration() : undefined;
-		const document = createBaseHalfNodeDocument({
-			id: generateUuid(),
-			kind,
-			title: canvasResultNodeKindLabel(kind),
-			upstream: [drop.from],
-			...(generation ? { generation } : {})
+		const createOwner = this.view.captureCanvasPostCreateOwner();
+		await this.view.resolveLiveCanvasNodes(sceneKey, folder, [{ path: drop.from, kind: drop.fromKind }]);
+		const draft = await this.view.generationCardActions.createDraft(folder.resource, kind, [drop.from]);
+		const path = baseHalfCanvasChildPath(folder.relativePath, basename(draft));
+		const toAnchor = baseHalfCanvasOppositeAnchor(drop.fromAnchor);
+		const size = baseHalfCanvasGenerationCardSize(kind);
+		// The user pointed: the side the line enters is centered on the release point.
+		const canvasPosition = baseHalfCanvasConnectionTargetOrigin(drop.position, toAnchor, size);
+		await this.view.creation.placeCreatedCard(folder, path, canvasPosition, size, {
+			edge: { from: drop.from, from_anchor: drop.fromAnchor, to: path, to_anchor: toAnchor }
 		});
-		if (kind === 'video') {
-			this.view.createdNodeFocusPath = targetPath;
-		}
-		const targetSize = kind === 'video'
-			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
-			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
-		const contents = VSBuffer.fromString(serializeBaseHalfNodeDocument(document));
-		const edge: IBaseHalfCanvasEdge = {
-			from: drop.from,
-			from_anchor: drop.fromAnchor,
-			to: targetPath,
-			to_anchor: baseHalfCanvasOppositeAnchor(drop.fromAnchor)
-		};
-		const stashResource = joinPath(
-			queuedFolder.workspaceFolder,
-			'.bh',
-			'cache',
-			'canvas-node-undo',
-			generateUuid(),
-			name
-		);
-
-		const reservation = this.view.workspaceMutationCoordinator.reserveStructural(queuedFolder.workspaceFolder, [{
-			workspace: queuedFolder.workspaceFolder,
-			relativePath: targetPath
-		}]);
-		const marked = await baseHalfIsWorkspaceFolderMarked(this.view.fileService, queuedFolder.workspaceFolder);
-		let committed: IBaseHalfCanvasCreatedNodeTransition | undefined;
-		let failure: unknown;
-		await reservation.finish(async lease => {
-			let fileCreated = false;
-			let canvasApplied = false;
-			let canvasTransition: IBaseHalfCanvasStateTransition | undefined;
-			try {
-				this.view.folderForSceneMutation(sceneKey);
-				const currentCanvas = await this.view.canvasMirrorService.readCanvas(queuedFolder);
-				if (await this.view.fileService.exists(baseHalfMirrorResource(queuedFolder.workspaceFolder, targetPath, 'badge.yaml'))
-					|| currentCanvas?.cards.some(candidate => candidate.path === targetPath)) {
-					throw new Error(`Project metadata for '${targetPath}' already exists.`);
-				}
-				// Edge rows are anchor memory: a stale row for this pair is replaced.
-				const staleEdge = currentCanvas?.edges.find(candidate => candidate.from === edge.from && candidate.to === edge.to) ?? null;
-				// The user pointed: the card is where the line was released.
-				const canvasPosition = baseHalfCanvasConnectionTargetOrigin(drop.position, edge.to_anchor, targetSize);
-				const card: NonNullable<IBaseHalfCanvasStateTransition['cards']>[number]['next'] = {
-					path: targetPath,
-					kind: 'file',
-					x: roundCanvasPosition(canvasPosition.x),
-					y: roundCanvasPosition(canvasPosition.y),
-					width: targetSize.width,
-					height: targetSize.height
-				};
-				canvasTransition = {
-					cards: [{ path: targetPath, expected: null, next: card }],
-					edges: marked ? [] : [{ from: edge.from, to: edge.to, expected: staleEdge, next: edge }]
-				};
-				await this.view.fileService.writeFileWithExpectedContents(
-					targetResource,
-					contents,
-					null,
-					{ atomic: { postfix: '.basehalf-node-create-tmp' } }
-				);
-				fileCreated = true;
-				await this.view.resolveLiveWorkspaceNodes(queuedFolder.workspaceFolder, [
-					{ path: drop.from, kind: drop.fromKind },
-					{ path: targetPath, kind: 'file' }
-				]);
-				await this.view.canvasMirrorService.transitionCanvasState(queuedFolder, canvasTransition, lease);
-				canvasApplied = true;
-				const connection: IBaseHalfCanvasConnectionTransition = {
-					folder: queuedFolder,
-					nodes: [
-						{ path: drop.from, kind: drop.fromKind },
-						{ path: targetPath, kind: 'file' }
-					],
-					canvas: canvasTransition,
-					documents: []
-				};
-				committed = { folder: queuedFolder, targetPath, targetResource, contents, stashResource, connection };
-			} catch (error) {
-				// The initial file is discarded rather than kept as undo state: no
-				// user-visible operation was committed.
-				const rollbackErrors = await settleEveryStep([
-					[canvasApplied, async () => {
-						if (canvasTransition) {
-							await this.view.canvasMirrorService.transitionCanvasState(queuedFolder, reverseCanvasStateTransition(canvasTransition, true), lease);
-						}
-					}],
-					[fileCreated, () => this.discardExactCanvasNodeFile(targetResource, contents)]
-				]);
-				failure = rollbackErrors.length > 0
-					? new AggregateError([error, ...rollbackErrors], `The result node could not be created and its safe cleanup did not fully complete. '${targetPath}' was not overwritten or deleted.`)
-					: error;
-			}
-		});
-		if (failure) {
-			throw failure;
-		}
-		if (!committed) {
-			throw new Error('The result node transaction completed without a committed state.');
-		}
-		// Show the new connection now instead of after the file watcher event.
-		this.view.referenceIndexService.acceptSavedContent(
-			{ resource: targetResource, workspaceFolder: queuedFolder.workspaceFolder, relativePath: targetPath },
-			'node',
-			contents.toString()
-		);
-
-		this.pushCanvasCreatedNodeUndo(committed);
-		this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(queuedFolder), [targetPath], postCreateOwner);
-		this.view.requestRender();
-	}
-
-	private async findAvailableConnectedNodeName(folder: IBaseHalfCanvasFolderState, kind: BaseHalfNodeKind): Promise<string> {
-		const canvas = await this.view.canvasMirrorService.readCanvas(folder);
-		for (let index = 0; index < 1000; index++) {
-			const name = `${kind}${index === 0 ? '' : `-${index + 1}`}${BASEHALF_NODE_DOCUMENT_EXTENSION}`;
-			const path = baseHalfCanvasChildPath(folder.relativePath, name);
-			if (await this.view.fileService.exists(joinPath(folder.workspaceFolder, ...path.split('/')))
-				|| await this.view.fileService.exists(baseHalfMirrorResource(folder.workspaceFolder, path, 'badge.yaml'))
-				|| canvas?.cards.some(card => card.path === path)
-				|| canvas?.edges.some(edge => edge.from === path || edge.to === path)) {
-				continue;
-			}
-			return name;
-		}
-		throw new Error(`Too many ${kind} result nodes already use the default name.`);
-	}
-
-	private pushCanvasCreatedNodeUndo(transition: IBaseHalfCanvasCreatedNodeTransition): void {
-		const source = transition.connection.nodes[0];
-		const run = async (reverse: boolean): Promise<void> => {
-			const reservation = this.view.workspaceMutationCoordinator.reserveStructural(transition.folder.workspaceFolder, [{
-				workspace: transition.folder.workspaceFolder,
-				relativePath: transition.targetPath
-			}]);
-			await reservation.finish(lease => this.applyCanvasCreatedNodeTransition(transition, reverse, lease));
-			this.view.renderer.scheduleBackgroundRender();
-		};
-		this.view.undoRedoService.pushElement({
-			type: UndoRedoElementType.Workspace,
-			resources: uniqueUris([
-				this.view.canvasMirrorService.canvasResource(transition.folder),
-				joinPath(transition.folder.workspaceFolder, ...source.path.split('/')),
-				transition.targetResource
-			]),
-			label: localize('basehalf.canvas.createFromConnection.undo', "Create connected result node"),
-			code: 'basehalf.canvas.createFromConnection',
-			undo: () => run(true),
-			redo: () => run(false)
-		}, undefined, this.view.canvasUndoRedoSource);
-	}
-
-	private async applyCanvasCreatedNodeTransition(
-		transition: IBaseHalfCanvasCreatedNodeTransition,
-		reverse: boolean,
-		lease: IBaseHalfWorkspaceMutationLease
-	): Promise<void> {
-		if (reverse) {
-			await this.assertExactCanvasNodeFile(transition.targetResource, transition.contents);
-			await this.applyCanvasConnectionTransition(transition.connection, true, lease);
-			try {
-				await this.moveExactCanvasNodeToStash(transition.folder.workspaceFolder, transition.targetResource, transition.contents, transition.stashResource);
-			} catch (error) {
-				try {
-					await this.applyCanvasConnectionTransition(transition.connection, false, lease);
-				} catch (rollbackError) {
-					throw new AggregateError([error, rollbackError], 'Undo could not remove the new node and could not restore its canvas connection. Reopen the project before continuing.');
-				}
-				throw error;
-			}
-			return;
-		}
-
-		await this.restoreExactCanvasNodeFromStash(transition.targetResource, transition.contents, transition.stashResource);
-		try {
-			await this.applyCanvasConnectionTransition(transition.connection, false, lease);
-		} catch (error) {
-			try {
-				await this.moveExactCanvasNodeToStash(transition.folder.workspaceFolder, transition.targetResource, transition.contents, transition.stashResource);
-			} catch (rollbackError) {
-				throw new AggregateError([error, rollbackError], `Redo could not restore the connection and '${transition.targetPath}' changed before safe cleanup. The file was preserved.`);
-			}
-			throw error;
-		}
-	}
-
-	private async assertExactCanvasNodeFile(resource: URI, expected: VSBuffer): Promise<void> {
-		if (this.view.workingCopyService.isDirty(resource)) {
-			throw new Error(`Save '${basename(resource)}' before changing this node.`);
-		}
-		const current = await this.view.fileService.readFile(resource, {
-			atomic: true,
-			limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-		});
-		if (!current.value.equals(expected)) {
-			throw new Error(`'${basename(resource)}' changed after it was created. Its file, connection, and canvas card were preserved.`);
-		}
-	}
-
-	private async moveExactCanvasNodeToStash(workspaceFolder: URI, resource: URI, expected: VSBuffer, stash: URI): Promise<void> {
-		await this.assertExactCanvasNodeFile(resource, expected);
-		if (await this.view.fileService.exists(stash)) {
-			throw new Error(`The private undo copy for '${basename(resource)}' already exists.`);
-		}
-		// An undo copy is a working file: git must not show it.
-		await baseHalfEnsureMirrorIgnoreFile(this.view.fileService, workspaceFolder);
-		await this.view.fileService.createFolder(dirname(stash));
-		await this.view.fileService.move(resource, stash, false);
-		const moved = await this.view.fileService.readFile(stash, {
-			atomic: true,
-			limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-		});
-		if (moved.value.equals(expected)) {
-			return;
-		}
-		const restoreErrors: unknown[] = [];
-		try {
-			if (await this.view.fileService.exists(resource)) {
-				throw new Error(`'${basename(resource)}' was recreated while its undo was being prepared.`);
-			}
-			await this.view.fileService.move(stash, resource, false);
-		} catch (error) {
-			restoreErrors.push(error);
-		}
-		throw restoreErrors.length > 0
-			? new AggregateError(restoreErrors, `'${basename(resource)}' changed during safe removal. Its changed contents were preserved.`)
-			: new Error(`'${basename(resource)}' changed during safe removal and was restored.`);
-	}
-
-	private async discardExactCanvasNodeFile(resource: URI, expected: VSBuffer): Promise<void> {
-		await this.assertExactCanvasNodeFile(resource, expected);
-		await this.view.fileService.del(resource, {
-			atomic: { postfix: `.basehalf-node-rollback-${generateUuid()}` }
-		});
-	}
-
-	private async restoreExactCanvasNodeFromStash(resource: URI, expected: VSBuffer, stash: URI): Promise<void> {
-		if (await this.view.fileService.exists(resource)) {
-			throw new Error(`'${basename(resource)}' already exists. Redo did not replace it.`);
-		}
-		if (await this.view.fileService.exists(stash)) {
-			const stashed = await this.view.fileService.readFile(stash, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			if (!stashed.value.equals(expected)) {
-				throw new Error(`The private undo copy for '${basename(resource)}' changed. Redo did not use it.`);
-			}
-			await this.view.fileService.move(stash, resource, false);
-			await this.assertExactCanvasNodeFile(resource, expected);
-			return;
-		}
-		await this.view.fileService.writeFileWithExpectedContents(
-			resource,
-			expected,
-			null,
-			{ atomic: { postfix: '.basehalf-node-redo-tmp' } }
-		);
+		this.view.creation.selectCreatedDraft(folder, path, createOwner);
 	}
 
 	/**

@@ -11,7 +11,6 @@ import { IKeyboardEvent } from '../../../../../base/browser/keyboardEvent.js';
 import { KeyCode } from '../../../../../base/common/keyCodes.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
-import { generateUuid } from '../../../../../base/common/uuid.js';
 import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
@@ -31,6 +30,7 @@ import {
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH,
+	baseHalfCanvasGenerationCardSize,
 	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasCard,
 	IBaseHalfCanvasEdge,
@@ -44,13 +44,10 @@ import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionC
 import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfPdfSelection } from '../../../cardDetail/common/basehalfMediaViewState.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../../../cardDetail/common/basehalfPdfBranch.js';
-import { BASEHALF_NODE_DOCUMENT_EXTENSION, BaseHalfNodeKind, createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../video/common/basehalfNodeDocument.js';
-import { IBaseHalfVideoGeneration } from '../../../video/common/basehalfVideoNode.js';
-import { baseHalfVideoInitialGeneration } from '../../../video/common/basehalfVideoCatalog.js';
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT, BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, canvasResultNodeKindLabel } from './basehalfCanvasViewShared.js';
+import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner } from './basehalfCanvasViewShared.js';
 
 /**
  * Making things on the canvas: the inline editors that name a new item or
@@ -198,8 +195,8 @@ export class BaseHalfCanvasCreation {
 		}
 
 		const initialPlacement = this.canvasCreatePlacement(placementContext ?? context);
-		const createSize = request.kind === 'create' && request.createKind === 'resultNode' && request.resultKind === 'video'
-			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
+		const createSize = request.kind === 'create' && (request.createKind === 'image' || request.createKind === 'video')
+			? baseHalfCanvasGenerationCardSize(request.createKind)
 			: undefined;
 		// A point the user named is taken as it is: the card is not moved for
 		// other cards or for the edge of the window, and neither is the view. A
@@ -247,11 +244,11 @@ export class BaseHalfCanvasCreation {
 			);
 			return;
 		}
-		if (request.createKind === 'resultNode') {
+		if (request.createKind === 'image' || request.createKind === 'video') {
 			if (!this.view.isCanvasPostCreateOwnerCurrent(requestOwner)) {
 				return;
 			}
-			await this.createEmptyContentNode(folder, context, placement.canvasPosition, request.resultKind, requestOwner);
+			await this.createDraftCard(folder, context, placement.canvasPosition, request.createKind, requestOwner);
 			return;
 		}
 		if (this.view.canvasNavigationService.state.cardDetail) {
@@ -481,51 +478,37 @@ export class BaseHalfCanvasCreation {
 		this.view.requestRender();
 	}
 
-	private async createEmptyContentNode(
+	/**
+	 * New Image and New Video (generation cards, "Creating a generation card"):
+	 * a draft of the folder of the canvas, placed as a card the user creates is
+	 * placed, selected, and with its prompt focused when its panel shows. The
+	 * draft is one step of the canvas undo stack.
+	 */
+	private async createDraftCard(
 		folder: IBaseHalfCanvasFolderState,
 		context: IBaseHalfCanvasActionContext,
 		canvasPosition: { readonly x: number; readonly y: number },
-		kind: BaseHalfNodeKind,
+		kind: 'image' | 'video',
 		postCreateOwner: IBaseHalfCanvasPostCreateOwner
 	): Promise<void> {
-		if (!this.view.isCanvasPostCreateOwnerCurrent(postCreateOwner)) {
-			return;
-		}
 		await this.view.canvasActionContextService.assertCurrent(context);
 		if (!this.view.uriIdentityService.extUri.isEqual(this.view.getCurrentFolder()?.resource, folder.resource)) {
 			return;
 		}
-		const label = canvasResultNodeKindLabel(kind);
-		let name: string | undefined;
-		for (let index = 0; index < 1000; index++) {
-			const candidate = `${kind}${index === 0 ? '' : `-${index + 1}`}${BASEHALF_NODE_DOCUMENT_EXTENSION}`;
-			if (!await this.view.fileService.exists(joinPath(folder.resource, candidate))) {
-				name = candidate;
-				break;
-			}
-		}
-		if (!name) {
-			throw new Error(`Too many ${label.toLowerCase()} outputs already use the default name.`);
-		}
-		// An empty node of its kind; a Video node starts with an empty prompt and
-		// the model and settings of the last generation on this computer.
-		const generation = kind === 'video' ? this.initialVideoGeneration() : undefined;
-		const document = createBaseHalfNodeDocument({
-			id: generateUuid(),
-			kind,
-			title: label,
-			...(generation ? { generation } : {})
-		});
-		if (kind === 'video') {
-			this.view.createdNodeFocusPath = baseHalfCanvasChildPath(folder.relativePath, name);
-		}
-		await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
-			contents: VSBuffer.fromString(serializeBaseHalfNodeDocument(document)),
-			postCreateOwner,
-			size: kind === 'video'
-				? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
-				: undefined
-		});
+		const draft = await this.view.generationCardActions.createDraft(folder.resource, kind);
+		const path = baseHalfCanvasChildPath(folder.relativePath, basename(draft));
+		await this.placeCreatedCard(folder, path, canvasPosition, baseHalfCanvasGenerationCardSize(kind));
+		this.selectCreatedDraft(folder, path, postCreateOwner);
+	}
+
+	/**
+	 * Selects a draft the user just created once its card is drawn, and gives
+	 * its prompt the keyboard when its panel first shows.
+	 */
+	selectCreatedDraft(folder: IBaseHalfCanvasFolderState, path: string, owner: IBaseHalfCanvasPostCreateOwner): void {
+		this.view.createdNodeFocusPath = path;
+		this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), [path], owner);
+		this.view.requestRender();
 	}
 
 	async createPdfBranch(resource: URI, selection: IBaseHalfPdfSelection): Promise<void> {
@@ -984,6 +967,31 @@ export class BaseHalfCanvasCreation {
 		const size = options.size ?? (kind === 'folder'
 			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
+		await this.placeCreatedCard(folder, path, canvasPosition, size, { kind, edge: options.edge });
+
+		// A canvas Create action produces and selects a card; it never implies an
+		// Open action. Card-local editors/configuration remain available in place,
+		// while Card Detail is reserved for an explicit Open/Expand interaction.
+		if (options.select !== false) {
+			this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), [path], postCreateOwner);
+		}
+		this.view.requestRender();
+		return target;
+	}
+
+	/**
+	 * Gives the card of an item the user just created its row at the place the
+	 * canvas chose for it, and with `edge` the anchor row of the connection the
+	 * item was created with. The item exists either way: a row that cannot be
+	 * saved says so, and the card appears at the end of the canvas.
+	 */
+	async placeCreatedCard(
+		folder: IBaseHalfCanvasFolderState,
+		path: string,
+		canvasPosition: { readonly x: number; readonly y: number },
+		size: { readonly width: number; readonly height: number },
+		options: { readonly kind?: 'file' | 'folder'; readonly edge?: IBaseHalfCanvasEdge } = {}
+	): Promise<void> {
 		// A change by the user writes the layout, and the places that wait are
 		// saved with it: before, as they were drawn, and after, for a layout that
 		// only this write made readable.
@@ -991,7 +999,7 @@ export class BaseHalfCanvasCreation {
 		try {
 			await this.view.canvasMirrorService.updateCardGeometry(folder, {
 				path,
-				kind,
+				kind: options.kind ?? 'file',
 				x: canvasPosition.x,
 				y: canvasPosition.y,
 				width: size.width,
@@ -1010,15 +1018,6 @@ export class BaseHalfCanvasCreation {
 				this.view.logService.warn(`[BaseHalf] could not remember the anchors of ${options.edge.from} -> ${options.edge.to}`, error);
 			}
 		}
-
-		// A canvas Create action produces and selects a card; it never implies an
-		// Open action. Card-local editors/configuration remain available in place,
-		// while Card Detail is reserved for an explicit Open/Expand interaction.
-		if (options.select !== false) {
-			this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), [path], postCreateOwner);
-		}
-		this.view.requestRender();
-		return target;
 	}
 
 	private async importCanvasResources(
@@ -1149,14 +1148,6 @@ export class BaseHalfCanvasCreation {
 			this.view.queueCanvasWarning(error instanceof Error ? error.message : String(error));
 			this.view.requestRender();
 		}
-	}
-
-	// --- the Video node panel (D58, video node, "The panel") ---------------------------------
-
-	/** The provider, model, mode, and values a new Video node starts with: those of the last generation on this computer, made legal for the model. */
-	initialVideoGeneration(): IBaseHalfVideoGeneration | undefined {
-		const catalog = this.view.videoCatalogService.state;
-		return baseHalfVideoInitialGeneration(this.view.videoProviderSettings.getLastUsed(), catalog.kind === 'ready' ? catalog.catalog : undefined);
 	}
 
 	/** Gives the card of a new file a place right of another card, or the next open place there. */

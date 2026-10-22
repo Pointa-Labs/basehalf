@@ -33,7 +33,8 @@ import { IWorkingCopyService } from '../../../../services/workingCopy/common/wor
 import { TestStorageService } from '../../../../test/common/workbenchTestServices.js';
 import {
 	BASEHALF_CANVAS_CARD_CONTEXT_MENU,
-	BASEHALF_CANVAS_NEW_RESULT_NODE_MENU,
+	BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID,
+	BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID,
 	BASEHALF_CANVAS_PANE_CONTEXT_MENU,
 	baseHalfTemplateFolderBaseName,
 	discardLegacyBaseHalfPendingTemplateSetups,
@@ -64,37 +65,35 @@ suite('BaseHalf canvas context menu', () => {
 		]);
 	});
 
-	test('registers pane creation commands', () => {
+	test('registers pane creation commands: New Note, New Image, New Video, and no submenu of empty nodes', () => {
 		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_PANE_CONTEXT_MENU), [
 			['5_transfer', 'basehalf.canvas.importFiles'],
 			['1_new', 'basehalf.canvas.newFile'],
 			['1_new', 'basehalf.canvas.newFolder'],
+			['1_new', 'basehalf.canvas.newImage'],
 			['1_new', 'basehalf.canvas.newNote'],
+			['1_new', 'basehalf.canvas.newVideo'],
 			['5_transfer', 'basehalf.canvas.paste']
 		]);
+		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU).filter(isISubmenuItem), []);
+		// New Image and New Video follow New Note.
 		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU)
-			.filter(isISubmenuItem)
-			.map(item => [item.group, item.submenu.id]), [
-			['1_new', BASEHALF_CANVAS_NEW_RESULT_NODE_MENU.id]
-		]);
-		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_NEW_RESULT_NODE_MENU), [
-			['1_content', 'basehalf.canvas.newAudioNode'],
-			['1_content', 'basehalf.canvas.newFileNode'],
-			['1_content', 'basehalf.canvas.newImageNode'],
-			['1_content', 'basehalf.canvas.newPdfNode'],
-			['1_content', 'basehalf.canvas.newPresentationNode'],
-			['1_content', 'basehalf.canvas.newVideoNode']
+			.filter(isIMenuItem)
+			.filter(item => item.group === '1_new')
+			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+			.map(item => item.command.id), [
+			'basehalf.canvas.newNote',
+			'basehalf.canvas.newImage',
+			'basehalf.canvas.newVideo',
+			'basehalf.canvas.newFile',
+			'basehalf.canvas.newFolder'
 		]);
 	});
 
-	test('keeps canvas card creation out of the command palette and dispatches typed result nodes', async () => {
+	test('keeps canvas card creation out of the command palette and dispatches drafts of images and videos', async () => {
 		const resultCommands = [
-			['basehalf.canvas.newImageNode', 'image'],
-			['basehalf.canvas.newVideoNode', 'video'],
-			['basehalf.canvas.newAudioNode', 'audio'],
-			['basehalf.canvas.newPdfNode', 'pdf'],
-			['basehalf.canvas.newPresentationNode', 'presentation'],
-			['basehalf.canvas.newFileNode', 'file']
+			[BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID, 'image'],
+			[BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, 'video']
 		] as const;
 		const commandPaletteIds = new Set(MenuRegistry.getMenuItems(MenuId.CommandPalette)
 			.filter(isIMenuItem)
@@ -124,7 +123,7 @@ suite('BaseHalf canvas context menu', () => {
 			assert.ok(command);
 			await command.handler(accessor);
 		}
-		assert.deepStrictEqual(requests, resultCommands.map(([, kind]) => [undefined, 'resultNode', kind]));
+		assert.deepStrictEqual(requests, resultCommands.map(([, kind]) => [undefined, kind]));
 	});
 
 	test('normalizes template folder labels to portable project segments', () => {

@@ -23,7 +23,6 @@ import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfC
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
-import { BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, getBaseHalfNodeResultArtifact, parseBaseHalfNodeDocumentBytes } from '../../../video/common/basehalfNodeDocument.js';
 import { BaseHalfCanvasSceneContextMenuRequest, BaseHalfCanvasSceneSelectionAction } from '../../common/basehalfCanvasScene.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from '../basehalfCanvasContextMenu.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
@@ -129,8 +128,10 @@ export class BaseHalfCanvasSelectionActions {
 			|| !this.view.uriIdentityService.extUri.isEqual(currentItem.stat.resource, item.stat.resource)) {
 			return;
 		}
-		if (currentItem.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			void this.openResultNodeContent(currentFolder, currentItem);
+		if (currentItem.generation?.draft) {
+			// A draft has no file to open: it stays selected on the canvas, where
+			// its card and its panel are.
+			this.selectCard(path);
 			return;
 		}
 		if (currentItem.stat.isDirectory) {
@@ -146,47 +147,6 @@ export class BaseHalfCanvasSelectionActions {
 
 	cancelPendingNodeActivation(): void {
 		this.cardOpenIntent++;
-	}
-
-	async openResultNodeFromActionContext(context: IBaseHalfCanvasActionContext): Promise<void> {
-		await this.view.canvasActionContextService.assertCurrent(context);
-		const folder = this.view.getCurrentFolder();
-		const item = this.view.renderedItemsByPath.get(context.relativePath);
-		if (!folder || !item
-			|| !this.view.uriIdentityService.extUri.isEqual(folder.workspaceFolder, context.workspaceFolder)
-			|| !this.view.uriIdentityService.extUri.isEqual(item.stat.resource, context.resource)
-			|| !item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			throw new Error('The result node is no longer available on the current canvas.');
-		}
-		this.view.markCanvasUserInteraction();
-		this.cancelPendingNodeActivation();
-		await this.openResultNodeContent(folder, item);
-	}
-
-	/**
-	 * Opens the file a node shows. A node that shows nothing yet stays
-	 * selected on the canvas, where its card and panel are.
-	 */
-	async openResultNodeContent(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem): Promise<void> {
-		try {
-			const content = await this.view.fileService.readFile(item.stat.resource, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			const nodeDocument = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			const artifact = getBaseHalfNodeResultArtifact(nodeDocument);
-			if (!artifact) {
-				return;
-			}
-			// A Video node's video opens over the node's canvas (D62). Card Detail of
-			// another node's file keeps that file's folder under it, where actions such
-			// as branching from a PDF place what they make.
-			await this.view.cardRenderer.openNodeArtifactPath(folder, artifact.path, nodeDocument.kind === 'video');
-		} catch (error) {
-			this.view.logService.warn(error);
-			this.view.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.view.requestRender();
-		}
 	}
 
 	async performSceneSelectionAction(
@@ -792,8 +752,6 @@ export class BaseHalfCanvasSelectionActions {
 		if (!item) {
 			return undefined;
 		}
-		const preview = this.view.renderedCardPreviewsByPath.get(path)?.preview;
-		const icon = preview?.kind === 'node' ? preview.document.kind : preview?.kind === 'nodeLoading' ? 'generic' : badgeType(item.name, item.kind === 'folder');
-		return { name: cardDisplayName(item, preview), icon };
+		return { name: cardDisplayName(item), icon: badgeType(item.name, item.kind === 'folder') };
 	}
 }

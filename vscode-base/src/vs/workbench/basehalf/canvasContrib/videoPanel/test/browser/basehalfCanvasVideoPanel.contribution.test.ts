@@ -11,12 +11,12 @@ import { extUri } from '../../../../../../base/common/resources.js';
 import { URI } from '../../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { IFileDialogService } from '../../../../../../platform/dialogs/common/dialogs.js';
-import { IFileService } from '../../../../../../platform/files/common/files.js';
+import { FileOperationError, FileOperationResult, IFileService } from '../../../../../../platform/files/common/files.js';
 import { TestInstantiationService } from '../../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { ILogService, NullLogService } from '../../../../../../platform/log/common/log.js';
 import { IUriIdentityService } from '../../../../../../platform/uriIdentity/common/uriIdentity.js';
 import { ILifecycleService, WillShutdownEvent } from '../../../../../services/lifecycle/common/lifecycle.js';
-import { BaseHalfCanvasCardPreview } from '../../../../canvas/common/basehalfCanvasCardPreview.js';
+import { IBaseHalfCanvasGenerationCard, IBaseHalfCanvasItem } from '../../../../canvas/common/basehalfCanvasModel.js';
 import { baseHalfTestCanvasItem, createBaseHalfTestCanvasView, IBaseHalfTestCanvasView } from '../../../../canvas/test/browser/basehalfCanvasViewFixture.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../../video/browser/basehalfVideoNodePanel.js';
@@ -58,17 +58,20 @@ class TestCanvasVideoPanel extends BaseHalfCanvasVideoPanel {
 	}
 }
 
-const CLIP = 'folder/clip.bhnode';
+const CLIP = 'folder/clip.mp4';
+const STILL = 'folder/still.png';
 const NOTE = 'folder/note.md';
 
-function videoNodePreview(): BaseHalfCanvasCardPreview {
-	return { kind: 'node', document: { kind: 'video', title: 'Clip' } as never, dirty: false };
+/** An item of the test folder that is a generation card, a draft unless it has its file. */
+function generationItem(path: string, generation: IBaseHalfCanvasGenerationCard): IBaseHalfCanvasItem {
+	return { ...baseHalfTestCanvasItem(path), generation };
 }
 
 suite('BaseHalfCanvasVideoPanel', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 	let navigationState: IBaseHalfCanvasNavigationState;
 	let existing: Set<string>;
+	let drafts: Set<string>;
 	let copies: string[];
 	let picked: URI | undefined;
 	let shutdown: Emitter<WillShutdownEvent>;
@@ -76,17 +79,28 @@ suite('BaseHalfCanvasVideoPanel', () => {
 	function createPanel(): { canvas: IBaseHalfTestCanvasView; feature: TestCanvasVideoPanel } {
 		navigationState = { canvasFolder: undefined, cardDetail: undefined };
 		existing = new Set();
+		drafts = new Set();
 		copies = [];
 		picked = undefined;
 		shutdown = store.add(new Emitter<WillShutdownEvent>());
 		const canvas = createBaseHalfTestCanvasView(store);
-		canvas.setItem(baseHalfTestCanvasItem(CLIP), videoNodePreview());
+		canvas.setItem(generationItem(CLIP, { kind: 'video', draft: true }), { kind: 'draft' });
+		canvas.setItem(generationItem(STILL, { kind: 'image', draft: false }));
 		canvas.setItem(baseHalfTestCanvasItem(NOTE), { kind: 'markdown', text: '# Note' });
 		const instantiationService = store.add(new TestInstantiationService());
 		instantiationService.stub(IBaseHalfCanvasNavigationService, { get state() { return navigationState; } });
 		instantiationService.stub(IFileDialogService, { showOpenDialog: async () => picked ? [picked] : undefined });
 		instantiationService.stub(IFileService, {
 			exists: async (resource: URI) => existing.has(resource.path),
+			stat: async (resource: URI) => {
+				// A draft's card information is a generation.yaml under .bh/mirror/, in folders that are there.
+				const file = drafts.has(resource.path) || existing.has(resource.path);
+				const folder = resource.path === '/workspace/folder' || [...drafts].some(draft => draft.startsWith(`${resource.path}/`));
+				if (file || folder) {
+					return { isFile: file, isDirectory: folder, isSymbolicLink: false } as never;
+				}
+				throw new FileOperationError('not found', FileOperationResult.FILE_NOT_FOUND);
+			},
 			copy: async (source: URI, target: URI) => {
 				copies.push(`${source.path} -> ${target.path}`);
 				return undefined as never;
@@ -99,11 +113,11 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		return { canvas, feature };
 	}
 
-	test('shows the panel for one selected Video card, and saves its prompt and takes it away for another selection', async () => {
+	test('shows the panel for one selected generation card, a draft or an image with its file, and saves its prompt and takes it away for another selection', async () => {
 		const { canvas, feature } = createPanel();
 		canvas.changeSelection([CLIP]);
 		assert.strictEqual(feature.panels.length, 1);
-		assert.strictEqual(feature.panels[0].resource.path, '/workspace/folder/clip.bhnode');
+		assert.strictEqual(feature.panels[0].resource.path, '/workspace/folder/clip.mp4');
 		assert.strictEqual(canvas.cardPanels.get(CLIP), feature.panels[0].element);
 		assert.deepStrictEqual(canvas.calls, [`showCardPanel folder ${CLIP} 120`]);
 
@@ -115,20 +129,23 @@ suite('BaseHalfCanvasVideoPanel', () => {
 
 		canvas.changeSelection([CLIP, NOTE]);
 		assert.strictEqual(feature.panels.length, 1, 'two selected cards show no panel');
+
+		canvas.changeSelection([STILL]);
+		assert.strictEqual(feature.panels.at(-1)?.resource.path, '/workspace/folder/still.png');
 	});
 
-	test('waits while a selected node still loads, and shows its panel once it is known to be a Video node', () => {
+	test('a selected file that becomes a generation card, as when an agent writes its generation information, gets its panel once it is drawn so', () => {
 		const { canvas, feature } = createPanel();
-		canvas.setItem(baseHalfTestCanvasItem(CLIP), { kind: 'nodeLoading', text: 'Loading' });
-		canvas.changeSelection([CLIP]);
+		canvas.setItem(baseHalfTestCanvasItem('folder/photo.png'), { kind: 'media', text: 'Image file', mediaKind: 'image', resource: URI.file('/workspace/folder/photo.png') });
+		canvas.changeSelection(['folder/photo.png']);
 		assert.strictEqual(feature.panels.length, 0);
-		canvas.setItem(baseHalfTestCanvasItem(CLIP), videoNodePreview());
+		canvas.setItem(generationItem('folder/photo.png', { kind: 'image', draft: false }));
 		canvas.showScene(canvas.scene);
 		assert.strictEqual(feature.panels.length, 1);
-		assert.strictEqual(canvas.cardPanels.get(CLIP), feature.panels[0].element);
+		assert.strictEqual(canvas.cardPanels.get('folder/photo.png'), feature.panels[0].element);
 	});
 
-	test('stays on its card while the canvas is drawn again, and goes when Card Detail opens or the card is no Video node', async () => {
+	test('stays on its card while the canvas is drawn again, and goes when Card Detail opens or the card is no generation card', async () => {
 		const { canvas, feature } = createPanel();
 		canvas.changeSelection([CLIP]);
 		canvas.calls.length = 0;
@@ -145,7 +162,7 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		navigationState = { canvasFolder: undefined, cardDetail: undefined };
 		canvas.changeSelection([CLIP]);
 		assert.strictEqual(feature.panels.length, 2);
-		canvas.setItem(baseHalfTestCanvasItem(CLIP), { kind: 'markdown', text: 'Not a node any more' });
+		canvas.setItem(baseHalfTestCanvasItem(CLIP), { kind: 'media', text: 'Video file', mediaKind: 'video', resource: URI.file('/workspace/folder/clip.mp4') });
 		canvas.showScene(canvas.scene);
 		await timeout(0);
 		assert.strictEqual(canvas.cardPanels.size, 0);
@@ -159,7 +176,7 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		assert.deepStrictEqual(canvas.calls, [`showCardPanel folder ${CLIP} 240`]);
 	});
 
-	test('gives the focus to the prompt of a node the user just created, once', async () => {
+	test('gives the focus to the prompt of a draft the user just created, once', async () => {
 		const { canvas, feature } = createPanel();
 		canvas.createdNodeFocusPath = CLIP;
 		canvas.changeSelection([CLIP]);
@@ -187,25 +204,33 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		assert.strictEqual(await ended, undefined);
 	});
 
-	test('selects a node that Generate made beside the node, once its card is drawn', () => {
+	test('selects a draft that Generate made beside the card, and a draft its model renamed, once its card is drawn', () => {
 		const { canvas, feature } = createPanel();
 		canvas.changeSelection([CLIP]);
-		feature.panels[0].host.didGenerateInNode!(URI.file('/workspace/folder/next.bhnode'));
+		feature.panels[0].host.didGenerateInNode!(URI.file('/workspace/folder/clip-2.mp4'));
 		assert.strictEqual(canvas.calls.at(-1), 'requestRender');
-		canvas.setItem(baseHalfTestCanvasItem('folder/next.bhnode'), videoNodePreview());
+		canvas.setItem(generationItem('folder/clip-2.mp4', { kind: 'video', draft: true }), { kind: 'draft' });
 		canvas.showScene(canvas.scene);
-		assert.ok(canvas.calls.includes('select folder/next.bhnode'));
-		assert.strictEqual(feature.panels.at(-1)?.resource.path, '/workspace/folder/next.bhnode');
+		assert.ok(canvas.calls.includes('select folder/clip-2.mp4'));
+		assert.strictEqual(feature.panels.at(-1)?.resource.path, '/workspace/folder/clip-2.mp4');
+
+		feature.panels.at(-1)!.host.didRenameCard!(URI.file('/workspace/folder/image.jpg'));
+		canvas.setItem(generationItem('folder/image.jpg', { kind: 'image', draft: true }), { kind: 'draft' });
+		canvas.showScene(canvas.scene);
+		assert.ok(canvas.calls.includes('select folder/image.jpg'));
+		assert.strictEqual(feature.panels.at(-1)?.resource.path, '/workspace/folder/image.jpg');
 	});
 
-	test('imports a file beside the node under a name that is free, and takes a file of its folder as it is', async () => {
+	test('imports a file beside the card under a name that no file and no draft has, and takes a file of its folder as it is', async () => {
 		const { canvas, feature } = createPanel();
 		canvas.changeSelection([CLIP]);
 		const host = feature.panels[0].host;
 		picked = URI.file('/elsewhere/frame.png');
 		existing.add('/workspace/folder/frame.png');
-		assert.strictEqual(await host.importFile(), 'folder/frame 2.png');
-		assert.deepStrictEqual(copies, ['/elsewhere/frame.png -> /workspace/folder/frame 2.png']);
+		// A draft has the next name.
+		drafts.add('/workspace/.bh/mirror/folder/frame 2.png/generation.yaml');
+		assert.strictEqual(await host.importFile(), 'folder/frame 3.png');
+		assert.deepStrictEqual(copies, ['/elsewhere/frame.png -> /workspace/folder/frame 3.png']);
 
 		picked = URI.file('/workspace/folder/already.png');
 		assert.strictEqual(await host.importFile(), 'folder/already.png');

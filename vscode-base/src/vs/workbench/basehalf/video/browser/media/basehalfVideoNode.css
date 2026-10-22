@@ -60,7 +60,7 @@
 }
 
 .monaco-workbench .bh-video-panel [hidden],
-.monaco-workbench .bh-video-card [hidden] {
+.monaco-workbench .bh-generation-card [hidden] {
 	display: none !important;
 }
 
@@ -1103,51 +1103,37 @@
 
 /* --- The card ------------------------------------------------------------------------------- */
 
-.monaco-workbench .bh-video-card {
+/* The face of a generation card in the place of its file: a draft, a generation, its end, or a file that cannot be shown. */
+.monaco-workbench .bh-generation-card {
 	position: relative;
 	display: flex;
+	box-sizing: border-box;
 	width: 100%;
 	height: 100%;
 	min-height: 0;
 	flex: 1 1 auto;
-	overflow: hidden;
-	background: color-mix(in srgb, var(--bh-card-surface, #222426) 90%, black);
-	isolation: isolate;
-}
-
-.monaco-workbench .bh-video-card-video {
-	display: block;
-	width: 100%;
-	height: 100%;
-	min-height: 0;
-	object-fit: contain;
-	background: #08090a;
-}
-
-.monaco-workbench .bh-video-card-face {
-	position: absolute;
-	inset: 0;
-	display: flex;
-	box-sizing: border-box;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
 	padding: 16px 20px;
+	overflow: hidden;
 	color: var(--bh-card-text-tertiary, var(--vscode-descriptionForeground));
 	text-align: center;
+	background: color-mix(in srgb, var(--bh-card-surface, #222426) 90%, black);
+	isolation: isolate;
 }
 
-.monaco-workbench .bh-video-card-glyph {
+.monaco-workbench .bh-generation-card-glyph {
 	display: flex;
 	opacity: 0.6;
 }
 
-.monaco-workbench .bh-video-card[data-state="empty"] .bh-video-card-glyph {
+.monaco-workbench .bh-generation-card[data-state="draft"] .bh-generation-card-glyph {
 	opacity: 0.72;
 }
 
-.monaco-workbench .bh-video-card-status {
+.monaco-workbench .bh-generation-card-status {
 	display: flex;
 	align-items: baseline;
 	gap: 6px;
@@ -1156,12 +1142,12 @@
 	line-height: 16px;
 }
 
-.monaco-workbench .bh-video-card-elapsed {
+.monaco-workbench .bh-generation-card-elapsed {
 	color: var(--bh-card-text-tertiary, var(--vscode-descriptionForeground));
 	font-variant-numeric: tabular-nums;
 }
 
-.monaco-workbench .bh-video-card-message {
+.monaco-workbench .bh-generation-card-message {
 	display: -webkit-box;
 	max-width: 100%;
 	overflow: hidden;
@@ -1174,12 +1160,12 @@
 	line-clamp: 2;
 }
 
-.monaco-workbench .bh-video-card[data-state="failed"] .bh-video-card-message,
-.monaco-workbench .bh-video-card[data-state="missing"] .bh-video-card-message {
+.monaco-workbench .bh-generation-card[data-state="failed"] .bh-generation-card-message,
+.monaco-workbench .bh-generation-card[data-state="unshowable"] .bh-generation-card-message {
 	color: color-mix(in srgb, var(--bh-card-danger, var(--vscode-errorForeground)) 82%, var(--bh-card-text-primary, white));
 }
 
-.monaco-workbench .bh-video-card-progress {
+.monaco-workbench .bh-generation-card-progress {
 	position: absolute;
 	right: 0;
 	bottom: 0;
@@ -1190,19 +1176,19 @@
 	background: color-mix(in srgb, var(--bh-card-text-primary, white) 10%, transparent);
 }
 
-.monaco-workbench .bh-video-card-progress-value {
+.monaco-workbench .bh-generation-card-progress-value {
 	width: 0;
 	height: 100%;
 	background: var(--bh-card-accent, var(--vscode-progressBar-background));
 	transition: width 400ms ease;
 }
 
-.monaco-workbench .bh-video-card-progress.indeterminate .bh-video-card-progress-value {
+.monaco-workbench .bh-generation-card-progress.indeterminate .bh-generation-card-progress-value {
 	width: 32%;
-	animation: bh-video-card-progress 1.6s ease-in-out infinite;
+	animation: bh-generation-card-progress 1.6s ease-in-out infinite;
 }
 
-@keyframes bh-video-card-progress {
+@keyframes bh-generation-card-progress {
 	from {
 		transform: translateX(-100%);
 	}
@@ -1288,7 +1274,7 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.monaco-workbench .bh-video-panel *,
-	.monaco-workbench .bh-video-card * {
+	.monaco-workbench .bh-generation-card * {
 		transition: none !important;
 	}
 
@@ -1297,7 +1283,7 @@
 		opacity: 0.5;
 	}
 
-	.monaco-workbench .bh-video-card-progress.indeterminate .bh-video-card-progress-value {
+	.monaco-workbench .bh-generation-card-progress.indeterminate .bh-generation-card-progress-value {
 		width: 100%;
 		animation: none;
 		opacity: 0.45;
@@ -1307,7 +1293,7 @@
 @media (forced-colors: active) {
 	.monaco-workbench .bh-video-panel,
 	.monaco-workbench .bh-video-panel-menu,
-	.monaco-workbench .bh-video-card {
+	.monaco-workbench .bh-generation-card {
 		border-width: 1px;
 		border-style: solid;
 		border-color: CanvasText;
@@ -1326,7 +1312,7 @@
 		border-color: Highlight;
 	}
 
-	.monaco-workbench .bh-video-card-progress-value {
+	.monaco-workbench .bh-generation-card-progress-value {
 		background: Highlight;
 	}
 }

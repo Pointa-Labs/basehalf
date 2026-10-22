@@ -11,7 +11,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { CancellationError, isCancellationError } from '../../../../base/common/errors.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize, localize2 } from '../../../../nls.js';
-import { MenuId, MenuRegistry, Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { MenuId, Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
@@ -42,7 +42,7 @@ import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalf
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
-import { BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../video/common/basehalfNodeDocument.js';
+import { BASEHALF_NODE_DOCUMENT_MAX_BYTES, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
@@ -53,10 +53,11 @@ import { IFilesConfiguration, UndoConfirmLevel } from '../../../contrib/files/co
 
 export const BASEHALF_CANVAS_CARD_CONTEXT_MENU = MenuId.for('BaseHalfCanvasCardContext');
 export const BASEHALF_CANVAS_PANE_CONTEXT_MENU = MenuId.for('BaseHalfCanvasPaneContext');
-export const BASEHALF_CANVAS_NEW_RESULT_NODE_MENU = MenuId.for('BaseHalfCanvasNewResultNode');
 
 const BASEHALF_CANVAS_OPEN_COMMAND_ID = 'basehalf.canvas.openResource';
-export const BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID = 'basehalf.canvas.openResultNodeContent';
+/** New Image and New Video of the canvas menu (generation cards, "Creating a generation card"). */
+export const BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID = 'basehalf.canvas.newImage';
+export const BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID = 'basehalf.canvas.newVideo';
 const BASEHALF_CANVAS_NEW_FILE_COMMAND_ID = 'basehalf.canvas.newFile';
 const BASEHALF_CANVAS_NEW_FOLDER_COMMAND_ID = 'basehalf.canvas.newFolder';
 const BASEHALF_CANVAS_PASTE_COMMAND_ID = 'basehalf.canvas.paste';
@@ -80,13 +81,6 @@ const PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetu
 const LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v1';
 const MAX_PENDING_TEMPLATE_SETUPS = 32;
 const MAX_PENDING_TEMPLATE_FILES = 200;
-
-MenuRegistry.appendMenuItem(BASEHALF_CANVAS_PANE_CONTEXT_MENU, {
-	submenu: BASEHALF_CANVAS_NEW_RESULT_NODE_MENU,
-	title: localize2('basehalf.canvas.context.newResultNode', "New Media or Document"),
-	group: '1_new',
-	order: 15
-});
 
 export interface IBaseHalfPendingTemplateFile {
 	readonly path: string;
@@ -457,13 +451,8 @@ registerAction2(class BaseHalfCanvasOpenResourceAction extends Action2 {
 			return;
 		}
 		const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
-		const commandService = accessor.get(ICommandService);
 		const navigationService = accessor.get(IBaseHalfCanvasNavigationService);
 		await actionContextService.assertCurrent(argument);
-		if (argument.resource.path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			await commandService.executeCommand(BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, argument);
-			return;
-		}
 		await navigationService.openResource(argument.resource, { source: 'api', pinned: true });
 	}
 });
@@ -504,68 +493,24 @@ registerAction2(class BaseHalfCanvasNewFileAction extends Action2 {
 	}
 });
 
-function registerBaseHalfCanvasNewResultNodeAction(
-	id: string,
-	title: ReturnType<typeof localize2>,
-	resultKind: BaseHalfNodeKind,
-	order: number
-): void {
-	registerAction2(class BaseHalfCanvasNewResultNodeAction extends Action2 {
+function registerBaseHalfCanvasNewDraftAction(id: string, title: ReturnType<typeof localize2>, kind: 'image' | 'video', order: number): void {
+	registerAction2(class BaseHalfCanvasNewDraftAction extends Action2 {
 		constructor() {
 			super({
 				id,
 				title,
-				menu: { id: BASEHALF_CANVAS_NEW_RESULT_NODE_MENU, group: '1_content', order }
+				menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order }
 			});
 		}
 
 		override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
-			const editingService = accessor.get(IBaseHalfCanvasEditingService);
-			await editingService.requestCreate(
-				isBaseHalfCanvasActionContext(argument) ? argument : undefined,
-				'resultNode',
-				resultKind
-			);
+			await accessor.get(IBaseHalfCanvasEditingService).requestCreate(isBaseHalfCanvasActionContext(argument) ? argument : undefined, kind);
 		}
 	});
 }
 
-registerBaseHalfCanvasNewResultNodeAction(
-	'basehalf.canvas.newFileNode',
-	localize2('basehalf.canvas.context.newFileNode', "File"),
-	'file',
-	5
-);
-registerBaseHalfCanvasNewResultNodeAction(
-	'basehalf.canvas.newImageNode',
-	localize2('basehalf.canvas.context.newImageNode', "Image"),
-	'image',
-	10
-);
-registerBaseHalfCanvasNewResultNodeAction(
-	'basehalf.canvas.newVideoNode',
-	localize2('basehalf.canvas.context.newVideoNode', "Video"),
-	'video',
-	20
-);
-registerBaseHalfCanvasNewResultNodeAction(
-	'basehalf.canvas.newAudioNode',
-	localize2('basehalf.canvas.context.newAudioNode', "Audio"),
-	'audio',
-	30
-);
-registerBaseHalfCanvasNewResultNodeAction(
-	'basehalf.canvas.newPdfNode',
-	localize2('basehalf.canvas.context.newPdfNode', "PDF"),
-	'pdf',
-	40
-);
-registerBaseHalfCanvasNewResultNodeAction(
-	'basehalf.canvas.newPresentationNode',
-	localize2('basehalf.canvas.context.newPresentationNode', "Presentation"),
-	'presentation',
-	50
-);
+registerBaseHalfCanvasNewDraftAction(BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID, localize2('basehalf.canvas.context.newImage', "New Image"), 'image', 12);
+registerBaseHalfCanvasNewDraftAction(BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, localize2('basehalf.canvas.context.newVideo', "New Video"), 'video', 14);
 
 registerAction2(class BaseHalfCanvasNewFolderAction extends Action2 {
 	constructor() {

@@ -18,9 +18,10 @@ import { ILifecycleService } from '../../../../services/lifecycle/common/lifecyc
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, IBaseHalfCanvasViewSceneChange, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { baseHalfCanvasChildPath } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../video/browser/basehalfVideoNodePanel.js';
 
-/** What the canvas needs of the panel under a Video card. */
+/** What the canvas needs of the panel under a generation card. */
 export interface IBaseHalfCanvasVideoPanelWidget extends IDisposable {
 	readonly element: HTMLElement;
 	/** Its height in screen pixels. */
@@ -30,7 +31,7 @@ export interface IBaseHalfCanvasVideoPanelWidget extends IDisposable {
 	flush(): Promise<void>;
 }
 
-/** The panel under the selected Video card (D58) and what it lives on. */
+/** The panel under the selected generation card and what it lives on. */
 interface IBaseHalfCanvasVideoPanelMount {
 	readonly sceneKey: string;
 	readonly path: string;
@@ -39,22 +40,24 @@ interface IBaseHalfCanvasVideoPanelMount {
 }
 
 /**
- * The panel under a single selected Video card (video node, "The panel"): it
- * follows the selection, stays on its card while the canvas is drawn again,
- * saves its prompt when it goes, and lets the user pick a card or import a
- * file as an input of the node.
+ * The panel under the only selected generation card (generation cards, "The
+ * panel"): a draft or a file with generation information, of an image or a
+ * video, as the canvas knows it from the card store. It follows the
+ * selection, stays on its card while the canvas is drawn again, saves its
+ * prompt when it goes, and lets the user pick a card or import a file as an
+ * input of the card.
  */
 export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCanvasContribution {
 	static readonly ID = 'basehalf.canvas.videoPanel';
 
 	private readonly canvas: IBaseHalfCanvasView;
-	/** The panel under the selected Video card. */
+	/** The panel under the selected generation card. */
 	private mount: IBaseHalfCanvasVideoPanelMount | undefined;
-	/** A Video node that Generate made beside a node with a video: its card is selected once it is drawn. */
-	private pendingNodeSelection: { readonly sceneKey: string; readonly path: string } | undefined;
+	/** A card that Generate made, or a draft its model renamed: it is selected once it is drawn. */
+	private pendingCardSelection: { readonly sceneKey: string; readonly path: string } | undefined;
 	/** Counts selections, so a panel that waits for a drag to end shows only for the latest one. */
 	private selectionToken = 0;
-	/** A single selected card whose preview is still loading: its panel shows once it is known to be a Video node. */
+	/** The only selected card, while it is no generation card: its panel shows once a drawing says it is one. */
 	private wanted: { readonly sceneKey: string; readonly path: string; readonly token: number } | undefined;
 	private disposed = false;
 
@@ -74,7 +77,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		this._register(this.canvas.onDidChangeScene(change => this.onDidChangeScene(change)));
 		this._register(lifecycleService.onWillShutdown(event => event.join(
 			this.mount?.panel.flush() ?? Promise.resolve(),
-			{ id: 'join.basehalfVideoPrompt', label: localize('join.basehalfVideoPrompt', "Saving the prompt of a Video node") }
+			{ id: 'join.basehalfVideoPrompt', label: localize('join.basehalfVideoPrompt', "Saving the prompt of an image or video card") }
 		)));
 		this._register(toDisposable(() => {
 			this.disposed = true;
@@ -84,35 +87,28 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		}));
 	}
 
-	/** Creates the panel of the node at `resource`. */
+	/** Creates the panel of the card at `resource`. */
 	protected createPanel(resource: URI, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
 		return this.instantiationService.createInstance(BaseHalfVideoNodePanel, resource, host, options);
 	}
 
-	/** Whether the card shows a Video node; a node whose preview is still loading counts when `loading` says so. */
-	private isVideoNodeCard(path: string, loading: boolean): boolean | 'loading' {
-		if (!this.canvas.getItem(path)) {
-			return false;
-		}
-		const preview = this.canvas.getCardPreview(path);
-		if (preview?.kind === 'node') {
-			return preview.document.kind === 'video';
-		}
-		return loading && preview?.kind === 'nodeLoading' ? 'loading' : false;
+	/** Whether the card is a generation card, as the card store told the canvas when it drew it. */
+	private isGenerationCard(path: string): boolean {
+		return this.canvas.getItem(path)?.generation !== undefined;
 	}
 
-	/** Shows the panel for a single selected Video card and closes it for any other selection. */
+	/** Shows the panel for a single selected generation card and closes it for any other selection. */
 	private followSelection(sceneKey: string, paths: readonly string[]): void {
 		const token = ++this.selectionToken;
 		this.wanted = undefined;
 		const path = paths.length === 1 ? paths[0] : undefined;
-		const video = path !== undefined ? this.isVideoNodeCard(path, true) : false;
-		if (path === undefined || video === false) {
+		if (path === undefined) {
 			void this.closePanel();
 			return;
 		}
-		if (video === 'loading') {
+		if (!this.isGenerationCard(path)) {
 			void this.closePanel();
+			// A file whose generation information arrives later, as when an agent writes it, gets the panel then.
 			this.wanted = { sceneKey, path, token };
 			return;
 		}
@@ -139,16 +135,16 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		if (selection) {
 			this.followSelection(sceneKey, selection);
 		}
-		const pendingNode = this.pendingNodeSelection;
-		if (pendingNode && pendingNode.sceneKey === sceneKey && this.canvas.getItem(pendingNode.path)) {
-			this.pendingNodeSelection = undefined;
-			this.canvas.select([pendingNode.path]);
-			this.followSelection(sceneKey, [pendingNode.path]);
+		const pending = this.pendingCardSelection;
+		if (pending && pending.sceneKey === sceneKey && this.canvas.getItem(pending.path)) {
+			this.pendingCardSelection = undefined;
+			this.canvas.select([pending.path]);
+			this.followSelection(sceneKey, [pending.path]);
 		}
 		const wanted = this.wanted;
-		if (wanted && (wanted.token !== this.selectionToken || wanted.sceneKey !== sceneKey)) {
+		if (wanted && (wanted.token !== this.selectionToken || wanted.sceneKey !== sceneKey || !this.canvas.getItem(wanted.path))) {
 			this.wanted = undefined;
-		} else if (wanted && this.isVideoNodeCard(wanted.path, false) === true) {
+		} else if (wanted && this.isGenerationCard(wanted.path)) {
 			this.wanted = undefined;
 			this.showPanel(sceneKey, wanted.path);
 		}
@@ -156,7 +152,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		if (!mount) {
 			return;
 		}
-		if (mount.sceneKey !== sceneKey || this.canvasNavigationService.state.cardDetail || this.isVideoNodeCard(mount.path, true) === false) {
+		if (mount.sceneKey !== sceneKey || this.canvasNavigationService.state.cardDetail || !this.isGenerationCard(mount.path)) {
 			void this.closePanel();
 			return;
 		}
@@ -213,12 +209,14 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			pickCard: () => this.canvas.pickCard(path),
 			importFile: () => this.importFile(path),
 			focusCard: () => this.canvas.focusCard(path),
-			didGenerateInNode: resource => this.selectNodeWhenDrawn(sceneKey, resource)
+			didGenerateInNode: resource => this.selectCardWhenDrawn(sceneKey, resource),
+			// The draft a model of another format renamed keeps the selection and its panel at its new name.
+			didRenameCard: resource => this.selectCardWhenDrawn(sceneKey, resource)
 		};
 	}
 
-	/** Selects a Video node that Generate made beside another, once its card is drawn. */
-	private selectNodeWhenDrawn(sceneKey: string, resource: URI): void {
+	/** Selects a card of this canvas that Generate made, or that was renamed, once its card is drawn. */
+	private selectCardWhenDrawn(sceneKey: string, resource: URI): void {
 		const folder = this.canvas.getFolder();
 		if (!folder || !this.canvas.isCurrentScene(sceneKey) || !this.uriIdentityService.extUri.isEqual(dirname(resource), folder.resource)) {
 			return;
@@ -229,11 +227,14 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			this.followSelection(sceneKey, [path]);
 			return;
 		}
-		this.pendingNodeSelection = { sceneKey, path };
+		this.pendingCardSelection = { sceneKey, path };
 		this.canvas.requestRender();
 	}
 
-	/** Import File… of the Video panel: copies the chosen file into the node's folder and returns its path. */
+	/**
+	 * Import File… of the panel: copies the chosen file into the card's folder,
+	 * under a name that no file, folder, or draft has, and returns its path.
+	 */
 	private async importFile(targetPath: string): Promise<string | undefined> {
 		const item = this.canvas.getItem(targetPath);
 		const folder = this.canvas.getFolder();
@@ -244,7 +245,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			canSelectFiles: true,
 			canSelectFolders: false,
 			canSelectMany: false,
-			title: localize('basehalf.canvas.video.importInput', "Import a File for the Video Node"),
+			title: localize('basehalf.canvas.video.importInput', "Import a File as an Input"),
 			openLabel: localize('basehalf.canvas.video.importInputButton', "Import"),
 			filters: [{
 				name: localize('basehalf.canvas.video.importInputFilter', "Images, Videos, Audio, and Text"),
@@ -255,9 +256,9 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		if (!source) {
 			return undefined;
 		}
-		const nodeFolder = dirname(item.stat.resource);
+		const cardFolder = dirname(item.stat.resource);
 		const name = basename(source);
-		if (this.uriIdentityService.extUri.isEqual(dirname(source), nodeFolder)) {
+		if (this.uriIdentityService.extUri.isEqual(dirname(source), cardFolder)) {
 			return baseHalfCanvasChildPath(folder.relativePath, name);
 		}
 		const dot = name.lastIndexOf('.');
@@ -265,12 +266,14 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		const extension = dot > 0 ? name.slice(dot) : '';
 		for (let number = 1; number < 1000; number++) {
 			const candidate = number === 1 ? name : `${stem} ${number}${extension}`;
-			const target = joinPath(nodeFolder, candidate);
-			if (await this.fileService.exists(target)) {
+			const target = joinPath(cardFolder, candidate);
+			const path = baseHalfCanvasChildPath(folder.relativePath, candidate);
+			// A draft's path is taken, as for every name the canvas chooses.
+			if (await this.fileService.exists(target) || await baseHalfPathHoldsDraft(this.fileService, folder.workspaceFolder, path)) {
 				continue;
 			}
 			await this.fileService.copy(source, target, false);
-			return baseHalfCanvasChildPath(folder.relativePath, candidate);
+			return path;
 		}
 		return undefined;
 	}

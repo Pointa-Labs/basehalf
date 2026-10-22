@@ -9,137 +9,127 @@ import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../
 import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { baseHalfVideoCardPresentation, formatBaseHalfVideoElapsed, IBaseHalfVideoCardPresentation } from '../common/basehalfVideoCardPresentation.js';
-import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
-import { IBaseHalfVideoNodeFields } from '../common/basehalfVideoNode.js';
-import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
+import { BaseHalfGenerationKind } from '../common/basehalfGenerationInfo.js';
+import { baseHalfGenerationCardPresentation, BaseHalfGenerationCardState, formatBaseHalfVideoElapsed, IBaseHalfGenerationCardPresentation } from '../common/basehalfVideoCardPresentation.js';
+import { IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
 
-/** What a Video card draws. */
-export interface IBaseHalfVideoCardInput {
-	/** The node's `.bhnode` file. */
+/** What a generation card shows in the place of its file. */
+export interface IBaseHalfGenerationCardFaceInput {
+	/** The card's file, whether or not it exists. */
 	readonly resource: URI;
-	readonly title: string;
-	readonly fields: IBaseHalfVideoNodeFields;
-	/** The node's video file (`result.artifact.path` in the node's workspace folder), when it has one. */
-	readonly video?: URI;
-	/** Whether the video file exists. Unknown counts as there. */
-	readonly videoExists?: boolean;
-	/** The card is the only selected card: its player shows its controls while it is. */
-	readonly interactive: boolean;
-	/** Opens the card, as a double click on it does: the player's Open. */
-	readonly open?: () => void;
+	/** Workspace-relative path of the card. */
+	readonly path: string;
+	/** The card's name: the name its file has, or will have. */
+	readonly name: string;
+	readonly kind: BaseHalfGenerationKind;
+	/** Whether the file exists. A card whose file is there shows the face only when the file cannot be shown. */
+	readonly hasFile: boolean;
 }
 
-export interface IBaseHalfVideoCardServices {
+export interface IBaseHalfGenerationCardFaceServices {
 	readonly hoverService: IHoverService;
-	/** When given, the card follows the progress of a generation in this window by itself. */
-	readonly generationService?: IBaseHalfVideoGenerationService;
+	/** The phase and progress of a generation this window follows. */
+	readonly generationService: IBaseHalfVideoGenerationService;
+	/** The task records of this computer, which decide the phase. */
+	readonly taskStore: IBaseHalfGenerationTaskStore;
 }
 
-/** A drawn Video card. Dispose it with the card's body. */
-export interface IBaseHalfVideoCard extends IDisposable {
+/** A drawn face of a generation card. Dispose it with the card's body. */
+export interface IBaseHalfGenerationCardFace extends IDisposable {
 	readonly element: HTMLElement;
-	/** The time the card's player shows, in seconds: what Capture Frame takes as the current frame. */
-	readonly currentTime: number | undefined;
-	/** Draws the card again for a newer state of the node, keeping a player that shows the same video. */
-	update(input: IBaseHalfVideoCardInput): void;
+	/** What the face shows now. */
+	readonly state: BaseHalfGenerationCardState;
 }
 
 /**
- * Draws a Video card into `container` (D58, video node specification, "The
- * card"): a video glyph while the node is empty; the phase, the time since the
- * start, and a progress bar while it generates; the error or "Stopped" when a
- * generation ended without a video; and the video in the card's player
- * (video node, "The player"). The card keeps its size; the video is fitted.
+ * Draws the face of a generation card into `container` (D63, D64, generation
+ * cards, "The card"): the glyph of its kind for a draft; the glyph, the phase
+ * in words, the time since the start, and a progress bar while it generates;
+ * the error in at most two lines, with the whole text in its tooltip, when the
+ * generation failed; "Stopped"; and, for a file this computer cannot show,
+ * that it cannot, with its path in the tooltip. The face follows the task
+ * records of this computer and the progress of a generation in this window by
+ * itself, so the card around it stays as it is. A card with its file that can
+ * be shown draws its image or its video as the card of any such file does.
  */
-export function renderBaseHalfVideoCard(container: HTMLElement, input: IBaseHalfVideoCardInput, services: IBaseHalfVideoCardServices): IBaseHalfVideoCard {
-	return new BaseHalfVideoCard(container, input, services);
+export function renderBaseHalfGenerationCardFace(container: HTMLElement, input: IBaseHalfGenerationCardFaceInput, services: IBaseHalfGenerationCardFaceServices): IBaseHalfGenerationCardFace {
+	return new BaseHalfGenerationCardFace(container, input, services);
 }
 
-class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
+class BaseHalfGenerationCardFace extends Disposable implements IBaseHalfGenerationCardFace {
 
 	readonly element: HTMLElement;
-	private readonly face: HTMLElement;
-	private readonly faceHover = this._register(new MutableDisposable());
+	private readonly hover = this._register(new MutableDisposable());
 	private readonly ticker = this._register(new MutableDisposable());
-	private readonly player = this._register(new MutableDisposable<IBaseHalfCanvasCardVideoPlayer>());
-	private videoSource: URI | undefined;
-	private videoPlayable = true;
 	private elapsed: HTMLElement | undefined;
 	private tooltip: string | undefined;
+	private renderedKey: string | undefined;
+	private current: IBaseHalfGenerationCardPresentation | undefined;
 
 	constructor(
 		container: HTMLElement,
-		private input: IBaseHalfVideoCardInput,
-		private readonly services: IBaseHalfVideoCardServices
+		private readonly input: IBaseHalfGenerationCardFaceInput,
+		private readonly services: IBaseHalfGenerationCardFaceServices
 	) {
 		super();
-		this.element = append(container, $('.bh-video-card'));
-		this.face = append(this.element, $('.bh-video-card-face'));
-		if (services.generationService) {
-			this._register(services.generationService.onDidChangeProgress(resource => {
-				if (isEqual(resource, this.input.resource)) {
-					this.render();
-				}
-			}));
-		}
+		this.element = append(container, $('.bh-generation-card'));
+		this.element.dataset.kind = input.kind;
+		this._register(services.generationService.onDidChangeProgress(resource => {
+			if (isEqual(resource, this.input.resource)) {
+				this.render();
+			}
+		}));
+		this._register(services.taskStore.onDidChange(() => this.render()));
 		this._register(toDisposable(() => this.element.remove()));
 		this.render();
 	}
 
-	get currentTime(): number | undefined {
-		return this.player.value?.currentTime;
-	}
-
-	update(input: IBaseHalfVideoCardInput): void {
-		if (!isEqual(input.video, this.input.video)) {
-			this.videoPlayable = true;
-		}
-		this.input = input;
-		this.render();
+	get state(): BaseHalfGenerationCardState {
+		return this.current?.state ?? 'draft';
 	}
 
 	private render(): void {
-		const progress = this.services.generationService?.getProgress(this.input.resource);
-		const presentation = baseHalfVideoCardPresentation({
-			title: this.input.title,
-			fields: this.input.fields,
+		const progress = this.services.generationService.getProgress(this.input.resource);
+		const task = this.services.taskStore.forCard(this.input.resource);
+		const presentation = baseHalfGenerationCardPresentation({
+			path: this.input.path,
+			name: this.input.name,
+			kind: this.input.kind,
+			// A card whose file is there shows its face only when the file cannot be shown.
+			hasFile: this.input.hasFile,
+			...(this.input.hasFile ? { fileShowable: false } : {}),
+			...(task ? { task } : {}),
 			...(progress ? { progress } : {}),
-			...(this.input.videoExists !== undefined ? { videoExists: this.input.videoExists } : {}),
-			videoPlayable: this.videoPlayable,
 			now: Date.now()
 		});
+		this.current = presentation;
 		this.element.dataset.state = presentation.state;
-		if (presentation.state === 'video' && this.input.video) {
-			this.face.hidden = true;
-			this.faceHover.clear();
-			this.element.removeAttribute('role');
-			this.element.removeAttribute('aria-label');
-			this.showVideo(this.input.video);
-		} else {
-			this.hideVideo();
-			this.face.hidden = false;
-			this.element.setAttribute('role', 'img');
-			this.element.setAttribute('aria-label', presentation.ariaLabel);
+		this.element.setAttribute('role', 'img');
+		this.element.setAttribute('aria-label', presentation.ariaLabel);
+		// The face is drawn again only when what it shows changed; the time counts up by itself.
+		const key = JSON.stringify([presentation.state, presentation.phaseText, presentation.fraction, presentation.message, presentation.tooltip, presentation.startedAt]);
+		if (key !== this.renderedKey) {
+			this.renderedKey = key;
 			this.renderFace(presentation);
 		}
 		this.updateTicker(presentation);
 	}
 
-	private renderFace(presentation: IBaseHalfVideoCardPresentation): void {
-		clearNode(this.face);
+	private renderFace(presentation: IBaseHalfGenerationCardPresentation): void {
+		clearNode(this.element);
 		this.elapsed = undefined;
-		const glyph = append(this.face, $('.bh-video-card-glyph'));
-		glyph.append(videoGlyph(presentation.state === 'empty' ? 40 : 30));
+		const glyph = append(this.element, $('.bh-generation-card-glyph'));
+		renderBaseHalfItemGlyph(glyph, this.input.kind, 'currentColor', presentation.state === 'draft' ? 40 : 30);
 		if (presentation.state === 'generating') {
-			const status = append(this.face, $('.bh-video-card-status'));
-			append(status, $('span.bh-video-card-phase')).textContent = presentation.phaseText ?? '';
+			const status = append(this.element, $('.bh-generation-card-status'));
+			append(status, $('span.bh-generation-card-phase')).textContent = presentation.phaseText ?? '';
 			if (presentation.elapsedText !== undefined) {
-				this.elapsed = append(status, $('span.bh-video-card-elapsed'));
+				this.elapsed = append(status, $('span.bh-generation-card-elapsed'));
 				this.elapsed.textContent = presentation.elapsedText;
 			}
-			const bar = append(this.face, $('.bh-video-card-progress'));
-			const value = append(bar, $('.bh-video-card-progress-value'));
+			const bar = append(this.element, $('.bh-generation-card-progress'));
+			const value = append(bar, $('.bh-generation-card-progress-value'));
 			bar.setAttribute('role', 'progressbar');
 			bar.setAttribute('aria-label', presentation.phaseText ?? '');
 			bar.setAttribute('aria-valuemin', '0');
@@ -152,19 +142,18 @@ class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 				bar.setAttribute('aria-valuenow', String(percent));
 			}
 		} else if (presentation.message !== undefined) {
-			const message = append(this.face, $('.bh-video-card-message'));
-			message.textContent = presentation.message;
+			append(this.element, $('.bh-generation-card-message')).textContent = presentation.message;
 		}
 		this.tooltip = presentation.tooltip;
-		if (this.tooltip !== undefined && !this.faceHover.value) {
-			this.faceHover.value = this.services.hoverService.setupDelayedHover(this.face, () => ({ content: this.tooltip ?? '' }));
+		if (this.tooltip !== undefined && !this.hover.value) {
+			this.hover.value = this.services.hoverService.setupDelayedHover(this.element, () => ({ content: this.tooltip ?? '' }));
 		} else if (this.tooltip === undefined) {
-			this.faceHover.clear();
+			this.hover.clear();
 		}
 	}
 
-	/** While the node generates, the time since it started counts up each second. */
-	private updateTicker(presentation: IBaseHalfVideoCardPresentation): void {
+	/** While the card generates, the time since it started counts up each second. */
+	private updateTicker(presentation: IBaseHalfGenerationCardPresentation): void {
 		const startedAt = presentation.startedAt;
 		if (presentation.state !== 'generating' || startedAt === undefined) {
 			this.ticker.clear();
@@ -172,62 +161,10 @@ class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 		}
 		if (!this.ticker.value) {
 			this.ticker.value = disposableWindowInterval(getWindow(this.element), () => {
-				if (this.elapsed) {
-					this.elapsed.textContent = formatBaseHalfVideoElapsed(Date.now() - startedAt);
+				if (this.elapsed && this.current?.startedAt !== undefined) {
+					this.elapsed.textContent = formatBaseHalfVideoElapsed(Date.now() - this.current.startedAt);
 				}
 			}, 1000);
 		}
 	}
-
-	private showVideo(source: URI): void {
-		let player = this.player.value;
-		if (!player || !isEqual(this.videoSource, source)) {
-			this.hideVideo();
-			player = createBaseHalfCanvasCardVideoPlayer(this.element, this.face, {
-				source,
-				videoClasses: ['bh-video-card-video'],
-				open: () => this.input.open?.(),
-				onError: () => {
-					this.videoPlayable = false;
-					this.render();
-				},
-				hoverService: this.services.hoverService
-			});
-			this.player.value = player;
-			this.videoSource = source;
-		}
-		player.setSelected(this.input.interactive);
-	}
-
-	private hideVideo(): void {
-		this.player.clear();
-		this.videoSource = undefined;
-	}
-}
-
-/** The video glyph of the canvas: a frame with a play mark. */
-function videoGlyph(size: number): SVGElement {
-	const svg = $.SVG('svg');
-	svg.setAttribute('viewBox', '0 0 16 16');
-	svg.setAttribute('fill', 'none');
-	svg.setAttribute('stroke', 'currentColor');
-	svg.setAttribute('stroke-width', '1.25');
-	svg.setAttribute('stroke-linecap', 'round');
-	svg.setAttribute('stroke-linejoin', 'round');
-	svg.setAttribute('aria-hidden', 'true');
-	svg.style.width = `${size}px`;
-	svg.style.height = `${size}px`;
-	const frame = $.SVG('rect');
-	frame.setAttribute('x', '2.5');
-	frame.setAttribute('y', '3.5');
-	frame.setAttribute('width', '11');
-	frame.setAttribute('height', '9');
-	frame.setAttribute('rx', '1.6');
-	svg.appendChild(frame);
-	const play = $.SVG('path');
-	play.setAttribute('d', 'M6.8 6.3l3 1.7-3 1.7z');
-	play.setAttribute('fill', 'currentColor');
-	play.setAttribute('stroke', 'none');
-	svg.appendChild(play);
-	return svg;
 }
