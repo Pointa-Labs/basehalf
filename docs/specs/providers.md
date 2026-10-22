@@ -349,13 +349,31 @@ answer cross-origin requests from the window.
   `providerModel`, the id the request would be sent with; the window records
   that id with the generation.
 - `submit` takes, with the request, one target file per output the request
-  may make, each under `.bh/cache/generation/`. It answers either a task to
-  poll, or the outputs at once: an address to download, or a target it has
-  already written when the provider answered with the image itself. A file it
-  writes passes the checks a download passes. A provider that answers at once
-  may take minutes; `submit` waits up to ten minutes, and the catalog says
-  which models answer at once, so that the window can tell what a request
-  that never came back may have cost.
+  may make (the `count` of an image model, otherwise one), each a new `.part`
+  file under `.bh/cache/generation/`; for a model that answers at once, it
+  sends nothing when the request names fewer. It answers either a task to
+  poll, or the outputs at once, in the provider's order: an address to
+  download, a target it has already written when the provider answered with
+  the file itself, or the reason of an output the provider refused alone. A
+  file it writes passes the checks a download passes. A provider that answers
+  at once may take minutes; `submit` waits up to ten minutes for the whole
+  answer and reads up to 256 MiB of it, and the catalog says which models
+  answer at once, so that the window can tell what a request that never came
+  back may have cost.
+- `poll` answers a task that succeeded with its outputs in the same three
+  forms, or for a video model whose provider gives one address, with that
+  address. When the provider's answer holds the files themselves, `poll`
+  writes them to the targets the window names with the task, as `submit`
+  does.
+- Each output is kept on its own. An output AI Video cannot keep (not a file
+  of the model's kind, too large, an address it does not download from, or a
+  file it cannot write) is answered like a refusal, with the reason, and the
+  others land. Outputs beyond the targets are dropped. An address that needs
+  headers of its own is downloaded into its target while the command runs,
+  since the headers never leave the extension. A provider that answers with
+  the files themselves when the window named no target fails the command:
+  `submit` with an unknown outcome, since the files were made, and `poll` as
+  refused.
 - `submit` is never retried. A request whose answer does not come back, whose
   answer is only a server error (408 or 5xx), or whose accepted answer cannot
   be read has an unknown outcome
@@ -371,7 +389,11 @@ answer cross-origin requests from the window.
   the endpoint's own origin, never to a CDN, and keeps only a file of the
   model's kind: a video that starts like an MP4, at most 512 MiB; an image
   that starts like a PNG, JPEG, or WebP, at most 64 MiB. A refusal from another
-  origin means the address expired.
+  origin means the address expired. `download` takes the kind and the
+  output's address; a video without an address is found by the provider
+  module, and an output that has an address needs no task id, since a
+  provider that answers at once gives none. It answers the size and the
+  format the bytes start like, which decides the file's extension.
 - A provider module maps its own task states to `pending`, `running`,
   `succeeded` with the addresses of the outputs, or `failed` and `cancelled`
   with the provider's message, and reports progress when the provider does.
@@ -387,11 +409,14 @@ answer cross-origin requests from the window.
   task), too many requests (`rateLimited`, 429, with the provider's limit when
   it states one), insufficient balance (`balance`, 402 or the provider's own
   code), unknown task (`notFound`, 404 when asking about a task), unknown
-  outcome, network failure, unreadable answer. A provider module reads the
-  provider's own error codes where they say more than the status.
+  outcome, network failure, unreadable answer, and a download that is not a
+  video (`notVideo`), not an image (`notImage`), or too large (`tooLarge`). A
+  provider module reads the provider's own error codes where they say more
+  than the status.
 - Nothing is logged except, in the extension's log (the **BaseHalf AI
   Video** output channel), the method, the path without query, the status,
-  and the time of each call.
+  and the time of each call, and how many outputs beyond the targets were
+  dropped.
 - The extension checks every request against the model's declarations
   (the inputs the mode takes, the prompt rule, each parameter's value, and
   the mode's limits) before the provider module adds the rules
