@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { plainMessage, ProviderFailure } from '../src/providers/failure.ts';
-import { BoundHttp, parseEndpoint, resolveHttpOptions, retryAfterMs, type HttpOptions } from '../src/providers/http.ts';
+import { BoundHttp, DEFAULT_HTTP_OPTIONS, parseEndpoint, resolveHttpOptions, retryAfterMs, type HttpOptions } from '../src/providers/http.ts';
 import { recordingSleep, sendJson, startServer } from './providerTestKit.ts';
 
 function bound(endpoint: string, options: HttpOptions = {}, readError?: (status: number, body: unknown) => { message?: string; code?: 'balance' } | undefined): BoundHttp {
@@ -136,6 +136,71 @@ test('a create whose answer never comes within its time has an unknown outcome',
 		const failed = await failure(bound(`${server.url}/api`, { createTimeoutMs: 100 }).create({ method: 'POST', path: '/tasks', body: { kind: 'json', value: {} } }));
 		assert.equal(failed.code, 'unknownOutcome');
 		assert.match(failed.message, /^The connection ended after the request was sent: No answer came in time/);
+	} finally {
+		await server.close();
+	}
+});
+
+test('a create may take ten minutes for its whole answer when the model answers at once, and two minutes without a byte otherwise', () => {
+	const endpoint = parseEndpoint('https://api.example.com/v1');
+	const authorize = () => ({ Authorization: 'Bearer sk-test-secret' });
+	const atOnce = new BoundHttp(endpoint, authorize, undefined, resolveHttpOptions({}), true);
+	const tasks = new BoundHttp(endpoint, authorize, undefined, resolveHttpOptions({}));
+	assert.deepEqual({
+		atOnce: [atOnce.answersAtOnce, atOnce.createTimeoutMs],
+		tasks: [tasks.answersAtOnce, tasks.createTimeoutMs],
+		answers: [DEFAULT_HTTP_OPTIONS.maxAnswerBytes, DEFAULT_HTTP_OPTIONS.maxAtOnceAnswerBytes]
+	}, {
+		atOnce: [true, 10 * 60 * 1000],
+		tasks: [false, 2 * 60 * 1000],
+		answers: [4 * 1024 * 1024, 256 * 1024 * 1024]
+	});
+});
+
+test('the create of a model that answers at once ends when its whole answer has not come in its time, however the bytes trickle in', async () => {
+	// An answer that sends a byte every 20 ms and ends after 800 ms: never quiet, but slow.
+	const server = await startServer((request, response) => {
+		response.writeHead(200, { 'Content-Type': 'application/json' });
+		response.write('{"id": "t-1"');
+		let sent = 0;
+		const timer = setInterval(() => {
+			if (++sent < 40) {
+				response.write(' ');
+			} else {
+				clearInterval(timer);
+				response.end('}');
+			}
+		}, 20);
+		response.on('close', () => clearInterval(timer));
+	});
+	try {
+		const create = (answersAtOnce: boolean) => new BoundHttp(parseEndpoint(`${server.url}/api`), () => ({}), undefined, resolveHttpOptions({ createTimeoutMs: 400, atOnceTimeoutMs: 400 }), answersAtOnce)
+			.create({ method: 'POST', path: '/images', body: { kind: 'json', value: {} } });
+		const tasks = (await create(false)).object();
+		const atOnce = await failure(create(true));
+		assert.deepEqual({ tasks, atOnce: atOnce.code, received: server.received.length }, { tasks: { id: 't-1' }, atOnce: 'unknownOutcome', received: 2 });
+		assert.match(atOnce.message, /^The connection ended after the request was sent: /);
+	} finally {
+		await server.close();
+	}
+});
+
+test('the create of a model that answers at once reads a larger answer, unless the call sets its own limit', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { data: [{ b64_json: 'A'.repeat(5000) }] }));
+	try {
+		const options = resolveHttpOptions({ maxAnswerBytes: 1000, maxAtOnceAnswerBytes: 10_000 });
+		const http = (answersAtOnce: boolean) => new BoundHttp(parseEndpoint(`${server.url}/api`), () => ({}), undefined, options, answersAtOnce);
+		const call = { method: 'POST', path: '/images', body: { kind: 'json', value: {} } } as const;
+		const atOnce = (await http(true).create(call)).object();
+		const tasks = await failure(http(false).create(call));
+		const ownLimit = await failure(http(true).create({ ...call, maxAnswerBytes: 1000 }));
+		const poll = await failure(http(true).request({ method: 'GET', path: '/images' }));
+		assert.deepEqual({ atOnce: Array.isArray(atOnce.data), tasks: tasks.code, ownLimit: ownLimit.code, poll: poll.code }, {
+			atOnce: true,
+			tasks: 'unknownOutcome',
+			ownLimit: 'unknownOutcome',
+			poll: 'invalidResponse'
+		});
 	} finally {
 		await server.close();
 	}

@@ -15,7 +15,9 @@ import { failureForStatus, isRecord, ProviderFailure, readCommonError, rejected,
  *
  * - `create` sends the request that creates a task, once. It is never retried:
  *   when its answer does not come back, or says nothing but a server error, the
- *   outcome is `unknownOutcome`.
+ *   outcome is `unknownOutcome`. For a model that answers at once, whose
+ *   provider makes the files before it answers, it waits up to ten minutes for
+ *   the whole answer and reads up to 256 MiB of it.
  * - `request` sends a poll, a lookup, or an upload, and retries it on network
  *   errors and on HTTP 408, 429, 500, 502, 503, and 504: three times, 1, 2,
  *   then 4 seconds apart, or after the `Retry-After` the provider asks for, up
@@ -81,7 +83,10 @@ export interface HttpCall {
 	readonly body?: HttpBody;
 	/** Statuses answered instead of thrown, such as 404 for a task that is gone. */
 	readonly accept?: readonly number[];
-	/** The largest answer read, 4 MiB unless the options say otherwise. */
+	/**
+	 * The largest answer read: 4 MiB unless the options say otherwise, and for
+	 * the create of a model that answers at once, 256 MiB.
+	 */
 	readonly maxAnswerBytes?: number;
 }
 
@@ -123,9 +128,17 @@ export interface HttpOptions {
 	readonly maxRetryAfterMs?: number;
 	/** Idle time allowed to a request that creates a task. */
 	readonly createTimeoutMs?: number;
+	/**
+	 * The whole time allowed to the request that creates a task of a model that
+	 * answers at once, from sending it to the last byte of its answer: ten
+	 * minutes (providers, "Requests"). No byte for as long ends it too.
+	 */
+	readonly atOnceTimeoutMs?: number;
 	/** Idle time allowed to any other request. */
 	readonly requestTimeoutMs?: number;
 	readonly maxAnswerBytes?: number;
+	/** The largest answer read of the create of a model that answers at once, its files included. */
+	readonly maxAtOnceAnswerBytes?: number;
 	readonly maxRequestBytes?: number;
 	readonly log?: ProviderLog;
 	readonly sleep?: (ms: number) => Promise<void>;
@@ -137,8 +150,10 @@ export const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = Object.freeze({
 	retryDelaysMs: Object.freeze([1000, 2000, 4000]),
 	maxRetryAfterMs: 30_000,
 	createTimeoutMs: 120_000,
+	atOnceTimeoutMs: 10 * 60_000,
 	requestTimeoutMs: 60_000,
 	maxAnswerBytes: 4 * 1024 * 1024,
+	maxAtOnceAnswerBytes: 256 * 1024 * 1024,
 	maxRequestBytes: 128 * 1024 * 1024,
 	log: NO_LOG,
 	sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -302,6 +317,13 @@ function encodeBody(body: HttpBody | undefined): { readonly bytes: Buffer; reado
 export class BoundHttp implements ProviderHttp {
 	readonly endpoint: URL;
 	readonly options: ResolvedHttpOptions;
+	/** The model of the command answers at once: its create waits for the files. */
+	readonly answersAtOnce: boolean;
+	/**
+	 * The time a create may take: the idle time of `createTimeoutMs`, or for a
+	 * model that answers at once, the whole exchange within `atOnceTimeoutMs`.
+	 */
+	readonly createTimeoutMs: number;
 	private readonly authorize: () => Readonly<Record<string, string>>;
 	private readonly readError: (status: number, body: unknown) => ProviderErrorReading | undefined;
 	private createCalled = false;
@@ -314,12 +336,15 @@ export class BoundHttp implements ProviderHttp {
 		endpoint: URL,
 		authorize: () => Readonly<Record<string, string>>,
 		readError: ((status: number, body: unknown) => ProviderErrorReading | undefined) | undefined,
-		options: ResolvedHttpOptions
+		options: ResolvedHttpOptions,
+		answersAtOnce = false
 	) {
 		this.endpoint = endpoint;
 		this.authorize = authorize;
 		this.readError = readError ?? ((_status, body) => readCommonError(body));
 		this.options = options;
+		this.answersAtOnce = answersAtOnce;
+		this.createTimeoutMs = answersAtOnce ? options.atOnceTimeoutMs : options.createTimeoutMs;
 	}
 
 	/** The credential headers for an address: only on the endpoint's origin. */
@@ -444,6 +469,8 @@ export class BoundHttp implements ProviderHttp {
 	/**
 	 * One exchange. A transport failure of a request that creates a task is
 	 * `unknownOutcome` once its body has left this computer, and `network` before.
+	 * The create of a model that answers at once ends when its whole answer has
+	 * not come within its time, however the bytes trickle in.
 	 */
 	private exchange(call: HttpCall, creates: boolean): Promise<RawAnswer> {
 		const url = callUrl(this.endpoint, call);
@@ -458,16 +485,19 @@ export class BoundHttp implements ProviderHttp {
 			...(call.headers ?? {}),
 			...this.credentialHeadersFor(url)
 		};
-		const limit = call.maxAnswerBytes ?? this.options.maxAnswerBytes;
+		const atOnce = creates && this.answersAtOnce;
+		const limit = call.maxAnswerBytes ?? (atOnce ? this.options.maxAtOnceAnswerBytes : this.options.maxAnswerBytes);
 		const startedAt = Date.now();
 		return new Promise<RawAnswer>((resolve, reject) => {
 			let bodySent = false;
 			let settled = false;
+			let deadline: ReturnType<typeof setTimeout> | undefined;
 			const fail = (error: unknown) => {
 				if (settled) {
 					return;
 				}
 				settled = true;
+				clearTimeout(deadline);
 				this.log(call.method, url, 'failed', startedAt);
 				const detail = networkDetail(error);
 				reject(creates && bodySent
@@ -486,6 +516,7 @@ export class BoundHttp implements ProviderHttp {
 						size += chunk.byteLength;
 						if (size > limit) {
 							settled = true;
+							clearTimeout(deadline);
 							this.log(call.method, url, response.statusCode ?? 'failed', startedAt);
 							const message = `The provider answered with more than ${Math.floor(limit / 1024)} KiB.`;
 							reject(new TransportFailure(creates ? unknownOutcome(message) : unreadable(message), false));
@@ -497,6 +528,7 @@ export class BoundHttp implements ProviderHttp {
 					response.on('end', () => {
 						if (!settled) {
 							settled = true;
+							clearTimeout(deadline);
 							this.log(call.method, url, response.statusCode ?? 0, startedAt);
 							resolve({ status: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) });
 						}
@@ -516,9 +548,12 @@ export class BoundHttp implements ProviderHttp {
 				bodySent = true;
 			});
 			request.on('error', fail);
-			request.setTimeout(creates ? this.options.createTimeoutMs : this.options.requestTimeoutMs, () => {
-				request.destroy(new Error('No answer came in time.'));
-			});
+			const timedOut = () => request.destroy(new Error('No answer came in time.'));
+			request.setTimeout(creates ? this.createTimeoutMs : this.options.requestTimeoutMs, timedOut);
+			if (atOnce) {
+				deadline = setTimeout(timedOut, this.createTimeoutMs);
+				deadline.unref();
+			}
 			request.end(body?.bytes);
 		});
 	}
