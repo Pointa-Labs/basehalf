@@ -20,6 +20,13 @@ smoke before delivery ([verification and delivery](../../../docs/harness/verific
 `--verbose` echoes the window's console. A suite that fails keeps its folder,
 with `logs/failure.png`, and the others still run.
 
+BaseHalf keeps drawing while another window covers it: it is launched with
+`--disable-backgrounding-occluded-windows` and
+`--disable-renderer-backgrounding`. Without them, macOS stops the frames of a
+covered window, and every step that waits for a frame or takes a screenshot
+times out while someone works in front of it. A pointer moved over the
+window, or a click that takes its focus, still disturbs a run.
+
 | Suite | What it covers |
 | --- | --- |
 | `workbench` | The window at startup, the surfaces BaseHalf hides, the Agent Area, Source Control, and Settings. |

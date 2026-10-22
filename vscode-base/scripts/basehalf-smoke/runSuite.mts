@@ -99,7 +99,12 @@ const args = [
 	`--shared-data-dir=${sharedDataDir}`,
 	`--extensions-dir=${extensionsDir}`,
 	'--use-inmemory-secretstorage',
-	'--enable-smoke-test-driver'
+	'--enable-smoke-test-driver',
+	// A window that another one covers keeps drawing: macOS would stop its
+	// frames, and every wait for a frame or a screenshot would time out while
+	// someone works in front of it.
+	'--disable-backgrounding-occluded-windows',
+	'--disable-renderer-backgrounding'
 ];
 
 if (opts.verbose) {
