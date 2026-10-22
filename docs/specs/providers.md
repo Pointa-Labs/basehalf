@@ -456,7 +456,7 @@ states:
 | Runway | `https://api.dev.runwayml.com` | API key, `Authorization: Bearer`, `X-Runway-Version: 2024-11-06` | data URI | upload (`runway://`) | Gen-4 Image, tasks | yes |
 | xAI | `https://api.x.ai/v1` | API key, `Authorization: Bearer` | data URL | video as a data URL | Grok Imagine Image, tasks | no |
 | LTX | `https://api.ltx.io` | API key, `Authorization: Bearer` | data URI | upload (`ltx://`) | none | no |
-| Black Forest Labs | `https://api.bfl.ai/v1` | API key, `x-key` | data URL | clip of Edit and Extend as a data URL | FLUX 3 and FLUX.2, tasks | no |
+| Black Forest Labs | `https://api.bfl.ai/v1` | API key, `x-key` | data URL for the video, plain base64 for the image models | clip of Edit and Extend as a data URL | FLUX 3 Image and FLUX.2, tasks | no |
 | OpenAI | `https://api.openai.com/v1` | API key, `Authorization: Bearer` | multipart files | none | GPT Image, answered at once | no |
 
 The video facts were read from each provider's documentation on 2026-10-18,

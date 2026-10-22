@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Black Forest Labs module (docs/specs/video-providers/bfl.md) through the
+ * The Black Forest Labs module (docs/specs/providers/bfl.md) through the
  * provider commands, against local servers that answer like BFL's API and its
  * delivery host. No test calls Black Forest Labs or uses a real key.
  */
@@ -19,7 +19,7 @@ import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/
 import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpAnswer, type HttpCall, type ProviderHttp } from '../src/providers/http.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import { error, gifHeader, isoMedia, jpegHeader, png, recordingSleep, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
+import { error, gifHeader, isoMedia, jpegHeader, partTargets, png, recordingSleep, routed, sendJson, serveFiles, startServer, tinyPng, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-bfl-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -113,7 +113,16 @@ test('the catalog declares Black Forest Labs with one region and one key, and FL
 		regions: [{ id: 'global', label: 'Global', baseUrl: 'https://api.bfl.ai/v1', console: 'https://dashboard.bfl.ai' }],
 		credentials: [{ id: 'apiKey', label: 'API Key', placeholder: 'bfl_…' }]
 	});
-	assert.deepEqual(provider.models.map(model => model.id), ['flux-3']);
+	// The video model, then the image models (their own test below).
+	assert.deepEqual(provider.models.map(model => [model.id, model.kind]), [
+		['flux-3', 'video'],
+		['flux-3-image', 'image'],
+		['flux-2-pro', 'image'],
+		['flux-2-max', 'image'],
+		['flux-2-flex', 'image'],
+		['flux-2-klein-4b', 'image'],
+		['flux-2-klein-9b', 'image']
+	]);
 	const model = provider.models[0];
 	assert.deepEqual({ label: model.label, providerModels: model.providerModels, prompt: model.prompt, deprecated: model.deprecated }, {
 		label: 'FLUX 3',
@@ -348,7 +357,8 @@ test('a polling address on a host of Black Forest Labs is kept and asked without
 			toEndpoint: bound.credentialHeadersFor(new URL('https://api.bfl.ai/v1/get_result?id=task-bfl'))
 		}, {
 			state: { state: 'running', fraction: 0.25 },
-			calls: [{ method: 'GET', url: 'https://api.us1.bfl.ai/v1/get_result?id=task-bfl' }],
+			// A 503 is read by the module: its body may carry the task's state.
+			calls: [{ method: 'GET', url: 'https://api.us1.bfl.ai/v1/get_result?id=task-bfl', accept: [503] }],
 			toCluster: {},
 			toEndpoint: { 'x-key': KEY }
 		});
@@ -399,7 +409,7 @@ test('a refused key answers auth for a create and for a poll, and no message car
 		const providers = commands();
 		const submitted = error(await providers.submit(generation(server.url, 'frames', {})));
 		const polled = error(await providers.poll(taskRef(server.url, 'task-1')));
-		const message = 'Black Forest Labs refused the API key. Check it in Video Providers. (Not authenticated)';
+		const message = 'Black Forest Labs refused the API key. Check it in Providers. (Not authenticated)';
 		assert.deepEqual({ submitted, polled, sent: server.received.length }, {
 			submitted: { code: 'auth', message, status: 401 },
 			polled: { code: 'auth', message, status: 401 },
@@ -438,7 +448,7 @@ test('too few credits, a key without access, refused values, too many tasks, and
 		assert.deepEqual({ outcomes, sent: server.received.length }, {
 			outcomes: [
 				['balance', 402, 'The Black Forest Labs organization has too few credits for this request. Add credits in the BFL dashboard. (Insufficient credits)'],
-				['auth', 403, 'Black Forest Labs refused the API key for this request: the key may be wrong, or its project may not use this endpoint. Check it in Video Providers. (Forbidden)'],
+				['auth', 403, 'Black Forest Labs refused the API key for this request: the key may be wrong, or its project may not use this endpoint. Check it in Providers. (Forbidden)'],
 				// The fields and BFL's messages, never the values sent.
 				['rejected', 422, 'Black Forest Labs refused the request: t2v.duration: Input should be less than or equal to 20; t2v.safety_tolerance: Input should be 0, 1 or 2'],
 				['rejected', 400, 'Black Forest Labs refused the request: Invalid image data'],
@@ -668,5 +678,410 @@ test('check refuses a MOV clip, clips outside their lengths, another image forma
 		});
 	} finally {
 		await server.close();
+	}
+});
+
+// --- the image models ---------------------------------------------------------------------------
+
+type ImageModel = 'flux-3-image' | 'flux-2-pro' | 'flux-2-max' | 'flux-2-flex' | 'flux-2-klein-4b' | 'flux-2-klein-9b';
+
+const IMAGE_MODELS: readonly ImageModel[] = ['flux-3-image', 'flux-2-pro', 'flux-2-max', 'flux-2-flex', 'flux-2-klein-4b', 'flux-2-klein-9b'];
+const SHAPES = ['21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4', '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21'];
+
+/** The bytes of a file as plain base64, as the image routes take them. */
+function base64(media: FileMedia): string {
+	return readFileSync(media.fsPath).toString('base64');
+}
+
+/** A generation of an image model: References mode, with the planned images in order. */
+function imageGeneration(endpoint: string, model: ImageModel, params: Record<string, unknown>, images: readonly FileMedia[] = [], prompt = PROMPT) {
+	return { provider: 'bfl', region: 'global', endpoint, credentials: { apiKey: KEY }, model, mode: 'reference', params, prompt, inputs: { images, videos: [], audios: [] } };
+}
+
+function imageTaskRef(endpoint: string, remoteId: string, model: ImageModel = 'flux-3-image', targets?: readonly string[]) {
+	return { ...taskRef(endpoint, remoteId), model, ...(targets ? { targets } : {}) };
+}
+
+test('the catalog declares FLUX 3 Image and five FLUX.2 models as image models in PNG, with their references and settings', () => {
+	const provider = buildCatalog([BFL]).providers[0];
+	const images = provider.models.filter(model => model.kind === 'image');
+	assert.deepEqual(images.map(model => ({
+		id: model.id,
+		label: model.label,
+		route: model.providerModels,
+		prompt: model.prompt,
+		outputFormat: model.outputFormat,
+		answersAtOnce: model.answersAtOnce,
+		images: model.modes.map(mode => [mode.id, mode.label, mode.inputs.images.min, mode.inputs.images.max, mode.limits])
+	})), [
+		{ id: 'flux-3-image', label: 'FLUX 3 Image', route: { global: 'flux-3-image' }, prompt: { required: 'always', maxLength: 20000 }, outputFormat: 'png', answersAtOnce: undefined, images: [['reference', 'References', 0, 10, { imageMinSide: 256 }]] },
+		{ id: 'flux-2-pro', label: 'FLUX.2 [pro]', route: { global: 'flux-2-pro' }, prompt: { required: 'always', maxLength: 20000 }, outputFormat: 'png', answersAtOnce: undefined, images: [['reference', 'References', 0, 8, {}]] },
+		{ id: 'flux-2-max', label: 'FLUX.2 [max]', route: { global: 'flux-2-max' }, prompt: { required: 'always', maxLength: 20000 }, outputFormat: 'png', answersAtOnce: undefined, images: [['reference', 'References', 0, 8, {}]] },
+		{ id: 'flux-2-flex', label: 'FLUX.2 [flex]', route: { global: 'flux-2-flex' }, prompt: { required: 'always', maxLength: 20000 }, outputFormat: 'png', answersAtOnce: undefined, images: [['reference', 'References', 0, 8, {}]] },
+		{ id: 'flux-2-klein-4b', label: 'FLUX.2 [klein] 4B', route: { global: 'flux-2-klein-4b' }, prompt: { required: 'always', maxLength: 20000 }, outputFormat: 'png', answersAtOnce: undefined, images: [['reference', 'References', 0, 4, {}]] },
+		{ id: 'flux-2-klein-9b', label: 'FLUX.2 [klein] 9B', route: { global: 'flux-2-klein-9b' }, prompt: { required: 'always', maxLength: 20000 }, outputFormat: 'png', answersAtOnce: undefined, images: [['reference', 'References', 0, 4, {}]] }
+	]);
+	const none = { min: 0, max: 0 };
+	for (const model of images) {
+		assert.deepEqual({ ...model.modes[0].inputs, images: none }, { startFrame: 'none', endFrame: 'none', images: none, videos: none, audios: none, source: 'none' }, `${model.id} takes images only`);
+		assert.ok(model.description && /image 1/.test(model.description), `${model.id} says how the prompt names its images`);
+		assert.ok(model.parameters.every(parameter => typeof parameter.tooltip === 'string' && parameter.tooltip.length > 0), `${model.id} explains every setting`);
+	}
+	const settings = (id: string) => images.find(model => model.id === id)!.parameters.map(({ tooltip: _tooltip, ...parameter }) => parameter);
+	const flux2 = {
+		resolution: { name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '1k', label: '1K' }, { value: '1.5k', label: '1.5K' }, { value: '2k', label: '2K' }], default: '1k' },
+		ratio: { name: 'ratio', label: 'Ratio', kind: 'choice', display: 'ratio', options: SHAPES.map(shape => ({ value: shape, label: shape })), default: '1:1' },
+		rewriting: { name: 'prompt_extend', label: 'Prompt Rewriting', kind: 'boolean', default: true, advanced: true },
+		seed: { name: 'seed', label: 'Seed', kind: 'integer', min: 0, max: 2147483647, step: 1, optional: true, advanced: true },
+		safety: { name: 'safety_tolerance', label: 'Safety Tolerance', kind: 'integer', min: 0, max: 5, step: 1, default: 2, advanced: true }
+	};
+	assert.deepEqual({
+		'flux-3-image': settings('flux-3-image'),
+		'flux-2-pro': settings('flux-2-pro'),
+		'flux-2-max': settings('flux-2-max'),
+		'flux-2-flex': settings('flux-2-flex'),
+		'flux-2-klein-4b': settings('flux-2-klein-4b'),
+		'flux-2-klein-9b': settings('flux-2-klein-9b')
+	}, {
+		'flux-3-image': [
+			{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '1k', label: '1K' }, { value: '1.5k', label: '1.5K' }, { value: '2k', label: '2K' }, { value: '4k', label: '4K' }], default: '1k' },
+			{ name: 'ratio', label: 'Ratio', kind: 'choice', display: 'ratio', options: [{ value: 'adaptive', label: 'Adaptive' }, ...SHAPES.map(shape => ({ value: shape, label: shape }))], default: 'adaptive' },
+			{ name: 'grounding', label: 'Grounding', kind: 'boolean', default: true },
+			{ name: 'safety_tolerance', label: 'Safety Tolerance', kind: 'integer', min: 0, max: 4, step: 1, default: 2, advanced: true }
+		],
+		'flux-2-pro': [flux2.resolution, flux2.ratio, flux2.rewriting, flux2.seed, flux2.safety],
+		'flux-2-max': [flux2.resolution, flux2.ratio, flux2.rewriting, flux2.seed, flux2.safety],
+		'flux-2-flex': [
+			flux2.resolution,
+			flux2.ratio,
+			flux2.rewriting,
+			{ name: 'steps', label: 'Steps', kind: 'integer', min: 1, max: 50, step: 1, default: 50, advanced: true },
+			{ name: 'guidance', label: 'Guidance', kind: 'number', min: 1.5, max: 10, step: 0.1, default: 5, advanced: true },
+			flux2.seed,
+			flux2.safety
+		],
+		'flux-2-klein-4b': [flux2.resolution, flux2.ratio, flux2.seed, flux2.safety],
+		'flux-2-klein-9b': [flux2.resolution, flux2.ratio, flux2.seed, flux2.safety]
+	});
+	assert.deepEqual(buildCatalog(PROVIDER_MODULES).providers.find(entry => entry.id === 'bfl')?.models.filter(model => model.kind === 'image').map(model => model.id), IMAGE_MODELS, 'AI Video ships the image models');
+});
+
+test('each image model is created once at its route with the exact body, its images as plain base64 in order, and the key in x-key', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, created(server, `task-${server.received.length}`)));
+	try {
+		const flux2 = (change: Record<string, unknown>) => ({ prompt: PROMPT, width: 1024, height: 1024, safety_tolerance: 2, output_format: 'png', ...change });
+		const cases: readonly { readonly model: ImageModel; readonly params: Record<string, unknown>; readonly images?: readonly FileMedia[]; readonly body: () => unknown }[] = [
+			{
+				// BFL's defaults: the shape the prompt or the images give, 1K, grounding, tolerance 2.
+				model: 'flux-3-image', params: {},
+				body: () => ({ prompt: PROMPT, aspect_ratio: 'auto', resolution: '1k', grounding: true, safety_tolerance: 2 })
+			},
+			{
+				model: 'flux-3-image', params: { ratio: '7:5', resolution: '4k', grounding: false, safety_tolerance: 4 }, images: [START, END],
+				body: () => ({ prompt: PROMPT, images: [base64(START), base64(END)], aspect_ratio: '7:5', resolution: '4k', grounding: false, safety_tolerance: 4 })
+			},
+			{
+				// One image is a list of one, as BFL's examples send it.
+				model: 'flux-3-image', params: { resolution: '1.5k' }, images: [WEBP],
+				body: () => ({ prompt: PROMPT, images: [base64(WEBP)], aspect_ratio: 'auto', resolution: '1.5k', grounding: true, safety_tolerance: 2 })
+			},
+			{
+				// FLUX.2's default: 1024 × 1024, upsampling on.
+				model: 'flux-2-pro', params: {},
+				body: () => flux2({ disable_pup: false })
+			},
+			{
+				model: 'flux-2-max', params: { ratio: '16:9', resolution: '1.5k', prompt_extend: false, seed: 7, safety_tolerance: 5 }, images: [START, END, WEBP],
+				body: () => flux2({ input_image: base64(START), input_image_2: base64(END), input_image_3: base64(WEBP), width: 1920, height: 1072, disable_pup: true, seed: 7, safety_tolerance: 5 })
+			},
+			{
+				model: 'flux-2-flex', params: { ratio: '3:4', prompt_extend: false, steps: 30, guidance: 3.5 }, images: [END],
+				body: () => flux2({ input_image: base64(END), width: 880, height: 1168, prompt_upsampling: false, steps: 30, guidance: 3.5 })
+			},
+			{
+				model: 'flux-2-flex', params: {},
+				body: () => flux2({ prompt_upsampling: true, steps: 50, guidance: 5 })
+			},
+			{
+				// [klein] has no upsampling field, and takes 4 images.
+				model: 'flux-2-klein-4b', params: { ratio: '9:21', resolution: '2k' }, images: [START, END, WEBP, START],
+				body: () => flux2({ input_image: base64(START), input_image_2: base64(END), input_image_3: base64(WEBP), input_image_4: base64(START), width: 1328, height: 3120 })
+			},
+			{
+				model: 'flux-2-klein-9b', params: { seed: 0 },
+				body: () => flux2({ seed: 0 })
+			}
+		];
+		const providers = commands();
+		const outcomes = [];
+		for (const entry of cases) {
+			const before = server.received.length;
+			const request = imageGeneration(server.url, entry.model, entry.params, entry.images);
+			const checked = value(await providers.check(request));
+			const answer = await providers.submit(request);
+			outcomes.push({
+				checked: [checked.problems, checked.providerModel],
+				answer,
+				sent: server.received.slice(before).map(received => ({ method: received.method, path: received.path, key: received.headers['x-key'], type: received.headers['content-type'], body: sentBody(received) }))
+			});
+		}
+		assert.deepEqual(outcomes, cases.map((entry, index) => ({
+			// Each model has one route, so check answers none.
+			checked: [[], undefined],
+			answer: { ok: true, value: { remoteId: `${server.url}/get_result?id=task-${index + 1}` } },
+			sent: [{ method: 'POST', path: `/${entry.model}`, key: KEY, type: 'application/json', body: entry.body() }]
+		})));
+	} finally {
+		await server.close();
+	}
+});
+
+test('FLUX.2 sends the width and height of its tier\'s area for each shape, in multiples of 16 and never above the tier', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, created(server, 'task')));
+	try {
+		const providers = commands();
+		const sizes: Record<string, string> = {};
+		for (const resolution of ['1k', '1.5k', '2k']) {
+			for (const ratio of SHAPES) {
+				const before = server.received.length;
+				value(await providers.submit(imageGeneration(server.url, 'flux-2-pro', { ratio, resolution })));
+				const { width, height } = sentBody(server.received[before]) as { width: number; height: number };
+				const area = { '1k': 1, '1.5k': 2, '2k': 4 }[resolution]! * 1024 * 1024;
+				assert.ok(width % 16 === 0 && height % 16 === 0 && width * height <= area, `${resolution} ${ratio}: ${width} × ${height}`);
+				sizes[`${resolution} ${ratio}`] = `${width} × ${height}`;
+			}
+		}
+		// The table of bfl.md, "Parameters of the image models".
+		const table: readonly (readonly [string, string, string, string])[] = [
+			['21:9', '1552 × 656', '2208 × 944', '3120 × 1328'],
+			['2:1', '1440 × 720', '2048 × 1024', '2896 × 1440'],
+			['16:9', '1360 × 768', '1920 × 1072', '2720 × 1536'],
+			['3:2', '1248 × 832', '1760 × 1168', '2496 × 1664'],
+			['7:5', '1200 × 864', '1712 × 1216', '2416 × 1728'],
+			['4:3', '1168 × 880', '1664 × 1248', '2352 × 1760'],
+			['5:4', '1136 × 912', '1616 × 1280', '2288 × 1824'],
+			['1:1', '1024 × 1024', '1440 × 1440', '2048 × 2048'],
+			['4:5', '912 × 1136', '1280 × 1616', '1824 × 2288'],
+			['3:4', '880 × 1168', '1248 × 1664', '1760 × 2352'],
+			['5:7', '864 × 1200', '1216 × 1712', '1728 × 2416'],
+			['2:3', '832 × 1248', '1168 × 1760', '1664 × 2496'],
+			['9:16', '768 × 1360', '1072 × 1920', '1536 × 2720'],
+			['1:2', '720 × 1440', '1024 × 2048', '1440 × 2896'],
+			['9:21', '656 × 1552', '944 × 2208', '1328 × 3120']
+		];
+		assert.deepEqual(sizes, Object.fromEntries(table.flatMap(([ratio, ...cells]) => ['1k', '1.5k', '2k'].map((resolution, index) => [`${resolution} ${ratio}`, cells[index]]))));
+	} finally {
+		await server.close();
+	}
+});
+
+test('check of an image model reports images outside FLUX 3 Image\'s pixels, too many images, values a model lacks, and a request too large to send; submit then sends nothing', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, created(server, 'task')));
+	try {
+		const providers = commands();
+		const small = file('small.png', png(200, 300), 'image/png');
+		const sixteen = file('sixteen.jpg', jpegHeader(4096, 4096), 'image/jpeg');
+		const over = file('over.jpg', jpegHeader(4097, 4096), 'image/jpeg');
+		const problems = async (model: ImageModel, params: Record<string, unknown>, images: readonly FileMedia[] = [], checker = providers) =>
+			value(await checker.check(imageGeneration(server.url, model, params, images))).problems;
+		// Six images measured as 20 MiB each: 160 MiB in base64, more than AI Video sends.
+		const large = commands({ inspector: () => ({ inspect: async () => ({ bytes: 20 * MiB, format: 'png', width: 1920, height: 1080 }) }) });
+		assert.deepEqual({
+			sixteenMegapixels: await problems('flux-3-image', {}, [sixteen]),
+			aboveSixteen: await problems('flux-3-image', {}, [START, over]),
+			aboveSixteenForFlux2: await problems('flux-2-pro', {}, [over]),
+			small: await problems('flux-3-image', {}, [small]),
+			smallForFlux2: await problems('flux-2-max', {}, [small]),
+			elevenImages: await problems('flux-3-image', {}, Array.from({ length: 11 }, () => START)),
+			nineImages: await problems('flux-2-pro', {}, Array.from({ length: 9 }, () => START)),
+			fiveImages: await problems('flux-2-klein-9b', {}, Array.from({ length: 5 }, () => START)),
+			seedForFlux3: await problems('flux-3-image', { seed: 3 }),
+			toleranceFiveForFlux3: await problems('flux-3-image', { safety_tolerance: 5 }),
+			toleranceSixForFlux2: await problems('flux-2-pro', { safety_tolerance: 6 }),
+			adaptiveForFlux2: await problems('flux-2-pro', { ratio: 'adaptive' }),
+			fourKForFlux2: await problems('flux-2-flex', { resolution: '4k' }),
+			rewritingForKlein: await problems('flux-2-klein-4b', { prompt_extend: false }),
+			guidanceOffStep: await problems('flux-2-flex', { guidance: 3.55 }),
+			gif: await problems('flux-2-pro', {}, [GIF]),
+			tooLarge: await problems('flux-2-pro', {}, [START, START, START, START, START, START], large),
+			submittedOver: error(await providers.submit(imageGeneration(server.url, 'flux-3-image', {}, [over]))),
+			submittedTooMany: error(await providers.submit(imageGeneration(server.url, 'flux-2-klein-4b', {}, Array.from({ length: 5 }, () => START))))
+		}, {
+			sixteenMegapixels: [],
+			aboveSixteen: ['Reference image 2 over.jpg is 4097 × 4096 px, more than the 16 megapixels FLUX 3 Image takes.'],
+			aboveSixteenForFlux2: [],
+			small: ['Reference image 1 small.png is 200 × 300 px; each side must be at least 256 px.'],
+			smallForFlux2: [],
+			elevenImages: ['FLUX 3 Image in References mode takes at most 10 reference images; 11 are planned.'],
+			nineImages: ['FLUX.2 [pro] in References mode takes at most 8 reference images; 9 are planned.'],
+			fiveImages: ['FLUX.2 [klein] 9B in References mode takes at most 4 reference images; 5 are planned.'],
+			seedForFlux3: ['FLUX 3 Image has no setting named "seed".'],
+			toleranceFiveForFlux3: ['Safety Tolerance must be between 0 and 4.'],
+			toleranceSixForFlux2: ['Safety Tolerance must be between 0 and 5.'],
+			adaptiveForFlux2: [`Ratio cannot be adaptive for FLUX.2 [pro]; choose ${SHAPES.join(', ')}.`],
+			fourKForFlux2: ['Resolution cannot be 4k for FLUX.2 [flex]; choose 1K, 1.5K, 2K.'],
+			rewritingForKlein: ['FLUX.2 [klein] 4B has no setting named "prompt_extend".'],
+			guidanceOffStep: ['Guidance must be a step of 0.1 from 1.5.'],
+			gif: ['Reference image 1 moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
+			tooLarge: ['The inputs make a request of 160.0 MiB; AI Video sends at most 128 MiB. Use fewer or smaller inputs.'],
+			submittedOver: { code: 'rejected', message: 'Reference image 1 over.jpg is 4097 × 4096 px, more than the 16 megapixels FLUX 3 Image takes.' },
+			submittedTooMany: { code: 'rejected', message: 'FLUX.2 [klein] 4B in References mode takes at most 4 reference images; 5 are planned.' }
+		});
+		assert.equal(server.received.length, 0, 'a refused request sends nothing');
+	} finally {
+		await server.close();
+	}
+});
+
+test('a poll of an image task maps every status, says what moderation refused about the image, and reads a 503 that carries a state', async () => {
+	const sample = 'https://delivery-eu1.bfl.ai/results/ab/cd/sample.png?se=2026-10-22T10%3A10%3A00Z&sig=abc';
+	const tasks: Readonly<Record<string, unknown>> = {
+		'i-pending': { id: 'i-pending', status: 'Pending', result: null, progress: null },
+		'i-reasoning': { id: 'i-reasoning', status: 'Reasoning', progress: 0.05 },
+		'i-generating': { id: 'i-generating', status: 'Generating', progress: 0.6 },
+		'i-ready': { id: 'i-ready', status: 'Ready', result: { sample, prompt: 'An expanded prompt.', duration: 9.2 }, progress: 1 },
+		'i-request': { id: 'i-request', status: 'Request Moderated', result: null, details: { 'Moderation Reasons': ['Violence'] } },
+		'i-content': { id: 'i-content', status: 'Content Moderated', result: null, details: { 'Moderation Reasons': ['Sexual Content'] } },
+		'i-error': { id: 'i-error', status: 'Error', result: null, details: { error: 'A reference image could not be decoded.' } },
+		'i-no-card': { id: 'i-no-card', status: 'No Card Generated' },
+		'i-bare': { id: 'i-bare', status: 'Ready', result: {} },
+		'i-gone': { id: 'i-gone', status: 'Task not found' }
+	};
+	let outage = 0;
+	const server = await startServer((request, response) => {
+		const id = new URL(request.path, 'http://local').searchParams.get('id') ?? '';
+		if (id === 'i-failed-503') {
+			// A failed task answered as a 503 with its state.
+			sendJson(response, 503, { id, status: 'Error', result: null, details: { error: 'The generation crashed.' } });
+			return;
+		}
+		if (id === 'i-outage') {
+			if (outage++ === 0) {
+				sendJson(response, 503, { detail: 'Service Unavailable' });
+				return;
+			}
+			sendJson(response, 200, { id, status: 'Generating', progress: 0.3 });
+			return;
+		}
+		if (id === 'i-down') {
+			sendJson(response, 503, { detail: 'Service Unavailable' });
+			return;
+		}
+		sendJson(response, 200, tasks[id] ?? { detail: 'Not Found' });
+	});
+	try {
+		const sleep = recordingSleep();
+		const providers = commands({ http: { sleep: sleep.sleep } });
+		const at = (id: string, model: ImageModel = 'flux-3-image') => imageTaskRef(server.url, `${server.url}/get_result?id=${id}`, model);
+		const states: Record<string, unknown> = {};
+		for (const id of ['i-pending', 'i-reasoning', 'i-generating', 'i-ready', 'i-request', 'i-content', 'i-error', 'i-no-card', 'i-failed-503', 'i-outage']) {
+			states[id] = value(await providers.poll(at(id, id === 'i-ready' ? 'flux-2-max' : 'flux-3-image')));
+		}
+		const waitsBeforeDown = sleep.waits.length;
+		const others: Record<string, unknown> = {};
+		for (const id of ['i-bare', 'i-gone', 'i-down']) {
+			const failed = error(await providers.poll(at(id)));
+			others[id] = [failed.code, failed.message];
+		}
+		const asked = (id: string) => server.received.filter(request => request.path.endsWith(`id=${id}`)).length;
+		assert.deepEqual({ states, others, asked: [asked('i-failed-503'), asked('i-outage'), asked('i-down')], waits: [sleep.waits.slice(0, waitsBeforeDown), sleep.waits.slice(waitsBeforeDown)] }, {
+			states: {
+				'i-pending': { state: 'pending' },
+				'i-reasoning': { state: 'running', fraction: 0.05 },
+				'i-generating': { state: 'running', fraction: 0.6 },
+				// Without targets, the address is answered for the window to download.
+				'i-ready': { state: 'succeeded', outputs: [{ url: sample }] },
+				'i-request': { state: 'failed', message: 'Black Forest Labs\' moderation refused the prompt or an input before the image was made (Violence). Change the request: the same one is refused again.' },
+				'i-content': { state: 'failed', message: 'Black Forest Labs\' moderation withheld the finished image (Sexual Content). Change the prompt or the inputs.' },
+				'i-error': { state: 'failed', message: 'Black Forest Labs reports that the generation failed: A reference image could not be decoded.' },
+				'i-no-card': { state: 'failed', message: 'Black Forest Labs ended the task without a result (No Card Generated).' },
+				'i-failed-503': { state: 'failed', message: 'Black Forest Labs reports that the generation failed: The generation crashed.' },
+				'i-outage': { state: 'running', fraction: 0.3 }
+			},
+			others: {
+				'i-bare': ['invalidResponse', 'Black Forest Labs reports the image ready but gives no address of it.'],
+				'i-gone': ['notFound', 'Black Forest Labs does not know the task i-gone: it does not exist or has expired.'],
+				'i-down': ['network', 'Black Forest Labs: Service Unavailable']
+			},
+			// A 503 with a state is read at once; an outage is asked again, three times at most.
+			asked: [1, 2, 4],
+			waits: [[1000], [1000, 2000, 4000]]
+		});
+		assert.ok(server.received.every(request => request.method === 'GET' && request.headers['x-key'] === KEY));
+	} finally {
+		await server.close();
+	}
+});
+
+test('a ready image is downloaded by the poll itself into the task\'s target, without the key on the delivery host; without a target, its address is answered', async () => {
+	const picture = tinyPng();
+	const delivery = await startServer(routed(serveFiles({ '/results/task-7/sample.png': picture })));
+	const api = await startServer((request, response) => sendJson(response, 200, { id: 'task-7', status: 'Ready', result: { sample: `${delivery.url}/results/task-7/sample.png?sig=abc` }, progress: null }));
+	try {
+		const providers = commands();
+		const remoteId = `${api.url}/get_result?id=task-7`;
+		const [target, later] = partTargets(2);
+		const withTarget = value(await providers.poll(imageTaskRef(api.url, remoteId, 'flux-2-pro', [target])));
+		const withoutTarget = value(await providers.poll(imageTaskRef(api.url, remoteId, 'flux-3-image')));
+		const address = (withoutTarget.state === 'succeeded' ? withoutTarget.outputs?.[0] : undefined) as { readonly url?: string } | undefined;
+		const downloaded = value(await providers.download({ ...imageTaskRef(api.url, remoteId), kind: 'image', url: address?.url ?? '', targetFsPath: later }));
+		assert.deepEqual({
+			withTarget,
+			written: readFileSync(target).equals(picture),
+			withoutTarget,
+			downloaded,
+			delivery: delivery.received.map(request => [request.path, request.headers['x-key'] ?? null]),
+			asked: api.received.map(request => [request.path, request.headers['x-key']])
+		}, {
+			withTarget: { state: 'succeeded', outputs: [{ written: target, size: picture.byteLength, format: 'png' }] },
+			written: true,
+			withoutTarget: { state: 'succeeded', outputs: [{ url: `${delivery.url}/results/task-7/sample.png?sig=abc` }] },
+			downloaded: { size: picture.byteLength, format: 'png' },
+			delivery: [['/results/task-7/sample.png?sig=abc', null], ['/results/task-7/sample.png?sig=abc', null]],
+			asked: [['/get_result?id=task-7', KEY], ['/get_result?id=task-7', KEY]]
+		});
+	} finally {
+		await api.close();
+		await delivery.close();
+	}
+});
+
+test('an image create answers a refused key, too few credits, too many tasks, and a refused value with the contract\'s codes, and a dropped create is sent once', async () => {
+	const replies: readonly [number, unknown][] = [
+		[401, { detail: 'Not authenticated' }],
+		[402, { detail: 'Insufficient credits' }],
+		[429, { detail: 'You have reached the maximum number of active tasks.' }],
+		[422, { detail: [{ type: 'less_than_equal', loc: ['body', 'safety_tolerance'], msg: 'Input should be less than or equal to 4', input: 6 }] }],
+		[400, { detail: 'Reference image exceeds 16 megapixels.' }]
+	];
+	let next = 0;
+	const server = await startServer((request, response) => {
+		const [status, body] = replies[next++];
+		sendJson(response, status, body);
+	});
+	const dropped = await startServer((request, response, socket) => socket.destroy());
+	try {
+		const providers = commands();
+		const outcomes = [];
+		for (let index = 0; index < replies.length; index++) {
+			const failed = error(await providers.submit(imageGeneration(server.url, index % 2 ? 'flux-2-pro' : 'flux-3-image', {}, [START])));
+			outcomes.push([failed.code, failed.status, failed.message]);
+		}
+		const lost = error(await providers.submit(imageGeneration(dropped.url, 'flux-2-klein-4b', {})));
+		assert.deepEqual({ outcomes, sent: server.received.length, lost: [lost.code, dropped.received.length] }, {
+			outcomes: [
+				['auth', 401, 'Black Forest Labs refused the API key. Check it in Providers. (Not authenticated)'],
+				['balance', 402, 'The Black Forest Labs organization has too few credits for this request. Add credits in the BFL dashboard. (Insufficient credits)'],
+				['rateLimited', 429, 'Black Forest Labs is already running as many tasks as the account may run at once, or received too many requests. Wait for a task to finish. (You have reached the maximum number of active tasks.)'],
+				['rejected', 422, 'Black Forest Labs refused the request: safety_tolerance: Input should be less than or equal to 4'],
+				['rejected', 400, 'Black Forest Labs refused the request: Reference image exceeds 16 megapixels.']
+			],
+			sent: replies.length,
+			lost: ['unknownOutcome', 1]
+		});
+		assert.ok(!JSON.stringify(outcomes).includes(KEY));
+	} finally {
+		await server.close();
+		await dropped.close();
 	}
 });

@@ -4,10 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Runway module (docs/specs/video-providers/runway.md) through the
- * provider commands, against local servers that answer like Runway's API, its
- * upload storage, and the CDN of its videos. No test calls Runway or uses a
- * real key.
+ * The Runway module (docs/specs/providers/runway.md) through the provider
+ * commands, against local servers that answer like Runway's API, its upload
+ * storage, and the CDN of its videos and images. No test calls Runway or uses
+ * a real key.
  */
 
 import assert from 'node:assert/strict';
@@ -21,7 +21,7 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import { RUNWAY } from '../src/providers/runway.ts';
 import type { CatalogModel, PlannedMedia } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, type Received, type TestServer } from './providerTestKit.ts';
+import { error, gifHeader, isoMedia, jpegHeader, partTargets, plannedFiles, png, recordingSleep, routed, sendJson, serveFiles, startServer, tinyJpeg, value, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-runway-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -216,7 +216,10 @@ test('the catalog declares Runway with one region, one API key, and its three ow
 	const none = { min: 0, max: 0 };
 	// 128 MiB, the most AI Video sends in one request, less 1 MiB for the upload's form fields.
 	const fileMaxBytes = 127 * 1024 * 1024;
-	assert.deepEqual(provider.models.map(model => ({
+	// The three video models, then the two image models (their own test below).
+	assert.deepEqual(provider.models.map(model => [model.id, model.kind]), [['gen4.5', 'video'], ['gen4_turbo', 'video'], ['aleph2', 'video'], ['gen4_image', 'image'], ['gen4_image_turbo', 'image']]);
+	const videoModels = provider.models.filter(model => model.kind === 'video');
+	assert.deepEqual(videoModels.map(model => ({
 		id: model.id,
 		label: model.label,
 		sentAs: model.providerModels,
@@ -254,7 +257,7 @@ test('the catalog declares Runway with one region, one API key, and its three ow
 	const duration = ['duration', 'Duration', 2, 10, 1, 'seconds', 5, ''];
 	const seed = ['seed', 'Seed', 0, 2147483647, 1, '', undefined, 'optional More'];
 	const publicFigures = ['publicFigureThreshold', 'Public Figures', ['auto=Auto', 'low=Low'], 'auto', '', 'More'];
-	assert.deepEqual(Object.fromEntries(provider.models.map(model => [model.id, settings(model)])), {
+	assert.deepEqual(Object.fromEntries(videoModels.map(model => [model.id, settings(model)])), {
 		'gen4.5': [resolution, ratio, duration, seed, publicFigures],
 		'gen4_turbo': [resolution, ratio, duration, seed, publicFigures],
 		'aleph2': [
@@ -518,7 +521,7 @@ test('a refused key answers auth for a create and for a poll, with what to do, a
 		const providers = commands();
 		const submitted = error(await providers.submit(generation(server.url, 'gen4.5', 'frames', {})));
 		const polled = error(await providers.poll(taskRef(server.url, 'task-1')));
-		const message = 'Runway refused the API key. Check it in Video Providers: Runway refuses a key that is not valid, was disabled, or belongs to a suspended account. (Invalid API key)';
+		const message = 'Runway refused the API key. Check it in Providers: Runway refuses a key that is not valid, was disabled, or belongs to a suspended account. (Invalid API key)';
 		assert.deepEqual({ submitted, polled, sent: server.received.length }, {
 			submitted: { code: 'auth', message, status: 401 },
 			polled: { code: 'auth', message, status: 401 },
@@ -538,7 +541,7 @@ test('429 answers rateLimited with the limits of the tiers: a create is sent onc
 		const submitted = error(await providers.submit(generation(server.url, 'gen4.5', 'frames', {})));
 		const created = server.received.length;
 		const polled = error(await providers.poll(taskRef(server.url, 'task-1')));
-		const message = 'You have exceeded your daily generation limit. A Runway project starts as many video generations in 24 hours as its usage tier allows (50 at tier 1, more after more credits are bought), and its uploads are limited too.';
+		const message = 'You have exceeded your daily generation limit. A Runway project starts as many generations of each model in 24 hours as its usage tier allows (50 video generations at tier 1, more after more credits are bought), and its uploads are limited too.';
 		assert.deepEqual({ submitted, polled, created, asked: server.received.length - created, waits: sleep.waits }, {
 			submitted: { code: 'rateLimited', message, status: 429 },
 			polled: { code: 'rateLimited', message, status: 429 },
@@ -825,5 +828,306 @@ test('check measures images and clips against Runway\'s limits, and submit sends
 		});
 	} finally {
 		await server.close();
+	}
+});
+
+// --- the image models ---------------------------------------------------------------------------
+
+type ImageModel = 'gen4_image' | 'gen4_image_turbo';
+
+/** A generation of an image model: References mode, with the planned images in order. */
+function imageGeneration(endpoint: string, model: ImageModel, params: Record<string, unknown>, images: readonly FileMedia[] = [], prompt = PROMPT) {
+	return { provider: 'runway', region: 'global', endpoint, credentials: { apiKey: KEY }, model, mode: 'reference', params, prompt, inputs: { images, videos: [], audios: [] } };
+}
+
+test('the catalog declares Gen-4 Image and Gen-4 Image Turbo as image models in PNG, with up to 3 references and their sizes', () => {
+	const provider = buildCatalog([RUNWAY]).providers[0];
+	const images = provider.models.filter(model => model.kind === 'image');
+	const none = { min: 0, max: 0 };
+	const mode = (min: number) => [{
+		id: 'reference',
+		label: 'References',
+		inputs: { startFrame: 'none', endFrame: 'none', images: { min, max: 3 }, videos: none, audios: none, source: 'none' },
+		limits: { imageMaxSide: 8000, imageMaxBytes: 127 * 1024 * 1024 }
+	}];
+	assert.deepEqual(images.map(model => ({ id: model.id, label: model.label, sentAs: model.providerModels, prompt: model.prompt, outputFormat: model.outputFormat, answersAtOnce: model.answersAtOnce, modes: model.modes, deprecated: model.deprecated })), [
+		{ id: 'gen4_image', label: 'Gen-4 Image', sentAs: { global: 'gen4_image' }, prompt: { required: 'always', maxLength: 1000 }, outputFormat: 'png', answersAtOnce: undefined, modes: mode(0), deprecated: undefined },
+		{ id: 'gen4_image_turbo', label: 'Gen-4 Image Turbo', sentAs: { global: 'gen4_image_turbo' }, prompt: { required: 'always', maxLength: 1000 }, outputFormat: 'png', answersAtOnce: undefined, modes: mode(1), deprecated: undefined }
+	]);
+	for (const model of images) {
+		assert.ok(model.description?.includes('@image1, @image2, and @image3'), `${model.id} says how the prompt names the references`);
+		assert.ok(model.parameters.every(parameter => typeof parameter.tooltip === 'string' && parameter.tooltip.length > 0), `${model.id} explains every setting`);
+		assert.deepEqual(model.parameters.map(({ tooltip: _tooltip, ...parameter }) => parameter), [
+			{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }], default: '1080p' },
+			{ name: 'ratio', label: 'Ratio', kind: 'choice', display: 'ratio', options: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'].map(ratio => ({ value: ratio, label: ratio })), default: '16:9' },
+			{ name: 'seed', label: 'Seed', kind: 'integer', min: 0, max: 2147483647, step: 1, optional: true, advanced: true },
+			{ name: 'publicFigureThreshold', label: 'Public Figures', kind: 'choice', options: [{ value: 'auto', label: 'Auto' }, { value: 'low', label: 'Low' }], default: 'auto', advanced: true }
+		]);
+	}
+	assert.deepEqual(buildCatalog(PROVIDER_MODULES).providers.find(entry => entry.id === 'runway')?.models.filter(model => model.kind === 'image').map(model => model.id), ['gen4_image', 'gen4_image_turbo'], 'AI Video ships the image models');
+});
+
+test('an image model is created once at /v1/text_to_image with the pixel size of its ratio and resolution and its references tagged in order', async () => {
+	const storage = await startStorage();
+	const api = await startApi(storage);
+	try {
+		const moderation = (threshold = 'auto') => ({ contentModeration: { publicFigureThreshold: threshold } });
+		const cases: readonly { readonly model: ImageModel; readonly params: Record<string, unknown>; readonly images?: readonly FileMedia[]; readonly body: () => Record<string, unknown> }[] = [
+			{
+				// The defaults: 16:9 at 1080p, Runway's own moderation, a random seed.
+				model: 'gen4_image', params: {},
+				body: () => ({ model: 'gen4_image', promptText: PROMPT, ratio: '1920:1080', ...moderation() })
+			},
+			{
+				model: 'gen4_image', params: { resolution: '720p', ratio: '21:9', seed: 42, publicFigureThreshold: 'low' },
+				body: () => ({ model: 'gen4_image', promptText: PROMPT, ratio: '1680:720', seed: 42, ...moderation('low') })
+			},
+			{
+				// Each image is tagged in its order, for the prompt's at-mentions.
+				model: 'gen4_image', params: { ratio: '9:16' }, images: [START, SQUARE, WIDE],
+				body: () => ({
+					model: 'gen4_image',
+					promptText: PROMPT,
+					ratio: '1080:1920',
+					referenceImages: [
+						{ uri: dataUri(START, 'image/png'), tag: 'image1' },
+						{ uri: dataUri(SQUARE, 'image/jpeg'), tag: 'image2' },
+						{ uri: dataUri(WIDE, 'image/png'), tag: 'image3' }
+					],
+					...moderation()
+				})
+			},
+			{
+				model: 'gen4_image_turbo', params: { resolution: '720p', ratio: '1:1' }, images: [SQUARE],
+				body: () => ({ model: 'gen4_image_turbo', promptText: PROMPT, ratio: '720:720', referenceImages: [{ uri: dataUri(SQUARE, 'image/jpeg'), tag: 'image1' }], ...moderation() })
+			}
+		];
+		const providers = commands();
+		const outcomes = [];
+		for (const entry of cases) {
+			const before = api.received.length;
+			const answer = await providers.submit(imageGeneration(api.url, entry.model, entry.params, entry.images));
+			outcomes.push({ answer, sent: api.received.slice(before).map(apiCall) });
+		}
+		assert.deepEqual(outcomes, cases.map((entry, index) => ({
+			answer: { ok: true, value: { remoteId: taskId(index + 1) } },
+			sent: [{ method: 'POST', path: '/v1/text_to_image', authorization: `Bearer ${KEY}`, version: VERSION, type: 'application/json', body: entry.body() }]
+		})));
+		assert.equal(storage.received.length, 0, 'images of at most 5 MiB as data URIs upload nothing');
+
+		// Every shape has a size of each class.
+		const sizes: Record<string, unknown> = {};
+		for (const resolution of ['720p', '1080p']) {
+			for (const ratio of ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9']) {
+				const before = api.received.length;
+				value(await providers.submit(imageGeneration(api.url, 'gen4_image', { resolution, ratio })));
+				sizes[`${resolution} ${ratio}`] = (sentBody(api.received[before]) as { ratio: string }).ratio;
+			}
+		}
+		assert.deepEqual(sizes, {
+			'720p 16:9': '1280:720', '720p 9:16': '720:1280', '720p 4:3': '960:720', '720p 3:4': '720:960', '720p 1:1': '720:720', '720p 21:9': '1680:720',
+			'1080p 16:9': '1920:1080', '1080p 9:16': '1080:1920', '1080p 4:3': '1440:1080', '1080p 3:4': '1080:1440', '1080p 1:1': '1080:1080', '1080p 21:9': '2112:912'
+		});
+	} finally {
+		await api.close();
+		await storage.close();
+	}
+});
+
+test('a reference whose data URI would pass 5 MiB goes through the upload as a reference image', async () => {
+	const storage = await startStorage();
+	const api = await startApi(storage);
+	try {
+		value(await commands().submit(imageGeneration(api.url, 'gen4_image_turbo', {}, [START, OVER_LIMIT])));
+		const [uploadRequest, create] = api.received;
+		const stored = formParts(storage.received[0]).at(-1);
+		assert.deepEqual({
+			upload: [uploadRequest.path, sentBody(uploadRequest)],
+			references: [create.path, (sentBody(create) as { referenceImages: unknown }).referenceImages],
+			stored: [stored?.name, stored?.filename, stored?.type, stored?.value.equals(readFileSync(OVER_LIMIT.fsPath))]
+		}, {
+			upload: ['/v1/uploads', { filename: 'reference-image.png', type: 'ephemeral' }],
+			references: ['/v1/text_to_image', [{ uri: dataUri(START, 'image/png'), tag: 'image1' }, { uri: 'runway://upload-1', tag: 'image2' }]],
+			stored: ['file', 'reference-image.png', 'image/png', true]
+		});
+	} finally {
+		await api.close();
+		await storage.close();
+	}
+});
+
+test('check of an image model reports the references Turbo needs, too many references, the prompt in UTF-16, and values the models lack; submit then sends nothing', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { id: taskId(1) }));
+	try {
+		const providers = commands();
+		const problems = async (model: ImageModel, params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT) =>
+			value(await providers.check({ provider: 'runway', region: 'global', model, mode: 'reference', params, prompt: text, inputs })).problems;
+		assert.deepEqual({
+			textOnly: await problems('gen4_image', {}, plannedFiles()),
+			turboWithoutImages: await problems('gen4_image_turbo', {}, plannedFiles()),
+			threeImages: await problems('gen4_image_turbo', {}, plannedFiles({ images: 3 })),
+			fourImages: await problems('gen4_image', {}, plannedFiles({ images: 4 })),
+			emojiPrompt: await problems('gen4_image', {}, plannedFiles(), '🖼'.repeat(600)),
+			noPrompt: await problems('gen4_image_turbo', {}, plannedFiles({ images: 1 }), ' '),
+			resolution4k: await problems('gen4_image', { resolution: '4k' }, plannedFiles()),
+			ratio2by1: await problems('gen4_image', { ratio: '2:1' }, plannedFiles()),
+			duration: await problems('gen4_image', { duration: 5 }, plannedFiles()),
+			gif: await problems('gen4_image', {}, { images: [GIF], videos: [], audios: [] }),
+			huge: await problems('gen4_image', {}, { images: [HUGE], videos: [], audios: [] }),
+			submittedTurbo: error(await providers.submit(imageGeneration(server.url, 'gen4_image_turbo', {}))),
+			submittedFour: error(await providers.submit(imageGeneration(server.url, 'gen4_image', {}, [START, START, START, START])))
+		}, {
+			textOnly: [],
+			turboWithoutImages: ['Gen-4 Image Turbo in References mode needs at least 1 reference image.'],
+			threeImages: [],
+			fourImages: ['Gen-4 Image in References mode takes at most 3 reference images; 4 are planned.'],
+			emojiPrompt: ['The prompt is 1200 characters long as Runway counts them, where most emoji count as two; Gen-4 Image takes at most 1000.'],
+			noPrompt: ['Write a prompt: Gen-4 Image Turbo needs one.'],
+			resolution4k: ['Resolution cannot be 4k for Gen-4 Image; choose 720p, 1080p.'],
+			ratio2by1: ['Ratio cannot be 2:1 for Gen-4 Image; choose 16:9, 9:16, 4:3, 3:4, 1:1, 21:9.'],
+			duration: ['Gen-4 Image has no setting named "duration".'],
+			gif: ['Reference image 1 moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
+			huge: ['Reference image 1 huge.jpg is 8001 × 4001 px; each side must be at most 8000 px.'],
+			submittedTurbo: { code: 'rejected', message: 'Gen-4 Image Turbo in References mode needs at least 1 reference image.' },
+			submittedFour: { code: 'rejected', message: 'Gen-4 Image in References mode takes at most 3 reference images; 4 are planned.' }
+		});
+		assert.equal(server.received.length, 0, 'a refused request sends nothing');
+	} finally {
+		await server.close();
+	}
+});
+
+test('asking about an image task answers the addresses of its output, says what moderation refused about the image, and reads no other answer', async () => {
+	const createdAt = '2026-10-22T02:00:00.000Z';
+	const tasks: Readonly<Record<string, unknown>> = {
+		'pending': { id: 'pending', status: 'PENDING', createdAt },
+		'throttled': { id: 'throttled', status: 'THROTTLED', createdAt },
+		'running': { id: 'running', status: 'RUNNING', createdAt, progress: 0.25 },
+		'succeeded': { id: 'succeeded', status: 'SUCCEEDED', createdAt, output: ['https://dnznrvs05pmza.cloudfront.net/image.png?_jwt=a'] },
+		'two': { id: 'two', status: 'SUCCEEDED', createdAt, output: ['https://dnznrvs05pmza.cloudfront.net/a.png?_jwt=a', ' ', 'https://dnznrvs05pmza.cloudfront.net/b.png?_jwt=b'] },
+		'moderated': { id: 'moderated', status: 'FAILED', createdAt, failure: 'The output was flagged by content moderation.', failureCode: 'SAFETY.OUTPUT.IMAGE' },
+		'input': { id: 'input', status: 'FAILED', createdAt, failure: 'An input was flagged.', failureCode: 'SAFETY.INPUT.IMAGE' },
+		'cancelled': { id: 'cancelled', status: 'CANCELLED', createdAt },
+		'empty': { id: 'empty', status: 'SUCCEEDED', createdAt, output: [] }
+	};
+	const server = await startServer((request, response) => {
+		const id = request.path.split('/').at(-1) ?? '';
+		if (tasks[id]) {
+			sendJson(response, 200, tasks[id]);
+		} else {
+			sendJson(response, 404, { error: 'Task not found' });
+		}
+	});
+	try {
+		const providers = commands();
+		const states: Record<string, unknown> = {};
+		for (const id of ['pending', 'throttled', 'running', 'succeeded', 'two', 'moderated', 'input', 'cancelled']) {
+			states[id] = value(await providers.poll(taskRef(server.url, id, id === 'two' ? 'gen4_image_turbo' : 'gen4_image')));
+		}
+		const others: Record<string, unknown> = {};
+		for (const id of ['empty', 'gone']) {
+			const failed = error(await providers.poll(taskRef(server.url, id, 'gen4_image')));
+			others[id] = [failed.code, failed.message];
+		}
+		assert.deepEqual({ states, others }, {
+			states: {
+				'pending': { state: 'pending' },
+				'throttled': { state: 'pending' },
+				'running': { state: 'running', fraction: 0.25 },
+				'succeeded': { state: 'succeeded', outputs: [{ url: 'https://dnznrvs05pmza.cloudfront.net/image.png?_jwt=a' }] },
+				'two': { state: 'succeeded', outputs: [{ url: 'https://dnznrvs05pmza.cloudfront.net/a.png?_jwt=a' }, { url: 'https://dnznrvs05pmza.cloudfront.net/b.png?_jwt=b' }] },
+				'moderated': { state: 'failed', message: 'Runway\'s moderation refused the image it made. The output was flagged by content moderation. (SAFETY.OUTPUT.IMAGE)' },
+				'input': { state: 'failed', message: 'Runway\'s moderation refused an input, and Runway does not refund such a task. An input was flagged. (SAFETY.INPUT.IMAGE)' },
+				'cancelled': { state: 'cancelled', message: 'Runway reports that the task was cancelled.' }
+			},
+			others: {
+				'empty': ['invalidResponse', 'Runway reports that the task succeeded but gives no address of its image.'],
+				'gone': ['notFound', 'Task not found']
+			}
+		});
+		assert.ok(server.received.every(request => request.headers.authorization === `Bearer ${KEY}` && request.headers['x-runway-version'] === VERSION));
+	} finally {
+		await server.close();
+	}
+});
+
+test('an image downloads from the address of the poll without the key or the version, and an image task is cancelled as a video task is', async () => {
+	const picture = tinyJpeg();
+	const cdn = await startServer(routed(serveFiles({ '/output/task-3.jpg': picture })));
+	let deleted = 0;
+	const api = await startServer((request, response) => {
+		if (request.method === 'DELETE') {
+			deleted++;
+			response.writeHead(204);
+			response.end();
+			return;
+		}
+		const id = request.path.split('/').at(-1);
+		sendJson(response, 200, id === 'task-3'
+			? { id, status: 'SUCCEEDED', createdAt: '2026-10-22T02:00:00.000Z', output: [`${cdn.url}/output/task-3.jpg?_jwt=fresh`] }
+			: { id, status: 'RUNNING', createdAt: '2026-10-22T02:00:00.000Z' });
+	});
+	try {
+		const providers = commands();
+		const ref = taskRef(api.url, 'task-3', 'gen4_image');
+		const polled = value(await providers.poll(ref));
+		const address = (polled.state === 'succeeded' ? polled.outputs?.[0] : undefined) as { readonly url?: string } | undefined;
+		const [target] = partTargets(1);
+		const downloaded = value(await providers.download({ ...ref, kind: 'image', url: address?.url ?? '', targetFsPath: target }));
+		const running = value(await providers.cancel(taskRef(api.url, 'task-4', 'gen4_image_turbo')));
+		const ended = value(await providers.cancel(ref));
+		assert.deepEqual({
+			downloaded,
+			same: readFileSync(target).equals(picture),
+			cdn: cdn.received.map(request => [request.path, request.headers.authorization ?? null, request.headers['x-runway-version'] ?? null]),
+			cancelled: [running.cancelled, ended.cancelled, deleted]
+		}, {
+			// A file in another format than the model declares lands under its own.
+			downloaded: { size: picture.byteLength, format: 'jpeg' },
+			same: true,
+			cdn: [['/output/task-3.jpg?_jwt=fresh', null, null]],
+			cancelled: [true, false, 1]
+		});
+	} finally {
+		await api.close();
+		await cdn.close();
+	}
+});
+
+test('an image create answers a refused key, too little balance, too many requests, and a refused field with the contract\'s codes, each sent once', async () => {
+	const replies: readonly [number, unknown][] = [
+		[401, { error: 'Invalid API key' }],
+		[402, { error: 'Not enough credits.' }],
+		[429, { error: 'You have exceeded your daily generation limit.' }],
+		[400, { error: 'Validation of body failed', issues: [{ code: 'invalid_string', path: ['referenceImages', 0, 'tag'], message: 'Invalid' }], docUrl: 'https://docs.dev.runwayml.com/errors' }]
+	];
+	let next = 0;
+	const server = await startServer((request, response) => {
+		const [status, body] = replies[next++];
+		sendJson(response, status, body);
+	});
+	const dropped = await startServer((request, response, socket) => socket.destroy());
+	try {
+		const providers = commands();
+		const outcomes = [];
+		for (let index = 0; index < replies.length; index++) {
+			const failed = error(await providers.submit(imageGeneration(server.url, 'gen4_image', {}, [START])));
+			outcomes.push([failed.code, failed.status, failed.message]);
+		}
+		const lost = error(await providers.submit(imageGeneration(dropped.url, 'gen4_image_turbo', {}, [SQUARE])));
+		assert.deepEqual({ outcomes, sent: server.received.length, lost: [lost.code, dropped.received.length] }, {
+			outcomes: [
+				['auth', 401, 'Runway refused the API key. Check it in Providers: Runway refuses a key that is not valid, was disabled, or belongs to a suspended account. (Invalid API key)'],
+				['balance', 402, 'Not enough credits.'],
+				['rateLimited', 429, 'You have exceeded your daily generation limit. A Runway project starts as many generations of each model in 24 hours as its usage tier allows (50 video generations at tier 1, more after more credits are bought), and its uploads are limited too.'],
+				['rejected', 400, 'Validation of body failed (referenceImages.0.tag: Invalid)']
+			],
+			sent: replies.length,
+			lost: ['unknownOutcome', 1]
+		});
+		assert.ok(!JSON.stringify(outcomes).includes(KEY));
+	} finally {
+		await server.close();
+		await dropped.close();
 	}
 });
