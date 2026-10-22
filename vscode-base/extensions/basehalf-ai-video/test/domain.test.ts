@@ -190,17 +190,18 @@ test('uses the directory containing video-sequence.json as the workflow root', (
 	assert.throws(() => portableDescendantVideoNodePath('/workspace/one', '/workspace/two/clip.bhnode'), /inside the workflow root/);
 });
 
-test('parses a shot as portable metadata around one Video Result node', () => {
+test('parses a shot as portable metadata around its video card, a draft until it generates', () => {
 	const shot = parseAIVideoShotDocument(JSON.stringify({
 		version: 1,
 		kind: 'pointa.basehalf-ai-video.shot',
 		id: 'shot-01',
 		title: 'Opening',
-		clipNodePath: 'clip.bhnode'
+		clipNodePath: 'clip.mp4'
 	}));
-	assert.equal(shot.clipNodePath, 'clip.bhnode');
-	assert.equal(resolveAIVideoShotClipNodePath('/workspace/shots/shot-01/shot.json', shot.clipNodePath), '/workspace/shots/shot-01/clip.bhnode');
-	assert.throws(() => parseAIVideoShotDocument(JSON.stringify({ ...shot, clipNodePath: 'clip.mp4' })), /ending in '.bhnode'/);
+	assert.equal(shot.clipNodePath, 'clip.mp4');
+	assert.equal(resolveAIVideoShotClipNodePath('/workspace/shots/shot-01/shot.json', shot.clipNodePath), '/workspace/shots/shot-01/clip.mp4');
+	assert.throws(() => parseAIVideoShotDocument(JSON.stringify({ ...shot, clipNodePath: 'clip.bhnode' })), /video file/);
+	assert.throws(() => parseAIVideoShotDocument(JSON.stringify({ ...shot, clipNodePath: '../clip.mp4' })), /safe relative path/);
 });
 
 test('rejects ambiguous, legacy, and unsafe Sequence documents', () => {

@@ -19,6 +19,14 @@ export const MAX_SEQUENCE_ITEMS = 10_000;
 
 export type AIVideoContentKind = 'text' | 'code' | 'file' | 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation';
 
+/** The extensions of a video file, as BaseHalf's video cards have them (generation cards, "Terms"). */
+export const VIDEO_FILE_EXTENSIONS: readonly string[] = Object.freeze(['.mp4', '.mov', '.m4v', '.webm']);
+
+/**
+ * A shot of the starter workflow (D63): a stable id, a title, and the path
+ * of its clip, the shot's video card, relative to the folder of its
+ * `shot.json`. The card is a draft until it generates.
+ */
 export interface AIVideoShotDocument {
 	readonly version: 1;
 	readonly kind: 'pointa.basehalf-ai-video.shot';
@@ -98,13 +106,27 @@ export function parseAIVideoShotDocument(source: string): AIVideoShotDocument {
 		kind: 'pointa.basehalf-ai-video.shot',
 		id: requiredText(root.id, 'shot.id', 128),
 		title: requiredText(root.title, 'shot.title', 240),
-		clipNodePath: portableProjectPath(root.clipNodePath, 'shot.clipNodePath', '.bhnode')
+		clipNodePath: portableVideoPath(root.clipNodePath, 'shot.clipNodePath')
 	});
 }
 
 export function resolveAIVideoShotClipNodePath(shotDocumentPath: string, clipNodePath: string): string {
-	const relativePath = portableProjectPath(clipNodePath, 'shot.clipNodePath', '.bhnode');
+	const relativePath = portableVideoPath(clipNodePath, 'shot.clipNodePath');
 	return resolve(dirname(shotDocumentPath), ...relativePath.split('/'));
+}
+
+/** Whether a path names a file with a video extension, in any case. */
+export function isAIVideoSequenceVideoPath(path: string): boolean {
+	const lower = path.toLowerCase();
+	return VIDEO_FILE_EXTENSIONS.some(extension => lower.endsWith(extension) && lower.length > extension.length && !lower.endsWith(`/${extension}`));
+}
+
+function portableVideoPath(value: unknown, path: string): string {
+	const extension = typeof value === 'string' ? VIDEO_FILE_EXTENSIONS.find(candidate => value.toLowerCase().endsWith(candidate)) : undefined;
+	if (!extension || !isAIVideoSequenceVideoPath(value as string)) {
+		throw new Error(`${path} must be a safe relative path of a video file (${VIDEO_FILE_EXTENSIONS.join(', ')}).`);
+	}
+	return portableProjectPath(value, path, extension);
 }
 
 export function parseAIVideoSequenceDocument(source: string): AIVideoSequenceDocument {

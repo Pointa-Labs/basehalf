@@ -21,10 +21,8 @@ import {
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const template = JSON.parse(readFileSync(new URL('../templates/starter-workflow.json', import.meta.url), 'utf8'));
 
-interface TemplateNode {
+interface TemplateDraft {
 	readonly path: string;
-	readonly kind: string;
-	readonly title: string;
 	readonly prompt?: string;
 }
 
@@ -80,33 +78,47 @@ test('contributes the commands, Sequence, cleanup, template, and Agent contracts
 	}
 });
 
-test('makes notes, empty version 5 Video nodes, and an empty Sequence, and no planning nodes', () => {
-	assert.deepEqual(Object.keys(template).sort(), ['cards', 'files', 'nodes', 'references', 'version']);
-	const nodes = template.nodes as readonly TemplateNode[];
-	assert.deepEqual(nodes, [{ path: 'shots/shot-01/clip.bhnode', kind: 'video', title: 'Shot 01 clip' }]);
-	for (const node of nodes) {
-		// A version 5 node entry: no role, no recipe, no task or result.
-		assert.deepEqual(Object.keys(node).filter(key => !['path', 'kind', 'title', 'prompt'].includes(key)), []);
+test('makes notes, a video draft, and an empty Sequence, and nothing that runs (D63)', () => {
+	assert.deepEqual(Object.keys(template).sort(), ['cards', 'drafts', 'files', 'references', 'version']);
+	const drafts = template.drafts as readonly TemplateDraft[];
+	// A draft is declared by its path and, optionally, its prompt; its file lands under that name.
+	assert.deepEqual(drafts, [{ path: 'shots/shot-01/clip.mp4' }]);
+	for (const draft of drafts) {
+		assert.deepEqual(Object.keys(draft).filter(key => !['path', 'prompt'].includes(key)), []);
 	}
-	const paths = [...template.files, ...nodes].map((entry: { path: string }) => entry.path);
+	const paths = [...template.files, ...drafts].map((entry: { path: string }) => entry.path);
 	assert.equal(new Set(paths).size, paths.length);
-	// Every card shows a file of the template; only the README stays off the canvas.
+	// Every card shows a file or a draft of the template; only the README stays off the canvas.
 	assert.deepEqual(template.cards.map((card: { path: string }) => card.path).sort(), paths.filter(path => path !== 'README.md').sort());
 
-	const forbiddenKeys = new Set(['role', 'recipe', 'attempts', 'task', 'result', 'credentials', 'outputs', 'upstream', 'generation']);
+	const forbiddenKeys = new Set(['nodes', 'role', 'recipe', 'attempts', 'task', 'result', 'credentials', 'outputs', 'upstream', 'generation', 'provider', 'model']);
 	walkKeys(template, key => assert.equal(forbiddenKeys.has(key), false, `template must not contain '${key}'`));
-	assert.equal(JSON.stringify(template).includes('.aivideo'), false);
+	const text = JSON.stringify(template);
+	for (const retired of ['.aivideo', '.bhnode', 'outputs/', 'Video node']) {
+		assert.equal(text.includes(retired), false, retired);
+	}
 });
 
-test('connects the shot\'s notes to its Video node, where they join the prompt', () => {
-	const paths = new Set([...template.files, ...template.nodes].map((entry: { path: string }) => entry.path));
+test('every shot folder holds a note, so that git keeps the folder of its draft', () => {
+	const files = template.files as readonly { path: string }[];
+	const folderOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
+	for (const draft of template.drafts as readonly TemplateDraft[]) {
+		assert.ok(files.some(file => folderOf(file.path) === folderOf(draft.path) && /\.md$/.test(file.path)), draft.path);
+	}
+	const shotFolders = new Set(files.map(file => file.path).filter(path => path.startsWith('shots/')).map(folderOf));
+	for (const folder of shotFolders) {
+		assert.ok(files.some(file => folderOf(file.path) === folder && /\.md$/.test(file.path)), folder);
+	}
+});
+
+test('connects the shot\'s notes to its video draft, where they join the prompt', () => {
+	const paths = new Set([...template.files, ...template.drafts].map((entry: { path: string }) => entry.path));
 	const upstreamByTarget = new Map<string, string[]>();
 	for (const reference of template.references as readonly { from: string; to: string }[]) {
 		assert.ok(paths.has(reference.from) && paths.has(reference.to), `${reference.from} -> ${reference.to}`);
-		assert.notEqual(reference.to.split('/')[0].toLowerCase(), 'outputs');
 		upstreamByTarget.set(reference.to, [...upstreamByTarget.get(reference.to) ?? [], reference.from]);
 	}
-	assert.deepEqual(upstreamByTarget.get('shots/shot-01/clip.bhnode'), ['shots/shot-01/storyboard.md', 'shots/shot-01/audio-plan.md']);
+	assert.deepEqual(upstreamByTarget.get('shots/shot-01/clip.mp4'), ['shots/shot-01/storyboard.md', 'shots/shot-01/audio-plan.md']);
 	assert.equal(upstreamByTarget.has('video-sequence.json'), false);
 	for (const file of template.files as readonly { path: string; contents: string }[]) {
 		if (/\.(?:md|markdown)$/i.test(file.path)) {
@@ -114,22 +126,23 @@ test('connects the shot\'s notes to its Video node, where they join the prompt',
 			assert.equal(/^upstream\s*:/m.test(frontmatter), false, `${file.path} must not declare upstream`);
 		}
 	}
-	const clipCard = template.cards.find((card: { path: string }) => card.path === 'shots/shot-01/clip.bhnode');
+	const clipCard = template.cards.find((card: { path: string }) => card.path === 'shots/shot-01/clip.mp4');
 	assert.deepEqual({ width: clipCard.width, height: clipCard.height }, { width: 720, height: 405 });
 });
 
-test('starts with an empty, portable clip sequence and a shot that names its Video node', () => {
+test('starts with an empty, portable clip sequence and a shot that names its video draft', () => {
 	const shotFile = template.files.find((file: { path: string }) => file.path === 'shots/shot-01/shot.json');
 	const shot = parseAIVideoShotDocument(shotFile.contents);
 	const shotDirectory = shotFile.path.slice(0, shotFile.path.lastIndexOf('/') + 1);
-	assert.ok(template.nodes.some((node: TemplateNode) => node.path === `${shotDirectory}${shot.clipNodePath}` && node.kind === 'video'));
+	assert.ok((template.drafts as readonly TemplateDraft[]).some(draft => draft.path === `${shotDirectory}${shot.clipNodePath}`));
 	const sequenceFile = template.files.find((file: { path: string }) => file.path === 'video-sequence.json');
 	assert.deepEqual(parseAIVideoSequenceDocument(sequenceFile.contents).items, []);
 	const readme = template.files.find((file: { path: string }) => file.path === 'README.md');
 	assert.match(readme.contents, /Add Video Result to Sequence/);
 	assert.match(readme.contents, /Show Video Sequence Status/);
 	assert.match(readme.contents, /Remove Video Sequence Clip/);
-	assert.doesNotMatch(readme.contents, /sealed|recipe|Attempt/i);
+	assert.match(readme.contents, /clip\.mp4/);
+	assert.doesNotMatch(readme.contents, /sealed|recipe|Attempt|outputs|Video node|\.bhnode/i);
 });
 
 function walkKeys(value: unknown, visitor: (key: string) => void): void {
