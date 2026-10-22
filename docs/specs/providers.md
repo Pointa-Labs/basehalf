@@ -341,6 +341,7 @@ answer cross-origin requests from the window.
 | `basehalf.video.provider.poll` | asks the provider about a task once |
 | `basehalf.video.provider.download` | downloads one output to a given file |
 | `basehalf.video.provider.cancel` | asks the provider to cancel a task, where it can |
+| `basehalf.video.provider.place` | puts a received file into its card's place, never replacing anything |
 
 - `check` takes the provider, region, model, mode, parameters, the prompt as
   sent, and the planned inputs with their files. It answers the problems, in
@@ -396,6 +397,21 @@ answer cross-origin requests from the window.
   module where it can find one, and an output that has an address needs no
   task id, since a provider that answers at once gives none. It answers the size and the
   format the bytes start like, which decides the file's extension.
+- `place` takes `from`, a `.part` file directly in a `.bh/cache/generation/`
+  folder, and `to`, a name in the same workspace folder, outside `.bh/`; both
+  are absolute, and anything else is refused. The window cannot call the file
+  system's calls itself, so AI Video puts each landing file in place
+  ([generation cards, Landing](generation-cards.md#landing)): `to` becomes a
+  hard link of the complete `from`, which fails when the name is taken, so it
+  never replaces a file and nothing partial is ever at `to`; then `from` is
+  removed. Where the file system cannot link there (`from` and `to` on
+  different volumes, `EXDEV`, or a file system without hard links), the
+  bytes are copied straight to `to` by an exclusive create
+  (`COPYFILE_EXCL`), which never replaces a file either; a copy that fails
+  takes back what it wrote, and only a crash during that copy can leave a
+  partial file at `to`. It answers `{placed: true}`, or `exists` when a file
+  already has the name, which the window turns into the next free name
+  beside it.
 - A provider module maps its own task states to `pending`, `running`,
   `succeeded` with the addresses of the outputs, or `failed` and `cancelled`
   with the provider's message, and reports progress when the provider does.
@@ -412,9 +428,9 @@ answer cross-origin requests from the window.
   it states one), insufficient balance (`balance`, 402 or the provider's own
   code), unknown task (`notFound`, 404 when asking about a task), unknown
   outcome, network failure, unreadable answer, and a download that is not a
-  video (`notVideo`), not an image (`notImage`), or too large (`tooLarge`). A
-  provider module reads the provider's own error codes where they say more
-  than the status.
+  video (`notVideo`), not an image (`notImage`), or too large (`tooLarge`), and
+  a name that a file already has (`exists`, from `place`). A provider module
+  reads the provider's own error codes where they say more than the status.
 - Nothing is logged except, in the extension's log (the **BaseHalf AI
   Video** output channel), the method, the path without query, the status,
   and the time of each call, and how many outputs beyond the targets were
