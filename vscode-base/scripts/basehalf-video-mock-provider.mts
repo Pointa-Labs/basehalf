@@ -4,12 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * A local video provider for tests and the smoke (D59). It answers like
- * ByteDance's Seedance task API (Volcengine Ark and BytePlus ModelArk) under
- * `/api/v3`: it accepts one test key, checks the shape of a create request,
- * moves each task from queued to running to succeeded over a few seconds,
- * cancels a queued task on DELETE, and serves a small MP4 made for these
- * tests from a separate path without a key, as a signed CDN link would be.
+ * A local video and image provider for tests and the smoke (D59, D64). It
+ * answers like ByteDance's ModelArk API (Volcengine Ark and BytePlus
+ * ModelArk) under `/api/v3`, and accepts one test key:
+ *
+ * - Seedance's task API: it checks the shape of a create request, moves each
+ *   task from queued to running to succeeded over a few seconds, cancels a
+ *   queued task on DELETE, and serves a small MP4 made for these tests from a
+ *   separate path without a key, as a signed CDN link would be.
+ * - Seedream's `POST /images/generations`, which answers at once: it checks
+ *   the shape of the request and answers small PNGs, one per image asked for
+ *   (`max_images` of a set, otherwise one), as addresses it serves itself
+ *   without a key (`response_format: url`, the default) or as base64
+ *   (`b64_json`).
+ *
  * It never talks to a real provider.
  *
  *   node --experimental-strip-types scripts/basehalf-video-mock-provider.mts \
@@ -21,16 +29,19 @@
  *
  * - `key`: every key is refused (HTTP 401). Marker: none; use a wrong key.
  * - `reject` / `[mock:reject]`: the request is refused (HTTP 400).
- * - `task` / `[mock:fail]`: the task is made and later fails.
+ * - `task` / `[mock:fail]`: the task is made and later fails; of images, the
+ *   last one is refused by the content check and the others are made.
  * - `expire` / `[mock:expire]`: the task is made and later expires.
  * - `drop` / `[mock:drop]`: the connection closes after the request arrived,
  *   without an answer: the outcome is unknown to the caller.
- * - `slow` / `[mock:slow]`: the task never finishes.
+ * - `slow` / `[mock:slow]`: the task never finishes; images are answered only
+ *   after the time a task takes (`--seconds`).
+ * - `[mock:fewer]`: a set of images has one image fewer than asked.
  *
- * `GET /__mock/requests` lists the create requests received, without keys and
- * with inline media shortened. The fixture video was recorded from a canvas
- * animation with Chromium's MediaRecorder and remuxed with avconvert: 2 s,
- * 320×180, H.264.
+ * `GET /__mock/requests` lists the create requests received, of tasks and of
+ * images, without keys and with inline media shortened. The fixture video
+ * was recorded from a canvas animation with Chromium's MediaRecorder and
+ * remuxed with avconvert: 2 s, 320×180, H.264.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -38,6 +49,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import zlib from 'node:zlib';
 
 export const MOCK_VIDEO_PROVIDER_KEY = 'basehalf-mock-key';
 export const MOCK_VIDEO_FIXTURE_URL = new URL('./fixtures/basehalf-video-mock.mp4', import.meta.url);
@@ -58,11 +70,17 @@ export interface MockVideoProviderOptions {
 
 /** A create request as received, without its key. */
 export interface MockVideoProviderRequest {
+	/** What it asked for: a video task, or images answered at once. */
+	readonly kind: 'video' | 'image';
+	/** The task it made; none for images, which make no task. */
 	readonly taskId: string | undefined;
 	readonly model: string | undefined;
-	/** The text item of `content`. */
+	/** The text item of `content`, or the `prompt` of images. */
 	readonly prompt: string | undefined;
-	/** The `content` items: `text`, `image_url <role> data:<type>`, `audio_url <role> data:<type>`. */
+	/**
+	 * The `content` items: `text`, `image_url <role> data:<type>`, `audio_url
+	 * <role> data:<type>`; of images, each reference as `image data:<type>`.
+	 */
 	readonly parts: readonly string[];
 	/** The body with every data URL cut after its type. */
 	readonly body: Record<string, unknown> | undefined;
@@ -101,8 +119,11 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 	let fail: MockVideoProviderFailure = options.fail ?? 'none';
 	let durationMs = options.durationMs ?? 3_000;
 	const tasks = new Map<string, MockTask>();
+	/** The images answered as addresses, by their path under `/files/images/`. */
+	const images = new Map<string, Buffer>();
 	const requests: MockVideoProviderRequest[] = [];
 	const sockets = new Set<Socket>();
+	const timers = new Set<ReturnType<typeof setTimeout>>();
 	let origin = '';
 
 	const server: Server = createServer((request, response) => {
@@ -139,6 +160,17 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			json(response, 200, { requests });
 			return;
 		}
+		if (path.startsWith('/files/images/') && request.method === 'GET') {
+			// An image's address: no key, like a signed link.
+			const image = images.get(decodeURIComponent(path.slice('/files/images/'.length)));
+			if (!image) {
+				json(response, 404, { error: { code: 'NoSuchKey', message: 'The specified key does not exist.' } });
+				return;
+			}
+			response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(image.byteLength) });
+			response.end(image);
+			return;
+		}
 		if (path.startsWith('/files/') && request.method === 'GET') {
 			// A CDN address: no key, like a signed link.
 			const id = decodeURIComponent(path.slice('/files/'.length).replace(/\.mp4$/, ''));
@@ -158,7 +190,15 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			json(response, 401, { error: { code: 'AuthenticationError', message: 'The API key in the request is missing or invalid.', type: 'Unauthorized' } });
 			return;
 		}
-		const taskPath = /^\/api\/v3\/contents\/generations\/tasks(?:\/(?<id>[^/]+))?$/.exec(path);
+		if (path === '/api/v3/images/generations') {
+			if (request.method !== 'POST') {
+				json(response, 405, { error: { code: 'InvalidAction', message: `${request.method} is not allowed at ${path}.` } });
+				return;
+			}
+			createImages(request, response, parseJson(body));
+			return;
+		}
+		const taskPath =/^\/api\/v3\/contents\/generations\/tasks(?:\/(?<id>[^/]+))?$/.exec(path);
 		if (!taskPath) {
 			json(response, 404, { error: { code: 'InvalidAction', message: `The specified action is invalid: ${request.method} ${path}` } });
 			return;
@@ -201,7 +241,7 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 		const marker = (name: string) => prompt?.includes(`[mock:${name}]`) === true;
 		const invalid = invalidField(payload);
 		if (invalid || fail === 'reject' || marker('reject')) {
-			requests.push({ taskId: undefined, model, prompt, parts, body: redact(payload) });
+			requests.push({ kind: 'video', taskId: undefined, model, prompt, parts, body: redact(payload) });
 			json(response, 400, invalid
 				? { error: { code: 'InvalidParameter', message: `The parameter \`${invalid}\` specified in the request is not valid.`, type: 'BadRequest' } }
 				: { error: { code: 'InputTextSensitiveContentDetected', message: 'The request was refused: the prompt may contain sensitive content.', type: 'BadRequest' } });
@@ -217,13 +257,65 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			cancelled: false
 		};
 		tasks.set(task.id, task);
-		requests.push({ taskId: task.id, model, prompt, parts, body: redact(payload) });
+		requests.push({ kind: 'video', taskId: task.id, model, prompt, parts, body: redact(payload) });
 		if (fail === 'drop' || marker('drop')) {
 			// The provider made the task, but the answer never arrives.
 			request.socket.destroy();
 			return;
 		}
 		json(response, 200, { id: task.id });
+	}
+
+	/** Answers a request for images at once, as Seedream does: one entry of `data` per image, in order. */
+	function createImages(request: IncomingMessage, response: ServerResponse, payload: Record<string, unknown> | undefined): void {
+		const prompt = typeof payload?.prompt === 'string' ? payload.prompt : undefined;
+		const model = typeof payload?.model === 'string' ? payload.model : undefined;
+		const references = typeof payload?.image === 'string' ? [payload.image] : Array.isArray(payload?.image) ? payload.image : [];
+		const parts = references.map(reference => typeof reference === 'string' && reference.startsWith('data:') ? `image ${reference.slice(0, reference.indexOf(';'))}` : 'image url');
+		const marker = (name: string) => prompt?.includes(`[mock:${name}]`) === true;
+		const invalid = invalidImageField(payload);
+		requests.push({ kind: 'image', taskId: undefined, model, prompt, parts, body: redact(payload) });
+		if (invalid || fail === 'reject' || marker('reject')) {
+			json(response, 400, invalid
+				? { error: { code: 'InvalidParameter', message: `The parameter \`${invalid}\` specified in the request is not valid.`, type: 'BadRequest' } }
+				: { error: { code: 'InputTextSensitiveContentDetected', message: 'The request was refused: the prompt may contain sensitive content.', type: 'BadRequest' } });
+			return;
+		}
+		if (fail === 'drop' || marker('drop')) {
+			// The provider made the images, but the answer never arrives.
+			request.socket.destroy();
+			return;
+		}
+		const options = payload!.sequential_image_generation_options;
+		const asked = payload!.sequential_image_generation === 'auto' ? (isRecord(options) && typeof options.max_images === 'number' ? options.max_images : 15) : 1;
+		const made = marker('fewer') && asked > 1 ? asked - 1 : asked;
+		const id = `img-${Date.now()}-${randomBytes(3).toString('hex')}`;
+		const data: Record<string, unknown>[] = [];
+		for (let number = 1; number <= made; number++) {
+			if (number === made && (fail === 'task' || marker('fail'))) {
+				data.push({ error: { code: 'OutputImageSensitiveContentDetected', message: 'The image could not be made: the output may contain sensitive content.' } });
+				continue;
+			}
+			const image = mockPng(number);
+			if (payload!.response_format === 'b64_json') {
+				data.push({ b64_json: image.toString('base64'), size: `${MOCK_IMAGE_SIDE}x${MOCK_IMAGE_SIDE}`, output_format: 'png' });
+			} else {
+				const name = `${id}-${number}.png`;
+				images.set(name, image);
+				data.push({ url: `${origin}/files/images/${encodeURIComponent(name)}`, size: `${MOCK_IMAGE_SIDE}x${MOCK_IMAGE_SIDE}`, output_format: 'png' });
+			}
+		}
+		const generated = data.filter(entry => entry.error === undefined).length;
+		const answer = () => json(response, 200, { model, created: Math.floor(Date.now() / 1000), data, usage: { generated_images: generated, output_tokens: generated * 4096, total_tokens: generated * 4096 } });
+		if (fail === 'slow' || marker('slow')) {
+			const timer = setTimeout(() => {
+				timers.delete(timer);
+				answer();
+			}, durationMs);
+			timers.add(timer);
+			return;
+		}
+		answer();
 	}
 
 	function stateOf(task: MockTask): MockState {
@@ -282,12 +374,87 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			}
 		},
 		close() {
+			for (const timer of timers) {
+				clearTimeout(timer);
+			}
 			for (const socket of sockets) {
 				socket.destroy();
 			}
 			return new Promise(resolve => server.close(() => resolve()));
 		}
 	};
+}
+
+const IMAGE_SIZES = /^(?:1K|1\.5K|2K|3K|4K|[1-9]\d{1,4}x[1-9]\d{1,4})$/;
+const DATA_IMAGE = /^data:image\/[a-z]+;base64,/;
+
+/** The first field of a request for images that Seedream would refuse, by its own documented rules. */
+function invalidImageField(payload: Record<string, unknown> | undefined): string | undefined {
+	if (!payload || typeof payload.model !== 'string' || !payload.model) {
+		return 'model';
+	}
+	if (typeof payload.prompt !== 'string' || !payload.prompt.trim()) {
+		return 'prompt';
+	}
+	const image = payload.image;
+	if (image !== undefined && !(typeof image === 'string' ? DATA_IMAGE.test(image) : Array.isArray(image) && image.length >= 1 && image.length <= 14 && image.every(entry => typeof entry === 'string' && DATA_IMAGE.test(entry)))) {
+		return 'image';
+	}
+	if (payload.size !== undefined && !(typeof payload.size === 'string' && IMAGE_SIZES.test(payload.size))) {
+		return 'size';
+	}
+	const choices: Readonly<Record<string, readonly unknown[]>> = {
+		sequential_image_generation: ['auto', 'disabled'],
+		output_format: ['png', 'jpeg'],
+		response_format: ['url', 'b64_json'],
+		background: ['transparent', 'opaque']
+	};
+	for (const [name, values] of Object.entries(choices)) {
+		if (payload[name] !== undefined && !values.includes(payload[name])) {
+			return name;
+		}
+	}
+	const options = payload.sequential_image_generation_options;
+	if (options !== undefined && !(isRecord(options) && Number.isInteger(options.max_images) && (options.max_images as number) >= 1 && (options.max_images as number) <= 15)) {
+		return 'sequential_image_generation_options.max_images';
+	}
+	const optimize = payload.optimize_prompt_options;
+	if (optimize !== undefined && !(isRecord(optimize) && (optimize.mode === 'standard' || optimize.mode === 'fast'))) {
+		return 'optimize_prompt_options.mode';
+	}
+	if (payload.watermark !== undefined && typeof payload.watermark !== 'boolean') {
+		return 'watermark';
+	}
+	return undefined;
+}
+
+/** The side of the images answered: small, and large enough to see on a card. */
+const MOCK_IMAGE_SIDE = 16;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function pngChunk(type: string, data: Buffer): Buffer {
+	const length = Buffer.alloc(4);
+	length.writeUInt32BE(data.length);
+	const typed = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+	const crc = Buffer.alloc(4);
+	crc.writeUInt32BE(zlib.crc32(typed));
+	return Buffer.concat([length, typed, crc]);
+}
+
+/** A small RGB PNG of one color, another for each number, so that the images of a set differ. */
+export function mockPng(number: number): Buffer {
+	const color = [(37 * number) % 256, (91 * number + 64) % 256, (53 * number + 128) % 256];
+	const row = Buffer.alloc(1 + MOCK_IMAGE_SIDE * 3);
+	for (let x = 0; x < MOCK_IMAGE_SIDE; x++) {
+		row.set(color, 1 + x * 3);
+	}
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(MOCK_IMAGE_SIDE, 0);
+	header.writeUInt32BE(MOCK_IMAGE_SIDE, 4);
+	header[8] = 8;
+	header[9] = 2;
+	const pixels = Buffer.concat(Array.from({ length: MOCK_IMAGE_SIDE }, () => row));
+	return Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', header), pngChunk('IDAT', zlib.deflateSync(pixels)), pngChunk('IEND', Buffer.alloc(0))]);
 }
 
 /** The first field of a create request that the API would refuse, by its own documented rules. */

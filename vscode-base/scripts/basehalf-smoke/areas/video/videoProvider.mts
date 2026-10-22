@@ -33,11 +33,12 @@ export interface VideoSmokeProvider {
 
 /**
  * Starts the test provider behind a relay on 127.0.0.1. The relay passes
- * every request on unchanged, and holds a request that creates a task for
- * `holdCreateMs` first: on this computer the provider answers within a few
- * milliseconds, and the hold leaves the node's file `submitting` long enough
- * to be read. A connection the provider drops without an answer is dropped
- * the same way, so an unknown outcome stays unknown.
+ * every request on unchanged, and holds a request that creates a task, or
+ * images answered at once, for `holdCreateMs` first: on this computer the
+ * provider answers within a few milliseconds, and the hold leaves the card
+ * `submitting` long enough to be read. A connection the provider drops
+ * without an answer is dropped the same way, so an unknown outcome stays
+ * unknown.
  */
 export async function startVideoSmokeProvider(options: { readonly durationMs: number; readonly holdCreateMs: number }): Promise<VideoSmokeProvider> {
 	const mock = await startMockVideoProvider({ durationMs: options.durationMs });
@@ -65,7 +66,7 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 				upstream.end(body);
 			};
 			const pathname = new URL(request.url ?? '/', mock.url).pathname;
-			if (request.method === 'POST' && /\/contents\/generations\/tasks$|\/videos$/.test(pathname)) {
+			if (request.method === 'POST' && /\/contents\/generations\/tasks$|\/videos$|\/images\/generations$/.test(pathname)) {
 				const timer = setTimeout(() => {
 					timers.delete(timer);
 					forward();
