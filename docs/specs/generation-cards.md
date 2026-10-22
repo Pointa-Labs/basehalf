@@ -647,6 +647,13 @@ and Last Frame.
   over the canvas the card is on, and closing it shows that canvas again.
   Every way of opening the card does this: the toolbar's **Open**, the
   player's **Open**, a double click, and **Open** in the card's menu.
+  - This section is below the image or the video of every generation card
+    with its file, however Card Detail was opened, and is drawn again when
+    its card information changes. An image or a video that is no generation
+    card has none.
+  - A `made.yaml` that cannot be read is not shown: the section says
+    "BaseHalf could not read what made this file." A copy's section says
+    that the file is a copy and that what it shows made the original.
 
 ## A generation
 

@@ -8,11 +8,10 @@ import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { safeIntl } from '../../../../base/common/date.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
-import { ResourceMap } from '../../../../base/common/map.js';
+import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { language } from '../../../../base/common/platform.js';
-import { basename, dirname, extname, isEqual, joinPath } from '../../../../base/common/resources.js';
+import { basename, dirname, isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
@@ -22,7 +21,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
-import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
 import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
 import { formatBaseHalfVideoElapsed } from '../../video/common/basehalfVideoCardPresentation.js';
@@ -35,9 +34,7 @@ import {
 	findBaseHalfVideoProvider,
 	IBaseHalfVideoCatalog
 } from '../../video/common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoCatalogService } from '../../video/common/basehalfVideoGeneration.js';
-import { IBaseHalfNodeResult, normalizeBaseHalfVideoResultGeneration } from '../../video/common/basehalfVideoNode.js';
-import '../../video/browser/media/basehalfVideoNode.css';
+import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../video/common/basehalfVideoGeneration.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
@@ -49,114 +46,103 @@ export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind 
 	return baseHalfRenderableContentKind(resource);
 }
 
-/** The Video nodes whose videos were opened in Card Detail in this window, by video. */
-const videoNodes = new ResourceMap<URI>();
-const MAX_REMEMBERED_VIDEO_NODES = 64;
-/** The most node documents Card Detail reads to find the node that holds a video. */
-const MAX_NODES_SEARCHED = 200;
-const NODE_DOCUMENT_MAX_BYTES = 1024 * 1024;
-
-/**
- * Tells Card Detail which Video node holds `video`, so it can say what made
- * the video. The workbench calls it when it opens a node's video; otherwise
- * Card Detail looks for the node in the folder the canvas shows.
- */
-export function rememberBaseHalfVideoDetailNode(video: URI, node: URI): void {
-	videoNodes.delete(video);
-	videoNodes.set(video, node);
-	while (videoNodes.size > MAX_REMEMBERED_VIDEO_NODES) {
-		const oldest = videoNodes.keys().next().value;
-		if (!oldest) {
-			break;
-		}
-		videoNodes.delete(oldest);
-	}
-}
-
-export interface IBaseHalfVideoProvenanceRow {
+export interface IBaseHalfGenerationProvenanceRow {
 	readonly label: string;
 	readonly value: string;
 }
 
-export interface IBaseHalfVideoProvenanceInput {
+export interface IBaseHalfGenerationProvenanceInput {
 	/** Such as `Image 1`, or `Text` for a note whose text joined the prompt. */
 	readonly name: string;
 	readonly path: string;
 }
 
-/** What made a node's video, as Card Detail shows it below the video. */
-export interface IBaseHalfVideoProvenance {
+/** What made the file of a generation card, as Card Detail shows it below the image or the video. */
+export interface IBaseHalfGenerationProvenance {
 	readonly heading: string;
-	readonly rows: readonly IBaseHalfVideoProvenanceRow[];
-	readonly inputs: readonly IBaseHalfVideoProvenanceInput[];
+	/** A sentence below the heading, such as that the file is a copy. */
+	readonly note?: string;
+	readonly rows: readonly IBaseHalfGenerationProvenanceRow[];
+	readonly inputs: readonly IBaseHalfGenerationProvenanceInput[];
 }
 
 /**
- * What made a video: for a generated one, the model and the id sent to the
- * provider, the provider and its region, the mode, the settings, the prompt
- * as sent, the inputs in order, and when it started and finished; for an
- * imported one, that it was imported. The names come from the model catalog
- * when it has them, and are the recorded ids otherwise. `kindOf` tells the
- * kind of an input, so inputs are named as the prompt names them.
+ * What made the file of a generation card, from its `made.yaml` (generation
+ * cards, "The toolbar"): the model and the id sent to the provider, the
+ * provider and its region, the mode, the settings, the prompt, which image of
+ * how many it is, when it started and finished, and the inputs in order. The
+ * names come from the model catalog when it has them, and are the recorded
+ * ids otherwise. `kindOf` tells the kind of an input, so inputs are named as
+ * the prompt names them. A card without a record says that BaseHalf did not
+ * generate its file, and one whose record cannot be read says that.
  */
-export function baseHalfVideoProvenance(
-	result: IBaseHalfNodeResult,
-	kindOf: (path: string) => BaseHalfVideoInputKind = baseHalfVideoInputKindOfPath,
+export function baseHalfGenerationProvenance(
+	card: Pick<IBaseHalfGenerationCardSnapshot, 'kind' | 'made' | 'madeUnreadable'>,
 	displayLanguage: string = language,
-	catalog?: IBaseHalfVideoCatalog
-): IBaseHalfVideoProvenance {
-	if (result.source === 'imported') {
+	catalog?: IBaseHalfVideoCatalog,
+	kindOf: (path: string) => BaseHalfVideoInputKind = baseHalfVideoInputKindOfPath
+): IBaseHalfGenerationProvenance {
+	const made = card.made;
+	if (!made) {
 		return Object.freeze({
-			heading: localize('basehalf.video.detail.imported', "Imported"),
-			rows: Object.freeze([
-				Object.freeze({ label: localize('basehalf.video.detail.source', "Source"), value: localize('basehalf.video.detail.importedValue', "This video was imported into the node.") }),
-				Object.freeze({ label: localize('basehalf.video.detail.file', "File"), value: result.artifact.path })
-			]),
+			heading: card.madeUnreadable
+				? localize('basehalf.generation.detail.generated', "Generated")
+				: localize('basehalf.generation.detail.notGenerated', "Not generated by BaseHalf"),
+			// The record is left as it is; the user is never sent to it (D41).
+			...(card.madeUnreadable ? { note: localize('basehalf.generation.detail.unreadable', "BaseHalf could not read what made this file.") } : {}),
+			rows: Object.freeze([]),
 			inputs: Object.freeze([])
 		});
 	}
-	const generation = result.generation;
-	const request = generation.request;
-	const provider = findBaseHalfVideoProvider(catalog, request.provider);
-	const model = findBaseHalfVideoModel(catalog, request.provider, request.model)?.model;
-	const region = provider?.regions.find(candidate => candidate.id === request.region);
-	const mode = model?.modes.find(candidate => candidate.id === request.mode);
-	const settings = Object.entries(request.params).map(([name, value]) => {
+	const provider = findBaseHalfVideoProvider(catalog, made.provider);
+	const model = findBaseHalfVideoModel(catalog, made.provider, made.model)?.model;
+	const region = provider?.regions.find(candidate => candidate.id === made.region);
+	const mode = model?.modes.find(candidate => candidate.id === made.mode);
+	const settings = Object.entries(made.params).map(([name, value]) => {
 		const parameter = model?.parameters.find(candidate => candidate.name === name);
 		return parameter
-			? localize('basehalf.video.detail.setting', "{0} {1}", parameter.label, baseHalfVideoParamValueLabel(parameter, value))
+			? localize('basehalf.generation.detail.setting', "{0} {1}", parameter.label, baseHalfVideoParamValueLabel(parameter, value))
 			: `${name}: ${String(value)}`;
 	});
-	const started = Date.parse(generation.startedAt);
-	const completed = Date.parse(generation.completedAt);
+	const started = Date.parse(made.startedAt);
+	const finished = Date.parse(made.finishedAt);
 	const format = safeIntl.DateTimeFormat(displayLanguage, { dateStyle: 'medium', timeStyle: 'medium' }).value;
 	const time = (value: number, fallback: string) => Number.isFinite(value) ? format.format(new Date(value)) : fallback;
 	const ordinals = { image: 0, video: 0, audio: 0 };
-	const inputs = request.inputs.map((path): IBaseHalfVideoProvenanceInput => {
+	const inputs = made.inputs.map((path): IBaseHalfGenerationProvenanceInput => {
 		const kind = kindOf(path);
 		const name = kind === 'image' || kind === 'video' || kind === 'audio'
 			? baseHalfVideoInputLabel(kind, ++ordinals[kind], displayLanguage)
 			: kind === 'text'
-				? localize('basehalf.video.detail.textInput', "Text")
-				: localize('basehalf.video.detail.otherInput', "Input");
+				? localize('basehalf.generation.detail.textInput', "Text")
+				: localize('basehalf.generation.detail.otherInput', "Input");
 		return Object.freeze({ name, path });
 	});
-	const rows: IBaseHalfVideoProvenanceRow[] = [
-		{ label: localize('basehalf.video.detail.model', "Model"), value: localize('basehalf.video.detail.modelValue', "{0} ({1})", model?.label ?? request.model, request.providerModel) },
-		{ label: localize('basehalf.video.detail.provider', "Provider"), value: localize('basehalf.video.detail.providerValue', "{0} · {1}", provider?.label ?? request.provider, region?.label ?? request.region) },
-		{ label: localize('basehalf.video.detail.mode', "Mode"), value: mode?.label ?? request.mode },
-		{ label: localize('basehalf.video.detail.settings', "Settings"), value: settings.length ? settings.join(' · ') : localize('basehalf.video.detail.noSettings', "None") },
-		{ label: localize('basehalf.video.detail.prompt', "Prompt"), value: request.prompt.trim() || localize('basehalf.video.detail.noPrompt', "No prompt") },
-		{ label: localize('basehalf.video.detail.started', "Started"), value: time(started, generation.startedAt) },
+	const rows: IBaseHalfGenerationProvenanceRow[] = [
+		{ label: localize('basehalf.generation.detail.model', "Model"), value: localize('basehalf.generation.detail.modelValue', "{0} ({1})", model?.label ?? made.model, made.providerModel) },
+		{ label: localize('basehalf.generation.detail.provider', "Provider"), value: localize('basehalf.generation.detail.providerValue', "{0} · {1}", provider?.label ?? made.provider, region?.label ?? made.region) },
+		{ label: localize('basehalf.generation.detail.mode', "Mode"), value: mode?.label ?? made.mode },
+		{ label: localize('basehalf.generation.detail.settings', "Settings"), value: settings.length ? settings.join(' · ') : localize('basehalf.generation.detail.noSettings', "None") },
+		{ label: localize('basehalf.generation.detail.prompt', "Prompt"), value: made.prompt.trim() || localize('basehalf.generation.detail.noPrompt', "No prompt") },
+		...(made.output !== undefined && made.outputs !== undefined
+			? [{ label: localize('basehalf.generation.detail.image', "Image"), value: localize('basehalf.generation.detail.imageOf', "{0} of {1}", made.output, made.outputs) }]
+			: []),
+		{ label: localize('basehalf.generation.detail.started', "Started"), value: time(started, made.startedAt) },
 		{
-			label: localize('basehalf.video.detail.finished', "Finished"),
-			value: Number.isFinite(started) && Number.isFinite(completed) && completed >= started
-				? localize('basehalf.video.detail.finishedAfter', "{0}, after {1}", time(completed, generation.completedAt), formatBaseHalfVideoElapsed(completed - started))
-				: time(completed, generation.completedAt)
+			label: localize('basehalf.generation.detail.finished', "Finished"),
+			value: Number.isFinite(started) && Number.isFinite(finished) && finished >= started
+				? localize('basehalf.generation.detail.finishedAfter', "{0}, after {1}", time(finished, made.finishedAt), formatBaseHalfVideoElapsed(finished - started))
+				: time(finished, made.finishedAt)
 		}
 	];
 	return Object.freeze({
-		heading: localize('basehalf.video.detail.generated', "Generated"),
+		heading: localize('basehalf.generation.detail.generated', "Generated"),
+		// A copy keeps the original's record: what it says is what made the original.
+		...(made.copyOf !== undefined ? {
+			note: card.kind === 'image'
+				? localize('basehalf.generation.detail.copyImage', "This image is a copy of a generated image; this is what made that one.")
+				: localize('basehalf.generation.detail.copyVideo', "This video is a copy of a generated video; this is what made that one.")
+		} : {}),
 		rows: Object.freeze(rows.map(row => Object.freeze(row))),
 		inputs: Object.freeze(inputs)
 	});
@@ -168,6 +154,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private readonly webviewHost: HTMLElement;
 	private state: IBaseHalfCardDetailState | undefined;
 	private webview: IWebviewElement | undefined;
+	/** What made the file, below an image or a video of a generation card. */
+	private provenance: HTMLElement | undefined;
+	private provenanceVersion = 0;
+	private readonly provenanceListener = this._register(new MutableDisposable());
 	private disposed = false;
 	private renderVersion = 0;
 	private pdfViewState: IBaseHalfPdfViewState | undefined;
@@ -182,7 +172,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		@IStorageService private readonly storageService: IStorageService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@ILogService private readonly logService: ILogService,
-		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
+		@IBaseHalfGenerationCardStore private readonly generationCardStore: IBaseHalfGenerationCardStore,
 		@IBaseHalfVideoCatalogService private readonly videoCatalogService: IBaseHalfVideoCatalogService
 	) {
 		super();
@@ -222,8 +212,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			this.webview.mountTo(this.webviewHost, mainWindow);
 			this._register(this.webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
 			this.renderWebview(kind);
-			if (kind === 'video') {
-				void this.renderVideoProvenance(state);
+			if (kind === 'image' || kind === 'video') {
+				this.followGenerationProvenance(state);
 			}
 			this._register(this.webview.onFatalError(error => {
 				this.logService.error(`[BaseHalf] media webview failed: ${error.message}`);
@@ -336,136 +326,68 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		notice.textContent = message;
 	}
 
-	/** Below a node's video: what made it. A video that no Video node holds shows nothing more. */
-	private async renderVideoProvenance(state: IBaseHalfCardDetailState): Promise<void> {
-		let result: IBaseHalfNodeResult | undefined;
-		try {
-			result = await this.findVideoResult(state);
-		} catch (error) {
-			this.logService.warn('[BaseHalf] Card Detail could not find what made a video', error);
-		}
-		if (!result || this.disposed || this.state?.resource.toString() !== state.resource.toString()) {
-			return;
-		}
-		const kinds = new Map<string, BaseHalfVideoInputKind>();
-		if (result.source === 'generated') {
-			for (const path of result.generation.request.inputs) {
-				kinds.set(path, await this.inputKind(state.workspaceFolder, path));
+	/**
+	 * Below the image or the video of a generation card: what made its file
+	 * (generation cards, "The toolbar"), drawn again when its card
+	 * information changes. A file that is no generation card shows nothing
+	 * more.
+	 */
+	private followGenerationProvenance(state: IBaseHalfCardDetailState): void {
+		this.provenanceListener.value = this.generationCardStore.onDidChange(card => {
+			if (isEqual(card, state.resource)) {
+				void this.renderGenerationProvenance(state);
 			}
-		}
-		if (this.disposed) {
-			return;
+		});
+		void this.renderGenerationProvenance(state);
+	}
+
+	private async renderGenerationProvenance(state: IBaseHalfCardDetailState): Promise<void> {
+		const version = ++this.provenanceVersion;
+		const current = () => !this.disposed && version === this.provenanceVersion && this.state?.resource.toString() === state.resource.toString();
+		let card: IBaseHalfGenerationCardSnapshot | undefined;
+		try {
+			card = await this.generationCardStore.isGenerationCard(state.resource) ? await this.generationCardStore.read(state.resource) : undefined;
+		} catch (error) {
+			this.logService.warn('[BaseHalf] Card Detail could not read what made a file', error);
 		}
 		// The names come from the catalog when it is there; a catalog still on its way is not waited for long.
-		const catalog = await this.videoCatalogService.whenReady(3_000).catch(() => undefined);
-		if (this.disposed || this.state?.resource.toString() !== state.resource.toString()) {
+		const catalog = card?.made ? await this.videoCatalogService.whenReady(3_000).catch(() => undefined) : undefined;
+		if (!current()) {
 			return;
 		}
-		const provenance = baseHalfVideoProvenance(result, path => kinds.get(path) ?? baseHalfVideoInputKindOfPath(path), language, catalog);
-		this.root.classList.add('has-video-provenance');
-		const section = append(this.root, $('section.bh-video-provenance'));
-		section.setAttribute('aria-label', localize('basehalf.video.detail.label', "What made this video"));
-		append(section, $('h2.bh-video-provenance-title')).textContent = provenance.heading;
-		const rows = append(section, $('dl.bh-video-provenance-rows'));
+		this.provenance?.remove();
+		this.provenance = undefined;
+		this.root.classList.toggle('has-generation-provenance', !!card);
+		if (!card) {
+			return;
+		}
+		const provenance = baseHalfGenerationProvenance(card, language, catalog);
+		const section = this.provenance = append(this.root, $('section.bh-generation-provenance'));
+		section.setAttribute('aria-label', card.kind === 'image'
+			? localize('basehalf.generation.detail.labelImage', "What made this image")
+			: localize('basehalf.generation.detail.labelVideo', "What made this video"));
+		append(section, $('h2.bh-generation-provenance-title')).textContent = provenance.heading;
+		if (provenance.note) {
+			append(section, $('p.bh-generation-provenance-note')).textContent = provenance.note;
+		}
+		if (!provenance.rows.length) {
+			return;
+		}
+		const rows = append(section, $('dl.bh-generation-provenance-rows'));
 		for (const row of provenance.rows) {
 			append(rows, $('dt')).textContent = row.label;
 			append(rows, $('dd')).textContent = row.value;
 		}
 		if (provenance.inputs.length) {
-			append(rows, $('dt')).textContent = localize('basehalf.video.detail.inputs', "Inputs");
-			const list = append(append(rows, $('dd')), $('ol.bh-video-provenance-inputs'));
+			append(rows, $('dt')).textContent = localize('basehalf.generation.detail.inputs', "Inputs");
+			const list = append(append(rows, $('dd')), $('ol.bh-generation-provenance-inputs'));
 			for (const input of provenance.inputs) {
 				const item = append(list, $('li'));
-				append(item, $('span.bh-video-provenance-input-name')).textContent = input.name;
-				append(item, $('span.bh-video-provenance-input-path')).textContent = input.path;
+				append(item, $('span.bh-generation-provenance-input-name')).textContent = input.name;
+				append(item, $('span.bh-generation-provenance-input-path')).textContent = input.path;
 			}
 		}
 	}
-
-	/** The result of the Video node whose video this is: the node the workbench named, or one in the folder the canvas shows. */
-	private async findVideoResult(state: IBaseHalfCardDetailState): Promise<IBaseHalfNodeResult | undefined> {
-		const remembered = videoNodes.get(state.resource);
-		if (remembered) {
-			const result = await this.readVideoResult(remembered, state.relativePath);
-			if (result) {
-				return result;
-			}
-		}
-		const folders: URI[] = [];
-		const canvasFolder = this.canvasNavigationService.state.canvasFolder;
-		if (canvasFolder && isEqual(canvasFolder.workspaceFolder, state.workspaceFolder)) {
-			folders.push(canvasFolder.resource);
-		}
-		const own = dirname(state.resource);
-		if (!folders.some(folder => isEqual(folder, own))) {
-			folders.push(own);
-		}
-		let searched = 0;
-		for (const folder of folders) {
-			const children = (await this.fileService.resolve(folder)).children ?? [];
-			for (const child of children) {
-				if (child.isDirectory || extname(child.resource).toLowerCase() !== '.bhnode') {
-					continue;
-				}
-				if (++searched > MAX_NODES_SEARCHED) {
-					return undefined;
-				}
-				const result = await this.readVideoResult(child.resource, state.relativePath);
-				if (result) {
-					rememberBaseHalfVideoDetailNode(state.resource, child.resource);
-					return result;
-				}
-			}
-		}
-		return undefined;
-	}
-
-	/** The result of a Video node when it is the video at `videoPath`. */
-	private async readVideoResult(node: URI, videoPath: string): Promise<IBaseHalfNodeResult | undefined> {
-		const document = await this.readNodeDocument(node);
-		const result = document?.kind === 'video' && isRecord(document.result) ? document.result : undefined;
-		const artifact = result && isRecord(result.artifact) ? result.artifact : undefined;
-		if (!result || !artifact || artifact.path !== videoPath || typeof artifact.kind !== 'string' || typeof artifact.size !== 'number') {
-			return undefined;
-		}
-		const file = Object.freeze({ kind: artifact.kind, path: videoPath, size: artifact.size });
-		if (result.source === 'imported') {
-			return Object.freeze({ source: 'imported', artifact: file });
-		}
-		if (result.source !== 'generated') {
-			return undefined;
-		}
-		try {
-			return Object.freeze({ source: 'generated', artifact: file, generation: normalizeBaseHalfVideoResultGeneration(result.generation) });
-		} catch {
-			return undefined;
-		}
-	}
-
-	/** The kind of an input: by its extension, or for a node by the file it shows. */
-	private async inputKind(workspaceFolder: URI, path: string): Promise<BaseHalfVideoInputKind> {
-		if (!path.toLowerCase().endsWith('.bhnode')) {
-			return baseHalfVideoInputKindOfPath(path);
-		}
-		const document = await this.readNodeDocument(joinPath(workspaceFolder, ...path.split('/')));
-		const artifact = document && isRecord(document.result) && isRecord(document.result.artifact) ? document.result.artifact : undefined;
-		const kind = artifact?.kind;
-		return kind === 'image' || kind === 'video' || kind === 'audio' ? kind : 'other';
-	}
-
-	private async readNodeDocument(node: URI): Promise<Record<string, unknown> | undefined> {
-		try {
-			const content = await this.fileService.readFile(node, { limits: { size: NODE_DOCUMENT_MAX_BYTES } });
-			const value: unknown = JSON.parse(content.value.toString());
-			return isRecord(value) ? value : undefined;
-		} catch {
-			return undefined;
-		}
-	}
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, resource: URI, viewerScript = pdfViewerScript, wasm = pdfiumWasm, pdfViewState?: IBaseHalfPdfViewState, fontSc = simplifiedChinesePdfFont): string {
