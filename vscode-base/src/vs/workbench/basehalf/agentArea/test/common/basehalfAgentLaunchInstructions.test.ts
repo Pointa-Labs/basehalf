@@ -26,6 +26,12 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'Never delete or regenerate `.bh/`',
 			'out of date',
 			'basehalf --list-capabilities',
+			// D63: a generation card's prompt and settings, what an agent writes, and the command that generates.
+			'.bh/mirror/<path>/generation.yaml',
+			'never write `made.yaml`',
+			'Write `prompt`, `provider`, `model`, `mode`, and `params`',
+			'host.modelCatalog',
+			'basehalf --generate',
 			'```yaml\n---\nupstream:\n  - courses/linear-algebra/overview.md\n  - sources/strang.pdf\n---\n```'
 		];
 		assert.deepStrictEqual(phrases.filter(phrase => !BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)), []);
@@ -43,11 +49,13 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'BaseHalf updates them when it sees the move',
 			'list those files under the new note\'s `upstream`',
 			'basehalf --list-capabilities',
-			'BaseHalf writes `task` and `result`',
-			'`generation` holds `provider`, `model`, `mode`, and `params`',
-			'host.videoCatalog',
-			'basehalf --run-node',
-			'prints the path of the node that runs',
+			'A generation card is an image or a video file; a draft is one whose file does not exist yet.',
+			'never write `made.yaml`',
+			'Its inputs are the entries of its `upstream.yaml`, in order.',
+			'The user renames, moves, or deletes a draft on the canvas.',
+			'host.modelCatalog',
+			'basehalf --generate <workspace-relative path>',
+			'prints the path of every card that generates, refuses values the model does not accept, and does not wait for the files',
 			'only for operations that discovery returned',
 			'A generation continues after the session closes',
 			'only inside Agent Area terminals'
@@ -57,9 +65,9 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 		assert.deepStrictEqual(positions, [...positions].sort((a, b) => a - b));
 	});
 
-	test('never points agents at the retired focus mirror, the agent harness, the retired move operation, or recipes', () => {
+	test('never points agents at the retired focus mirror, the agent harness, the retired move operation, recipes, or node documents', () => {
 		assert.deepStrictEqual(
-			['.bh/current_focus.yaml', '/focus.yaml', 'agent-harness', 'basehalf.workspace.move', 'instead of `mv`', 'recipe', 'attempt', 'slot'].filter(phrase => BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)),
+			['.bh/current_focus.yaml', '/focus.yaml', 'agent-harness', 'basehalf.workspace.move', 'instead of `mv`', 'recipe', 'attempt', 'slot', '.bhnode', 'outputs/', '--run-node', 'host.videoCatalog', 'Video node'].filter(phrase => BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)),
 			[]
 		);
 	});
