@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { isUUID } from '../../../../base/common/uuid.js';
+import { BASEHALF_PROJECT_PATH_MAX_LENGTH, baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import {
 	BASEHALF_UPSTREAM_MAX_NODE_ENTRIES,
 	baseHalfAnalyzeUpstreamItems,
@@ -36,7 +37,6 @@ import {
 export const BASEHALF_NODE_DOCUMENT_EXTENSION = '.bhnode';
 export const BASEHALF_NODE_DOCUMENT_VERSION = 6;
 export const BASEHALF_NODE_DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
-export const BASEHALF_PROJECT_PATH_MAX_LENGTH = 1024;
 export const BASEHALF_NODE_TITLE_MAX_LENGTH = 240;
 
 const NODE_KINDS = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
@@ -583,35 +583,6 @@ function projectPath(value: unknown, path: string): string {
 		throw invalid(`${path} ${problem}`);
 	}
 	return result;
-}
-
-/** Returns a portable, case-insensitive identity key for a validated project path. */
-export function baseHalfProjectPathKey(value: string): string {
-	return value.normalize('NFC').toLowerCase();
-}
-
-/** Describes why a project-relative path cannot safely round-trip across supported hosts. */
-export function baseHalfProjectPathProblem(value: string): string | undefined {
-	if (value !== value.normalize('NFC')) {
-		return 'must use Unicode NFC normalization.';
-	}
-	if (value.includes('\\') || value.startsWith('/') || /[<>:"|?*\u0000-\u001F\u007F-\u009F]/.test(value) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
-		return 'must be a portable project-relative path.';
-	}
-	const segments = value.split('/');
-	if (segments.some(segment => !segment || segment === '.' || segment === '..')) {
-		return 'cannot contain empty, current, or parent path segments.';
-	}
-	if (segments.some(segment => segment.toLowerCase() === '.bh')) {
-		return 'cannot target BaseHalf derived workspace metadata.';
-	}
-	if (segments.some(segment => /[. ]$/.test(segment))) {
-		return 'cannot contain a segment ending in a dot or space.';
-	}
-	if (segments.some(segment => /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(segment))) {
-		return 'cannot contain a reserved device-name segment.';
-	}
-	return undefined;
 }
 
 function integer(value: unknown, minimum: number, maximum: number, path: string): number {

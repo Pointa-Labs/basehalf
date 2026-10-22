@@ -23,7 +23,6 @@ import {
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	BASEHALF_NODE_TITLE_MAX_LENGTH,
 	BaseHalfNodeJsonValue,
-	baseHalfProjectPathProblem,
 	createBaseHalfNodeDocument,
 	getBaseHalfNodeVideoFields,
 	IBaseHalfNodeDocument,
@@ -37,6 +36,7 @@ import { baseHalfNormalizeUpstreamEntry, baseHalfUpstreamIdentity, IBaseHalfUpst
 import { IBaseHalfReferenceIndexService } from '../../references/common/basehalfReferenceIndex.js';
 import { IBaseHalfVideoNodeSnapshot, IBaseHalfVideoNodeStore, IBaseHalfVideoResolvedInput } from '../common/basehalfVideoGeneration.js';
 import { IBaseHalfVideoNodeFields } from '../common/basehalfVideoNode.js';
+import { baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
 import { placeBaseHalfCardsBeside } from './basehalfGenerationPlacement.js';
 

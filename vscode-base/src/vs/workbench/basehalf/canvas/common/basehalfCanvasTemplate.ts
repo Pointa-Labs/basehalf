@@ -7,11 +7,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
 import { BaseHalfCanvasAnchor } from './basehalfCanvasModel.js';
-import {
-	BASEHALF_PROJECT_PATH_MAX_LENGTH,
-	baseHalfProjectPathKey,
-	baseHalfProjectPathProblem
-} from '../../video/common/basehalfNodeDocument.js';
+import { BASEHALF_PROJECT_PATH_MAX_LENGTH, baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, BaseHalfGenerationKind, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
 import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES } from '../../references/common/basehalfReferenceEntries.js';
 import {
