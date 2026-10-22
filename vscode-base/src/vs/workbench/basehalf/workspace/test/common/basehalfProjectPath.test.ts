@@ -11,7 +11,7 @@ suite('BaseHalfProjectPath', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('accepts a relative path that names the same item on every file system', () => {
-		assert.deepStrictEqual(['shots/clip.mp4', 'notes/Scene 1.md', 'café/frame.png', 'outputs/run.md', 'a.b/c'].map(baseHalfProjectPathProblem), [undefined, undefined, undefined, undefined, undefined]);
+		assert.deepStrictEqual(['shots/clip.mp4', 'notes/Scene 1.md', 'café/frame.png', 'renders/run.md', 'a.b/c'].map(baseHalfProjectPathProblem), [undefined, undefined, undefined, undefined, undefined]);
 	});
 
 	test('refuses a path that is not portable, with the reason', () => {
