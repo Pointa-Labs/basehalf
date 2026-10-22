@@ -134,7 +134,7 @@ parameter properties, namespaces).
 | --- | --- | --- |
 | ByteDance (Seedance and Seedream) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance, Seedream)](../../../docs/specs/providers/bytedance.md) |
 | Kling | `kling.ts` | [Kling](../../../docs/specs/providers/kling.md) |
-| Alibaba Cloud Model Studio (Wan and HappyHorse) | `alibaba.ts` | [Alibaba (Wan)](../../../docs/specs/providers/alibaba.md) |
+| Alibaba Cloud Model Studio (Wan, HappyHorse, Qwen-Image) | `alibaba.ts` | [Alibaba (Wan, Qwen-Image)](../../../docs/specs/providers/alibaba.md) |
 | MiniMax (Hailuo, H3, and Image-01) | `minimax.ts` | [MiniMax (Hailuo)](../../../docs/specs/providers/minimax.md) |
 | Vidu | `vidu.ts` | [Vidu](../../../docs/specs/providers/vidu.md) |
 | Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/providers/google.md) |

@@ -187,7 +187,7 @@ export function parseEndpoint(value: string): URL {
 	try {
 		url = new URL(value);
 	} catch {
-		throw rejected('The endpoint is not a complete address. Check it in Video Providers.');
+		throw rejected('The endpoint is not a complete address. Check it in Providers.');
 	}
 	if (!isAllowedAddress(url) || url.search || url.hash) {
 		throw rejected('The endpoint must start with https:// (http:// only on this computer) and have no user name, password, query, or fragment.');

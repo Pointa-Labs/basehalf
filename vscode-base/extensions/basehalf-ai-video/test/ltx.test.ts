@@ -544,7 +544,7 @@ test('an upload whose answer was lost is sent again and found there; a refused u
 			sameAddress: true,
 			waits: [1000],
 			expired: { code: 'rejected', message: 'LTX\'s storage refused the source video clip.mp4 (HTTP 400, ExpiredToken): The provided token has expired.', status: 400 },
-			refused: { code: 'auth', message: 'LTX could not take the source video clip.mp4: LTX refused the API key. Check it in Video Providers. (authentication_error: Invalid API key)', status: 401 },
+			refused: { code: 'auth', message: 'LTX could not take the source video clip.mp4: LTX refused the API key. Check it in Providers. (authentication_error: Invalid API key)', status: 401 },
 			unreadable: { code: 'rejected', message: 'LTX could not take the source video clip.mp4: LTX answered the upload request in a form AI Video cannot read.' },
 			tickets: 4,
 			puts: 3,
@@ -586,7 +586,7 @@ test('a refused key answers auth for a create and for a poll, and no message car
 		const providers = commands();
 		const submitted = error(await providers.submit(generation(provider.api.url, 'ltx-2-3-fast', 'frames', {})));
 		const polled = error(await providers.poll(taskRef(provider.api.url, 'text-to-video/job-1')));
-		const message = 'LTX refused the API key. Check it in Video Providers. (authentication_error: Invalid API key ***)';
+		const message = 'LTX refused the API key. Check it in Providers. (authentication_error: Invalid API key ***)';
 		assert.deepEqual({ submitted, polled, sent: provider.api.received.length }, {
 			submitted: { code: 'auth', message, status: 401 },
 			polled: { code: 'auth', message, status: 401 },

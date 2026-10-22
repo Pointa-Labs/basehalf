@@ -97,7 +97,7 @@ test('a parameter a start frame sets is left out with a start frame, and a mode 
 	assert.deepEqual({ withFrame: withFrame.problems, withoutFrame: withoutFrame.problems, outside: outside.problems, seen }, {
 		withFrame: [],
 		withoutFrame: ['Ratio cannot be 21:9 for Clip 1; choose 16:9, 9:16.'],
-		outside: ['Clip 1 offers References mode only in Away. Choose another mode, or another region in Video Providers.'],
+		outside: ['Clip 1 offers References mode only in Away. Choose another mode, or another region in Providers.'],
 		seen: [{ resolution: '720p', duration: 5 }, { resolution: '720p', duration: 5, ratio: '16:9' }]
 	});
 	void defaults;

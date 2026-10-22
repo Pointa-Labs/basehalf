@@ -754,7 +754,7 @@ test('Edit and Extend run only in China: their modes name the region, check refu
 		wan27EditInChina: await checked(checkRequest('wan2.7', 'edit', {}, 'Red.', { source: video(CLIP) }))
 	};
 	// Refused before anything else is checked, so no provider id is answered.
-	const reason = (model: string, mode: string) => `${model} offers ${mode} mode only in China (Beijing). Choose another mode, or another region in Video Providers.`;
+	const reason = (model: string, mode: string) => `${model} offers ${mode} mode only in China (Beijing). Choose another mode, or another region in Providers.`;
 	assert.deepEqual(results, {
 		wan27Edit: { problems: [reason('Wan 2.7', 'Edit')], providerModel: undefined },
 		wan27EditWithoutVideo: { problems: [reason('Wan 2.7', 'Edit')], providerModel: undefined },

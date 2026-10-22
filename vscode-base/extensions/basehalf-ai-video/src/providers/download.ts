@@ -204,7 +204,7 @@ async function downloadOnce(http: BoundHttp, location: OutputAddress, targetFsPa
 				throw new RetryableDownload(new ProviderFailure(status === 429 ? 'rateLimited' : 'network', `The ${rule.noun} download answered with HTTP ${status}.`, status), retryAfterMs(response.headers['retry-after']));
 			}
 			if (ownOrigin && (status === 401 || status === 403)) {
-				throw new ProviderFailure('auth', `The provider refused the ${rule.noun} download (HTTP ${status}). Check the credentials in Video Providers.`, status);
+				throw new ProviderFailure('auth', `The provider refused the ${rule.noun} download (HTTP ${status}). Check the credentials in Providers.`, status);
 			}
 			if (status === 401 || status === 403 || status === 404 || status === 410) {
 				throw new ProviderFailure('notFound', `The ${rule.noun} is no longer at the address the provider gave (HTTP ${status}); the address may have expired.`, status);

@@ -479,7 +479,7 @@ test('a refused key answers auth for a create and for a poll, and no message car
 		const providers = commands();
 		const submitted = error(await providers.submit(generation(server.url, 'pixverse-v6', 'frames', {})));
 		const polled = error(await providers.poll(taskRef(server.url, '301')));
-		const message = 'PixVerse does not know the API key. Check it in Video Providers; it is a key of the PixVerse API Platform. (10005: API key is not registered (trace ***))';
+		const message = 'PixVerse does not know the API key. Check it in Providers; it is a key of the PixVerse API Platform. (10005: API key is not registered (trace ***))';
 		assert.deepEqual({ submitted, polled, sent: server.received.length }, {
 			submitted: { code: 'auth', message, status: 401 },
 			polled: { code: 'auth', message, status: 401 },
@@ -630,7 +630,7 @@ test('a refused or unreadable upload ends the submit before the create; a retrie
 			format: { code: 'rejected', message: 'The start frame start.png could not be uploaded to PixVerse: PixVerse does not take the format of an image. (500032: unsupported image format)' },
 			limit: { code: 'rateLimited', message: 'Reference video 1 clip.mp4 could not be uploaded to PixVerse: PixVerse received too many requests from this account or address. Wait a moment. (712008: rate limit)' },
 			page: { code: 'rejected', message: 'The start frame start.png could not be uploaded to PixVerse: PixVerse answered the upload in a form AI Video cannot read.' },
-			key: { code: 'auth', message: 'The start frame start.png could not be uploaded to PixVerse: PixVerse does not know the API key. Check it in Video Providers; it is a key of the PixVerse API Platform. (10005: API key is not registered)', status: 401 },
+			key: { code: 'auth', message: 'The start frame start.png could not be uploaded to PixVerse: PixVerse does not know the API key. Check it in Providers; it is a key of the PixVerse API Platform. (10005: API key is not registered)', status: 401 },
 			busy: { remoteId: '301' },
 			polled: { state: 'running' },
 			sent: {

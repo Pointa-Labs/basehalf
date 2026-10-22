@@ -78,7 +78,7 @@ export function failureForStatus(status: number, reading: ProviderErrorReading |
 	}
 	if (status >= 300 && status < 400) {
 		// API requests never follow a redirect: a request is never sent twice.
-		return new ProviderFailure(creates ? 'rejected' : 'invalidResponse', `The provider redirected the request (HTTP ${status}). Check the endpoint in Video Providers.`, status);
+		return new ProviderFailure(creates ? 'rejected' : 'invalidResponse', `The provider redirected the request (HTTP ${status}). Check the endpoint in Providers.`, status);
 	}
 	return new ProviderFailure('rejected', message, status);
 }

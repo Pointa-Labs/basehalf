@@ -306,8 +306,8 @@ type ErrorKind = 'auth' | 'balance' | 'rateLimited' | 'rejected' | 'missing' | '
 
 /** PixVerse's `ErrCode`s (Error Codes, Concurrency Rules) with what the user can do. */
 const ERROR_CODES: ReadonlyMap<number, { readonly kind: ErrorKind; readonly text: string }> = new Map<number, { readonly kind: ErrorKind; readonly text: string }>([
-	[10004, { kind: 'auth', text: 'PixVerse received no API key. Set it in Video Providers.' }],
-	[10005, { kind: 'auth', text: 'PixVerse does not know the API key. Check it in Video Providers; it is a key of the PixVerse API Platform.' }],
+	[10004, { kind: 'auth', text: 'PixVerse received no API key. Set it in Providers.' }],
+	[10005, { kind: 'auth', text: 'PixVerse does not know the API key. Check it in Providers; it is a key of the PixVerse API Platform.' }],
 	[400012, { kind: 'auth', text: 'PixVerse refused the account of the API key. Check the account in the PixVerse API Platform.' }],
 	[400011, { kind: 'rejected', text: 'PixVerse refused the request: a required setting is missing.' }],
 	[400013, { kind: 'rejected', text: 'PixVerse refused a setting of the request as the wrong type or value.' }],

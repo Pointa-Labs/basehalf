@@ -203,7 +203,7 @@ export class VideoProviderCommands {
 		}
 		const region = provider.regions.find(entry => entry.id === request.region);
 		if (!region) {
-			throw rejected(`${provider.label} has no region "${request.region}". Choose its region again in Video Providers.`);
+			throw rejected(`${provider.label} has no region "${request.region}". Choose its region again in Providers.`);
 		}
 		const model = provider.models.find(entry => entry.id === request.model);
 		if (!model) {
@@ -213,10 +213,10 @@ export class VideoProviderCommands {
 			for (const credential of provider.credentials) {
 				const value = request.credentials[credential.id];
 				if (typeof value !== 'string' || !value) {
-					throw new ProviderFailure('auth', `${provider.label} needs its ${credential.label}. Set it in Video Providers.`);
+					throw new ProviderFailure('auth', `${provider.label} needs its ${credential.label}. Set it in Providers.`);
 				}
 				if (!/^[\x21-\x7E]{1,16384}$/.test(value)) {
-					throw new ProviderFailure('auth', `The ${credential.label} of ${provider.label} has characters that cannot be sent. Set it again in Video Providers.`);
+					throw new ProviderFailure('auth', `The ${credential.label} of ${provider.label} has characters that cannot be sent. Set it again in Providers.`);
 				}
 			}
 		}
@@ -247,7 +247,7 @@ export class VideoProviderCommands {
 		}
 		if (mode.regions && !mode.regions.includes(region.id)) {
 			const where = provider.regions.filter(candidate => mode.regions?.includes(candidate.id)).map(candidate => candidate.label).join(', ');
-			return { problems: [`${model.label} offers ${mode.label} mode only in ${where}. Choose another mode, or another region in Video Providers.`] };
+			return { problems: [`${model.label} offers ${mode.label} mode only in ${where}. Choose another mode, or another region in Providers.`] };
 		}
 		const counts = countsOf(request.inputs);
 		const problems = [

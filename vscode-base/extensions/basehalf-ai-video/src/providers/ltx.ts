@@ -718,7 +718,7 @@ function videoUrlOf(job: Record<string, unknown>): string | undefined {
  */
 const ERROR_TYPES: ReadonlyMap<string, { readonly code?: ProviderErrorCode; readonly text: string }> = new Map([
 	['invalid_request_error', { code: 'rejected', text: 'LTX refused the request as invalid.' }],
-	['authentication_error', { code: 'auth', text: 'LTX refused the API key. Check it in Video Providers.' }],
+	['authentication_error', { code: 'auth', text: 'LTX refused the API key. Check it in Providers.' }],
 	['insufficient_funds_error', { code: 'balance', text: 'The LTX account has too few credits. Buy credits in the LTX console.' }],
 	['permission_error', { code: 'rejected', text: 'LTX does not offer this to the account.' }],
 	['content_filtered_error', { code: 'rejected', text: 'LTX\'s safety filters refused the prompt or an input.' }],
