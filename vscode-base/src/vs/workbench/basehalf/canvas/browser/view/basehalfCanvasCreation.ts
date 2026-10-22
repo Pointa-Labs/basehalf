@@ -17,7 +17,7 @@ import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEdi
 import { localize } from '../../../../../nls.js';
 import { getPathForFile } from '../../../../../platform/dnd/browser/dnd.js';
 import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/defaultStyles.js';
-import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove, findValidPasteFileTargetForResource } from '../../../../contrib/files/browser/fileActions.js';
+import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove } from '../../../../contrib/files/browser/fileActions.js';
 import { IFilesConfiguration, UndoConfirmLevel } from '../../../../contrib/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
@@ -37,6 +37,8 @@ import {
 	IBaseHalfCanvasItem
 } from '../../common/basehalfCanvasModel.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
+import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
+import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { planBaseHalfMarkdownUpstreamEdit } from '../../../references/common/basehalfReferenceStore.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest } from '../../common/basehalfCanvasEditing.js';
@@ -47,7 +49,7 @@ import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../../../c
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner } from './basehalfCanvasViewShared.js';
+import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget } from './basehalfCanvasViewShared.js';
 
 /**
  * Making things on the canvas: the inline editors that name a new item or
@@ -183,6 +185,7 @@ export class BaseHalfCanvasCreation {
 				parent: dirname(item.stat.resource),
 				path: item.path,
 				extension: item.kind === 'folder' ? '' : baseHalfNoteNameExtension(fileName),
+				...(item.generation?.draft ? { draft: item.generation.kind } : {}),
 				initialValue: shownName,
 				value: shownName,
 				selectionPending: true
@@ -682,7 +685,8 @@ export class BaseHalfCanvasCreation {
 		const validateTyped = (typed: string) => this.validateCanvasEntryName(
 			edit.parent,
 			typed.trim().length === 0 ? typed : fileNameOf(typed),
-			edit.kind === 'rename' ? edit.resource : undefined
+			edit.kind === 'rename' ? edit.resource : undefined,
+			edit.kind === 'rename' ? edit.draft : undefined
 		);
 		const inputBox = new InputBox(inputHost, this.view.contextViewService, {
 			ariaLabel: folder
@@ -871,7 +875,13 @@ export class BaseHalfCanvasCreation {
 		mainWindow.setTimeout(() => this.view.cards.focus({ preventScroll: true }), 0);
 	}
 
-	async validateCanvasEntryName(parent: URI, name: string, current?: URI): Promise<{ readonly content: string; readonly type: MessageType } | undefined> {
+	/**
+	 * Why a name cannot be given to a new item or to the item `current`, or a
+	 * warning about it. The name of a draft of the folder is taken, as the name
+	 * of a file or a folder is; a draft of `draftKind` keeps a name of its kind
+	 * (canvas card name, "The editor in place").
+	 */
+	async validateCanvasEntryName(parent: URI, name: string, current?: URI, draftKind?: 'image' | 'video'): Promise<{ readonly content: string; readonly type: MessageType } | undefined> {
 		if (name.length === 0 || /^\s+$/.test(name)) {
 			return { content: localize('basehalf.canvas.name.empty', "A file or folder name is required."), type: MessageType.ERROR };
 		}
@@ -881,9 +891,17 @@ export class BaseHalfCanvasCreation {
 		if (!(await this.view.pathService.hasValidBasename(parent, name))) {
 			return { content: localize('basehalf.canvas.name.invalid', "This name is not valid on the current file system."), type: MessageType.ERROR };
 		}
+		const draftProblem = draftKind ? baseHalfCanvasDraftNameProblem(name, draftKind) : undefined;
+		if (draftProblem) {
+			return { content: draftProblem, type: MessageType.ERROR };
+		}
 		const target = joinPath(parent, name);
-		if ((!current || !this.view.uriIdentityService.extUri.isEqual(target, current)) && await this.view.fileService.exists(target)) {
+		const other = !current || !this.view.uriIdentityService.extUri.isEqual(target, current);
+		if (other && await this.view.fileService.exists(target)) {
 			return { content: localize('basehalf.canvas.name.exists', "A file or folder with this name already exists."), type: MessageType.ERROR };
+		}
+		if (other && await this.isDraftPath(target)) {
+			return { content: localize('basehalf.canvas.name.draftExists', "A draft on this canvas already has this name."), type: MessageType.ERROR };
 		}
 		if (/^\s|\s$/.test(name)) {
 			return { content: localize('basehalf.canvas.name.whitespace', "Leading or trailing whitespace will be preserved."), type: MessageType.WARNING };
@@ -904,6 +922,11 @@ export class BaseHalfCanvasCreation {
 			const gone = localize('basehalf.canvas.rename.gone', "This item was moved or removed while its name was edited.");
 			if (!this.view.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
 				throw new Error(gone);
+			}
+			if (edit.draft) {
+				// A draft has no file: its card information and its row move to the new name, as one step of undo.
+				await this.view.generationCardActions.moveDraft(edit.resource, target);
+				return;
 			}
 			let isDirectory: boolean | undefined;
 			try {
@@ -1038,32 +1061,116 @@ export class BaseHalfCanvasCreation {
 		const incrementalNaming = this.view.configurationService.getValue<IFilesConfiguration>().explorer.incrementalNaming;
 		const uniqueResources = [...new Map(resources.map(resource => [resource.toString(), resource])).values()];
 		const transfers: { readonly source: URI; readonly target: URI; readonly kind: 'file' | 'folder' }[] = [];
+		const drafts: URI[] = [];
 		for (const source of uniqueResources) {
 			if (operation === 'move' && this.view.uriIdentityService.extUri.isEqual(dirname(source), folder.resource)) {
 				continue;
 			}
-			const stat = await this.view.fileService.stat(source);
+			let stat;
+			try {
+				stat = await this.view.fileService.stat(source);
+			} catch (error) {
+				// A draft has no file: a copy of it is a new draft here, and a cut one
+				// moves here (generation cards, "Moving, renaming, copying, and undo").
+				if (await this.isDraftPath(source)) {
+					drafts.push(source);
+					continue;
+				}
+				throw error;
+			}
 			if (!stat.isFile && !stat.isDirectory) {
 				continue;
 			}
 			if (stat.isDirectory && isEqualOrParent(folder.resource, source)) {
 				throw new Error(localize('basehalf.canvas.import.ancestor', "A folder cannot be imported into itself or one of its descendants."));
 			}
-			const target = await findValidPasteFileTargetForResource(
-				this.view.fileService,
-				this.view.dialogService,
-				folder.resource,
-				{ resource: source, isDirectory: stat.isDirectory, allowOverwrite: operation === 'move' || incrementalNaming === 'disabled' },
-				incrementalNaming
-			);
+			const target = await this.freeTransferTarget(folder, source, stat.isDirectory, operation === 'move' || incrementalNaming === 'disabled', incrementalNaming);
 			if (target) {
 				transfers.push({ source, target, kind: stat.isDirectory ? 'folder' : 'file' });
 			}
 		}
-		if (transfers.length === 0) {
+		if (transfers.length === 0 && drafts.length === 0) {
 			if (operation === 'move') {
 				await clearExplorerFileClipboardCut(this.view.explorerService);
 			}
+			return;
+		}
+		await this.transferResources(transfers, operation, incrementalNaming);
+		const placed: { readonly target: URI; readonly kind: 'file' | 'folder' }[] = [...transfers];
+		for (const draft of drafts) {
+			placed.push({ target: await this.transferDraft(folder, draft, operation), kind: 'file' });
+		}
+		if (operation === 'move') {
+			await clearExplorerFileClipboardCut(this.view.explorerService);
+		}
+
+		// The user pointed at a place: the group keeps its block there, and a card
+		// whose slot is taken goes to the nearest open place (canvas card placement).
+		const paths = placed.map(transfer => baseHalfCanvasChildPath(folder.relativePath, basename(transfer.target)));
+		// A card that was moved here keeps the size it had: its row came along.
+		// A new card has the size of its kind, which for a generation card is read.
+		let carried = new Map<string, IBaseHalfCanvasCard>();
+		try {
+			carried = new Map(((await this.view.canvasMirrorService.readCanvas(folder))?.cards ?? []).map(row => [row.path, row]));
+		} catch (error) {
+			this.view.logService.warn(error);
+		}
+		const sizes = await Promise.all(placed.map(async (transfer, index) => {
+			const row = carried.get(paths[index]);
+			if (row) {
+				return { width: row.width, height: row.height };
+			}
+			if (transfer.kind === 'folder') {
+				return { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT };
+			}
+			// The drafts come after the files and folders.
+			const draftKind = index >= transfers.length ? baseHalfGenerationKindOfPath(transfer.target.path) : undefined;
+			return draftKind ? baseHalfCanvasGenerationCardSize(draftKind) : await this.view.previews.sizeOfNewFileCard(transfer.target);
+		}));
+		const places = baseHalfCanvasTransferPlaces(canvasPosition, sizes, this.takenCanvasPlaces(new Set(paths)));
+		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
+		for (let index = 0; index < placed.length; index++) {
+			const transfer = placed[index];
+			const path = paths[index];
+			try {
+				await this.view.canvasMirrorService.updateCardGeometry(folder, {
+					path,
+					kind: transfer.kind,
+					...places[index],
+					...sizes[index]
+				});
+			} catch (error) {
+				this.view.logService.warn(error);
+				this.view.queueCanvasWarning(localize('basehalf.canvas.importGeometryFailed', "The items were imported, but some canvas positions could not be saved."));
+			}
+		}
+		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
+		this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), paths, postCreateOwner);
+		this.view.requestRender();
+	}
+
+	/**
+	 * A draft pasted on the canvas: a copy is a new draft with its prompt and
+	 * settings, and a draft that was cut moves here, under its name or the next
+	 * free one; each is one step of the canvas undo stack.
+	 */
+	private async transferDraft(folder: IBaseHalfCanvasFolderState, draft: URI, operation: 'copy' | 'move'): Promise<URI> {
+		if (operation === 'copy') {
+			return this.view.generationCardActions.copyDraft(draft, folder.resource, localize('basehalf.canvas.paste.draftUndo', "Paste {0}", basename(draft)));
+		}
+		// It keeps its name where that is free.
+		const { base, extension } = baseHalfGenerationNameParts(basename(draft));
+		const name = await this.view.generationCardStore.nextFreeName(folder.resource, base, extension, baseHalfGenerationNameOrdinal(basename(draft)));
+		return this.view.generationCardActions.moveDraft(draft, joinPath(folder.resource, name));
+	}
+
+	/** Copies or moves files and folders onto the canvas's folder through the workbench, as one step of the Explorer's undo. */
+	private async transferResources(
+		transfers: readonly { readonly source: URI; readonly target: URI }[],
+		operation: 'copy' | 'move',
+		incrementalNaming: IFilesConfiguration['explorer']['incrementalNaming']
+	): Promise<void> {
+		if (transfers.length === 0) {
 			return;
 		}
 		await this.view.explorerService.applyBulkEdit(transfers.map(transfer => new ResourceFileEdit(transfer.source, transfer.target, {
@@ -1086,50 +1193,32 @@ export class BaseHalfCanvasCreation {
 					: localize('basehalf.canvas.import.progressMany', "Importing {0} items", transfers.length),
 			confirmBeforeUndo: this.confirmExplorerUndo()
 		});
-		if (operation === 'move') {
-			await clearExplorerFileClipboardCut(this.view.explorerService);
-		}
+	}
 
-		// The user pointed at a place: the group keeps its block there, and a card
-		// whose slot is taken goes to the nearest open place (canvas card placement).
-		const paths = transfers.map(transfer => baseHalfCanvasChildPath(folder.relativePath, basename(transfer.target)));
-		// A card that was moved here keeps the size it had: its row came along.
-		// A new card has the size of its kind, which for a node file is read.
-		let carried = new Map<string, IBaseHalfCanvasCard>();
-		try {
-			carried = new Map(((await this.view.canvasMirrorService.readCanvas(folder))?.cards ?? []).map(row => [row.path, row]));
-		} catch (error) {
-			this.view.logService.warn(error);
-		}
-		const sizes = await Promise.all(transfers.map(async (transfer, index) => {
-			const row = carried.get(paths[index]);
-			if (row) {
-				return { width: row.width, height: row.height };
-			}
-			return transfer.kind === 'folder'
-				? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
-				: await this.view.previews.sizeOfNewFileCard(transfer.target);
-		}));
-		const places = baseHalfCanvasTransferPlaces(canvasPosition, sizes, this.takenCanvasPlaces(new Set(paths)));
-		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
-		for (let index = 0; index < transfers.length; index++) {
-			const transfer = transfers[index];
-			const path = paths[index];
-			try {
-				await this.view.canvasMirrorService.updateCardGeometry(folder, {
-					path,
-					kind: transfer.kind,
-					...places[index],
-					...sizes[index]
-				});
-			} catch (error) {
-				this.view.logService.warn(error);
-				this.view.queueCanvasWarning(localize('basehalf.canvas.importGeometryFailed', "The items were imported, but some canvas positions could not be saved."));
-			}
-		}
-		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
-		this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), paths, postCreateOwner);
-		this.view.requestRender();
+	/**
+	 * The path a file or folder takes in the canvas's folder, as the Explorer
+	 * names a pasted item, where the path of a draft is taken as the path of an
+	 * item is (generation cards, "Creating a generation card"): a paste, a drop,
+	 * Import File, and a duplicate never take a draft's name.
+	 */
+	async freeTransferTarget(
+		folder: IBaseHalfCanvasFolderState,
+		source: URI,
+		isDirectory: boolean,
+		allowOverwrite: boolean,
+		incrementalNaming: IFilesConfiguration['explorer']['incrementalNaming'],
+		reserved?: ReadonlySet<string>
+	): Promise<URI | undefined> {
+		return baseHalfCanvasFreeTransferTarget(this.view.fileService, this.view.dialogService, folder.resource, source, isDirectory, allowOverwrite, incrementalNaming,
+			async candidate => reserved?.has(this.view.uriIdentityService.extUri.getComparisonKey(candidate)) || await this.isDraftPath(candidate));
+	}
+
+	/** Whether a path holds a draft, whose name is taken as an item's is (generation cards, "Creating a generation card"). */
+	async isDraftPath(resource: URI): Promise<boolean> {
+		const workspaceFolder = this.view.workspaceContextService.getWorkspaceFolder(resource)?.uri;
+		const relativePath = workspaceFolder ? this.view.uriIdentityService.extUri.relativePath(workspaceFolder, resource) : undefined;
+		return !!workspaceFolder && !!relativePath && baseHalfGenerationKindOfPath(relativePath) !== undefined
+			&& await baseHalfPathHoldsDraft(this.view.fileService, workspaceFolder, relativePath);
 	}
 
 	confirmExplorerUndo(): boolean {

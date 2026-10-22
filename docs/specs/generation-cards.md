@@ -808,12 +808,15 @@ is a file does:
   `made.yaml` included; outside BaseHalf, it is
   [followed](following-moved-items.md) by its content.
 - **A draft** is moved or renamed only through BaseHalf, since it has no file:
-  renaming its card, dragging it onto a folder, or moving its folder. Its card
-  information and card row move, and the entries that name it are rewritten,
-  as for a file. A draft below a folder that is moved outside BaseHalf follows
-  the folder ([following moved items](following-moved-items.md#recognition),
-  rule 4). Renaming keeps the kind: a draft's name keeps an extension of its
-  kind.
+  renaming its card, cutting its card and pasting it on the canvas of another
+  folder, as a file is moved on the canvas, or moving its folder. A draft that
+  is pasted keeps its name where it is free, and takes the next free number
+  otherwise. Its card information and card row move, and the entries that
+  name it are rewritten, as for a file. The menu of a draft's card has no
+  **Reveal in Files**: a draft is not in Files. A draft below a folder that is
+  moved outside BaseHalf follows the folder
+  ([following moved items](following-moved-items.md#recognition), rule 4).
+  Renaming keeps the kind: a draft's name keeps an extension of its kind.
   - A draft moves only to a name that no file, folder, or draft has, in a
     folder that exists, within its workspace folder. Card information that an
     item that is gone left under that name gives way, as it does to a move of
@@ -829,7 +832,9 @@ is a file does:
   pasted, named with the next free number: of a draft, a draft with the same
   prompt and settings; of a card with its file, a copy of the file with the
   same `generation.yaml` and a `made.yaml` whose `id` is new and which says it
-  is a copy of the original's. Neither has upstream entries or a task.
+  is a copy of the original's. Neither has upstream entries or a task. On the
+  canvas, Copy and Paste and Duplicate copy a draft as they copy a file; a
+  copy of a card with its file is made by any copy of its file, in Files too.
 - **Undo.** Creating, renaming, moving, deleting, and copying a draft are each
   one step of the canvas undo stack, which keeps all of the draft's card
   information. Undo and redo refuse, and say why, while the draft generates;

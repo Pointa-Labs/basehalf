@@ -80,14 +80,31 @@ suite('BaseHalfAgentSelection', () => {
 		]);
 	});
 
-	test('text that is only white space shows nothing, and a node card is shown as its caption', () => {
+	test('text that is only white space shows nothing, and a card is shown as its caption', () => {
 		assert.deepStrictEqual([
 			baseHalfAgentSelectionFor({ ...canvas, cards: [note], text: { ...text, text: '\n \n' } }),
-			baseHalfAgentSelectionLabel(baseHalfAgentSelectionFor({ ...canvas, cards: [{ path: 'shots/scene.bhnode', isFolder: false, caption: { name: '开场镜头', icon: 'video' } }] })),
+			baseHalfAgentSelectionLabel(baseHalfAgentSelectionFor({ ...canvas, cards: [{ path: 'shots/scene.mp4', isFolder: false, caption: { name: 'scene.mp4', icon: 'video' } }] })),
 		], [
 			{ selected: 'card', path: 'courses/untitled.md', isFolder: false },
-			{ icon: 'video', text: '开场镜头' },
+			{ icon: 'video', text: 'scene.mp4' },
 		]);
+	});
+
+	test('a selected draft is a card by the path its file will have, with draft: true, and among cards it is listed like any card', () => {
+		const draft = { path: 'shots/video.mp4', isFolder: false, caption: { name: 'video.mp4', icon: 'video' as const }, draft: true as const };
+		const selection = baseHalfAgentSelectionFor({ ...canvas, cards: [draft] });
+		const several = baseHalfAgentSelectionFor({ ...canvas, cards: [note, draft] });
+		assert.deepStrictEqual({
+			selection,
+			record: toPlain(parseYaml(serializeBaseHalfAgentSelection(selection), [])),
+			several: toPlain(parseYaml(serializeBaseHalfAgentSelection(several), [])),
+			label: baseHalfAgentSelectionLabel(selection)
+		}, {
+			selection: { selected: 'card', path: 'shots/video.mp4', isFolder: false, caption: { name: 'video.mp4', icon: 'video' }, draft: true },
+			record: { selected: 'card', path: 'shots/video.mp4', draft: 'true' },
+			several: { selected: 'cards', paths: ['courses/untitled.md', 'shots/video.mp4'] },
+			label: { icon: 'video', text: 'video.mp4' }
+		});
 	});
 
 	test('the record escapes what YAML does not allow, and a cut never splits a character', () => {

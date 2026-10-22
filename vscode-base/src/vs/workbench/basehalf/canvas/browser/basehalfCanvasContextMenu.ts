@@ -26,7 +26,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService, IBaseHalfCanvasPostCreateIntent } from '../common/basehalfCanvasEditing.js';
-import { IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
+import { BASEHALF_CANVAS_CARD_IS_DRAFT, IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
 import { IBaseHalfCanvasMirrorService, IBaseHalfCanvasStateTransition } from '../common/basehalfCanvasMirror.js';
 import {
 	BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID,
@@ -44,6 +44,7 @@ import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSe
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { BASEHALF_NODE_DOCUMENT_MAX_BYTES, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
+import { IBaseHalfGenerationCardActions } from '../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import { COPY_PATH_COMMAND_ID, COPY_RELATIVE_PATH_COMMAND_ID, REVEAL_IN_EXPLORER_COMMAND_ID } from '../../../contrib/files/browser/fileConstants.js';
@@ -452,7 +453,13 @@ registerAction2(class BaseHalfCanvasOpenResourceAction extends Action2 {
 		}
 		const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
 		const navigationService = accessor.get(IBaseHalfCanvasNavigationService);
+		const editingService = accessor.get(IBaseHalfCanvasEditingService);
 		await actionContextService.assertCurrent(argument);
+		if (argument.snapshot.draft) {
+			// A draft has no file to open: its card is selected, and its panel shows.
+			await editingService.requestSelection(dirname(argument.resource), [argument.resource]);
+			return;
+		}
 		await navigationService.openResource(argument.resource, { source: 'api', pinned: true });
 	}
 });
@@ -596,8 +603,23 @@ registerAction2(class BaseHalfCanvasDeleteResourceAction extends Action2 {
 			return;
 		}
 		const services = canvasFileActionServices(accessor);
+		const generationCardActions = accessor.get(IBaseHalfGenerationCardActions);
 		const stat = await services.actionContextService.assertCurrent(argument);
 		const name = basename(argument.resource);
+		if (argument.snapshot.draft) {
+			// A draft goes with all of its card information, and undo brings it back (generation cards, "Deleting").
+			const { confirmed } = await services.dialogService.confirm({
+				type: 'warning',
+				message: localize('basehalf.canvas.deleteDraft.message', "Delete '{0}'?", name),
+				detail: localize('basehalf.canvas.deleteDraft.detail', "Its prompt, settings, and inputs go with it. You can undo this."),
+				primaryButton: localize('basehalf.canvas.deleteDraft.primaryButton', "&&Delete")
+			});
+			if (confirmed) {
+				await services.actionContextService.assertCurrent(argument);
+				await generationCardActions.deleteDrafts([argument.resource]);
+			}
+			return;
+		}
 		const useTrash = services.configurationService.getValue<boolean>('files.enableTrash')
 			&& services.fileService.hasCapability(argument.resource, FileSystemProviderCapabilities.Trash);
 		const confirmation = await services.dialogService.confirm({
@@ -651,7 +673,8 @@ registerAction2(class BaseHalfCanvasRevealResourceAction extends Action2 {
 		super({
 			id: BASEHALF_CANVAS_REVEAL_COMMAND_ID,
 			title: localize2('basehalf.canvas.context.revealInFiles', "Reveal in Files"),
-			menu: { id: BASEHALF_CANVAS_CARD_CONTEXT_MENU, group: '2_files', order: 10 }
+			// A draft is not in Files.
+			menu: { id: BASEHALF_CANVAS_CARD_CONTEXT_MENU, group: '2_files', order: 10, when: BASEHALF_CANVAS_CARD_IS_DRAFT.negate() }
 		});
 	}
 

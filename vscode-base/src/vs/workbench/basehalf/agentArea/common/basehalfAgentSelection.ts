@@ -21,8 +21,10 @@ export const BASEHALF_AGENT_SELECTION_WRITE_DELAY_MS = 200;
 export interface IBaseHalfAgentSelectionCard {
 	readonly path: string;
 	readonly isFolder: boolean;
-	/** The name and glyph its caption shows, when the canvas knows them: a node shows its title. */
+	/** The name and glyph its caption shows, when the canvas knows them. */
 	readonly caption?: IBaseHalfAgentSelectionCaption;
+	/** The card is a draft: its path is the one its file will have, and no file is there yet. */
+	readonly draft?: true;
 }
 
 export interface IBaseHalfAgentSelectionCaption {
@@ -62,7 +64,7 @@ export interface IBaseHalfAgentSelectionInput {
 /** What is recorded (the selection agents can see, "What is recorded"). */
 export type BaseHalfAgentSelection =
 	| { readonly selected: 'folder'; readonly path: string; readonly name: string }
-	| { readonly selected: 'card'; readonly path: string; readonly isFolder: boolean; readonly caption?: IBaseHalfAgentSelectionCaption }
+	| { readonly selected: 'card'; readonly path: string; readonly isFolder: boolean; readonly caption?: IBaseHalfAgentSelectionCaption; readonly draft?: true }
 	| { readonly selected: 'cards'; readonly paths: readonly string[] }
 	| { readonly selected: 'text'; readonly path: string; readonly firstLine: number; readonly lastLine: number; readonly text: string; readonly cut: boolean };
 
@@ -85,9 +87,13 @@ export function baseHalfAgentSelectionFor(input: IBaseHalfAgentSelectionInput): 
 			cut
 		};
 	}
-	const card = (selected: IBaseHalfAgentSelectionCard): BaseHalfAgentSelection => selected.caption
-		? { selected: 'card', path: selected.path, isFolder: selected.isFolder, caption: selected.caption }
-		: { selected: 'card', path: selected.path, isFolder: selected.isFolder };
+	const card = (selected: IBaseHalfAgentSelectionCard): BaseHalfAgentSelection => ({
+		selected: 'card',
+		path: selected.path,
+		isFolder: selected.isFolder,
+		...(selected.caption ? { caption: selected.caption } : {}),
+		...(selected.draft ? { draft: true as const } : {})
+	});
 	if (input.detail) {
 		return card(input.detail);
 	}
@@ -113,8 +119,14 @@ export function serializeBaseHalfAgentSelection(selection: BaseHalfAgentSelectio
 	];
 	switch (selection.selected) {
 		case 'folder':
+			lines.push(`path: ${quote(selection.path)}`);
+			break;
 		case 'card':
 			lines.push(`path: ${quote(selection.path)}`);
+			// A draft is recorded by the path its file will have (the selection agents can see, "The record").
+			if (selection.draft) {
+				lines.push('draft: true');
+			}
 			break;
 		case 'cards':
 			lines.push('paths:', ...selection.paths.map(path => `  - ${quote(path)}`));

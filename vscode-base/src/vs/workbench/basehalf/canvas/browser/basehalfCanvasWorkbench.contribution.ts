@@ -22,6 +22,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IContextMenuService, IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
@@ -310,7 +311,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IBaseHalfVideoGenerationService public readonly videoGenerationService: IBaseHalfVideoGenerationService,
 		@IBaseHalfGenerationCardStore public readonly generationCardStore: IBaseHalfGenerationCardStore,
 		@IBaseHalfGenerationTaskStore public readonly generationTaskStore: IBaseHalfGenerationTaskStore,
-		@IBaseHalfGenerationCardActions public readonly generationCardActions: IBaseHalfGenerationCardActions
+		@IBaseHalfGenerationCardActions public readonly generationCardActions: IBaseHalfGenerationCardActions,
+		@IContextKeyService public readonly contextKeyService: IContextKeyService
 	) {
 		super();
 		// An item that was moved outside BaseHalf: the open canvas and the open

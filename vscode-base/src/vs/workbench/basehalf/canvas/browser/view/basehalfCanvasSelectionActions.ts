@@ -6,12 +6,11 @@
 import * as DOM from '../../../../../base/browser/dom.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { toAction } from '../../../../../base/common/actions.js';
-import { basename, dirname, joinPath } from '../../../../../base/common/resources.js';
+import { basename, dirname } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
 import { FileSystemProviderCapabilities } from '../../../../../platform/files/common/files.js';
-import { findValidPasteFileTargetForResource, incrementFileName } from '../../../../contrib/files/browser/fileActions.js';
 import { IFilesConfiguration } from '../../../../contrib/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasChildPath, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
@@ -20,7 +19,7 @@ import { IBaseHalfReferenceStoreEdit } from '../../../references/common/basehalf
 import { baseHalfNormalizeUpstreamEntry } from '../../../references/common/basehalfReferenceEntries.js';
 import { BaseHalfReferenceIndexState } from '../../../references/common/basehalfReferenceIndex.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
+import { BASEHALF_CANVAS_CARD_IS_DRAFT, IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfCanvasSceneContextMenuRequest, BaseHalfCanvasSceneSelectionAction } from '../../common/basehalfCanvasScene.js';
@@ -248,40 +247,38 @@ export class BaseHalfCanvasSelectionActions {
 		const naming = configuredNaming === 'disabled' ? 'smart' : configuredNaming;
 		const reserved = new Set<string>();
 		const copies: { readonly item: IBaseHalfCanvasItem; readonly target: URI }[] = [];
-		for (const item of items) {
-			let target = await findValidPasteFileTargetForResource(
-				this.view.fileService,
-				this.view.dialogService,
-				folder.resource,
-				{ resource: item.stat.resource, isDirectory: item.kind === 'folder', allowOverwrite: false },
-				naming
-			);
+		// A draft has no file to copy: its copy is a new draft (generation cards, "Moving, renaming, copying, and undo").
+		const drafts = items.filter(item => item.generation?.draft);
+		for (const item of items.filter(candidate => !candidate.generation?.draft)) {
+			// Neither another copy nor a draft has the name a copy takes.
+			const target = await this.view.creation.freeTransferTarget(folder, item.stat.resource, item.kind === 'folder', false, naming, reserved);
 			if (!target) {
 				return;
 			}
-			let targetKey = this.view.uriIdentityService.extUri.getComparisonKey(target);
-			while (reserved.has(targetKey) || await this.view.fileService.exists(target)) {
-				target = joinPath(folder.resource, incrementFileName(basename(target), item.kind === 'folder', naming));
-				targetKey = this.view.uriIdentityService.extUri.getComparisonKey(target);
-			}
-			reserved.add(targetKey);
+			reserved.add(this.view.uriIdentityService.extUri.getComparisonKey(target));
 			copies.push({ item, target });
 		}
 
 		await this.resolveSceneSelection(sceneKey, structuralEpoch, items.map(item => item.path));
-		await this.view.explorerService.applyBulkEdit(copies.map(copy => new ResourceFileEdit(copy.item.stat.resource, copy.target, {
-			copy: true,
-			overwrite: false
-		})), {
-			undoLabel: copies.length === 1
-				? localize('basehalf.canvas.duplicate.undoOne', "Duplicate {0}", basename(copies[0].target))
-				: localize('basehalf.canvas.duplicate.undoMany', "Duplicate {0} items", copies.length),
-			progressLabel: copies.length === 1
-				? localize('basehalf.canvas.duplicate.progressOne', "Duplicating {0}", items[0].name)
-				: localize('basehalf.canvas.duplicate.progressMany', "Duplicating {0} items", copies.length),
-			confirmBeforeUndo: this.view.creation.confirmExplorerUndo()
-		});
-		const paths = copies.map(copy => baseHalfCanvasChildPath(folder.relativePath, basename(copy.target)));
+		if (copies.length) {
+			await this.view.explorerService.applyBulkEdit(copies.map(copy => new ResourceFileEdit(copy.item.stat.resource, copy.target, {
+				copy: true,
+				overwrite: false
+			})), {
+				undoLabel: copies.length === 1
+					? localize('basehalf.canvas.duplicate.undoOne', "Duplicate {0}", basename(copies[0].target))
+					: localize('basehalf.canvas.duplicate.undoMany', "Duplicate {0} items", copies.length),
+				progressLabel: copies.length === 1
+					? localize('basehalf.canvas.duplicate.progressOne', "Duplicating {0}", copies[0].item.name)
+					: localize('basehalf.canvas.duplicate.progressMany', "Duplicating {0} items", copies.length),
+				confirmBeforeUndo: this.view.creation.confirmExplorerUndo()
+			});
+		}
+		const draftCopies: URI[] = [];
+		for (const draft of drafts) {
+			draftCopies.push(await this.view.generationCardActions.copyDraft(draft.stat.resource, folder.resource, localize('basehalf.canvas.duplicate.draftUndo', "Duplicate {0}", draft.name)));
+		}
+		const paths = [...copies.map(copy => copy.target), ...draftCopies].map(target => baseHalfCanvasChildPath(folder.relativePath, basename(target)));
 		this.queueCanvasSelection(sceneKey, paths, postCreateOwner);
 		this.view.requestRender();
 	}
@@ -315,8 +312,13 @@ export class BaseHalfCanvasSelectionActions {
 		folder: IBaseHalfCanvasFolderState,
 		items: readonly IBaseHalfCanvasItem[]
 	): Promise<void> {
-		const useTrash = this.view.configurationService.getValue<boolean>('files.enableTrash')
-			&& items.every(item => this.view.fileService.hasCapability(item.stat.resource, FileSystemProviderCapabilities.Trash));
+		// A draft has no file to move to the Trash: it is deleted with all of its
+		// card information, as a step that undo takes back (generation cards, "Deleting").
+		const drafts = items.filter(item => item.generation?.draft);
+		const files = items.filter(item => !item.generation?.draft);
+		const useTrash = files.length > 0
+			&& this.view.configurationService.getValue<boolean>('files.enableTrash')
+			&& files.every(item => this.view.fileService.hasCapability(item.stat.resource, FileSystemProviderCapabilities.Trash));
 		const names = items.map(item => item.name);
 		const selectionLabel = items.length === 1
 			? localize('basehalf.canvas.selection.deleteOne.label', "'{0}'", names[0])
@@ -324,9 +326,11 @@ export class BaseHalfCanvasSelectionActions {
 		const scopeDetail = items.some(item => item.kind === 'folder')
 			? localize('basehalf.canvas.selection.deleteFolder.scopeUpstream', "Selected folders include all their contents. Other project files are not changed.")
 			: localize('basehalf.canvas.selection.deleteFile.scopeUpstream', "Other project files are not changed.");
-		const recoveryDetail = useTrash
-			? localize('basehalf.canvas.selection.deleteTrash.recovery', "You can restore the selected items from the Trash.")
-			: localize('basehalf.canvas.selection.deletePermanent.recovery', "This action cannot be undone from the Trash.");
+		const recoveryDetail = files.length === 0
+			? localize('basehalf.canvas.selection.deleteDrafts.recovery', "You can undo this.")
+			: useTrash
+				? localize('basehalf.canvas.selection.deleteTrash.recovery', "You can restore the selected items from the Trash.")
+				: localize('basehalf.canvas.selection.deletePermanent.recovery', "This action cannot be undone from the Trash.");
 		// Deleting a node never changes another node's store: entries that name
 		// it become dangling (D37). The user may remove them in one separate step.
 		const impact = this.canvasDeleteImpact(folder, items);
@@ -334,15 +338,19 @@ export class BaseHalfCanvasSelectionActions {
 		const detailParts = [impactDetail, scopeDetail, recoveryDetail].filter(part => !!part).join(' ');
 		const confirmation = await this.view.dialogService.confirm({
 			type: 'warning',
-			message: useTrash
-				? localize('basehalf.canvas.selection.deleteTrash.message', "Move {0} to the Trash?", selectionLabel)
-				: localize('basehalf.canvas.selection.deletePermanent.message', "Permanently delete {0}?", selectionLabel),
+			message: files.length === 0
+				? localize('basehalf.canvas.selection.deleteDrafts.message', "Delete {0}?", selectionLabel)
+				: useTrash
+					? localize('basehalf.canvas.selection.deleteTrash.message', "Move {0} to the Trash?", selectionLabel)
+					: localize('basehalf.canvas.selection.deletePermanent.message', "Permanently delete {0}?", selectionLabel),
 			detail: items.length === 1
 				? detailParts
 				: `${names.slice(0, 12).join('\n')}${names.length > 12 ? localize('basehalf.canvas.selection.delete.more', "\n+{0} more", names.length - 12) : ''}\n\n${detailParts}`,
-			primaryButton: useTrash
-				? localize('basehalf.canvas.selection.deleteTrash.primary', "&&Move to Trash")
-				: localize('basehalf.canvas.selection.deletePermanent.primary', "&&Delete Permanently"),
+			primaryButton: files.length === 0
+				? localize('basehalf.canvas.selection.deleteDrafts.primary', "&&Delete")
+				: useTrash
+					? localize('basehalf.canvas.selection.deleteTrash.primary', "&&Move to Trash")
+					: localize('basehalf.canvas.selection.deletePermanent.primary', "&&Delete Permanently"),
 			...(impact.stores.length > 0 ? {
 				checkbox: {
 					label: items.length === 1
@@ -364,22 +372,27 @@ export class BaseHalfCanvasSelectionActions {
 			this.view.canvasScene.select({ cardPaths: [] });
 		}
 		await this.resolveSceneSelection(sceneKey, structuralEpoch, items.map(item => item.path));
-		const apply = (permanently: boolean) => this.view.canvasResourceDeletionService.delete(items.map(item => ({
+		if (drafts.length) {
+			await this.view.generationCardActions.deleteDrafts(drafts.map(item => item.stat.resource));
+		}
+		const apply = (permanently: boolean) => this.view.canvasResourceDeletionService.delete(files.map(item => ({
 			resource: item.stat.resource,
 			folder: item.kind === 'folder',
 			maxSize: BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE
 		})), {
 			permanently,
-			undoLabel: items.length === 1
-				? localize('basehalf.canvas.selection.delete.undoOne', "Delete {0}", items[0].name)
-				: localize('basehalf.canvas.selection.delete.undoMany', "Delete {0} items", items.length),
-			progressLabel: items.length === 1
-				? localize('basehalf.canvas.selection.delete.progressOne', "Deleting {0}", items[0].name)
-				: localize('basehalf.canvas.selection.delete.progressMany', "Deleting {0} items", items.length),
+			undoLabel: files.length === 1
+				? localize('basehalf.canvas.selection.delete.undoOne', "Delete {0}", files[0].name)
+				: localize('basehalf.canvas.selection.delete.undoMany', "Delete {0} items", files.length),
+			progressLabel: files.length === 1
+				? localize('basehalf.canvas.selection.delete.progressOne', "Deleting {0}", files[0].name)
+				: localize('basehalf.canvas.selection.delete.progressMany', "Deleting {0} items", files.length),
 			confirmBeforeUndo: this.view.creation.confirmExplorerUndo()
 		});
 
-		if (!useTrash) {
+		if (files.length === 0) {
+			// Nothing goes to the Trash.
+		} else if (!useTrash) {
 			await apply(true);
 		} else {
 			try {
@@ -394,7 +407,7 @@ export class BaseHalfCanvasSelectionActions {
 				if (!fallback.confirmed) {
 					return;
 				}
-				await this.resolveSceneSelection(sceneKey, structuralEpoch, items.map(item => item.path));
+				await this.resolveSceneSelection(sceneKey, structuralEpoch, files.map(item => item.path));
 				await apply(true);
 			}
 		}
@@ -578,6 +591,8 @@ export class BaseHalfCanvasSelectionActions {
 			this.view.contextMenuService.showContextMenu({
 				menuId,
 				menuActionOptions: { arg: context },
+				// The menu of a draft offers only what works without a file.
+				...(request.kind === 'card' ? { contextKeyService: this.view.contextKeyService.createOverlay([[BASEHALF_CANVAS_CARD_IS_DRAFT.key, context.snapshot.draft === true]]) } : {}),
 				getAnchor: () => request.anchor,
 				onHide: wasCancelled => {
 					if (wasCancelled) {
@@ -723,10 +738,11 @@ export class BaseHalfCanvasSelectionActions {
 		const cards = (this.view.agentSelectionCards.sceneKey === sceneKey ? this.view.agentSelectionCards.paths : [])
 			.map(path => {
 				const item = this.view.renderedItemsByPath.get(path);
-				return { path, isFolder: item?.kind === 'folder', name: item?.name ?? path.slice(path.lastIndexOf('/') + 1), caption: this.agentSelectionCaption(path) };
+				return { path, isFolder: item?.kind === 'folder', name: item?.name ?? path.slice(path.lastIndexOf('/') + 1), caption: this.agentSelectionCaption(path), draft: item?.generation?.draft === true };
 			})
 			.sort((a, b) => a.isFolder !== b.isFolder ? (a.isFolder ? -1 : 1) : a.name.localeCompare(b.name))
-			.map(({ path, isFolder, caption }) => ({ path, isFolder, caption }));
+			// A draft is recorded by the path its file will have, and says it is one.
+			.map(({ path, isFolder, caption, draft }) => ({ path, isFolder, caption, ...(draft ? { draft: true as const } : {}) }));
 		let text: IBaseHalfAgentSelectionText | undefined;
 		if (detail) {
 			const detailText = this.view.activeDetailProjection ? this.view.agentSelectionDetailText.get(this.view.activeDetailProjection) : undefined;
