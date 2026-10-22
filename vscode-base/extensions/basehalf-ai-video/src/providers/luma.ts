@@ -7,21 +7,23 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Media, ModeLimits, Params, PlannedMedia, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { ModulePollState, ProviderModule, VideoLocation } from './module.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Media, ModeLimits, ModelKind, Params, PlannedMedia, SubmitRequest, TaskRef } from './types.ts';
 
 /**
- * Luma's video model, Ray 3.2, on the Luma Agents API (D59;
- * `docs/specs/video-providers/luma.md`, which records the pages each fact
- * comes from). One API key as a bearer token; images inline as base64; the
- * clip of an edit through Luma's Files API, which must have checked the file
- * before a generation may use it; generations asked about at
- * `GET /generations/{id}`; no cancellation.
+ * Luma's video model, Ray 3.2, and its image models, Uni-1 and Uni-1 Max, on
+ * the Luma Agents API (D59, D64; `docs/specs/providers/luma.md`, which records
+ * the pages each fact comes from). One API key as a bearer token; images
+ * inline as base64; the clip of an edit through Luma's Files API, which must
+ * have checked the file before a generation may use it; generations asked
+ * about at `GET /generations/{id}`; no cancellation.
  */
 
 type Resolution = '360p' | '540p' | '720p' | '1080p';
 type Strength = 'auto' | 'adhere_1' | 'adhere_2' | 'adhere_3' | 'flex_1' | 'flex_2' | 'flex_3' | 'reimagine_1' | 'reimagine_2' | 'reimagine_3';
 type FailureCode = 'content_moderated' | 'generation_failed' | 'budget_exhausted' | 'output_not_found' | 'image_too_large' | 'unsupported_format' | 'corrupt_input' | 'invalid_request' | 'rate_limited';
+type ImageModelId = 'uni-1' | 'uni-1-max';
+type Style = 'auto' | 'manga';
 
 // --- labels and messages ------------------------------------------------------------------------
 
@@ -32,7 +34,7 @@ const TEXT = Object.freeze({
 	apiKey: 'API Key',
 	model: 'Ray 3.2',
 	description: 'Text, or a start and an end frame, to video of 5 or 10 seconds from 360p to 1080p, looping or in HDR when asked; it also edits clips of up to 18 seconds.',
-	modes: Object.freeze({ frames: 'Frames', edit: 'Edit' }),
+	modes: Object.freeze({ frames: 'Frames', edit: 'Edit', reference: 'References' }),
 	resolution: 'Resolution',
 	resolutionTooltip: '360p is Luma\'s draft tier, for fast previews.',
 	ratio: 'Ratio',
@@ -57,16 +59,35 @@ const TEXT = Object.freeze({
 	}),
 	hdr: 'HDR',
 	hdrTooltip: 'An HDR-encoded MP4 at 720p or 1080p. In Frames mode an HDR video is 5 seconds long and does not loop.',
+	// The image models.
+	imageModels: Object.freeze<Record<ImageModelId, { readonly label: string; readonly description: string }>>({
+		'uni-1': {
+			label: 'Uni-1',
+			description: 'Luma\'s image model: an image from the prompt, or with connected images an edit of the first one, guided by up to 8 more. Name each image\'s role in the prompt by its order, such as "the first reference".'
+		},
+		'uni-1-max': {
+			label: 'Uni-1 Max',
+			description: 'Uni-1 at higher quality: an image from the prompt, or with connected images an edit of the first one, guided by up to 8 more. Name each image\'s role in the prompt by its order, such as "the first reference".'
+		}
+	}),
+	imageRatioTooltip: 'The shape of the image. Adaptive lets the model choose it from the prompt. With connected images, the image keeps the size of the first one, which it edits.',
+	style: 'Style',
+	styleTooltip: 'Manga draws the image as a manga illustration, with ink outlines and screentone shading. Without connected images, it takes a portrait ratio or Adaptive.',
+	styles: Object.freeze<Record<Style, string>>({ auto: 'Auto', manga: 'Manga' }),
+	webSearch: 'Web Search',
+	webSearchTooltip: 'Luma looks on the web for pictures of the real subjects, places, and products the prompt names before it makes the image, which takes a few seconds longer.',
 	// The rules between parameters.
 	hdrResolution: 'Ray 3.2 makes HDR video at 720p or 1080p only.',
 	hdrDuration: 'Ray 3.2 makes HDR video of 5 seconds only.',
 	loopDuration: 'Ray 3.2 makes a looping video of 5 seconds only.',
 	loopHdr: 'Ray 3.2 does not make a looping video in HDR.',
 	loopEndFrame: 'A looping video takes no end frame: remove the end frame, or turn Loop off.',
+	mangaRatio: 'Without connected images, the Manga style takes a portrait ratio: choose 2:3, 9:16, 1:2, 1:3, or Adaptive.',
 	framesTooLarge: (size: number, limit: number) => `The frames make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use smaller images.`,
+	imagesTooLarge: (size: number, limit: number) => `The images make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller images.`,
 	clipTooLarge: (label: string, size: number, limit: number) => `${label} is ${describeBytes(size)}; AI Video uploads at most ${describeBytes(limit)} in one request. Use a smaller clip.`,
 	// Inputs and uploads.
-	notTaken: (label: string) => `Ray 3.2 does not take ${inSentence(label)} in this mode.`,
+	notTaken: (model: string, label: string) => `${model} does not take ${inSentence(label)} in this mode.`,
 	noClip: 'Ray 3.2 in Edit mode needs a video to work on.',
 	imageFormat: (label: string) => `${label} is not a PNG, JPEG, or WebP image.`,
 	videoFormat: (label: string) => `${label} is not an MP4 or MOV video.`,
@@ -77,11 +98,13 @@ const TEXT = Object.freeze({
 	fileFailed: (label: string, reason: string) => `Luma refused ${inSentence(label)} when it checked it${reason ? `: ${reason}` : '.'}`,
 	fileDeleted: (label: string) => `Luma removed ${inSentence(label)} before the generation could use it. Generate again.`,
 	fileNotReady: (label: string) => `Luma has not finished checking ${inSentence(label)} after 2 minutes, and nothing was generated. Generate again in a moment.`,
+	notOffered: (model: string) => `Luma does not offer the model "${model}" in this region.`,
 	// Answers.
 	noTaskId: 'Luma accepted the request but gave no generation id AI Video can read.',
 	transient: (detail: string) => `Luma is unavailable for a moment and made no generation, so nothing is charged. Generate again in a moment.${detail ? ` (${detail})` : ''}`,
 	unknownState: (state: string) => `Luma reports a generation state AI Video does not know: ${state || 'none'}.`,
 	noVideo: 'Luma reports that the generation completed but gives no address of its video.',
+	noImage: 'Luma reports that the generation completed but gives no address of its image.',
 	noVideoAddress: 'Luma gives no address of a video for this generation.',
 	failed: 'Luma reports that the generation failed.',
 	failures: Object.freeze<Record<FailureCode, string>>({
@@ -95,8 +118,14 @@ const TEXT = Object.freeze({
 		invalid_request: 'Luma refused the request as invalid while it ran.',
 		rate_limited: 'A service Luma relies on was too busy. Generate again in a moment.'
 	}),
+	/** The failures whose sentence names what was made, for an image. */
+	imageFailures: Object.freeze<Partial<Record<FailureCode, string>>>({
+		content_moderated: 'Luma\'s content moderation refused the prompt, an input, or the image, and refunds the charge. Change the prompt or the inputs.',
+		generation_failed: 'Luma\'s model failed to make the image, and Luma refunds the charge. Generating again usually works.',
+		output_not_found: 'Luma could not retrieve the image it made, and refunds the charge. Generating again usually works.'
+	}),
 	// Errors by status.
-	refusedKey: 'Luma refused the API key. Check it in Video Providers.',
+	refusedKey: 'Luma refused the API key. Check it in Providers.',
 	noBalance: 'The Luma account has too little balance. Add funds in the Luma API Platform.',
 	refusedAccount: 'Luma refused this account. Contact Luma support.',
 	tooManyJobs: 'Luma is already running as many generations at once as this account\'s plan allows. Wait for one to finish.',
@@ -109,7 +138,7 @@ function inSentence(label: string): string {
 	return label.charAt(0).toLowerCase() + label.slice(1);
 }
 
-// --- the model ----------------------------------------------------------------------------------
+// --- the video model ----------------------------------------------------------------------------
 
 /** The one id Luma takes for every task of Ray 3.2. */
 const MODEL_ID = 'ray-3.2';
@@ -124,6 +153,8 @@ const CLIP_SECONDS: readonly [number, number] = Object.freeze([0.1, 18]) as read
 const CLIP_MAX_BYTES = 200 * MiB;
 /** The output's frame grid, where keyframes are placed. */
 const FRAMES_PER_SECOND = 24;
+/** Characters of a prompt, for every type. */
+const PROMPT_MAX_LENGTH = 6000;
 
 const RESOLUTIONS: readonly Resolution[] = Object.freeze(['360p', '540p', '720p', '1080p']);
 const HDR_RESOLUTIONS: ReadonlySet<string> = new Set<Resolution>(['720p', '1080p']);
@@ -188,24 +219,98 @@ const MODEL: CatalogModel = Object.freeze<CatalogModel>({
 	label: TEXT.model,
 	description: TEXT.description,
 	providerModels: { [REGION]: MODEL_ID },
-	prompt: { required: 'always', maxLength: 6000 },
+	prompt: { required: 'always', maxLength: PROMPT_MAX_LENGTH },
 	modes: MODES,
 	parameters: PARAMETERS
 });
+
+// --- the image models ---------------------------------------------------------------------------
+
+const IMAGE_MODEL_IDS: readonly ImageModelId[] = Object.freeze(['uni-1', 'uni-1-max']);
+/** The nine shapes of `type: "image"`; an edit keeps its source's size. */
+const IMAGE_RATIOS: readonly string[] = Object.freeze(['3:1', '2:1', '16:9', '3:2', '1:1', '2:3', '9:16', '1:2', '1:3']);
+/** The shapes Manga takes without images: portrait ones, or the model's own choice. */
+const MANGA_RATIOS: ReadonlySet<string> = new Set(['2:3', '9:16', '1:2', '1:3', ADAPTIVE]);
+const STYLES = Object.freeze(Object.keys(TEXT.styles)) as readonly Style[];
+/** The source of an edit and up to 8 references: `image_ref` takes 9 for `image`, 8 for `image_edit`. */
+const MAX_IMAGES = 9;
+
+const IMAGE_MODE: CatalogMode = Object.freeze<CatalogMode>({
+	id: 'reference',
+	label: TEXT.modes.reference,
+	inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: MAX_IMAGES }, videos: NO_INPUTS, audios: NO_INPUTS, source: 'none' },
+	limits: IMAGE_LIMITS
+});
+
+const IMAGE_PARAMETERS: readonly CatalogParameter[] = Object.freeze([
+	{
+		name: 'ratio',
+		label: TEXT.ratio,
+		tooltip: TEXT.imageRatioTooltip,
+		kind: 'choice',
+		display: 'ratio',
+		options: [{ value: ADAPTIVE, label: TEXT.adaptive }, ...IMAGE_RATIOS.map(ratio => ({ value: ratio, label: ratio }))],
+		default: ADAPTIVE
+	},
+	{
+		name: 'style',
+		label: TEXT.style,
+		tooltip: TEXT.styleTooltip,
+		kind: 'choice',
+		options: STYLES.map(style => ({ value: style, label: TEXT.styles[style] })),
+		default: 'auto'
+	},
+	{ name: 'web_search', label: TEXT.webSearch, tooltip: TEXT.webSearchTooltip, kind: 'boolean', default: false, advanced: true }
+]);
+
+function imageModel(id: ImageModelId): CatalogModel {
+	return Object.freeze<CatalogModel>({
+		id,
+		kind: 'image',
+		label: TEXT.imageModels[id].label,
+		description: TEXT.imageModels[id].description,
+		providerModels: { [REGION]: id },
+		prompt: { required: 'always', maxLength: PROMPT_MAX_LENGTH },
+		modes: [IMAGE_MODE],
+		parameters: IMAGE_PARAMETERS,
+		outputFormat: 'png'
+	});
+}
 
 const PROVIDER: CatalogProvider = Object.freeze<CatalogProvider>({
 	id: 'luma',
 	label: TEXT.provider,
 	regions: [{ id: REGION, label: TEXT.region, baseUrl: 'https://agents.lumalabs.ai/v1', console: 'https://platform.lumalabs.ai' }],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey, placeholder: 'luma-api-…' }],
-	models: [MODEL]
+	models: [MODEL, ...IMAGE_MODEL_IDS.map(imageModel)]
 });
+
+/** The model of a request, when the region offers it. */
+function offeredModel(id: string, region: string): CatalogModel {
+	const model = PROVIDER.models.find(entry => entry.id === id);
+	if (!model || model.providerModels[region] === undefined) {
+		throw rejected(TEXT.notOffered(id));
+	}
+	return model;
+}
+
+/** What a model of this module makes; a model it does not declare is the video model. */
+function kindOf(model: string): ModelKind {
+	return PROVIDER.models.find(entry => entry.id === model)?.kind ?? 'video';
+}
 
 // --- checks ---------------------------------------------------------------------------------------
 
 /** The rules between parameters and inputs that the declarations cannot express (luma.md, "Rules between parameters"). */
 function ruleProblems(request: CheckRequest, counts: PlannedCounts): string[] {
 	const problems: string[] = [];
+	if (kindOf(request.model) === 'image') {
+		// Manga's portrait rule holds for `type: "image"` only: an edit keeps its source's size.
+		if (request.params.style === 'manga' && counts.images === 0 && !MANGA_RATIOS.has(String(request.params.ratio))) {
+			problems.push(TEXT.mangaRatio);
+		}
+		return problems;
+	}
 	const hdr = request.params.hdr === true;
 	if (hdr && !HDR_RESOLUTIONS.has(String(request.params.resolution))) {
 		problems.push(TEXT.hdrResolution);
@@ -229,18 +334,26 @@ function ruleProblems(request: CheckRequest, counts: PlannedCounts): string[] {
 	return problems;
 }
 
-/** A request too large for AI Video to send: the frames inline, or the clip in its upload. */
+/** The JSON of a request with its inputs left empty, then the inputs as base64: what AI Video would send. */
+function inlineRequestSize(body: Record<string, unknown>, inline: readonly MeasuredItem[]): number {
+	return Buffer.byteLength(JSON.stringify(body), 'utf8') + inline.reduce((total, item) => total + base64Length(item.facts.bytes), 0);
+}
+
+/** A request too large for AI Video to send: the images or the frames inline, or the clip in its upload. */
 function fileProblems(request: CheckRequest, inputs: PlannedMedia, measured: readonly MeasuredItem[]): string[] {
 	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
+	const empty = { data: '', media_type: 'image/jpeg' };
+	if (kindOf(request.model) === 'image') {
+		const images = measured.filter(item => item.slot === 'image');
+		const size = inlineRequestSize(imageBody(request.model as ImageModelId, request.params, request.prompt, images.map(() => empty)), images);
+		return size > limit ? [TEXT.imagesTooLarge(size, limit)] : [];
+	}
 	if (request.mode === 'edit') {
 		const clip = measured.find(item => item.slot === 'source');
 		return clip && clip.facts.bytes > limit ? [TEXT.clipTooLarge(clip.label, clip.facts.bytes, limit)] : [];
 	}
-	// The JSON of the request with empty images, then the images as base64.
-	const empty = { data: '', media_type: 'image/jpeg' };
 	const frames = measured.filter(item => item.slot === 'startFrame' || item.slot === 'endFrame');
-	const body = framesBody(request.params, request.prompt, inputs.startFrame ? empty : undefined, inputs.endFrame ? empty : undefined);
-	const size = Buffer.byteLength(JSON.stringify(body), 'utf8') + frames.reduce((total, item) => total + base64Length(item.facts.bytes), 0);
+	const size = inlineRequestSize(framesBody(request.params, request.prompt, inputs.startFrame ? empty : undefined, inputs.endFrame ? empty : undefined), frames);
 	return size > limit ? [TEXT.framesTooLarge(size, limit)] : [];
 }
 
@@ -293,6 +406,26 @@ function editBody(params: Params, prompt: string, fileId: string, guide: InlineM
 		video.hdr = true;
 	}
 	return { model: MODEL_ID, type: 'video_edit', prompt, source: { file_id: fileId }, video };
+}
+
+/**
+ * The body of an image request (luma.md, "Requests of the image models"): an
+ * image from the prompt, or with images an edit of the first, guided by the
+ * others. An edit keeps its source's size, so it gets no ratio.
+ */
+function imageBody(model: ImageModelId, params: Params, prompt: string, images: readonly InlineMedia[]): Record<string, unknown> {
+	const [source, ...references] = images;
+	return {
+		model,
+		type: source ? 'image_edit' : 'image',
+		prompt,
+		...(!source && params.ratio !== ADAPTIVE ? { aspect_ratio: params.ratio } : {}),
+		...(source ? { source } : {}),
+		...(references.length ? { image_ref: references } : {}),
+		style: params.style,
+		output_format: 'png',
+		web_search: params.web_search === true
+	};
 }
 
 /** An image read whole, with its type read from its bytes. */
@@ -441,7 +574,7 @@ async function submitFrames(request: SubmitRequest, http: ProviderHttp): Promise
 		} else if (item.slot === 'endFrame') {
 			end = await inlineImage(item.media, item.label);
 		} else {
-			throw rejected(TEXT.notTaken(item.label));
+			throw rejected(TEXT.notTaken(TEXT.model, item.label));
 		}
 	}
 	// `check` refuses both before a request is sent; nothing is sent without them either.
@@ -459,7 +592,7 @@ async function submitEdit(request: SubmitRequest, http: ProviderHttp): Promise<s
 	// Every input is refused or read before anything is uploaded.
 	for (const item of items) {
 		if (item.slot !== 'source' && !(item.slot === 'image' && item.index === 0)) {
-			throw rejected(TEXT.notTaken(item.label));
+			throw rejected(TEXT.notTaken(TEXT.model, item.label));
 		}
 	}
 	const source = items.find(item => item.slot === 'source');
@@ -477,6 +610,20 @@ async function submitEdit(request: SubmitRequest, http: ProviderHttp): Promise<s
 	return createGeneration(http, editBody(request.params, request.prompt, fileId, guide));
 }
 
+async function submitImage(model: CatalogModel, request: SubmitRequest, http: ProviderHttp): Promise<string> {
+	const items = plannedItems(request.inputs);
+	// Every input is refused before any file is read.
+	const other = items.find(item => item.slot !== 'image');
+	if (other) {
+		throw rejected(TEXT.notTaken(model.label, other.label));
+	}
+	const images: InlineMedia[] = [];
+	for (const item of items) {
+		images.push(await inlineImage(item.media, item.label));
+	}
+	return createGeneration(http, imageBody(model.id as ImageModelId, request.params, request.prompt, images));
+}
+
 // --- answers --------------------------------------------------------------------------------------
 
 /** The generation as `GET /generations/{id}` gives it. */
@@ -484,19 +631,28 @@ async function askAbout(ref: TaskRef, http: ProviderHttp): Promise<Record<string
 	return (await http.request({ method: 'GET', path: `/generations/${encodeURIComponent(ref.remoteId)}` })).object();
 }
 
-/** The address of the first video among a generation's outputs. */
-function videoUrlOf(generation: Record<string, unknown>): string | undefined {
+/** The addresses of the outputs of `type` among a generation's outputs, in Luma's order. */
+function outputUrlsOf(generation: Record<string, unknown>, type: ModelKind): string[] {
+	const urls: string[] = [];
 	for (const output of Array.isArray(generation.output) ? generation.output : []) {
-		if (isRecord(output) && output.type === 'video' && textOf(output.url)) {
-			return textOf(output.url);
+		const url = isRecord(output) && output.type === type ? textOf(output.url) : undefined;
+		if (url) {
+			urls.push(url);
 		}
 	}
-	return undefined;
+	return urls;
 }
 
-function failureMessage(code: unknown, reason: unknown): string {
+/** The address of the first video among a generation's outputs. */
+function videoUrlOf(generation: Record<string, unknown>): string | undefined {
+	return outputUrlsOf(generation, 'video')[0];
+}
+
+function failureMessage(code: unknown, reason: unknown, kind: ModelKind): string {
 	const words = textOf(reason) ?? '';
-	const known = typeof code === 'string' && Object.hasOwn(TEXT.failures, code) ? TEXT.failures[code as FailureCode] : undefined;
+	const known = typeof code === 'string' && Object.hasOwn(TEXT.failures, code)
+		? (kind === 'image' ? TEXT.imageFailures[code as FailureCode] : undefined) ?? TEXT.failures[code as FailureCode]
+		: undefined;
 	const tag = typeof code === 'string' && code.trim() ? code.trim().slice(0, 64) : undefined;
 	if (known) {
 		return words ? `${known} (${tag}: ${words})` : `${known} (${tag})`;
@@ -505,13 +661,22 @@ function failureMessage(code: unknown, reason: unknown): string {
 	return tag ? `${said} (${tag})` : said;
 }
 
-function pollStateOf(generation: Record<string, unknown>): PollState {
+/** A generation's state; a completed one with its video's address, or for an image model with its images' addresses. */
+function pollStateOf(generation: Record<string, unknown>, kind: ModelKind): ModulePollState {
 	switch (generation.state) {
 		case 'queued':
 			return { state: 'pending' };
 		case 'processing':
 			return { state: 'running' };
 		case 'completed': {
+			if (kind === 'image') {
+				const urls = outputUrlsOf(generation, 'image');
+				if (!urls.length) {
+					throw unreadable(TEXT.noImage);
+				}
+				// Each address lasts an hour and every question gives a new one: the window downloads it at once.
+				return { state: 'succeeded', outputs: urls.map(url => ({ url })) };
+			}
 			const videoUrl = videoUrlOf(generation);
 			if (!videoUrl) {
 				throw unreadable(TEXT.noVideo);
@@ -519,7 +684,7 @@ function pollStateOf(generation: Record<string, unknown>): PollState {
 			return { state: 'succeeded', videoUrl };
 		}
 		case 'failed':
-			return { state: 'failed', message: failureMessage(generation.failure_code, generation.failure_reason) };
+			return { state: 'failed', message: failureMessage(generation.failure_code, generation.failure_reason, kind) };
 		default:
 			throw unreadable(TEXT.unknownState(String(generation.state ?? '').slice(0, 40)));
 	}
@@ -595,14 +760,15 @@ export const LUMA: ProviderModule = Object.freeze({
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
-		if (request.model !== MODEL_ID || PROVIDER.models[0].providerModels[request.region] === undefined) {
-			throw rejected(`Luma does not offer the model "${request.model}" in this region.`);
+		const model = offeredModel(request.model, request.region);
+		if (model.kind === 'image') {
+			return submitImage(model, request, http);
 		}
 		return request.mode === 'edit' ? submitEdit(request, http) : submitFrames(request, http);
 	},
 
-	async poll(ref: TaskRef, http: ProviderHttp): Promise<PollState> {
-		return pollStateOf(await askAbout(ref, http));
+	async poll(ref: TaskRef, http: ProviderHttp): Promise<ModulePollState> {
+		return pollStateOf(await askAbout(ref, http), kindOf(ref.model));
 	},
 
 	async videoLocation(ref: TaskRef, http: ProviderHttp): Promise<VideoLocation> {

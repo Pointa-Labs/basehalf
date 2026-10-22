@@ -4,10 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Luma module (docs/specs/video-providers/luma.md) through the provider
+ * The Luma module (docs/specs/providers/luma.md) through the provider
  * commands, against a local server that answers like the Luma Agents API and
- * a second one that answers like the storage its presigned uploads go to. No
- * test calls Luma or uses a real key.
+ * a second one that answers like the storage its presigned uploads go to and
+ * its results come from. No test calls Luma or uses a real key.
  */
 
 import assert from 'node:assert/strict';
@@ -22,7 +22,7 @@ import { LUMA } from '../src/providers/luma.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import type { CatalogParameter, PlannedMedia } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
+import { error, gifHeader, isoMedia, jpegHeader, partTargets, plannedFiles, png, recordingSleep, routed, sendJson, serveFiles, startServer, tinyPng, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-luma-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -189,7 +189,8 @@ test('the catalog declares Luma with one region, one API key, and Ray 3.2 with i
 		regions: [{ id: 'global', label: 'Luma Agents API', baseUrl: 'https://agents.lumalabs.ai/v1', console: 'https://platform.lumalabs.ai' }],
 		credentials: [{ id: 'apiKey', label: 'API Key', placeholder: 'luma-api-…' }]
 	});
-	assert.equal(provider.models.length, 1);
+	// The video model, then the two image models (their own test below).
+	assert.deepEqual(provider.models.map(model => [model.id, model.kind]), [['ray-3.2', 'video'], ['uni-1', 'image'], ['uni-1-max', 'image']]);
 	const model = provider.models[0];
 	assert.deepEqual({ id: model.id, label: model.label, providerModels: model.providerModels, prompt: model.prompt, deprecated: model.deprecated }, {
 		id: 'ray-3.2',
@@ -460,7 +461,7 @@ test('a refusal of the storage, a storage address that is not https, a refused k
 				stored: 1
 			},
 			key: {
-				failed: { code: 'auth', status: 401, message: 'Luma refused the API key. Check it in Video Providers. (Invalid API key)' },
+				failed: { code: 'auth', status: 401, message: 'Luma refused the API key. Check it in Providers. (Invalid API key)' },
 				api: ['POST /files'],
 				stored: 0
 			},
@@ -526,8 +527,8 @@ test('a refused key answers auth for a create and for a poll, and no message car
 		const submitted = error(await providers.submit(generation(server.url, 'frames', {})));
 		const polled = error(await providers.poll(taskRef(server.url, 'gen-1')));
 		assert.deepEqual({ submitted, polled, sent: server.received.length }, {
-			submitted: { code: 'auth', status: 401, message: 'Luma refused the API key. Check it in Video Providers. (API key has been revoked)' },
-			polled: { code: 'auth', status: 401, message: 'Luma refused the API key. Check it in Video Providers. (Invalid API key)' },
+			submitted: { code: 'auth', status: 401, message: 'Luma refused the API key. Check it in Providers. (API key has been revoked)' },
+			polled: { code: 'auth', status: 401, message: 'Luma refused the API key. Check it in Providers. (Invalid API key)' },
 			sent: 2
 		});
 		assert.ok(!JSON.stringify([submitted, polled]).includes(KEY));
@@ -844,5 +845,305 @@ test('check takes WebP, refuses GIF, a clip too long, and requests larger than A
 		});
 	} finally {
 		await luma.close();
+	}
+});
+
+// --- the image models ---------------------------------------------------------------------------
+
+type ImageModel = 'uni-1' | 'uni-1-max';
+
+/** A generation of an image model: References mode, with the planned images in order. */
+function imageGeneration(endpoint: string, model: ImageModel, params: Record<string, unknown>, images: readonly (FileMedia | { readonly dataUrl: string })[] = [], prompt = PROMPT) {
+	return {
+		provider: 'luma',
+		region: 'global',
+		endpoint,
+		credentials: { apiKey: KEY },
+		model,
+		mode: 'reference',
+		params,
+		prompt,
+		inputs: { images, videos: [], audios: [] }
+	};
+}
+
+function imageTaskRef(endpoint: string, remoteId: string, model: ImageModel = 'uni-1') {
+	return { ...taskRef(endpoint, remoteId), model };
+}
+
+test('the catalog declares Uni-1 and Uni-1 Max as image models in PNG, with one References mode of up to 9 images and their settings', () => {
+	const provider = buildCatalog([LUMA]).providers[0];
+	const images = provider.models.filter(model => model.kind === 'image');
+	assert.deepEqual(images.map(model => ({
+		id: model.id,
+		label: model.label,
+		providerModels: model.providerModels,
+		prompt: model.prompt,
+		outputFormat: model.outputFormat,
+		answersAtOnce: model.answersAtOnce,
+		deprecated: model.deprecated
+	})), [
+		{ id: 'uni-1', label: 'Uni-1', providerModels: { global: 'uni-1' }, prompt: { required: 'always', maxLength: 6000 }, outputFormat: 'png', answersAtOnce: undefined, deprecated: undefined },
+		{ id: 'uni-1-max', label: 'Uni-1 Max', providerModels: { global: 'uni-1-max' }, prompt: { required: 'always', maxLength: 6000 }, outputFormat: 'png', answersAtOnce: undefined, deprecated: undefined }
+	]);
+	const none = { min: 0, max: 0 };
+	for (const model of images) {
+		assert.ok(model.description && /edit of the first one/.test(model.description), `${model.id} says how it uses connected images`);
+		assert.deepEqual(model.modes, [{
+			id: 'reference',
+			label: 'References',
+			inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 9 }, videos: none, audios: none, source: 'none' },
+			limits: { imageMaxSide: 8000, imageMaxBytes: 52_428_800 }
+		}]);
+		assert.deepEqual(model.parameters.map(({ tooltip, ...parameter }) => ({ ...parameter, explained: typeof tooltip === 'string' && tooltip.length > 0 })), [
+			{
+				name: 'ratio',
+				label: 'Ratio',
+				kind: 'choice',
+				display: 'ratio',
+				options: [{ value: 'adaptive', label: 'Adaptive' }, ...['3:1', '2:1', '16:9', '3:2', '1:1', '2:3', '9:16', '1:2', '1:3'].map(ratio => ({ value: ratio, label: ratio }))],
+				default: 'adaptive',
+				explained: true
+			},
+			{ name: 'style', label: 'Style', kind: 'choice', options: [{ value: 'auto', label: 'Auto' }, { value: 'manga', label: 'Manga' }], default: 'auto', explained: true },
+			{ name: 'web_search', label: 'Web Search', kind: 'boolean', default: false, advanced: true, explained: true }
+		]);
+	}
+	const shipped = buildCatalog(PROVIDER_MODULES).providers.find(entry => entry.id === 'luma');
+	assert.deepEqual(shipped?.models.map(model => model.id), ['ray-3.2', 'uni-1', 'uni-1-max'], 'AI Video ships the image models');
+});
+
+test('an image model is created once at /generations: from the prompt alone as an image, and with images as an edit of the first, guided by the others', async () => {
+	const luma = await startLuma();
+	try {
+		const many = [START, END, WEBP_END, GUIDE, START, END, WEBP_END, GUIDE, START];
+		const common = { output_format: 'png' };
+		const cases: readonly { readonly model: ImageModel; readonly params: Record<string, unknown>; readonly images?: readonly (FileMedia | { readonly dataUrl: string })[]; readonly body: () => Record<string, unknown> }[] = [
+			{
+				// The defaults: the model's own shape, the automatic style, and no web search.
+				model: 'uni-1', params: {},
+				body: () => ({ model: 'uni-1', type: 'image', prompt: PROMPT, style: 'auto', web_search: false, ...common })
+			},
+			{
+				model: 'uni-1', params: { ratio: '3:1', web_search: true },
+				body: () => ({ model: 'uni-1', type: 'image', prompt: PROMPT, aspect_ratio: '3:1', style: 'auto', web_search: true, ...common })
+			},
+			{
+				model: 'uni-1-max', params: { ratio: '9:16', style: 'manga' },
+				body: () => ({ model: 'uni-1-max', type: 'image', prompt: PROMPT, aspect_ratio: '9:16', style: 'manga', web_search: false, ...common })
+			},
+			{
+				// One image is the source of an edit, which keeps its size: no ratio is sent.
+				model: 'uni-1', params: { ratio: '16:9' }, images: [START],
+				body: () => ({ model: 'uni-1', type: 'image_edit', prompt: PROMPT, source: inline(START), style: 'auto', web_search: false, ...common })
+			},
+			{
+				// The others guide the edit, in order; Manga takes any shape of source.
+				model: 'uni-1-max', params: { style: 'manga', ratio: '1:1' }, images: [START, END, WEBP_END],
+				body: () => ({ model: 'uni-1-max', type: 'image_edit', prompt: PROMPT, source: inline(START), image_ref: [inline(END), inline(WEBP_END)], style: 'manga', web_search: false, ...common })
+			},
+			{
+				// An image the window drew to PNG arrives as a data URL and goes as its base64.
+				model: 'uni-1', params: {}, images: [{ dataUrl: DRAWN }],
+				body: () => ({ model: 'uni-1', type: 'image_edit', prompt: PROMPT, source: { data: DRAWN.slice('data:image/png;base64,'.length), media_type: 'image/png' }, style: 'auto', web_search: false, ...common })
+			},
+			{
+				// Nine images: the source and the 8 references an edit takes.
+				model: 'uni-1', params: {}, images: many,
+				body: () => ({ model: 'uni-1', type: 'image_edit', prompt: PROMPT, source: inline(START), image_ref: many.slice(1).map(inline), style: 'auto', web_search: false, ...common })
+			}
+		];
+		const providers = commands();
+		const outcomes = [];
+		for (const entry of cases) {
+			const before = luma.api.received.length;
+			const answer = await providers.submit(imageGeneration(luma.api.url, entry.model, entry.params, entry.images));
+			outcomes.push({
+				answer,
+				sent: luma.api.received.slice(before).map(request => ({ method: request.method, path: request.path, authorization: request.headers.authorization, type: request.headers['content-type'], body: sentBody(request) }))
+			});
+		}
+		assert.deepEqual(outcomes, cases.map((entry, index) => ({
+			answer: { ok: true, value: { remoteId: `gen-${index + 1}` } },
+			sent: [{ method: 'POST', path: '/generations', authorization: `Bearer ${KEY}`, type: 'application/json', body: entry.body() }]
+		})));
+		assert.equal(luma.storage.received.length, 0, 'images go inline: nothing is uploaded');
+	} finally {
+		await luma.close();
+	}
+});
+
+test('check reports Manga with a landscape or square ratio without images, too many images, a long prompt, and a request too large to send, and submit then sends nothing', async () => {
+	const luma = await startLuma();
+	try {
+		const providers = commands();
+		const problems = async (params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT, model: ImageModel = 'uni-1', checker = providers) =>
+			value(await checker.check({ provider: 'luma', region: 'global', model, mode: 'reference', params, prompt: text, inputs })).problems;
+		const manga = 'Without connected images, the Manga style takes a portrait ratio: choose 2:3, 9:16, 1:2, 1:3, or Adaptive.';
+		// Six images measured as 20 MiB each: 160 MiB in base64, more than AI Video sends.
+		const large = commands({ inspector: () => ({ inspect: async () => ({ bytes: 20 * MiB, format: 'png', width: 1920, height: 1080 }) }) });
+		assert.deepEqual({
+			mangaWide: await problems({ style: 'manga', ratio: '16:9' }, plannedFiles()),
+			mangaSquareMax: await problems({ style: 'manga', ratio: '1:1' }, plannedFiles(), PROMPT, 'uni-1-max'),
+			mangaPortrait: await problems({ style: 'manga', ratio: '9:16' }, plannedFiles()),
+			mangaAdaptive: await problems({ style: 'manga' }, plannedFiles()),
+			mangaEdit: await problems({ style: 'manga', ratio: '16:9' }, plannedFiles({ images: 1 })),
+			autoWide: await problems({ ratio: '16:9' }, plannedFiles()),
+			nineImages: await problems({}, plannedFiles({ images: 9 })),
+			tenImages: await problems({}, plannedFiles({ images: 10 })),
+			gif: await problems({}, { images: [GIF], videos: [], audios: [] }),
+			longPrompt: await problems({}, plannedFiles(), 'a'.repeat(6001)),
+			noPrompt: await problems({}, plannedFiles({ images: 1 }), ' '),
+			unknownRatio: await problems({ ratio: '21:9' }, plannedFiles()),
+			tooLarge: await problems({}, plannedFiles({ images: 6 }), PROMPT, 'uni-1', large),
+			submittedManga: error(await providers.submit(imageGeneration(luma.api.url, 'uni-1', { style: 'manga', ratio: '3:2' }))),
+			submittedTen: error(await providers.submit(imageGeneration(luma.api.url, 'uni-1-max', {}, [...Array(10)].map(() => START))))
+		}, {
+			mangaWide: [manga],
+			mangaSquareMax: [manga],
+			mangaPortrait: [],
+			mangaAdaptive: [],
+			mangaEdit: [],
+			autoWide: [],
+			nineImages: [],
+			tenImages: ['Uni-1 in References mode takes at most 9 reference images; 10 are planned.'],
+			gif: ['Reference image 1 moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
+			longPrompt: ['The prompt is 6001 characters long; Uni-1 takes at most 6000.'],
+			noPrompt: ['Write a prompt: Uni-1 needs one.'],
+			unknownRatio: ['Ratio cannot be 21:9 for Uni-1; choose Adaptive, 3:1, 2:1, 16:9, 3:2, 1:1, 2:3, 9:16, 1:2, 1:3.'],
+			tooLarge: ['The images make a request of 160.0 MiB; AI Video sends at most 128 MiB. Use fewer or smaller images.'],
+			submittedManga: { code: 'rejected', message: manga },
+			submittedTen: { code: 'rejected', message: 'Uni-1 Max in References mode takes at most 9 reference images; 10 are planned.' }
+		});
+		assert.equal(luma.api.received.length, 0, 'a refused request sends nothing');
+	} finally {
+		await luma.close();
+	}
+});
+
+test('asking about an image generation answers the addresses of its images as outputs, says what failed about the image, and reads no other answer', async () => {
+	const image = (id: string, name = 'output.png') => ({ type: 'image', url: `https://storage.example.com/generations/${id}/${name}?X-Amz-Expires=3600` });
+	const generations: Readonly<Record<string, unknown>> = {
+		'i-1': created('i-1', 'image'),
+		'i-2': { ...created('i-2', 'image_edit'), state: 'processing' },
+		'i-3': { ...created('i-3', 'image'), state: 'completed', output: [image('i-3')] },
+		'i-4': { ...created('i-4', 'image'), state: 'completed', output: [{ type: 'video', url: 'https://storage.example.com/clip.mp4' }, image('i-4', 'a.png'), image('i-4', 'b.png')] },
+		'i-5': { ...created('i-5', 'image'), state: 'failed', failure_code: 'content_moderated', failure_reason: 'Generation output was flagged by our content moderation system.' },
+		'i-6': { ...created('i-6', 'image'), state: 'failed', failure_code: 'generation_failed', failure_reason: null },
+		'i-7': { ...created('i-7', 'image'), state: 'failed', failure_code: 'output_not_found', failure_reason: null },
+		'i-8': { ...created('i-8', 'image'), state: 'failed', failure_code: 'budget_exhausted', failure_reason: null },
+		'i-9': { ...created('i-9', 'image'), state: 'completed', output: [{ type: 'video', url: 'https://storage.example.com/clip.mp4' }] }
+	};
+	const server = await startServer((request, response) => {
+		const id = decodeURIComponent(request.path.split('/').at(-1) ?? '');
+		if (generations[id]) {
+			sendJson(response, 200, generations[id]);
+		} else {
+			sendJson(response, 404, { detail: 'Generation not found' });
+		}
+	});
+	try {
+		const providers = commands();
+		const states = [];
+		for (const id of ['i-1', 'i-2', 'i-3', 'i-4', 'i-5', 'i-6', 'i-7', 'i-8']) {
+			states.push(value(await providers.poll(imageTaskRef(server.url, id, id === 'i-4' ? 'uni-1-max' : 'uni-1'))));
+		}
+		const others = [];
+		for (const id of ['i-9', 'i-10']) {
+			const failed = error(await providers.poll(imageTaskRef(server.url, id)));
+			others.push([failed.code, failed.message]);
+		}
+		assert.deepEqual({ states, others }, {
+			states: [
+				{ state: 'pending' },
+				{ state: 'running' },
+				{ state: 'succeeded', outputs: [{ url: image('i-3').url }] },
+				// Only the images, in Luma's order.
+				{ state: 'succeeded', outputs: [{ url: image('i-4', 'a.png').url }, { url: image('i-4', 'b.png').url }] },
+				{ state: 'failed', message: 'Luma\'s content moderation refused the prompt, an input, or the image, and refunds the charge. Change the prompt or the inputs. (content_moderated: Generation output was flagged by our content moderation system.)' },
+				{ state: 'failed', message: 'Luma\'s model failed to make the image, and Luma refunds the charge. Generating again usually works. (generation_failed)' },
+				{ state: 'failed', message: 'Luma could not retrieve the image it made, and refunds the charge. Generating again usually works. (output_not_found)' },
+				{ state: 'failed', message: 'The Luma account ran out of funds during the generation; part of it may be charged. Add funds in the Luma API Platform. (budget_exhausted)' }
+			],
+			others: [
+				['invalidResponse', 'Luma reports that the generation completed but gives no address of its image.'],
+				['notFound', 'Luma: Generation not found.']
+			]
+		});
+		assert.ok(server.received.every(request => request.method === 'GET' && request.headers.authorization === `Bearer ${KEY}`));
+	} finally {
+		await server.close();
+	}
+});
+
+test('an image downloads from the address the poll gave, without the key; an image model downloads no video', async () => {
+	const picture = tinyPng();
+	const storage = await startServer(routed(serveFiles({ '/generations/gen-7/output.png': picture })));
+	const api = await startServer((request, response) => sendJson(response, 200, {
+		...created('gen-7', 'image'),
+		state: 'completed',
+		output: [{ type: 'image', url: `${storage.url}/generations/gen-7/output.png?X-Amz-Signature=fresh` }]
+	}));
+	try {
+		const providers = commands();
+		const ref = imageTaskRef(api.url, 'gen-7');
+		const polled = value(await providers.poll(ref));
+		const address = (polled.state === 'succeeded' ? polled.outputs?.[0] : undefined) as { readonly url?: string } | undefined;
+		const [target, other] = partTargets(2);
+		const downloaded = value(await providers.download({ ...ref, kind: 'image', url: address?.url ?? '', targetFsPath: target }));
+		const asVideo = error(await providers.download({ ...ref, targetFsPath: other }));
+		assert.deepEqual({
+			downloaded,
+			same: readFileSync(target).equals(picture),
+			asVideo: asVideo.code,
+			storage: exchanges(storage)
+		}, {
+			downloaded: { size: picture.byteLength, format: 'png' },
+			same: true,
+			asVideo: 'rejected',
+			storage: ['GET /generations/gen-7/output.png?X-Amz-Signature=fresh no key']
+		});
+	} finally {
+		await api.close();
+		await storage.close();
+	}
+});
+
+test('an image generation answers a refused key, too little balance, and too many requests with the contract\'s codes, and a dropped create is sent once', async () => {
+	const replies: readonly [number, unknown][] = [
+		[401, { detail: 'Invalid API key' }],
+		[402, { detail: 'Insufficient balance. Please add funds to continue.' }],
+		[429, { detail: 'Too many concurrent jobs' }],
+		[413, { detail: 'image_ref[2]: image exceeds 50 MB limit' }],
+		[422, { detail: 'aspect_ratio=\'1:1\' is not allowed when style=\'manga\'. Valid aspect_ratio: 1:2, 1:3, 2:3, 9:16' }]
+	];
+	let next = 0;
+	const server = await startServer((request, response) => {
+		const [status, body] = replies[next++];
+		sendJson(response, status, body);
+	});
+	const dropped = await startServer((request, response, socket) => socket.destroy());
+	try {
+		const providers = commands();
+		const outcomes = [];
+		for (let index = 0; index < replies.length; index++) {
+			const failed = error(await providers.submit(imageGeneration(server.url, 'uni-1', {}, [START])));
+			outcomes.push([failed.code, failed.status, failed.message]);
+		}
+		const lost = error(await providers.submit(imageGeneration(dropped.url, 'uni-1-max', { ratio: '2:1' })));
+		assert.deepEqual({ outcomes, sent: server.received.length, lost: [lost.code, dropped.received.length] }, {
+			outcomes: [
+				['auth', 401, 'Luma refused the API key. Check it in Providers. (Invalid API key)'],
+				['balance', 402, 'The Luma account has too little balance. Add funds in the Luma API Platform. (Insufficient balance. Please add funds to continue.)'],
+				['rateLimited', 429, 'Luma is already running as many generations at once as this account\'s plan allows. Wait for one to finish. (Too many concurrent jobs)'],
+				['rejected', 413, 'Luma: image_ref[2]: image exceeds 50 MB limit.'],
+				['rejected', 422, 'Luma: aspect_ratio=\'1:1\' is not allowed when style=\'manga\'. Valid aspect_ratio: 1:2, 1:3, 2:3, 9:16.']
+			],
+			sent: replies.length,
+			lost: ['unknownOutcome', 1]
+		});
+	} finally {
+		await server.close();
+		await dropped.close();
 	}
 });

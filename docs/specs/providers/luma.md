@@ -1,7 +1,8 @@
 # Luma
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; image models, 2026-10-22)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Luma module of AI Video
@@ -9,7 +10,8 @@ This specification owns the Luma module of AI Video
 catalog entry it declares, the requests it sends, and how it reads Luma's
 answers. What is the same for every provider (the commands, checks from the
 declarations, retries, the download, plain messages) is owned by the parent
-specification and is not repeated here.
+specification and is not repeated here. The video model is specified first;
+the image models are in [Image models](#image-models).
 
 ## Sources
 
@@ -345,8 +347,9 @@ that is a list of field errors is read as each field's path and message.
   parameter"; the request reference lists no watermark).
 - **Camera concepts** (`concepts`): a field of the Dream Machine API only;
   Ray 3.2 takes camera motion from the prompt.
-- **The Dream Machine models** (Ray 2, Ray 2 Flash) and the image models
-  (`uni-1`, `uni-1-max`): see [Which API](#which-api); images are not video.
+- **The Dream Machine models** (Ray 2, Ray 2 Flash): see
+  [Which API](#which-api). The image models are in
+  [Image models](#image-models).
 - **Inline clips** (`source.data`): Luma advises inline data "only for small
   media files"; the Files API carries any clip AI Video sends.
 - **`user_id`** and request ids: they attribute usage among a partner's own
@@ -387,3 +390,176 @@ that is a list of field errors is read as each field's path and message.
 `vscode-base/extensions/basehalf-ai-video/test/luma.test.ts` runs the module
 through the provider commands against a local server that answers like the
 Agents API and its storage. No test calls Luma or uses a real key.
+
+## Image models
+
+Luma's two image models run on the same Agents API, region, key, and
+generations as Ray 3.2. This part says what differs; everything it does not
+say is as above.
+
+### Sources of the image models
+
+The Agents API documentation (`https://docs.agents.lumalabs.ai/<path>/index.md`),
+read on 2026-10-22; the request fields were read again on the live pages the
+same day. The pages carry no date of their own.
+
+| Page (path) | What this part takes from it |
+| --- | --- |
+| `guides/images/generation/` | `type: "image"`: `prompt` (1 to 6,000 characters), `model`, the nine `aspect_ratio` values and the model's own choice when it is left out, `style` (`auto`, `manga`) and the portrait rule of `manga`, `output_format` (`png`, `jpeg`), `web_search` (default `false`), `image_ref` (up to 9, each `{data, media_type}`, at most 50 MB and 8,000 px a side; inline data "only for small media files"), the validation rules, the answer, image outputs, addresses expiring after 1 hour |
+| `guides/images/editing/` | `type: "image_edit"`: `source`, required and refused for `image`; up to 8 `image_ref`; `aspect_ratio` ignored, the output taking the source's size; `style: "manga"` with any source; the validation rules and errors of an edit |
+| `guides/model/` | `uni-1` (the default) and `uni-1-max` (higher quality) take the same fields |
+| `api/resources/generations/methods/create/` | `image_ref`: "Up to 9 for type 'image', up to 8 for type 'image_edit'" |
+| `guides/faq/` | one image per request; image generations take 30 to 60 seconds; no resolution selector (the model picks the size from the ratio, and an edit keeps the source's size); no `seed`; no mask; JPEG, PNG, WebP, and still GIF as inputs |
+| `guides/rate-limits/`, `guides/error-handling/`, `guides/pricing/` | images share the per-minute and concurrent limits of every type; the 413 and 422 answers about images; which failed generations are refunded, for every model |
+
+### Uni-1 and Uni-1 Max
+
+| Catalog id | Label | Sent as (`global`) | What it does |
+| --- | --- | --- | --- |
+| `uni-1` | Uni-1 | `uni-1` | an image from the prompt, or an edit of a connected image guided by up to 8 more |
+| `uni-1-max` | Uni-1 Max | `uni-1-max` | the same, at higher quality |
+
+- `kind: "image"` and `outputFormat: "png"`. Each request is a generation
+  asked about as Ray 3.2's are, so neither model answers at once.
+- The prompt is always required, at most 6,000 characters.
+- Neither model is deprecated.
+
+### Mode and inputs of the image models
+
+One mode, References (`reference`), with 0 to 9 images and no frames,
+videos, audio, or source. Each image is at most 50 MB as Luma counts it
+(52,428,800 bytes, `imageMaxBytes`) and at most 8,000 px a side
+(`imageMaxSide`). No `imageFormats` is declared: Luma takes PNG, JPEG, WebP,
+and still GIF, and the window draws any other image to PNG.
+
+- **Without an image** the request is `type: "image"`, made from the prompt.
+- **With images** the request is `type: "image_edit"`: the first image is the
+  `source`, which the result edits and whose size it keeps, and the others,
+  up to 8, are `image_ref` references for the edit. The models' description
+  says so. Luma advises naming each reference's role in the prompt by its
+  order ("the first reference …").
+- A new image guided by references (`type: "image"` with `image_ref`) is not
+  offered: a card's connected images could mean either, and BaseHalf takes
+  the first one as the image to edit.
+
+### Parameters of the image models
+
+| Name | Label | Kind | Values (default in bold) | Sent as |
+| --- | --- | --- | --- | --- |
+| `ratio` | Ratio | choice, ratio shapes | **`adaptive`** (Adaptive), `3:1`, `2:1`, `16:9`, `3:2`, `1:1`, `2:3`, `9:16`, `1:2`, `1:3` | `aspect_ratio`, without images only; nothing for Adaptive |
+| `style` | Style | choice | **`auto`** (Auto), `manga` (Manga) | `style` |
+| `web_search` | Web Search | boolean, under More | **off** | `web_search` |
+
+- `ratio` is the shared name; Adaptive is Luma's own choice from the prompt
+  ("When omitted (or `null`), the model selects an appropriate ratio"). With
+  images the result keeps the size of the first one, so no ratio is sent; the
+  tooltip says so.
+- `style` and `web_search` are Luma's fields. Manga is "a manga/anime
+  aesthetic with ink outlines and screentone shading"; web search looks for
+  pictures of real subjects, places, and products before the image is made,
+  which takes a few seconds longer. Their tooltips say so.
+- Not offered, because the API has none: a resolution (the model picks the
+  size from the ratio), a count (one image per request), a seed, a negative
+  prompt, a mask, and a watermark.
+
+Rules that `check` reports after the declarations' checks:
+
+| Rule | Source |
+| --- | --- |
+| Without images, Manga takes a portrait ratio (2:3, 9:16, 1:2, 1:3) or Adaptive | "`style: "manga"` only permits portrait ratios … rejected with HTTP 422"; the rule "applies to `type: "image"` only" |
+| The request with its images in base64 is at most 128 MiB | the most AI Video sends in one request |
+
+### Requests of the image models
+
+`POST /generations`, sent once, with `Authorization: Bearer <key>`. Without
+images:
+
+```json
+{ "model": "uni-1", "type": "image", "prompt": "<prompt>", "aspect_ratio": "16:9", "style": "auto", "output_format": "png", "web_search": false }
+```
+
+With images:
+
+```json
+{
+	"model": "uni-1-max",
+	"type": "image_edit",
+	"prompt": "<prompt>",
+	"source": { "data": "<base64>", "media_type": "image/png" },
+	"image_ref": [{ "data": "<base64>", "media_type": "image/jpeg" }],
+	"style": "manga",
+	"output_format": "png",
+	"web_search": true
+}
+```
+
+- `aspect_ratio` is sent only without images and for a ratio other than
+  Adaptive; `image_ref` only with a second image. `style`, `output_format`
+  (always `png`), and `web_search` are always sent.
+- Each image goes inline as its bytes in plain base64, with the type read
+  from the bytes (`image/png`, `image/jpeg`, or `image/webp`), as Ray 3.2's
+  frames do. `check` bounds the whole request; the Files API, whose files
+  Luma checks before a generation may use them, is not used for images.
+- The answer and its errors are Ray 3.2's ([The answer](#the-answer)).
+
+### Answers of the image models
+
+`GET /generations/{id}` as for Ray 3.2 ([Task states](#task-states)), except
+`completed`: it is `succeeded` with one output for each entry of `output` of
+type `image`, its `url`; a completed generation without one cannot be read.
+
+- The address is presigned for 1 hour, and every question gives a new one. It
+  is answered as an address, which the window downloads at once without the
+  key; a generation asked about again gives a fresh one.
+- The sentences of `content_moderated`, `generation_failed`, and
+  `output_not_found` name the image, not the video; the refunds are the same
+  for every model (pricing page).
+- There is no cancellation, as for Ray 3.2.
+
+### Errors of the image models
+
+As for Ray 3.2 ([Errors](#errors)): 401 and 403 answer `auth`, 402 `balance`,
+429 `rateLimited` (images share the limits of every type), and 400, 413 (such
+as "image_ref[2]: image exceeds 50 MB limit"), and 422 (such as
+"aspect_ratio='1:1' is not allowed when style='manga'") `rejected`, with
+Luma's `detail`. A create without an answer has an unknown outcome.
+
+### Left out of the image models
+
+- **Photon** (`photon-1`, `photon-flash-1`): it runs only on the Dream Machine
+  API, which takes images only as public addresses ([Which API](#which-api)).
+- **References for a new image**: see the mode above.
+- **Layering** (`type: "layering"`): it splits an image into up to 10
+  layers, which is not the generation of one image.
+- **`file_id` and `generation_id` inputs**: BaseHalf sends the images of the
+  card as files.
+
+### Not confirmed for the image models
+
+- The pixel size of each ratio: Luma does not document it.
+- The format of a result: BaseHalf asks for PNG; a file in another format
+  still lands, under its own extension.
+- How much inline data Luma takes in one request: only the 50 MB of each image
+  is documented, so a refusal is Luma's.
+
+### Acceptance criteria of the image models
+
+1. The catalog has Uni-1 and Uni-1 Max of kind image, with PNG output and
+   exactly the mode, limits, and parameters above; `buildCatalog` accepts
+   them.
+2. Without images the request is `type: "image"` with `aspect_ratio` (none
+   for Adaptive); with images it is `type: "image_edit"` with the first image
+   as `source`, the others as `image_ref`, and no `aspect_ratio`. Each is sent
+   once.
+3. `check` reports Manga with a landscape or square ratio without images,
+   and a request too large to send; a refused request sends nothing.
+4. A poll answers the image addresses of a completed generation as outputs,
+   and an image downloads from its address without the key.
+5. 401 answers `auth`, 402 `balance`, 429 `rateLimited`, and a content
+   refusal fails the task with its sentence.
+
+### Verification of the image models
+
+`test/luma.test.ts` runs Uni-1 and Uni-1 Max through the provider commands
+against the same local Agents API and storage as Ray 3.2. No test calls Luma
+or uses a real key.
