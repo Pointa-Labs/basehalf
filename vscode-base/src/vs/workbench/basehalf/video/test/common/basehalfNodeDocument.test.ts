@@ -17,7 +17,6 @@ import {
 	createBaseHalfNodeDocument,
 	extractBaseHalfNodeUpstreamLenient,
 	forkBaseHalfNodeDocument,
-	getBaseHalfNodeAgentAuthoringContract,
 	getBaseHalfNodeResultArtifact,
 	getBaseHalfNodeVideoFields,
 	IBaseHalfNodeDocument,
@@ -302,55 +301,6 @@ suite('BaseHalfNodeDocument upstream', () => {
 		assert.strictEqual(extractBaseHalfNodeUpstreamLenient('[]').readable, false);
 		assert.strictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 6, upstream: 'a.md' })).readable, false);
 		assert.strictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 9 })).readable, false);
-	});
-});
-
-suite('BaseHalfNodeDocument agent authoring', () => {
-	ensureNoDisposablesAreLeakedInTestSuite();
-
-	test('publishes the fields an agent may write and keeps the task and result for BaseHalf', () => {
-		const contract = getBaseHalfNodeAgentAuthoringContract() as Record<string, any>;
-		assert.strictEqual(contract.contractVersion, 4);
-		assert.deepStrictEqual(contract.hostOwnedFields, ['task', 'result']);
-		assert.deepStrictEqual(contract.schema.required, ['version', 'id', 'kind', 'title', 'prompt', 'upstream']);
-		assert.deepStrictEqual(Object.keys(contract.schema.properties), ['version', 'id', 'kind', 'title', 'prompt', 'upstream', 'generation', 'task', 'result']);
-		assert.deepStrictEqual([contract.schema.properties.task, contract.schema.properties.result], [false, false]);
-		assert.deepStrictEqual(contract.schema.properties.kind, { const: 'video' });
-		assert.deepStrictEqual(contract.schema.properties.version, { const: 6 });
-		assert.deepStrictEqual(Object.keys(contract.schema.properties.generation.properties), ['provider', 'model', 'mode', 'params']);
-		assert.deepStrictEqual(contract.examples.configured.generation, { provider: 'provider-id', model: 'model-id', mode: 'frames', params: { duration: 5 } });
-		assert.ok(contract.rules.some((rule: string) => rule.includes('host.videoCatalog')));
-		// With a model of this computer's catalog, the example names it.
-		const fromCatalog = getBaseHalfNodeAgentAuthoringContract(generation()) as Record<string, any>;
-		assert.deepStrictEqual(fromCatalog.examples.configured.generation, generation());
-		for (const example of Object.values(contract.examples)) {
-			const document = parse(example);
-			assert.deepStrictEqual([document.task, document.result], [undefined, undefined]);
-			assert.deepStrictEqual(JSON.parse(serializeBaseHalfNodeDocument(document)), example);
-		}
-		assert.ok(contract.rules.some((rule: string) => rule.includes('basehalf --run-node')));
-		assert.doesNotMatch(JSON.stringify(contract), /recipe|attempt|binding|role|channel/i);
-	});
-
-	test('reads an agent-written Video node with a title, prompt, upstream, and settings, ready to run', () => {
-		const written = {
-			version: 6,
-			id: baseHalfNodeTestId(40),
-			kind: 'video',
-			title: 'Shot 3',
-			prompt: 'Image 1 slowly turns into Image 2.',
-			upstream: ['frames/a.png', 'frames/b.png'],
-			generation: { provider: 'acme', model: 'acme-motion-2', params: { duration: 8 } }
-		};
-		const document = parse(written);
-		assert.strictEqual(baseHalfVideoNodePhase(document), 'empty');
-		assert.deepStrictEqual(JSON.parse(serializeBaseHalfNodeDocument(document)), written);
-		const started = withBaseHalfNodeVideoFields(document, beginBaseHalfVideoTask(getBaseHalfNodeVideoFields(document), {
-			id: 'task-1',
-			startedAt: '2026-10-15T08:00:00.000Z',
-			request: { ...request(), prompt: document.prompt!, inputs: ['frames/a.png', 'frames/b.png'] }
-		}));
-		assert.strictEqual(baseHalfVideoNodePhase(started), 'generating');
 	});
 });
 

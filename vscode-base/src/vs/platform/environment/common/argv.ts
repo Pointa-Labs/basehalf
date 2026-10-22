@@ -141,7 +141,7 @@ export interface NativeParsedArgs {
 	editSessionId?: string;
 	continueOn?: string;
 	'locate-shell-integration-path'?: string;
-	'run-node'?: string;
+	'generate'?: string;
 	'run-operation'?: string;
 	'list-capabilities'?: boolean;
 	'profile'?: string;
