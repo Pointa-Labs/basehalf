@@ -188,8 +188,9 @@ fourth: it goes where the user pointed
   new card: a point on the canvas, or the point at which a connection line
   was released. See [Pointing](#pointing).
 - **Computed place**: the place that BaseHalf works out for a card that the
-  user creates without pointing: the middle of the visible part of the
-  canvas, or beside the card that the new one is made from.
+  user creates without pointing: the card centered on the middle of the
+  visible part of the canvas, or beside the card that the new one is made
+  from.
 - **Taken**: the rectangles of all rows of the layout, and of the places
   that [wait for a write](#when-a-place-cannot-be-saved).
 - **Open**: a rectangle is open when it is at least 40 away to the side, or
@@ -328,6 +329,10 @@ group whose slot is taken.
   up to 31 rings.
 - For a card that the user creates on the canvas, only places inside the
   visible part of the canvas count, the computed place included, as before.
+  A step that reaches past an edge of the visible part is moved back inside
+  it, along that edge, so that the room in sight is found also for a card as
+  large as a video card, whose whole steps leave a window at once. A card
+  larger than the visible part has no place in it.
 - When nothing is found, the card goes to
   [the end of the canvas](#the-end-of-a-canvas).
 
@@ -337,7 +342,7 @@ group whose slot is taken.
 | --- | --- |
 | Create a card at a point on the canvas: a double-click on the canvas, or the canvas menu opened at that point | pointed: the card's top left corner is at that point |
 | Create a card from a connection line | pointed: the side of the new card that the line enters is centered on the point where the line was released |
-| Create a card without a point: the Create button, or a keyboard command | computed: the middle of the visible part of the canvas |
+| Create a card without a point: the Create button, or a keyboard command | computed: the card centered on the middle of the visible part of the canvas |
 | Create a note from a selection in a PDF | computed: beside the PDF's card |
 | Generate from a generation card that has its file, in the window or with `basehalf --generate` | computed: 40 to the right of the original card, for the new draft ([generation cards](generation-cards.md#generating-again)) |
 | Generate several images at once | computed: the drafts of the further images in a row to the right of the card the generation runs on, each 40 to the right of the one before ([generation cards](generation-cards.md#several-images-from-one-generation)) |
@@ -369,11 +374,19 @@ other, and the end can be out of sight.
   ([A pointed place is taken as it is](#a-pointed-place-is-taken-as-it-is)).
 - A card made with the Create button or a keyboard command is inside the
   visible part of the canvas whenever a place there is open. When none is
-  open it is at the end of the canvas, and the view stays, as before
-  ([Limits](#limits)).
+  open, it is at the end of the canvas, and the view goes to it, as to any
+  card the user just created: so the panel of a draft that New Image or New
+  Video made shows, and its prompt has the keyboard
+  ([generation cards](generation-cards.md#creating-a-generation-card)).
 
 Found in the smoke on 2026-10-11: the card of a project made from a template
 was at the end of the canvas, outside the window, and could not be clicked.
+Found in the smoke on 2026-10-22: New Video put the corner of its 720 × 405
+card at the middle of the view, where the card did not fit from about 64%
+zoom on. With the middle taken, it went to the end of the first row, out of
+sight, and the view stayed: the draft's panel was hidden, and its prompt
+never had the keyboard. Since then the card is centered on the middle, and
+the view goes to a card that is out of sight all the same.
 
 ### What the user changes
 
@@ -683,9 +696,9 @@ A canvas shows at most 300 cards.
   it.** The view stays where the user had it. A note that is created there
   opens for typing all the same, also when its first line is outside the
   window.
-- **A card made with the Create button can be out of sight.** When no place
-  in the window is open, it goes to the end of the canvas, and the view
-  stays where it is.
+- **A card made with the Create button can move the view.** When no place
+  in the window is open, it goes to the end of the canvas, and the view goes
+  to it and fits it, as for the card of a project made from a template.
 
 ## Compatibility
 
@@ -761,10 +774,11 @@ written with this document.
    - The user's cards leave an empty stretch between them: it stays empty.
    - The last card is a video generation card: the next card is 40 to the
      right of it, and a new row starts 60 below it.
-8. **Computed.** A card created with the Create button is in the middle of
-   the visible part of the canvas when it is open there. When the middle is
-   taken, it is at the nearest open place. When the visible part of the
-   canvas has no open place, it is at the end. Its row is the user's.
+8. **Computed.** A card created with the Create button is centered on the
+   middle of the visible part of the canvas when it is open there, also a
+   video draft of 720 × 405 at 100%. When the middle is taken, it is at the
+   nearest open place. When the visible part of the canvas has no open
+   place, it is at the end, and the view goes to it. Its row is the user's.
 9. **Dropped together.** Five files are dropped at a point where the first
    slot of their block is taken. Four are in their slots. The fifth is at
    the nearest open place to its slot. None meets a card that was there.

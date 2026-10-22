@@ -367,13 +367,62 @@ async function assertNotInFiles(page, folder, names) {
 
 // --- drafts ----------------------------------------------------------------------------------------
 
-// Criteria 2, 15, the first half of 16 and 18, and the first half of 32: New
-// Video makes a draft, `video.mp4`: a card selected with its panel and its
-// prompt focused with no ring, a `generation.yaml` with an empty prompt and no
-// model, no file, and nothing in Files; the view does not move; with no model
-// Generate is disabled and says why, also in its tooltip; the toolbar offers
-// Upload Video. Undo takes the draft back with its place, and redo brings it
-// back.
+/** Drags the card at `cardPath` by its body, as the user does, until its top left corner is at `corner` on screen, and waits for its new place to be saved. */
+async function dragCanvasCardTo(page, cardPath, corner) {
+	const before = readCardRow(cardPath);
+	const grip = await page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const rect = card?.getBoundingClientRect();
+		if (!card || !rect) {
+			return undefined;
+		}
+		for (const [x, y] of [[0.5, 0.5], [0.3, 0.5], [0.7, 0.5], [0.5, 0.3], [0.5, 0.7]]) {
+			const point = { x: rect.left + rect.width * x, y: rect.top + rect.height * y };
+			const hit = document.elementFromPoint(point.x, point.y);
+			if (hit && card.contains(hit) && !hit.closest('.basehalf-canvas-card-caption, .nodrag')) {
+				return { x: point.x, y: point.y, left: rect.left, top: rect.top };
+			}
+		}
+		return undefined;
+	}, cardPath);
+	if (!grip) {
+		throw new Error(`No part of the card ${cardPath} is on top to drag`);
+	}
+	await page.mouse.move(grip.x, grip.y);
+	await page.mouse.down();
+	await page.mouse.move(grip.x + corner.x - grip.left, grip.y + corner.y - grip.top, { steps: 12 });
+	await page.mouse.up();
+	await waitUntil(() => {
+		const row = readCardRow(cardPath);
+		return row !== undefined && (row.x !== before?.x || row.y !== before?.y);
+	}, `the card ${cardPath} to be saved where it was dragged`, 10_000);
+}
+
+/**
+ * Canvas card placement, "A card the user just created is shown": a card made
+ * with the Create button is fully in sight once its panel has the keyboard.
+ * The view stays when the card's place was in sight in the view as it was,
+ * and goes to the card only when it was not, as when the view had no open
+ * place for a card of 720 by 405.
+ */
+async function assertCreatedCardInSight(page, row, viewBefore, what) {
+	const viewAfter = await readCanvasView(page);
+	const onScreen = view => ({ left: view.x + row.x * view.zoom, top: view.y + row.y * view.zoom, right: view.x + (row.x + row.width) * view.zoom, bottom: view.y + (row.y + row.height) * view.zoom });
+	const inSight = (view, rect) => rect.left >= view.canvas.left - 1 && rect.top >= view.canvas.top - 1 && rect.right <= view.canvas.right + 1 && rect.bottom <= view.canvas.bottom + 1;
+	const sameView = Math.abs(viewBefore.x - viewAfter.x) <= 0.5 && Math.abs(viewBefore.y - viewAfter.y) <= 0.5 && Math.abs(viewBefore.zoom - viewAfter.zoom) <= 0.001;
+	const placedInSight = inSight(viewBefore, onScreen(viewBefore));
+	if (!inSight(viewAfter, onScreen(viewAfter)) || sameView !== placedInSight) {
+		throw new Error(`${what} must put its card in sight, and move the view only when the card's place was out of sight: ${JSON.stringify({ row, viewBefore, viewAfter, placedInSight, sameView })}`);
+	}
+}
+
+// Criteria 2, 15, the first half of 18, and the first half of 32: New Video
+// makes a draft, `video.mp4`: a card selected with its panel and its prompt
+// focused with no ring, a `generation.yaml` with an empty prompt and no model,
+// no file, and nothing in Files; the card is in sight, and the view moves only
+// when the view as it was had no open place for it; with no model Generate is
+// disabled and says why, also in its tooltip; the toolbar offers Upload
+// Video. Undo takes the draft back with its place, and redo brings it back.
 async function assertNewVideoMakesDraft(page) {
 	await videoSmokeProvider();
 	createGenerationSmokeFolder();
@@ -382,11 +431,9 @@ async function assertNewVideoMakesDraft(page) {
 	for (const cardPath of [START_IMAGE, END_IMAGE, SCENE_NOTE]) {
 		await canvasCard(page, cardPath).waitFor({ state: 'visible', timeout: 20_000 });
 	}
-	// At half size, with the images at the top left, the middle of the view
-	// has room for the new card, which is 720 by 405.
-	await setCanvasZoomPercent(page, 50);
+	// The view as the folder opened: the new card, 720 by 405, is centered on
+	// its middle, or at the nearest open place in sight, or the view goes to it.
 	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
-	await panCanvasCardTo(page, canvasCard(page, START_IMAGE), { x: canvasBox.x + 40, y: canvasBox.y + 60 });
 	const viewBefore = await readCanvasView(page);
 
 	await clickCanvasCreateAction(page, 'New Video');
@@ -405,7 +452,7 @@ async function assertNewVideoMakesDraft(page) {
 	const panel = await waitForGenerationPanel(page, VIDEO);
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.promptFocused, 'the prompt of the new draft to have the keyboard focus');
 	await assertNoCanvasFocusRing(page, 'The prompt of the new draft');
-	assertSameCanvasView(viewBefore, await readCanvasView(page), 'Making a draft and opening its panel');
+	await assertCreatedCardInSight(page, row, viewBefore, 'New Video');
 	// The panel shows that the models load until AI Video answers with the catalog.
 	const shown = await waitForReading(() => readGenerationPanel(panel), seen => seen.generate?.disabled === true && seen.catalog === 'ready', 'Generate to be disabled while no model is chosen, once the catalog is there', 30_000);
 	// No model and no prompt: the first blocker is the model, and the model button says it; there is no reason line.
@@ -436,6 +483,12 @@ async function assertNewVideoMakesDraft(page) {
 		const back = readCardRow(VIDEO);
 		return back?.x === row.x && back.y === row.y;
 	}, 'redo to bring the draft back to its place', 10_000);
+
+	// The steps after this one work at half size, with the images at the top
+	// left and the video card to their right, its corner at the middle.
+	await setCanvasZoomPercent(page, 50);
+	await panCanvasCardTo(page, canvasCard(page, START_IMAGE), { x: canvasBox.x + 40, y: canvasBox.y + 60 });
+	await dragCanvasCardTo(page, VIDEO, { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + canvasBox.height / 2 });
 
 	// A draft is a card, not yet a file: it is not in Files.
 	await assertNotInFiles(page, GENERATION_FOLDER, ['video.mp4']);
@@ -1487,8 +1540,6 @@ async function assertGenerateAgainMakesDraft(page) {
 async function assertGenerationFailsAndStops(page) {
 	const provider = await videoSmokeProvider();
 	await clickBlankCanvas(page);
-	// At a quarter size the middle of the view has room for another card.
-	await setCanvasZoomPercent(page, 25);
 	const { cardPath, panel } = await createDraftFromMenu(page, 'New Video');
 	if (cardPath !== VIDEO_FAILS) {
 		throw new Error(`New Video must take the next free number: ${cardPath}`);
@@ -1909,8 +1960,9 @@ async function assertRenamesKeepCards(page) {
 	}
 	await assertCanvasEdgeVisible(page, START_IMAGE, HARBOUR);
 
-	// A draft renamed on the canvas.
+	// A draft renamed on the canvas, made where start.png is in sight, to pick it on the canvas.
 	await clickBlankCanvas(page);
+	await showCardOnCanvas(page, START_IMAGE, true);
 	const { cardPath, panel } = await createDraftFromMenu(page, 'New Video');
 	await page.keyboard.type('A storm rolls in over the harbour');
 	await pickInputOnCanvas(page, panel, START_IMAGE, 'button.bh-video-panel-slot.empty[data-role="start"]');
@@ -2040,6 +2092,8 @@ async function assertFileAtDraftPath(page) {
 	const dropped = `${GENERATION_FOLDER}/dropped.png`;
 	writeGenerationInfo(dropped, { prompt: 'A picture dropped into the folder' });
 	await waitForReading(() => readGenerationCard(page, dropped), card => card?.generation === 'draft', `the draft ${dropped} to show`, 20_000);
+	// A card that an agent added goes to the end of the canvas, and the view stays: the step looks there.
+	await showCardOnCanvas(page, dropped);
 	fs.writeFileSync(workspaceFile(dropped), solidPng(320, 200, [16, 185, 129]));
 	await waitForReading(() => readGenerationCard(page, dropped), card => card?.generation === 'file' && card.image?.complete === true && card.image.width === 320, `the card of ${dropped} to show the dropped file`, 20_000);
 	if (readGenerationInfo(dropped)?.prompt !== 'A picture dropped into the folder' || readMade(dropped) !== undefined) {
@@ -2064,6 +2118,7 @@ async function assertFileAtDraftPath(page) {
 		throw new Error(`The moved file keeps its own card information: ${JSON.stringify(cardInformationFiles(target))}`);
 	}
 	await waitForReading(() => readGenerationCard(page, aside), card => card?.generation === 'draft', `the draft to show at ${aside}`, 20_000);
+	await showCardOnCanvas(page, target);
 	await waitForReading(() => readGenerationCard(page, target), card => card !== null && card.generation === null && card.image?.complete === true, `the card of ${target} to show the moved picture`, 20_000);
 }
 

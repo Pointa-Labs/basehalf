@@ -55,6 +55,15 @@
 	background: var(--bh-card-surface);
 }
 
+/* The Saving of a file that was just saved, over its picture until the picture can be drawn. */
+.monaco-workbench .basehalf-canvas-card-preview .basehalf-canvas-card-saving-cover {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	display: flex;
+	background: var(--bh-card-surface);
+}
+
 .monaco-workbench .basehalf-canvas-card-preview.kind-media {
 	position: relative;
 	padding: 0;

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { addDisposableListener } from '../../../../base/browser/dom.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { DisposableStore, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 
 export function releaseBaseHalfCanvasCardMedia(media: HTMLMediaElement): void {
@@ -45,4 +46,38 @@ export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposabl
 	}, true));
 	store.add(toDisposable(() => playing.clear()));
 	return store;
+}
+
+/** How long a picture that never says it can be drawn keeps what stands in for it. */
+export const BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS = 2000;
+/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the frame at the current position is there. */
+const HAVE_CURRENT_DATA = 2;
+
+/**
+ * Calls `drawn` once, when the picture of `media` can be drawn: the image
+ * loaded, or the video has its first frame, or either failed, and after
+ * {@link BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS} at the latest. A card shows
+ * what stands in for its picture until then, such as the Saving of a file
+ * that was just saved (generation cards, "The card").
+ */
+export function whenBaseHalfCanvasMediaDrawn(media: HTMLImageElement | HTMLVideoElement, store: DisposableStore, drawn: () => void): void {
+	const listeners = store.add(new DisposableStore());
+	let done = false;
+	const finish = () => {
+		if (done) {
+			return;
+		}
+		done = true;
+		listeners.dispose();
+		drawn();
+	};
+	const isVideo = media.tagName === 'VIDEO';
+	for (const type of isVideo ? ['loadeddata', 'seeked', 'error'] : ['load', 'error']) {
+		listeners.add(addDisposableListener(media, type, finish));
+	}
+	disposableTimeout(finish, BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, listeners);
+	// A picture that is there already.
+	if (isVideo ? (media as HTMLVideoElement).readyState >= HAVE_CURRENT_DATA : (media as HTMLImageElement).complete && (media as HTMLImageElement).naturalWidth > 0) {
+		finish();
+	}
 }

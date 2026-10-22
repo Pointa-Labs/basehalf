@@ -11,7 +11,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
 import { BaseHalfGenerationKind } from '../common/basehalfGenerationInfo.js';
-import { baseHalfGenerationCardPresentation, BaseHalfGenerationCardState, formatBaseHalfVideoElapsed, IBaseHalfGenerationCardPresentation } from '../common/basehalfVideoCardPresentation.js';
+import { baseHalfGenerationCardPresentation, BaseHalfGenerationCardState, baseHalfGenerationPhaseOfTask, formatBaseHalfVideoElapsed, IBaseHalfGenerationCardPresentation } from '../common/basehalfVideoCardPresentation.js';
 import { IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
 
 /** What a generation card shows in the place of its file. */
@@ -25,6 +25,13 @@ export interface IBaseHalfGenerationCardFaceInput {
 	readonly kind: BaseHalfGenerationKind;
 	/** Whether the file exists. A card whose file is there shows the face only when the file cannot be shown. */
 	readonly hasFile: boolean;
+	/**
+	 * What the face of the card showed while its file was saved, for a card
+	 * drawn again with that file: the face shows it, its time counting on,
+	 * until it is disposed, so that the card goes from Saving straight to its
+	 * picture.
+	 */
+	readonly carried?: IBaseHalfGenerationCardPresentation;
 }
 
 export interface IBaseHalfGenerationCardFaceServices {
@@ -40,6 +47,12 @@ export interface IBaseHalfGenerationCardFace extends IDisposable {
 	readonly element: HTMLElement;
 	/** What the face shows now. */
 	readonly state: BaseHalfGenerationCardState;
+	/**
+	 * What the face shows while the card's file is saved, and keeps showing
+	 * once it is: the record goes when the file is there, and the card is
+	 * drawn again with it. `undefined` at any other time.
+	 */
+	readonly saving: IBaseHalfGenerationCardPresentation | undefined;
 }
 
 /**
@@ -52,6 +65,9 @@ export interface IBaseHalfGenerationCardFace extends IDisposable {
  * records of this computer and the progress of a generation in this window by
  * itself, so the card around it stays as it is. A card with its file that can
  * be shown draws its image or its video as the card of any such file does.
+ * Saving stays when the record goes once the file is saved: the card is drawn
+ * again with its file, and shows Saving until its picture can be drawn
+ * (`carried`).
  */
 export function renderBaseHalfGenerationCardFace(container: HTMLElement, input: IBaseHalfGenerationCardFaceInput, services: IBaseHalfGenerationCardFaceServices): IBaseHalfGenerationCardFace {
 	return new BaseHalfGenerationCardFace(container, input, services);
@@ -66,6 +82,7 @@ class BaseHalfGenerationCardFace extends Disposable implements IBaseHalfGenerati
 	private tooltip: string | undefined;
 	private renderedKey: string | undefined;
 	private current: IBaseHalfGenerationCardPresentation | undefined;
+	private savingShown: IBaseHalfGenerationCardPresentation | undefined;
 
 	constructor(
 		container: HTMLElement,
@@ -89,9 +106,24 @@ class BaseHalfGenerationCardFace extends Disposable implements IBaseHalfGenerati
 		return this.current?.state ?? 'draft';
 	}
 
+	get saving(): IBaseHalfGenerationCardPresentation | undefined {
+		return this.savingShown;
+	}
+
 	private render(): void {
+		const carried = this.input.carried;
+		if (carried) {
+			this.savingShown = carried;
+			this.show(carried.startedAt !== undefined ? { ...carried, elapsedText: formatBaseHalfVideoElapsed(Date.now() - carried.startedAt) } : carried);
+			return;
+		}
 		const progress = this.services.generationService.getProgress(this.input.resource);
 		const task = this.services.taskStore.forCard(this.input.resource);
+		if (!task && this.savingShown) {
+			// The record goes once the file is saved: the card is drawn again
+			// with its file, and says Saving until then.
+			return;
+		}
 		const presentation = baseHalfGenerationCardPresentation({
 			path: this.input.path,
 			name: this.input.name,
@@ -103,6 +135,13 @@ class BaseHalfGenerationCardFace extends Disposable implements IBaseHalfGenerati
 			...(progress ? { progress } : {}),
 			now: Date.now()
 		});
+		this.savingShown = presentation.state === 'generating' && task && (progress?.phase ?? baseHalfGenerationPhaseOfTask(task, this.input.path)) === 'saving'
+			? presentation
+			: undefined;
+		this.show(presentation);
+	}
+
+	private show(presentation: IBaseHalfGenerationCardPresentation): void {
 		this.current = presentation;
 		this.element.dataset.state = presentation.state;
 		this.element.setAttribute('role', 'img');

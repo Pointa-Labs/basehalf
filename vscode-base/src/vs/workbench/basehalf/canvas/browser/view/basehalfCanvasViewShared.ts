@@ -202,6 +202,8 @@ export type BaseHalfCanvasInlineEdit =
 		readonly initialValue: string;
 		readonly anchor: { readonly x: number; readonly y: number };
 		readonly canvasPosition: { readonly x: number; readonly y: number };
+		/** BaseHalf computed the place: the view goes to the new card when it is out of sight. */
+		readonly reveal?: boolean;
 		value: string;
 		selectionPending: boolean;
 		/** Why the name could not be applied, until an editor has shown it. */

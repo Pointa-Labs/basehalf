@@ -14,6 +14,7 @@ import { NullHoverService } from '../../../../../platform/hover/test/browser/nul
 import { renderBaseHalfGenerationCardFace } from '../../browser/basehalfVideoCard.js';
 import { createBaseHalfGenerationTask, failBaseHalfGenerationTask, IBaseHalfGenerationTask, stopBaseHalfGenerationTask } from '../../common/basehalfGenerationInfo.js';
 import { IBaseHalfVideoPlannedMedia } from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationCardPresentation } from '../../common/basehalfVideoCardPresentation.js';
 import { IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationProgress, IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
 
 const CARD = URI.file('/workspace/shots/shot.mp4');
@@ -41,6 +42,11 @@ class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerati
 	}
 	report(progress: IBaseHalfVideoGenerationProgress): void {
 		this.progress = progress;
+		this.changed.fire(CARD);
+	}
+	/** The window stops following the generation. */
+	untrack(): void {
+		this.progress = undefined;
 		this.changed.fire(CARD);
 	}
 }
@@ -98,13 +104,14 @@ suite('BaseHalfGenerationCardFace', () => {
 		return { ...createBaseHalfGenerationTask({ id: '20261022T080000-1a2b3c4d', kind: 'video', cards: [PATH], follower: 'window-1', now: new Date(Date.now() - 42_000).toISOString() }), state: 'running' };
 	}
 
-	function render(generation: FakeGenerationService, tasks: FakeTaskStore, input: { readonly kind?: 'image' | 'video'; readonly hasFile?: boolean; readonly name?: string } = {}) {
+	function render(generation: FakeGenerationService, tasks: FakeTaskStore, input: { readonly kind?: 'image' | 'video'; readonly hasFile?: boolean; readonly name?: string; readonly carried?: IBaseHalfGenerationCardPresentation } = {}) {
 		return disposables.add(renderBaseHalfGenerationCardFace(container, {
 			resource: CARD,
 			path: PATH,
 			name: input.name ?? 'shot.mp4',
 			kind: input.kind ?? 'video',
-			hasFile: input.hasFile ?? false
+			hasFile: input.hasFile ?? false,
+			...(input.carried ? { carried: input.carried } : {})
 		}, { hoverService, generationService: generation, taskStore: tasks.asService() }));
 	}
 
@@ -162,6 +169,34 @@ suite('BaseHalfGenerationCardFace', () => {
 		assert.deepStrictEqual({ failed, stopped: { state: face.element.dataset.state, message: text('.bh-generation-card-message'), tooltip: hovers.has(face.element) } }, {
 			failed: { state: 'failed', message: `${error.slice(0, 299)}…`, tooltip: error },
 			stopped: { state: 'stopped', message: 'Stopped', tooltip: false }
+		});
+	});
+
+	test('says Saving on when the record goes once the file is saved, and the face of the card drawn again with its file says it until it goes', () => {
+		const generation = disposables.add(new FakeGenerationService());
+		const tasks = disposables.add(new FakeTaskStore());
+		const face = render(generation, tasks);
+		const read = () => ({ state: face.element.dataset.state, phase: text('.bh-generation-card-phase') ?? null });
+		tasks.write(running());
+		const generating = { ...read(), saving: face.saving !== undefined };
+		tasks.write({ ...running(), state: 'landing' });
+		generation.report({ phase: 'saving', startedAt: Date.parse(tasks.task!.startedAt) });
+		const saving = { ...read(), saving: face.saving?.phaseText };
+		// The record goes before this window stops following the generation.
+		tasks.write(undefined);
+		const recordGone = { ...read(), saving: face.saving?.phaseText };
+		generation.untrack();
+		const saved = { ...read(), saving: face.saving?.phaseText };
+		const carried = face.saving!;
+		face.dispose();
+		const cover = render(generation, tasks, { hasFile: true, carried });
+		tasks.write(undefined);
+		assert.deepStrictEqual({ generating, saving, recordGone, saved, cover: { state: cover.element.dataset.state, phase: text('.bh-generation-card-phase'), saving: cover.saving === carried } }, {
+			generating: { state: 'generating', phase: 'Generating', saving: false },
+			saving: { state: 'generating', phase: 'Saving', saving: 'Saving' },
+			recordGone: { state: 'generating', phase: 'Saving', saving: 'Saving' },
+			saved: { state: 'generating', phase: 'Saving', saving: 'Saving' },
+			cover: { state: 'generating', phase: 'Saving', saving: true }
 		});
 	});
 

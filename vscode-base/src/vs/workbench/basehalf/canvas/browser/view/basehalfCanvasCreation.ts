@@ -21,6 +21,7 @@ import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove } from '
 import { IFilesConfiguration, UndoConfirmLevel } from '../../../../contrib/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
+	baseHalfCanvasCenteredPlace,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasOpenPosition,
 	BASEHALF_CANVAS_GRID_COLUMN_GAP,
@@ -198,14 +199,15 @@ export class BaseHalfCanvasCreation {
 		}
 
 		const initialPlacement = this.canvasCreatePlacement(placementContext ?? context);
-		const createSize = request.kind === 'create' && (request.createKind === 'image' || request.createKind === 'video')
-			? baseHalfCanvasGenerationCardSize(request.createKind)
-			: undefined;
 		// A point the user named is taken as it is: the card is not moved for
 		// other cards or for the edge of the window, and neither is the view. A
-		// place BaseHalf computed goes to the nearest open place.
-		const placement = request.kind === 'create' && !initialPlacement.pointed
-			? this.avoidCanvasCreateOverlap(initialPlacement, request.createKind, createSize)
+		// place BaseHalf computed centers the card on the middle of the visible
+		// part, or goes to the nearest open place, and the view goes to a card
+		// that is out of sight there (canvas card placement, "A card the user
+		// just created is shown").
+		const computed = request.kind === 'create' && !initialPlacement.pointed;
+		const placement = computed
+			? this.computedCanvasCreatePlacement(initialPlacement, request.createKind)
 			: initialPlacement;
 		if (request.kind === 'paste') {
 			const resources = await this.view.clipboardService.readResources();
@@ -243,7 +245,9 @@ export class BaseHalfCanvasCreation {
 				placement.canvasPosition,
 				requestOwner,
 				requestFocusOrigin,
-				requestOwner.navigationState.cardDetail
+				requestOwner.navigationState.cardDetail,
+				undefined,
+				computed
 			);
 			return;
 		}
@@ -251,7 +255,7 @@ export class BaseHalfCanvasCreation {
 			if (!this.view.isCanvasPostCreateOwnerCurrent(requestOwner)) {
 				return;
 			}
-			await this.createDraftCard(folder, context, placement.canvasPosition, request.createKind, requestOwner);
+			await this.createDraftCard(folder, context, placement.canvasPosition, request.createKind, requestOwner, computed);
 			return;
 		}
 		if (this.view.canvasNavigationService.state.cardDetail) {
@@ -267,6 +271,7 @@ export class BaseHalfCanvasCreation {
 			initialValue: '',
 			anchor: { x: placement.screenPosition.x - surfaceRect.left, y: placement.screenPosition.y - surfaceRect.top },
 			canvasPosition: placement.canvasPosition,
+			...(computed ? { reveal: true } : {}),
 			value: '',
 			selectionPending: true
 		};
@@ -307,7 +312,7 @@ export class BaseHalfCanvasCreation {
 	/**
 	 * Where a card goes that is created now: the point the user named with the
 	 * pointer when the create menu was opened there, and otherwise the middle of
-	 * the visible canvas, which is a place BaseHalf computed (canvas card
+	 * the visible canvas, on which BaseHalf centers the card (canvas card
 	 * placement, "Pointing").
 	 */
 	private canvasCreatePlacement(context: IBaseHalfCanvasActionContext | undefined): {
@@ -353,15 +358,42 @@ export class BaseHalfCanvasCreation {
 		];
 	}
 
+	/**
+	 * The place BaseHalf computes for a card the user creates without a point
+	 * (canvas card placement, "Pointing" and "The nearest open place"): the
+	 * card centered on `placement`, the middle of the visible part of the
+	 * canvas, when it is open there and inside the visible part, and otherwise
+	 * the nearest open place inside it, or the end of the canvas. The screen
+	 * position is the card's top left corner.
+	 */
+	private computedCanvasCreatePlacement(
+		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
+		kind: BaseHalfCanvasCreateKind
+	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
+		const size = canvasCreateSize(kind);
+		const canvasPosition = baseHalfCanvasCenteredPlace(placement.canvasPosition, size);
+		return this.avoidCanvasCreateOverlap({
+			canvasPosition,
+			screenPosition: {
+				x: placement.screenPosition.x + (canvasPosition.x - placement.canvasPosition.x) * this.view.canvasZoom,
+				y: placement.screenPosition.y + (canvasPosition.y - placement.canvasPosition.y) * this.view.canvasZoom
+			}
+		}, kind, size);
+	}
+
+	/**
+	 * The nearest open place inside the visible part of the canvas for a card
+	 * whose top left corner BaseHalf would put at `placement`, or the end of
+	 * the canvas when none is open (canvas card placement, "The nearest open
+	 * place").
+	 */
 	private avoidCanvasCreateOverlap(
 		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
 		kind: BaseHalfCanvasCreateKind,
 		sizeOverride?: { readonly width: number; readonly height: number }
 	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
 		const occupied = this.takenCanvasPlaces();
-		const size = sizeOverride ?? (kind === 'folder'
-			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
-			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
+		const size = sizeOverride ?? canvasCreateSize(kind);
 		const surface = this.view.surface.getBoundingClientRect();
 		const captionScreenFootprint = (BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP + BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * this.view.canvasZoom;
 		const viewportStart = this.view.canvasScene.screenToCanvasPosition(surface.left + 24, surface.top + 24 + captionScreenFootprint);
@@ -393,7 +425,8 @@ export class BaseHalfCanvasCreation {
 			readonly from: string;
 			readonly fromAnchor: IBaseHalfCanvasEdge['from_anchor'];
 			readonly toAnchor: IBaseHalfCanvasEdge['to_anchor'];
-		}
+		},
+		reveal = false
 	): Promise<void> {
 		if (!this.view.isCanvasPostCreateOwnerCurrent(createOwner)) {
 			return;
@@ -478,6 +511,9 @@ export class BaseHalfCanvasCreation {
 			origin: createFocusOrigin,
 			returnPath: createFocusReturnPath
 		});
+		if (reveal) {
+			this.revealCreatedCards(folder, [path], activationOwner);
+		}
 		this.view.requestRender();
 	}
 
@@ -492,7 +528,8 @@ export class BaseHalfCanvasCreation {
 		context: IBaseHalfCanvasActionContext,
 		canvasPosition: { readonly x: number; readonly y: number },
 		kind: 'image' | 'video',
-		postCreateOwner: IBaseHalfCanvasPostCreateOwner
+		postCreateOwner: IBaseHalfCanvasPostCreateOwner,
+		reveal: boolean
 	): Promise<void> {
 		await this.view.canvasActionContextService.assertCurrent(context);
 		if (!this.view.uriIdentityService.extUri.isEqual(this.view.getCurrentFolder()?.resource, folder.resource)) {
@@ -501,17 +538,31 @@ export class BaseHalfCanvasCreation {
 		const draft = await this.view.generationCardActions.createDraft(folder.resource, kind);
 		const path = baseHalfCanvasChildPath(folder.relativePath, basename(draft));
 		await this.placeCreatedCard(folder, path, canvasPosition, baseHalfCanvasGenerationCardSize(kind));
-		this.selectCreatedDraft(folder, path, postCreateOwner);
+		this.selectCreatedDraft(folder, path, postCreateOwner, reveal);
 	}
 
 	/**
 	 * Selects a draft the user just created once its card is drawn, and gives
-	 * its prompt the keyboard when its panel first shows.
+	 * its prompt the keyboard when its panel first shows. With `reveal`, for a
+	 * place BaseHalf computed, the view goes to a card that is out of sight,
+	 * and the panel shows once it is in sight.
 	 */
-	selectCreatedDraft(folder: IBaseHalfCanvasFolderState, path: string, owner: IBaseHalfCanvasPostCreateOwner): void {
+	selectCreatedDraft(folder: IBaseHalfCanvasFolderState, path: string, owner: IBaseHalfCanvasPostCreateOwner, reveal = false): void {
 		this.view.createdNodeFocusPath = path;
 		this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), [path], owner);
+		if (reveal) {
+			this.revealCreatedCards(folder, [path], owner);
+		}
 		this.view.requestRender();
+	}
+
+	/**
+	 * The user just created these cards at a place BaseHalf computed: once
+	 * they are drawn, the view goes to them when one is not fully in sight
+	 * (canvas card placement, "A card the user just created is shown").
+	 */
+	private revealCreatedCards(folder: IBaseHalfCanvasFolderState, paths: readonly string[], owner: IBaseHalfCanvasPostCreateOwner): void {
+		this.view.pendingCanvasReveal = { sceneKey: this.view.sceneKey(folder), paths, owner };
 	}
 
 	async createPdfBranch(resource: URI, selection: IBaseHalfPdfSelection): Promise<void> {
@@ -551,13 +602,13 @@ export class BaseHalfCanvasCreation {
 		}
 
 		const defaultPlacement = this.canvasCreatePlacement(undefined);
-		const initialCanvasPosition = sourceBounds
-			? { x: sourceBounds.x + sourceBounds.width + 72, y: sourceBounds.y }
-			: defaultPlacement.canvasPosition;
-		const placement = this.avoidCanvasCreateOverlap({
-			screenPosition: defaultPlacement.screenPosition,
-			canvasPosition: initialCanvasPosition
-		}, 'note');
+		// Beside the PDF's card, or, without it, centered on the middle of the visible part.
+		const placement = sourceBounds
+			? this.avoidCanvasCreateOverlap({
+				screenPosition: defaultPlacement.screenPosition,
+				canvasPosition: { x: sourceBounds.x + sourceBounds.width + 72, y: sourceBounds.y }
+			}, 'note')
+			: this.computedCanvasCreatePlacement(defaultPlacement, 'note');
 		// The note's first bytes list the PDF as upstream (D37): the create is
 		// the connection, so there is no "created but not connected" state.
 		const targetPath = baseHalfCanvasChildPath(folder.relativePath, name);
@@ -951,7 +1002,8 @@ export class BaseHalfCanvasCreation {
 			throw new Error(localize('basehalf.canvas.create.folderChanged', "The canvas changed before the item could be created."));
 		}
 		await this.createCanvasEntry(folder, edit.context, name, edit.createKind, edit.canvasPosition, {
-			postCreateOwner: postCreateOwner ?? this.view.captureCanvasPostCreateOwner()
+			postCreateOwner: postCreateOwner ?? this.view.captureCanvasPostCreateOwner(),
+			reveal: edit.reveal === true
 		});
 	}
 
@@ -968,6 +1020,8 @@ export class BaseHalfCanvasCreation {
 			readonly size?: { readonly width: number; readonly height: number };
 			/** The anchor row of a connection the new file's contents carry. */
 			readonly edge?: IBaseHalfCanvasEdge;
+			/** The place was computed: the view goes to the card when it is out of sight. */
+			readonly reveal?: boolean;
 		} = {}
 	): Promise<URI> {
 		const postCreateOwner = options.postCreateOwner ?? this.view.captureCanvasPostCreateOwner();
@@ -997,6 +1051,9 @@ export class BaseHalfCanvasCreation {
 		// while Card Detail is reserved for an explicit Open/Expand interaction.
 		if (options.select !== false) {
 			this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), [path], postCreateOwner);
+			if (options.reveal) {
+				this.revealCreatedCards(folder, [path], postCreateOwner);
+			}
 		}
 		this.view.requestRender();
 		return target;
@@ -1287,4 +1344,13 @@ export class BaseHalfCanvasCreation {
 			this.view.logService.warn(`[BaseHalf] could not place ${path} beside ${besidePath}`, error);
 		}
 	}
+}
+
+/** The size at which a card of a kind the user creates on the canvas is placed, before it is drawn. */
+function canvasCreateSize(kind: BaseHalfCanvasCreateKind): { readonly width: number; readonly height: number } {
+	return kind === 'folder'
+		? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
+		: kind === 'image' || kind === 'video'
+			? baseHalfCanvasGenerationCardSize(kind)
+			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
 }
