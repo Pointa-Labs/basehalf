@@ -341,7 +341,10 @@ function textOf(value: unknown): string | undefined {
 /**
  * Reads `{error: {message, type, code}}`. The codes refine a 4xx answer only,
  * so that a server error leaves the outcome of a create unknown; a blocked
- * prompt or image is a 400, which is refused by its status.
+ * prompt or image is a 400, which is refused by its status. A 403 refuses the
+ * request and not the key: OpenAI answers 401 for a key it does not take, and
+ * 403 for what a valid key may not do, such as an organization that is not
+ * verified or a country it does not serve.
  */
 function readError(status: number, body: unknown): ProviderErrorReading | undefined {
 	const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
@@ -352,6 +355,9 @@ function readError(status: number, body: unknown): ProviderErrorReading | undefi
 	}
 	if (status >= 400 && status < 500 && status !== 408 && ((code && BALANCE_CODES.has(code)) || textOf(error?.type) === 'insufficient_quota')) {
 		return { message, code: 'balance' };
+	}
+	if (status === 403) {
+		return { message, code: 'rejected' };
 	}
 	return { message };
 }

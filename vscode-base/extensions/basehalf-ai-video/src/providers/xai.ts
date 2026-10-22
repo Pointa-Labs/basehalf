@@ -246,6 +246,11 @@ interface XaiImageModel {
 	readonly ratios: readonly string[];
 	/** Whether it takes `quality`. */
 	readonly quality: boolean;
+	/**
+	 * The longest prompt: the live models API's `max_prompt_length`, which
+	 * names no unit, read as characters, the smaller reading.
+	 */
+	readonly promptMaxLength: number;
 }
 
 /** The ratios of both image models before the wide ones, and the phone shapes after them. */
@@ -254,12 +259,10 @@ const IMAGE_RATIOS_PHONES: readonly string[] = Object.freeze(['19.5:9', '9:19.5'
 
 const IMAGE_MODELS: readonly XaiImageModel[] = Object.freeze([
 	// 2.0 "additionally accepts quality, up to five source images for editing, and the 21:9 and 5:2 aspect ratios".
-	{ id: 'grok-imagine-image-2.0', references: 5, ratios: [...IMAGE_RATIOS_COMMON, '21:9', '5:2', ...IMAGE_RATIOS_PHONES], quality: true },
-	{ id: 'grok-imagine-image', references: 3, ratios: [...IMAGE_RATIOS_COMMON, ...IMAGE_RATIOS_PHONES], quality: false }
+	{ id: 'grok-imagine-image-2.0', references: 5, ratios: [...IMAGE_RATIOS_COMMON, '21:9', '5:2', ...IMAGE_RATIOS_PHONES], quality: true, promptMaxLength: 64_000 },
+	{ id: 'grok-imagine-image', references: 3, ratios: [...IMAGE_RATIOS_COMMON, ...IMAGE_RATIOS_PHONES], quality: false, promptMaxLength: 16_000 }
 ] satisfies XaiImageModel[]);
 
-/** The models API's `max_prompt_length` of its example, read as characters, the smaller reading. */
-const IMAGE_PROMPT_MAX_LENGTH = 1024;
 /** `n`: 1 to 10 images in one request. */
 const IMAGE_COUNT_MAX = 10;
 /** xAI's `auto`, which is sent as nothing: the shape the model picks for the prompt, or that of the first reference image. */
@@ -303,7 +306,7 @@ function declareImageModel(model: XaiImageModel): CatalogModel {
 		label: TEXT.imageModels[model.id].label,
 		description: TEXT.imageModels[model.id].description,
 		providerModels: { global: model.id },
-		prompt: { required: 'always', maxLength: IMAGE_PROMPT_MAX_LENGTH },
+		prompt: { required: 'always', maxLength: model.promptMaxLength },
 		modes: [{ id: 'reference', label: TEXT.modes.reference, inputs: inputs({ images: { min: 0, max: model.references } }), limits: {} }],
 		parameters,
 		outputFormat: 'jpeg'

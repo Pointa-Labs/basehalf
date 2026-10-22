@@ -37,10 +37,14 @@ OpenAI's API documentation at `https://developers.openai.com/api/`, read on
 - A project with data residency is reached by entering its host as the
   endpoint, such as `https://eu.api.openai.com/v1`; OpenAI decides whether the
   project may use images there.
-- An organization that OpenAI has not verified may be refused GPT Image
-  models; the refusal is shown as OpenAI words it. Its help article answers no
-  client but a browser, so the exact requirement and its error were not read
-  (open question).
+- An organization that OpenAI has not verified is refused GPT Image models
+  with HTTP 403 of type `invalid_request_error`: "Your organization must be
+  verified to use the model `gpt-image-1`. Please go to:
+  https://platform.openai.com/settings/organization/general and click on
+  Verify Organization. If you just verified, it can take up to 15 minutes for
+  access to propagate." (as answered to developers on OpenAI's forum; its help
+  article answers no client but a browser). The panel says that OpenAI
+  refused the request, in these words, and not that it refused the key.
 
 ## Models
 
@@ -140,8 +144,10 @@ false and sends nothing.
 
 - 401 is `auth` (a wrong key, an organization the key is not in, an IP the
   allow list does not name).
-- 403 is `auth`, with OpenAI's words: a country, region, or territory OpenAI
-  does not serve, or a project or organization that may not use the model.
+- 403 is `rejected`, with OpenAI's words: the key is valid, and OpenAI does
+  not let it do this, for a country, region, or territory OpenAI does not
+  serve, or a project or organization that may not use the model, such as
+  one that is not verified.
 - 429 is `rateLimited` (`rate_limit_error`, `slow_down`), or `balance` when
   its code is `credit_balance_exhausted`, `organization_spend_limit_exceeded`,
   `project_spend_limit_exceeded`, or `organization_usage_limit_exceeded`, or

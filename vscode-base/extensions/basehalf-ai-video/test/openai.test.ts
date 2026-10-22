@@ -260,12 +260,14 @@ test('the answer keeps OpenAI\'s order: base64 written to its target, an address
 	}
 });
 
-test('a wrong key, a country OpenAI does not serve, too many requests, an empty balance, a blocked prompt, a server error, and a dropped answer map as OpenAI means them, each sent once', async () => {
+test('a wrong key, a country OpenAI does not serve, an organization it has not verified, too many requests, an empty balance, a blocked prompt, a server error, and a dropped answer map as OpenAI means them, each sent once', async () => {
 	const failure = (status: number, message: string, type: string, code: string | null, headers: Record<string, string> = {}) => (response: ServerResponse) =>
 		sendJson(response, status, { error: { message, type, param: null, code } }, headers);
+	const unverified = 'Your organization must be verified to use the model `gpt-image-2.5-flare`. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization. If you just verified, it can take up to 15 minutes for access to propagate.';
 	const answers: Record<string, (response: ServerResponse) => void> = {
 		key: failure(401, 'Incorrect API key provided: sk-proj-****cdef. You can find your API key at https://platform.openai.com/account/api-keys.', 'invalid_request_error', 'invalid_api_key'),
 		country: failure(403, 'Country, region, or territory not supported', 'request_forbidden', 'unsupported_country_region_territory'),
+		unverified: failure(403, unverified, 'invalid_request_error', null),
 		busy: failure(429, 'Rate limit reached for gpt-image-2.5-flare on images per min (IPM): Limit 20, Used 20, Requested 1.', 'requests', 'rate_limit_exceeded', { 'Retry-After': '7' }),
 		slowDown: failure(429, 'Your request rate increased too quickly. Please slow down.', 'rate_limit_error', 'slow_down'),
 		credits: failure(429, 'Your organization has no prepaid credits remaining.', 'insufficient_quota', 'credit_balance_exhausted'),
@@ -293,7 +295,9 @@ test('a wrong key, a country OpenAI does not serve, too many requests, an empty 
 		assert.deepEqual({ outcomes, sent: server.received.length }, {
 			outcomes: {
 				key: { code: 'auth', message: 'Incorrect API key provided: sk-proj-****cdef. You can find your API key at https://platform.openai.com/account/api-keys.', status: 401 },
-				country: { code: 'auth', message: 'Country, region, or territory not supported', status: 403 },
+				// A 403 refuses the request, not the key.
+				country: { code: 'rejected', message: 'Country, region, or territory not supported', status: 403 },
+				unverified: { code: 'rejected', message: unverified, status: 403 },
 				busy: { code: 'rateLimited', message: 'Rate limit reached for gpt-image-2.5-flare on images per min (IPM): Limit 20, Used 20, Requested 1. The provider asks to wait 7 seconds.', status: 429 },
 				slowDown: { code: 'rateLimited', message: 'Your request rate increased too quickly. Please slow down.', status: 429 },
 				credits: { code: 'balance', message: 'Your organization has no prepaid credits remaining.', status: 429 },
@@ -304,7 +308,7 @@ test('a wrong key, a country OpenAI does not serve, too many requests, an empty 
 				dropped: 'unknownOutcome'
 			},
 			// Each request was sent once, never again.
-			sent: 10
+			sent: 11
 		});
 	} finally {
 		await server.close();

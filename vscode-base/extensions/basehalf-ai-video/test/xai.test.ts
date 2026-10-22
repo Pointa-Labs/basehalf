@@ -690,7 +690,8 @@ test('the catalog declares two image models that run as tasks and deliver JPEG, 
 		kind: 'choice', options: [{ value: 'auto', label: 'Auto' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }], default: 'auto'
 	};
 	const count = { name: 'count', label: 'Images', kind: 'integer', min: 1, max: 10, step: 1, default: 1 };
-	const prompt = { required: 'always', maxLength: 1024 };
+	// The live models API's `max_prompt_length` of each, read as characters.
+	const prompt = (maxLength: number) => ({ required: 'always', maxLength });
 	assert.deepEqual(provider.models.filter(model => model.kind === 'image').map(model => ({
 		id: model.id,
 		label: model.label,
@@ -703,11 +704,11 @@ test('the catalog declares two image models that run as tasks and deliver JPEG, 
 		parameters: model.parameters
 	})), [
 		{
-			id: IMAGE_2, label: 'Grok Imagine Image 2.0', sentAs: { global: IMAGE_2 }, prompt, outputFormat: 'jpeg', answersAtOnce: undefined, deprecated: undefined, modes: [references(5)],
+			id: IMAGE_2, label: 'Grok Imagine Image 2.0', sentAs: { global: IMAGE_2 }, prompt: prompt(64000), outputFormat: 'jpeg', answersAtOnce: undefined, deprecated: undefined, modes: [references(5)],
 			parameters: [ratio(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2', '21:9', '5:2', '19.5:9', '9:19.5', '20:9', '9:20']), resolution, quality, count]
 		},
 		{
-			id: IMAGE_1, label: 'Grok Imagine Image', sentAs: { global: IMAGE_1 }, prompt, outputFormat: 'jpeg', answersAtOnce: undefined, deprecated: undefined, modes: [references(3)],
+			id: IMAGE_1, label: 'Grok Imagine Image', sentAs: { global: IMAGE_1 }, prompt: prompt(16000), outputFormat: 'jpeg', answersAtOnce: undefined, deprecated: undefined, modes: [references(3)],
 			parameters: [ratio(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2', '19.5:9', '9:19.5', '20:9', '9:20']), resolution, count]
 		}
 	]);
@@ -937,7 +938,10 @@ test('check of an image model reports a ratio with one reference image, too many
 			high: await problems(IMAGE_2, { quality: 'high' }, plannedFiles()),
 			eleven: await problems(IMAGE_2, { count: 11 }, plannedFiles()),
 			noPrompt: await problems(IMAGE_2, {}, plannedFiles({ images: 1 }), ' '),
-			longPrompt: await problems(IMAGE_2, {}, plannedFiles(), 'x'.repeat(1025)),
+			// A prompt longer than the reference's example of 1024 is taken.
+			detailedPrompt: await problems(IMAGE_2, {}, plannedFiles(), 'x'.repeat(4000)),
+			longPrompt: await problems(IMAGE_2, {}, plannedFiles(), 'x'.repeat(64001)),
+			longOnTheFirst: await problems(IMAGE_1, {}, plannedFiles(), 'x'.repeat(16001)),
 			video: await problems(IMAGE_2, {}, plannedFiles({ videos: 1 })),
 			large: await problems(IMAGE_2, {}, plannedFiles({ images: 1 }), IMAGE_PROMPT, sized(100)),
 			largeEnough: await problems(IMAGE_2, {}, plannedFiles({ images: 1 }), IMAGE_PROMPT, sized(90))
@@ -954,7 +958,9 @@ test('check of an image model reports a ratio with one reference image, too many
 			high: ['Quality cannot be high for Grok Imagine Image 2.0; choose Auto, Low, Medium.'],
 			eleven: ['Images must be between 1 and 10.'],
 			noPrompt: ['Write a prompt: Grok Imagine Image 2.0 needs one.'],
-			longPrompt: ['The prompt is 1025 characters long; Grok Imagine Image 2.0 takes at most 1024.'],
+			detailedPrompt: [],
+			longPrompt: ['The prompt is 64001 characters long; Grok Imagine Image 2.0 takes at most 64000.'],
+			longOnTheFirst: ['The prompt is 16001 characters long; Grok Imagine Image takes at most 16000.'],
 			video: ['Grok Imagine Image 2.0 in References mode takes no reference videos.'],
 			large: ['The inputs make a request of 133.3 MiB; AI Video sends at most 128 MiB. Use fewer or smaller inputs.'],
 			largeEnough: []

@@ -342,7 +342,7 @@ is the page's own "Last updated".
 | `/developers/migration/may-15-retirement` | 2026-09-02 | `grok-imagine-image-pro` redirects to `grok-imagine-image-quality` since 2026-05-15 |
 | `/developers/release-notes` | 2026-10-15 | August 2026: `auto` quality, five source images "(was 3)", `21:9` and `5:2` |
 | `/developers/models`, `/developers/models/grok-imagine-image-2.0`, `/developers/models/grok-imagine-image` | 2026-09-21 | 2.0 is xAI's image model; both take text and images and make images; 1.0's alias `grok-imagine-image-2026-03-02` |
-| `/developers/rest-api-reference/inference/models` | 2026-04-13 | an image model's `max_prompt_length`, 1024 in the example |
+| `/developers/rest-api-reference/inference/models` | 2026-04-13 (read again 2026-10-23) | an image model's `max_prompt_length`, an integer without a unit or a description, 1024 in the example |
 | `/developers/model-capabilities/imagine/files` | (read) | the generation address is an ephemeral one on `imgen.x.ai`, "only good for fetching the asset shortly after generation" |
 | `/developers/rate-limits` | 2026-10-05 | 6 requests a second for each image model at the first tier |
 | `/developers/advanced-api-usage/regions` | 2026-10-10 | the US endpoint serves "none of the image generation, video generation, or voice APIs" |
@@ -361,9 +361,14 @@ is the page's own "Last updated".
   some quality produces lands under its own extension), run as tasks, and
   offer the one mode `reference`. The prompt is required (`always`): xAI
   requires one for an edit and needs one to generate.
-- The prompt is at most 1,024 characters. The models API gives each image
-  model a `max_prompt_length`, without a unit, and its example says 1024;
-  the catalog takes the smaller reading, characters.
+- The prompt is at most 64,000 characters on 2.0 and 16,000 on Grok Imagine
+  Image. The models API gives each image model a `max_prompt_length`
+  without a unit; its reference's example says 1024, while its live answer
+  says 64000 for `grok-imagine-image-2.0` and 16000 for `grok-imagine-image`
+  (as an open-source SDK reported on 2026-10-22 after reading
+  `GET /v1/image-generation-models`). The catalog takes the live values and
+  reads them as characters, the smaller reading for most prompts; a prompt
+  that xAI counts as longer is refused in xAI's words.
 - 1.0 is declared with three source images and without 21:9 and 5:2. The
   release notes give five images and the two ratios to image editing and
   generation in general, but the migration guide of November credits them to
@@ -477,7 +482,8 @@ own); xAI's refusal is shown as it words it.
 
 - Whether `1.5k` is a resolution of any model.
 - Whether 1.0 takes five source images and the ratios 21:9 and 5:2.
-- The unit and the value of each model's `max_prompt_length`.
+- The unit of each model's `max_prompt_length`, and its live values, which
+  only a third party's reading of the live answer gives.
 - How REST reports a moderated image: `respect_moderation` appears only in
   the SDK's examples.
 - The largest source image, and which quality produces PNG.
@@ -496,8 +502,8 @@ own); xAI's refusal is shown as it words it.
    alone, `failed` to a failure with xAI's code, and 404 to `notFound`; the
    images download without the key.
 4. `check` reports a ratio with one reference image, too many images, a
-   value the model does not take, and a prompt over 1,024 characters, and a
-   refused request sends nothing.
+   value the model does not take, and a prompt over the model's 64,000 or
+   16,000 characters, and a refused request sends nothing.
 5. 401 and a 400 about the API key answer `auth`, a message about credits
    `balance`, 429 `rateLimited` with both limits, and a refused prompt
    `rejected`; a create whose connection drops answers `unknownOutcome` and
