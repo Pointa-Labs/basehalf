@@ -73,9 +73,12 @@ function isOutsideItems(path: string): boolean {
 }
 
 /**
- * Reads what decides whether `path` holds a draft. A mirror file that lies
- * behind a symbolic link, or that cannot be looked at, reads as absent:
- * BaseHalf never treats what it reaches through a link as card information.
+ * Reads what decides whether `path` holds a draft. Only "not found" reads as
+ * absent (nothing is at the path, or a file stands where a folder on the way
+ * would be). Any other failure to look, such as a symbolic link on the way to a
+ * mirror file (BaseHalf never treats what it reaches through a link as card
+ * information), too many open files, a read error, or a permission, rejects:
+ * it is never read as absence, which callers would take for a deleted card.
  */
 export async function baseHalfReadDraftFacts(fileService: IFileService, workspaceFolder: URI, path: string): Promise<IBaseHalfDraftFacts> {
 	if (isOutsideItems(path)) {
@@ -93,7 +96,8 @@ export async function baseHalfReadDraftFacts(fileService: IFileService, workspac
  * Whether `path` holds a draft that is shown: a draft whose folder exists on
  * this computer. The reference graph and the canvas treat only such a draft
  * as present (generation cards: "A draft in a folder that does not exist on
- * this computer is not shown").
+ * this computer is not shown"). Rejects as {@link baseHalfReadDraftFacts}
+ * does.
  */
 export async function baseHalfPathHoldsDraft(fileService: IFileService, workspaceFolder: URI, path: string): Promise<boolean> {
 	if (baseHalfGenerationKindOfPath(path) === undefined || isOutsideItems(path)) {
@@ -183,22 +187,23 @@ export async function baseHalfDraftAsidePath(fileService: IFileService, workspac
 	return name === undefined ? undefined : folder ? `${folder}/${name}` : name;
 }
 
+/** Whether a mirror file of the node at `path` is a file. Rejects on every failure but "not found", a symbolic link on the way included. */
 async function mirrorFileExists(fileService: IFileService, workspaceFolder: URI, path: string, fileName: string): Promise<boolean> {
 	const resource = baseHalfMirrorResource(workspaceFolder, path, fileName);
-	try {
-		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(fileService, workspaceFolder, resource);
-		const stat = await fileService.stat(resource);
-		return stat.isFile && !stat.isSymbolicLink;
-	} catch {
-		return false;
-	}
+	await baseHalfAssertMirrorPathComponentsNotSymbolicLink(fileService, workspaceFolder, resource);
+	const stat = await statOptional(fileService, resource);
+	return !!stat && stat.isFile && !stat.isSymbolicLink;
 }
 
+/** The stat of a resource, or `undefined` when it is not there. Every other failure rejects. */
 async function statOptional(fileService: IFileService, resource: URI): Promise<IFileStatWithPartialMetadata | undefined> {
 	try {
 		return await fileService.stat(resource);
-	} catch {
-		return undefined;
+	} catch (error) {
+		if (isNotThere(error)) {
+			return undefined;
+		}
+		throw error;
 	}
 }
 
@@ -208,4 +213,13 @@ function itemResource(workspaceFolder: URI, path: string): URI {
 
 function isFileNotFound(error: unknown): boolean {
 	return error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_NOT_FOUND;
+}
+
+/** "Not found", or a file where a folder on the way should be: nothing is at the path. */
+function isNotThere(error: unknown): boolean {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+	const result = toFileOperationResult(error);
+	return result === FileOperationResult.FILE_NOT_FOUND || result === FileOperationResult.FILE_NOT_DIRECTORY;
 }

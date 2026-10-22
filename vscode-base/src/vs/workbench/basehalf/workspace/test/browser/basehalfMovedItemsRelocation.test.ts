@@ -32,6 +32,7 @@ import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../common/basehalfMirrorIgnor
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
+import { createBaseHalfGenerationTask } from '../../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
 import { BaseHalfDraftOperations } from '../../browser/basehalfDraftOperations.js';
 import { BaseHalfRecordingGenerationTaskStore } from './basehalfGenerationTaskStoreFake.js';
@@ -114,7 +115,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			moveSubtree: (from: URI, to: URI) => { views.push(`${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`); }
 		} as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 		// The task records of this computer: what a move told them.
-		const taskStore = new BaseHalfRecordingGenerationTaskStore();
+		const taskStore = new BaseHalfRecordingGenerationTaskStore(folder);
 		instantiationService.stub(IBaseHalfGenerationTaskStore, taskStore);
 		instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 		const movedItems = session.add(new BaseHalfMovedItemsService(
@@ -137,6 +138,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			movedItems,
 			views,
 			draftOperations,
+			taskStore,
 			/** The moves the task records were told about, as workspace-relative paths. */
 			retargets: () => taskStore.retargets.map(({ from, to }) => `${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`),
 			close: () => session.dispose(),
@@ -519,6 +521,88 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			pending: 0,
 			retargets: ['shots -> scenes'],
 			views: ['shots -> scenes']
+		});
+	});
+
+	test('the task record of a draft below a folder moved outside takes the new path only once the draft\'s generation.yaml is there', async () => {
+		const generation = 'prompt: "A harbor at dawn"\n';
+		const fileService = await createFiles({
+			'shots/notes.md': 'Notes about the shots of the first scene, and what each should show.\n',
+			'.bh/mirror/shots/badge.yaml': badge('shots', 'The shots of scene one.').replace('kind: file', 'kind: folder'),
+			'.bh/mirror/shots/next.mp4/generation.yaml': generation,
+			'.bh/mirror/shots/next.mp4/badge.yaml': badge('shots/next.mp4', 'The opening shot.')
+		});
+		const session = await open(fileService);
+		session.taskStore.records.push(createBaseHalfGenerationTask({ id: '20261022T080000-1a2b3c4d', kind: 'video', cards: ['shots/next.mp4'], follower: 'window-1', now: '2026-10-22T08:00:00.000Z' }));
+		const information = async () => Object.keys(await hidden(fileService)).filter(path => path.endsWith('/generation.yaml'));
+		const atRetarget: string[][] = [];
+		session.taskStore.onRetarget = async () => {
+			atRetarget.push(await information());
+		};
+		// The draft's generation.yaml cannot be written at the new path at first.
+		let broken = true;
+		const write = fileService.writeFileWithExpectedContents.bind(fileService);
+		fileService.writeFileWithExpectedContents = (written, ...rest) => broken && written.path === '/work/.bh/mirror/scenes/next.mp4/generation.yaml'
+			? Promise.reject(new Error('read-only'))
+			: write(written, ...rest);
+		await fileService.move(resource('shots'), resource('scenes'));
+		await settle();
+		await settle();
+		const whileItFails = {
+			record: session.taskStore.records[0].cards[0].path,
+			information: await information(),
+			pending: session.movedItems.getPendingMoves(folder).map(move => `${move.from} -> ${move.to}`)
+		};
+		broken = false;
+		session.dirtyChanged();
+		await settle();
+		await settle();
+
+		assert.deepStrictEqual({ whileItFails, atRetarget, record: session.taskStore.records[0].cards[0].path, information: await information(), pending: session.movedItems.getPendingMoves(folder).length }, {
+			// The record still names the path that holds the draft's generation.yaml.
+			whileItFails: { record: 'shots/next.mp4', information: ['mirror/shots/next.mp4/generation.yaml'], pending: ['shots -> scenes'] },
+			atRetarget: [['mirror/scenes/next.mp4/generation.yaml', 'mirror/shots/next.mp4/generation.yaml']],
+			record: 'scenes/next.mp4',
+			information: ['mirror/scenes/next.mp4/generation.yaml'],
+			pending: 0
+		});
+	});
+
+	test('a draft whose generation.yaml finds its place at the new path taken keeps all of its card information at the old path, and its task record keeps naming it', async () => {
+		const fileService = await createFiles({
+			'shots/notes.md': 'Notes about the shots of the first scene, and what each should show.\n',
+			'.bh/mirror/shots/badge.yaml': badge('shots', 'The shots of scene one.').replace('kind: file', 'kind: folder'),
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: "the draft"\n',
+			'.bh/mirror/shots/next.mp4/badge.yaml': badge('shots/next.mp4', 'The draft.'),
+			'.bh/mirror/shots/later.mp4/generation.yaml': 'prompt: "the other draft"\n',
+			// A generated file of a folder that had the new name, in the trash now with its record.
+			'.bh/mirror/scenes/next.mp4/generation.yaml': 'prompt: "paid for"\n',
+			'.bh/mirror/scenes/next.mp4/made.yaml': 'id: "t1"\n'
+		});
+		const session = await open(fileService);
+		session.taskStore.records.push(
+			createBaseHalfGenerationTask({ id: '20261022T080000-1a2b3c4d', kind: 'video', cards: ['shots/next.mp4'], follower: 'window-1', now: '2026-10-22T08:00:00.000Z' }),
+			createBaseHalfGenerationTask({ id: '20261022T080100-5e6f7a8b', kind: 'video', cards: ['shots/later.mp4'], follower: 'window-1', now: '2026-10-22T08:01:00.000Z' })
+		);
+		await fileService.move(resource('shots'), resource('scenes'));
+		await settle();
+		await settle();
+
+		assert.deepStrictEqual({
+			records: session.taskStore.records.map(task => task.cards.map(card => card.path)),
+			mirror: Object.fromEntries(Object.entries(await hidden(fileService)).filter(([path]) => path.startsWith('mirror/'))),
+			pending: session.movedItems.getPendingMoves(folder).length
+		}, {
+			records: [['shots/next.mp4'], ['scenes/later.mp4']],
+			mirror: {
+				'mirror/scenes/badge.yaml': badge('scenes', 'The shots of scene one.').replace('kind: file', 'kind: folder'),
+				'mirror/scenes/later.mp4/generation.yaml': 'prompt: "the other draft"\n',
+				'mirror/scenes/next.mp4/generation.yaml': 'prompt: "paid for"\n',
+				'mirror/scenes/next.mp4/made.yaml': 'id: "t1"\n',
+				'mirror/shots/next.mp4/badge.yaml': badge('shots/next.mp4', 'The draft.'),
+				'mirror/shots/next.mp4/generation.yaml': 'prompt: "the draft"\n'
+			},
+			pending: 0
 		});
 	});
 

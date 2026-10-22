@@ -138,9 +138,11 @@ interface IBaseHalfPendingCascadeRecovery {
  *             (description), `appearance.yaml`, `upstream.yaml` (its upstream
  *             list, D37), `generation.yaml`, and `made.yaml` (D63) move with
  *             its mirror directory; the task records of a generation that
- *             runs on it take its new path. The per-machine canvas viewports
- *             of the moved subtree (and of a replaced destination) are
- *             forgotten.
+ *             runs on it take its new path between the copy of its
+ *             generation information and the removal of the old copy, so
+ *             that the path a record names always holds the card's
+ *             `generation.yaml`. The per-machine canvas viewports of the
+ *             moved subtree (and of a replaced destination) are forgotten.
  *  - DELETE → canvas purge, ADHD dropped, the node's badge retired, and the
  *             canvas viewports of the subtree forgotten. A delete to the trash
  *             keeps `upstream.yaml`, `generation.yaml`, and `made.yaml`, so a
@@ -681,9 +683,18 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				this.mirrorFileRelocationStage('badge subtree relocation', workspaceFolder, from.relativePath, to.relativePath, BADGE_FILE_NAME, keptDrafts),
 				this.mirrorFileRelocationStage('appearance subtree relocation', workspaceFolder, from.relativePath, to.relativePath, APPEARANCE_FILE_NAME, keptDrafts),
 				this.mirrorFileRelocationStage('upstream list relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, keptDrafts),
-				this.mirrorFileRelocationStage('generation information relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_GENERATION_INFO_FILE, keptDrafts),
-				this.mirrorFileRelocationStage('generation record relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_GENERATION_MADE_FILE, keptDrafts),
+				// The path a task record names always holds the card's
+				// generation.yaml: the generation information is copied, the
+				// records take the new paths, and only then are the old copies
+				// removed. A stage that fails, and a Skip, leave the records
+				// naming a path that holds it.
+				this.mirrorFileRelocationStage('generation record copy', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_GENERATION_MADE_FILE, keptDrafts, 'copy'),
+				this.mirrorFileRelocationStage('generation information copy', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_GENERATION_INFO_FILE, keptDrafts, 'copy'),
 				this.generationTaskStage(workspaceFolder, from.relativePath, to.relativePath),
+				{
+					label: 'generation information removal',
+					run: () => this.removeCopiedGenerationInformation(workspaceFolder, from.relativePath, to.relativePath)
+				},
 				{
 					label: 'legacy connection paths',
 					run: () => this.renameLegacyConnectionPaths(workspaceFolder, from.relativePath, to.relativePath)
@@ -697,7 +708,8 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	 * A generation that runs on a moved card, or on a card below a moved
 	 * folder, lands where the card is now: its task record takes the new path
 	 * in the same exclusive run (generation cards, "Moving, renaming, copying,
-	 * and undo").
+	 * and undo"), once the card's generation information is at the new path
+	 * and before it leaves the old one.
 	 */
 	private generationTaskStage(workspaceFolder: URI, from: string, to: string): IBaseHalfCascadeStage {
 		return {
@@ -786,16 +798,18 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 
 	/**
 	 * A stage that moves one kind of per-node mirror file of a moved subtree to
-	 * the new paths. Destination files that no incoming file replaces belong to
-	 * a replaced or deleted node and are retired, apart from those of the
-	 * drafts in `kept`, which stay drafts there. That set is computed on the
-	 * first run only, so a retry never retires a file this stage already moved
-	 * in. A `generation.yaml` or `made.yaml` that cannot be read is kept as a
-	 * recovery copy before it is retired or replaced. `upstream.yaml` is
-	 * neither moved nor retired in a folder marked with the source-tree marker,
-	 * where BaseHalf writes no upstream.yaml.
+	 * the new paths, or with `copy` only writes it there and leaves the old
+	 * copy for {@link removeCopiedGenerationInformation}. Destination files that
+	 * no incoming file replaces belong to a replaced or deleted node and are
+	 * retired, apart from those of the drafts in `kept`, which stay drafts
+	 * there. That set is computed on the first run only, so a retry never
+	 * retires a file this stage already moved in. A `generation.yaml` or
+	 * `made.yaml` that cannot be read is kept as a recovery copy before it is
+	 * retired or replaced. `upstream.yaml` is neither moved nor retired in a
+	 * folder marked with the source-tree marker, where BaseHalf writes no
+	 * upstream.yaml.
 	 */
-	private mirrorFileRelocationStage(label: string, workspaceFolder: URI, from: string, to: string, fileName: string, kept: ReadonlySet<string> = new Set()): IBaseHalfCascadeStage {
+	private mirrorFileRelocationStage(label: string, workspaceFolder: URI, from: string, to: string, fileName: string, kept: ReadonlySet<string> = new Set(), mode: 'move' | 'copy' = 'move'): IBaseHalfCascadeStage {
 		let retired: readonly string[] | undefined;
 		return {
 			label,
@@ -820,23 +834,24 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				}
 				for (const source of sources) {
 					const targetPath = baseHalfRemapSubtreeRel(source.relativePath, from, to);
-					await this.moveMirrorFile(workspaceFolder, source.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);
+					await this.moveMirrorFile(workspaceFolder, source.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined, mode === 'copy');
 				}
 			}
 		};
 	}
 
 	/**
-	 * Moves one mirror file. A relocated `badge.yaml` gets its new `path`; every
-	 * other byte travels unchanged, so legacy reference keys a migration has
-	 * not removed yet move with the badge, and `generation.yaml` and
-	 * `made.yaml`, which store no path, move as they are. The target is written
-	 * against its current bytes before the source is removed against the bytes
-	 * that were copied, so a retry after a partial move finishes it without
-	 * loss. A `generation.yaml` or `made.yaml` at the target that cannot be
-	 * read is kept as a recovery copy first.
+	 * Moves one mirror file, or with `keepSource` copies it. A relocated
+	 * `badge.yaml` gets its new `path`; every other byte travels unchanged, so
+	 * legacy reference keys a migration has not removed yet move with the
+	 * badge, and `generation.yaml` and `made.yaml`, which store no path, move
+	 * as they are. The target is written against its current bytes before the
+	 * source is removed against the bytes that were copied, so a retry after a
+	 * partial move finishes it without loss. A `generation.yaml` or
+	 * `made.yaml` at the target that cannot be read is kept as a recovery copy
+	 * first.
 	 */
-	private async moveMirrorFile(workspaceFolder: URI, source: URI, target: URI, badgePath: string | undefined): Promise<void> {
+	private async moveMirrorFile(workspaceFolder: URI, source: URI, target: URI, badgePath: string | undefined, keepSource = false): Promise<void> {
 		const bytes = await this.readMirrorFile(workspaceFolder, source);
 		if (bytes === null) {
 			return;
@@ -854,6 +869,37 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				await this.preserveGenerationFile(workspaceFolder, target, current);
 			}
 			await baseHalfWriteMirrorFile(this.fileService, workspaceFolder, target, next, current);
+		}
+		if (!keepSource) {
+			await this.deleteMirrorFile(workspaceFolder, source, bytes);
+		}
+	}
+
+	/**
+	 * After the task records name the new paths of a moved subtree, its
+	 * `generation.yaml` and then its `made.yaml` copies at the old paths are
+	 * removed, each only while the new path holds exactly its bytes; a copy
+	 * whose new path holds something else stays where it is. `generation.yaml`
+	 * goes first, so that a removal that fails leaves no draft at an old path.
+	 * It is safe to run again.
+	 */
+	private async removeCopiedGenerationInformation(workspaceFolder: URI, from: string, to: string): Promise<void> {
+		for (const fileName of [BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE]) {
+			for (const source of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName, from)) {
+				await this.removeCopiedSource(workspaceFolder, source.resource, baseHalfMirrorResource(workspaceFolder, baseHalfRemapSubtreeRel(source.relativePath, from, to), fileName));
+			}
+		}
+	}
+
+	/** Removes a mirror file that was copied to `target`, only while `target` holds exactly its bytes. */
+	private async removeCopiedSource(workspaceFolder: URI, source: URI, target: URI): Promise<void> {
+		const [bytes, copy] = await Promise.all([this.readMirrorFile(workspaceFolder, source), this.readMirrorFile(workspaceFolder, target)]);
+		if (bytes === null) {
+			return;
+		}
+		if (!copy?.equals(bytes)) {
+			this.logService.info(`BaseHalf mirror cascade: kept ${source.toString()}, because ${target.toString()} does not hold its bytes`);
+			return;
 		}
 		await this.deleteMirrorFile(workspaceFolder, source, bytes);
 	}
@@ -1137,9 +1183,9 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 					throw failed.get(index);
 				}
 				// A generation that runs on the item, or below the folder, lands
-				// where it is now. Before the mirror files: once those have all
-				// moved, nothing of the pair is left that can fail.
-				await this.taskStore.retarget(this.workspaceNode(workspaceFolder, move.from).resource, this.workspaceNode(workspaceFolder, move.to).resource);
+				// where it is now: the mirror files write the new path into its
+				// task record once its generation information is there. An item
+				// without a mirror directory has none.
 				if (!withoutMirrorDirectory) {
 					await this.followMirrorFiles(workspaceFolder, move, lease);
 				}
@@ -1217,7 +1263,18 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 	}
 
-	/** The mirror files of one item follow it, each into a free place only. */
+	/**
+	 * The mirror files of one item follow it, each into a free place only, and
+	 * the task records that name the item or a card below it take the new
+	 * paths. The drafts below a folder come along: their card information is
+	 * all they have (rule 4).
+	 *
+	 * The path a task record names always holds the card's `generation.yaml`:
+	 * the generation information is copied first, the records take the new
+	 * paths, and only then are the old copies removed. A card whose
+	 * `generation.yaml` finds its new place taken keeps all of its card
+	 * information at the old path, and its record keeps naming it.
+	 */
 	private async followMirrorFiles(workspaceFolder: URI, move: IBaseHalfMovedItem, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
 		// Only the item's own mirror directory is walked, so that one item costs
 		// the same in a folder with ten cards and in one with ten thousand.
@@ -1229,17 +1286,68 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				lease
 			);
 		}
-		// The drafts below a folder come along: their card information is all
-		// they have (rule 4). `generation.yaml` moves last, after `made.yaml`, so
-		// that a run that stops in between leaves no draft's information at the
-		// new path for the next run to take for a draft's.
-		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, BASEHALF_GENERATION_MADE_FILE, BASEHALF_GENERATION_INFO_FILE]) {
+		const target = (path: string, fileName: string) => baseHalfMirrorResource(workspaceFolder, baseHalfRemapSubtreeRel(path, move.from, move.to), fileName);
+		// 1. The generation information is copied: `generation.yaml` decides
+		// whether a card can follow, and `made.yaml` follows only with it. A
+		// run that stops here leaves at the new path a `generation.yaml` with
+		// the bytes of the one at the old path, which is not taken for a draft's.
+		const followed: string[] = [];
+		const stayed = new Set<string>();
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, BASEHALF_GENERATION_INFO_FILE, move.from)) {
+			if (await this.copyIntoFreePlace(workspaceFolder, entry.resource, target(entry.relativePath, BASEHALF_GENERATION_INFO_FILE))) {
+				followed.push(entry.relativePath);
+			} else {
+				stayed.add(entry.relativePath);
+			}
+		}
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, BASEHALF_GENERATION_MADE_FILE, move.from)) {
+			if (!stayed.has(entry.relativePath)) {
+				await this.copyIntoFreePlace(workspaceFolder, entry.resource, target(entry.relativePath, BASEHALF_GENERATION_MADE_FILE));
+			}
+		}
+		// 2. The other mirror files follow, apart from those of a card that stays.
+		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME]) {
 			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName, move.from)) {
-				const targetPath = baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to);
-				await this.followMirrorFile(workspaceFolder, entry.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);
+				if (!stayed.has(entry.relativePath)) {
+					await this.followMirrorFile(workspaceFolder, entry.resource, target(entry.relativePath, fileName), fileName === BADGE_FILE_NAME ? baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to) : undefined);
+				}
+			}
+		}
+		// 3. The task records take the new paths of the cards that followed.
+		if (stayed.size === 0) {
+			await this.taskStore.retarget(this.workspaceNode(workspaceFolder, move.from).resource, this.workspaceNode(workspaceFolder, move.to).resource);
+		} else {
+			for (const path of followed) {
+				await this.taskStore.retarget(this.workspaceNode(workspaceFolder, path).resource, this.workspaceNode(workspaceFolder, baseHalfRemapSubtreeRel(path, move.from, move.to)).resource);
+			}
+		}
+		// 4. The old copies go, `generation.yaml` first, so that a removal that fails leaves no draft at an old path.
+		for (const fileName of [BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE]) {
+			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName, move.from)) {
+				if (!stayed.has(entry.relativePath)) {
+					await this.removeCopiedSource(workspaceFolder, entry.resource, target(entry.relativePath, fileName));
+				}
 			}
 		}
 		await this.pruneEmptyMirrorDirectories([{ workspaceFolder, description: `${move.from} to ${move.to}, moved outside BaseHalf`, stages: [], prune: move.from }]);
+	}
+
+	/**
+	 * Copies a mirror file of a followed move into a free place: the target
+	 * holds nothing, or exactly these bytes already. Resolves with whether the
+	 * target holds the source's bytes now; a target that holds anything else
+	 * keeps it.
+	 */
+	private async copyIntoFreePlace(workspaceFolder: URI, source: URI, target: URI): Promise<boolean> {
+		const [bytes, current] = await Promise.all([this.readMirrorFile(workspaceFolder, source), this.readMirrorFile(workspaceFolder, target)]);
+		if (bytes === null) {
+			return false;
+		}
+		if (current !== null) {
+			return current.equals(bytes);
+		}
+		await baseHalfWriteMirrorFile(this.fileService, workspaceFolder, target, bytes, null);
+		return true;
 	}
 
 	/**
@@ -1286,8 +1394,9 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 
 	/** Marks every badge whose node is gone from disk as `orphan`, keeping its
 	 * description. A draft is card information without a file by design: its
-	 * badge is never marked. A generated file that is gone has a `made.yaml`
-	 * and is no draft. Folders marked with the source-tree marker are skipped. */
+	 * badge is never marked, and neither is one whose card information cannot
+	 * be looked at now. A generated file that is gone has a `made.yaml` and is
+	 * no draft. Folders marked with the source-tree marker are skipped. */
 	private async sweepOrphans(workspaceFolder: URI): Promise<void> {
 		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
 			return;
@@ -1295,7 +1404,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const { badges } = await this.badgeMirrorService.listBadges(workspaceFolder);
 		const orphaned: string[] = [];
 		for (const badge of badges.values()) {
-			if (badge.orphan === true || await this.nodeExists(workspaceFolder, badge.path, badge.kind) || baseHalfIsDraft(await baseHalfReadDraftFacts(this.fileService, workspaceFolder, badge.path))) {
+			if (badge.orphan === true || await this.nodeExists(workspaceFolder, badge.path, badge.kind) || await this.mayBeDraft(workspaceFolder, badge.path)) {
 				continue;
 			}
 			await this.badgeMirrorService.patchBadge(
@@ -1306,6 +1415,16 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 		if (orphaned.length > 0) {
 			this.logService.info(`BaseHalf mirror cascade: marked ${orphaned.length} badge(s) orphan (disk node gone): ${orphaned.join(', ')}`);
+		}
+	}
+
+	/** Whether the path holds a draft, or its card information cannot be looked at now: an error is never read as absence. */
+	private async mayBeDraft(workspaceFolder: URI, relativePath: string): Promise<boolean> {
+		try {
+			return baseHalfIsDraft(await baseHalfReadDraftFacts(this.fileService, workspaceFolder, relativePath));
+		} catch (error) {
+			this.logService.warn(`BaseHalf mirror cascade: could not tell whether '${relativePath}' is a draft; its badge is left as it is`, error);
+			return true;
 		}
 	}
 

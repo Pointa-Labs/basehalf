@@ -191,6 +191,8 @@ interface IHarness {
 	readonly movedItems: TestMovedItems;
 	readonly draftOperations: IBaseHalfDraftOperations;
 	readonly index: IBaseHalfReferenceIndexService;
+	/** The task records of this computer, which a test can make fail or look in the middle of a move. */
+	readonly taskStore: BaseHalfRecordingGenerationTaskStore;
 	/** The moves the task records were told about, as workspace-relative paths. */
 	retargets(): string[];
 	/** A document was saved. */
@@ -246,7 +248,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	const taskStore = new BaseHalfRecordingGenerationTaskStore();
+	const taskStore = new BaseHalfRecordingGenerationTaskStore(folder);
 	instantiationService.stub(IBaseHalfGenerationTaskStore, taskStore);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	const refactor = instantiationService.createInstance(BaseHalfReferenceRefactorService);
@@ -280,6 +282,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		movedItems,
 		draftOperations,
 		index,
+		taskStore,
 		retargets: () => taskStore.retargets.map(({ from, to }) => `${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`),
 		documentSaved: () => {
 			const document = new TestWorkingCopy(joinPath(folder, 'saved.md'));
@@ -856,6 +859,35 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 				'.bh/mirror/scenes/x.mp4/made.yaml': 'id: "t1"\n'
 			},
 			retargets: ['scenes/x.mp4 -> scenes/x-2.mp4', 'shots -> scenes']
+		});
+	});
+
+	test('a folder moved while a draft in it generates keeps the draft\'s generation.yaml at the path its task record names, also while the record cannot take the new path', async () => {
+		const harness = await createHarness(disposables, {
+			'shots/notes.md': '# Notes\n',
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: "the draft"\n',
+			'.bh/mirror/shots/next.mp4/upstream.yaml': 'upstream:\n  - shots/notes.md\n'
+		});
+		const information = async () => Object.keys(await harness.tree()).filter(path => path.endsWith('/generation.yaml'));
+		let atRetarget: string[] | undefined;
+		harness.taskStore.onRetarget = async () => {
+			atRetarget ??= await information();
+		};
+		harness.taskStore.failure = new Error('The record of the generation kept changing while BaseHalf wrote it.');
+		const moving = harness.move('shots', 'scenes');
+		const prompt = await harness.prompt('Your change is done');
+		const whileItFails = await information();
+		harness.taskStore.failure = undefined;
+		await prompt.choose('Retry');
+		await moving;
+
+		assert.deepStrictEqual({ atRetarget, whileItFails, after: await information(), retargets: harness.retargets() }, {
+			// The record is told the new path once the new path holds the draft's generation.yaml.
+			atRetarget: ['.bh/mirror/scenes/next.mp4/generation.yaml', '.bh/mirror/shots/next.mp4/generation.yaml'],
+			// It could not take it: the path it names still holds the draft's generation.yaml.
+			whileItFails: ['.bh/mirror/scenes/next.mp4/generation.yaml', '.bh/mirror/shots/next.mp4/generation.yaml'],
+			after: ['.bh/mirror/scenes/next.mp4/generation.yaml'],
+			retargets: ['shots -> scenes']
 		});
 	});
 

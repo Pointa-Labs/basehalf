@@ -195,7 +195,7 @@ suite('BaseHalfGenerationCardActions', () => {
 		});
 	});
 
-	test('undo of a new draft deletes it with its card information and redo writes it back; both refuse while it generates and when its prompt changed', async () => {
+	test('undo of a new draft deletes it with its card information and redo writes it back; while it generates, undo waits and keeps the step', async () => {
 		const harness = await createHarness(disposables, { 'shots/.keep': '' });
 		const draft = await harness.actions.createDraft(harness.resource('shots'), 'video');
 		harness.generation.generating.add(draft.path);
@@ -205,24 +205,43 @@ suite('BaseHalfGenerationCardActions', () => {
 		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 		const undone = await harness.exists('.bh/mirror/shots/video.mp4/generation.yaml');
 		await harness.undoRedo.redo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
-		const redone = await harness.read('.bh/mirror/shots/video.mp4/generation.yaml');
-		// The user typed a prompt since: undo keeps the draft and says why.
-		await harness.write('.bh/mirror/shots/video.mp4/generation.yaml', 'prompt: "Typed since."\n');
-		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 		assert.deepStrictEqual({
 			whileGenerating,
 			undone,
-			redone,
-			kept: await harness.read('.bh/mirror/shots/video.mp4/generation.yaml'),
-			canUndo: harness.undoRedo.canUndo(BASEHALF_CANVAS_UNDO_REDO_SOURCE),
+			redone: await harness.read('.bh/mirror/shots/video.mp4/generation.yaml'),
 			notifications: harness.notifications.shown
 		}, {
 			whileGenerating: true,
 			undone: false,
 			redone: 'prompt: ""\n',
-			kept: 'prompt: "Typed since."\n',
-			canUndo: true,
-			notifications: ['video.mp4 is generating. Stop it first.', 'video.mp4 changed since this step.']
+			notifications: ['video.mp4 is generating. Stop it first.']
+		});
+	});
+
+	test('a step whose draft changed since, or has its file now, is done with: undo leaves the draft, says why, and the next undo goes to the step before', async () => {
+		const harness = await createHarness(disposables, { 'shots/.keep': '' });
+		const shots = harness.resource('shots');
+		const image = await harness.actions.createDraft(shots, 'image');
+		const video = await harness.actions.createDraft(shots, 'video');
+		const clip = await harness.actions.createDraft(shots, 'video');
+		// A file at the last draft's path is its file; the user typed a prompt into the one before.
+		await harness.write('shots/video-2.mp4', 'video');
+		await harness.write('.bh/mirror/shots/video.mp4/generation.yaml', 'prompt: "Typed since."\n');
+		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		assert.deepStrictEqual({
+			paths: [image.path, video.path, clip.path],
+			clip: await harness.read('.bh/mirror/shots/video-2.mp4/generation.yaml'),
+			video: await harness.read('.bh/mirror/shots/video.mp4/generation.yaml'),
+			image: await harness.exists('.bh/mirror/shots/image.png/generation.yaml'),
+			notifications: harness.notifications.shown
+		}, {
+			paths: ['/work/shots/image.png', '/work/shots/video.mp4', '/work/shots/video-2.mp4'],
+			clip: 'prompt: ""\n',
+			video: 'prompt: "Typed since."\n',
+			image: false,
+			notifications: ['video-2.mp4 has its file now, so it is left as it is.', 'video.mp4 changed since this step, so it is left as it is.']
 		});
 	});
 

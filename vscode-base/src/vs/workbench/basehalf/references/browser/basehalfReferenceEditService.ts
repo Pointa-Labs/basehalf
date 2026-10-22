@@ -632,8 +632,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				continue;
 			}
 			// A draft at the old path is a node there again (reference graph, "Drafts").
+			// A path that cannot be looked at rejects the write, and the entry stays owed.
 			const resource = URI.joinPath(target.node.workspaceFolder, ...replacement.from.split('/'));
-			if (await this.fileService.exists(resource).catch(() => false) || await baseHalfPathHoldsDraft(this.fileService, target.node.workspaceFolder, replacement.from).catch(() => false)) {
+			if (await this.fileService.exists(resource).catch(() => false) || await baseHalfPathHoldsDraft(this.fileService, target.node.workspaceFolder, replacement.from)) {
 				throw new StoreRefusal('entryResolves', this.message('entryResolves', target.node.resource));
 			}
 		}

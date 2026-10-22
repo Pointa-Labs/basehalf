@@ -160,9 +160,9 @@ export class BaseHalfCanvasChosenPlaces {
 		}
 	}
 
-	/** The paths that name nothing on disk right now: no file, no folder, and no draft. */
+	/** The paths that name nothing on disk right now: no file, no folder, and no draft. A path that cannot be looked at is not called gone. */
 	private async absent(folder: IBaseHalfCanvasFolderState, paths: readonly string[]): Promise<string[]> {
-		const checked = await Promise.all(paths.map(async path => await this.fileService.exists(URI.joinPath(folder.workspaceFolder, ...path.split('/'))) || await baseHalfPathHoldsDraft(this.fileService, folder.workspaceFolder, path) ? undefined : path));
+		const checked = await Promise.all(paths.map(async path => await this.fileService.exists(URI.joinPath(folder.workspaceFolder, ...path.split('/'))) || await baseHalfPathHoldsDraft(this.fileService, folder.workspaceFolder, path).catch(() => true) ? undefined : path));
 		return checked.filter((path): path is string => path !== undefined);
 	}
 }

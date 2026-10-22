@@ -396,7 +396,11 @@ export interface IBaseHalfGenerationTaskStore {
 	/** Resolves once the records of the open workspace folders have been read the first time. */
 	whenReady(): Promise<void>;
 
-	/** Reads the records of a workspace folder, or of every open one, from disk again now. */
+	/**
+	 * Reads the records of a workspace folder, or of every open one, from disk
+	 * again now. A record this window wrote while the reading ran keeps what
+	 * this window wrote.
+	 */
 	refresh(folder?: URI): Promise<void>;
 
 	/** The records of the open workspace folders, kept current by watching `.bh/cache/generation/`. */
@@ -425,8 +429,19 @@ export interface IBaseHalfGenerationTaskStore {
 	/** Writes a record into `.bh/cache/generation/` of the workspace folder that holds it, or of the only open one for a new record. */
 	write(task: IBaseHalfGenerationTask): Promise<void>;
 
-	/** Removes a record and its partial downloads. */
-	remove(taskId: string): Promise<void>;
+	/**
+	 * Removes a record, its partial downloads, and its takeover claims. With
+	 * `onlyIf`, only when the record as it is on disk now passes it.
+	 */
+	remove(taskId: string, onlyIf?: (task: IBaseHalfGenerationTask) => boolean): Promise<void>;
+
+	/**
+	 * Claims the takeover of a record that was said alive at `aliveAt` and has
+	 * not been since: creates `.bh/cache/generation/<task id>.<ms>.takeover`
+	 * where none is. Of the windows of this computer that claim it, exactly one
+	 * resolves `true`, and only that one takes the record over.
+	 */
+	claimTakeover(taskId: string, aliveAt: string): Promise<boolean>;
 
 	/** Where the `index`-th output of a generation is downloaded: `.bh/cache/generation/<task id>-<n>.part`. */
 	partFile(task: IBaseHalfGenerationTask, index: number): URI;
@@ -529,18 +544,22 @@ export interface IBaseHalfDraftOperations {
 
 	/**
 	 * Renames or moves a draft to `target`, which must be free (no file, no
-	 * folder, no draft), in a folder that exists, in the same workspace
-	 * folder, and keep the draft's kind. Its card information, card row, and
-	 * task records move in one exclusive run under the workspace mutation
-	 * lease; the entries that name it are rewritten right after, as after any
-	 * move. Resolves with `target`.
+	 * folder, no draft, and no card information of a generated file that is
+	 * in the trash or missing), in a folder that exists, in the same
+	 * workspace folder, and keep the draft's kind. Its card information, card
+	 * row, and task records move in one exclusive run under the workspace
+	 * mutation lease, and the path the task records name holds the draft's
+	 * `generation.yaml` throughout: a move that fails leaves the draft whole
+	 * where it was. The entries that name it are rewritten right after, as
+	 * after any move. Resolves with `target`.
 	 */
 	move(draft: URI, target: URI, options?: IBaseHalfDraftMoveOptions): Promise<URI>;
 
 	/**
 	 * Removes a draft's card information and card row in one exclusive run.
-	 * Resolves with what an undo needs. A generation that runs on the draft is
-	 * the caller's to stop first (generation cards, "Deleting").
+	 * Resolves with what an undo needs. Refuses, and changes nothing, while a
+	 * generation that has not ended still lands on the draft: the caller
+	 * releases the card first (generation cards, "Deleting").
 	 */
 	delete(draft: URI): Promise<IBaseHalfDraftSnapshot>;
 

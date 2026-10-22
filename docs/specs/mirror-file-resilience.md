@@ -340,9 +340,13 @@ disk.
   ([generation cards](generation-cards.md#deleting)): they move with their
   item, they are kept on a delete to the trash, and a permanent delete
   removes them. They store no `path`, so they move byte for byte, also when
-  they cannot be read. Before a permanent delete or a retirement removes one
-  that cannot be read, or a move replaces it, BaseHalf saves it as a recovery
-  copy (`.bh/cache/recovered/mirror/<node path>/generation.<12 hex digits>.yaml`
+  they cannot be read. A move copies them first, and removes the old copies
+  only after the task records name the new paths
+  ([generation cards](generation-cards.md#moving-renaming-copying-and-undo)):
+  a stage that fails in between, and a Skip, leave them at both paths, never
+  at neither. Before a permanent delete or a retirement removes one that
+  cannot be read, or a move replaces it, BaseHalf saves it as a recovery copy
+  (`.bh/cache/recovered/mirror/<node path>/generation.<12 hex digits>.yaml`
   or `made.<12 hex digits>.yaml`), so content it cannot read is never
   destroyed.
 - A move through the workbench onto the path of a draft moves the draft aside

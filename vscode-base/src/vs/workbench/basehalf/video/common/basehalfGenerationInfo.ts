@@ -709,9 +709,25 @@ export function isBaseHalfGenerationTaskStale(task: IBaseHalfGenerationTask, now
 	return !Number.isFinite(alive) || now - alive >= BASEHALF_GENERATION_STALE_MS;
 }
 
+/**
+ * How two workspace-relative paths are compared: by the key this returns. On
+ * a volume that ignores letter case, `shots/Video.mp4` and `shots/video.mp4`
+ * name the same card.
+ */
+export type BaseHalfGenerationPathKey = (path: string) => string;
+
+const EXACT_PATH: BaseHalfGenerationPathKey = path => path;
+
 /** Whether the task lands on, or landed on, the card at `path`. */
-export function baseHalfGenerationTaskNamesCard(task: IBaseHalfGenerationTask, path: string): boolean {
-	return task.cards.some(card => card.path === path);
+export function baseHalfGenerationTaskNamesCard(task: IBaseHalfGenerationTask, path: string, key: BaseHalfGenerationPathKey = EXACT_PATH): boolean {
+	const wanted = key(path);
+	return task.cards.some(card => key(card.path) === wanted);
+}
+
+/** The index of the card at `path` in the task, or -1. */
+export function baseHalfGenerationTaskCardIndex(task: IBaseHalfGenerationTask, path: string, key: BaseHalfGenerationPathKey = EXACT_PATH): number {
+	const wanted = key(path);
+	return task.cards.findIndex(card => key(card.path) === wanted);
 }
 
 /**
@@ -790,6 +806,27 @@ export function recordBaseHalfGenerationLanding(task: IBaseHalfGenerationTask, i
 	return withCard(task, index, card => ({ ...card, landing }));
 }
 
+/**
+ * Takes up a generation that another window ended as failed when it took
+ * the record over, after this window got the provider's answer all the same
+ * (generation cards, "Continuing after a reload or a restart"): the files are
+ * in hand, so the task is `landing`; or the provider has the task, so it is
+ * `running` again. The cards that the failure ended wait again; a card that
+ * landed, or that failed on its own, stays as it is. This window follows it.
+ */
+export function reviveBaseHalfGenerationTask(task: IBaseHalfGenerationTask, follower: string, now: string, next: { readonly state: 'landing' } | { readonly state: 'running'; readonly remoteId: string }): IBaseHalfGenerationTask {
+	expectState(task, ['failed']);
+	const { endedAt: _endedAt, error: failure, ...rest } = task;
+	return normalizeBaseHalfGenerationTask({
+		...rest,
+		state: next.state,
+		...(next.state === 'running' ? { remoteId: next.remoteId } : {}),
+		follower,
+		aliveAt: now,
+		cards: task.cards.map(card => card.state === 'failed' && card.error === failure ? { path: card.path, state: 'waiting' as const } : card)
+	});
+}
+
 /** The file of the card at `index` is in place and its record written. */
 export function recordBaseHalfGenerationLanded(task: IBaseHalfGenerationTask, index: number): IBaseHalfGenerationTask {
 	expectState(task, ['landing']);
@@ -845,8 +882,12 @@ export function heartbeatBaseHalfGenerationTask(task: IBaseHalfGenerationTask, f
  * or a rename: `from` and `to` are workspace-relative paths of the card or of
  * its folder. Unchanged when no card is at or below `from`.
  */
-export function retargetBaseHalfGenerationTask(task: IBaseHalfGenerationTask, from: string, to: string): IBaseHalfGenerationTask {
-	const moved = (path: string) => path === from ? to : path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : undefined;
+export function retargetBaseHalfGenerationTask(task: IBaseHalfGenerationTask, from: string, to: string, key: BaseHalfGenerationPathKey = EXACT_PATH): IBaseHalfGenerationTask {
+	const fromKey = key(from);
+	const moved = (path: string) => {
+		const pathKey = key(path);
+		return pathKey === fromKey ? to : pathKey.startsWith(`${fromKey}/`) ? `${to}${path.slice(from.length)}` : undefined;
+	};
 	let changed = false;
 	const cards = task.cards.map(card => {
 		const next = moved(card.path);
