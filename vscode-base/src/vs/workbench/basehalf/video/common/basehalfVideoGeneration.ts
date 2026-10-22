@@ -193,9 +193,11 @@ export interface IBaseHalfVideoGenerationService {
 	stop(resource: URI): Promise<void>;
 
 	/**
-	 * The card is being deleted while it generates (generation cards,
-	 * "Deleting"): the generation stops when the card is its only card;
-	 * otherwise that card's file is not landed.
+	 * The card is being deleted (generation cards, "Deleting"). While it
+	 * generates, the generation stops when the card is its only card, and
+	 * otherwise that card's file is not landed. The record of a generation
+	 * that ended without the card's file, or that ends now, goes with the card
+	 * unless another card of it that got no file is still there to say why.
 	 */
 	releaseCard(resource: URI): Promise<void>;
 
