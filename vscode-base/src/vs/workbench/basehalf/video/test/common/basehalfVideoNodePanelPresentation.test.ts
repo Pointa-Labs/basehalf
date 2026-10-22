@@ -14,7 +14,6 @@ import {
 	IBaseHalfVideoInputSource,
 	parseBaseHalfVideoCatalog
 } from '../../common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
 import {
 	BaseHalfVideoPanelControl,
 	baseHalfVideoPanelInputFileName,
@@ -27,7 +26,7 @@ import {
 	IBaseHalfVideoPanelState,
 	swapBaseHalfVideoUpstreamEntries
 } from '../../common/basehalfVideoNodePanelPresentation.js';
-import { TEST_VIDEO_CATALOG } from './basehalfVideoCatalogFixture.js';
+import { TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from './basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfVideoNodePanelPresentation', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -45,10 +44,9 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		{ path: 'docs/brief.pdf', kind: 'other', available: true }
 	];
 
-	interface IPresentOptions extends Partial<Omit<IBaseHalfVideoPanelState, 'setup'>> {
+	interface IPresentOptions extends Partial<Omit<IBaseHalfVideoPanelState, 'setup' | 'info'>> {
 		readonly generation?: IBaseHalfVideoGenerationChoice;
 		readonly noModel?: true;
-		readonly fieldsExtra?: IBaseHalfVideoNodeFields;
 		readonly regions?: Readonly<Record<string, string>>;
 		readonly notSetUp?: readonly string[];
 	}
@@ -56,7 +54,9 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 	function present(options: IPresentOptions = {}): IBaseHalfVideoPanelPresentation {
 		const generation = options.noModel ? undefined : options.generation ?? frames;
 		return createBaseHalfVideoPanelPresentation({
-			fields: { prompt: 'A slow push in.', ...(generation ? { generation } : {}), ...options.fieldsExtra },
+			info: { prompt: 'A slow push in.', ...generation },
+			kind: options.kind ?? 'video',
+			hasFile: options.hasFile ?? false,
 			inputs: options.inputs ?? sources,
 			texts: options.texts ?? new Map([['notes/scene.md', 'The sea at dusk.']]),
 			catalog: options.catalog ?? ready,
@@ -150,7 +150,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		}, {
 			startFrameOnly: ['frames/b.png: Not used: Acme Still takes one image in Frames.'],
 			textOnly: ['frames/a.png: Not used: Borealis One takes no images in Frames.'],
-			missing: ['gone.png: Not used: the file is missing, or the node shows no file yet.'],
+			missing: ['gone.png: Not used: the file is missing.'],
 			tooMany: ['e.png: Not used: Acme Motion 2 takes up to 4 images in References.', 'b.mp3: Not used: Acme Motion 2 takes one audio file in References.']
 		});
 	});
@@ -234,12 +234,12 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 					{ label: 'Acme Video', detail: 'East · Acme Cloud', items: ['Acme Motion 2*', 'Acme Still', 'Acme Clip'] },
 					{ label: 'Borealis Media', detail: 'Not set up', items: ['Borealis One'] }
 				],
-				end: 'Video Providers…'
+				end: 'Providers…'
 			},
 			west: { label: 'Acme Video', detail: 'West · Acme Global', items: ['Acme Motion 2*', 'Acme Still (Not offered in West · Acme Global)', 'Acme Clip'] },
 			legacy: ['Acme Motion 2', 'Acme Still', 'Acme Clip', 'Acme Legacy*'],
-			loading: { message: 'Loading the video models…', groups: [], end: 'Video Providers…' },
-			failed: 'BaseHalf could not load the video models: AI Video is not running.'
+			loading: { message: 'Loading the models…', groups: [], end: 'Providers…' },
+			failed: 'BaseHalf could not load the models: AI Video is not running.'
 		});
 	});
 
@@ -285,12 +285,12 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			: null])), {
 			generating: null,
 			loading: null,
-			failed: 'BaseHalf could not load the video models: AI Video is not running.',
+			failed: 'BaseHalf could not load the models: AI Video is not running.',
 			noModel: null,
 			unknownModel: 'acme-motion-9 is not a model BaseHalf offers. Choose another model.',
-			notSetUp: 'Borealis Media is not set up. Set it up in Video Providers. [Set Up → borealis]',
-			region: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers. [Video Providers… → acme]',
-			modeRegion: 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Video Providers. [Video Providers… → acme]',
+			notSetUp: 'Borealis Media is not set up. Set it up in Providers. [Set Up → borealis]',
+			region: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers. [Providers… → acme]',
+			modeRegion: 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Providers. [Providers… → acme]',
 			check: 'frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.',
 			nothingToSend: null,
 			ready: null
@@ -313,7 +313,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			check: present({ check: { problems: ['The prompt is longer than 2,000 characters.'] } }),
 			nothingToSend: present({ prompt: '  ', inputs: [] }),
 			ready: present(),
-			video: present({ fieldsExtra: { result: { source: 'imported', artifact: { kind: 'video', path: 'clip.mp4', size: 10 } } } })
+			video: present({ hasFile: true })
 		};
 		const key = isMacintosh ? '⌘Enter' : 'Ctrl+Enter';
 		const onEast = 'Acme Motion 2 on Acme Video, East · Acme Cloud';
@@ -323,7 +323,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			model: { label: presentation.model.label, outlined: presentation.model.outlined, title: presentation.model.title }
 		}])), {
 			generating: { blocker: 'generating', generate: 'stop enabled: Stop Generating', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
-			loading: { blocker: 'catalogLoading', generate: 'generate disabled: The video models are still loading.', model: { label: 'Loading Models…', outlined: false, title: 'Loading Models…' } },
+			loading: { blocker: 'catalogLoading', generate: 'generate disabled: The models are still loading.', model: { label: 'Loading Models…', outlined: false, title: 'Loading Models…' } },
 			noModel: { blocker: 'noModel', generate: 'generate disabled: Choose a model to generate.', model: { label: 'Choose Model', outlined: true, title: 'Choose a model to generate.' } },
 			unknownModel: {
 				blocker: 'unknownModel',
@@ -332,20 +332,52 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			},
 			notSetUp: {
 				blocker: 'notSetUp',
-				generate: 'generate disabled: Borealis Media is not set up. Set it up in Video Providers.',
-				model: { label: 'Borealis One', outlined: true, title: 'Borealis Media is not set up. Set it up in Video Providers.' }
+				generate: 'generate disabled: Borealis Media is not set up. Set it up in Providers.',
+				model: { label: 'Borealis One', outlined: true, title: 'Borealis Media is not set up. Set it up in Providers.' }
 			},
 			region: {
 				blocker: 'region',
-				generate: 'generate disabled: Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.',
-				model: { label: 'Acme Still', outlined: true, title: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.' }
+				generate: 'generate disabled: Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.',
+				model: { label: 'Acme Still', outlined: true, title: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.' }
 			},
 			check: { blocker: 'check', generate: 'generate disabled: The prompt is longer than 2,000 characters.', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
 			nothingToSend: { blocker: 'nothingToSend', generate: 'generate disabled: Write a prompt or connect an input to generate.', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
 			ready: { blocker: undefined, generate: 'generate enabled: Generate', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
 			video: { blocker: undefined, generate: 'generate enabled: Generate', model: { label: 'Acme Motion 2', outlined: false, title: onEast } }
 		});
-		assert.deepStrictEqual([states.ready.generate.title, states.video.generate.title], [`Generate (${key})`, `Generate a new video in a new node beside this one (${key})`]);
+		assert.deepStrictEqual([states.ready.generate.title, states.video.generate.title, present({ kind: 'image', hasFile: true, generation: { provider: 'corvid', model: 'corvid-paint' }, catalog: { kind: 'ready', catalog: TEST_GENERATION_CATALOG }, inputs: [] }).generate.title], [
+			`Generate (${key})`,
+			`Generate a new video in a new card beside this one (${key})`,
+			`Generate a new image in a new card beside this one (${key})`
+		]);
+	});
+
+	test('an image card offers the image models, says why a video model cannot generate there, and dims an input that is a draft', () => {
+		const images: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_GENERATION_CATALOG };
+		const image = (options: IPresentOptions) => present({ kind: 'image', catalog: images, notSetUp: [], ...options });
+		const menu = image({ generation: { provider: 'corvid', model: 'corvid-paint' } }).modelMenu;
+		const videoModel = image({ generation: { provider: 'acme', model: 'acme-motion-2' } });
+		const draftInput = image({
+			generation: { provider: 'corvid', model: 'corvid-paint' },
+			inputs: [{ path: 'shots/hero.png', kind: 'image', available: false, draft: true }, { path: 'refs/b.png', kind: 'image', available: true }]
+		});
+		assert.deepStrictEqual({
+			menu: menu.groups.map(group => `${group.label}: ${group.items.map(item => `${item.label} (${item.detail})`).join(', ')}`),
+			end: menu.settingsLabel,
+			videoModel: [videoModel.blocker?.kind, videoModel.generate.label, videoModel.model.outlined, videoModel.reason?.text],
+			draftInput: [draftInput.inputRow?.items.map(item => `${item.name}: ${item.reason ?? item.use}`), draftInput.generate.label, draftInput.reason?.text],
+			noImages: present({ kind: 'image' }).modelMenu.message
+		}, {
+			menu: ['Corvid Studio: Corvid Paint (4K · Up to 4), Corvid Print (2K · Up to 2)'],
+			end: 'Providers…',
+			videoModel: ['otherKind', 'Acme Motion 2 makes videos. Choose an image model.', true, 'Acme Motion 2 makes videos. Choose an image model.'],
+			draftInput: [
+				['Image 1: Not used: it has no file yet.', 'Image 2: reference'],
+				'hero.png has no file yet. Generate it first, or remove its connection.',
+				'hero.png has no file yet. Generate it first, or remove its connection.'
+			],
+			noImages: 'AI Video offers no image models.'
+		});
 	});
 
 	test('asks check about what would be sent, without the inputs that the panel adds with their files', () => {

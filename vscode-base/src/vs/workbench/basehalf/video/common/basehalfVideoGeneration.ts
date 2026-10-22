@@ -165,9 +165,14 @@ export interface IBaseHalfVideoProviderSettingsService {
 	 */
 	getAccess(provider: IBaseHalfVideoCatalogProvider, region?: string): Promise<IBaseHalfVideoProviderAccess | undefined>;
 
-	/** The provider, model, mode, and values the last generation on this computer used; a new Video node starts with them. */
-	getLastUsed(): IBaseHalfVideoGenerationChoice | undefined;
-	setLastUsed(generation: IBaseHalfVideoGenerationChoice): void;
+	/**
+	 * The provider, model, mode, and values the last generation of a kind on
+	 * this computer used (`video` when no kind is given); a new card of that
+	 * kind starts with them.
+	 */
+	getLastUsed(kind?: BaseHalfGenerationKind): IBaseHalfVideoGenerationChoice | undefined;
+	/** Remembers the last generation of a kind (`video` when no kind is given). */
+	setLastUsed(generation: IBaseHalfVideoGenerationChoice, kind?: BaseHalfGenerationKind): void;
 
 	/** Opens the page where the user sets up providers, on a provider when one is given. */
 	openSettings(providerId?: string): Promise<void>;
@@ -176,11 +181,12 @@ export interface IBaseHalfVideoProviderSettingsService {
 // --- generation ------------------------------------------------------------------------------
 
 /**
- * `preparing`: reading and encoding inputs. `submitting`: the request is on
- * its way. `queued` and `generating`: the provider has the task.
- * `downloading`: the video is being written into the workspace.
+ * The phase of a generation in words on its cards (generation cards, "The
+ * card"): `preparing` reads and checks the inputs; `waiting` sends the
+ * request or waits for the provider to start; `generating` is the provider at
+ * work; `saving` downloads and lands the files.
  */
-export type BaseHalfVideoGenerationPhase = 'preparing' | 'submitting' | 'queued' | 'generating' | 'downloading';
+export type BaseHalfVideoGenerationPhase = 'preparing' | 'waiting' | 'generating' | 'saving';
 
 export interface IBaseHalfVideoGenerationProgress {
 	readonly phase: BaseHalfVideoGenerationPhase;
@@ -197,44 +203,64 @@ export class BaseHalfVideoGenerationError extends Error {
 	}
 }
 
+/** How a generation was asked for. */
+export interface IBaseHalfGenerateOptions {
+	/**
+	 * An agent asked, with `basehalf --generate`: a value the model does not
+	 * accept stops the generation with that value instead of being made legal.
+	 */
+	readonly agent?: boolean;
+}
+
 export const IBaseHalfVideoGenerationService = createDecorator<IBaseHalfVideoGenerationService>('baseHalfVideoGenerationService');
 
+/**
+ * Runs the generations of generation cards (generation cards, "A
+ * generation"): from Generate through the task record of this computer to
+ * the files on their cards. One window follows each generation and says
+ * every 30 seconds that it is alive; another window takes a generation over
+ * only when it has not for 90 seconds. A request that may have reached a
+ * provider is never sent again.
+ */
 export interface IBaseHalfVideoGenerationService {
 	readonly _serviceBrand: undefined;
 
-	/** Fires when a node's progress in this window changes. */
+	/** Fires with a card whose generation changed, in this window or in a task record of this computer. */
 	readonly onDidChangeProgress: Event<URI>;
 
 	/**
-	 * Starts a generation from the node's prompt, settings, and inputs as its
-	 * file holds them. When the node already holds a video, a new node is made
-	 * beside it with the same prompt, settings, and inputs, and the generation
-	 * runs there. Resolves with the node that runs, once its task is in its
-	 * file. Rejects with a {@link BaseHalfVideoGenerationError} and writes
-	 * nothing when the node cannot generate.
+	 * Starts a generation of the card at `resource` from its prompt, settings,
+	 * and inputs as its card information holds them. A card with its file
+	 * generates into a new draft beside it, and an image model's `count`
+	 * makes further drafts in a row to the right. Resolves with every card the
+	 * generation lands on, in the order of its outputs, once its task record
+	 * is `submitting`. Rejects with a {@link BaseHalfVideoGenerationError}, and
+	 * leaves no record and no card it made, when it cannot generate.
 	 */
-	generate(resource: URI): Promise<URI>;
+	generate(resource: URI, options?: IBaseHalfGenerateOptions): Promise<readonly URI[]>;
 
-	/** Stops the node's generation. The node keeps no video and shows that it stopped. */
+	/** Stops the generation that lands on the card, for every card it lands on. A file that arrives later is not kept. */
 	stop(resource: URI): Promise<void>;
 
 	/**
-	 * Continues a generation that the node's file records and no window runs:
-	 * polls a `running` task, and settles a `submitting` one as failed. Safe to
-	 * call again; a node already followed is left alone.
+	 * The card is being deleted while it generates (generation cards,
+	 * "Deleting"): the generation stops when the card is its only card;
+	 * otherwise that card's file is not landed.
 	 */
-	resume(resource: URI): void;
+	releaseCard(resource: URI): Promise<void>;
 
 	/**
-	 * The planned inputs as a generation sends them (video node specification,
-	 * "The panel"): images in a format the mode takes, or drawn to PNG, and
-	 * videos and audio as files, for the panel's check. Rejects with a
+	 * The planned inputs as a generation sends them (generation cards, "The
+	 * panel"): images in a format the mode takes, or drawn to PNG, and videos
+	 * and audio as files, for the panel's check. Rejects with a
 	 * `BaseHalfVideoGenerationError` naming an input that is missing or not a
 	 * file on this computer.
 	 */
 	prepareInputMedia(plan: readonly IBaseHalfVideoInputPlanItem[], inputs: readonly IBaseHalfVideoResolvedInput[], imageFormats: readonly BaseHalfVideoImageFormat[]): Promise<IBaseHalfVideoPlannedMedia>;
 
+	/** Whether a generation that has not ended still lands on the card, followed by any window of this computer. */
 	isGenerating(resource: URI): boolean;
+	/** The phase and progress of the generation that lands on the card, when this window follows it. */
 	getProgress(resource: URI): IBaseHalfVideoGenerationProgress | undefined;
 }
 
@@ -327,20 +353,49 @@ export interface IBaseHalfGenerationCardStore {
 
 export const IBaseHalfGenerationTaskStore = createDecorator<IBaseHalfGenerationTaskStore>('baseHalfGenerationTaskStore');
 
-/** The task records of this computer (generation cards, "The task record"). */
+/**
+ * The task records of this computer (generation cards, "The task record"). A
+ * record lives in `.bh/cache/generation/<task id>.json` of the workspace
+ * folder that holds its cards. Every change of a record is a compare and swap
+ * against the bytes it read, so that a heartbeat, a takeover, a stop, and a
+ * move that retargets the record never write over one another.
+ */
 export interface IBaseHalfGenerationTaskStore {
 	readonly _serviceBrand: undefined;
 
 	/** Fires when a record was written or removed, by this window or another one. */
 	readonly onDidChange: Event<void>;
 
+	/** Resolves once the records of the open workspace folders have been read the first time. */
+	whenReady(): Promise<void>;
+
+	/** Reads the records of a workspace folder, or of every open one, from disk again now. */
+	refresh(folder?: URI): Promise<void>;
+
 	/** The records of the open workspace folders, kept current by watching `.bh/cache/generation/`. */
 	list(): readonly IBaseHalfGenerationTask[];
+
+	/** The record with this id, as last read. */
+	get(taskId: string): IBaseHalfGenerationTask | undefined;
+
+	/** The workspace folder that holds the record with this id. */
+	folderOf(taskId: string): URI | undefined;
 
 	/** The record that names the card: one that is not ended, or else the last one that ended. */
 	forCard(resource: URI): IBaseHalfGenerationTask | undefined;
 
-	/** Writes a record into `.bh/cache/generation/` of the workspace folder that holds its cards. */
+	/** Writes a new record into `.bh/cache/generation/` of the workspace folder. Rejects when a record of that id is there. */
+	create(folder: URI, task: IBaseHalfGenerationTask): Promise<void>;
+
+	/**
+	 * Changes a record against the bytes it read, and again from the new bytes
+	 * when they changed underneath; `mutate` may run more than once and must
+	 * not have side effects. Returning the record it was given writes nothing.
+	 * Resolves with the record as it is now, or `undefined` when it is gone.
+	 */
+	update(taskId: string, mutate: (task: IBaseHalfGenerationTask) => IBaseHalfGenerationTask): Promise<IBaseHalfGenerationTask | undefined>;
+
+	/** Writes a record into `.bh/cache/generation/` of the workspace folder that holds it, or of the only open one for a new record. */
 	write(task: IBaseHalfGenerationTask): Promise<void>;
 
 	/** Removes a record and its partial downloads. */

@@ -16,7 +16,7 @@ import {
 	baseHalfParseMirrorYaml,
 	BaseHalfMirrorYamlUnreadable
 } from '../../workspace/common/basehalfMirrorYaml.js';
-import { BASEHALF_VIDEO_MODE_IDS, BaseHalfVideoModeId, BaseHalfVideoParams, BaseHalfVideoParamValue, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_MODE_IDS, BaseHalfVideoModeId, BaseHalfVideoOutputFormat, BaseHalfVideoParams, BaseHalfVideoParamValue, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
 
 /**
  * The generation information of a card (D63, generation cards): what its next
@@ -106,6 +106,14 @@ export function baseHalfGenerationNameParts(name: string): { readonly base: stri
 	return { base: numbered ? numbered[1] : stem, extension };
 }
 
+/** The number a name carries after its base: `shot-3.mp4` is 3, and `shot.mp4` is 1. */
+export function baseHalfGenerationNameOrdinal(name: string): number {
+	const dot = name.lastIndexOf('.');
+	const stem = dot > 0 ? name.slice(0, dot) : name;
+	const numbered = /^(.+)-(\d+)$/.exec(stem);
+	return numbered ? Number(numbered[2]) : 1;
+}
+
 /** The `ordinal`-th candidate name: `base.ext`, then `base-2.ext`, `base-3.ext`, and so on. */
 export function baseHalfGenerationCandidateName(base: string, extension: string, ordinal: number): string {
 	const suffix = ordinal <= 1 ? '' : `-${ordinal}`;
@@ -135,6 +143,54 @@ export function baseHalfGenerationWithExtension(path: string, extension: string)
 	const dot = name.lastIndexOf('.');
 	const stem = dot > 0 ? name.slice(0, dot) : name;
 	return `${path.slice(0, slash + 1)}${stem}.${extension}`;
+}
+
+// --- generated files -------------------------------------------------------------------------
+
+/** The largest file a generation of each kind lands (generation cards, "Landing"). */
+export const BASEHALF_GENERATION_MAX_FILE_BYTES: Readonly<Record<BaseHalfGenerationKind, number>> = Object.freeze({
+	image: 64 * 1024 * 1024,
+	video: 512 * 1024 * 1024
+});
+
+/** The formats a generated file of each kind may have. */
+const LANDING_FORMATS: Readonly<Record<BaseHalfGenerationKind, readonly BaseHalfVideoOutputFormat[]>> = Object.freeze({
+	image: Object.freeze(['png', 'jpeg', 'webp'] as const),
+	video: Object.freeze(['mp4'] as const)
+});
+
+/** The extension a generated file of a format takes: `png`, `jpg`, `webp`, or `mp4`. */
+export function baseHalfGenerationFormatExtension(format: BaseHalfVideoOutputFormat): string {
+	return format === 'jpeg' ? 'jpg' : format;
+}
+
+/** Whether a card's extension already names a format, as `image.jpeg` names JPEG. */
+export function baseHalfGenerationExtensionMatchesFormat(path: string, format: BaseHalfVideoOutputFormat): boolean {
+	const extension = baseHalfGenerationExtension(path);
+	return format === 'jpeg' ? extension === 'jpg' || extension === 'jpeg' : extension === format;
+}
+
+/**
+ * The format the first bytes of a file start like: a PNG, a JPEG, a WebP, or
+ * an MP4 (an ISO media file with its `ftyp` box first); `undefined` otherwise.
+ */
+export function baseHalfGenerationFileFormat(head: Uint8Array): BaseHalfVideoOutputFormat | undefined {
+	const ascii = (start: number, end: number) => head.length >= end ? String.fromCharCode(...head.subarray(start, end)) : '';
+	if (head.length >= 8 && head[0] === 0x89 && ascii(1, 4) === 'PNG' && head[4] === 0x0D && head[5] === 0x0A && head[6] === 0x1A && head[7] === 0x0A) {
+		return 'png';
+	}
+	if (head.length >= 3 && head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF) {
+		return 'jpeg';
+	}
+	if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') {
+		return 'webp';
+	}
+	return ascii(4, 8) === 'ftyp' ? 'mp4' : undefined;
+}
+
+/** Whether a file of a format and size may land on a card of a kind: a video is an MP4 of at most 512 MiB, an image a PNG, JPEG, or WebP of at most 64 MiB. */
+export function isBaseHalfGenerationFileAccepted(kind: BaseHalfGenerationKind, format: BaseHalfVideoOutputFormat | undefined, size: number): boolean {
+	return format !== undefined && LANDING_FORMATS[kind].includes(format) && size > 0 && size <= BASEHALF_GENERATION_MAX_FILE_BYTES[kind];
 }
 
 // --- generation.yaml -------------------------------------------------------------------------
@@ -274,6 +330,125 @@ export function setBaseHalfGenerationPrompt(info: IBaseHalfGenerationInfo, promp
 /** Replaces the provider, model, mode, and values, keeping the prompt. */
 export function setBaseHalfGenerationChoice(info: IBaseHalfGenerationInfo, choice: IBaseHalfVideoGenerationChoice): IBaseHalfGenerationInfo {
 	return normalizeBaseHalfGenerationInfo({ prompt: info.prompt, ...choice });
+}
+
+/** The fields of `generation.yaml`, in the order BaseHalf writes them. */
+export const BASEHALF_GENERATION_INFO_FIELDS = Object.freeze(['prompt', 'provider', 'model', 'mode', 'params'] as const);
+
+export type BaseHalfGenerationInfoField = typeof BASEHALF_GENERATION_INFO_FIELDS[number];
+
+/** Whether two values of a field are the same. No values and empty values are the same. */
+export function baseHalfGenerationInfoFieldEquals(field: BaseHalfGenerationInfoField, left: IBaseHalfGenerationInfo, right: IBaseHalfGenerationInfo): boolean {
+	if (field !== 'params') {
+		return left[field] === right[field];
+	}
+	const a = left.params ?? {};
+	const b = right.params ?? {};
+	const keys = Object.keys(a);
+	return keys.length === Object.keys(b).length && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && a[key] === b[key]);
+}
+
+/** The fields whose values differ between two readings of generation information. */
+export function baseHalfGenerationInfoChangedFields(before: IBaseHalfGenerationInfo, after: IBaseHalfGenerationInfo): readonly BaseHalfGenerationInfoField[] {
+	return BASEHALF_GENERATION_INFO_FIELDS.filter(field => !baseHalfGenerationInfoFieldEquals(field, before, after));
+}
+
+/**
+ * The text of `generation.yaml` with the fields that differ between `before`
+ * and `after` written into `text`, and every other byte kept: a field that is
+ * there is replaced where it stands, a new one is added after the last field,
+ * and a removed one goes with its lines (generation cards, "Writing"). So a
+ * value an agent wrote meanwhile, a comment, and a field BaseHalf does not
+ * know all stay. Text that is not one block mapping of YAML, and no text,
+ * is written whole. The result passes the write check of the value grammar:
+ * it reads back with the values of `after` in every field it wrote, or this
+ * throws a {@link BaseHalfGenerationInfoError} and nothing may be written.
+ */
+export function writeBaseHalfGenerationInfoFields(text: string | undefined, before: IBaseHalfGenerationInfo, after: IBaseHalfGenerationInfo): string {
+	const next = normalizeBaseHalfGenerationInfo(after);
+	const fields = baseHalfGenerationInfoChangedFields(before, next);
+	const written = text === undefined ? serializeBaseHalfGenerationInfo(next) : fields.length ? patchFields(text, next, fields) : text;
+	const check = parseBaseHalfGenerationInfo(written);
+	const wrong = check.readable ? (text === undefined ? BASEHALF_GENERATION_INFO_FIELDS : fields).find(field => !baseHalfGenerationInfoFieldEquals(field, check.info, next)) : 'prompt';
+	if (wrong !== undefined) {
+		throw error(`The write check of generation.yaml failed for ${wrong}.`);
+	}
+	return written;
+}
+
+function patchFields(text: string, next: IBaseHalfGenerationInfo, fields: readonly BaseHalfGenerationInfoField[]): string {
+	let root: YamlMapNode | null;
+	try {
+		const document = baseHalfParseMirrorYaml(text, 'generation.yaml');
+		if (document.unparsed !== undefined) {
+			return serializeBaseHalfGenerationInfo(next);
+		}
+		root = document.root;
+	} catch (caught) {
+		if (caught instanceof BaseHalfMirrorYamlUnreadable) {
+			return serializeBaseHalfGenerationInfo(next);
+		}
+		throw caught;
+	}
+	if (root && root.style !== 'block') {
+		return serializeBaseHalfGenerationInfo(next);
+	}
+	const eol = text.includes('\r\n') ? '\r\n' : '\n';
+	const edits: { readonly start: number; readonly end: number; readonly text: string }[] = [];
+	const added: string[] = [];
+	for (const field of fields) {
+		const lines = fieldLines(field, next);
+		const property = root ? lastProperty(root, field) : undefined;
+		if (property) {
+			edits.push({ start: lineStart(text, property.key.startOffset), end: lineEndAfter(text, property.value.endOffset), text: lines.map(line => `${line}${eol}`).join('') });
+		} else if (lines.length) {
+			added.push(...lines);
+		}
+	}
+	if (added.length) {
+		const last = root?.properties.at(-1);
+		const at = last ? lineEndAfter(text, last.value.endOffset) : text.length;
+		const before = at > 0 && text.charAt(at - 1) !== '\n' ? eol : '';
+		edits.push({ start: at, end: at, text: `${before}${added.map(line => `${line}${eol}`).join('')}` });
+	}
+	let result = text;
+	for (const edit of [...edits].sort((a, b) => b.start - a.start || b.end - a.end)) {
+		result = `${result.slice(0, edit.start)}${edit.text}${result.slice(edit.end)}`;
+	}
+	return result;
+}
+
+/** The lines of one field as BaseHalf writes it; none when it has no value. */
+function fieldLines(field: BaseHalfGenerationInfoField, info: IBaseHalfGenerationInfo): string[] {
+	if (field === 'params') {
+		return info.params && Object.keys(info.params).length ? ['params:', ...serializeParams(info.params, '  ')] : [];
+	}
+	const value = info[field];
+	return value === undefined ? [] : [`${field}: ${baseHalfMirrorYamlQuote(value)}`];
+}
+
+function lastProperty(map: YamlMapNode, key: string): YamlMapNode['properties'][number] | undefined {
+	let found: YamlMapNode['properties'][number] | undefined;
+	for (const property of map.properties) {
+		if (property.key.value === key) {
+			found = property;
+		}
+	}
+	return found;
+}
+
+function lineStart(text: string, offset: number): number {
+	return text.lastIndexOf('\n', offset - 1) + 1;
+}
+
+/** The offset after the line break that ends the line of `offset`, a value that ends with its line break included. */
+function lineEndAfter(text: string, offset: number): number {
+	let end = Math.min(offset, text.length);
+	while (end > 0 && (text.charAt(end - 1) === '\n' || text.charAt(end - 1) === '\r')) {
+		end--;
+	}
+	const newline = text.indexOf('\n', end);
+	return newline < 0 ? text.length : newline + 1;
 }
 
 // --- made.yaml -------------------------------------------------------------------------------
@@ -518,6 +693,16 @@ export function isBaseHalfGenerationTaskEnded(task: IBaseHalfGenerationTask): bo
 	return task.state === 'failed' || task.state === 'stopped';
 }
 
+/**
+ * A new task id, `20261022T080000-1a2b3c4d`: sortable by start time, and
+ * unique enough that two windows starting a generation in the same second
+ * do not meet. It is the `id` of a `made.yaml` too.
+ */
+export function createBaseHalfGenerationTaskId(now: number, random: () => string): string {
+	const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '');
+	return `${stamp}-${random().replace(/[^0-9a-f]/gi, '').slice(0, 8).toLowerCase()}`;
+}
+
 /** Whether no window has said for {@link BASEHALF_GENERATION_STALE_MS} that it follows the task. */
 export function isBaseHalfGenerationTaskStale(task: IBaseHalfGenerationTask, now: number): boolean {
 	const alive = Date.parse(task.aliveAt);
@@ -661,14 +846,17 @@ export function heartbeatBaseHalfGenerationTask(task: IBaseHalfGenerationTask, f
  * its folder. Unchanged when no card is at or below `from`.
  */
 export function retargetBaseHalfGenerationTask(task: IBaseHalfGenerationTask, from: string, to: string): IBaseHalfGenerationTask {
+	const moved = (path: string) => path === from ? to : path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : undefined;
 	let changed = false;
 	const cards = task.cards.map(card => {
-		const next = card.path === from ? to : card.path.startsWith(`${from}/`) ? `${to}${card.path.slice(from.length)}` : undefined;
-		if (next === undefined) {
+		const next = moved(card.path);
+		// A file that was moved into place before a crash moves with its card, so a takeover still finds it.
+		const landing = card.landing ? moved(card.landing.path) : undefined;
+		if (next === undefined && landing === undefined) {
 			return card;
 		}
 		changed = true;
-		return { ...card, path: next };
+		return { ...card, ...(next !== undefined ? { path: next } : {}), ...(card.landing && landing !== undefined ? { landing: { ...card.landing, path: landing } } : {}) };
 	});
 	return changed ? normalizeBaseHalfGenerationTask({ ...task, cards }) : task;
 }

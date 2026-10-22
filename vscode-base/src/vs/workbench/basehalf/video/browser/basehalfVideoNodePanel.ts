@@ -12,7 +12,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
-import { isEqual } from '../../../../base/common/resources.js';
+import { basename, dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -33,31 +33,39 @@ import {
 	BaseHalfVideoImageFormat,
 	BaseHalfVideoModeId,
 	BaseHalfVideoParamValue,
+	baseHalfModelFileExtension,
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
 	baseHalfVideoChooseModel,
 	findBaseHalfVideoModel,
+	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
+	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoModelRef
 } from '../common/basehalfVideoCatalog.js';
 import {
 	BaseHalfVideoGenerationError,
+	IBaseHalfDraftOperations,
+	IBaseHalfGenerationCardSnapshot,
+	IBaseHalfGenerationCardStore,
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationService,
-	IBaseHalfVideoNodeSnapshot,
-	IBaseHalfVideoNodeStore,
 	IBaseHalfVideoProviderSettingsService,
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
 import {
-	BASEHALF_VIDEO_PROMPT_MAX_LENGTH,
-	IBaseHalfVideoNodeFields,
-	isBaseHalfVideoTaskActive,
-	setBaseHalfVideoGeneration,
-	setBaseHalfVideoPrompt
-} from '../common/basehalfVideoNode.js';
+	BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
+	baseHalfGenerationChoice,
+	baseHalfGenerationExtensionMatchesFormat,
+	baseHalfGenerationNameOrdinal,
+	baseHalfGenerationNameParts,
+	IBaseHalfGenerationInfo,
+	setBaseHalfGenerationChoice,
+	setBaseHalfGenerationPrompt
+} from '../common/basehalfGenerationInfo.js';
+import { baseHalfUpstreamSidecarResource } from '../../references/common/basehalfReferenceStore.js';
 import {
 	BaseHalfVideoPanelControl,
 	baseHalfVideoPanelMentionQuery,
@@ -89,24 +97,30 @@ export interface IBaseHalfVideoNodePanelHost {
 	 */
 	pickCard(): Promise<string | undefined>;
 	/**
-	 * Asks the user for a file, copies it into the node's folder, and resolves
+	 * Asks the user for a file, copies it into the card's folder, and resolves
 	 * with the copy's workspace-relative path, or with `undefined` when they
 	 * chose none. The panel connects it as an input.
 	 */
 	importFile(): Promise<string | undefined>;
-	/** Moves the focus to the node's card: Escape with no menu open. */
+	/** Moves the focus to the card: Escape with no menu open. */
 	focusCard(): void;
 	/**
-	 * Generate ran in another node: a node with a video makes a new node beside
-	 * it and generates there. The workbench selects that node's card.
+	 * Generate ran on another card: a card with its file makes a new draft
+	 * beside it and generates there. The workbench selects that card.
 	 */
 	didGenerateInNode?(resource: URI): void;
+	/**
+	 * The draft was renamed, as a model of another image format renames it
+	 * (generation cards, "Creating a generation card"). The workbench shows the
+	 * panel of the card at its new name.
+	 */
+	didRenameCard?(resource: URI): void;
 }
 
 export interface IBaseHalfVideoNodePanelOptions {
-	/** The node as the workbench already read it, so the panel shows at once. */
-	readonly snapshot?: IBaseHalfVideoNodeSnapshot;
-	/** Focus the prompt when the panel first shows: the node was just created. */
+	/** The card as the workbench already read it, so the panel shows at once. */
+	readonly snapshot?: IBaseHalfGenerationCardSnapshot;
+	/** Focus the prompt when the panel first shows: the card was just created. */
 	readonly focusPromptWhenShown?: boolean;
 	/** How long after typing stops the prompt is saved. */
 	readonly saveDelay?: number;
@@ -161,17 +175,19 @@ interface IPendingCheck {
 }
 
 /**
- * The panel under a selected Video node (D58, D59, video node specification,
- * "The panel"): the node's inputs, its prompt, and a footer with the model,
- * the settings, and Generate, all drawn from the model catalog.
- * It reads and writes the node through the node store, edits its connections
- * through the reference edit service, and keeps its element and its prompt
- * for as long as it lives: updates never replace the prompt, so the text, the
- * selection, and an input method keep their state.
+ * The panel under a selected generation card (D63, D64, generation cards,
+ * "The panel"): the card's inputs, its prompt, and a footer with the model of
+ * the card's kind, the settings, and Generate, all drawn from the model
+ * catalog. It reads and writes the card's generation information through the
+ * card store, edits its connections through the reference edit service, and
+ * generates and stops through the generation service. It keeps its element
+ * and its prompt for as long as it lives: updates never replace the prompt
+ * while the user types in it, so the text, the selection, and an input method
+ * keep their state.
  *
- * The workbench creates one panel for the only selected Video card, gives the
- * scene its {@link element} and {@link height}, calls {@link flush} when the
- * card is deselected, and disposes it.
+ * The workbench creates one panel for the only selected generation card,
+ * gives the scene its {@link element} and {@link height}, calls {@link flush}
+ * when the card is deselected, and disposes it.
  */
 export class BaseHalfVideoNodePanel extends Disposable {
 
@@ -207,7 +223,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private saveScheduled = false;
 	private openMenu: IOpenMenu | undefined;
 
-	private snapshot: IBaseHalfVideoNodeSnapshot | undefined;
+	private snapshot: IBaseHalfGenerationCardSnapshot | undefined;
 	private inputs: readonly IBaseHalfVideoResolvedInput[] = [];
 	/** The text of the text inputs, for the prompt that `check` sees. */
 	private texts: ReadonlyMap<string, string> = new Map();
@@ -222,7 +238,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private moreOpen = false;
 	/** A text value typed into the settings and not saved yet. */
 	private pendingText: { readonly name: string; readonly value: string } | undefined;
-	private optimistic: IBaseHalfVideoNodeFields | undefined;
+	private optimistic: IBaseHalfGenerationInfo | undefined;
 	private optimisticWrites = 0;
 	private presentation: IBaseHalfVideoPanelPresentation | undefined;
 	private readError: string | undefined;
@@ -255,7 +271,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		private readonly resource: URI,
 		private readonly host: IBaseHalfVideoNodePanelHost,
 		options: IBaseHalfVideoNodePanelOptions | undefined,
-		@IBaseHalfVideoNodeStore private readonly store: IBaseHalfVideoNodeStore,
+		@IBaseHalfGenerationCardStore private readonly store: IBaseHalfGenerationCardStore,
+		@IBaseHalfDraftOperations private readonly draftOperations: IBaseHalfDraftOperations,
 		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
 		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfVideoGenerationService private readonly generationService: IBaseHalfVideoGenerationService,
@@ -289,9 +306,9 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.measure.setAttribute('aria-hidden', 'true');
 		this.textarea = append(this.promptBox, $<HTMLTextAreaElement>('textarea.bh-video-panel-prompt-input'));
 		this.textarea.rows = PROMPT_MIN_LINES;
-		this.textarea.maxLength = BASEHALF_VIDEO_PROMPT_MAX_LENGTH;
+		this.textarea.maxLength = BASEHALF_GENERATION_PROMPT_MAX_LENGTH;
 		this.textarea.spellcheck = false;
-		this.textarea.placeholder = localize('basehalf.video.panel.promptPlaceholder', "Describe the video. Type @ to name an input.");
+		this.textarea.placeholder = placeholderOf(options?.snapshot?.kind ?? 'video');
 		this.textarea.setAttribute('aria-label', localize('basehalf.video.panel.prompt', "Prompt"));
 		this.textarea.setAttribute('aria-keyshortcuts', isMacintosh ? 'Meta+Enter' : 'Control+Enter');
 		this.promptState = append(this.promptBox, $('.bh-video-panel-prompt-state'));
@@ -373,7 +390,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.textarea.setSelectionRange(end, end);
 	}
 
-	/** Reads the node, its inputs, and the text of its text inputs again. */
+	/** Reads the card, its inputs, and the text of its text inputs again. */
 	async refresh(): Promise<void> {
 		const sequence = ++this.refreshSequence;
 		try {
@@ -389,13 +406,13 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			if (this.disposed || sequence !== this.refreshSequence) {
 				return;
 			}
-			this.logService.warn('[BaseHalf] the Video panel could not read its node', error);
+			this.logService.warn('[BaseHalf] the panel could not read its card', error);
 			this.readError = baseHalfUserFacingErrorMessage(error);
 			this.render();
 		}
 	}
 
-	/** What Generate does: generates when the node can, and stops a generation that runs. */
+	/** What Generate does: generates when the card can, and stops a generation that runs. */
 	async generate(): Promise<void> {
 		const presentation = this.presentation;
 		if (!presentation || this.starting || this.disposed) {
@@ -412,9 +429,9 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.render();
 		try {
 			await this.flush();
-			const running = await this.generationService.generate(this.resource);
-			if (!isEqual(running, this.resource)) {
-				this.host.didGenerateInNode?.(running);
+			const [first] = await this.generationService.generate(this.resource);
+			if (first && !isEqual(first, this.resource)) {
+				this.host.didGenerateInNode?.(first);
 			}
 		} catch (error) {
 			this.notificationService.notify({ severity: Severity.Warning, message: baseHalfUserFacingErrorMessage(error) });
@@ -436,18 +453,20 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	//#region Reading and writing
 
-	private applySnapshot(snapshot: IBaseHalfVideoNodeSnapshot, inputs: readonly IBaseHalfVideoResolvedInput[] | undefined): void {
+	private applySnapshot(snapshot: IBaseHalfGenerationCardSnapshot, inputs: readonly IBaseHalfVideoResolvedInput[] | undefined): void {
 		const firstRead = !this.snapshot;
 		this.snapshot = snapshot;
 		this.readError = undefined;
 		if (inputs) {
 			this.inputs = inputs;
 		}
-		const prompt = snapshot.fields.prompt ?? '';
+		this.textarea.placeholder = placeholderOf(snapshot.kind);
+		const prompt = snapshot.info.prompt;
 		if (firstRead) {
 			this.savedPrompt = prompt;
 		}
-		if (!this.promptDirty && !this.composing && this.textarea.value !== prompt) {
+		// While the field has the focus it keeps what is in it; at rest it shows the prompt of the file.
+		if (!this.promptDirty && !this.composing && this.textarea.value !== prompt && (firstRead || !this.promptFocused())) {
 			this.replacePromptText(prompt);
 		}
 		if (!this.promptDirty && !this.composing) {
@@ -467,13 +486,13 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	/** The fields the panel shows: the file's, or what a write on its way makes of them. */
-	private fields(): IBaseHalfVideoNodeFields {
-		return this.optimistic ?? this.snapshot?.fields ?? {};
+	/** The generation information the panel shows: the file's, or what a write on its way makes of it. */
+	private info(): IBaseHalfGenerationInfo {
+		return this.optimistic ?? this.snapshot?.info ?? EMPTY_INFO;
 	}
 
-	/** Writes the node through the store, one write after the other. */
-	private write(mutate: (fields: IBaseHalfVideoNodeFields) => IBaseHalfVideoNodeFields): Promise<IBaseHalfVideoNodeSnapshot> {
+	/** Writes the card's generation information through the store, one write after the other. */
+	private write(mutate: (info: IBaseHalfGenerationInfo) => IBaseHalfGenerationInfo): Promise<IBaseHalfGenerationCardSnapshot> {
 		const run = () => this.store.update(this.resource, mutate);
 		const written = this.writeQueue.then(run, run);
 		this.writeQueue = written.catch(() => undefined);
@@ -481,8 +500,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	/** Changes the settings or the model: shown at once, saved right after. */
-	private async writeSettings(mutate: (fields: IBaseHalfVideoNodeFields) => IBaseHalfVideoNodeFields): Promise<void> {
-		this.optimistic = mutate(this.fields());
+	private async writeSettings(mutate: (info: IBaseHalfGenerationInfo) => IBaseHalfGenerationInfo): Promise<void> {
+		this.optimistic = mutate(this.info());
 		this.optimisticWrites++;
 		this.render();
 		try {
@@ -492,7 +511,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				this.setNotSaved(undefined);
 			}
 		} catch (error) {
-			this.logService.warn('[BaseHalf] the Video panel could not save the settings', error);
+			this.logService.warn('[BaseHalf] the panel could not save the settings', error);
 			this.setNotSaved(localize('basehalf.video.panel.settingsNotSaved', "The settings could not be saved: {0}", baseHalfUserFacingErrorMessage(error)));
 		} finally {
 			if (--this.optimisticWrites === 0) {
@@ -527,7 +546,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			return;
 		}
 		try {
-			const snapshot = await this.write(fields => setBaseHalfVideoPrompt(fields, value));
+			const snapshot = await this.write(info => setBaseHalfGenerationPrompt(info, value));
 			if (this.disposed) {
 				return;
 			}
@@ -539,7 +558,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.setNotSaved(undefined);
 		} catch (error) {
 			// Never a dialog: the text stays in the panel and is saved again with the next change.
-			this.logService.warn('[BaseHalf] the Video panel could not save the prompt', error);
+			this.logService.warn('[BaseHalf] the panel could not save the prompt', error);
 			if (!this.disposed) {
 				this.setNotSaved(localize('basehalf.video.panel.promptNotSaved', "The prompt is not saved yet: {0} It stays here and is saved with your next change.", baseHalfUserFacingErrorMessage(error)));
 			}
@@ -561,7 +580,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	//#region Listeners
 
 	private registerListeners(): void {
-		this._register(this.store.onDidWrite(resource => {
+		this._register(this.store.onDidChange(resource => {
 			if (isEqual(resource, this.resource)) {
 				this.scheduleRefresh();
 			}
@@ -572,11 +591,16 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				// The files that `check` measures changed: it is asked again.
 				this.inputFilesVersion++;
 			}
-			if (event.affects(this.resource) || inputFiles || this.snapshot?.upstream.some(entry => event.affects(this.entryResource(entry)))) {
+			const upstream = this.upstreamResource();
+			if (event.affects(this.resource) || inputFiles || (upstream && event.affects(upstream)) || this.snapshot?.upstream.some(entry => event.affects(this.entryResource(entry)))) {
 				this.scheduleRefresh();
 			}
 		}));
-		this._register(this.catalogService.onDidChange(() => this.render()));
+		this._register(this.catalogService.onDidChange(() => {
+			// The values of the settings are read by the types the catalog declares.
+			this.render();
+			this.scheduleRefresh();
+		}));
 		this._register(this.providerSettings.onDidChange(() => this.render()));
 		this._register(this.generationService.onDidChangeProgress(resource => {
 			if (isEqual(resource, this.resource)) {
@@ -604,6 +628,10 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this._register(addDisposableListener(this.textarea, 'blur', () => {
 			if (this.promptDirty) {
 				void this.savePrompt();
+			} else if (!this.composing && this.snapshot && this.textarea.value !== this.snapshot.info.prompt) {
+				// The prompt changed underneath while the field had the focus: at rest the field shows it.
+				this.replacePromptText(this.snapshot.info.prompt);
+				this.render();
 			}
 		}));
 		this._register(addDisposableListener(this.textarea, 'scroll', () => this.syncOverlayScroll()));
@@ -755,23 +783,29 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.updateHeight();
 			return;
 		}
-		const fields = this.fields();
+		const info = this.info();
 		const catalog = this.catalogService.state;
-		const modelKey = this.checkModelKey(fields);
+		const modelKey = this.checkModelKey(info);
 		this.presentation = createBaseHalfVideoPanelPresentation({
-			fields,
+			info,
+			kind: snapshot.kind,
+			hasFile: snapshot.hasFile,
 			inputs: this.inputs,
 			texts: this.texts,
 			catalog,
 			setup: provider => this.providerSettings.getStatus(provider),
 			...(this.lastCheck && this.lastCheck.model === modelKey ? { check: this.lastCheck.result } : {}),
-			generating: this.generationService.isGenerating(this.resource) || isBaseHalfVideoTaskActive(fields.task),
+			generating: this.generationService.isGenerating(this.resource),
 			prompt: this.textarea.value
 		});
 		this.scheduleCheck(this.presentation);
 		this.element.dataset.state = 'ready';
 		this.element.dataset.catalog = catalog.kind;
-		this.element.setAttribute('aria-label', localize('basehalf.video.panel.label', "Video panel for {0}", snapshot.title));
+		this.element.dataset.kind = snapshot.kind;
+		const name = basename(this.resource);
+		this.element.setAttribute('aria-label', snapshot.kind === 'image'
+			? localize('basehalf.video.panel.imageLabel', "Image panel for {0}", name)
+			: localize('basehalf.video.panel.label', "Video panel for {0}", name));
 		this.renderNotice();
 		this.renderInputRow();
 		this.renderOverlay();
@@ -783,10 +817,14 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	private renderNotice(): void {
 		const unreadable = !this.snapshot && this.readError !== undefined;
-		this.notice.hidden = !unreadable;
+		// A generation.yaml that is not YAML at all leaves the panel usable: a save keeps a copy of it first.
+		const unreadableInfo = this.snapshot?.infoReadable === false;
+		this.notice.hidden = !unreadable && !unreadableInfo;
 		this.promptBox.hidden = unreadable;
 		if (unreadable) {
-			this.notice.textContent = localize('basehalf.video.panel.unreadable', "This Video node cannot be read: {0}", this.readError ?? '');
+			this.notice.textContent = localize('basehalf.video.panel.unreadable', "This card cannot be read: {0}", this.readError ?? '');
+		} else if (unreadableInfo) {
+			this.notice.textContent = localize('basehalf.video.panel.unreadableInfo', "BaseHalf could not read this card's prompt and settings.");
 		}
 	}
 
@@ -1101,10 +1139,10 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	//#region The problems
 
-	/** The model whose answers of `check` the panel shows: the node's, in the region of its provider. */
-	private checkModelKey(fields: IBaseHalfVideoNodeFields): string | undefined {
+	/** The model whose answers of `check` the panel shows: the card's, in the region of its provider. */
+	private checkModelKey(info: IBaseHalfGenerationInfo): string | undefined {
 		const catalog = this.catalogService.state;
-		const ref = catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, fields.generation?.provider, fields.generation?.model) : undefined;
+		const ref = catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, info.provider, info.model) : undefined;
 		return ref ? `${ref.provider.id}/${ref.model.id}/${this.providerSettings.getStatus(ref.provider).region.id}` : undefined;
 	}
 
@@ -1159,7 +1197,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			result = await this.catalogService.check({ ...pending.request, inputs });
 		} catch (error) {
 			if (!(error instanceof BaseHalfVideoGenerationError)) {
-				this.logService.warn('[BaseHalf] the Video panel could not prepare the inputs to check', error);
+				this.logService.warn('[BaseHalf] the panel could not prepare the inputs to check', error);
 			}
 			result = Object.freeze({ problems: Object.freeze([baseHalfUserFacingErrorMessage(error)]) });
 		}
@@ -1577,8 +1615,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		append(element, $('.bh-video-panel-menu-separator')).setAttribute('role', 'separator');
 		this.menuItem(element, menu.settingsLabel, () => {
 			this.closeMenu(false);
-			const provider = this.fields().generation?.provider;
-			void this.providerSettings.openSettings(provider).catch(error => this.logService.error(error));
+			void this.providerSettings.openSettings(this.info().provider).catch(error => this.logService.error(error));
 		}, { key: 'providers', icon: Codicon.settingsGear });
 	}
 
@@ -1587,28 +1624,55 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		const catalog = this.catalogService.state;
 		const ref = catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, providerId, modelId) : undefined;
 		if (ref) {
-			void this.writeSettings(fields => setBaseHalfVideoGeneration(fields, baseHalfVideoChooseModel(fields.generation, ref)));
+			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChooseModel(baseHalfGenerationChoice(info), ref)))
+				.then(() => this.followModelFormat(ref.model));
 		}
 	}
 
-	/** Saves one value of the node's model: the panel shows the change at once. */
+	/**
+	 * A draft's extension follows its model (generation cards, "Creating a
+	 * generation card"): an image model that delivers another format renames
+	 * the draft to that format's extension at once, with the next free number
+	 * when that name is taken, as a rename does.
+	 */
+	private async followModelFormat(model: IBaseHalfVideoCatalogModel): Promise<void> {
+		const snapshot = this.snapshot;
+		if (this.disposed || !snapshot || snapshot.hasFile || snapshot.made || snapshot.kind !== 'image' || model.kind !== 'image' || !model.outputFormat
+			|| baseHalfGenerationExtensionMatchesFormat(snapshot.path, model.outputFormat)) {
+			return;
+		}
+		const name = basename(this.resource);
+		const folder = dirname(this.resource);
+		try {
+			const next = await this.store.nextFreeName(folder, baseHalfGenerationNameParts(name).base, baseHalfModelFileExtension(model), baseHalfGenerationNameOrdinal(name));
+			const target = joinPath(folder, next);
+			await this.draftOperations.move(this.resource, target);
+			this.host.didRenameCard?.(target);
+		} catch (error) {
+			this.logService.warn('[BaseHalf] the panel could not rename the draft to the format of its model', error);
+			this.notificationService.notify({ severity: Severity.Warning, message: baseHalfUserFacingErrorMessage(error) });
+		}
+	}
+
+	/** Saves one value of the card's model: the panel shows the change at once. */
 	private changeParam(name: string, value: BaseHalfVideoParamValue | undefined): void {
 		const ref = this.presentation?.ref;
 		if (ref) {
-			void this.writeSettings(fields => setBaseHalfVideoGeneration(fields, baseHalfVideoChangeParam(this.generationOf(fields, ref), ref.model, name, value)));
+			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChangeParam(this.generationOf(info, ref), ref.model, name, value)));
 		}
 	}
 
 	private changeMode(mode: BaseHalfVideoModeId): void {
 		const ref = this.presentation?.ref;
 		if (ref) {
-			void this.writeSettings(fields => setBaseHalfVideoGeneration(fields, baseHalfVideoChooseMode(this.generationOf(fields, ref), ref.model, mode)));
+			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChooseMode(this.generationOf(info, ref), ref.model, mode)));
 		}
 	}
 
-	/** The node's generation of `ref`, as a change starts from it. */
-	private generationOf(fields: IBaseHalfVideoNodeFields, ref: IBaseHalfVideoModelRef) {
-		return fields.generation ?? { provider: ref.provider.id, model: ref.model.id };
+	/** The card's generation of `ref`, as a change starts from it. */
+	private generationOf(info: IBaseHalfGenerationInfo, ref: IBaseHalfVideoModelRef): IBaseHalfVideoGenerationChoice {
+		const choice = baseHalfGenerationChoice(info);
+		return choice.model ? choice : { ...choice, provider: ref.provider.id, model: ref.model.id };
 	}
 
 	/** Saves a text value typed into the settings, now. */
@@ -1626,7 +1690,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			return;
 		}
 		element.setAttribute('role', 'dialog');
-		element.setAttribute('aria-label', localize('basehalf.video.panel.settingsTitle', "Video Settings"));
+		element.setAttribute('aria-label', localize('basehalf.video.panel.settingsTitle', "Settings"));
 		if (view.modes) {
 			this.radioGroup(element, localize('basehalf.video.panel.setting.mode', "Mode"), view.modes, 'buttons', mode => {
 				if (mode !== undefined) {
@@ -1658,7 +1722,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	/** One parameter, drawn as the specification says for its kind (video node, "Settings"). */
+	/** One parameter, drawn as the specification says for its kind (generation cards, "Settings"). */
 	private renderControl(parent: HTMLElement, control: BaseHalfVideoPanelControl): void {
 		switch (control.kind) {
 			case 'buttons':
@@ -2166,6 +2230,16 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		return folder ? URI.joinPath(folder.uri, ...entry.split('/')) : this.resource;
 	}
 
+	/** Where the card keeps its upstream list. */
+	private upstreamResource(): URI | undefined {
+		const folder = this.workspaceContextService.getWorkspaceFolder(this.resource);
+		return folder && this.snapshot ? baseHalfUpstreamSidecarResource(folder.uri, this.snapshot.path) : undefined;
+	}
+
+	private promptFocused(): boolean {
+		return getWindow(this.textarea).document.activeElement === this.textarea;
+	}
+
 	//#endregion
 
 	//#region Focus by key
@@ -2211,6 +2285,15 @@ function renderCodicon(icon: ThemeIcon, className?: string): HTMLElement {
 
 function addInputLabel(): string {
 	return localize('basehalf.video.panel.addInput', "Add Input");
+}
+
+const EMPTY_INFO: IBaseHalfGenerationInfo = Object.freeze({ prompt: '' });
+
+/** What the empty prompt of a card of a kind says. */
+function placeholderOf(kind: 'image' | 'video'): string {
+	return kind === 'image'
+		? localize('basehalf.video.panel.imagePromptPlaceholder', "Describe the image. Type @ to name an input.")
+		: localize('basehalf.video.panel.promptPlaceholder', "Describe the video. Type @ to name an input.");
 }
 
 /** A click of the mouse or a touch. A click that Enter or Space makes on a button has no count. */

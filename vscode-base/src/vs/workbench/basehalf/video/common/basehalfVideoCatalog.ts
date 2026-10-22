@@ -393,17 +393,28 @@ export function baseHalfVideoRegionOffersModel(model: IBaseHalfVideoCatalogModel
 }
 
 /** The resolutions of the shared names, smallest first, to find a model's largest. */
-const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p', '540p', '720p', '768p', '1080p', '2k', '4k']);
+/**
+ * The `resolution` values of the catalog from the fewest pixels to the most,
+ * so that the abilities line names a model's largest: a `p` value counts a
+ * 16:9 frame of that height (1080p is 1920 × 1080, about 2.1 million pixels),
+ * and a `k` value a square of that many thousand pixels a side (1k is
+ * 1024 × 1024, about 1.0 million; 1.5k about 2.4 million). A value it does
+ * not know counts as the smallest.
+ */
+const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p', '540p', '720p', '768p', '1k', '1080p', '1.5k', '2k', '3k', '4k']);
 
 /**
- * A model's abilities in one line, from its declarations (video node
- * specification, "The panel"): its modes, its longest duration, its largest
- * resolution, and Sound when it makes sound.
+ * A model's abilities in one line, from its declarations (generation cards,
+ * "The panel"): for a video its modes, its longest duration, its largest
+ * resolution, and Sound when it makes sound, such as `Frames · References ·
+ * 15s · 1080p · Sound`; for an image its largest resolution and how many
+ * images one generation can make, when more than one, such as `4K · Up to 4`.
  */
 export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): string {
-	const parts = model.modes.map(mode => mode.label);
+	const image = model.kind === 'image';
+	const parts = image ? [] : model.modes.map(mode => mode.label);
 	const duration = model.parameters.find(parameter => parameter.name === 'duration' && (parameter.kind === 'integer' || parameter.kind === 'number'));
-	if (duration && (duration.kind === 'integer' || duration.kind === 'number')) {
+	if (!image && duration && (duration.kind === 'integer' || duration.kind === 'number')) {
 		parts.push(localize('basehalf.video.catalog.abilitySeconds', "{0}s", duration.max));
 	}
 	const resolution = model.parameters.find(parameter => parameter.name === 'resolution' && parameter.kind === 'choice');
@@ -411,10 +422,53 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 		const largest = [...resolution.options].sort((a, b) => RESOLUTION_ORDER.indexOf(String(a.value)) - RESOLUTION_ORDER.indexOf(String(b.value))).at(-1)!;
 		parts.push(largest.label);
 	}
-	if (model.parameters.some(parameter => parameter.name === 'sound')) {
+	if (!image && model.parameters.some(parameter => parameter.name === 'sound')) {
 		parts.push(localize('basehalf.video.catalog.abilitySound', "Sound"));
 	}
+	const most = image ? baseHalfModelMostOutputs(model) : 1;
+	if (most > 1) {
+		parts.push(localize('basehalf.video.catalog.abilityCount', "Up to {0}", most));
+	}
 	return parts.join(' · ');
+}
+
+/** The most images one generation of a model makes: the highest `count` it declares, at most 16; 1 for a video model. */
+export function baseHalfModelMostOutputs(model: IBaseHalfVideoCatalogModel): number {
+	if (model.kind !== 'image') {
+		return 1;
+	}
+	const count = model.parameters.find(parameter => parameter.name === 'count' && (parameter.kind === 'integer' || parameter.kind === 'number'));
+	return count && (count.kind === 'integer' || count.kind === 'number') ? clampOutputs(Math.floor(count.max)) : 1;
+}
+
+/**
+ * How many files a generation makes (providers, "Output"): a video model
+ * one, an image model as many as its `count`, made legal for the model and
+ * mode, from 1 to 16.
+ */
+export function baseHalfModelOutputCount(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined): number {
+	if (model.kind !== 'image') {
+		return 1;
+	}
+	const count = normalizeBaseHalfVideoParams(model, modeId, params).count;
+	return typeof count === 'number' ? clampOutputs(Math.floor(count)) : 1;
+}
+
+function clampOutputs(value: number): number {
+	return Number.isFinite(value) ? Math.min(16, Math.max(1, value)) : 1;
+}
+
+/** The extension of the file a model makes: its image format's (`png`, `jpg`, `webp`), or `mp4`. */
+export function baseHalfModelFileExtension(model: IBaseHalfVideoCatalogModel): string {
+	if (model.kind !== 'image') {
+		return 'mp4';
+	}
+	return model.outputFormat === 'jpeg' ? 'jpg' : model.outputFormat ?? 'png';
+}
+
+/** Whether the model is retired, everywhere or in the region given (providers, "Model"). */
+export function isBaseHalfModelDeprecated(model: IBaseHalfVideoCatalogModel, regionId?: string): boolean {
+	return model.deprecated === true || (regionId !== undefined && model.deprecatedIn?.includes(regionId) === true);
 }
 
 /** Whether the region offers the mode: every region that offers the model does, unless the mode names its regions. */
@@ -450,9 +504,14 @@ export function baseHalfVideoModeParameters(model: IBaseHalfVideoCatalogModel, m
 	return model.parameters.filter(parameter => !parameter.modes || parameter.modes.includes(modeId));
 }
 
-/** The models a menu lists for a node: those that are not deprecated, and the node's own. */
-export function baseHalfVideoListedModels(provider: IBaseHalfVideoCatalogProvider, chosen: IBaseHalfVideoGenerationChoice | undefined): readonly IBaseHalfVideoCatalogModel[] {
-	return provider.models.filter(model => !model.deprecated || (chosen?.provider === provider.id && chosen.model === model.id));
+/**
+ * The models a menu lists for a card: those of the card's kind, when one is
+ * given, that are not deprecated, in the region in use when one is given, and
+ * the card's own model in any case.
+ */
+export function baseHalfVideoListedModels(provider: IBaseHalfVideoCatalogProvider, chosen: IBaseHalfVideoGenerationChoice | undefined, kind?: BaseHalfModelKind, regionId?: string): readonly IBaseHalfVideoCatalogModel[] {
+	return provider.models.filter(model => (kind === undefined || model.kind === kind)
+		&& (!isBaseHalfModelDeprecated(model, regionId) || (chosen?.provider === provider.id && chosen.model === model.id)));
 }
 
 // --- Values ----------------------------------------------------------------------------------------
@@ -563,12 +622,19 @@ export function baseHalfVideoChangeParam(generation: IBaseHalfVideoGenerationCho
 }
 
 /**
- * The generation a new Video node starts with: the last one on this
- * computer, made legal for its model. A model that is deprecated or no longer
- * in the catalog is not chosen. Without the catalog, the last values are
- * kept as they were stored: they were legal when they were used.
+ * The generation a new card of a kind starts with (generation cards,
+ * "Creating a generation card"): the last one of that kind on this computer,
+ * made legal for its model. A model that is deprecated, in the region in use
+ * when `region` tells it, of the other kind, or no longer in the catalog is
+ * not chosen. Without the catalog, the last values are kept as they were
+ * stored: they were legal when they were used.
  */
-export function baseHalfVideoInitialGeneration(lastUsed: IBaseHalfVideoGenerationChoice | undefined, catalog: IBaseHalfVideoCatalog | undefined): IBaseHalfVideoGenerationChoice | undefined {
+export function baseHalfVideoInitialGeneration(
+	lastUsed: IBaseHalfVideoGenerationChoice | undefined,
+	catalog: IBaseHalfVideoCatalog | undefined,
+	kind?: BaseHalfModelKind,
+	region?: (provider: IBaseHalfVideoCatalogProvider) => string
+): IBaseHalfVideoGenerationChoice | undefined {
 	if (!lastUsed?.model) {
 		return undefined;
 	}
@@ -576,10 +642,36 @@ export function baseHalfVideoInitialGeneration(lastUsed: IBaseHalfVideoGeneratio
 		return lastUsed;
 	}
 	const ref = findBaseHalfVideoModel(catalog, lastUsed.provider, lastUsed.model);
-	if (!ref || ref.model.deprecated) {
+	if (!ref || isBaseHalfModelDeprecated(ref.model, region?.(ref.provider)) || (kind !== undefined && ref.model.kind !== kind)) {
 		return undefined;
 	}
 	return baseHalfVideoChooseModel(lastUsed, ref);
+}
+
+/**
+ * The first value of an agent's generation that the model does not accept
+ * (generation cards, "Starting", step 3): a name the model does not declare,
+ * one the mode does not use, or a value off the parameter's options, range,
+ * or steps. An agent's request stops with it instead of making it legal.
+ */
+export function baseHalfVideoRefusedParam(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined): string | undefined {
+	const mode = baseHalfVideoModeOf(model, modeId);
+	if (modeId !== undefined && mode.id !== modeId) {
+		return localize('basehalf.video.catalog.refused.mode', "{0} has no mode {1}.", model.label, modeId);
+	}
+	const applying = baseHalfVideoModeParameters(model, mode.id);
+	for (const [name, value] of Object.entries(params ?? {})) {
+		const parameter = applying.find(candidate => candidate.name === name);
+		if (!parameter) {
+			return model.parameters.some(candidate => candidate.name === name)
+				? localize('basehalf.video.catalog.refused.notInMode', "{0} does not use {1} in {2} mode.", model.label, name, mode.label)
+				: localize('basehalf.video.catalog.refused.unknown', "{0} has no setting {1}.", model.label, name);
+		}
+		if (!isBaseHalfVideoParamValueAccepted(parameter, value)) {
+			return localize('basehalf.video.catalog.refused.value', "{0} does not accept {1} for {2}.", model.label, JSON.stringify(value), parameter.label);
+		}
+	}
+	return undefined;
 }
 
 /** The number of values a number parameter has from its lowest to its highest. */
@@ -696,24 +788,27 @@ function summaryPart(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVi
 
 export type BaseHalfVideoInputKind = 'image' | 'video' | 'audio' | 'text' | 'other';
 
-/** One upstream entry of a Video node, resolved: a `.bhnode` stands for the file it shows. */
+/** One upstream entry of a card, resolved. */
 export interface IBaseHalfVideoInputSource {
 	/** The upstream entry, workspace-relative. */
 	readonly path: string;
 	readonly kind: BaseHalfVideoInputKind;
-	/** False when the entry names nothing, or a node that shows no file yet. */
+	/** False when the entry names nothing, or a draft, which has no file yet. */
 	readonly available: boolean;
+	/** The entry names a draft: it is of the draft's kind and unavailable until the draft has its file. */
+	readonly draft?: boolean;
 }
 
 /** What a generation does with an input: a frame, a reference, the clip of `extend` and `edit`, text for the prompt, or nothing. */
 export type BaseHalfVideoInputUse = 'start-frame' | 'end-frame' | 'reference' | 'source' | 'text' | 'unused';
 
 /**
- * Why an input is not used: `missing` names nothing; `kind` cannot be used,
- * such as a folder or a PDF; `mode` the mode takes no input of its kind;
- * `full` comes after what the mode takes.
+ * Why an input is not used: `missing` names nothing; `draft` names a draft,
+ * which has no file yet; `kind` cannot be used, such as a folder or a PDF;
+ * `mode` the mode takes no input of its kind; `full` comes after what the
+ * mode takes.
  */
-export type BaseHalfVideoInputUnusedReason = 'missing' | 'kind' | 'mode' | 'full';
+export type BaseHalfVideoInputUnusedReason = 'missing' | 'draft' | 'kind' | 'mode' | 'full';
 
 export interface IBaseHalfVideoInputPlanItem {
 	readonly path: string;
@@ -790,7 +885,7 @@ export function planBaseHalfVideoInputs(
 		const unused = (reason: BaseHalfVideoInputUnusedReason) => Object.freeze({ ...item, use: 'unused' as const, reason });
 		const used = (use: BaseHalfVideoInputUse) => Object.freeze({ ...item, use });
 		if (!source.available) {
-			return unused('missing');
+			return unused(source.draft ? 'draft' : 'missing');
 		}
 		switch (source.kind) {
 			case 'text':
@@ -883,9 +978,9 @@ export function buildBaseHalfVideoPrompt(prompt: string, texts: readonly string[
 // --- Whether the node can generate -------------------------------------------------------------------
 
 /**
- * Why the node cannot generate now, checked in this order (video node
- * specification, "The panel"). The panel shows the first one next to a
- * disabled Generate button; the generation service refuses with the same.
+ * Why the card cannot generate now, checked in this order (generation cards,
+ * "The panel"). The panel shows the first one next to a disabled Generate
+ * button; the generation service refuses with the same.
  */
 export type BaseHalfVideoGenerateBlocker =
 	| { readonly kind: 'generating' }
@@ -893,25 +988,32 @@ export type BaseHalfVideoGenerateBlocker =
 	| { readonly kind: 'catalogFailed'; readonly message: string }
 	| { readonly kind: 'noModel' }
 	| { readonly kind: 'unknownModel'; readonly model: string }
+	/** The model makes the other kind than the card's. */
+	| { readonly kind: 'otherKind'; readonly model: IBaseHalfVideoCatalogModel }
 	| { readonly kind: 'notSetUp'; readonly provider: IBaseHalfVideoCatalogProvider }
 	| { readonly kind: 'region'; readonly model: IBaseHalfVideoCatalogModel; readonly region: IBaseHalfVideoCatalogRegion }
 	/** The region offers the model, not its mode; `where` names the regions that do. */
 	| { readonly kind: 'modeRegion'; readonly model: IBaseHalfVideoCatalogModel; readonly mode: IBaseHalfVideoCatalogMode; readonly where: string }
+	/** An input names a draft, which has no file yet. */
+	| { readonly kind: 'draftInput'; readonly path: string }
 	/** The first problem the provider module reported for the planned generation. */
 	| { readonly kind: 'check'; readonly message: string }
 	| { readonly kind: 'nothingToSend' };
 
 export interface IBaseHalfVideoGenerateBlockerInput {
-	/** The node generates, in this window or in another one that its file names. */
+	/** The card generates, in this window or in another one of this computer. */
 	readonly generating: boolean;
 	readonly catalog: BaseHalfVideoCatalogState;
 	readonly generation: IBaseHalfVideoGenerationChoice | undefined;
+	/** The card's kind; a model of the other kind blocks. */
+	readonly kind?: BaseHalfModelKind;
 	readonly setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup;
 	/** What `check` reported for the planned generation, when it was asked. */
 	readonly problems?: readonly string[];
-	/** The node's prompt, as the panel holds it. */
+	/** The card's prompt, as the panel holds it. */
 	readonly prompt: string;
-	readonly plan: readonly IBaseHalfVideoInputPlanItem[];
+	/** The planned inputs; without them, the blockers that need the inputs are not checked. */
+	readonly plan?: readonly IBaseHalfVideoInputPlanItem[];
 }
 
 export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlockerInput): BaseHalfVideoGenerateBlocker | undefined {
@@ -932,6 +1034,9 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 	if (!ref) {
 		return { kind: 'unknownModel', model: modelId };
 	}
+	if (input.kind !== undefined && ref.model.kind !== input.kind) {
+		return { kind: 'otherKind', model: ref.model };
+	}
 	const setup = input.setup(ref.provider);
 	if (!setup.setUp) {
 		return { kind: 'notSetUp', provider: ref.provider };
@@ -944,11 +1049,15 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 		const where = ref.provider.regions.filter(region => baseHalfVideoRegionOffersMode(mode, region.id) && baseHalfVideoRegionOffersModel(ref.model, region.id)).map(region => region.label).join(', ');
 		return { kind: 'modeRegion', model: ref.model, mode, where };
 	}
+	const draft = input.plan?.find(item => item.reason === 'draft');
+	if (draft) {
+		return { kind: 'draftInput', path: draft.path };
+	}
 	const problem = input.problems?.find(message => message.trim().length > 0);
 	if (problem) {
 		return { kind: 'check', message: problem.trim() };
 	}
-	if (!input.prompt.trim() && !input.plan.some(item => item.use !== 'unused')) {
+	if (input.plan && !input.prompt.trim() && !input.plan.some(item => item.use !== 'unused')) {
 		return { kind: 'nothingToSend' };
 	}
 	return undefined;
@@ -956,28 +1065,34 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 
 /** Whether a blocker is about the model or its provider: the model button is outlined for it. */
 export function isBaseHalfVideoModelBlocker(blocker: BaseHalfVideoGenerateBlocker | undefined): boolean {
-	return blocker?.kind === 'noModel' || blocker?.kind === 'unknownModel' || blocker?.kind === 'notSetUp' || blocker?.kind === 'region';
+	return blocker?.kind === 'noModel' || blocker?.kind === 'unknownModel' || blocker?.kind === 'otherKind' || blocker?.kind === 'notSetUp' || blocker?.kind === 'region';
 }
 
 /** A blocker in words, as the Generate button, the model button, and a refused generation say it. */
 export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateBlocker): string {
 	switch (blocker.kind) {
 		case 'generating':
-			return localize('basehalf.video.catalog.blocker.generating', "This node is generating.");
+			return localize('basehalf.video.catalog.blocker.generating', "This card is already generating.");
 		case 'catalogLoading':
-			return localize('basehalf.video.catalog.blocker.catalogLoading', "The video models are still loading.");
+			return localize('basehalf.video.catalog.blocker.catalogLoading', "The models are still loading.");
 		case 'catalogFailed':
-			return localize('basehalf.video.catalog.blocker.catalogFailed', "BaseHalf could not load the video models: {0}", blocker.message);
+			return localize('basehalf.video.catalog.blocker.catalogFailed', "BaseHalf could not load the models: {0}", blocker.message);
 		case 'noModel':
 			return localize('basehalf.video.catalog.blocker.noModel', "Choose a model to generate.");
 		case 'unknownModel':
 			return localize('basehalf.video.catalog.blocker.unknownModel', "{0} is not a model BaseHalf offers. Choose another model.", blocker.model);
+		case 'otherKind':
+			return blocker.model.kind === 'image'
+				? localize('basehalf.video.catalog.blocker.imageModel', "{0} makes images. Choose a video model.", blocker.model.label)
+				: localize('basehalf.video.catalog.blocker.videoModel', "{0} makes videos. Choose an image model.", blocker.model.label);
 		case 'notSetUp':
-			return localize('basehalf.video.catalog.blocker.notSetUp', "{0} is not set up. Set it up in Video Providers.", blocker.provider.label);
+			return localize('basehalf.video.catalog.blocker.notSetUp', "{0} is not set up. Set it up in Providers.", blocker.provider.label);
 		case 'region':
-			return localize('basehalf.video.catalog.blocker.region', "{0} is not offered in {1}. Choose another model, or another region in Video Providers.", blocker.model.label, blocker.region.label);
+			return localize('basehalf.video.catalog.blocker.region', "{0} is not offered in {1}. Choose another model, or another region in Providers.", blocker.model.label, blocker.region.label);
 		case 'modeRegion':
-			return localize('basehalf.video.catalog.blocker.modeRegion', "{0} offers {1} mode only in {2}. Choose another mode, or another region in Video Providers.", blocker.model.label, blocker.mode.label, blocker.where);
+			return localize('basehalf.video.catalog.blocker.modeRegion', "{0} offers {1} mode only in {2}. Choose another mode, or another region in Providers.", blocker.model.label, blocker.mode.label, blocker.where);
+		case 'draftInput':
+			return baseHalfVideoDraftInputText(blocker.path);
 		case 'check':
 			return blocker.message;
 		case 'nothingToSend':
@@ -985,15 +1100,22 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
 	}
 }
 
+/** Why an input that names a draft keeps a card from generating. */
+export function baseHalfVideoDraftInputText(path: string): string {
+	return localize('basehalf.video.catalog.blocker.draftInput', "{0} has no file yet. Generate it first, or remove its connection.", path.slice(path.lastIndexOf('/') + 1) || path);
+}
+
 // --- What agents read of the catalog --------------------------------------------------------------
 
 /**
- * The catalog as `basehalf --list-capabilities` gives it to agents (video
- * node specification, "Agents"): each provider with whether it is set up, its
- * regions and the one in use, and each model with the regions that offer it,
- * its prompt rule, its modes with their slots and limits, its parameters, and
- * whether it is deprecated. It holds no credential, endpoint, or id sent to a
- * provider.
+ * The catalog as `basehalf --list-capabilities` gives it to agents
+ * (generation cards, "Agents"): each provider with whether it is set up, its
+ * regions and the one in use, and each model with its kind, the regions that
+ * offer it and those that retire it, the format an image model delivers,
+ * whether the provider answers with the files at once, its prompt rule, its
+ * modes with their slots and limits, its parameters, and whether it is
+ * deprecated. It holds no credential, endpoint, id sent to a provider, or
+ * price.
  */
 export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup): readonly Readonly<Record<string, unknown>>[] {
 	return Object.freeze(catalog.providers.map(provider => {
@@ -1006,9 +1128,13 @@ export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, se
 			regions: provider.regions.map(region => ({ id: region.id, label: region.label })),
 			models: provider.models.map(model => ({
 				id: model.id,
+				kind: model.kind,
 				label: model.label,
 				...(model.description ? { description: model.description } : {}),
 				regions: provider.regions.filter(region => baseHalfVideoRegionOffersModel(model, region.id)).map(region => region.id),
+				...(model.deprecatedIn?.length ? { deprecatedIn: model.deprecatedIn } : {}),
+				...(model.outputFormat ? { outputFormat: model.outputFormat } : {}),
+				...(model.answersAtOnce ? { answersAtOnce: true } : {}),
 				prompt: { required: model.prompt.required, maxLength: model.prompt.maxLength },
 				modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits, ...(mode.regions ? { regions: mode.regions } : {}) })),
 				parameters: model.parameters,
@@ -1018,11 +1144,11 @@ export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, se
 	}));
 }
 
-/** A generation an agent can copy: the first model that is not deprecated, of a provider set up on this computer when there is one, with its defaults. */
-export function baseHalfVideoExampleGeneration(catalog: IBaseHalfVideoCatalog, setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup): IBaseHalfVideoGenerationChoice | undefined {
+/** A generation an agent can copy: the first model of the kind that is not deprecated, of a provider set up on this computer when there is one, with its defaults. */
+export function baseHalfVideoExampleGeneration(catalog: IBaseHalfVideoCatalog, setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup, kind: BaseHalfModelKind = 'video'): IBaseHalfVideoGenerationChoice | undefined {
 	const providers = [...catalog.providers.filter(provider => setup(provider).setUp), ...catalog.providers];
 	for (const provider of providers) {
-		const model = provider.models.find(candidate => !candidate.deprecated);
+		const model = provider.models.find(candidate => candidate.kind === kind && !isBaseHalfModelDeprecated(candidate, setup(provider).region.id));
 		if (model) {
 			return baseHalfVideoChooseModel(undefined, { provider, model });
 		}

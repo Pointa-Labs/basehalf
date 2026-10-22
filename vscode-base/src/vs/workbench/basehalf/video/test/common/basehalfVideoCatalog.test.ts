@@ -6,7 +6,11 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
+	baseHalfModelFileExtension,
+	baseHalfModelMostOutputs,
+	baseHalfModelOutputCount,
 	BaseHalfVideoCatalogState,
+	baseHalfVideoCatalogForAgents,
 	BaseHalfVideoGenerateBlocker,
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
@@ -15,9 +19,11 @@ import {
 	baseHalfVideoInitialGeneration,
 	baseHalfVideoInputKindOfPath,
 	baseHalfVideoListedModels,
+	baseHalfVideoModelAbilities,
 	baseHalfVideoModeOf,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
+	baseHalfVideoRefusedParam,
 	baseHalfVideoSentParams,
 	baseHalfVideoSettingsSummary,
 	buildBaseHalfVideoPrompt,
@@ -30,6 +36,7 @@ import {
 	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoInputSource,
 	IBaseHalfVideoNumberParameter,
+	isBaseHalfModelDeprecated,
 	isBaseHalfVideoModelBlocker,
 	normalizeBaseHalfVideoParams,
 	parseBaseHalfVideoCatalog,
@@ -37,7 +44,7 @@ import {
 	planBaseHalfVideoInputs,
 	stripBaseHalfMarkdownFrontMatter
 } from '../../common/basehalfVideoCatalog.js';
-import { ACME, ACME_MOTION, BOREALIS, TEST_VIDEO_CATALOG, testVideoModel } from './basehalfVideoCatalogFixture.js';
+import { ACME, ACME_MOTION, BOREALIS, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG, testVideoModel } from './basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfVideoCatalog', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -319,7 +326,7 @@ suite('BaseHalfVideoCatalog', () => {
 			withFrame: { resolution: '720p', duration: 5, sound: true },
 			withoutFrame: { resolution: '720p', ratio: '9:16', duration: 5, sound: true },
 			summaries: [['Frames', '720p', '5s', 'Sound'], ['Frames', '720p', '9:16', '5s', 'Sound']],
-			blocker: ['modeRegion', 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Video Providers.']
+			blocker: ['modeRegion', 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Providers.']
 		});
 	});
 
@@ -345,24 +352,144 @@ suite('BaseHalfVideoCatalog', () => {
 			catalogFailed: { catalog: { kind: 'failed', message: 'AI Video is not running.' } },
 			noModel: { generation: { provider: 'acme' }, setup: setup({ setUp: false }) },
 			unknownModel: { generation: { provider: 'acme', model: 'acme-motion-9' } },
+			otherKind: { kind: 'image', setup: setup({ setUp: false }) },
 			notSetUp: { setup: setup({ setUp: false, region: 'west' }) },
 			region: { setup: setup({ region: 'west' }), problems: ['Too long.'] },
+			draftInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, [{ path: 'shots/start.png', kind: 'image', available: false, draft: true }], 'en'), problems: ['Too long.'] },
 			check: { problems: ['', 'The start frame is smaller than 300 pixels.'] },
 			nothingToSend: { plan: [] },
+			inputsUnknown: { plan: undefined },
 			ready: {}
 		};
 		const blockers: Record<string, BaseHalfVideoGenerateBlocker | undefined> = Object.fromEntries(Object.entries(cases).map(([name, overrides]) => [name, getBaseHalfVideoGenerateBlocker({ ...base, ...overrides })]));
 		assert.deepStrictEqual(Object.fromEntries(Object.entries(blockers).map(([name, blocker]) => [name, blocker ? [blocker.kind, baseHalfVideoGenerateBlockerText(blocker), isBaseHalfVideoModelBlocker(blocker)] : undefined])), {
-			generating: ['generating', 'This node is generating.', false],
-			catalogLoading: ['catalogLoading', 'The video models are still loading.', false],
-			catalogFailed: ['catalogFailed', 'BaseHalf could not load the video models: AI Video is not running.', false],
+			generating: ['generating', 'This card is already generating.', false],
+			catalogLoading: ['catalogLoading', 'The models are still loading.', false],
+			catalogFailed: ['catalogFailed', 'BaseHalf could not load the models: AI Video is not running.', false],
 			noModel: ['noModel', 'Choose a model to generate.', true],
 			unknownModel: ['unknownModel', 'acme-motion-9 is not a model BaseHalf offers. Choose another model.', true],
-			notSetUp: ['notSetUp', 'Acme Video is not set up. Set it up in Video Providers.', true],
-			region: ['region', 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.', true],
+			otherKind: ['otherKind', 'Acme Still makes videos. Choose an image model.', true],
+			notSetUp: ['notSetUp', 'Acme Video is not set up. Set it up in Providers.', true],
+			region: ['region', 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.', true],
+			draftInput: ['draftInput', 'start.png has no file yet. Generate it first, or remove its connection.', false],
 			check: ['check', 'The start frame is smaller than 300 pixels.', false],
 			nothingToSend: ['nothingToSend', 'Write a prompt or connect an input to generate.', false],
+			inputsUnknown: undefined,
 			ready: undefined
+		});
+	});
+	suite('models of two kinds', () => {
+		const corvid = TEST_GENERATION_CATALOG.providers[2];
+		const paint = corvid.models[0];
+		const print = corvid.models[1];
+		const reel = corvid.models[2];
+
+		test('a card lists the models of its kind, and a model retired in the region in use only for a card that uses it', () => {
+			const listed = (kind: 'image' | 'video', region: string, chosen?: { provider: string; model: string }) => baseHalfVideoListedModels(corvid, chosen, kind, region).map(model => model.id);
+			assert.deepStrictEqual({
+				images: listed('image', 'north'),
+				imagesInTheSouth: listed('image', 'south'),
+				printChosenInTheSouth: listed('image', 'south', { provider: 'corvid', model: 'corvid-print' }),
+				videos: listed('video', 'north'),
+				deprecated: [isBaseHalfModelDeprecated(print, 'south'), isBaseHalfModelDeprecated(print, 'north'), isBaseHalfModelDeprecated(print)],
+				kinds: TEST_GENERATION_CATALOG.providers.map(provider => provider.models.map(model => model.kind).join(','))
+			}, {
+				images: ['corvid-paint', 'corvid-print'],
+				imagesInTheSouth: ['corvid-paint'],
+				printChosenInTheSouth: ['corvid-paint', 'corvid-print'],
+				videos: ['corvid-reel'],
+				deprecated: [true, false, false],
+				kinds: ['video,video,video,video', 'video', 'image,image,video']
+			});
+		});
+
+		test('an image model says its largest resolution and how many images one generation makes; a video model its modes, length, size, and sound', () => {
+			assert.deepStrictEqual([baseHalfVideoModelAbilities(paint), baseHalfVideoModelAbilities(print), baseHalfVideoModelAbilities(motion), baseHalfVideoModelAbilities(reel)], [
+				'4K · Up to 4',
+				'2K · Up to 2',
+				'Frames · References · 12s · 1080p · Sound',
+				'Frames · 8s'
+			]);
+		});
+
+		test('the largest resolution is the one with the most pixels, whatever order the model lists them in', () => {
+			const withResolutions = (...values: string[]) => baseHalfVideoModelAbilities({
+				...print,
+				parameters: [{ name: 'resolution', label: 'Resolution', kind: 'choice', options: values.map(value => ({ value, label: value.toUpperCase() })), default: values[0] }]
+			});
+			assert.deepStrictEqual([
+				withResolutions('4k', '1k', '2k'),
+				withResolutions('1080p', '1k'),
+				withResolutions('1.5k', '1080p'),
+				withResolutions('3k', '2k', '1.5k'),
+				withResolutions('768p', '720p', '1k'),
+				withResolutions('unknown', '720p')
+			], ['4K', '1080P', '1.5K', '3K', '1K', '720P']);
+		});
+
+		test('a generation makes one file per image of its count, one for a video, and each file has the extension of its model\'s format', () => {
+			assert.deepStrictEqual({
+				counts: [baseHalfModelOutputCount(paint, 'reference', { count: 3 }), baseHalfModelOutputCount(paint, 'reference', {}), baseHalfModelOutputCount(paint, 'reference', { count: 9 }), baseHalfModelOutputCount(motion, 'frames', { count: 3 })],
+				most: [baseHalfModelMostOutputs(paint), baseHalfModelMostOutputs(motion)],
+				extensions: [baseHalfModelFileExtension(paint), baseHalfModelFileExtension(print), baseHalfModelFileExtension(reel)]
+			}, {
+				counts: [3, 1, 1, 1],
+				most: [4, 1],
+				extensions: ['png', 'jpg', 'mp4']
+			});
+		});
+
+		test('a new card starts with the last generation of its kind, never with a model of the other kind or one retired in its region', () => {
+			const region = (regionId: string) => () => regionId;
+			const lastImage = { provider: 'corvid', model: 'corvid-print', mode: 'reference' as const, params: { count: 2 } };
+			assert.deepStrictEqual({
+				image: baseHalfVideoInitialGeneration(lastImage, TEST_GENERATION_CATALOG, 'image', region('north')),
+				retired: baseHalfVideoInitialGeneration(lastImage, TEST_GENERATION_CATALOG, 'image', region('south')),
+				otherKind: baseHalfVideoInitialGeneration(lastImage, TEST_GENERATION_CATALOG, 'video')
+			}, {
+				image: { provider: 'corvid', model: 'corvid-print', mode: 'reference', params: { resolution: '2k', count: 2 } },
+				retired: undefined,
+				otherKind: undefined
+			});
+		});
+
+		test('an input that names a draft is unused for the draft and keeps its kind, so the names after it stay', () => {
+			const plan = planBaseHalfVideoInputs(paint.modes[0].inputs, [
+				{ path: 'shots/hero.png', kind: 'image', available: false, draft: true },
+				{ path: 'refs/b.png', kind: 'image', available: true },
+				{ path: 'gone.png', kind: 'image', available: false }
+			], 'en');
+			assert.deepStrictEqual(uses(plan), ['shots/hero.png:unused(draft)=Image 1', 'refs/b.png:reference=Image 2', 'gone.png:unused(missing)=Image 3']);
+		});
+
+		test('an agent\'s value that the model does not accept is named instead of made legal', () => {
+			assert.deepStrictEqual([
+				baseHalfVideoRefusedParam(paint, 'reference', { count: 9 }),
+				baseHalfVideoRefusedParam(paint, 'reference', { style: 'ink' }),
+				baseHalfVideoRefusedParam(motion, 'frames', { ratio: '16:9' }),
+				baseHalfVideoRefusedParam(motion, 'extend', {}),
+				baseHalfVideoRefusedParam(paint, 'reference', { count: 2, resolution: '4k', seed: 7 })
+			], [
+				'Corvid Paint does not accept 9 for Images.',
+				'Corvid Paint has no setting style.',
+				'Acme Motion 2 does not use ratio in Frames mode.',
+				'Acme Motion 2 has no mode extend.',
+				undefined
+			]);
+		});
+
+		test('agents read each model\'s kind, the format an image model delivers, the regions that retire it, and whether it answers at once', () => {
+			const agents = baseHalfVideoCatalogForAgents(TEST_GENERATION_CATALOG, provider => ({ setUp: provider.id === 'corvid', region: findBaseHalfVideoRegion(provider, undefined) }));
+			const models = (agents[2].models as { id: string; kind: string; outputFormat?: string; deprecatedIn?: string[]; answersAtOnce?: boolean; regions: string[] }[]).map(model => ({ id: model.id, kind: model.kind, outputFormat: model.outputFormat, deprecatedIn: model.deprecatedIn, answersAtOnce: model.answersAtOnce, regions: model.regions }));
+			assert.deepStrictEqual({ setUp: agents[2].setUp, models, noPrice: JSON.stringify(agents).includes('price') }, {
+				setUp: true,
+				models: [
+					{ id: 'corvid-paint', kind: 'image', outputFormat: 'png', deprecatedIn: undefined, answersAtOnce: true, regions: ['north', 'south'] },
+					{ id: 'corvid-print', kind: 'image', outputFormat: 'jpeg', deprecatedIn: ['south'], answersAtOnce: undefined, regions: ['north', 'south'] },
+					{ id: 'corvid-reel', kind: 'video', outputFormat: undefined, deprecatedIn: undefined, answersAtOnce: true, regions: ['north', 'south'] }
+				],
+				noPrice: false
+			});
 		});
 	});
 });

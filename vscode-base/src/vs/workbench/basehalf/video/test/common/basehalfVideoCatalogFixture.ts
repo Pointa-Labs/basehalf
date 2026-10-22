@@ -27,6 +27,10 @@ import {
  * - Borealis Media (`borealis`): one region, two credentials; Borealis One
  *   draws from text alone, with a style of seven choices, a decimal strength,
  *   and a caption.
+ * - Corvid Studio (`corvid`, in {@link TEST_GENERATION_CATALOG} only):
+ *   regions `north` and `south`; Corvid Paint makes up to four PNG images and
+ *   answers at once; Corvid Print makes JPEG images as tasks and is retired in
+ *   the south; Corvid Reel makes videos and answers at once.
  */
 
 const FRAMES: IBaseHalfVideoCatalogMode = {
@@ -140,8 +144,78 @@ export const BOREALIS: IBaseHalfVideoCatalogProvider = {
 	models: [BOREALIS_ONE]
 };
 
+const PICTURES: IBaseHalfVideoCatalogMode = {
+	id: 'reference',
+	label: 'References',
+	inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 4 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' },
+	limits: { imageMaxBytes: 31457280 }
+};
+
+/** An image model of a provider that answers with the files at once: PNG, up to four images. */
+export const CORVID_PAINT: IBaseHalfVideoCatalogModel = {
+	id: 'corvid-paint',
+	kind: 'image',
+	label: 'Corvid Paint',
+	description: 'Images from references or the prompt alone.',
+	providerModels: { north: 'paint-n-1', south: 'paint-s-1' },
+	prompt: { required: 'always', maxLength: 4000 },
+	modes: [PICTURES],
+	parameters: [
+		{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '1k', label: '1K' }, { value: '2k', label: '2K' }, { value: '4k', label: '4K' }], default: '1k' },
+		{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 4, step: 1, default: 1 },
+		{ name: 'seed', label: 'Seed', kind: 'integer', min: 0, max: 2147483647, step: 1, optional: true, advanced: true }
+	],
+	outputFormat: 'png',
+	answersAtOnce: true
+};
+
+/** An image model with tasks that delivers JPEG, retired in the south. */
+export const CORVID_PRINT: IBaseHalfVideoCatalogModel = {
+	id: 'corvid-print',
+	kind: 'image',
+	label: 'Corvid Print',
+	providerModels: { north: 'print-n-1', south: 'print-s-1' },
+	prompt: { required: 'always', maxLength: 2000 },
+	modes: [PICTURES],
+	parameters: [
+		{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '2k', label: '2K' }], default: '2k' },
+		{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 2, step: 1, default: 1 }
+	],
+	outputFormat: 'jpeg',
+	deprecatedIn: ['south']
+};
+
+/** A video model of the image provider, which answers at once. */
+export const CORVID_REEL: IBaseHalfVideoCatalogModel = {
+	id: 'corvid-reel',
+	kind: 'video',
+	label: 'Corvid Reel',
+	providerModels: { north: 'reel-n-1', south: 'reel-s-1' },
+	prompt: { required: 'always', maxLength: 2000 },
+	modes: [{ ...FRAMES, inputs: { ...FRAMES.inputs, endFrame: 'none' } }],
+	parameters: [
+		{ name: 'duration', label: 'Duration', kind: 'integer', unit: 'seconds', min: 4, max: 8, step: 4, default: 4 }
+	],
+	answersAtOnce: true
+};
+
+/** Corvid Studio (`corvid`): image models and one video model, regions `north` and `south`, one API key. */
+export const CORVID: IBaseHalfVideoCatalogProvider = {
+	id: 'corvid',
+	label: 'Corvid Studio',
+	regions: [
+		{ id: 'north', label: 'North', baseUrl: 'https://north.corvid.example/v1' },
+		{ id: 'south', label: 'South', baseUrl: 'https://south.corvid.example/v1' }
+	],
+	credentials: [{ id: 'apiKey', label: 'API Key' }],
+	models: [CORVID_PAINT, CORVID_PRINT, CORVID_REEL]
+};
+
 /** The fixture as the window keeps it once it has read AI Video's answer. */
 export const TEST_VIDEO_CATALOG: IBaseHalfVideoCatalog = parseBaseHalfVideoCatalog({ schema: 1, providers: [ACME, BOREALIS] }).catalog;
+
+/** The fixture with a provider of image models, as a generation card's tests read it. */
+export const TEST_GENERATION_CATALOG: IBaseHalfVideoCatalog = parseBaseHalfVideoCatalog({ schema: 1, providers: [ACME, BOREALIS, CORVID] }).catalog;
 
 /** The catalog read from AI Video's answer, whose models are the ones above. */
 export function testVideoModel(providerId: string, modelId: string): IBaseHalfVideoCatalogModel {

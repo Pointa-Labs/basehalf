@@ -16,9 +16,7 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
-import { BASEHALF_CANVAS_GRID_COLUMN_GAP, baseHalfCanvasOpenPosition } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import {
 	analyzeBaseHalfNodeUpstream,
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
@@ -40,6 +38,7 @@ import { IBaseHalfReferenceIndexService } from '../../references/common/basehalf
 import { IBaseHalfVideoNodeSnapshot, IBaseHalfVideoNodeStore, IBaseHalfVideoResolvedInput } from '../common/basehalfVideoGeneration.js';
 import { IBaseHalfVideoNodeFields } from '../common/basehalfVideoNode.js';
 import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
+import { placeBaseHalfCardsBeside } from './basehalfGenerationPlacement.js';
 
 /** How often a write is planned again when the file changed under it. */
 const MAX_WRITE_ATTEMPTS = 8;
@@ -269,33 +268,15 @@ export class BaseHalfVideoNodeStore extends Disposable implements IBaseHalfVideo
 			: Object.freeze({ path, kind, available: false });
 	}
 
-	/**
-	 * Puts the card of a new node 40 to the right of the card it was made from,
-	 * at the nearest open place (canvas card placement, "Pointing" and "The
-	 * nearest open place"). The user's Generate made the node, so the row is
-	 * the user's, not a chosen row. Without a row of the original card, the new
-	 * card appears at the end of the canvas like any other. A marked folder
-	 * gets no row.
-	 */
-	private async placeBeside(folder: IBaseHalfCanvasFolderState, originalPath: string, path: string, layout: Awaited<ReturnType<IBaseHalfCanvasMirrorService['readCanvas']>>): Promise<void> {
-		const original = layout?.cards.find(card => card.path === originalPath);
-		if (!layout || !original) {
-			return;
-		}
-		try {
-			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder)) {
-				return;
-			}
-			const place = baseHalfCanvasOpenPosition(
-				{ x: original.x + original.width + BASEHALF_CANVAS_GRID_COLUMN_GAP, y: original.y },
-				VIDEO_CARD_SIZE,
-				layout.cards.filter(card => card.path !== path)
-			);
-			await this.canvasMirrorService.updateCardGeometry(folder, { path, kind: 'file', x: place.x, y: place.y, ...VIDEO_CARD_SIZE });
-		} catch (error) {
-			// The node exists; its card appears at the end of the canvas instead.
-			this.logService.warn(`[BaseHalf] could not place the card of ${path} beside ${originalPath}`, error);
-		}
+	/** Puts the card of a new node 40 to the right of the card it was made from, as a generation card's new draft is put. */
+	private placeBeside(folder: IBaseHalfCanvasFolderState, originalPath: string, path: string, layout: Awaited<ReturnType<IBaseHalfCanvasMirrorService['readCanvas']>>): Promise<void> {
+		return placeBaseHalfCardsBeside(
+			{ fileService: this.fileService, canvasMirrorService: this.canvasMirrorService, logService: this.logService },
+			folder,
+			originalPath,
+			[{ path, size: VIDEO_CARD_SIZE }],
+			{ layout }
+		);
 	}
 
 	private parentFolder(node: IBaseHalfWorkspaceResource): IBaseHalfCanvasFolderState {

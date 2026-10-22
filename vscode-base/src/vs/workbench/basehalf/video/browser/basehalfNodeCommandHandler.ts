@@ -107,8 +107,8 @@ export class BaseHalfNodeCommandHandler {
 			// Once the generation starts it belongs to the node: closing the
 			// Agent session never stops it. No question is asked; the user asked
 			// the agent to work, and their own key pays (D58).
-			const running = await this.videoGenerationService.generate(node.resource);
-			return startedResponse(extUri.relativePath(node.workspaceFolder, running) ?? node.relativePath);
+			const [running] = await this.videoGenerationService.generate(node.resource, { agent: true });
+			return startedResponse((running ? extUri.relativePath(node.workspaceFolder, running) : undefined) ?? node.relativePath);
 		} catch (error) {
 			return rejectedResponse(event.request.relativePath, errorMessage(error));
 		}

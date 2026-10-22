@@ -24,8 +24,10 @@ export const BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID = 'basehalf/models';
 
 /** The region, the endpoint, and the ids of the credentials that are set, per provider. */
 export const BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY = 'basehalf.video.providers.v1';
-/** The provider, model, mode, and values of the last generation on this computer. */
+/** The provider, model, mode, and values of the last generation of a video on this computer. */
 export const BASEHALF_VIDEO_LAST_USED_STORAGE_KEY = 'basehalf.video.lastUsed.v2';
+/** The provider, model, mode, and values of the last generation of an image on this computer. */
+export const BASEHALF_IMAGE_LAST_USED_STORAGE_KEY = 'basehalf.image.lastUsed.v1';
 
 const SETTINGS_VERSION = 1;
 const MAX_PROVIDERS = 64;

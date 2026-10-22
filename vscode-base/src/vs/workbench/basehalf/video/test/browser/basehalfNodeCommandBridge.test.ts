@@ -476,7 +476,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 				if (options.generationError) {
 					return Promise.reject(options.generationError);
 				}
-				return options.generationPromise ?? Promise.resolve(options.generated ?? resource);
+				return (options.generationPromise ?? Promise.resolve(options.generated ?? resource)).then(card => [card]);
 			},
 			stop: async (resource: URI) => { stopCalls.push(resource); },
 			isGenerating: () => false

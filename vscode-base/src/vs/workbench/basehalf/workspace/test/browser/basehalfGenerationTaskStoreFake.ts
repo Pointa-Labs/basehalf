@@ -21,11 +21,29 @@ export class BaseHalfRecordingGenerationTaskStore implements IBaseHalfGeneration
 	/** When set, a retarget fails with this error and records nothing. */
 	failure: Error | undefined;
 
+	async whenReady(): Promise<void> { }
+
+	async refresh(): Promise<void> { }
+
 	list(): readonly IBaseHalfGenerationTask[] {
 		return [];
 	}
 
+	get(): IBaseHalfGenerationTask | undefined {
+		return undefined;
+	}
+
+	folderOf(): URI | undefined {
+		return undefined;
+	}
+
 	forCard(): IBaseHalfGenerationTask | undefined {
+		return undefined;
+	}
+
+	async create(): Promise<void> { }
+
+	async update(): Promise<IBaseHalfGenerationTask | undefined> {
 		return undefined;
 	}
 

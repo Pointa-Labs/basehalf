@@ -3,28 +3,39 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { encodeBase64, VSBuffer } from '../../../../../base/common/buffer.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
-import { ResourceMap } from '../../../../../base/common/map.js';
-import { basename, joinPath } from '../../../../../base/common/resources.js';
+import { Disposable, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { dirname, isEqual, isEqualOrParent, joinPath, relativePath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ICommandEvent, ICommandService } from '../../../../../platform/commands/common/commands.js';
-import { IFileService } from '../../../../../platform/files/common/files.js';
+import { IChecksumService } from '../../../../../platform/checksum/common/checksumService.js';
+import { FileSystemProviderCapabilities, IFileChange, IFileService, IWatchOptions } from '../../../../../platform/files/common/files.js';
+import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
+import { IUndoRedoElement, IUndoRedoService } from '../../../../../platform/undoRedo/common/undoRedo.js';
+import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from '../../../canvas/common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { baseHalfMirrorRoot } from '../../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
 import {
 	BASEHALF_VIDEO_PROVIDER_COMMANDS,
-	baseHalfVideoInputKindOfPath,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoDownloadRequest,
 	IBaseHalfVideoSubmitRequest,
 	IBaseHalfVideoTaskRef
 } from '../../common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoNodeSnapshot, IBaseHalfVideoNodeStore, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
-import { IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
+import { IBaseHalfDraftMoveOptions, IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationTaskStore } from '../../common/basehalfVideoGeneration.js';
+import { IBaseHalfReferenceEditOptions, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfReferenceStoreResult } from '../../../references/common/basehalfReferenceEdit.js';
+import { baseHalfSidecarUpstreamText, baseHalfUpstreamSidecarResource } from '../../../references/common/basehalfReferenceStore.js';
 import { ACME, BOREALIS } from '../common/basehalfVideoCatalogFixture.js';
 
 /** The first bytes of an MP4: a `ftyp` box. */
 export const FAKE_MP4 = VSBuffer.wrap(Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32]));
+/** The first bytes of a PNG: its signature and the start of its header. */
+export const FAKE_PNG = VSBuffer.wrap(Uint8Array.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]));
+/** The first bytes of a JPEG. */
+export const FAKE_JPEG = VSBuffer.wrap(Uint8Array.from([0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1]));
 
 export class InMemoryCredentialStore implements IBaseHalfModelCredentialStore {
 	declare readonly _serviceBrand: undefined;
@@ -43,110 +54,206 @@ export class InMemoryCredentialStore implements IBaseHalfModelCredentialStore {
 	}
 }
 
-interface IFakeNode {
-	readonly id: string;
-	readonly title: string;
-	readonly path: string;
-	readonly upstream: readonly string[];
-	fields: IBaseHalfVideoNodeFields;
+/**
+ * An in-memory file system that writes whole files (the in-memory
+ * provider's open, write, and close path does not truncate) and whose
+ * watchers correlate their events as the watcher of the disk does: a change
+ * under a watch request with a correlation id is reported once more with
+ * that id, to that watcher alone. Every window of a test that shares it sees
+ * the changes the others make.
+ */
+export class BaseHalfTestFileSystemProvider extends InMemoryFileSystemProvider {
+	private readonly providerChanges: Event<readonly IFileChange[]> = this.onDidChangeFile;
+	private readonly changes = this._register(new Emitter<readonly IFileChange[]>());
+	override readonly onDidChangeFile: Event<readonly IFileChange[]> = this.changes.event;
+	private readonly watches = new Set<{ readonly resource: URI; readonly recursive: boolean; readonly correlationId: number }>();
+
+	constructor() {
+		super();
+		this._register(this.providerChanges(changes => {
+			this.changes.fire(changes);
+			for (const watch of [...this.watches]) {
+				const seen = changes.filter(change => watch.recursive
+					? isEqualOrParent(change.resource, watch.resource)
+					: isEqual(change.resource, watch.resource) || isEqual(dirname(change.resource), watch.resource));
+				if (seen.length) {
+					this.changes.fire(seen.map(change => ({ type: change.type, resource: change.resource, cId: watch.correlationId })));
+				}
+			}
+		}));
+	}
+
+	override get capabilities(): FileSystemProviderCapabilities {
+		return super.capabilities & ~FileSystemProviderCapabilities.FileOpenReadWriteClose;
+	}
+
+	override watch(resource: URI, options: IWatchOptions): IDisposable {
+		if (typeof options.correlationId !== 'number') {
+			return Disposable.None;
+		}
+		const watch = { resource, recursive: options.recursive, correlationId: options.correlationId };
+		this.watches.add(watch);
+		return toDisposable(() => this.watches.delete(watch));
+	}
 }
 
 /**
- * A node store over plain records: what the node document reader keeps in a
- * `.bhnode`. Every write is kept, so a test can read the transitions a
- * generation made.
+ * A digest of 32 bytes in the form of the checksum service of the shared
+ * process, base64 without padding. It is no SHA-256: the generation service
+ * only compares the digests it got from the same service, and a digest made
+ * here without a host promise keeps the faked timers of a test in order.
  */
-export class FakeVideoNodeStore implements IBaseHalfVideoNodeStore {
+export class TestChecksumService implements IChecksumService {
 	declare readonly _serviceBrand: undefined;
 
-	private readonly _onDidWrite = new Emitter<URI>();
-	readonly onDidWrite: Event<URI> = this._onDidWrite.event;
+	constructor(private readonly fileService: IFileService) { }
 
-	readonly nodes = new ResourceMap<IFakeNode>();
-	readonly writes = new ResourceMap<IBaseHalfVideoNodeFields[]>();
-	readonly inputs = new Map<string, IBaseHalfVideoResolvedInput>();
-	readonly siblings: { readonly from: URI; readonly fields: IBaseHalfVideoNodeFields; readonly upstream: readonly string[] }[] = [];
-	private nextId = 1;
+	async checksum(resource: URI): Promise<string> {
+		return encodeBase64(VSBuffer.wrap(testDigest((await this.fileService.readFile(resource)).value.buffer))).replace(/=+$/, '');
+	}
+}
 
-	constructor(readonly root: URI) { }
+/** The digest of {@link TestChecksumService}: 32 bytes. */
+export function testDigest(bytes: Uint8Array): Uint8Array {
+	const digest = new Uint8Array(32);
+	bytes.forEach((byte, index) => {
+		const at = index % 32;
+		digest[at] = (digest[at] * 31 + byte + index) & 0xFF;
+	});
+	digest[31] ^= bytes.length & 0xFF;
+	return digest;
+}
 
-	dispose(): void {
-		this._onDidWrite.dispose();
+/** The digest of {@link TestChecksumService} as the generation service writes it into a record: lower-case hex. */
+export function testDigestHex(bytes: VSBuffer): string {
+	return [...testDigest(bytes.buffer)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** The undo stack of a test: what was pushed, in order. */
+export class RecordingUndoRedoService {
+	readonly elements: IUndoRedoElement[] = [];
+
+	asService(): IUndoRedoService {
+		const service: Partial<IUndoRedoService> = { pushElement: (element: IUndoRedoElement) => { this.elements.push(element); } };
+		return service as IUndoRedoService;
+	}
+}
+
+/** The layouts of the canvases of a test, by folder path: what was placed where. */
+export class RecordingCanvasMirror {
+	readonly layouts = new Map<string, IBaseHalfCanvasCard[]>();
+
+	constructor(private readonly root: URI) { }
+
+	place(folder: string, card: IBaseHalfCanvasCard): void {
+		const cards = this.layouts.get(folder) ?? [];
+		this.layouts.set(folder, [...cards.filter(existing => existing.path !== card.path), card]);
 	}
 
-	addNode(path: string, fields: IBaseHalfVideoNodeFields, upstream: readonly string[] = [], title = basename(URI.parse(`file:///${path}`)).replace(/\.bhnode$/, '')): URI {
-		const resource = joinPath(this.root, path);
-		this.nodes.set(resource, { id: `node-${this.nextId++}`, title, path, upstream, fields });
-		return resource;
+	asService(): IBaseHalfCanvasMirrorService {
+		const layout = (folder: IBaseHalfCanvasFolderState): IBaseHalfCanvasFile | null => {
+			const cards = this.layouts.get(folder.relativePath);
+			return cards ? { path: folder.relativePath, cards, edges: [] } : null;
+		};
+		const service: Partial<IBaseHalfCanvasMirrorService> = {
+			readCanvas: async (folder: IBaseHalfCanvasFolderState) => layout(folder),
+			updateCardGeometries: async (folder: IBaseHalfCanvasFolderState, cards: readonly IBaseHalfCanvasCard[]) => {
+				for (const card of cards) {
+					this.place(folder.relativePath, card);
+				}
+				return layout(folder);
+			},
+			canvasResource: (folder: IBaseHalfCanvasFolderState) => joinPath(baseHalfMirrorRoot(this.root), ...folder.relativePath.split('/').filter(Boolean), 'canvas.yaml')
+		};
+		return service as IBaseHalfCanvasMirrorService;
+	}
+}
+
+/**
+ * Draft operations over the file system of a test, as the canvas does them:
+ * a move takes the draft's card information along and writes its new path
+ * into the task records; a delete removes it and gives back its bytes.
+ */
+export class FakeDraftOperations implements IBaseHalfDraftOperations {
+	declare readonly _serviceBrand: undefined;
+	readonly moves: string[] = [];
+	/** For each move, whether the caller held the workspace mutation lease and passed it. */
+	readonly leased: boolean[] = [];
+	readonly deleted: string[] = [];
+	taskStore: IBaseHalfGenerationTaskStore | undefined;
+
+	constructor(private readonly fileService: IFileService, private readonly root: URI) { }
+
+	async move(draft: URI, target: URI, options?: IBaseHalfDraftMoveOptions): Promise<URI> {
+		await this.fileService.move(this.mirror(draft), this.mirror(target), false);
+		await this.taskStore?.retarget(draft, target);
+		this.moves.push(`${this.path(draft)} -> ${this.path(target)}`);
+		this.leased.push(!!options?.lease);
+		return target;
 	}
 
-	/** An upstream entry that resolves to a file in the workspace. */
-	addInput(path: string, available = true, kind = baseHalfVideoInputKindOfPath(path)): void {
-		this.inputs.set(path, { path, kind, available, ...(available ? { file: joinPath(this.root, path) } : {}) });
-	}
-
-	fields(resource: URI): IBaseHalfVideoNodeFields {
-		return this.require(resource).fields;
-	}
-
-	history(resource: URI): readonly IBaseHalfVideoNodeFields[] {
-		return this.writes.get(resource) ?? [];
-	}
-
-	/** Changes a node the way another window or an outside edit would. */
-	replace(resource: URI, fields: IBaseHalfVideoNodeFields): void {
-		this.require(resource).fields = fields;
-	}
-
-	async read(resource: URI): Promise<IBaseHalfVideoNodeSnapshot> {
-		return this.snapshot(resource);
-	}
-
-	async update(resource: URI, mutate: (fields: IBaseHalfVideoNodeFields) => IBaseHalfVideoNodeFields): Promise<IBaseHalfVideoNodeSnapshot> {
-		const node = this.require(resource);
-		const next = mutate(node.fields);
-		if (next !== node.fields) {
-			node.fields = next;
-			const history = this.writes.get(resource) ?? [];
-			history.push(next);
-			this.writes.set(resource, history);
-			this._onDidWrite.fire(resource);
+	async delete(draft: URI): Promise<IBaseHalfDraftSnapshot> {
+		const files = new Map<string, Uint8Array>();
+		const stat = await this.fileService.resolve(this.mirror(draft));
+		for (const child of stat.children ?? []) {
+			files.set(child.name, (await this.fileService.readFile(child.resource)).value.buffer);
 		}
-		return this.snapshot(resource);
+		await this.fileService.del(this.mirror(draft), { recursive: true, useTrash: false });
+		this.deleted.push(this.path(draft));
+		return { resource: draft, files };
 	}
 
-	async reorderUpstream(resource: URI, upstream: readonly string[]): Promise<IBaseHalfVideoNodeSnapshot> {
-		const node = this.require(resource);
-		this.nodes.set(resource, { ...node, upstream });
-		return this.snapshot(resource);
-	}
-
-	async resolveInputs(snapshot: IBaseHalfVideoNodeSnapshot): Promise<readonly IBaseHalfVideoResolvedInput[]> {
-		return snapshot.upstream.map(path => this.inputs.get(path) ?? { path, kind: baseHalfVideoInputKindOfPath(path), available: false });
-	}
-
-	async createSibling(resource: URI, fields: IBaseHalfVideoNodeFields, upstream: readonly string[]): Promise<URI> {
-		const node = this.require(resource);
-		this.siblings.push({ from: resource, fields, upstream });
-		const folder = node.path.includes('/') ? node.path.slice(0, node.path.lastIndexOf('/') + 1) : '';
-		return this.addNode(`${folder}${node.title}-2.bhnode`, fields, upstream, `${node.title} 2`);
-	}
-
-	videoTarget(snapshot: IBaseHalfVideoNodeSnapshot, taskId: string): URI {
-		return joinPath(this.root, 'outputs', snapshot.id, `${taskId}.mp4`);
-	}
-
-	private snapshot(resource: URI): IBaseHalfVideoNodeSnapshot {
-		const node = this.require(resource);
-		return { resource, path: node.path, id: node.id, title: node.title, upstream: node.upstream, fields: node.fields };
-	}
-
-	private require(resource: URI): IFakeNode {
-		const node = this.nodes.get(resource);
-		if (!node) {
-			throw new Error(`No node at ${resource.toString()}.`);
+	async restore(snapshot: IBaseHalfDraftSnapshot): Promise<void> {
+		for (const [name, bytes] of snapshot.files) {
+			await this.fileService.createFile(joinPath(this.mirror(snapshot.resource), name), VSBuffer.wrap(bytes));
 		}
-		return node;
+	}
+
+	private mirror(resource: URI): URI {
+		return joinPath(baseHalfMirrorRoot(this.root), ...this.path(resource).split('/'));
+	}
+
+	private path(resource: URI): string {
+		return relativePath(this.root, resource)!;
+	}
+}
+
+/**
+ * The reference edit service as a draft that is being made uses it: an
+ * `append` writes the entries into the node's `upstream.yaml`, and a
+ * `transition` writes the entries it goes to, removing the file for none.
+ * Every edit and its options are kept.
+ */
+export class FakeReferenceEditService {
+	readonly edits: { readonly edit: IBaseHalfReferenceStoreEdit; readonly options: IBaseHalfReferenceEditOptions }[] = [];
+
+	constructor(private readonly fileService: IFileService) { }
+
+	asService(): IBaseHalfReferenceEditService {
+		const service: Partial<IBaseHalfReferenceEditService> = { apply: (edits: readonly IBaseHalfReferenceStoreEdit[], options: IBaseHalfReferenceEditOptions) => this.apply(edits, options) };
+		return service as IBaseHalfReferenceEditService;
+	}
+
+	private async apply(edits: readonly IBaseHalfReferenceStoreEdit[], options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
+		const stores: IBaseHalfReferenceStoreResult[] = [];
+		for (const edit of edits) {
+			this.edits.push({ edit, options });
+			const resource = baseHalfUpstreamSidecarResource(edit.node.workspaceFolder, edit.node.relativePath);
+			const before = await this.fileService.readFile(resource).then((content): string[] => content.value.toString().split('\n').flatMap(line => line.startsWith('  - ') ? [line.slice(4)] : []), (): string[] => []);
+			const operation = edit.operation;
+			const after = operation.kind === 'append' ? [...before, ...operation.entries.filter(entry => !before.includes(entry))]
+				: operation.kind === 'transition' ? operation.to.items.map(item => item.text)
+					: before;
+			const changed = after.join('\n') !== before.join('\n');
+			if (changed && after.length) {
+				await this.fileService.writeFile(resource, VSBuffer.fromString(baseHalfSidecarUpstreamText(after)));
+			} else if (changed) {
+				await this.fileService.del(resource);
+			}
+			const snapshot = (entries: readonly string[]) => ({ items: entries.map(text => ({ text, scalar: true })) });
+			stores.push({ node: edit.node, storeKind: 'sidecar', storeResource: resource, outcome: changed ? 'changed' : 'unchanged', expected: snapshot(before), next: snapshot(after) });
+		}
+		return { stores, changed: stores.some(store => store.outcome === 'changed') };
 	}
 }
 
@@ -154,8 +261,9 @@ type Handler<T> = (argument: T) => Promise<unknown> | unknown;
 
 /**
  * The provider commands of the AI Video extension, scripted, with the test
- * catalog of invented providers. The default check finds no problem; the
- * default download writes {@link FAKE_MP4} where it is asked to.
+ * catalog of invented providers. The default check finds no problem, the
+ * default submit makes a task, and the default download writes an MP4, or a
+ * PNG for an image, where it is asked to.
  */
 export class FakeProviderCommands implements ICommandService {
 	declare readonly _serviceBrand: undefined;
@@ -171,11 +279,18 @@ export class FakeProviderCommands implements ICommandService {
 	cancel: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { cancelled: true } });
 	other: Handler<unknown> = () => undefined;
 
-	constructor(fileService: IFileService) {
+	constructor(private readonly fileService: IFileService) {
 		this.download = async request => {
-			await fileService.writeFile(URI.file(request.targetFsPath), FAKE_MP4);
-			return { ok: true, value: { size: FAKE_MP4.byteLength } };
+			const bytes = request.kind === 'image' ? FAKE_PNG : FAKE_MP4;
+			await fileService.writeFile(URI.file(request.targetFsPath), bytes);
+			return { ok: true, value: { size: bytes.byteLength, format: request.kind === 'image' ? 'png' : 'mp4' } };
 		};
+	}
+
+	/** Writes a file into a target, as AI Video writes a file the provider answered with. */
+	async write(target: string, bytes: VSBuffer): Promise<{ readonly written: string; readonly size: number; readonly format: 'png' | 'jpeg' | 'mp4' }> {
+		await this.fileService.writeFile(URI.file(target), bytes);
+		return { written: target, size: bytes.byteLength, format: bytes === FAKE_JPEG ? 'jpeg' : bytes === FAKE_MP4 ? 'mp4' : 'png' };
 	}
 
 	count(id: string): number {
