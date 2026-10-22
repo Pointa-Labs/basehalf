@@ -48,7 +48,7 @@ import {
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../../common/basehalfGenerationInfo.js';
-import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoDownloadRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
 import { ACME, BOREALIS, CORVID, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import {
@@ -68,7 +68,7 @@ import {
 } from './basehalfVideoTestFixtures.js';
 
 const START = Date.parse('2026-10-22T08:00:00.000Z');
-const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DOWNLOAD, cancel: CANCEL } = BASEHALF_VIDEO_PROVIDER_COMMANDS;
+const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DOWNLOAD, cancel: CANCEL, place: PLACE } = BASEHALF_VIDEO_PROVIDER_COMMANDS;
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgo=';
 const KEY = 'acme-test-key-0123';
 const CORVID_KEY = 'corvid-test-key-4567';
@@ -294,6 +294,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		const made = parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/video.mp4/made.yaml'))!);
 		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
 		const download = commands.calls.find(call => call.id === DOWNLOAD)?.argument as IBaseHalfVideoDownloadRequest;
+		const placed = commands.calls.find(call => call.id === PLACE)?.argument as IBaseHalfVideoPlaceRequest;
 		const sentPrompt = '图片1 rides along the sea.\n\n# Scene\n\nThe sea at dusk.';
 		assert.deepStrictEqual({
 			cards: cards.map(card => card.path),
@@ -306,6 +307,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			calls: commands.calls.map(call => call.id),
 			submitted: { ...submitted, inputs: Object.keys(submitted.inputs), targets: submitted.targets?.map(target => target.slice(root.fsPath.length)) },
 			download: { url: download.url, kind: download.kind, remoteId: download.remoteId, target: download.targetFsPath.slice(root.fsPath.length) },
+			placed: { from: placed.from.slice(root.fsPath.length), to: placed.to.slice(root.fsPath.length) },
 			lastUsed: harness.providers.getLastUsed('video')
 		}, {
 			cards: ['/workspace/shots/video.mp4'],
@@ -328,7 +330,7 @@ suite('BaseHalfVideoGenerationService', () => {
 				inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md']
 			},
 			cache: [],
-			calls: [CATALOG, CHECK, SUBMIT, POLL, POLL, POLL, DOWNLOAD],
+			calls: [CATALOG, CHECK, SUBMIT, POLL, POLL, POLL, DOWNLOAD, PLACE],
 			submitted: {
 				provider: 'acme',
 				region: 'east',
@@ -342,6 +344,8 @@ suite('BaseHalfVideoGenerationService', () => {
 				targets: [`/.bh/cache/generation/${started.id}-1.part`]
 			},
 			download: { url: 'https://cdn.example.com/v.mp4', kind: 'video', remoteId: 'cgt-remote-1', target: `/.bh/cache/generation/${started.id}-1.part` },
+			// The complete partial download gets the card's name in one step: nothing partial is ever in the card's folder.
+			placed: { from: `/.bh/cache/generation/${started.id}-1.part`, to: '/shots/video.mp4' },
 			lastUsed: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } }
 		});
 		harness.dispose();
@@ -365,7 +369,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			cards: ['/workspace/shots/image.png'],
 			file: true,
 			made: 'paint-n-1',
-			calls: [CATALOG, CHECK, SUBMIT],
+			calls: [CATALOG, CHECK, SUBMIT, PLACE],
 			cache: [],
 			lastUsed: ['corvid-paint', undefined]
 		});
@@ -1143,24 +1147,28 @@ suite('BaseHalfVideoGenerationService', () => {
 		harness.dispose();
 	}));
 
-	test('a received file never replaces a file that took its name at the last moment', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('a received file never replaces a file that took its name at the last moment: it goes beside it', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
 		const video = await harness.card('shots/video.mp4', VIDEO);
-		const { service } = harness.first;
-		let dropped = false;
-		harness.provider.lastMoment = async target => {
-			if (!dropped && target.path === '/workspace/shots/video.mp4') {
-				dropped = true;
-				// Another program writes the file, outside the workbench.
-				await harness.provider.writeFile(target, VSBuffer.fromString('dropped at the last moment').buffer, { create: true, overwrite: true, unlock: false, atomic: false });
+		const { service, commands } = harness.first;
+		const place = commands.place;
+		const places: string[] = [];
+		commands.place = async request => {
+			places.push(request.to.slice(root.fsPath.length));
+			if (places.length === 1) {
+				// Another program takes the name the moment before AI Video links the file to it.
+				await harness.write('shots/video.mp4', 'dropped at the last moment');
 			}
+			return place(request);
 		};
 		await service.generate(video);
 		await until(async () => !(await harness.records()).length);
 		assert.deepStrictEqual({
+			places,
 			dropped: await harness.read('shots/video.mp4'),
-			beside: (await harness.read('shots/video-2.mp4')) === FAKE_MP4.toString()
-		}, { dropped: 'dropped at the last moment', beside: true });
+			beside: (await harness.read('shots/video-2.mp4')) === FAKE_MP4.toString(),
+			parts: (await harness.cache()).filter(name => name.endsWith('.part'))
+		}, { places: ['/shots/video.mp4', '/shots/video-2.mp4'], dropped: 'dropped at the last moment', beside: true, parts: [] });
 		harness.dispose();
 	}));
 

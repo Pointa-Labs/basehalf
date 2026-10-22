@@ -203,7 +203,8 @@ export const BASEHALF_VIDEO_PROVIDER_COMMANDS = Object.freeze({
 	submit: 'basehalf.video.provider.submit',
 	poll: 'basehalf.video.provider.poll',
 	download: 'basehalf.video.provider.download',
-	cancel: 'basehalf.video.provider.cancel'
+	cancel: 'basehalf.video.provider.cancel',
+	place: 'basehalf.video.provider.place'
 });
 
 /** Where a request goes and with what: the provider, its region, the endpoint in use, and the credential values by id. */
@@ -311,6 +312,21 @@ export interface IBaseHalfVideoCancelResult {
 	readonly cancelled: boolean;
 }
 
+/**
+ * A file a generation received, to put into its card's place (generation
+ * cards, "Landing"): `from` is a `.part` file directly in a
+ * `.bh/cache/generation/` folder, and `to` a name of that workspace folder,
+ * outside `.bh/`, that no file has. Both are absolute.
+ */
+export interface IBaseHalfVideoPlaceRequest {
+	readonly from: string;
+	readonly to: string;
+}
+
+export interface IBaseHalfVideoPlaceResult {
+	readonly placed: true;
+}
+
 export type BaseHalfVideoProviderErrorCode =
 	| 'auth'
 	| 'rejected'
@@ -323,7 +339,9 @@ export type BaseHalfVideoProviderErrorCode =
 	| 'notVideo'
 	| 'notImage'
 	| 'tooLarge'
-	| 'unknownProvider';
+	| 'unknownProvider'
+	/** Putting a file in place: a file already has the name. */
+	| 'exists';
 
 export interface IBaseHalfVideoProviderError {
 	readonly code: BaseHalfVideoProviderErrorCode;

@@ -11,7 +11,7 @@ import { dirname, isEqual, isEqualOrParent, joinPath, relativePath } from '../..
 import { URI } from '../../../../../base/common/uri.js';
 import { ICommandEvent, ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IChecksumService } from '../../../../../platform/checksum/common/checksumService.js';
-import { createFileSystemProviderError, FileSystemProviderCapabilities, FileSystemProviderErrorCode, IFileChange, IFileOverwriteOptions, IFileService, IStat, IWatchOptions } from '../../../../../platform/files/common/files.js';
+import { createFileSystemProviderError, FileSystemProviderCapabilities, FileSystemProviderErrorCode, IFileChange, IFileService, IStat, IWatchOptions } from '../../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { IUndoRedoElement, IUndoRedoService } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
@@ -24,6 +24,7 @@ import {
 	BASEHALF_VIDEO_PROVIDER_COMMANDS,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoDownloadRequest,
+	IBaseHalfVideoPlaceRequest,
 	IBaseHalfVideoSubmitRequest,
 	IBaseHalfVideoTaskRef
 } from '../../common/basehalfVideoCatalog.js';
@@ -64,10 +65,8 @@ export class InMemoryCredentialStore implements IBaseHalfModelCredentialStore {
  * that id, to that watcher alone. Every window of a test that shares it sees
  * the changes the others make.
  *
- * A rename without overwriting checks the target and then renames, with a
- * moment between, as the disk does; {@link lastMoment} runs in that moment,
- * and before an exclusive create. {@link failures} makes the next folder
- * creations or exclusive creates of a path fail, as often as it says.
+ * {@link failures} makes the next folder creations or exclusive creates of a
+ * path fail, as often as it says.
  */
 export class BaseHalfTestFileSystemProvider extends InMemoryFileSystemProvider {
 	private readonly providerChanges: Event<readonly IFileChange[]> = this.onDidChangeFile;
@@ -76,8 +75,6 @@ export class BaseHalfTestFileSystemProvider extends InMemoryFileSystemProvider {
 	private readonly watches = new Set<{ readonly resource: URI; readonly recursive: boolean; readonly correlationId: number }>();
 	/** `mkdir:<path>` or `exclusive:<path>`, and how many more times it fails. */
 	readonly failures = new Map<string, number>();
-	/** Runs between a rename's check of its target and the rename, and before an exclusive create. */
-	lastMoment: ((target: URI) => Promise<void>) | undefined;
 
 	constructor(private readonly options: { readonly caseInsensitive?: boolean } = {}) {
 		super();
@@ -104,19 +101,7 @@ export class BaseHalfTestFileSystemProvider extends InMemoryFileSystemProvider {
 		return super.mkdir(resource);
 	}
 
-	override async rename(from: URI, to: URI, opts: IFileOverwriteOptions): Promise<void> {
-		if (!opts.overwrite && this.lastMoment) {
-			if (await this.stat(to).then(() => true, () => false)) {
-				throw createFileSystemProviderError('file exists already', FileSystemProviderErrorCode.FileExists);
-			}
-			await this.lastMoment(to);
-			return super.rename(from, to, { overwrite: true });
-		}
-		return super.rename(from, to, opts);
-	}
-
 	override async writeFileExclusiveAtomic(resource: URI, content: Uint8Array): Promise<IStat> {
-		await this.lastMoment?.(resource);
 		this.failIfAsked(`exclusive:${resource.path}`);
 		return super.writeFileExclusiveAtomic(resource, content);
 	}
@@ -349,9 +334,18 @@ export class FakeProviderCommands implements ICommandService {
 	poll: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/video.mp4' } });
 	download: Handler<IBaseHalfVideoDownloadRequest>;
 	cancel: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { cancelled: true } });
+	/** As AI Video puts a file in place: under a name no file has, and the partial download goes. */
+	place: Handler<IBaseHalfVideoPlaceRequest>;
 	other: Handler<unknown> = () => undefined;
 
 	constructor(private readonly fileService: IFileService) {
+		this.place = async request => {
+			if (await fileService.exists(URI.file(request.to))) {
+				return { ok: false, error: { code: 'exists', message: 'A file already has this name.' } };
+			}
+			await fileService.move(URI.file(request.from), URI.file(request.to), false);
+			return { ok: true, value: { placed: true } };
+		};
 		this.download = async request => {
 			const bytes = request.kind === 'image' ? FAKE_PNG : FAKE_MP4;
 			await fileService.writeFile(URI.file(request.targetFsPath), bytes);
@@ -379,6 +373,7 @@ export class FakeProviderCommands implements ICommandService {
 			case BASEHALF_VIDEO_PROVIDER_COMMANDS.poll: return await this.poll(argument as IBaseHalfVideoTaskRef) as R;
 			case BASEHALF_VIDEO_PROVIDER_COMMANDS.download: return await this.download(argument as IBaseHalfVideoDownloadRequest) as R;
 			case BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel: return await this.cancel(argument as IBaseHalfVideoTaskRef) as R;
+			case BASEHALF_VIDEO_PROVIDER_COMMANDS.place: return await this.place(argument as IBaseHalfVideoPlaceRequest) as R;
 			default: return await this.other(argument) as R;
 		}
 	}
