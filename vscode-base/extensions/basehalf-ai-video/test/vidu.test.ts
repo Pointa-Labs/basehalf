@@ -947,3 +947,20 @@ test('check adds the rules of the image models to the declarations\' own, and su
 		await server.close();
 	}
 });
+
+test('an image address AI Video does not download from is refused on its own, and the task\'s other creations land', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, {
+		id: 't-8',
+		state: 'success',
+		creations: [{ id: 'c-1', url: 'http://cdn.example.com/c-1.png' }, { id: 'c-2', url: 'https://cdn.example.com/c-2.png' }]
+	}));
+	try {
+		const polled = value(await commands().poll(imageTaskRef(server.url, 't-8', 'q1-image')));
+		assert.deepEqual(polled, {
+			state: 'succeeded',
+			outputs: [{ refused: 'The provider gave an image address that does not start with https://.' }, { url: 'https://cdn.example.com/c-2.png' }]
+		});
+	} finally {
+		await server.close();
+	}
+});
