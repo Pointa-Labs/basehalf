@@ -587,9 +587,23 @@ export function baseHalfCanvasTransferPlaces(origin: IBaseHalfCanvasPosition, si
 }
 
 /**
+ * The top left corner of a card of `size` that is centered on `center`: the
+ * place BaseHalf computes for a card the user creates without a point is the
+ * middle of the visible part of the canvas (canvas card placement,
+ * "Pointing").
+ */
+export function baseHalfCanvasCenteredPlace(center: IBaseHalfCanvasPosition, size: IBaseHalfCanvasSize): IBaseHalfCanvasPosition {
+	return { x: roundCanvasNumber(center.x - size.width / 2), y: roundCanvasNumber(center.y - size.height / 2) };
+}
+
+/**
  * Finds a readable position for a newly created card without moving existing
  * user-authored geometry. Candidates grow to the right first because default
- * context-flow edges leave a source card from its east anchor.
+ * context-flow edges leave a source card from its east anchor. With a
+ * `viewport`, only places inside it count, and a step that reaches past one
+ * of its edges is moved back inside along that edge, so that the room in
+ * sight is found also for a card as large as a video card (canvas card
+ * placement, "The nearest open place").
  */
 export function baseHalfCanvasOpenPosition(
 	preferred: IBaseHalfCanvasPosition,
@@ -606,18 +620,30 @@ export function baseHalfCanvasOpenPosition(
 			[ring, ring], [ring, -ring], [-ring, ring], [-ring, -ring]
 		);
 	}
-	for (const [column, row] of offsets) {
-			const candidate = {
-				x: roundCanvasNumber(preferred.x + column * columnStep),
-				y: roundCanvasNumber(preferred.y + row * rowStep)
-			};
-			const bounds = { ...candidate, ...size };
-			if ((!viewport || canvasBoundsContain(viewport, bounds)) && occupied.every(other => !canvasBoundsOverlap(bounds, other))) {
-				return candidate;
-			}
+	// A card larger than the visible part has no place inside it.
+	const fits = !viewport || (size.width <= viewport.width && size.height <= viewport.height);
+	for (const [column, row] of fits ? offsets : []) {
+		const step = {
+			x: roundCanvasNumber(preferred.x + column * columnStep),
+			y: roundCanvasNumber(preferred.y + row * rowStep)
+		};
+		const candidate = viewport ? baseHalfCanvasInside(step, size, viewport) : step;
+		const bounds = { ...candidate, ...size };
+		if ((!viewport || canvasBoundsContain(viewport, bounds)) && occupied.every(other => !canvasBoundsOverlap(bounds, other))) {
+			return candidate;
+		}
 	}
 	// Nothing near the point is open: the card goes where any new card goes.
 	return baseHalfCanvasEndPlace(occupied, size, baseHalfCanvasRowSpan(occupied, 1));
+}
+
+/** `position` moved inside `viewport` along the edges it reaches past, rounded inward so that the card stays inside. */
+function baseHalfCanvasInside(position: IBaseHalfCanvasPosition, size: { readonly width: number; readonly height: number }, viewport: IBaseHalfCanvasBounds): IBaseHalfCanvasPosition {
+	const inward = (value: number, min: number, max: number) => Math.min(Math.max(value, Math.ceil(min * 10_000) / 10_000), Math.floor(max * 10_000) / 10_000);
+	return {
+		x: inward(position.x, viewport.x, viewport.x + viewport.width - size.width),
+		y: inward(position.y, viewport.y, viewport.y + viewport.height - size.height)
+	};
 }
 
 /**

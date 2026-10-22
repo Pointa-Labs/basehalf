@@ -347,6 +347,11 @@ that generates ([Agents](#agents)).
 - The new card is placed as a card the user creates is placed
   ([canvas card placement](canvas-card-placement.md#a-card-the-user-just-created-is-shown)),
   becomes the selected card, and shows its panel with the prompt focused.
+  From the Create button or a keyboard command it is centered on the middle
+  of the visible part of the canvas, and when no place there is open the
+  view goes to it, so that its panel shows and its prompt has the keyboard.
+  At a point of the canvas and from a connection it is where the user
+  pointed, and the view stays.
 - New cards are drawn at 720 × 405 for a video and at 300 × 220, the size of a
   file card, for an image.
 - **Every name BaseHalf chooses treats a draft's path as taken**: a new draft,
@@ -595,11 +600,14 @@ What a generation card shows follows its phase (`baseHalfGenerationPhase`):
 
 The phases generating, failed, and stopped come from the task record and are
 shown only on the computer that has it. The card keeps its size when the file
-arrives; the image or the video is fitted inside it. The card changes in place
-when its generation information changes, as when the panel saves the prompt
-or an agent writes the file, and when it is selected or deselected: its
-player stays, and a video that plays goes on playing, except on a card
-deselected with the pointer elsewhere, which pauses it.
+arrives; the image or the video is fitted inside it. A card whose file was
+just saved goes from Saving straight to its picture: it says Saving after the
+record is removed, also once it is drawn again with its file, until the image
+has loaded or the video has its first frame, and at most 2 s more. The card
+changes in place when its generation information changes, as when the panel
+saves the prompt or an agent writes the file, and when it is selected or
+deselected: its player stays, and a video that plays goes on playing, except
+on a card deselected with the pointer elsewhere, which pauses it.
 
 The card's caption is its name, as for every file
 ([canvas card name](canvas-card-name.md)); a draft's caption is the name its

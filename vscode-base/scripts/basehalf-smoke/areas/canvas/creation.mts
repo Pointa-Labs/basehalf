@@ -62,20 +62,17 @@ export async function assertCanvasDoubleClickCreateMenu(page) {
  * folder of the canvas: a card, selected, with its panel and its prompt
  * focused, and a `generation.yaml` with an empty prompt (no generation ran on
  * this computer), and no file. Each is one step of the canvas undo stack.
- * The Create button puts a card in the middle of the canvas when that is
- * open, so the step makes room there first, at half size with the cards at
- * the top left, and hands the view back as it found it.
+ * The Create button centers the card on the middle of the canvas, or puts
+ * it at the nearest open place in sight, and the view goes to a card that is
+ * out of sight; the step hands the view back as it found it.
  */
 export async function assertCanvasCreateMenuMakesDrafts(page) {
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 	const readmeBefore = await readme.boundingBox();
 	const zoomBefore = Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom'));
-	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
-	if (!readmeBefore || !canvasBox) {
-		throw new Error('The README card and the canvas must be drawn before the drafts are made');
+	if (!readmeBefore) {
+		throw new Error('The README card must be drawn before the drafts are made');
 	}
-	await setCanvasZoomPercent(page, 50);
-	await panCanvasCardTo(page, readme, { x: canvasBox.x + 40, y: canvasBox.y + 60 });
 	const menu = await readCanvasCreateMenu(page);
 	const firstGroup = menu.slice(0, menu.indexOf('|') < 0 ? menu.length : menu.indexOf('|'));
 	if (JSON.stringify(firstGroup) !== JSON.stringify(['New Note', 'New Image', 'New Video', 'New File...', 'New Folder...']) || menu.some(item => /New Media|Node/.test(item))) {
@@ -306,6 +303,8 @@ export async function assertCanvasNumericFolderNames(page) {
 
 	for (const name of ['2024', '09']) {
 		await page.keyboard.press('Escape');
+		// Each card is shown before it is clicked: the view went to the one that moved.
+		await centerCanvasCards(page, [cardFor(name)]);
 		await cardFor(name).click({ button: 'right' });
 		const deleteAction = page.locator('.context-view.monaco-menu-container .action-label')
 			.filter({ hasText: /^Delete\.\.\.$/ })

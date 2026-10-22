@@ -11,6 +11,7 @@ import {
 	BASEHALF_CANVAS_CHILD_LIMIT,
 	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasEdgeLayouts,
+	baseHalfCanvasCenteredPlace,
 	baseHalfCanvasEdgePath,
 	baseHalfCanvasDraftStat,
 	baseHalfCanvasEndPlace,
@@ -134,6 +135,40 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(first, { x: 500, y: 680 });
 		assert.deepStrictEqual(second, { x: 500, y: 120 });
 		assert.deepStrictEqual(third, { x: 160, y: 400 });
+	});
+
+	test('a card created without a point is centered on the middle of the visible part', () => {
+		// The visible part at 80%: a video card of 720 by 405 fits it, but not from its middle down and to the right.
+		const viewport = { x: 0, y: 0, width: 1250, height: 750 };
+		const middle = { x: 625, y: 375 };
+		const video = { width: 720, height: 405 };
+		const centered = baseHalfCanvasCenteredPlace(middle, video);
+		assert.deepStrictEqual({
+			centered,
+			placed: baseHalfCanvasOpenPosition(centered, video, [], viewport),
+			// A corner at the middle reaches past the right and bottom edges, and comes back inside along them.
+			fromTheMiddle: baseHalfCanvasOpenPosition(middle, video, [], viewport)
+		}, {
+			centered: { x: 265, y: 172.5 },
+			placed: { x: 265, y: 172.5 },
+			fromTheMiddle: { x: 530, y: 345 }
+		});
+	});
+
+	test('a step past an edge of the visible part comes back inside it, so a large card finds the room in sight', () => {
+		// As in the smoke: a video card whose centered place is taken by a card
+		// at the middle; the whole steps right, below, above, and left all leave
+		// the visible part, which has room below the middle all the same.
+		const viewport = { x: -772, y: -64, width: 1109, height: 863 };
+		const video = { width: 720, height: 405 };
+		const image = { x: 0, y: 0, width: 300, height: 220 };
+		const placed = baseHalfCanvasOpenPosition({ x: -577, y: 149 }, video, [image], viewport);
+		assert.deepStrictEqual({ placed, inside: placed.x >= viewport.x && placed.y >= viewport.y && placed.x + video.width <= viewport.x + viewport.width && placed.y + video.height <= viewport.y + viewport.height }, {
+			placed: { x: -577, y: 394 },
+			inside: true
+		});
+		// Larger than the visible part: no place in it, the end of the canvas.
+		assert.deepStrictEqual(baseHalfCanvasOpenPosition({ x: 0, y: 0 }, { width: 2000, height: 405 }, [image], viewport), baseHalfCanvasEndPlace([image], { width: 2000, height: 405 }, baseHalfCanvasRowSpan([image], 1)));
 	});
 
 	test('merges saved canvas card geometry by workspace-relative path', () => {
