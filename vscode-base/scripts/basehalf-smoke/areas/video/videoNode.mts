@@ -25,7 +25,9 @@ import {
 	playVideoCard,
 	readAgentAreaTerminalJson,
 	readVideoCanvasLayout,
+	readCursorAt,
 	readVideoCard,
+	readVideoCardPlayer,
 	readVideoMentionMenu,
 	readVideoModelMenu,
 	readVideoNode,
@@ -37,6 +39,8 @@ import {
 	selectVideoCard,
 	setCanvasZoomPercent,
 	videoCanvasCard,
+	videoCardControlBox,
+	videoCardPicturePoint,
 	videoPanel,
 	videoWorkspaceFile,
 	waitForGenerationStart,
@@ -49,6 +53,7 @@ import {
 	assertCanvasMenuOpenedByClick,
 	assertNoCanvasFocusRing,
 	clickCanvasCreateSubmenuAction,
+	emptyCanvasPoint,
 	panCanvasCardTo,
 	readCanvasCardGeometry,
 	readCanvasView,
@@ -81,6 +86,8 @@ const VIDEO_SIBLING_NODE = `${VIDEO_FOLDER}/video-2.bhnode`;
 // The second node made from the create menu, for generations that end without a video.
 const VIDEO_SECOND_NODE = `${VIDEO_FOLDER}/video-3.bhnode`;
 const VIDEO_AGENT_NODE = `${VIDEO_FOLDER}/agent-shot.bhnode`;
+// A video file beside the nodes, for the player of a video file's card; it goes again after its step.
+const VIDEO_CLIP = `${VIDEO_FOLDER}/clip.mp4`;
 export const VIDEO_START_IMAGE = `${VIDEO_FOLDER}/start.png`;
 export const VIDEO_END_IMAGE = `${VIDEO_FOLDER}/end.png`;
 const VIDEO_PROMPT = 'A cyclist rides along the sea at dusk, the camera follows slowly';
@@ -100,7 +107,7 @@ const videoSmoke = { provider: undefined, model: undefined, summary: undefined, 
 
 // --- The Video node (D58, D59, docs/specs/video-node.md) -------------------------------------
 //
-// Acceptance criteria 2, 4, 6 to 17, 19, and 20, and the two frames of 3,
+// Acceptance criteria 2, 4, 6 to 17, 19, 20, and 25 to 28, and the two frames of 3,
 // through the window and against the local test provider with its test key,
 // reached through the provider module of VIDEO_PROVIDER; no paid provider is
 // called. The steps run in order, each where the one before ended.
@@ -116,6 +123,7 @@ export async function runVideoNodeSteps(page) {
 	await step('video-generate-writes-video', () => assertVideoGenerateWritesVideo(page));
 	await step('video-capture-frames', () => assertVideoCaptureFrames(page));
 	await step('video-card-keeps-its-player', () => assertVideoCardKeepsItsPlayer(page));
+	await step('video-card-player-gestures', () => assertVideoCardPlayerGestures(page));
 	await step('video-generate-again-makes-sibling', () => assertVideoGenerateAgainMakesSibling(page));
 	await step('video-generation-fails-and-stops', () => assertVideoGenerationFailsAndStops(page));
 	await step('video-agent-runs-node', () => assertVideoAgentRunsNode(page));
@@ -535,8 +543,8 @@ async function assertVideoGenerateWritesVideo(page) {
 		throw new Error(`The card must show the video without the face of the generation over it: ${JSON.stringify(shown)}`);
 	}
 	const played = await playVideoCard(page, VIDEO_NODE);
-	if (played.error || !(played.currentTime >= 0.3) || played.width !== 320 || played.height !== 180 || !(played.duration > 1.5 && played.duration < 2.5) || !played.controls) {
-		throw new Error(`The card must play the video, with its controls while selected: ${JSON.stringify(played)}`);
+	if (played.error || !(played.currentTime >= 0.3) || played.width !== 320 || played.height !== 180 || !(played.duration > 1.5 && played.duration < 2.5) || !played.controls || played.native) {
+		throw new Error(`The card must play the video, with BaseHalf's controls and not the system's while selected: ${JSON.stringify(played)}`);
 	}
 }
 
@@ -551,7 +559,11 @@ async function assertVideoCaptureFrames(page) {
 	if (JSON.stringify(actions) !== JSON.stringify(['captureFrame', 'revealVideo', 'openFullPreview'])) {
 		throw new Error(`The toolbar of a card with a video must offer Capture Frame, Reveal, and Open: ${JSON.stringify(actions)}`);
 	}
-	// The current frame is the one the card's player shows.
+	// The current frame is the one the card's player shows. The click that
+	// selected the card left the pointer on it, which plays the video.
+	const away = await emptyCanvasPoint(page);
+	await page.mouse.move(away.x, away.y);
+	await waitForReading(() => readVideoCardPlayer(page, VIDEO_NODE), seen => seen?.paused === true, 'the video to pause when the pointer leaves its card');
 	await seekVideoCard(page, VIDEO_NODE, 1);
 	const frames = [['current', 'Video frame at 1s.png'], ['first', 'Video first frame.png'], ['last', 'Video last frame.png']];
 	for (const [frame, name] of frames) {
@@ -572,21 +584,39 @@ async function assertVideoCaptureFrames(page) {
 }
 
 // "The card": the card of a node changes in place when its node changes. A
-// video that plays in it goes on playing while the panel saves the prompt,
-// with no frame of the loading face, and pauses where it is when the card is
-// deselected; selecting the card again keeps the same player.
+// video that plays in it under the pointer goes on playing while the panel
+// saves the prompt, with no frame of the loading face. The pointer leaving the
+// card pauses it where it is; deselecting the card and selecting it again
+// keeps the same player.
 async function assertVideoCardKeepsItsPlayer(page) {
 	const before = readVideoNode(VIDEO_NODE);
 	let panel = await selectVideoCard(page, VIDEO_NODE);
-	const started = await page.evaluate(async path => {
+	const read = () => readVideoCardPlayer(page, VIDEO_NODE);
+	// The prompt has the keyboard while the pointer rests on the picture, which plays the video.
+	await panel.locator('textarea.bh-video-panel-prompt-input').click();
+	const picture = await videoCardPicturePoint(page, VIDEO_NODE);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	await waitForReading(read, seen => seen?.paused === false && seen.muted, 'the pointer on the card to play its video without sound');
+	const started = await page.evaluate(path => {
 		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
 		const video = card?.querySelector('.bh-video-card[data-state="video"] video.bh-video-card-video');
 		if (!card || !(video instanceof HTMLVideoElement)) {
 			return { error: 'The card has no video element' };
 		}
 		video.dataset.smokePlayer = 'kept';
-		video.muted = true;
+		// The test video lasts two seconds: it plays on through the whole edit.
 		video.loop = true;
+		// What paused the video, for the message of a failure: who called pause(), and the pointer.
+		const why = [];
+		globalThis.__bhWhyPaused = why;
+		const pause = video.pause.bind(video);
+		video.pause = () => {
+			why.push(`pause() ${(new Error().stack ?? '').split('\n').slice(2, 6).join(' | ')}`);
+			pause();
+		};
+		for (const type of ['pointerenter', 'pointerleave']) {
+			video.closest('.basehalf-canvas-video-player')?.addEventListener(type, () => why.push(type));
+		}
 		const frames = [];
 		globalThis.__bhVideoCardFrames = frames;
 		globalThis.__bhVideoCardSampling = true;
@@ -603,11 +633,6 @@ async function assertVideoCardKeepsItsPlayer(page) {
 				requestAnimationFrame(sample);
 			}
 		};
-		try {
-			await video.play();
-		} catch (error) {
-			return { error: `The video did not play: ${String(error)}` };
-		}
 		requestAnimationFrame(sample);
 		return { time: video.currentTime };
 	}, VIDEO_NODE);
@@ -615,7 +640,9 @@ async function assertVideoCardKeepsItsPlayer(page) {
 		throw new Error(started.error);
 	}
 	const edited = `${before.prompt} Slowly.`;
-	await replaceVideoPrompt(page, panel, edited);
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+	await page.keyboard.type(edited);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === edited, `the prompt to read ${edited}`);
 	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === edited, 'the panel to save the edited prompt', 10_000);
 	// The canvas reads the changed node again and shows it in the same card.
 	await page.waitForTimeout(1_500);
@@ -627,23 +654,245 @@ async function assertVideoCardKeepsItsPlayer(page) {
 			replaced: frames.filter(frame => !frame.sameCard || !frame.samePlayer).length,
 			loading: frames.filter(frame => frame.loading).length,
 			paused: frames.filter(frame => frame.paused).length,
-			time: document.querySelector('video[data-smoke-player="kept"]')?.currentTime ?? null
+			time: document.querySelector('video[data-smoke-player="kept"]')?.currentTime ?? null,
+			why: globalThis.__bhWhyPaused ?? []
 		};
 	});
 	if (playing.frames < 30 || playing.replaced !== 0 || playing.loading !== 0 || playing.paused !== 0 || !(playing.time > started.time)) {
 		throw new Error(`A playing video must go on playing in the same card while its node changes: ${JSON.stringify({ started, playing })}`);
 	}
-	const readPlayer = () => page.evaluate(path => {
-		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
-		const video = card?.querySelector('video.bh-video-card-video');
-		return video instanceof HTMLVideoElement ? { kept: video.dataset.smokePlayer === 'kept', paused: video.paused, controls: video.controls } : null;
-	}, VIDEO_NODE);
+	// The pointer leaves the selected card: the video pauses, and the controls stay while the card is selected.
+	const away = await emptyCanvasPoint(page);
+	await page.mouse.move(away.x, away.y);
+	const paused = await waitForReading(read, seen => seen?.kept === true && seen.paused && seen.selected && seen.controls === 'shown' && !seen.native, 'the pointer leaving the selected card to pause its video, with the controls still shown');
 	await clickBlankVideoCanvas(page);
-	await waitForReading(readPlayer, seen => seen?.kept === true && seen.paused && !seen.controls, 'the deselected card to keep its player, paused and without controls');
+	await waitForReading(read, seen => seen?.kept === true && seen.paused && !seen.selected && seen.controls === 'hidden' && Math.abs(seen.time - paused.time) < 0.05,
+		'the deselected card to keep its player, paused where it was and without controls');
 	panel = await selectVideoCard(page, VIDEO_NODE);
-	await waitForReading(readPlayer, seen => seen?.kept === true && seen.controls, 'the selected card to show the same player with its controls');
+	await waitForReading(read, seen => seen?.kept === true && seen.selected && seen.controls === 'shown', 'the selected card to show the same player with its controls');
 	await replaceVideoPrompt(page, panel, before.prompt);
 	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === before.prompt, 'the panel to save the prompt again', 10_000);
+}
+
+// Criteria 25 to 28 ("The player"): the picture is the card's and the pointer
+// plays it, on the card of the node and on the card of a video file.
+async function assertVideoCardPlayerGestures(page) {
+	// A move in another folder changes the structure of the workspace while
+	// the canvas keeps the cards it drew; Open on one of them still opens it.
+	await renameRootReadmeInExplorerAndBack(page);
+	await assertVideoCardPlaysForThePointer(page, VIDEO_NODE);
+	// Criterion 27: the card of a video file, the test provider's video beside the node.
+	const node = videoCanvasCard(page, VIDEO_NODE);
+	const home = await node.boundingBox();
+	const zoom = Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom'));
+	fs.writeFileSync(videoWorkspaceFile(VIDEO_CLIP), (await videoSmokeProvider()).video);
+	const clip = videoCanvasCard(page, VIDEO_CLIP);
+	await clip.waitFor({ state: 'attached', timeout: 15_000 });
+	// A new card's place is checked again when its row is written, and the card can move once then.
+	await waitUntil(() => readCanvasCardGeometry(readVideoCanvasLayout(), VIDEO_CLIP) !== undefined, `the card of ${VIDEO_CLIP} to get a place`, 15_000);
+	await waitForReading(async () => {
+		const before = await clip.boundingBox();
+		await page.waitForTimeout(500);
+		const after = await clip.boundingBox();
+		return !!before && !!after && Math.abs(before.x - after.x) < 0.5 && Math.abs(before.y - after.y) < 0.5;
+	}, still => still, `the card of ${VIDEO_CLIP} to stay where it is drawn`);
+	// The card of a file is 300 wide when it appears, and the controls show on a picture 160 screen pixels wide or more.
+	const zoomed = zoom < 0.75;
+	if (zoomed) {
+		await setCanvasZoomPercent(page, 100);
+	}
+	const view = await readCanvasView(page);
+	const box = await clip.boundingBox();
+	if (!home || !box) {
+		throw new Error(`The cards of ${VIDEO_NODE} and ${VIDEO_CLIP} must be on the canvas: ${JSON.stringify({ home, box })}`);
+	}
+	await panCanvasCardTo(page, clip, { x: Math.round((view.canvas.left + view.canvas.right - box.width) / 2), y: Math.round((view.canvas.top + view.canvas.bottom - box.height) / 2) });
+	await waitForReading(() => readVideoCardPlayer(page, VIDEO_CLIP), seen => seen !== null && seen.readyState >= 1, `the card of ${VIDEO_CLIP} to show its video`);
+	await assertVideoCardPlaysForThePointer(page, VIDEO_CLIP);
+	fs.rmSync(videoWorkspaceFile(VIDEO_CLIP), { force: true });
+	await clip.waitFor({ state: 'detached', timeout: 10_000 });
+	if (zoomed) {
+		await setCanvasZoomPercent(page, Math.round(zoom * 100));
+	}
+	await panCanvasCardTo(page, node, { x: home.x, y: home.y });
+}
+
+// One card's player, from the card deselected with the pointer off it, back
+// to that. The pointer on the card plays the video without sound and shows
+// the controls; the grab hand is over the picture and the arrow over the
+// controls; a click on the picture selects the card and leaves the video
+// playing, also on the selected card; a drag from the picture moves the
+// selected card; play and pause, the position slider, and the sound button
+// move no card; leaving the selected card pauses the video; Open and a double
+// click on the picture open the card.
+async function assertVideoCardPlaysForThePointer(page, cardPath) {
+	const read = () => readVideoCardPlayer(page, cardPath);
+	const card = videoCanvasCard(page, cardPath);
+	await clickBlankVideoCanvas(page);
+	await waitForReading(read, seen => seen !== null && seen.paused && !seen.selected && seen.controls === 'hidden' && !seen.native, `the card of ${cardPath} to rest, paused and without controls`);
+	// The test video lasts two seconds: it plays on through the whole step.
+	await page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const video = card?.querySelector('.basehalf-canvas-video-player video');
+		if (video instanceof HTMLVideoElement) {
+			video.loop = true;
+		}
+	}, cardPath);
+
+	// Criterion 26: the pointer on the card plays its video without sound and shows the controls.
+	let picture = await videoCardPicturePoint(page, cardPath);
+	await page.mouse.move(picture.x, picture.y, { steps: 4 });
+	await waitForReading(read, seen => seen?.paused === false && seen.muted && !seen.selected && seen.controls === 'shown',
+		`the pointer on the card of ${cardPath} to play its video without sound and show the controls`);
+	// Criterion 25: the card's grab hand over the picture, the arrow over the controls.
+	const cursors = { picture: (await readCursorAt(page, picture))?.cursor };
+	for (const control of ['sound', 'play', 'slider', 'open']) {
+		cursors[control] = (await readCursorAt(page, await videoCardControlBox(page, cardPath, control)))?.cursor;
+	}
+	if (JSON.stringify(cursors) !== JSON.stringify({ picture: 'grab', sound: 'default', play: 'default', slider: 'default', open: 'default' })) {
+		throw new Error(`The pointer over the picture of ${cardPath} must be the grab hand, and over its controls the arrow: ${JSON.stringify(cursors)}`);
+	}
+
+	// Criterion 25: a click on the picture selects the card and leaves the
+	// video playing, and so does a click on the picture of the selected card.
+	await page.mouse.click(picture.x, picture.y);
+	await waitForCanvasCardSelection(page, cardPath);
+	const selected = await read();
+	// Apart, so that the two clicks are not a double click.
+	await page.waitForTimeout(700);
+	await page.mouse.click(picture.x, picture.y);
+	await page.waitForTimeout(300);
+	const clicked = await read();
+	if (selected?.paused !== false || clicked?.paused !== false || !clicked.selected || clicked.controls !== 'shown' || await page.locator('.basehalf-card-detail.visible').count() !== 0) {
+		throw new Error(`A click on the picture of ${cardPath} must select the card and leave its video playing: ${JSON.stringify({ selected, clicked })}`);
+	}
+
+	// Criterion 25: a drag from the picture of the selected card moves the card
+	// (snapping may pull it a few pixels); undo puts it back.
+	const placed = readCanvasCardGeometry(readVideoCanvasLayout(), cardPath);
+	const start = await card.boundingBox();
+	picture = await videoCardPicturePoint(page, cardPath);
+	await page.mouse.move(picture.x, picture.y);
+	await page.mouse.down();
+	await page.mouse.move(picture.x + 90, picture.y + 50, { steps: 8 });
+	// The card follows the pointer while it is held; where it lands is the canvas's.
+	const moved = await card.boundingBox();
+	await page.mouse.up();
+	if (!placed || !start || !moved || !(moved.x - start.x > 45 && moved.x - start.x < 106) || !(moved.y - start.y > 25 && moved.y - start.y < 66)) {
+		throw new Error(`A drag from the picture of the selected card ${cardPath} must move the card: ${JSON.stringify({ start, moved })}`);
+	}
+	const row = () => readCanvasCardGeometry(readVideoCanvasLayout(), cardPath);
+	await waitUntil(() => row()?.x !== placed.x || row()?.y !== placed.y, `the canvas to save the moved card of ${cardPath}`, 10_000);
+	await card.focus();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => row()?.x === placed.x && row()?.y === placed.y, `undo to put the card of ${cardPath} back`, 10_000);
+	// The window draws the card back after the layout has it back.
+	await waitForReading(() => card.boundingBox(), seen => seen !== null && Math.abs(seen.x - start.x) < 1 && Math.abs(seen.y - start.y) < 1, `the card of ${cardPath} to be drawn back where it was`);
+	await waitForCanvasCardSelection(page, cardPath);
+
+	// Criterion 26: play and pause, the position slider, and the sound button are the player's and move no card.
+	picture = await videoCardPicturePoint(page, cardPath);
+	await page.mouse.move(picture.x, picture.y, { steps: 2 });
+	await waitForReading(read, seen => seen?.paused === false, `the pointer on the picture of ${cardPath} to play the video`);
+	const atRest = await card.boundingBox();
+	const play = await videoCardControlBox(page, cardPath, 'play');
+	await page.mouse.click(play.x, play.y);
+	await waitForReading(read, seen => seen?.paused === true, 'the play button to pause the video');
+	const slider = await videoCardControlBox(page, cardPath, 'slider');
+	await page.mouse.move(slider.left + slider.width * 0.75, slider.y);
+	await page.mouse.down();
+	await waitForReading(read, seen => seen !== null && Math.abs(seen.time - seen.duration * 0.75) < 0.1, 'a press on the position slider to move the video');
+	await page.mouse.move(slider.left + slider.width * 0.25, slider.y, { steps: 6 });
+	await waitForReading(read, seen => seen !== null && Math.abs(seen.time - seen.duration * 0.25) < 0.1, 'the position slider to follow the pointer');
+	await page.mouse.up();
+	const sound = await videoCardControlBox(page, cardPath, 'sound');
+	await page.mouse.click(sound.x, sound.y);
+	await waitForReading(read, seen => seen?.muted === false && seen.sound === 'Mute', 'the sound button to turn the sound on');
+	await page.mouse.click(sound.x, sound.y);
+	await waitForReading(read, seen => seen?.muted === true && seen.sound === 'Unmute', 'the sound button to turn the sound off again');
+	await page.mouse.click(play.x, play.y);
+	await waitForReading(read, seen => seen?.paused === false && seen.muted, 'the play button to play the video again, without sound');
+	const afterControls = await card.boundingBox();
+	const state = await read();
+	if (!atRest || !afterControls || Math.abs(afterControls.x - atRest.x) > 0.5 || Math.abs(afterControls.y - atRest.y) > 0.5 || !state?.selected) {
+		throw new Error(`A press on the controls of ${cardPath} must not move or deselect the card: ${JSON.stringify({ atRest, afterControls, state })}`);
+	}
+
+	// Criterion 26: leaving the selected card pauses the video; the controls stay while the card is selected.
+	const away = await emptyCanvasPoint(page);
+	await page.mouse.move(away.x, away.y);
+	await waitForReading(read, seen => seen?.paused === true && seen.selected && seen.controls === 'shown', `the pointer leaving the selected card of ${cardPath} to pause its video, with the controls still shown`);
+
+	// Criterion 28: Open, and a double click on the picture, open the card and
+	// pause its video, which plays under the pointer until then. The card shows
+	// the frame where the video stopped when Card Detail closes.
+	for (const [what, open] of [
+		['Open', async () => {
+			const button = await videoCardControlBox(page, cardPath, 'open');
+			await page.mouse.click(button.x, button.y);
+		}],
+		['A double click on the picture', () => page.mouse.dblclick(picture.x, picture.y)]
+	]) {
+		picture = await videoCardPicturePoint(page, cardPath);
+		await page.mouse.move(picture.x, picture.y, { steps: 2 });
+		await waitForReading(read, seen => seen?.paused === false, `the pointer on the picture of ${cardPath} to play the video before ${what}`);
+		await open();
+		const stopped = await closeOpenedVideoCard(page, read, `${what} on the card of ${cardPath}`);
+		await waitForReading(read, seen => seen !== null && seen.readyState >= 1 && Math.abs(seen.time - stopped.time) < 0.05,
+			`the card of ${cardPath} to show the frame where its video stopped, ${stopped.time} s`);
+	}
+	await clickBlankVideoCanvas(page);
+	await waitForReading(read, seen => seen?.paused === true && !seen.selected && seen.controls === 'hidden', `the deselected card of ${cardPath} to rest without controls`);
+}
+
+// Criterion 28: Card Detail opened from a card's player lies over the card's
+// canvas with the card's video paused, and closing it shows that canvas again.
+// Returns the player as Card Detail found it.
+async function closeOpenedVideoCard(page, read, what) {
+	const detail = page.locator('.basehalf-card-detail.visible');
+	if (!await detail.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false)) {
+		throw new Error(`${what} must open the card in Card Detail`);
+	}
+	const player = await read();
+	if (player?.paused !== true) {
+		throw new Error(`${what} must pause the card's video: ${JSON.stringify(player)}`);
+	}
+	await page.locator('.basehalf-card-detail-close').click();
+	await detail.waitFor({ state: 'hidden', timeout: 10_000 });
+	await assertCanvasFolder(page, VIDEO_FOLDER);
+	return player;
+}
+
+// Renames README.md at the workspace root from the Explorer and back, with
+// the keyboard, which opens nothing: two moves made in the window, outside
+// the folder whose canvas is open.
+async function renameRootReadmeInExplorerAndBack(page) {
+	const list = page.locator('.explorer-viewlet .monaco-list').first();
+	if (!await list.isVisible().catch(() => false)) {
+		await runCommand(page, 'Focus on Files Explorer');
+	}
+	for (const [from, to] of [['README.md', 'README-moved.md'], ['README-moved.md', 'README.md']]) {
+		await list.focus();
+		// The file is the last row of the root, after the folders.
+		await page.keyboard.press('End');
+		await waitForReading(() => page.locator('.explorer-viewlet .monaco-list-row.focused').innerText().catch(() => ''), text => text.includes(from), `the Explorer to select ${from}`);
+		await page.keyboard.press(process.platform === 'darwin' ? 'Enter' : 'F2');
+		const input = page.locator('.explorer-viewlet .explorer-item .monaco-inputbox input');
+		await input.waitFor({ state: 'visible', timeout: 10_000 });
+		await input.fill(to);
+		await page.keyboard.press('Enter');
+		await input.waitFor({ state: 'hidden', timeout: 10_000 });
+		await waitUntil(() => fs.existsSync(path.join(workspacePath, to)) && !fs.existsSync(path.join(workspacePath, from)), `the Explorer to rename ${from} to ${to}`, 10_000);
+	}
+	await assertCanvasFolder(page, VIDEO_FOLDER);
+	// Until the canvas has drawn the new structure, it lets a click on it go:
+	// the selection ends once it has.
+	const blank = await emptyCanvasPoint(page);
+	await waitForReading(async () => {
+		await page.mouse.click(blank.x, blank.y);
+		await page.waitForTimeout(150);
+		return page.locator('.react-flow__node.selected').count();
+	}, count => count === 0, 'a click on the blank canvas to end the selection once the canvas has drawn the moves');
 }
 
 // Criterion 17: Generate on a node that holds a video makes a node beside it

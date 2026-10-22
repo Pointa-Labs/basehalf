@@ -169,7 +169,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			return { handled: false, reason: 'superseded' };
 		}
 
-		const canvasFolder = this.toParentCanvasFolder(resource, options);
+		const canvasFolder = this.toCardDetailCanvasFolder(resource, options);
 		if (!canvasFolder) {
 			return { handled: false, reason: 'outsideWorkspace' };
 		}
@@ -393,22 +393,42 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		};
 	}
 
-	private toParentCanvasFolder(resource: URI, options: IBaseHalfOpenResourceOptions): IBaseHalfCanvasFolderState | undefined {
+	/** The canvas under the Card Detail of `resource`: the requested folder in its workspace folder, else its own folder. */
+	private toCardDetailCanvasFolder(resource: URI, options: IBaseHalfOpenResourceOptions): IBaseHalfCanvasFolderState | undefined {
 		const workspaceResource = this.toWorkspaceResource(resource);
 		if (!workspaceResource) {
 			return undefined;
 		}
 
-		const parent = this.uriIdentityService.extUri.dirname(resource);
-		const parentWorkspaceResource = this.toWorkspaceResource(parent);
-		if (!parentWorkspaceResource) {
+		const chosen = options.canvasFolder ?? this.chosenCanvasFolderKeptFor(resource, options);
+		const requested = chosen ? this.toWorkspaceResource(chosen) : undefined;
+		const folderWorkspaceResource = requested && this.uriIdentityService.extUri.isEqual(requested.workspaceFolder, workspaceResource.workspaceFolder)
+			? requested
+			: this.toWorkspaceResource(this.uriIdentityService.extUri.dirname(resource));
+		if (!folderWorkspaceResource) {
 			return undefined;
 		}
 
 		return {
-			...parentWorkspaceResource,
+			...folderWorkspaceResource,
 			source: options.source
 		};
+	}
+
+	/**
+	 * The open Card Detail opened again in place, for another projection or at
+	 * the new path of its file, keeps a canvas that was chosen for it rather
+	 * than its file's own folder.
+	 */
+	private chosenCanvasFolderKeptFor(resource: URI, options: IBaseHalfOpenResourceOptions): URI | undefined {
+		const { cardDetail, canvasFolder } = this._state;
+		const extUri = this.uriIdentityService.extUri;
+		if (!cardDetail || !canvasFolder
+			|| (options.expectedCardDetail !== cardDetail && !extUri.isEqual(cardDetail.resource, resource))
+			|| extUri.isEqual(canvasFolder.resource, extUri.dirname(cardDetail.resource))) {
+			return undefined;
+		}
+		return canvasFolder.resource;
 	}
 }
 

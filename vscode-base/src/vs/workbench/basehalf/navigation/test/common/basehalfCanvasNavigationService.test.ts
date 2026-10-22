@@ -106,6 +106,45 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/guide.md');
 	});
 
+	test('opens a file over the canvas of a requested folder in its workspace folder, which closing shows again', async () => {
+		const video = URI.file('/workspace/outputs/node-1/task-1.mp4');
+		const service = createService(new Map([
+			[video.fsPath, aFileStat(video, FileType.File)]
+		]), [workspaceFolder, URI.file('/elsewhere')]);
+
+		await service.openResource(video, { source: 'api', canvasFolder: URI.file('/workspace/shots') });
+		const opened = { canvas: service.state.canvasFolder?.relativePath, detail: service.state.cardDetail?.relativePath };
+		await service.closeCardDetail();
+		const closed = { canvas: service.state.canvasFolder?.relativePath, detail: service.state.cardDetail?.relativePath };
+		// A folder of another workspace folder cannot lie under the file: the file's own folder does.
+		await service.openResource(video, { source: 'api', canvasFolder: URI.file('/elsewhere/shots') });
+
+		assert.deepStrictEqual({ opened, closed, elsewhere: service.state.canvasFolder?.resource.fsPath }, {
+			opened: { canvas: 'shots', detail: 'outputs/node-1/task-1.mp4' },
+			closed: { canvas: 'shots', detail: undefined },
+			elsewhere: '/workspace/outputs/node-1'
+		});
+	});
+
+	test('Card Detail opened again in place keeps the canvas chosen for it, and one over its own folder follows its file', async () => {
+		const video = URI.file('/workspace/outputs/node-1/task-1.mp4');
+		const renamed = URI.file('/workspace/outputs/node-1/take.mp4');
+		const note = URI.file('/workspace/docs/guide.md');
+		const moved = URI.file('/workspace/notes/guide.md');
+		const service = createService(new Map());
+		const canvas = () => service.state.canvasFolder?.relativePath;
+
+		await service.openCardDetail(video, { source: 'api', canvasFolder: URI.file('/workspace/shots') });
+		await service.openCardDetail(video, { source: 'api', projection: 'source', history: 'replace' });
+		const otherProjection = canvas();
+		await service.openCardDetail(renamed, { source: 'api', history: 'replace', expectedCardDetail: service.state.cardDetail });
+		const afterRename = canvas();
+		await service.openCardDetail(note, { source: 'api' });
+		await service.openCardDetail(moved, { source: 'api', history: 'replace', expectedCardDetail: service.state.cardDetail });
+
+		assert.deepStrictEqual({ otherProjection, afterRename, note: canvas() }, { otherProjection: 'shots', afterRename: 'shots', note: 'notes' });
+	});
+
 	test('uses the most specific workspace folder for nested multi-root workspaces', async () => {
 		const service = createService(
 			new Map([

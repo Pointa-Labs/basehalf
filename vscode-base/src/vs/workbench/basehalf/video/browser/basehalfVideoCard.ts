@@ -4,17 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfVideoNode.css';
-import { $, addDisposableListener, append, clearNode, disposableWindowInterval, getWindow } from '../../../../base/browser/dom.js';
+import { $, append, clearNode, disposableWindowInterval, getWindow } from '../../../../base/browser/dom.js';
 import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { localize } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { baseHalfVideoCardPresentation, formatBaseHalfVideoElapsed, IBaseHalfVideoCardPresentation } from '../common/basehalfVideoCardPresentation.js';
 import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
 import { IBaseHalfVideoNodeFields, isBaseHalfVideoTaskActive } from '../common/basehalfVideoNode.js';
-import { releaseBaseHalfCanvasCardMedia } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 
 /** What a Video card draws. */
 export interface IBaseHalfVideoCardInput {
@@ -26,8 +24,10 @@ export interface IBaseHalfVideoCardInput {
 	readonly video?: URI;
 	/** Whether the video file exists. Unknown counts as there. */
 	readonly videoExists?: boolean;
-	/** The card is the only selected card: its player shows its controls. */
+	/** The card is the only selected card: its player shows its controls while it is. */
 	readonly interactive: boolean;
+	/** Opens the card, as a double click on it does: the player's Open. */
+	readonly open?: () => void;
 }
 
 export interface IBaseHalfVideoCardServices {
@@ -53,15 +53,12 @@ export interface IBaseHalfVideoCard extends IDisposable {
  * Draws a Video card into `container` (D58, video node specification, "The
  * card"): a video glyph while the node is empty; the phase, the time since the
  * start, and a progress bar while it generates; the error or "Stopped" when a
- * generation ended without a video; and the video, with its controls only
- * while the card is selected. The card keeps its size; the video is fitted.
+ * generation ended without a video; and the video in the card's player
+ * (video node, "The player"). The card keeps its size; the video is fitted.
  */
 export function renderBaseHalfVideoCard(container: HTMLElement, input: IBaseHalfVideoCardInput, services: IBaseHalfVideoCardServices): IBaseHalfVideoCard {
 	return new BaseHalfVideoCard(container, input, services);
 }
-
-/** The players of Video cards; one that starts playing pauses the others. */
-const playingCardVideos = new Set<HTMLVideoElement>();
 
 class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 
@@ -69,8 +66,7 @@ class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 	private readonly face: HTMLElement;
 	private readonly faceHover = this._register(new MutableDisposable());
 	private readonly ticker = this._register(new MutableDisposable());
-	private readonly player = this._register(new MutableDisposable());
-	private video: HTMLVideoElement | undefined;
+	private readonly player = this._register(new MutableDisposable<IBaseHalfCanvasCardVideoPlayer>());
 	private videoSource: URI | undefined;
 	private videoPlayable = true;
 	private elapsed: HTMLElement | undefined;
@@ -96,7 +92,7 @@ class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 	}
 
 	get currentTime(): number | undefined {
-		return this.video && Number.isFinite(this.video.currentTime) ? this.video.currentTime : undefined;
+		return this.player.value?.currentTime;
 	}
 
 	update(input: IBaseHalfVideoCardInput): void {
@@ -193,71 +189,27 @@ class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 	}
 
 	private showVideo(source: URI): void {
-		const interactive = this.input.interactive;
-		if (!this.video || !isEqual(this.videoSource, source)) {
+		let player = this.player.value;
+		if (!player || !isEqual(this.videoSource, source)) {
 			this.hideVideo();
-			const video = $<HTMLVideoElement>('video.bh-video-card-video');
-			this.element.insertBefore(video, this.face);
-			video.preload = 'metadata';
-			video.playsInline = true;
-			// The first frame stands for the video until it plays.
-			video.src = `${FileAccess.uriToBrowserUri(source).toString(true)}#t=0.001`;
-			this.video = video;
-			this.videoSource = source;
-			const disposables: IDisposable[] = [
-				addDisposableListener(video, 'error', () => {
+			player = createBaseHalfCanvasCardVideoPlayer(this.element, this.face, {
+				source,
+				videoClasses: ['bh-video-card-video'],
+				open: () => this.input.open?.(),
+				onError: () => {
 					this.videoPlayable = false;
 					this.render();
-				}),
-				addDisposableListener(video, 'play', () => {
-					for (const other of playingCardVideos) {
-						if (other !== video) {
-							other.pause();
-						}
-					}
-					playingCardVideos.add(video);
-				}),
-				addDisposableListener(video, 'pause', () => playingCardVideos.delete(video)),
-				// With its controls shown, the player owns these gestures; otherwise
-				// they select, move, and open the card like the rest of it.
-				...(['pointerdown', 'mousedown', 'click', 'dblclick', 'wheel'] as const).map(type => addDisposableListener(video, type, event => {
-					if (video.controls) {
-						event.stopPropagation();
-					}
-				}))
-			];
-			this.player.value = toDisposable(() => {
-				for (const disposable of disposables) {
-					disposable.dispose();
-				}
-				playingCardVideos.delete(video);
-				releaseBaseHalfCanvasCardMedia(video);
-				video.remove();
+				},
+				hoverService: this.services.hoverService
 			});
+			this.player.value = player;
+			this.videoSource = source;
 		}
-		const video = this.video;
-		// A deselected card has no controls to stop its video with.
-		if (!interactive && !video.paused) {
-			video.pause();
-		}
-		video.controls = interactive;
-		video.tabIndex = interactive ? 0 : -1;
-		video.classList.toggle('nodrag', interactive);
-		video.classList.toggle('nopan', interactive);
-		video.classList.toggle('nowheel', interactive);
-		video.style.pointerEvents = interactive ? '' : 'none';
-		if (interactive) {
-			video.removeAttribute('aria-hidden');
-			video.setAttribute('aria-label', localize('basehalf.video.card.player', "Video player for {0}", this.input.title));
-		} else {
-			video.removeAttribute('aria-label');
-			video.setAttribute('aria-hidden', 'true');
-		}
+		player.setSelected(this.input.interactive);
 	}
 
 	private hideVideo(): void {
 		this.player.clear();
-		this.video = undefined;
 		this.videoSource = undefined;
 	}
 }

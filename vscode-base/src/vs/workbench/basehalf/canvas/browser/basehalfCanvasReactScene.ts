@@ -132,6 +132,14 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 		return this.runtime?.getViewport() ?? this.latestViewport;
 	}
 
+	/**
+	 * The structural epoch the scene was last given for `sceneKey`: the one its
+	 * cards' gestures report, such as a double click that opens a card.
+	 */
+	structuralEpochOf(sceneKey: string): number | undefined {
+		return this.latestSnapshot?.key === sceneKey ? this.latestSnapshot.structuralEpoch : undefined;
+	}
+
 	isInteracting(): boolean {
 		return this.runtime?.isInteracting() ?? false;
 	}

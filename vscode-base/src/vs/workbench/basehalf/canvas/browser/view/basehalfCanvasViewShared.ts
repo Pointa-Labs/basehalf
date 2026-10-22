@@ -281,6 +281,11 @@ export function isVideoNodePreview(preview: BaseHalfCanvasCardPreview | undefine
 	return preview?.kind === 'node' && preview.document.kind === 'video';
 }
 
+/** The preview of a video file's card: its player stays while the card is selected or deselected. */
+export function isVideoMediaPreview(preview: BaseHalfCanvasCardPreview | undefined): boolean {
+	return preview?.kind === 'media' && preview.mediaKind === 'video';
+}
+
 export function cardDisplayName(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): string {
 	return preview?.kind === 'node' ? preview.document.title : baseHalfItemDisplayName(item.name, item.kind === 'folder');
 }

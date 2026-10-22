@@ -554,7 +554,7 @@ export class BaseHalfCanvasRenderer {
 			const element = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey, currentSceneKey)
 				|| this.retainVideoNodeCard(cached, displayedItem, preview, visualKey, currentSceneKey)
 				? cached.element
-				: this.view.cardRenderer.createCard(displayedItem, bounds, preview, structuralStamp, currentSceneKey);
+				: this.view.cardRenderer.createCard(displayedItem, bounds, preview, currentSceneKey);
 			const controls = this.view.cardRenderer.sceneCardControls(displayedItem, preview);
 			const retainedActiveNote = this.view.activeCanvasNoteEditor;
 			if (retainedActiveNote?.path === item.path && retainedActiveNote.card === element) {

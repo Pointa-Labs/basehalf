@@ -173,11 +173,15 @@ export class BaseHalfCanvasSelectionActions {
 				atomic: true,
 				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
 			});
-			const artifact = getBaseHalfNodeResultArtifact(parseBaseHalfNodeDocumentBytes(content.value.buffer));
+			const nodeDocument = parseBaseHalfNodeDocumentBytes(content.value.buffer);
+			const artifact = getBaseHalfNodeResultArtifact(nodeDocument);
 			if (!artifact) {
 				return;
 			}
-			await this.view.cardRenderer.openNodeArtifactPath(folder, artifact.path);
+			// A Video node's video opens over the node's canvas (D62). Card Detail of
+			// another node's file keeps that file's folder under it, where actions such
+			// as branching from a PDF place what they make.
+			await this.view.cardRenderer.openNodeArtifactPath(folder, artifact.path, nodeDocument.kind === 'video');
 		} catch (error) {
 			this.view.logService.warn(error);
 			this.view.queueCanvasWarning(error instanceof Error ? error.message : String(error));

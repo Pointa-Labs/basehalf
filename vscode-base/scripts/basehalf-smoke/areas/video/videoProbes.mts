@@ -309,13 +309,15 @@ export function readVideoCard(page, cardPath) {
 	}, cardPath);
 }
 
-// Plays the card's video for a moment, muted, and reports what it played.
+// Plays the card's video for a moment, muted, and reports what it played and
+// which controls its player shows: `controls` is BaseHalf's, `native` the system's.
 export function playVideoCard(page, cardPath) {
 	return page.evaluate(async path => {
 		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
 		const video = card?.querySelector('.bh-video-card[data-state="video"] video.bh-video-card-video');
-		if (!(video instanceof HTMLVideoElement)) {
-			return { error: 'The card has no video element' };
+		const player = video?.closest('.basehalf-canvas-video-player');
+		if (!(video instanceof HTMLVideoElement) || !(player instanceof HTMLElement)) {
+			return { error: 'The card has no video player' };
 		}
 		video.muted = true;
 		try {
@@ -327,10 +329,83 @@ export function playVideoCard(page, cardPath) {
 		while (video.currentTime < 0.3 && !video.error && performance.now() - started < 5_000) {
 			await new Promise(resolve => setTimeout(resolve, 50));
 		}
-		const played = { currentTime: video.currentTime, duration: video.duration, width: video.videoWidth, height: video.videoHeight, controls: video.controls, error: video.error?.message ?? null };
+		const played = { currentTime: video.currentTime, duration: video.duration, width: video.videoWidth, height: video.videoHeight, controls: player.dataset.controls === 'shown', native: video.controls, error: video.error?.message ?? null };
 		video.pause();
 		return played;
 	}, cardPath);
+}
+
+// The card's video player: whether it is the one marked `kept`, whether it
+// plays and with sound, where it is, and whether its controls show.
+export function readVideoCardPlayer(page, cardPath) {
+	return page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const player = card?.querySelector('.basehalf-canvas-video-player');
+		const video = player?.querySelector('video');
+		if (!card || !(player instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
+			return null;
+		}
+		return {
+			kept: video.dataset.smokePlayer === 'kept',
+			selected: card.closest('.react-flow__node')?.classList.contains('selected') === true,
+			paused: video.paused,
+			muted: video.muted,
+			time: video.currentTime,
+			duration: video.duration,
+			readyState: video.readyState,
+			controls: player.dataset.controls ?? null,
+			native: video.controls,
+			sound: player.querySelector('.basehalf-canvas-video-player-button.sound')?.getAttribute('aria-label') ?? null
+		};
+	}, cardPath);
+}
+
+// A point of the card's picture clear of its controls, where nothing lies over it.
+export async function videoCardPicturePoint(page, cardPath) {
+	const point = await page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const player = card?.querySelector('.basehalf-canvas-video-player');
+		const rect = player?.getBoundingClientRect();
+		if (!player || !rect || rect.width === 0) {
+			return undefined;
+		}
+		const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.45 };
+		const hit = document.elementFromPoint(point.x, point.y);
+		return hit && player.contains(hit) && !hit.closest('.nodrag') ? point : undefined;
+	}, cardPath);
+	if (!point) {
+		throw new Error(`The picture of ${cardPath} is not on top at its middle`);
+	}
+	return point;
+}
+
+// The box of one of the player's controls, `sound`, `play`, `open`, or
+// `slider`, when nothing lies over its middle.
+export async function videoCardControlBox(page, cardPath, control) {
+	const box = await page.evaluate(({ path, control }) => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const element = card?.querySelector(control === 'slider' ? '.basehalf-canvas-video-player-slider' : `.basehalf-canvas-video-player-button.${control}`);
+		const rect = element?.getBoundingClientRect();
+		if (!element || !rect || rect.width === 0) {
+			return undefined;
+		}
+		const x = rect.left + rect.width / 2;
+		const y = rect.top + rect.height / 2;
+		const hit = document.elementFromPoint(x, y);
+		return { left: rect.left, top: rect.top, width: rect.width, height: rect.height, x, y, onTop: !!hit && element.contains(hit), hit: hit?.getAttribute('class') ?? hit?.tagName ?? null };
+	}, { path: cardPath, control });
+	if (!box || !box.onTop) {
+		throw new Error(`The player of ${cardPath} must show its ${control} with nothing over it: ${JSON.stringify(box)}`);
+	}
+	return box;
+}
+
+// The pointer's shape at a point of the window: the cursor of what the point hits.
+export function readCursorAt(page, point) {
+	return page.evaluate(({ x, y }) => {
+		const hit = document.elementFromPoint(x, y);
+		return hit ? { cursor: getComputedStyle(hit).cursor, element: hit.getAttribute('class') ?? hit.tagName } : null;
+	}, point);
 }
 
 // Moves the card's player to `seconds`, as the user does with its controls.

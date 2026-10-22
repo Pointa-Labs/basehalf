@@ -71,6 +71,8 @@ import {
 	IBaseHalfCanvasSceneEdge
 } from '../common/basehalfCanvasScene.js';
 import { BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID } from './basehalfCanvasContextMenu.js';
+import { layoutBaseHalfCanvasCardVideoPlayers } from './basehalfCanvasCardVideoPlayer.js';
+import { playBaseHalfCanvasMediaOneAtATime } from './basehalfCanvasCardMedia.js';
 import { BaseHalfCanvasCardPreview, BaseHalfCanvasNodePreview } from '../common/basehalfCanvasCardPreview.js';
 import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
@@ -469,6 +471,9 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			this.requestRender();
 			this.selectionActions.reportAgentSelection();
 		}));
+		// The controls of a card's video player show on a picture wide enough on screen.
+		this._register(this.onDidChangeZoomEmitter.event(() => layoutBaseHalfCanvasCardVideoPlayers()));
+		this._register(playBaseHalfCanvasMediaOneAtATime(this.cards));
 		this._register(this.cardProjectionRegistryService.onDidChangeProjections(() => this.cardDetailHost.reconcileCardProjectionRegistrations()));
 		this._register(this.cardDetailSurfaceRegistryService.onDidChangeProviders(() => this.cardDetailHost.reconcileCardProjectionRegistrations()));
 		this._register(this.canvasEditingService.registerHandler(request => this.creation.beginCanvasInlineEdit(request)));
@@ -595,11 +600,12 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 					outcome.waitUntil(detailReconciliation);
 				}
 			}
-			// The folder whose canvas is open was moved: the canvas shows it at its new path.
+			// The folder whose canvas is open was moved: the canvas shows it at its
+			// new path, after the file in Card Detail followed if it moved too.
 			const openFolder = this.canvasNavigationService.state.canvasFolder;
-			const folderEffect = openFolder && !detail ? baseHalfStructuralResourceOutcome(outcome, openFolder.workspaceFolder, openFolder.relativePath, openFolder.resource) : undefined;
+			const folderEffect = openFolder ? baseHalfStructuralResourceOutcome(outcome, openFolder.workspaceFolder, openFolder.relativePath, openFolder.resource) : undefined;
 			if (openFolder && folderEffect?.kind === 'move') {
-				outcome.waitUntil(this.followOpenFolder(openFolder, folderEffect.resource));
+				outcome.waitUntil((detailReconciliation ?? Promise.resolve()).then(() => this.followOpenFolder(openFolder, folderEffect.resource)));
 			}
 			if (outcome.workspaces.some(workspace => this.getCurrentFolder()?.workspaceFolder.toString() === workspace.toString())) {
 				this.requestRender();
@@ -749,15 +755,37 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	}
 
 	/** The canvas shows the folder it had open at the folder's new path, with the view it had. */
+	/**
+	 * The folder whose canvas is open moved to `resource`: the canvas shows it
+	 * there. Card Detail open over it stays open, over the folder at its new
+	 * path, as when its file lies outside that folder (D62).
+	 */
 	private async followOpenFolder(folder: IBaseHalfCanvasFolderState, resource: URI): Promise<void> {
-		if (this.canvasNavigationService.state.canvasFolder !== folder) {
+		const { canvasFolder, cardDetail } = this.canvasNavigationService.state;
+		if (!canvasFolder || !this.uriIdentityService.extUri.isEqual(canvasFolder.resource, folder.resource)) {
 			return;
 		}
 		const viewport = this.viewportStateService.get(folder.resource);
 		if (viewport) {
 			this.viewportStateService.set(resource, viewport);
 		}
-		await this.canvasNavigationService.openFolderCanvas(resource, { source: folder.source, history: 'replace' });
+		if (!cardDetail) {
+			await this.canvasNavigationService.openFolderCanvas(resource, { source: folder.source, history: 'replace' });
+			return;
+		}
+		// One with unsaved changes is left as it is.
+		if (!this.workingCopyService.isDirty(cardDetail.resource)) {
+			await this.canvasNavigationService.openCardDetail(cardDetail.resource, {
+				source: cardDetail.source,
+				selection: cardDetail.selection,
+				preserveFocus: cardDetail.preserveFocus,
+				pinned: cardDetail.pinned,
+				projection: cardDetail.projection,
+				history: 'replace',
+				expectedCardDetail: cardDetail,
+				canvasFolder: resource
+			});
+		}
 	}
 
 	private async followMovedItem(workspaceFolder: URI, from: string, to: string): Promise<void> {
@@ -775,13 +803,12 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		}
 		const detail = state.cardDetail;
 		const detailResource = detail ? moved(detail) : undefined;
-		if (detail && detailResource) {
-			// One with unsaved changes is left as it is: it held the relocation back.
-			if (!this.workingCopyService.isDirty(detail.resource)) {
-				await this.canvasNavigationService.openCardDetail(detailResource, { source: detail.source, history: 'replace', expectedCardDetail: detail });
-			}
-			return;
+		// One with unsaved changes is left as it is: it held the relocation back.
+		if (detail && detailResource && !this.workingCopyService.isDirty(detail.resource)) {
+			await this.canvasNavigationService.openCardDetail(detailResource, { source: detail.source, history: 'replace', expectedCardDetail: detail });
 		}
+		// The canvas follows its folder; when Card Detail of a file in that folder
+		// followed its file, the canvas came along and nothing is left to do.
 		const folder = state.canvasFolder;
 		const folderResource = folder && folder.relativePath !== '' ? moved(folder) : undefined;
 		if (folder && folderResource) {

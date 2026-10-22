@@ -563,7 +563,7 @@ export class BaseHalfCanvasPreviews {
 				const element = this.view.renderer.canReuseRenderedCard(cached, displayedItem, preview, visualKey, hydrationBatch.sceneKey)
 					|| this.view.renderer.retainVideoNodeCard(cached, displayedItem, preview, visualKey, hydrationBatch.sceneKey)
 					? cached.element
-					: this.view.cardRenderer.createCard(displayedItem, currentCard, preview, structuralStamp, hydrationBatch.sceneKey);
+					: this.view.cardRenderer.createCard(displayedItem, currentCard, preview, hydrationBatch.sceneKey);
 				this.view.cardRenderer.applyNoteBackground(element, isBaseHalfMarkdownResource(currentItem.stat.resource) ? this.view.renderedNoteBackgrounds.get(currentItem.path) ?? 'default' : undefined);
 				this.view.renderedCardsByPath.set(currentItem.path, {
 					item: currentItem,

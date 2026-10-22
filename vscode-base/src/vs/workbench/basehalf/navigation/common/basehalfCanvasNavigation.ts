@@ -49,6 +49,11 @@ export interface IBaseHalfOpenResourceOptions extends IBaseHalfNavigationHistory
 	/** Replace only this exact detail epoch. A newer detail opened while the
 	 * active editor is flushing must win over an older structural reconciliation. */
 	readonly expectedCardDetail?: IBaseHalfCardDetailState;
+	/** The folder whose canvas lies under Card Detail, such as the folder of the
+	 * Video node whose video opens (D62). When not given, the open Card Detail
+	 * opened again in place keeps the canvas chosen for it, and any other keeps
+	 * the file's own folder, as does a folder of another workspace folder. */
+	readonly canvasFolder?: URI;
 }
 
 export interface IBaseHalfWorkspaceResource {

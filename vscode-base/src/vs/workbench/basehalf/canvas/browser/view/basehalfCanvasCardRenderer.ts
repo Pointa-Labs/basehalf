@@ -39,6 +39,7 @@ import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/baseh
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
 import { rememberBaseHalfVideoDetailNode } from '../../../cardDetail/browser/basehalfMediaCardDetail.js';
 import { releaseBaseHalfCanvasCardMedia } from '../basehalfCanvasCardMedia.js';
+import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
 import {
 	BaseHalfCanvasSceneCardControls,
 	BaseHalfCanvasSceneVideoAction,
@@ -48,9 +49,8 @@ import {
 	IBaseHalfCanvasSceneCardPresentation
 } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfCanvasCardPreview, BaseHalfCanvasNodePreview } from '../../common/basehalfCanvasCardPreview.js';
-import { IBaseHalfWorkspaceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT, BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, appendCanvasNoteFullEditorLabel, badgeType, baseHalfReferenceLabel, canvasResultNodeKindLabel, cardDisplayName, isVideoNodePreview } from './basehalfCanvasViewShared.js';
+import { BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT, BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, appendCanvasNoteFullEditorLabel, badgeType, baseHalfReferenceLabel, canvasResultNodeKindLabel, cardDisplayName, isVideoMediaPreview, isVideoNodePreview } from './basehalfCanvasViewShared.js';
 
 type BaseHalfCanvasGlyphType = BaseHalfItemGlyph;
 
@@ -98,6 +98,8 @@ export class BaseHalfCanvasCardRenderer {
 	private readonly videoCards = new Map<string, IBaseHalfVideoCard>();
 	/** The Video card drawn in each card element. */
 	private readonly videoCardBodies = new WeakMap<HTMLElement, IBaseHalfVideoCard>();
+	/** The player of the video file drawn in each card element. */
+	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfCanvasCardVideoPlayer>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -186,7 +188,6 @@ export class BaseHalfCanvasCardRenderer {
 		item: IBaseHalfCanvasItem,
 		bounds: IBaseHalfCanvasBounds,
 		preview: BaseHalfCanvasCardPreview | undefined,
-		structuralStamp: IBaseHalfWorkspaceMutationStamp,
 		sceneKey: string
 	): HTMLElement {
 		const card = $('.basehalf-canvas-card');
@@ -263,6 +264,15 @@ export class BaseHalfCanvasCardRenderer {
 		const shown = { item, preview };
 		let renderedPresentation: BaseHalfCanvasCardPresentation | undefined;
 		let renderedHeight: number | undefined;
+		// The Open of a card's video player does what a double click on the card
+		// does. A card outlives the drawings that keep it, so the epoch is the
+		// scene's when Open is pressed, the one the scene's own double click reports.
+		const openCard = (): void => {
+			const structuralEpoch = this.view.canvasScene.structuralEpochOf(sceneKey);
+			if (structuralEpoch !== undefined) {
+				void this.view.selectionActions.openSceneCard(sceneKey, structuralEpoch, item.path).catch(error => this.view.logService.warn(error));
+			}
+		};
 		const updatePresentation = (presentation: IBaseHalfCanvasSceneCardPresentation): void => {
 			// A live Note editor is an overlay on the retained preview. Even a stale
 			// scene callback must not dispose that preview's rendering/listener owner.
@@ -281,13 +291,21 @@ export class BaseHalfCanvasCardRenderer {
 				}
 				return;
 			}
-			// A Video card that is selected or deselected keeps its player: only
-			// the player's controls come and go.
+			// A Video card, and the card of a video file, that is selected or
+			// deselected keeps its player: only the player's controls come and go.
 			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell'
 				&& !badgeOpen && isVideoNodePreview(shown.preview) && this.videoCardBodies.has(card)) {
 				renderedPresentation = presentationLevel;
 				card.dataset.previewLevel = presentationLevel;
-				this.updateVideoNodePreview(card, shown.item, shown.preview, presentationLevel === 'interactive');
+				this.updateVideoNodePreview(card, shown.item, shown.preview, presentationLevel === 'interactive', openCard);
+				return;
+			}
+			const mediaPlayer = this.mediaVideoPlayers.get(card);
+			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell'
+				&& !badgeOpen && isVideoMediaPreview(shown.preview) && mediaPlayer) {
+				renderedPresentation = presentationLevel;
+				card.dataset.previewLevel = presentationLevel;
+				mediaPlayer.setSelected(presentationLevel === 'interactive');
 				return;
 			}
 			renderedPresentation = presentationLevel;
@@ -304,7 +322,7 @@ export class BaseHalfCanvasCardRenderer {
 			if (badgeOpen && canShowBadgeFace) {
 				this.view.badgeEditor.renderCardBadgeFace(body, item, nextListeners);
 			} else {
-				this.renderCardPreview(body, shown.item, shown.preview, orphan, presentationLevel === 'interactive', nextListeners, card);
+				this.renderCardPreview(body, shown.item, shown.preview, orphan, presentationLevel === 'interactive', nextListeners, card, openCard);
 			}
 			this.renderFolderCoverage(active, shown.item, shown.preview);
 			this.view.badgeEditor.restorePendingCanvasBadgeFocus(card, item.path);
@@ -318,7 +336,7 @@ export class BaseHalfCanvasCardRenderer {
 				label.textContent = name;
 				label.title = name;
 				if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && !badgeOpen) {
-					this.updateVideoNodePreview(card, nextItem, nextPreview, renderedPresentation === 'interactive');
+					this.updateVideoNodePreview(card, nextItem, nextPreview, renderedPresentation === 'interactive', openCard);
 				}
 			});
 		}
@@ -346,7 +364,10 @@ export class BaseHalfCanvasCardRenderer {
 					}
 				} else if (markdownNote) {
 					this.view.selectionActions.selectCard(item.path);
-					void this.view.noteEditing.beginSceneNoteEdit(sceneKey, structuralStamp.structuralEpoch, item.path);
+					const structuralEpoch = this.view.canvasScene.structuralEpochOf(sceneKey);
+					if (structuralEpoch !== undefined) {
+						void this.view.noteEditing.beginSceneNoteEdit(sceneKey, structuralEpoch, item.path);
+					}
 				} else {
 					void this.view.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 				}
@@ -386,7 +407,8 @@ export class BaseHalfCanvasCardRenderer {
 		orphan: boolean,
 		interactive: boolean,
 		listeners: DisposableStore,
-		card: HTMLElement
+		card: HTMLElement,
+		open: () => void
 	): void {
 		const previewNode = append(container, $('.basehalf-canvas-card-preview'));
 		const previewKindClass = `kind-${preview?.kind ?? 'unavailable'}`;
@@ -415,11 +437,11 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		if (preview.kind === 'media') {
-			this.renderMediaPreview(previewNode, preview, interactive, listeners);
+			this.renderMediaPreview(previewNode, preview, interactive, listeners, open, card);
 			return;
 		}
 		if (preview.kind === 'node') {
-			this.renderNodePreview(previewNode, item, preview, interactive, listeners, card);
+			this.renderNodePreview(previewNode, item, preview, interactive, listeners, card, open);
 			return;
 		}
 		if (preview.kind === 'invalidNode') {
@@ -461,11 +483,12 @@ export class BaseHalfCanvasCardRenderer {
 		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
 		interactive: boolean,
 		listeners: DisposableStore,
-		card: HTMLElement
+		card: HTMLElement,
+		open: () => void
 	): void {
 		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.task ? 'task' : 'empty';
 		if (preview.document.kind === 'video') {
-			this.renderVideoNodePreview(container, item, preview, interactive, listeners, card);
+			this.renderVideoNodePreview(container, item, preview, interactive, listeners, card, open);
 			return;
 		}
 		const result = append(container, $('.basehalf-canvas-node-result'));
@@ -473,7 +496,7 @@ export class BaseHalfCanvasCardRenderer {
 		resultLabel.textContent = localize('basehalf.canvas.node.result', "Result");
 		if (preview.resultMedia) {
 			const media = append(result, $('.basehalf-canvas-node-result-media'));
-			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners);
+			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners, open);
 		} else {
 			const resultValue = append(result, $('.basehalf-canvas-node-result-value'));
 			resultValue.textContent = nodePreviewResultLabel(preview);
@@ -494,9 +517,10 @@ export class BaseHalfCanvasCardRenderer {
 		preview: BaseHalfCanvasNodePreview,
 		interactive: boolean,
 		listeners: DisposableStore,
-		card: HTMLElement
+		card: HTMLElement,
+		open: () => void
 	): void {
-		const handle = renderBaseHalfVideoCard(container, this.videoCardInput(item, preview, interactive), { hoverService: this.view.hoverService, generationService: this.view.videoGenerationService });
+		const handle = renderBaseHalfVideoCard(container, this.videoCardInput(item, preview, interactive, open), { hoverService: this.view.hoverService, generationService: this.view.videoGenerationService });
 		listeners.add(handle);
 		this.videoCards.set(item.path, handle);
 		this.videoCardBodies.set(card, handle);
@@ -512,17 +536,17 @@ export class BaseHalfCanvasCardRenderer {
 	}
 
 	/** Shows a newer state of a Video node, or the card selected or not, in the Video card drawn in `card`. */
-	private updateVideoNodePreview(card: HTMLElement, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean): void {
+	private updateVideoNodePreview(card: HTMLElement, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean, open: () => void): void {
 		const handle = this.videoCardBodies.get(card);
 		if (!handle) {
 			return;
 		}
 		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.task ? 'task' : 'empty';
-		handle.update(this.videoCardInput(item, preview, interactive));
+		handle.update(this.videoCardInput(item, preview, interactive, open));
 		this.applyVideoNodeCardState(card, preview);
 	}
 
-	private videoCardInput(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean): IBaseHalfVideoCardInput {
+	private videoCardInput(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean, open: () => void): IBaseHalfVideoCardInput {
 		const video = this.videoFileOf(item, preview);
 		return {
 			resource: item.stat.resource,
@@ -530,7 +554,8 @@ export class BaseHalfCanvasCardRenderer {
 			fields: preview.document,
 			...(video ? { video } : {}),
 			...(preview.resultMissing ? { videoExists: false } : {}),
-			interactive
+			interactive,
+			open
 		};
 	}
 
@@ -717,12 +742,16 @@ export class BaseHalfCanvasCardRenderer {
 		}
 	}
 
-	async openNodeArtifactPath(folder: IBaseHalfCanvasFolderState, path: string): Promise<void> {
+	/**
+	 * Opens a node's result in Card Detail: over the node's canvas, which closing
+	 * Card Detail shows again, when `overNodeCanvas`; over the result's own folder otherwise.
+	 */
+	async openNodeArtifactPath(folder: IBaseHalfCanvasFolderState, path: string, overNodeCanvas: boolean): Promise<void> {
 		const resource = joinPath(folder.workspaceFolder, ...path.split('/'));
 		this.view.contextViewService.hideContextView();
 		try {
 			await this.view.fileService.resolve(resource);
-			await this.view.canvasNavigationService.openResource(resource, { source: 'api', pinned: true });
+			await this.view.canvasNavigationService.openResource(resource, { source: 'api', pinned: true, ...(overNodeCanvas ? { canvasFolder: folder.resource } : {}) });
 		} catch {
 			this.view.layoutService.setPartHidden(false, Parts.SIDEBAR_PART);
 			await this.view.explorerService.select(dirname(resource), 'force');
@@ -731,11 +760,18 @@ export class BaseHalfCanvasCardRenderer {
 		}
 	}
 
+	/**
+	 * What the card of a media file shows. `card` is given for the card whose
+	 * preview this is, so that its video player stays while the card is
+	 * selected or deselected.
+	 */
 	private renderMediaPreview(
 		container: HTMLElement,
 		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'media' }>,
 		interactive: boolean,
-		listeners: DisposableStore
+		listeners: DisposableStore,
+		open: () => void,
+		card?: HTMLElement
 	): void {
 		container.classList.add(`media-${preview.mediaKind}`);
 		if (preview.mediaKind === 'image') {
@@ -748,38 +784,40 @@ export class BaseHalfCanvasCardRenderer {
 				image.remove();
 				this.renderMediaFallback(container, preview.text, 'image', () => {
 					clearNode(container);
-					this.renderMediaPreview(container, preview, interactive, listeners);
+					this.renderMediaPreview(container, preview, interactive, listeners, open, card);
 				});
 			}, { once: true });
 			return;
 		}
-			if (preview.mediaKind === 'video') {
-				const video = append(container, $('video.basehalf-canvas-card-media-visual')) as HTMLVideoElement;
-			video.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
-			video.preload = 'metadata';
-			video.controls = interactive;
-			video.tabIndex = interactive ? 0 : -1;
-				if (interactive) {
-					video.classList.add('nodrag', 'nopan', 'nowheel');
-				}
-			video.playsInline = true;
-			if (interactive) {
-				video.setAttribute('aria-label', localize('basehalf.canvas.videoPreview.player', "Video player for {0}", preview.text));
-				} else {
-					video.setAttribute('aria-hidden', 'true');
-					video.style.pointerEvents = 'none';
-				}
-			listeners.add(toDisposable(() => releaseBaseHalfCanvasCardMedia(video)));
-			if (interactive) {
-				this.configureCardMediaTransport(video);
+		if (preview.mediaKind === 'video') {
+			// The video plays as a Video card's does (video node, "The player").
+			const player = createBaseHalfCanvasCardVideoPlayer(container, null, {
+				source: preview.resource,
+				videoClasses: ['basehalf-canvas-card-media-visual'],
+				open,
+				onError: () => {
+					player.dispose();
+					// No player stays: selecting the card draws its preview again, which tries the video again.
+					if (card && this.mediaVideoPlayers.get(card) === player) {
+						this.mediaVideoPlayers.delete(card);
+					}
+					this.renderMediaFallback(container, preview.text, 'video', () => {
+						clearNode(container);
+						this.renderMediaPreview(container, preview, interactive, listeners, open, card);
+					});
+				},
+				hoverService: this.view.hoverService
+			});
+			player.setSelected(interactive);
+			listeners.add(player);
+			if (card) {
+				this.mediaVideoPlayers.set(card, player);
+				listeners.add(toDisposable(() => {
+					if (this.mediaVideoPlayers.get(card) === player) {
+						this.mediaVideoPlayers.delete(card);
+					}
+				}));
 			}
-			video.addEventListener('error', () => {
-				video.remove();
-				this.renderMediaFallback(container, preview.text, 'video', () => {
-					clearNode(container);
-					this.renderMediaPreview(container, preview, interactive, listeners);
-				});
-			}, { once: true });
 			return;
 		}
 		if (preview.mediaKind === 'audio') {
@@ -805,7 +843,7 @@ export class BaseHalfCanvasCardRenderer {
 				audio.remove();
 				this.renderMediaFallback(container, preview.text, 'audio', () => {
 					clearNode(container);
-					this.renderMediaPreview(container, preview, interactive, listeners);
+					this.renderMediaPreview(container, preview, interactive, listeners, open, card);
 				});
 			}, { once: true });
 			return;
@@ -825,13 +863,6 @@ export class BaseHalfCanvasCardRenderer {
 				}
 			});
 		}
-		media.addEventListener('play', () => {
-			for (const other of this.view.cards.querySelectorAll<HTMLMediaElement>('video, audio')) {
-				if (other !== media && !other.paused) {
-					other.pause();
-				}
-			}
-		});
 	}
 
 	private renderMediaFallback(container: HTMLElement, label: string, kind: 'image' | 'video' | 'audio' | 'pdf', reload?: () => void): void {

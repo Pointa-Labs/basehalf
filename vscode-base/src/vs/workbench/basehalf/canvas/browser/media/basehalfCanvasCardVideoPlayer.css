@@ -1,0 +1,153 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * A video on a card (video node, "The player"): the picture is the card's and
+ * shows the card's grab hand; the controls over it are the player's and show
+ * the arrow.
+ */
+.monaco-workbench .basehalf-canvas-video-player {
+	position: relative;
+	display: block;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-video {
+	pointer-events: none;
+	user-select: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-top,
+.monaco-workbench .basehalf-canvas-video-player-bar {
+	position: absolute;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	color: #f5f5f5;
+	cursor: default;
+	opacity: 0;
+	visibility: hidden;
+	transition: opacity 150ms ease, visibility 0s linear 150ms;
+	/* Between the controls, and over the bar's shade, the picture is the card's. */
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-button,
+.monaco-workbench .basehalf-canvas-video-player-slider {
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-video-player[data-controls="shown"] .basehalf-canvas-video-player-top,
+.monaco-workbench .basehalf-canvas-video-player[data-controls="shown"] .basehalf-canvas-video-player-bar {
+	opacity: 1;
+	visibility: visible;
+	transition: opacity 150ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-top {
+	top: 10px;
+	left: 10px;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-bar {
+	right: 0;
+	bottom: 0;
+	left: 0;
+	gap: 8px;
+	padding: 28px 10px 8px;
+	background: linear-gradient(to top, rgb(0 0 0 / 50%), rgb(0 0 0 / 22%) 55%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-video-player-button {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	flex: none;
+	place-items: center;
+	padding: 0;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: 8px;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-button:hover {
+	background: rgb(255 255 255 / 14%);
+}
+
+.monaco-workbench .basehalf-canvas-video-player-button.sound {
+	background: rgb(0 0 0 / 50%);
+}
+
+.monaco-workbench .basehalf-canvas-video-player-button.sound:hover {
+	background: rgb(0 0 0 / 70%);
+}
+
+.monaco-workbench .basehalf-canvas-video-player-icon {
+	width: 16px;
+	height: 16px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-time {
+	flex: none;
+	min-width: 36px;
+	color: rgb(245 245 245 / 90%);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-time.played {
+	text-align: right;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-slider {
+	position: relative;
+	display: flex;
+	height: 16px;
+	min-width: 24px;
+	flex: 1 1 auto;
+	align-items: center;
+	border-radius: 8px;
+	cursor: default;
+	touch-action: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-track,
+.monaco-workbench .basehalf-canvas-video-player-fill {
+	position: absolute;
+	left: 0;
+	height: 4px;
+	border-radius: 2px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-track {
+	right: 0;
+	background: rgb(255 255 255 / 24%);
+}
+
+.monaco-workbench .basehalf-canvas-video-player-fill {
+	width: var(--basehalf-video-played, 0%);
+	background: #fff;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-thumb {
+	position: absolute;
+	left: calc(var(--basehalf-video-played, 0%) - 6px);
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+	pointer-events: none;
+}
