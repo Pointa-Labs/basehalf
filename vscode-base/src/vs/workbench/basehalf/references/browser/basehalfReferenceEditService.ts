@@ -35,6 +35,8 @@ import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorF
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, BaseHalfMirrorSymbolicLinkError } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfPlainFailureReason, baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
+import { baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
 import {
 	addBaseHalfNodeUpstreamEntry,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
@@ -51,7 +53,6 @@ import {
 } from '../../video/common/basehalfNodeDocument.js';
 import {
 	BASEHALF_REFERENCE_FLUSH_TIMEOUT_MS,
-	BASEHALF_REFERENCE_INDEX_WAIT_MS,
 	BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY,
 	BaseHalfReferenceEditFailure,
 	BaseHalfReferenceEditOperation,
@@ -90,7 +91,6 @@ import {
 	baseHalfUpstreamSidecarResource,
 	baseHalfUpstreamStoreKind,
 	IBaseHalfUpstreamStoreRead,
-	isBaseHalfUpstreamReservedOutput,
 	planBaseHalfMarkdownUpstreamEdit,
 	planBaseHalfSidecarUpstreamEdit,
 	readBaseHalfMarkdownUpstream,
@@ -185,10 +185,11 @@ class StoreRefusal extends Error {
  * through the document's text model with a minimal edit (own undo stack, no
  * canvas undo source) and saved; `.bhnode` documents through the node
  * document writer; sidecars with an expected-bytes compare and swap. Every
- * write runs under the workspace mutation lease of its folder. It never
- * changes the store of an upstream-only node (reserved outputs, and the file
- * a `.bhnode` shows as its result) and never writes a Markdown or `.bhnode`
- * store through a symbolic link.
+ * write runs under the workspace mutation lease of its folder. Every node can
+ * be downstream, a draft included, whose store is its `upstream.yaml`
+ * (reference graph, "Drafts"), and a generated file, which holds its own
+ * inputs (D63). It never writes a Markdown or `.bhnode` store through a
+ * symbolic link.
  */
 export class BaseHalfReferenceEditService extends Disposable implements IBaseHalfReferenceEditService {
 	declare readonly _serviceBrand: undefined;
@@ -249,10 +250,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			const stamp = this.workspaceMutationCoordinator.captureResource(target.node.workspaceFolder, target.node.relativePath);
 			if (!this.workspaceMutationCoordinator.isResourceStampCurrent(target.node.workspaceFolder, stamp)) {
 				blocking.push({ node: target.node, storeResource: target.storeResource, reason: 'beingMoved', message: this.message('beingMoved', target.node.resource) });
-				continue;
-			}
-			if ((target.storeKind === 'markdown' || target.noteSidecar) && this.referenceIndexService.getState(target.node.workspaceFolder) === 'building') {
-				blocking.push({ node: target.node, storeResource: target.storeResource, reason: 'indexLoading', message: this.message('indexLoading', target.node.resource) });
 				continue;
 			}
 			try {
@@ -364,7 +361,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		if (edits.length === 0) {
 			return { stores: [], changed: false };
 		}
-		const targets = await Promise.all(edits.map(edit => this.describe(edit)));
+		const targets = await Promise.all(edits.map(edit => this.describe(edit, options)));
 		const seen = new Set<string>();
 		for (const target of targets) {
 			const key = this.uriIdentityService.extUri.getComparisonKey(target.storeResource);
@@ -373,7 +370,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			}
 			seen.add(key);
 		}
-		await this.waitForIndex(targets, options);
 
 		// Step 1: capture a resource stamp for every store and run the rest under
 		// the workspace mutation lease of every folder involved.
@@ -431,10 +427,10 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		return runLocked(0);
 	}
 
-	private async describe(edit: IInternalEdit): Promise<IStoreTarget> {
+	private async describe(edit: IInternalEdit, options?: IBaseHalfReferenceEditOptions): Promise<IStoreTarget> {
 		const node = edit.node;
 		const operation = edit.operation;
-		const stat = await this.statOptional(node.resource);
+		const stat = await this.statOptional(node.resource) ?? (await this.isDraftNode(node, options) ? { isDirectory: false, draft: true } : undefined);
 		const identity = this.identity(node.workspaceFolder);
 		const nodeKind = baseHalfUpstreamStoreKind(node.relativePath, stat?.isDirectory ?? false);
 		// Undo and redo transition exactly the store the operation changed, which
@@ -527,20 +523,25 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	/**
-	 * A change to a Markdown store waits up to 10 s, because the
-	 * result-artifact check (which refuses every change to the file a
-	 * `.bhnode` shows as its result) needs the index.
+	 * Whether a node that is no file and no folder is there all the same: a
+	 * draft, whose store is its `upstream.yaml` (reference graph, "Drafts").
+	 * With `newDraft`, also a draft that is being made, whose `upstream.yaml`
+	 * is written before its `generation.yaml`: a path with a generation
+	 * extension in a folder that exists, without a `made.yaml`.
 	 */
-	private async waitForIndex(targets: readonly IStoreTarget[], options: IBaseHalfReferenceEditOptions): Promise<void> {
-		for (const target of targets) {
-			if (target.storeKind !== 'markdown' && !target.noteSidecar) {
-				continue;
-			}
-			const state = await this.referenceIndexService.whenReady(target.node.workspaceFolder, options.indexWaitMs ?? BASEHALF_REFERENCE_INDEX_WAIT_MS);
-			if (state === 'building') {
-				throw this.refusal([{ node: target.node, storeResource: target.storeResource, reason: 'indexLoading', message: this.message('indexLoading', target.node.resource) }]);
-			}
+	private async isDraftNode(node: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions | undefined): Promise<boolean> {
+		if (await baseHalfPathHoldsDraft(this.fileService, node.workspaceFolder, node.relativePath)) {
+			return true;
 		}
+		if (!options?.newDraft || baseHalfGenerationKindOfPath(node.relativePath) === undefined) {
+			return false;
+		}
+		const slash = node.relativePath.lastIndexOf('/');
+		const [facts, folder] = await Promise.all([
+			baseHalfReadDraftFacts(this.fileService, node.workspaceFolder, node.relativePath),
+			slash < 0 ? Promise.resolve({ isDirectory: true }) : this.statOptional(URI.joinPath(node.workspaceFolder, ...node.relativePath.slice(0, slash).split('/')))
+		]);
+		return !facts.itemExists && !facts.hasMade && !!folder?.isDirectory;
 	}
 
 	private async runLocked(targets: readonly IStoreTarget[], options: IBaseHalfReferenceEditOptions, leases: FolderLeases): Promise<IBaseHalfReferenceEditResult> {
@@ -599,15 +600,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		if (addsEntries(operation) && !target.exists) {
 			throw new StoreRefusal('missingNode', this.message('missingNode', target.node.resource));
 		}
-		// Upstream-only nodes (the reserved outputs tree, and the file a
-		// `.bhnode` shows as its result): BaseHalf never changes their store,
-		// removals included, so a node's file keeps the bytes it showed.
-		// Undo and redo are refused only when they would change the store.
-		const upstreamOnly = operation.kind !== 'deleteSidecar'
-			&& (isBaseHalfUpstreamReservedOutput(target.node.relativePath) || !!this.referenceIndexService.getUpstreamOnlyReason(target.node));
-		if (upstreamOnly && operation.kind !== 'transition') {
-			throw this.upstreamOnlyRefusal(target);
-		}
 		if (operation.kind === 'nodeDocument' && target.storeKind !== 'node') {
 			throw new StoreRefusal('notWritable', this.message('notWritable', target.node.resource));
 		}
@@ -630,10 +622,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				prepared = await this.prepareSidecar(target);
 				break;
 		}
-		if (upstreamOnly && prepared.changed) {
-			prepared.reference?.dispose();
-			throw this.upstreamOnlyRefusal(target);
-		}
 		return prepared;
 	}
 
@@ -643,17 +631,12 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			if (target.identity.key(replacement.from) === target.identity.key(replacement.to)) {
 				continue;
 			}
+			// A draft at the old path is a node there again (reference graph, "Drafts").
 			const resource = URI.joinPath(target.node.workspaceFolder, ...replacement.from.split('/'));
-			if (await this.fileService.exists(resource).catch(() => false)) {
+			if (await this.fileService.exists(resource).catch(() => false) || await baseHalfPathHoldsDraft(this.fileService, target.node.workspaceFolder, replacement.from).catch(() => false)) {
 				throw new StoreRefusal('entryResolves', this.message('entryResolves', target.node.resource));
 			}
 		}
-	}
-
-	private upstreamOnlyRefusal(target: IStoreTarget): StoreRefusal {
-		return new StoreRefusal('upstreamOnly', addsEntries(target.edit.operation)
-			? this.message('upstreamOnly', target.node.resource)
-			: localize('basehalf.references.upstreamOnlyUnchanged', "{0} is a result or output file. BaseHalf doesn't change its upstream list.", this.label(target.node.resource)));
 	}
 
 	/**
@@ -1553,9 +1536,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'unreadable': return localize('basehalf.references.unreadable', "BaseHalf can't read the upstream list of {0}. Use Rebuild List in its badge first.", file);
 			case 'notWritable': return localize('basehalf.references.notWritable', "BaseHalf can't save connections into {0} because of how the file begins.", file);
 			case 'foreign': return localize('basehalf.references.foreign', "Another tool keeps something else where the upstream list of {0} goes. To connect anyway, use Rebuild List in its badge.", file);
-			case 'upstreamOnly': return localize('basehalf.references.upstreamOnly', "{0} can't receive upstream context.", file);
 			case 'symbolicLink': return localize('basehalf.references.symbolicLink', "{0} is a symbolic link or inside one. BaseHalf doesn't change files through links.", file);
-			case 'indexLoading': return localize('basehalf.references.indexLoading', "Still loading connections. Try again in a moment.");
 			case 'limit': return localize('basehalf.references.limit', "This node already has 64 upstream entries.");
 			case 'markedFolder': return localize('basehalf.references.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", file);
 			case 'missingNode': return localize('basehalf.references.missingNode', "{0} no longer exists.", file);
@@ -1588,7 +1569,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		return baseHalfUpstreamIdentity(workspaceFolder, this.uriIdentityService.extUri);
 	}
 
-	private async statOptional(resource: URI): Promise<{ readonly isDirectory: boolean } | undefined> {
+	private async statOptional(resource: URI): Promise<{ readonly isDirectory: boolean; readonly draft?: true } | undefined> {
 		try {
 			const stat = await this.fileService.stat(resource);
 			return { isDirectory: stat.isDirectory };

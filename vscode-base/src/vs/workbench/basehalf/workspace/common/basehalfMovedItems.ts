@@ -250,8 +250,12 @@ function pieceWeights(pieces: readonly number[], limit: number): Map<number, num
 	return weights;
 }
 
-/** Which rule of "Recognition" paired an item. */
-export type BaseHalfMovedItemRule = 'sameContent' | 'similarContent' | 'folderFiles' | 'belowFolder';
+/**
+ * Which rule of "Recognition" paired an item. `draft` is no rule: a draft has
+ * no file to recognize, and BaseHalf moved it itself (generation cards,
+ * "Moving, renaming, copying, and undo").
+ */
+export type BaseHalfMovedItemRule = 'sameContent' | 'similarContent' | 'folderFiles' | 'belowFolder' | 'draft';
 
 export interface IBaseHalfMovedItem {
 	readonly from: string;

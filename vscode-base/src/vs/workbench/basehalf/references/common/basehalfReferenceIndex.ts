@@ -18,8 +18,10 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IFileQuery, ISearchService, QueryType } from '../../../services/search/common/search.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfIsCanvasEligiblePath } from '../../canvas/common/basehalfCanvasModel.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
+import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfPlainFailureReason } from '../../shell/common/basehalfPlainFailureReason.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
+import { baseHalfIsDraft, baseHalfIsDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
 import {
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	baseHalfNodeUpstreamItemValues,
@@ -46,7 +48,6 @@ import {
 	IBaseHalfUpstreamStoreRead,
 	isBaseHalfUpstreamMarkdownName,
 	isBaseHalfUpstreamNodeDocumentName,
-	isBaseHalfUpstreamReservedOutput,
 	readBaseHalfMarkdownUpstream,
 	readBaseHalfSidecarUpstream
 } from './basehalfReferenceStore.js';
@@ -105,6 +106,12 @@ export interface IBaseHalfIndexedDownstream {
 /** The node a valid, non-dangling entry names. */
 export interface IBaseHalfUpstreamTarget extends IBaseHalfWorkspaceResource {
 	readonly kind: 'file' | 'folder';
+	/**
+	 * The entry names a draft: a generation card whose file does not exist
+	 * yet (reference graph, "Drafts"). It is not dangling; as an input it is
+	 * unavailable until the draft has its file.
+	 */
+	readonly draft?: true;
 }
 
 export type BaseHalfUpstreamEntryStatus = 'valid' | 'dangling' | 'invalid';
@@ -132,7 +139,11 @@ export interface IBaseHalfUpstreamView {
 	/** One issue row for an unreadable, foreign, or not-writable store. */
 	readonly storeIssue: boolean;
 	readonly entries: readonly IBaseHalfUpstreamEntryView[];
-	/** Set when the node cannot be downstream: Upstream is read-only. */
+	/**
+	 * @deprecated Never set since D63: every node can be downstream, a
+	 * generated file and a file under `outputs/` included. Kept until the
+	 * canvas stops reading it; a later cleanup removes it.
+	 */
 	readonly upstreamOnly?: 'reservedOutput' | 'resultArtifact';
 	/** A sidecar whose list could live in this Markdown or `.bhnode` file (the
 	 * issue offers Move into File). It contributes no edges when the file has
@@ -210,10 +221,20 @@ export interface IBaseHalfReferenceIndexService {
 	/** Stores that could not be read in the last scan or event. */
 	getStoreProblems(workspaceFolder: URI): readonly IBaseHalfReferenceStoreProblem[];
 
-	/** Workspace-relative paths of every file a `.bhnode` shows as its result. */
-	getResultArtifacts(workspaceFolder: URI): readonly string[];
-	/** Why a node can never be downstream, if it cannot. The result-artifact
-	 * answer is complete only once the folder is `ready` or `partial`. */
+	/**
+	 * The drafts of a workspace folder that are shown: generation cards whose
+	 * file does not exist yet, in folders that exist (reference graph,
+	 * "Drafts"), as workspace-relative paths in path order. Complete once the
+	 * folder is `ready` or `partial`.
+	 */
+	getDrafts(workspaceFolder: URI): readonly string[];
+	/** Whether the node is a draft the index knows ({@link getDrafts}). */
+	isDraft(node: IBaseHalfWorkspaceResource): boolean;
+	/**
+	 * @deprecated Always `undefined` since D63: every node can be downstream,
+	 * a generated file and a file under `outputs/` included (reference graph,
+	 * "Stores"). Kept until the canvas stops asking; a later cleanup removes it.
+	 */
 	getUpstreamOnlyReason(node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'resultArtifact' | undefined;
 
 	/**
@@ -231,7 +252,6 @@ interface IStoreRecord extends IBaseHalfIndexedStore {
 	readonly content: string;
 	/** Target keys of valid entries; empty unless the store is active. */
 	readonly targets: readonly (readonly [string, number])[];
-	readonly resultArtifactPath?: string;
 }
 
 interface IFolderIndex {
@@ -247,8 +267,8 @@ interface IFolderIndex {
 	/** target key → store key → entry index */
 	readonly downstream: Map<string, Map<string, number>>;
 	readonly problems: Map<string, IBaseHalfReferenceStoreProblem>;
-	/** artifact key → number of node documents that show it as their result */
-	readonly results: Map<string, { path: string; count: number }>;
+	/** node key → workspace-relative path of every draft that is shown */
+	readonly drafts: Map<string, string>;
 	generation: number;
 	scanned: DeferredPromise<void>;
 	pending: { readonly added: URI[]; readonly updated: URI[]; readonly deleted: URI[] } | undefined;
@@ -259,6 +279,13 @@ interface INodeStat {
 	readonly resource: URI;
 	readonly isFile: boolean;
 	readonly isDirectory: boolean;
+	readonly isSymbolicLink: boolean;
+}
+
+/** What one walk of `.bh/mirror/` found: the sidecar stores, and the paths whose card information is a draft's. */
+interface IMirrorWalk {
+	readonly sidecars: URI[];
+	readonly drafts: string[];
 }
 
 type StoreReadResult =
@@ -409,7 +436,8 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		const stat = await this.statNode(node.resource);
 		const storeKind = baseHalfUpstreamStoreKind(node.relativePath, stat?.isDirectory ?? false);
 		const storeResource = storeKind === 'sidecar' ? baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath) : node.resource;
-		const result = await this.readStore(node.workspaceFolder, identity, node, storeKind, storeResource, stat);
+		const draft = !stat && await this.holdsDraft(node.workspaceFolder, node.relativePath);
+		const result = await this.readStore(node.workspaceFolder, identity, node, storeKind, storeResource, stat, draft);
 		if (result.kind === 'error') {
 			return {
 				node,
@@ -420,8 +448,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				storeIssue: true,
 				entries: [],
 				readError: result.message,
-				issueCount: 1,
-				...this.upstreamOnly(index, node)
+				issueCount: 1
 			};
 		}
 		if (index && !index.disposed && index.state !== 'building' && this.isIndexable(index, node.relativePath)) {
@@ -461,8 +488,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				storeIssue: true,
 				entries: [],
 				readError: result.message,
-				issueCount: 1,
-				...this.upstreamOnly(index, node)
+				issueCount: 1
 			};
 		}
 		return this.view(index, node, withSidecarState(identity, result.record, 'active'), undefined, own);
@@ -518,12 +544,16 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return [...(this.folderIndex(workspaceFolder)?.problems.values() ?? [])];
 	}
 
-	getResultArtifacts(workspaceFolder: URI): readonly string[] {
-		return [...(this.folderIndex(workspaceFolder)?.results.values() ?? [])].map(entry => entry.path).sort();
+	getDrafts(workspaceFolder: URI): readonly string[] {
+		return [...(this.folderIndex(workspaceFolder)?.drafts.values() ?? [])].sort();
 	}
 
-	getUpstreamOnlyReason(node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'resultArtifact' | undefined {
-		return this.upstreamOnly(this.folderIndex(node.workspaceFolder), node).upstreamOnly;
+	isDraft(node: IBaseHalfWorkspaceResource): boolean {
+		return this.folderIndex(node.workspaceFolder)?.drafts.has(this.resourceKey(node.resource)) ?? false;
+	}
+
+	getUpstreamOnlyReason(_node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'resultArtifact' | undefined {
+		return undefined;
 	}
 
 	acceptSavedContent(node: IBaseHalfWorkspaceResource, storeKind: BaseHalfUpstreamStoreKind, content: string | undefined): void {
@@ -570,7 +600,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			sidecarsByNode: new Map(),
 			downstream: new Map(),
 			problems: new Map(),
-			results: new Map(),
+			drafts: new Map(),
 			generation: 0,
 			scanned: new DeferredPromise<void>(),
 			pending: undefined,
@@ -604,9 +634,11 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		const partialReasons = new Set<BaseHalfReferenceIndexPartialReason>();
 		const problems = new Map<string, IBaseHalfReferenceStoreProblem>();
 		const results: StoreReadResult[] = [];
+		let drafts: readonly string[] = [];
 		try {
-			const resources = await this.enumerate(index, index.folder, partialReasons);
-			await this.readAll(index, resources, results, problems);
+			const enumerated = await this.enumerate(index, index.folder, partialReasons);
+			await this.readAll(index, enumerated.resources, results, problems);
+			drafts = await this.shownDrafts(index, enumerated.drafts);
 		} catch (error) {
 			this.logService.error('[BaseHalf] upstream index scan failed', error);
 			partialReasons.add('readError');
@@ -618,8 +650,11 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		index.activeByNode.clear();
 		index.sidecarsByNode.clear();
 		index.downstream.clear();
-		index.results.clear();
 		index.problems.clear();
+		index.drafts.clear();
+		for (const path of drafts) {
+			index.drafts.set(this.resourceKey(URI.joinPath(index.folder, ...path.split('/'))), path);
+		}
 		for (const [key, problem] of problems) {
 			index.problems.set(key, problem);
 		}
@@ -653,8 +688,12 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		}
 	}
 
-	/** Enumerates candidate store resources below `root` (a folder or a subtree). */
-	private async enumerate(index: IFolderIndex, root: URI, partialReasons: Set<BaseHalfReferenceIndexPartialReason>): Promise<URI[]> {
+	/**
+	 * Enumerates candidate store resources below `root` (a folder or a
+	 * subtree), and the paths below it whose card information is a draft's
+	 * (whether each is shown is decided by {@link shownDrafts}).
+	 */
+	private async enumerate(index: IFolderIndex, root: URI, partialReasons: Set<BaseHalfReferenceIndexPartialReason>): Promise<{ readonly resources: URI[]; readonly drafts: readonly string[] }> {
 		const query: IFileQuery = {
 			type: QueryType.File,
 			_reason: 'basehalfReferenceIndex',
@@ -683,10 +722,11 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			}
 		}
 		const rootRelative = getRelativePath(index.folder, root) ?? '';
+		let drafts: readonly string[] = [];
 		try {
-			for (const sidecar of await this.walkSidecars(index.folder, rootRelative)) {
-				resources.push(sidecar);
-			}
+			const walk = await this.walkMirror(index.folder, rootRelative);
+			resources.push(...walk.sidecars);
+			drafts = walk.drafts;
 		} catch (error) {
 			this.logService.warn('[BaseHalf] upstream sidecar walk failed', error);
 			partialReasons.add('readError');
@@ -695,7 +735,13 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			partialReasons.add('storeLimit');
 			resources.length = BASEHALF_REFERENCE_INDEX_STORE_LIMIT;
 		}
-		return resources;
+		return { resources, drafts };
+	}
+
+	/** Of the paths whose card information is a draft's, those that hold a draft that is shown. */
+	private async shownDrafts(index: IFolderIndex, candidates: readonly string[]): Promise<string[]> {
+		const shown = await Promise.all(candidates.map(async path => await this.holdsDraft(index.folder, path) ? path : undefined));
+		return shown.filter((path): path is string => path !== undefined);
 	}
 
 	private async readAll(index: IFolderIndex, resources: readonly URI[], results: StoreReadResult[], problems: Map<string, IBaseHalfReferenceStoreProblem>): Promise<void> {
@@ -713,18 +759,23 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		}
 	}
 
-	/** Walks `.bh/mirror/<root>/**` for `upstream.yaml` files without following links. */
-	private async walkSidecars(workspaceFolder: URI, rootRelative: string): Promise<URI[]> {
+	/**
+	 * Walks `.bh/mirror/<root>/**` without following links, for the
+	 * `upstream.yaml` files and for the directories that hold a draft's card
+	 * information: a `generation.yaml` and no `made.yaml`, under a name with a
+	 * generation extension (reference graph, "Sources").
+	 */
+	private async walkMirror(workspaceFolder: URI, rootRelative: string): Promise<IMirrorWalk> {
 		const mirrorRoot = baseHalfMirrorRoot(workspaceFolder);
-		const start = rootRelative ? URI.joinPath(mirrorRoot, ...rootRelative.split('/')) : mirrorRoot;
-		const out: URI[] = [];
-		const stack = [start];
+		const rootSidecar = URI.joinPath(mirrorRoot, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME).toString();
+		const walk: IMirrorWalk = { sidecars: [], drafts: [] };
+		const stack: { readonly resource: URI; readonly path: string }[] = [{ resource: rootRelative ? URI.joinPath(mirrorRoot, ...rootRelative.split('/')) : mirrorRoot, path: rootRelative }];
 		while (stack.length > 0) {
 			const current = stack.pop()!;
 			let children: readonly IFileStat[];
 			try {
-				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, current);
-				const resolved = await this.fileService.resolve(current);
+				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, current.resource);
+				const resolved = await this.fileService.resolve(current.resource);
 				if (!resolved.isDirectory) {
 					continue;
 				}
@@ -735,18 +786,27 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				}
 				throw error;
 			}
+			let hasGenerationInfo = false;
+			let hasMade = false;
 			for (const child of children) {
 				if (child.isSymbolicLink) {
 					continue;
 				}
 				if (child.isDirectory) {
-					stack.push(child.resource);
-				} else if (child.isFile && child.name === BASEHALF_UPSTREAM_SIDECAR_FILE_NAME && child.resource.toString() !== URI.joinPath(mirrorRoot, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME).toString()) {
-					out.push(child.resource);
+					stack.push({ resource: child.resource, path: current.path ? `${current.path}/${child.name}` : child.name });
+				} else if (child.isFile && child.name === BASEHALF_UPSTREAM_SIDECAR_FILE_NAME && child.resource.toString() !== rootSidecar) {
+					walk.sidecars.push(child.resource);
+				} else if (child.isFile && child.name === BASEHALF_GENERATION_INFO_FILE) {
+					hasGenerationInfo = true;
+				} else if (child.isFile && child.name === BASEHALF_GENERATION_MADE_FILE) {
+					hasMade = true;
 				}
 			}
+			if (current.path && baseHalfIsDraftInformation({ path: current.path, hasGenerationInfo, hasMade })) {
+				walk.drafts.push(current.path);
+			}
 		}
-		return out;
+		return walk;
 	}
 
 	//#endregion
@@ -769,7 +829,8 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			}
 			const nodeResource = URI.joinPath(index.folder, ...nodePath.split('/'));
 			const stat = await this.statNode(nodeResource);
-			return this.readStore(index.folder, index.identity, { resource: nodeResource, workspaceFolder: index.folder, relativePath: nodePath }, 'sidecar', resource, stat);
+			const draft = !stat && await this.holdsDraft(index.folder, nodePath);
+			return this.readStore(index.folder, index.identity, { resource: nodeResource, workspaceFolder: index.folder, relativePath: nodePath }, 'sidecar', resource, stat, draft);
 		}
 		const relativePath = getRelativePath(index.folder, resource);
 		if (relativePath === undefined) {
@@ -779,14 +840,20 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return this.readStore(index.folder, index.identity, { resource, workspaceFolder: index.folder, relativePath }, storeKind, resource, undefined);
 	}
 
-	/** Reads one store from disk. `nodeStat` is required for sidecars. */
+	/**
+	 * Reads one store from disk. `nodeStat` is required for sidecars, and
+	 * `nodeIsDraft` tells a node without a file or folder that is a draft,
+	 * whose sidecar is live (reference graph, "Sidecar store"), from one that
+	 * is missing.
+	 */
 	private async readStore(
 		workspaceFolder: URI,
 		identity: IBaseHalfUpstreamIdentity,
 		node: IBaseHalfWorkspaceResource,
 		storeKind: BaseHalfUpstreamStoreKind,
 		storeResource: URI,
-		nodeStat: INodeStat | undefined
+		nodeStat: INodeStat | undefined,
+		nodeIsDraft = false
 	): Promise<StoreReadResult> {
 		try {
 			let content: string;
@@ -804,7 +871,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			let sidecarState: BaseHalfUpstreamSidecarState | undefined;
 			if (storeKind === 'sidecar') {
 				sidecarState = !nodeStat
-					? 'missingNode'
+					? nodeIsDraft ? 'active' : 'missingNode'
 					: !nodeStat.isDirectory && (isBaseHalfUpstreamMarkdownName(node.relativePath) || isBaseHalfUpstreamNodeDocumentName(node.relativePath))
 						? 'wrongOwner'
 						: 'active';
@@ -828,14 +895,12 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		sidecarState: BaseHalfUpstreamSidecarState | undefined
 	): IStoreRecord {
 		let read: IBaseHalfUpstreamStoreRead;
-		let extract: BaseHalfNodeUpstreamExtract | undefined;
 		if (storeKind === 'markdown') {
 			read = readBaseHalfMarkdownUpstream(content, { nodePath: node.relativePath, identity });
 		} else if (storeKind === 'sidecar') {
 			read = readBaseHalfSidecarUpstream(content, { nodePath: node.relativePath, identity });
 		} else {
-			extract = extractBaseHalfNodeUpstreamLenient(content);
-			read = baseHalfNodeUpstreamStoreRead(extract, node.relativePath, identity);
+			read = baseHalfNodeUpstreamStoreRead(extractBaseHalfNodeUpstreamLenient(content), node.relativePath, identity);
 		}
 		const active = storeKind !== 'sidecar' || sidecarState === 'active';
 		const targets: (readonly [string, number])[] = [];
@@ -846,19 +911,17 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				}
 			}
 		}
-		const resultArtifactPath = extract?.readable ? extract.resultArtifactPath : undefined;
 		return {
 			node,
 			storeKind,
 			storeResource,
 			read,
-			...(resultArtifactPath !== undefined ? { resultArtifactPath } : {}),
 			...(sidecarState ? { sidecarState } : {}),
 			storeKey: this.resourceKey(storeResource),
 			nodeKey: this.resourceKey(node.resource),
 			// Only the upstream state matters: a body edit, a BOM, or a different
 			// read window never counts as a store change.
-			content: JSON.stringify([read, resultArtifactPath ?? null]),
+			content: JSON.stringify(read),
 			targets
 		};
 	}
@@ -883,11 +946,6 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				stores.set(record.storeKey, entryIndex);
 			}
 		}
-		if (record.resultArtifactPath !== undefined) {
-			const key = index.identity.key(record.resultArtifactPath);
-			const current = index.results.get(key);
-			index.results.set(key, { path: record.resultArtifactPath, count: (current?.count ?? 0) + 1 });
-		}
 	}
 
 	private deleteRecord(index: IFolderIndex, storeKey: string): IStoreRecord | undefined {
@@ -905,15 +963,6 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			stores?.delete(storeKey);
 			if (stores?.size === 0) {
 				index.downstream.delete(target);
-			}
-		}
-		if (record.resultArtifactPath !== undefined) {
-			const key = index.identity.key(record.resultArtifactPath);
-			const current = index.results.get(key);
-			if (current && current.count > 1) {
-				index.results.set(key, { path: current.path, count: current.count - 1 });
-			} else {
-				index.results.delete(key);
 			}
 		}
 		return record;
@@ -1111,6 +1160,8 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		const changed: URI[] = [];
 		const generation = index.generation;
 		changed.push(...this.dropSubtrees(index, batch.deleted));
+		// The paths whose draft has to be looked at again (reference graph, "Events").
+		const draftChecks = this.draftChecksOfDeleted(index, batch.deleted);
 		const reads: URI[] = [];
 		const subtrees: URI[] = [];
 		// The sidecars of notes that were added: deleting a note drops its
@@ -1124,6 +1175,9 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				if (relativePath !== undefined && batch.added.includes(resource) && isBaseHalfUpstreamMarkdownName(relativePath) && this.sidecarNodePath(index, resource) === undefined) {
 					noteSidecars.push(baseHalfUpstreamSidecarResource(index.folder, relativePath));
 				}
+			} else if (kind === 'draftInformation') {
+				// A `generation.yaml` or `made.yaml` came or changed: the path may hold a draft now, or no longer.
+				draftChecks.add(this.mirrorNodePath(index, resource)!);
 			} else if (kind === 'unknown' && batch.added.includes(resource)) {
 				subtrees.push(resource);
 			}
@@ -1167,12 +1221,108 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			}
 			changed.push(...await this.rescanSubtree(index, root));
 		}
+		if (index.disposed || generation !== index.generation) {
+			return;
+		}
+		changed.push(...await this.recheckDrafts(index, draftChecks));
 		if (changed.length > 0 && !index.disposed && generation === index.generation) {
 			this.fire(index, changed);
 		}
 	}
 
-	private classifyEvent(index: IFolderIndex, resource: URI): 'store' | 'unknown' | 'ignored' {
+	/**
+	 * The paths whose draft the deleted paths may have changed: a draft below
+	 * a deleted folder is not shown any more, a draft whose card information
+	 * was deleted is gone, and a file without a record that was deleted leaves
+	 * a draft behind at its own path.
+	 */
+	private draftChecksOfDeleted(index: IFolderIndex, deleted: readonly URI[]): Set<string> {
+		const checks = new Set<string>();
+		const mirrorRoot = baseHalfMirrorRoot(index.folder);
+		const extUri = this.uriIdentityService.extUri;
+		for (const resource of deleted) {
+			let below: string | undefined;
+			if (extUri.isEqualOrParent(mirrorRoot, resource)) {
+				// `.bh` or its mirror: every draft goes with it.
+				below = '';
+			} else if (extUri.isEqualOrParent(resource, mirrorRoot)) {
+				// A `generation.yaml` or `made.yaml` that is gone, or a directory with drafts below it.
+				const nodePath = this.mirrorNodePath(index, resource);
+				if (nodePath !== undefined) {
+					checks.add(nodePath);
+				}
+				below = nodePath ?? getRelativePath(mirrorRoot, resource);
+			} else {
+				const relativePath = getRelativePath(index.folder, resource);
+				if (relativePath === undefined || relativePath === '' || relativePath === '.bh' || relativePath.startsWith('.bh/')) {
+					continue;
+				}
+				checks.add(relativePath);
+				below = relativePath;
+			}
+			if (below === undefined) {
+				continue;
+			}
+			for (const path of index.drafts.values()) {
+				if (below === '' || path === below || path.startsWith(`${below}/`)) {
+					checks.add(path);
+				}
+			}
+		}
+		return checks;
+	}
+
+	/**
+	 * Looks again at whether each path holds a draft that is shown, keeps the
+	 * index's drafts in step, and reads the path's sidecar again: a draft's
+	 * sidecar is live, and that of a path that holds nothing is not. Returns
+	 * the node resources whose state changed.
+	 */
+	private async recheckDrafts(index: IFolderIndex, paths: Iterable<string>): Promise<URI[]> {
+		const changed: URI[] = [];
+		for (const path of paths) {
+			if (index.disposed) {
+				break;
+			}
+			if (baseHalfGenerationKindOfPath(path) === undefined || !this.isIndexable(index, path)) {
+				continue;
+			}
+			const resource = URI.joinPath(index.folder, ...path.split('/'));
+			const key = this.resourceKey(resource);
+			const holds = await this.holdsDraft(index.folder, path);
+			const sidecar = baseHalfUpstreamSidecarResource(index.folder, path);
+			const known = index.records.has(this.resourceKey(sidecar));
+			if (holds === index.drafts.has(key) && !known) {
+				// Nothing to look at again: most deleted files never were drafts.
+				continue;
+			}
+			if (holds !== index.drafts.has(key)) {
+				if (holds) {
+					index.drafts.set(key, path);
+				} else {
+					index.drafts.delete(key);
+				}
+				changed.push(resource);
+			}
+			const result = await this.readStoreResource(index, sidecar);
+			if ((result.kind !== 'missing' || known) && this.applyRead(index, sidecar, result, false)) {
+				changed.push(resource);
+			}
+		}
+		return changed;
+	}
+
+	/** For a file in a node's directory under `.bh/mirror/` (not `upstream.yaml` alone), the node's workspace-relative path. */
+	private mirrorNodePath(index: IFolderIndex, resource: URI): string | undefined {
+		const relative = getRelativePath(baseHalfMirrorRoot(index.folder), resource);
+		if (relative === undefined || !relative.includes('/') || relative.startsWith('../')) {
+			return undefined;
+		}
+		const name = relative.slice(relative.lastIndexOf('/') + 1);
+		return name === BASEHALF_GENERATION_INFO_FILE || name === BASEHALF_GENERATION_MADE_FILE ? relative.slice(0, relative.lastIndexOf('/')) : undefined;
+	}
+
+	private classifyEvent(index: IFolderIndex, resource: URI): 'store' | 'draftInformation' | 'unknown' | 'ignored' {
 		const relativePath = getRelativePath(index.folder, resource);
 		if (relativePath === undefined || relativePath === '') {
 			return 'ignored';
@@ -1181,6 +1331,9 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		if (first === '.bh') {
 			if (!this.uriIdentityService.extUri.isEqualOrParent(resource, baseHalfMirrorRoot(index.folder))) {
 				return 'ignored';
+			}
+			if (this.mirrorNodePath(index, resource) !== undefined) {
+				return 'draftInformation';
 			}
 			return basename(resource) === BASEHALF_UPSTREAM_SIDECAR_FILE_NAME ? 'store' : 'unknown';
 		}
@@ -1251,21 +1404,38 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		const changed: URI[] = [];
 		const partialReasons = new Set<BaseHalfReferenceIndexPartialReason>();
 		const resources: URI[] = [];
+		// Every draft below the subtree is looked at again: those its walk finds,
+		// and those the index knew there.
+		const draftChecks = new Set<string>();
+		let below: string | undefined;
 		const inMirror = this.uriIdentityService.extUri.isEqualOrParent(root, baseHalfMirrorRoot(index.folder));
 		if (inMirror) {
 			const mirrorRelative = getRelativePath(baseHalfMirrorRoot(index.folder), root) ?? '';
+			below = mirrorRelative;
 			try {
-				resources.push(...await this.walkSidecars(index.folder, mirrorRelative));
+				const walk = await this.walkMirror(index.folder, mirrorRelative);
+				resources.push(...walk.sidecars);
+				walk.drafts.forEach(path => draftChecks.add(path));
 			} catch (error) {
 				partialReasons.add('readError');
 			}
 		} else if (this.isIndexable(index, relativePath)) {
+			below = relativePath;
 			const stat = await this.statNode(root);
 			if (stat && this.isCanvasEligible(index, relativePath, stat.isDirectory)) {
 				if (stat.isDirectory) {
-					resources.push(...await this.enumerate(index, root, partialReasons));
+					const enumerated = await this.enumerate(index, root, partialReasons);
+					resources.push(...enumerated.resources);
+					enumerated.drafts.forEach(path => draftChecks.add(path));
 				} else {
 					resources.push(baseHalfUpstreamSidecarResource(index.folder, relativePath));
+				}
+			}
+		}
+		if (below !== undefined) {
+			for (const path of index.drafts.values()) {
+				if (below === '' || path === below || path.startsWith(`${below}/`)) {
+					draftChecks.add(path);
 				}
 			}
 		}
@@ -1275,6 +1445,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				changed.push(result.kind === 'record' ? result.record.node.resource : resource);
 			}
 		}
+		changed.push(...await this.recheckDrafts(index, draftChecks));
 		for (const reason of partialReasons) {
 			index.partialReasons.add(reason);
 			if (index.state === 'ready') {
@@ -1304,7 +1475,6 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				...(read.issue && read.problem ? { problem: read.problem } : {}),
 				storeIssue: read.issue,
 				entries: [],
-				...this.upstreamOnly(index, node),
 				issueCount: read.issue ? 1 : 0
 			};
 		}
@@ -1357,32 +1527,25 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			...(read.problem ? { problem: read.problem } : {}),
 			storeIssue,
 			entries,
-			...this.upstreamOnly(index, node),
 			...(misplacedSidecar ? { misplacedSidecar } : {}),
 			...(readError !== undefined ? { readError } : {}),
 			issueCount: entries.filter(entry => entry.issue).length + (storeIssue ? 1 : 0) + (misplacedSidecar ? 1 : 0)
 		};
 	}
 
-	private upstreamOnly(index: IFolderIndex | undefined, node: IBaseHalfWorkspaceResource): { readonly upstreamOnly?: 'reservedOutput' | 'resultArtifact' } {
-		if (isBaseHalfUpstreamReservedOutput(node.relativePath)) {
-			return { upstreamOnly: 'reservedOutput' };
-		}
-		if (index?.results.has(index.identity.key(node.relativePath))) {
-			return { upstreamOnly: 'resultArtifact' };
-		}
-		return {};
-	}
-
-	/** The node an entry path names, or `undefined` when it is dangling. */
+	/** The node an entry path names, or `undefined` when it is dangling. A draft is a node (reference graph, "Drafts"). */
 	private async resolveTarget(workspaceFolder: URI, path: string): Promise<IBaseHalfUpstreamTarget | undefined> {
 		const index = this.folderIndex(workspaceFolder);
-		const resource = URI.joinPath(workspaceFolder, ...path.normalize('NFC').split('/'));
+		const normalized = path.normalize('NFC');
+		const resource = URI.joinPath(workspaceFolder, ...normalized.split('/'));
 		if (index && this.ownerIndex(resource) !== index) {
 			return undefined;
 		}
 		const stat = await this.statNode(resource);
-		if (!stat || (!stat.isFile && !stat.isDirectory)) {
+		if (!stat) {
+			return await this.holdsDraft(workspaceFolder, normalized) ? { resource, workspaceFolder, relativePath: path, kind: 'file', draft: true } : undefined;
+		}
+		if (!stat.isFile && !stat.isDirectory) {
 			return undefined;
 		}
 		if (index && !this.isCanvasEligible(index, path, stat.isDirectory)) {
@@ -1396,7 +1559,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		let pending = this.existence.get(key);
 		if (!pending) {
 			pending = this.fileService.stat(resource).then(
-				stat => ({ resource: stat.resource, isFile: stat.isFile, isDirectory: stat.isDirectory }),
+				stat => ({ resource: stat.resource, isFile: stat.isFile, isDirectory: stat.isDirectory, isSymbolicLink: !!stat.isSymbolicLink }),
 				() => undefined
 			);
 			this.existence.set(key, pending);
@@ -1417,9 +1580,43 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return isBaseHalfUpstreamMarkdownName(name) || isBaseHalfUpstreamNodeDocumentName(name);
 	}
 
-	/** Paths below `.bh/`, the reserved outputs tree, and nested workspace folders are not stores of this folder. */
+	/**
+	 * Whether `path` holds a draft that is shown: a generation card whose file
+	 * does not exist yet, in a folder that exists (reference graph, "Drafts").
+	 * It is decided from the stats this event batch has cached.
+	 */
+	private async holdsDraft(workspaceFolder: URI, path: string): Promise<boolean> {
+		if (baseHalfGenerationKindOfPath(path) === undefined) {
+			return false;
+		}
+		const index = this.folderIndex(workspaceFolder);
+		if (path === '.bh' || path.startsWith('.bh/') || (index && (!this.isIndexable(index, path) || !this.isCanvasEligible(index, path, false)))) {
+			return false;
+		}
+		let information: URI;
+		let made: URI;
+		try {
+			information = baseHalfMirrorResource(workspaceFolder, path, BASEHALF_GENERATION_INFO_FILE);
+			made = baseHalfMirrorResource(workspaceFolder, path, BASEHALF_GENERATION_MADE_FILE);
+		} catch {
+			// A path with `.` or `..` segments names no node.
+			return false;
+		}
+		const slash = path.lastIndexOf('/');
+		const [item, folder, informationStat, madeStat] = await Promise.all([
+			this.statNode(URI.joinPath(workspaceFolder, ...path.split('/'))),
+			slash < 0 ? Promise.resolve(undefined) : this.statNode(URI.joinPath(workspaceFolder, ...path.slice(0, slash).split('/'))),
+			this.statNode(information),
+			this.statNode(made)
+		]);
+		const isMirrorFile = (stat: INodeStat | undefined) => !!stat?.isFile && !stat.isSymbolicLink;
+		return baseHalfIsDraft({ path, hasGenerationInfo: isMirrorFile(informationStat), hasMade: isMirrorFile(madeStat), itemExists: !!item })
+			&& (slash < 0 || !!folder?.isDirectory);
+	}
+
+	/** Paths below `.bh/` and in nested workspace folders are not stores of this folder. */
 	private isIndexable(index: IFolderIndex, relativePath: string): boolean {
-		if (relativePath === '' || relativePath === '.bh' || relativePath.startsWith('.bh/') || isBaseHalfUpstreamReservedOutput(relativePath)) {
+		if (relativePath === '' || relativePath === '.bh' || relativePath.startsWith('.bh/')) {
 			return false;
 		}
 		const resource = URI.joinPath(index.folder, ...relativePath.split('/'));

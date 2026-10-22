@@ -29,7 +29,6 @@ import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCan
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfReferenceEditOptions, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceUndoElementOptions } from '../../common/basehalfReferenceEdit.js';
 import { IBaseHalfIndexedDownstream, IBaseHalfReferenceIndexService, IBaseHalfUpstreamEntryView, IBaseHalfUpstreamView } from '../../common/basehalfReferenceIndex.js';
-import { isBaseHalfUpstreamReservedOutput } from '../../common/basehalfReferenceStore.js';
 
 const workspace = URI.file('/work');
 
@@ -110,8 +109,9 @@ suite('BaseHalfUpstreamActions', () => {
 				return { confirmed: confirmRebuild };
 			}
 		});
+		// A draft is a node too: the index knows it, file search does not.
 		instantiationService.stub(IBaseHalfReferenceIndexService, {
-			getUpstreamOnlyReason: (target: IBaseHalfWorkspaceResource) => isBaseHalfUpstreamReservedOutput(target.relativePath) ? 'reservedOutput' as const : undefined
+			getDrafts: () => ['shots/next.mp4']
 		});
 		instantiationService.stub(IBaseHalfReferenceRefactorService, {
 			relinkEverywhere: async (_folder: URI, from: string, to: string, options?: IBaseHalfRelinkEverywhereOptions) => {
@@ -229,13 +229,13 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual((describe(render(note, view(note, []))) as { text: string[] }[])[1].text, ['Nothing draws on this card yet.']);
 	});
 
-	test('keeps upstream-only nodes read-only, and the entries of a node removable in every phase', () => {
-		const sealed = node('outputs/run/frame.png');
-		assert.deepStrictEqual((describe(render(sealed, view(sealed, [entry(0, 'a/overview.md', 'valid')], { upstreamOnly: 'reservedOutput', storeKind: 'sidecar' }))) as unknown[])[0], {
+	test('every node can be downstream: a file under outputs and a generated file are editable, and the entries of a node are removable in every phase', () => {
+		const output = node('outputs/run/frame.png');
+		assert.deepStrictEqual((describe(render(output, view(output, [entry(0, 'a/overview.md', 'valid')], { storeKind: 'sidecar' }))) as unknown[])[0], {
 			title: 'Upstream',
-			text: ['This file can\'t receive upstream context.'],
-			rows: [{ status: 'valid', label: 'overview', role: undefined, remove: undefined, actions: [] }],
-			add: undefined
+			text: ['Context that flows into this card. BaseHalf keeps this list for this file.'],
+			rows: [{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] }],
+			add: '+ Add Upstream'
 		});
 
 		const video = node('video.bhnode');
@@ -250,14 +250,14 @@ suite('BaseHalfUpstreamActions', () => {
 			{ status: 'dangling', label: 'old.png', role: undefined, remove: undefined, actions: ['Relink…', 'Relink Everywhere…', 'Remove'] }
 		]);
 
-		// A downstream that can't be downstream keeps its row but has no ×:
-		// BaseHalf never removes entries from it.
+		// Every downstream row has its ×, a file under outputs and a draft included.
 		const source = node('a/overview.md');
 		const downstreamRows = (describe(render(source, view(source, []), [
 			{ node: node('a/b/summary.md'), storeKind: 'markdown', entryIndex: 0 },
-			{ node: node('outputs/run/copy.md'), storeKind: 'markdown', entryIndex: 0 }
+			{ node: node('outputs/run/copy.md'), storeKind: 'markdown', entryIndex: 0 },
+			{ node: node('shots/next.mp4'), storeKind: 'sidecar', entryIndex: 0 }
 		])) as { rows: { label: string; remove: unknown }[] }[])[1].rows.map(row => [row.label, !!row.remove]);
-		assert.deepStrictEqual(downstreamRows, [['summary', true], ['copy', false]]);
+		assert.deepStrictEqual(downstreamRows, [['summary', true], ['copy', true], ['next.mp4', true]]);
 	});
 
 	test('offers Rebuild List exactly on a list BaseHalf can rebuild, and rebuilds only after the user confirms', async () => {
@@ -269,12 +269,13 @@ suite('BaseHalfUpstreamActions', () => {
 			blockEntries: issueRows(node('quote.md'), { storeKind: 'sidecar', readable: true, writable: true, problem: 'frontmatterRejected' }),
 			foreignNote: issueRows(node('feed.md'), { problem: 'foreignValue' }),
 			sidecar: issueRows(node('sources/book.pdf'), { storeKind: 'sidecar', problem: 'mappingValue' }),
-			// Not BaseHalf's to edit, a node document, a file the disk refuses,
-			// and a node that can't be downstream: the reason, and no action.
+			// Not BaseHalf's to edit, a node document, and a file the disk
+			// refuses: the reason, and no action. A file under outputs is a
+			// file like any other.
 			toml: issueRows(node('toml.md'), { problem: 'tomlFrontmatter' }),
 			nodeDocument: issueRows(node('clip.bhnode'), { storeKind: 'node', problem: 'invalidDocument' }),
 			readError: issueRows(node('sources/locked.pdf'), { storeKind: 'sidecar', readError: 'permission denied' }),
-			output: issueRows(node('outputs/run/frame.png'), { storeKind: 'sidecar', problem: 'mappingValue', upstreamOnly: 'reservedOutput' })
+			output: issueRows(node('outputs/run/frame.png'), { storeKind: 'sidecar', problem: 'mappingValue' })
 		}, {
 			mergedNote: [['store', ['Rebuild List']]],
 			blockEntries: [['store', ['Rebuild List']]],
@@ -283,7 +284,7 @@ suite('BaseHalfUpstreamActions', () => {
 			toml: [['store', []]],
 			nodeDocument: [['store', []]],
 			readError: [['store', []]],
-			output: [['store', []]]
+			output: [['store', ['Rebuild List']]]
 		});
 
 		let refreshed = 0;
@@ -324,8 +325,8 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual({ changed, picks, adds, undo: undoElements.map(element => ({ label: element.label, resources: element.resources.map(resource => resource.path), source: element.source === BASEHALF_CANVAS_UNDO_REDO_SOURCE })) }, {
 			changed: true,
 			// The node itself is left out; the nearest folders come first; skipped
-			// folders never appear.
-			picks: [['a/b', 'a', 'a/overview.md', 'outputs', 'sources', 'outputs/run', 'outputs/run/frame.png', 'sources/book.pdf']],
+			// folders never appear; a draft is a node like a file.
+			picks: [['a/b', 'a', 'a/overview.md', 'outputs', 'shots', 'sources', 'outputs/run', 'outputs/run/frame.png', 'shots/next.mp4', 'sources/book.pdf']],
 			adds: [{ node: 'a/b/note.md', entry: 'sources/book.pdf' }],
 			undo: [{ label: 'Add upstream', resources: ['/work/.bh/mirror/a/b/canvas.yaml'], source: true }]
 		});
@@ -346,15 +347,14 @@ suite('BaseHalfUpstreamActions', () => {
 		});
 	});
 
-	test('Add Downstream offers only nodes that can be downstream and writes the other node\'s store', async () => {
+	test('Add Downstream offers every node, a draft and a file under outputs included, and writes the other node\'s store', async () => {
 		const source = node('sources/book.pdf');
-		pickPath = 'a/overview.md';
+		pickPath = 'shots/next.mp4';
 		await actions.addDownstream(source, [], {});
 
 		assert.deepStrictEqual({ picks, adds }, {
-			// Reserved outputs can't be downstream.
-			picks: [['sources', 'a', 'a/b', 'a/b/note.md', 'a/overview.md']],
-			adds: [{ node: 'a/overview.md', entry: 'sources/book.pdf' }]
+			picks: [['sources', 'a', 'outputs', 'shots', 'a/b', 'a/b/note.md', 'a/overview.md', 'outputs/run', 'outputs/run/frame.png', 'shots/next.mp4']],
+			adds: [{ node: 'shots/next.mp4', entry: 'sources/book.pdf' }]
 		});
 	});
 });

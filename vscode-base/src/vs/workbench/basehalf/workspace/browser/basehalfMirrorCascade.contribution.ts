@@ -8,11 +8,11 @@ import { Event } from '../../../../base/common/event.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
-import { basename, dirname, relativePath as getRelativePath } from '../../../../base/common/resources.js';
+import { basename, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { FileOperation, FileOperationError, FileOperationResult, FileSystemProviderCapabilities, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
+import { FileOperation, FileOperationResult, FileSystemProviderCapabilities, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
@@ -47,21 +47,43 @@ import { BaseHalfMirrorCascadeStageError, baseHalfUpdateCanvasViewportsForStruct
 import { BASEHALF_UPSTREAM_SIDECAR_FILE_NAME } from '../../references/common/basehalfReferenceStore.js';
 import { IBaseHalfStructuralMutationReservation, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../navigation/common/basehalfEditorFlush.js';
-import { IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../video/common/basehalfVideoGeneration.js';
+import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../video/common/basehalfGenerationInfo.js';
+import { baseHalfDraftAsidePath, baseHalfIsDraft, baseHalfReadDraftFacts, baseHalfWalkDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
 import { IBaseHalfOwnedStagedDeleteCleanup, IBaseHalfPluginStructuralDeleteCleanupService, rollbackBaseHalfUncompletedDeleteCleanups, settleBaseHalfStagedDeleteCleanups } from '../../plugins/browser/basehalfPluginStructuralDeleteCleanup.js';
+import { baseHalfDeleteMirrorFile, baseHalfPreserveUnreadableGenerationFile, baseHalfReadMirrorFile, baseHalfWriteMirrorFile } from '../common/basehalfMirrorFiles.js';
+// The draft operations that a draft at the new path of a moved item moves aside with.
+import './basehalfDraftOperations.js';
 
 const BADGE_FILE_NAME = 'badge.yaml';
 const APPEARANCE_FILE_NAME = 'appearance.yaml';
-/** Largest per-node mirror file a relocation reads (badge.yaml is capped at 128 KiB). */
-const MIRROR_FILE_MAX_BYTES = 1024 * 1024;
 /** How many moved items of one relocation run are looked up on disk at the same time. */
 const RELOCATION_CHECKS_AT_ONCE = 16;
+
+/** A path in a workspace folder. */
+interface IBaseHalfWorkspacePath {
+	readonly workspaceFolder: URI;
+	readonly relativePath: string;
+}
+
+/**
+ * What the card information at the paths of a structural operation was
+ * before it reached the disk, which the cascade can no longer tell
+ * afterwards (generation cards, "Drafts and missing files" and "Deleting").
+ */
+interface IBaseHalfCardInformationBefore {
+	/** The drafts at or below the targets of a move: no item was at their paths. */
+	readonly drafts: IBaseHalfWorkspacePath[];
+	/** The generation cards with their file and without a `made.yaml` at or below the deleted paths, such as a file uploaded to a draft. */
+	readonly withoutRecord: IBaseHalfWorkspacePath[];
+}
 
 interface IBaseHalfPreparedStructuralOperation {
 	readonly operation: FileOperation.MOVE | FileOperation.DELETE;
 	readonly reservation: IBaseHalfStructuralMutationReservation;
 	readonly undoRedoGroup: UndoRedoGroup | undefined;
 	readonly stagedDeleteCleanups: IBaseHalfOwnedStagedDeleteCleanup[];
+	readonly before: IBaseHalfCardInformationBefore;
 	completedFileCount: number;
 	deleteCleanupsSettled: boolean;
 	finalizationSucceeded: boolean;
@@ -110,16 +132,22 @@ interface IBaseHalfPendingCascadeRecovery {
  * contribution listens there and cascades, for the moved or deleted node and
  * every node below it:
  *
- *  - MOVE   → canvas relocate (geometry + edge anchor rows), ADHD reading
- *             aids relocate, and the node's own `badge.yaml` (description),
- *             `appearance.yaml`, and `upstream.yaml` (its upstream list, D37)
- *             move with its mirror directory. The per-machine canvas viewports
+ *  - MOVE   → a draft whose card information is at the new path moves
+ *             aside, canvas relocate (geometry + edge anchor rows), ADHD
+ *             reading aids relocate, and the node's own `badge.yaml`
+ *             (description), `appearance.yaml`, `upstream.yaml` (its upstream
+ *             list, D37), `generation.yaml`, and `made.yaml` (D63) move with
+ *             its mirror directory; the task records of a generation that
+ *             runs on it take its new path. The per-machine canvas viewports
  *             of the moved subtree (and of a replaced destination) are
  *             forgotten.
  *  - DELETE → canvas purge, ADHD dropped, the node's badge retired, and the
  *             canvas viewports of the subtree forgotten. A delete to the trash
- *             keeps `upstream.yaml`, so a restore brings the upstream list
- *             back; a permanent delete removes it.
+ *             keeps `upstream.yaml`, `generation.yaml`, and `made.yaml`, so a
+ *             restore brings the card back whole; a permanent delete removes
+ *             them. A generated file without a `made.yaml`, one that was
+ *             uploaded to a draft, loses its `generation.yaml` with any delete,
+ *             so that it does not stay behind as a draft.
  *
  * The cascade never changes another node's upstream list: entries that named
  * a moved or deleted node become dangling and stay visible until the rename
@@ -130,9 +158,10 @@ interface IBaseHalfPendingCascadeRecovery {
  * pair a migration has not moved yet stays complete.
  *
  * Operations that happen OUTSIDE the app (a terminal `mv`, an agent's tools)
- * don't pass through the working-copy service. On workspace open every badge
- * whose disk node is gone is marked `orphan`, preserving its description, and
- * a file reappearing clears the flag again via file events.
+ * don't pass through the working-copy service. What following moved items
+ * recognizes is relocated here; on workspace open every badge whose disk node
+ * is gone and that is no draft's is marked `orphan`, preserving its
+ * description, and a file reappearing clears the flag again via file events.
  *
  * All cascades run on one FIFO queue so two rapid operations (rename A→B, then
  * B→C) can never interleave their multi-file rewrites.
@@ -166,7 +195,8 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@IBaseHalfCanvasViewportStateService private readonly viewportStateService: IBaseHalfCanvasViewportStateService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
-		@IBaseHalfVideoGenerationService private readonly videoGenerationService: IBaseHalfVideoGenerationService,
+		@IBaseHalfGenerationTaskStore private readonly taskStore: IBaseHalfGenerationTaskStore,
+		@IBaseHalfDraftOperations private readonly draftOperations: IBaseHalfDraftOperations,
 		@IBaseHalfPluginStructuralDeleteCleanupService private readonly pluginStructuralDeleteCleanupService: IBaseHalfPluginStructuralDeleteCleanupService,
 		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService
@@ -180,11 +210,6 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		// Many of these events come in a row, and a run that reports progress has not ended.
 		const retry = this._register(new RunOnceScheduler(() => this.retryPendingMoves(), 100));
 		this._register(this.workingCopyService.onDidChangeDirty(() => retry.schedule()));
-		this._register(this.videoGenerationService.onDidChangeProgress(resource => {
-			if (!this.videoGenerationService.isGenerating(resource)) {
-				retry.schedule();
-			}
-		}));
 
 		this._register(workingCopyFileService.addFileOperationPrecondition({
 			prepare: (files, operation, undoInfo, token) => this.prepareStructuralDetail(files, operation, undoInfo, token)
@@ -257,6 +282,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			reservation: this.workspaceMutationCoordinator.reserveStructural(workspaces, affectedPaths),
 			undoRedoGroup: undoInfo?.undoRedoGroup,
 			stagedDeleteCleanups: [],
+			before: { drafts: [], withoutRecord: [] },
 			completedFileCount: 0,
 			deleteCleanupsSettled: false,
 			finalizationSucceeded: false,
@@ -284,6 +310,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				async () => this.flushAffectedActiveProjection(files, operation)
 			);
 			fence = preparedFence || undefined;
+			await context.reservation.runPrepared(() => this.readCardInformationBefore(operation, files, context.before));
 			if (operation === FileOperation.DELETE && !undoInfo?.isUndoing) {
 				await context.reservation.runPrepared(async lease => {
 					context.stagedDeleteCleanups.push(...await this.pluginStructuralDeleteCleanupService.stageDelete(files, token, lease));
@@ -403,7 +430,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		if (!failed) {
 			try {
 				await context.reservation.finishInternal(
-					lease => this.handleOperation(context.operation, completedFiles, lease),
+					lease => this.handleOperation(context.operation, completedFiles, lease, context.before),
 					baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles)
 				);
 				context.finalizationSucceeded = true;
@@ -430,7 +457,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles),
 				async lease => {
 					await rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, completedFiles.length, lease);
-					await this.handleOperation(context.operation, completedFiles, lease);
+					await this.handleOperation(context.operation, completedFiles, lease, context.before);
 				}
 			);
 		}
@@ -455,7 +482,37 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 	}
 
-	private async handleOperation(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
+	/**
+	 * Before a move or delete reaches the disk, under its reservation: the
+	 * drafts at its targets, which a moved item may take the path of, and the
+	 * generated files without a record that it deletes. Afterwards a draft and
+	 * the card information of a file that is gone look the same. What cannot
+	 * be read here never holds the user's operation back: it is logged, and the
+	 * cascade then treats nothing there as a draft or as a file without a
+	 * record.
+	 */
+	private async readCardInformationBefore(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], before: IBaseHalfCardInformationBefore): Promise<void> {
+		for (const pair of files) {
+			const location = this.workspaceLocation(pair.target);
+			if (!location) {
+				continue;
+			}
+			try {
+				for (const path of await baseHalfWalkDraftInformation(this.fileService, location.workspaceFolder, location.relativePath)) {
+					const itemExists = (await baseHalfReadDraftFacts(this.fileService, location.workspaceFolder, path)).itemExists;
+					if (operation === FileOperation.MOVE && !itemExists) {
+						before.drafts.push({ workspaceFolder: location.workspaceFolder, relativePath: path });
+					} else if (operation === FileOperation.DELETE && itemExists) {
+						before.withoutRecord.push({ workspaceFolder: location.workspaceFolder, relativePath: path });
+					}
+				}
+			} catch (error) {
+				this.logService.warn(`BaseHalf mirror cascade: could not read the generation information at '${location.relativePath}' before the ${operation === FileOperation.MOVE ? 'move' : 'delete'}`, error);
+			}
+		}
+	}
+
+	private async handleOperation(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], lease: IBaseHalfWorkspaceMutationLease, before: IBaseHalfCardInformationBefore): Promise<void> {
 		baseHalfUpdateCanvasViewportsForStructuralChange(this.viewportStateService, operation, files);
 		// A move or delete through the workbench is not something to recognize:
 		// what BaseHalf last saw takes it here.
@@ -471,12 +528,12 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const plans: IBaseHalfCascadePlan[] = [];
 		for (const pair of files) {
 			if (operation === FileOperation.MOVE && pair.source) {
-				const plan = this.planCascadeMove(pair.source, pair.target);
+				const plan = this.planCascadeMove(pair.source, pair.target, before.drafts);
 				if (plan) {
 					plans.push(plan);
 				}
 			} else if (operation === FileOperation.DELETE) {
-				const plan = this.planCascadeDelete(pair.target, !this.deletesToTrash(pair.target));
+				const plan = this.planCascadeDelete(pair.target, !this.deletesToTrash(pair.target), before.withoutRecord);
 				if (plan) {
 					plans.push(plan);
 				}
@@ -539,7 +596,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			&& this.fileService.hasCapability(resource, FileSystemProviderCapabilities.Trash);
 	}
 
-	private planCascadeMove(source: URI, target: URI): IBaseHalfCascadePlan | undefined {
+	private planCascadeMove(source: URI, target: URI, drafts: readonly IBaseHalfWorkspacePath[] = []): IBaseHalfCascadePlan | undefined {
 		const from = this.workspaceLocation(source);
 		const to = this.workspaceLocation(target);
 		if (from && !to) {
@@ -584,15 +641,25 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 					{
 						label: 'legacy connection paths',
 						run: () => this.renameLegacyConnectionPaths(workspaceFolder, from.relativePath, to.relativePath)
-					}
+					},
+					this.generationTaskStage(workspaceFolder, from.relativePath, to.relativePath)
 				]
 			};
 		}
 
+		// The drafts that were at the new path before the move: one whose path
+		// the moved item took moves aside, and one whose path names nothing
+		// stays where it is, out of reach of the retirement below.
+		const draftsHere = drafts.filter(draft => draft.workspaceFolder.toString() === workspaceFolder.toString() && baseHalfIsMirrorSubtree(draft.relativePath, to.relativePath)).map(draft => draft.relativePath);
+		const keptDrafts = new Set<string>();
 		return {
 			workspaceFolder,
 			description: `"${from.relativePath}" → "${to.relativePath}"`,
 			stages: [
+				{
+					label: 'drafts at the new path',
+					run: activeLease => this.moveDraftsAside(workspaceFolder, draftsHere, activeLease, keptDrafts)
+				},
 				{
 					label: 'canvas subtree relocation',
 					run: activeLease => this.canvasMirrorService.relocateNode(
@@ -611,9 +678,12 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 					label: 'ADHD subtree relocation',
 					run: activeLease => this.relocateAdhd(workspaceFolder, from.relativePath, to.relativePath, false, activeLease)
 				},
-				this.mirrorFileRelocationStage('badge subtree relocation', workspaceFolder, from.relativePath, to.relativePath, BADGE_FILE_NAME),
-				this.mirrorFileRelocationStage('appearance subtree relocation', workspaceFolder, from.relativePath, to.relativePath, APPEARANCE_FILE_NAME),
-				this.mirrorFileRelocationStage('upstream list relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME),
+				this.mirrorFileRelocationStage('badge subtree relocation', workspaceFolder, from.relativePath, to.relativePath, BADGE_FILE_NAME, keptDrafts),
+				this.mirrorFileRelocationStage('appearance subtree relocation', workspaceFolder, from.relativePath, to.relativePath, APPEARANCE_FILE_NAME, keptDrafts),
+				this.mirrorFileRelocationStage('upstream list relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, keptDrafts),
+				this.mirrorFileRelocationStage('generation information relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_GENERATION_INFO_FILE, keptDrafts),
+				this.mirrorFileRelocationStage('generation record relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_GENERATION_MADE_FILE, keptDrafts),
+				this.generationTaskStage(workspaceFolder, from.relativePath, to.relativePath),
 				{
 					label: 'legacy connection paths',
 					run: () => this.renameLegacyConnectionPaths(workspaceFolder, from.relativePath, to.relativePath)
@@ -623,13 +693,58 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		};
 	}
 
-	private planCascadeDelete(resource: URI, permanent: boolean): IBaseHalfCascadePlan | undefined {
+	/**
+	 * A generation that runs on a moved card, or on a card below a moved
+	 * folder, lands where the card is now: its task record takes the new path
+	 * in the same exclusive run (generation cards, "Moving, renaming, copying,
+	 * and undo").
+	 */
+	private generationTaskStage(workspaceFolder: URI, from: string, to: string): IBaseHalfCascadeStage {
+		return {
+			label: 'generation task records',
+			run: () => this.taskStore.retarget(this.workspaceNode(workspaceFolder, from).resource, this.workspaceNode(workspaceFolder, to).resource)
+		};
+	}
+
+	/**
+	 * The drafts among `drafts` whose path an item has just taken move aside
+	 * to the next free name, with their card information and card row, so
+	 * that the item keeps its own card information (generation cards, "Drafts
+	 * and missing files"); the others stay drafts where they are. `kept`
+	 * collects the paths of both, which a folder's move must not retire. It is
+	 * safe to run again.
+	 */
+	private async moveDraftsAside(workspaceFolder: URI, drafts: readonly string[], lease: IBaseHalfWorkspaceMutationLease, kept?: Set<string>): Promise<void> {
+		for (const draft of drafts) {
+			const facts = await baseHalfReadDraftFacts(this.fileService, workspaceFolder, draft);
+			if (!facts.hasGenerationInfo || facts.hasMade) {
+				// Moved aside by an earlier run of this stage, or no draft's any more.
+				continue;
+			}
+			if (!facts.itemExists) {
+				kept?.add(draft);
+				continue;
+			}
+			const aside = await baseHalfDraftAsidePath(this.fileService, workspaceFolder, draft);
+			if (aside === undefined) {
+				this.logService.warn(`BaseHalf mirror cascade: found no free name to move the draft at '${draft}' aside to`);
+				continue;
+			}
+			await this.draftOperations.move(this.workspaceNode(workspaceFolder, draft).resource, this.workspaceNode(workspaceFolder, aside).resource, { lease, aside: true });
+			// Below a moved folder its new place is out of reach of the retirement too.
+			kept?.add(aside);
+			this.logService.info(`BaseHalf mirror cascade: moved the draft at '${draft}' aside to '${aside}' for the item that took its path`);
+		}
+	}
+
+	private planCascadeDelete(resource: URI, permanent: boolean, withoutRecord: readonly IBaseHalfWorkspacePath[] = []): IBaseHalfCascadePlan | undefined {
 		const location = this.workspaceLocation(resource);
 		if (!location) {
 			return undefined;
 		}
 
 		const { workspaceFolder, relativePath } = location;
+		const filesWithoutRecord = withoutRecord.filter(file => file.workspaceFolder.toString() === workspaceFolder.toString() && baseHalfIsMirrorSubtree(file.relativePath, relativePath)).map(file => file.relativePath);
 		const stages: IBaseHalfCascadeStage[] = [
 			{
 				label: 'canvas subtree retirement',
@@ -644,13 +759,21 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				run: () => this.retireBadges(workspaceFolder, relativePath)
 			}
 		];
-		if (permanent) {
-			// A delete to the trash keeps every upstream.yaml of the subtree so a
-			// restore brings the upstream lists back (the index treats them as
-			// naming a missing node until then).
+		if (filesWithoutRecord.length > 0) {
+			// A generated file without a record, one that was uploaded to a
+			// draft, would otherwise stay behind as a draft.
 			stages.push({
-				label: 'upstream list removal',
-				run: () => this.removeUpstreamLists(workspaceFolder, relativePath)
+				label: 'generation information of files without a record',
+				run: () => this.removeGenerationInformation(workspaceFolder, filesWithoutRecord)
+			});
+		}
+		if (permanent) {
+			// A delete to the trash keeps every upstream.yaml, generation.yaml,
+			// and made.yaml of the subtree, so a restore brings the card back
+			// whole (the index treats them as naming a missing node until then).
+			stages.push({
+				label: 'upstream list and generation information removal',
+				run: () => this.removeKeptCardInformation(workspaceFolder, relativePath)
 			});
 		}
 		return {
@@ -664,12 +787,15 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	/**
 	 * A stage that moves one kind of per-node mirror file of a moved subtree to
 	 * the new paths. Destination files that no incoming file replaces belong to
-	 * a replaced or deleted node and are retired. That set is computed on the
+	 * a replaced or deleted node and are retired, apart from those of the
+	 * drafts in `kept`, which stay drafts there. That set is computed on the
 	 * first run only, so a retry never retires a file this stage already moved
-	 * in. `upstream.yaml` is neither moved nor retired in a folder marked with
-	 * the source-tree marker, where BaseHalf writes no upstream.yaml.
+	 * in. A `generation.yaml` or `made.yaml` that cannot be read is kept as a
+	 * recovery copy before it is retired or replaced. `upstream.yaml` is
+	 * neither moved nor retired in a folder marked with the source-tree marker,
+	 * where BaseHalf writes no upstream.yaml.
 	 */
-	private mirrorFileRelocationStage(label: string, workspaceFolder: URI, from: string, to: string, fileName: string): IBaseHalfCascadeStage {
+	private mirrorFileRelocationStage(label: string, workspaceFolder: URI, from: string, to: string, fileName: string, kept: ReadonlySet<string> = new Set()): IBaseHalfCascadeStage {
 		let retired: readonly string[] | undefined;
 		return {
 			label,
@@ -682,14 +808,14 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				if (!retired) {
 					const incoming = new Set(sources.map(entry => baseHalfRemapSubtreeRel(entry.relativePath, from, to)));
 					retired = entries
-						.filter(entry => baseHalfIsMirrorSubtree(entry.relativePath, to) && !incoming.has(entry.relativePath))
+						.filter(entry => baseHalfIsMirrorSubtree(entry.relativePath, to) && !incoming.has(entry.relativePath) && !kept.has(entry.relativePath))
 						.map(entry => entry.relativePath);
 				}
 				for (const path of retired) {
 					if (fileName === BADGE_FILE_NAME) {
 						await this.retireBadge(workspaceFolder, path);
 					} else {
-						await this.deleteMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, path, fileName));
+						await this.removeMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, path, fileName));
 					}
 				}
 				for (const source of sources) {
@@ -703,9 +829,12 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	/**
 	 * Moves one mirror file. A relocated `badge.yaml` gets its new `path`; every
 	 * other byte travels unchanged, so legacy reference keys a migration has
-	 * not removed yet move with the badge. The target is written against its
-	 * current bytes before the source is removed against the bytes that were
-	 * copied, so a retry after a partial move finishes it without loss.
+	 * not removed yet move with the badge, and `generation.yaml` and
+	 * `made.yaml`, which store no path, move as they are. The target is written
+	 * against its current bytes before the source is removed against the bytes
+	 * that were copied, so a retry after a partial move finishes it without
+	 * loss. A `generation.yaml` or `made.yaml` at the target that cannot be
+	 * read is kept as a recovery copy first.
 	 */
 	private async moveMirrorFile(workspaceFolder: URI, source: URI, target: URI, badgePath: string | undefined): Promise<void> {
 		const bytes = await this.readMirrorFile(workspaceFolder, source);
@@ -721,46 +850,43 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 		const current = await this.readMirrorFile(workspaceFolder, target);
 		if (!current?.equals(next)) {
-			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
-			await this.fileService.createFolder(dirname(target));
-			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
-			await baseHalfCommitMirrorFile(this.fileService, target, next, current);
-			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+			if (current) {
+				await this.preserveGenerationFile(workspaceFolder, target, current);
+			}
+			await baseHalfWriteMirrorFile(this.fileService, workspaceFolder, target, next, current);
 		}
 		await this.deleteMirrorFile(workspaceFolder, source, bytes);
 	}
 
 	/** Reads a mirror file, or `null` when it does not exist. */
-	private async readMirrorFile(workspaceFolder: URI, resource: URI): Promise<VSBuffer | null> {
-		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
-		try {
-			return (await this.fileService.readFile(resource, { atomic: true, limits: { size: MIRROR_FILE_MAX_BYTES } })).value;
-		} catch (error) {
-			if (isFileNotFound(error)) {
-				return null;
-			}
-			throw error;
-		}
+	private readMirrorFile(workspaceFolder: URI, resource: URI): Promise<VSBuffer | null> {
+		return baseHalfReadMirrorFile(this.fileService, workspaceFolder, resource);
 	}
 
 	/** Deletes one mirror file (never a directory); with `expected`, only while it still has those bytes. */
-	private async deleteMirrorFile(workspaceFolder: URI, resource: URI, expected?: VSBuffer): Promise<void> {
-		if (expected) {
-			const current = await this.readMirrorFile(workspaceFolder, resource);
-			if (current === null) {
-				return;
-			}
-			if (!current.equals(expected)) {
-				throw new FileOperationError(`${resource.toString()} changed before it could be moved`, FileOperationResult.FILE_MODIFIED_SINCE);
-			}
+	private deleteMirrorFile(workspaceFolder: URI, resource: URI, expected?: VSBuffer): Promise<void> {
+		return baseHalfDeleteMirrorFile(this.fileService, workspaceFolder, resource, expected);
+	}
+
+	/**
+	 * Removes one mirror file that is retired or deleted for good. A
+	 * `generation.yaml` or `made.yaml` that cannot be read is kept as a
+	 * recovery copy first, so that content BaseHalf cannot read is never
+	 * destroyed (mirror file resilience, "Structural operations").
+	 */
+	private async removeMirrorFile(workspaceFolder: URI, resource: URI): Promise<void> {
+		const contents = await this.readMirrorFile(workspaceFolder, resource);
+		if (contents === null) {
+			return;
 		}
-		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
-		try {
-			await this.fileService.del(resource, { recursive: false, useTrash: false, atomic: false });
-		} catch (error) {
-			if (!isFileNotFound(error)) {
-				throw error;
-			}
+		await this.preserveGenerationFile(workspaceFolder, resource, contents);
+		await this.deleteMirrorFile(workspaceFolder, resource, contents);
+	}
+
+	private async preserveGenerationFile(workspaceFolder: URI, resource: URI, contents: VSBuffer): Promise<void> {
+		const copy = await baseHalfPreserveUnreadableGenerationFile(this.fileService, workspaceFolder, resource, contents);
+		if (copy) {
+			this.logService.warn(`BaseHalf mirror cascade: ${resource.toString()} could not be read; its bytes are kept at ${copy.toString()}`);
 		}
 	}
 
@@ -821,14 +947,30 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		await this.badgeMirrorService.patchBadge(this.badgeNode(workspaceFolder, relativePath, 'file'), () => null);
 	}
 
-	/** Permanent delete: removes the upstream.yaml of the node and of every node below it. */
-	private async removeUpstreamLists(workspaceFolder: URI, subtree: string): Promise<void> {
-		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
-			return;
+	/**
+	 * Permanent delete: removes the `upstream.yaml`, `generation.yaml`, and
+	 * `made.yaml` of the node and of every node below it, the drafts below a
+	 * deleted folder included. No upstream.yaml is removed in a folder marked
+	 * with the source-tree marker, where BaseHalf writes none.
+	 */
+	private async removeKeptCardInformation(workspaceFolder: URI, subtree: string): Promise<void> {
+		const marked = await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder);
+		for (const fileName of [...(marked ? [] : [BASEHALF_UPSTREAM_SIDECAR_FILE_NAME]), BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE]) {
+			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName, subtree)) {
+				await this.removeMirrorFile(workspaceFolder, entry.resource);
+			}
 		}
-		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME)) {
-			if (baseHalfIsMirrorSubtree(entry.relativePath, subtree)) {
-				await this.deleteMirrorFile(workspaceFolder, entry.resource);
+	}
+
+	/**
+	 * Removes the `generation.yaml` of deleted files that had no `made.yaml`,
+	 * such as a file uploaded to a draft, while they still have none, so that
+	 * they do not stay behind as drafts (generation cards, "Deleting").
+	 */
+	private async removeGenerationInformation(workspaceFolder: URI, paths: readonly string[]): Promise<void> {
+		for (const path of paths) {
+			if (await this.readMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, path, BASEHALF_GENERATION_MADE_FILE)) === null) {
+				await this.removeMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, path, BASEHALF_GENERATION_INFO_FILE));
 			}
 		}
 	}
@@ -971,13 +1113,33 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			return;
 		}
 
-		const failed = await this.canvasMirrorService.followNodes(workspaceFolder, ready.map(one => ({ from: one.move.from, to: one.move.to, withoutMirrorDirectory: one.withoutMirrorDirectory })), lease);
+		// A draft at the new path of a recognized item moves aside first, so
+		// that the item keeps its own card information and card row there.
+		const relocatable: typeof ready = [];
+		for (const one of ready) {
+			try {
+				await this.moveDraftsAside(workspaceFolder, await this.draftsAtNewPath(workspaceFolder, one.move), lease);
+				relocatable.push(one);
+			} catch (error) {
+				this.logService.warn(`BaseHalf mirror cascade: could not move a draft at '${one.move.to}' aside for the card of '${one.move.from}'`, error);
+				this.waitForNextTry(workspaceFolder, [one.move, ...leftForTheNextRun.filter(left => left.below === one.move).map(left => left.move)]);
+			}
+		}
+		if (relocatable.length === 0) {
+			return;
+		}
+
+		const failed = await this.canvasMirrorService.followNodes(workspaceFolder, relocatable.map(one => ({ from: one.move.from, to: one.move.to, withoutMirrorDirectory: one.withoutMirrorDirectory })), lease);
 		const done: IBaseHalfMovedItem[] = [];
-		for (const [index, { move, withoutMirrorDirectory }] of ready.entries()) {
+		for (const [index, { move, withoutMirrorDirectory }] of relocatable.entries()) {
 			try {
 				if (failed.has(index)) {
 					throw failed.get(index);
 				}
+				// A generation that runs on the item, or below the folder, lands
+				// where it is now. Before the mirror files: once those have all
+				// moved, nothing of the pair is left that can fail.
+				await this.taskStore.retarget(this.workspaceNode(workspaceFolder, move.from).resource, this.workspaceNode(workspaceFolder, move.to).resource);
 				if (!withoutMirrorDirectory) {
 					await this.followMirrorFiles(workspaceFolder, move, lease);
 				}
@@ -1000,8 +1162,11 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 
 	/**
 	 * Before the card information of an item follows it: whether the old path
-	 * still names nothing and the new one still names the item, whether the
-	 * item is held back, and whether it has a directory under `.bh/mirror/`.
+	 * still names nothing and the new one still names the item, whether
+	 * unsaved changes hold the item back, and whether it has a directory under
+	 * `.bh/mirror/`. A generation card that generates, or a folder that holds
+	 * one, is not held back: the run writes the card's new path into its task
+	 * record (generation cards, "Moving, renaming, copying, and undo").
 	 */
 	private async checkMovedItem(workspaceFolder: URI, move: IBaseHalfMovedItem): Promise<{ readonly outcome?: 'kept' | 'gone' | 'held'; readonly withoutMirrorDirectory: boolean }> {
 		const [oldPathNamesAnItem, newPathNamesIt, hasMirrorDirectory] = await Promise.all([
@@ -1018,12 +1183,28 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			return { outcome: 'gone', withoutMirrorDirectory };
 		}
 		const from = this.workspaceNode(workspaceFolder, move.from);
-		const to = this.workspaceNode(workspaceFolder, move.to);
-		const heldBack = this.workingCopyService.dirtyWorkingCopies.some(workingCopy => this.uriIdentityService.extUri.isEqualOrParent(workingCopy.resource, from.resource))
-			|| this.videoGenerationService.isGenerating(from.resource)
-			|| this.videoGenerationService.isGenerating(to.resource)
-			|| (move.kind === 'folder' && await this.holdsGeneratingNode(from.resource, to.resource));
+		const heldBack = this.workingCopyService.dirtyWorkingCopies.some(workingCopy => this.uriIdentityService.extUri.isEqualOrParent(workingCopy.resource, from.resource));
 		return { ...(heldBack ? { outcome: 'held' as const } : {}), withoutMirrorDirectory };
+	}
+
+	/**
+	 * The drafts at or below the new path of a recognized item, whose path the
+	 * item, or an item below the folder, took. A `generation.yaml` there that
+	 * has exactly the bytes of the one at the matching old path is the item's
+	 * own, which an earlier run had begun to move, and not a draft's.
+	 */
+	private async draftsAtNewPath(workspaceFolder: URI, move: IBaseHalfMovedItem): Promise<string[]> {
+		const drafts: string[] = [];
+		for (const path of await baseHalfWalkDraftInformation(this.fileService, workspaceFolder, move.to)) {
+			const [here, there] = await Promise.all([
+				this.readMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, path, BASEHALF_GENERATION_INFO_FILE)),
+				this.readMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, baseHalfRemapSubtreeRel(path, move.to, move.from), BASEHALF_GENERATION_INFO_FILE))
+			]);
+			if (!here || !there?.equals(here)) {
+				drafts.push(path);
+			}
+		}
+		return drafts;
 	}
 
 	/** An item without a directory under `.bh/mirror/` has no mirror files and no layouts of its own. */
@@ -1048,40 +1229,17 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				lease
 			);
 		}
-		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME]) {
+		// The drafts below a folder come along: their card information is all
+		// they have (rule 4). `generation.yaml` moves last, after `made.yaml`, so
+		// that a run that stops in between leaves no draft's information at the
+		// new path for the next run to take for a draft's.
+		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, BASEHALF_GENERATION_MADE_FILE, BASEHALF_GENERATION_INFO_FILE]) {
 			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName, move.from)) {
 				const targetPath = baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to);
 				await this.followMirrorFile(workspaceFolder, entry.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);
 			}
 		}
 		await this.pruneEmptyMirrorDirectories([{ workspaceFolder, description: `${move.from} to ${move.to}, moved outside BaseHalf`, stages: [], prune: move.from }]);
-	}
-
-	/** Whether a Video node below a folder that was moved is generating, under its old or its new path. */
-	private async holdsGeneratingNode(from: URI, to: URI): Promise<boolean> {
-		const stack = [to];
-		for (let visited = 0; stack.length > 0 && visited < 2000; visited++) {
-			let children;
-			try {
-				children = (await this.fileService.resolve(stack.pop()!)).children ?? [];
-			} catch {
-				continue;
-			}
-			for (const child of children) {
-				if (child.isSymbolicLink) {
-					continue;
-				}
-				if (child.isDirectory) {
-					stack.push(child.resource);
-					continue;
-				}
-				const relative = getRelativePath(to, child.resource);
-				if (this.videoGenerationService.isGenerating(child.resource) || (relative && this.videoGenerationService.isGenerating(URI.joinPath(from, ...relative.split('/'))))) {
-					return true;
-				}
-			}
-		}
-		return false;
 	}
 
 	/**
@@ -1105,6 +1263,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 		const current = await this.readMirrorFile(workspaceFolder, target);
 		if (current !== null && !current.equals(next)) {
+			// Anything else at the new place stays as it is, and so does the piece.
 			if (badgePath === undefined) {
 				return;
 			}
@@ -1118,11 +1277,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			}
 		}
 		if (!current?.equals(next)) {
-			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
-			await this.fileService.createFolder(dirname(target));
-			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
-			await baseHalfCommitMirrorFile(this.fileService, target, next, current);
-			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+			await baseHalfWriteMirrorFile(this.fileService, workspaceFolder, target, next, current);
 		}
 		await this.deleteMirrorFile(workspaceFolder, source, bytes);
 	}
@@ -1130,7 +1285,9 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	//#endregion
 
 	/** Marks every badge whose node is gone from disk as `orphan`, keeping its
-	 * description. Folders marked with the source-tree marker are skipped. */
+	 * description. A draft is card information without a file by design: its
+	 * badge is never marked. A generated file that is gone has a `made.yaml`
+	 * and is no draft. Folders marked with the source-tree marker are skipped. */
 	private async sweepOrphans(workspaceFolder: URI): Promise<void> {
 		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
 			return;
@@ -1138,7 +1295,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const { badges } = await this.badgeMirrorService.listBadges(workspaceFolder);
 		const orphaned: string[] = [];
 		for (const badge of badges.values()) {
-			if (badge.orphan === true || await this.nodeExists(workspaceFolder, badge.path, badge.kind)) {
+			if (badge.orphan === true || await this.nodeExists(workspaceFolder, badge.path, badge.kind) || baseHalfIsDraft(await baseHalfReadDraftFacts(this.fileService, workspaceFolder, badge.path))) {
 				continue;
 			}
 			await this.badgeMirrorService.patchBadge(

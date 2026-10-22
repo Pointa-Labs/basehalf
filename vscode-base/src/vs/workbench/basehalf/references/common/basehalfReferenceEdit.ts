@@ -22,8 +22,6 @@ export const IBaseHalfReferenceEditService = createDecorator<IBaseHalfReferenceE
 /** Application-scope storage key of the one-time first-frontmatter notice. */
 export const BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY = 'basehalf.references.firstFrontmatterNotice.v1';
 
-/** How long a Markdown connect waits for the index's result-artifact check. */
-export const BASEHALF_REFERENCE_INDEX_WAIT_MS = 10_000;
 /** How long the edit service waits for the open projections of a document to flush. */
 export const BASEHALF_REFERENCE_FLUSH_TIMEOUT_MS = 2_000;
 
@@ -116,8 +114,17 @@ export interface IBaseHalfReferenceStructureStamp {
 export interface IBaseHalfReferenceEditOptions {
 	/** User-facing label of the Markdown bulk edit in the document's undo stack. */
 	readonly label: string;
-	/** Overrides how long an add into Markdown waits for the index (default 10 s). */
-	readonly indexWaitMs?: number;
+	/**
+	 * The downstream node is a draft that is being made (generation cards,
+	 * "Creating a generation card"; reference graph, "Creating connected
+	 * nodes"): its `upstream.yaml` is written before its `generation.yaml`, so
+	 * that it is never created without its connection. The node then counts as
+	 * present when its path has a generation extension, names no file or
+	 * folder, has no `made.yaml`, and lies in a folder that exists. The caller
+	 * chooses a path where no other card information is. Any other node that
+	 * is not there is refused as missing, as without this option.
+	 */
+	readonly newDraft?: boolean;
 	/**
 	 * The folder structure the operation was planned against (the rename
 	 * refactor and Relink Everywhere plan from paths). When a structural change
@@ -180,25 +187,20 @@ export type BaseHalfReferenceRefusalReason =
 	| 'notWritable'
 	/** Another tool keeps a value where the upstream list goes. */
 	| 'foreign'
-	/** The target is in the reserved outputs tree or is the file a `.bhnode`
-	 * shows as its result: BaseHalf never changes its store, including removals. */
-	| 'upstreamOnly'
 	/** The Markdown or `.bhnode` store is a symbolic link, lies below one, or
 	 * resolves outside its workspace folder. BaseHalf never writes through links. */
 	| 'symbolicLink'
-	/** "Still loading connections": the index did not finish within 10 s. */
-	| 'indexLoading'
 	/** "This node already has 64 upstream entries". */
 	| 'limit'
 	/** A sidecar write in a folder marked with `.basehalf-no-workspace-setup`. */
 	| 'markedFolder'
-	/** The downstream node does not exist. */
+	/** The downstream node does not exist: no file, no folder, and no draft. */
 	| 'missingNode'
 	/** The entry to write is not a valid entry for this node. */
 	| 'invalidEntry'
 	/** A replaced or positional entry is no longer listed. */
 	| 'entryMissing'
-	/** An `onlyDangling` replacement's old path names a node again. */
+	/** An `onlyDangling` replacement's old path names a node again, a draft included. */
 	| 'entryResolves'
 	/** Canvas undo or redo: "<file> changed since this edit". */
 	| 'changedSinceEdit';

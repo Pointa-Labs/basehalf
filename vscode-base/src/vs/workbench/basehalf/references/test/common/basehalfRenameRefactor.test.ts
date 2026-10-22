@@ -46,7 +46,7 @@ function indexed(path: string, storeKind: BaseHalfUpstreamStoreKind, entries: re
 }
 
 function state(path: string, storeKind: BaseHalfUpstreamStoreKind, current: readonly string[], snapshotEntries: readonly string[], extra: Partial<IBaseHalfRenameStoreState> = {}, identity = BASEHALF_EXACT_UPSTREAM_IDENTITY): IBaseHalfRenameStoreState {
-	return { node: node(path), storeKind, items: items(path, current, identity), snapshotEntries, upstreamOnly: false, ...extra };
+	return { node: node(path), storeKind, items: items(path, current, identity), snapshotEntries, ...extra };
 }
 
 /** A plan in a compact, comparable shape. */
@@ -69,7 +69,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 			indexed('docs', 'sidecar', ['other.md']),
 			indexed('x.md', 'markdown', ['other.md']),
 			indexed('gone.pdf', 'sidecar', ['docs'], BASEHALF_EXACT_UPSTREAM_IDENTITY, { sidecarState: 'missingNode' })
-		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY, target => target.relativePath === 'renders/final.md');
+		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY);
 		const relocated = baseHalfRelocateRenameStores(snapshot, moves, BASEHALF_EXACT_UPSTREAM_IDENTITY);
 		const plan = baseHalfPlanRenameUpdate({
 			moves,
@@ -105,7 +105,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		const snapshot = baseHalfSnapshotRenameStores([
 			indexed('topic/b.md', 'markdown', ['topic/a.md', 'root.md']),
 			indexed('topic/clip.bhnode', 'node', ['topic/b.md'])
-		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY, () => false);
+		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY);
 		const stores = baseHalfRelocateRenameStores(snapshot, moves, BASEHALF_EXACT_UPSTREAM_IDENTITY);
 		const plan = baseHalfPlanRenameUpdate({
 			moves,
@@ -132,7 +132,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 			indexed('a.md', 'markdown', ['docs/Guide.md'], CASE_INSENSITIVE),
 			indexed('b.md', 'markdown', ['docs/guide.md'], CASE_INSENSITIVE),
 			indexed('c.md', 'markdown', ['DOCS/GUIDE.md'], CASE_INSENSITIVE)
-		], moves, CASE_INSENSITIVE, () => false);
+		], moves, CASE_INSENSITIVE);
 		const plan = baseHalfPlanRenameUpdate({
 			moves,
 			identity: CASE_INSENSITIVE,
@@ -153,7 +153,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		});
 	});
 
-	test('an upstream-only store, an unreadable store, and a store with unsaved changes are skipped with their reasons', () => {
+	test('an unreadable store and a store with unsaved changes are skipped with their reasons; a generated file and a draft are updated', () => {
 		const moves: IBaseHalfPathMove[] = [{ from: 'a.md', to: 'b.md' }];
 		const plan = baseHalfPlanRenameUpdate({
 			moves,
@@ -161,7 +161,9 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 			exists: () => false,
 			stores: [
 				state('clip.bhnode', 'node', ['a.md'], ['a.md'], { blocking: { reason: 'beingMoved', message: 'clip.bhnode is being moved.' } }),
-				state('renders/final.md', 'markdown', ['a.md'], ['a.md'], { upstreamOnly: true }),
+				// A generated file holds its own inputs (D63), and a draft's list is its upstream.yaml.
+				state('renders/final.mp4', 'sidecar', ['a.md'], ['a.md']),
+				state('shots/next.mp4', 'sidecar', ['a.md'], ['a.md']),
 				state('broken.md', 'markdown', [], ['a.md'], { items: undefined }),
 				state('dirty.md', 'markdown', ['a.md'], ['a.md'], { blocking: { reason: 'unsaved', message: 'Save or revert dirty.md first.' } }),
 				state('notes.md', 'markdown', ['a.md'], ['a.md'])
@@ -169,11 +171,11 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		});
 		assert.deepStrictEqual({ plan: summary(plan), messages: plan.skipped.map(skip => skip.message ?? null) }, {
 			plan: {
-				edits: ['notes.md: a.md→b.md'],
-				skipped: ['broken.md: unreadable', 'clip.bhnode: beingMoved', 'dirty.md: unsaved', 'renders/final.md: upstreamOnly'],
+				edits: ['notes.md: a.md→b.md', 'renders/final.mp4: a.md→b.md', 'shots/next.mp4: a.md→b.md'],
+				skipped: ['broken.md: unreadable', 'clip.bhnode: beingMoved', 'dirty.md: unsaved'],
 				leftAlone: []
 			},
-			messages: [null, 'clip.bhnode is being moved.', 'Save or revert dirty.md first.', null]
+			messages: [null, 'clip.bhnode is being moved.', 'Save or revert dirty.md first.']
 		});
 	});
 
@@ -214,7 +216,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 	test('pending moves compose: entries map through both moves, and a move back to the exact old path needs nothing', () => {
 		const first = {
 			moves: [{ from: 'a.md', to: 'b.md' }],
-			stores: [{ nodePath: 'topic/n.md', storeKind: 'markdown' as const, upstreamOnly: false, entries: ['a.md'] }],
+			stores: [{ nodePath: 'topic/n.md', storeKind: 'markdown' as const, entries: ['a.md'] }],
 			storeKindChanges: ['b.md']
 		};
 		const twice = baseHalfComposeRenamePlan(first, [{ from: 'b.md', to: 'c.md' }, { from: 'topic', to: 'subject' }], BASEHALF_EXACT_UPSTREAM_IDENTITY);
@@ -239,7 +241,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 	test('pending moves compose through a later move of an item inside a moved folder', () => {
 		const first = {
 			moves: [{ from: 'docs', to: 'notes' }],
-			stores: [{ nodePath: 'x.md', storeKind: 'markdown' as const, upstreamOnly: false, entries: ['docs/x.md', 'docs/y.md', 'docs/z.md'] }],
+			stores: [{ nodePath: 'x.md', storeKind: 'markdown' as const, entries: ['docs/x.md', 'docs/y.md', 'docs/z.md'] }],
 			storeKindChanges: ['notes']
 		};
 		// notes/x.md moves on; notes/z.md moves back into a new docs folder.
@@ -275,7 +277,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		// Plan 1 moved docs/a.md to docs/b.md and is unanswered; then docs moves to archive.
 		const earlier = baseHalfComposeRenamePlan({
 			moves: [{ from: 'docs/a.md', to: 'docs/b.md' }],
-			stores: [{ nodePath: 'n.md', storeKind: 'markdown', upstreamOnly: false, entries: ['docs/a.md'] }],
+			stores: [{ nodePath: 'n.md', storeKind: 'markdown', entries: ['docs/a.md'] }],
 			storeKindChanges: ['docs/b.md']
 		}, [{ from: 'docs', to: 'archive' }], BASEHALF_EXACT_UPSTREAM_IDENTITY);
 		const moves: IBaseHalfPathMove[] = [{ from: 'docs', to: 'archive' }];
@@ -283,7 +285,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		const snapshot = baseHalfSnapshotRenameStores([
 			indexed('n.md', 'markdown', ['docs/a.md', 'docs/c.md']),
 			indexed('m.md', 'markdown', ['docs/a.md'])
-		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY, () => false, exclude);
+		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY, exclude);
 		const later = baseHalfPlanRenameUpdate({
 			moves,
 			exclude,

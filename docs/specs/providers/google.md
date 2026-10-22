@@ -1,11 +1,16 @@
 # Google (Gemini API)
 
-Status: implemented (D59). Part of
+Status: implemented (D59; image models D64, 2026-10-22). Part of
 [providers and the model catalog](../providers.md), which defines
 the catalog, the requests, and the rules every provider follows.
 
-Implemented in `extensions/basehalf-ai-video/src/providers/google.ts`.
-The facts below follow Google's official pages, read on 2026-10-19 (those
+Implemented in `extensions/basehalf-ai-video/src/providers/google.ts`. The
+module declares Google's video model, Gemini Omni Flash, which runs in the
+background, and Google's image models, Nano Banana, which answer each request
+with its image ([Image models](#image-models)). Both use the same region, key,
+endpoint, and error reading.
+
+The facts about the video model follow Google's official pages, read on 2026-10-19 (those
 also saved on 2026-10-18 had not changed), with the date each page gives as
 its last update: Generate and edit videos with Gemini Omni Flash
 (2026-09-23), the Gemini Omni Flash model page (2026-08-27), Background
@@ -66,17 +71,18 @@ once, and every poll is one short request.
 
 One credential, `apiKey` (**API Key**), sent as `x-goog-api-key: <key>`.
 Rate limits apply per project, not per key, and spend-based limits over a
-rolling 10 minutes ($10 to $200 by usage tier); exceeding either answers HTTP
-429 (`rate_limit_exceeded`, `quota_exceeded`, `too_many_requests`, or, for the
-spend limits, `RESOURCE_EXHAUSTED`).
+rolling 10 minutes, which grow with the usage tier; exceeding either answers
+HTTP 429 (`rate_limit_exceeded`, `quota_exceeded`, `too_many_requests`, or,
+for the spend limits, `RESOURCE_EXHAUSTED`).
 
 | Region | Label | Base URL | Console |
 | --- | --- | --- | --- |
 | `global` | Gemini API | `https://generativelanguage.googleapis.com/v1beta` | `https://aistudio.google.com/api-keys` |
 
-The pricing page lists Gemini Omni Flash for the paid tier only ("Not
-available" on the free tier); a key of a free-tier project is refused by
-Google with its own message.
+The pricing page lists Gemini Omni Flash, and every image model, for the paid
+tier only ("Not available" on the free tier). A refusal that names the free
+tier is answered with a plain message that the key needs a paid tier
+([Errors](#errors)).
 
 ## Models
 
@@ -270,6 +276,17 @@ credits depleted) is `balance`, `rate_limit_exceeded`, `quota_exceeded`, and
 (codes such as `safety`, `prohibited_content`, `content_blocked`) come as a
 refused create or a failed interaction with Google's message.
 
+**A key of a free-tier project.** No model of this module is offered on the
+free tier (Pricing), and the pages do not say how Google words the refusal.
+Any error answer (4xx) whose error names the free tier (`free tier`,
+`free_tier`, or `FreeTier`, as in a quota of `limit: 0` for
+`generate_content_free_tier_requests`, or "free tier is not available in your
+country") is answered as `auth` with: "Google offers this model only on a paid
+tier, and the project of this API key is on the free tier. Set up billing for
+the project in Google AI Studio, or use the key of a project that has it."
+Without this, such a refusal, usually HTTP 429, would read as too many
+requests, and waiting would not help.
+
 ## Facts not confirmed
 
 - That Gemini Omni Flash runs in the background is implied by the Omni guide
@@ -278,3 +295,201 @@ refused create or a failed interaction with Google's message.
   step.
 - The highest number of reference images: Google states none.
 - Whether the reference's `response_format.duration` applies to Omni.
+
+## Image models
+
+Google makes images with its Nano Banana models through the same
+Interactions API, endpoint, key, and errors as the video model. An image
+interaction is created and answered in one call: BaseHalf sends the request
+once and receives the image inside the answer, so every image model declares
+`answersAtOnce` ([providers, Requests](../providers.md#requests)).
+
+### Sources
+
+Google's official pages, read on 2026-10-22 in the Markdown form Google serves
+for each page, with the date each gives as its last update:
+
+| Page | Updated | What this part takes from it |
+| --- | --- | --- |
+| Nano Banana image generation (`gemini-api/docs/image-generation`) | 2026-10-09 | the models and the one Google recommends; requests with `response_format`; the prompt before the images in most examples; up to 14 reference images; the default shape ("matches the output image size to that of your input image, or otherwise generates 1:1 squares"); the ratios and sizes of each model; thinking levels; "the model won't always follow the exact number of image outputs" |
+| Model pages of `gemini-nano-banana-2.1`, `gemini-3-pro-image`, `gemini-3.1-flash-lite-image`, `gemini-3.1-flash-image`, and `gemini-2.5-flash-image` | 2026-10-06, 2026-09-03, 2026-09-03, 2026-10-09, 2026-09-03 | inputs, input token limits, sizes, thinking, Lite's 1K only and its ten ratios |
+| Interactions API reference (`api/interactions-api`) and its OpenAPI document | 2026-10-21 | `response_format` of type `image`: `aspect_ratio` (14 values), `image_size` (`512`, `1K`, `2K`, `4K`), `mime_type` (`image/jpeg` only), `delivery`; `generation_config.thinking_level`; the statuses; the five model ids |
+| Interactions API overview | 2026-10-15 | the answer of a create holds the steps the model made; interactions are stored by default |
+| Background execution | 2026-10-21 | names standard Gemini models and agents, and no image model |
+| API errors | 2026-09-20 | the error shape, the codes by status, the codes of blocked images (`image_safety`, `image_prohibited_content`, `image_recitation`, `image_other`) and `no_image` |
+| Deprecations | 2026-10-20 | release and shutdown dates, and replacements |
+| Changelog | 2026-10-14 | 2.1 released and 3.1 Flash Image deprecated on 2026-10-06; inline data raised from 20 MB to 100 MB on 2026-01-08 |
+| File input methods | 2026-10-07 | inline data up to 100 MB per request |
+| Pricing | 2026-10-19 | read only for the tiers: no image model is offered on the free tier |
+| Rate limits and Billing | 2026-10-15, 2026-09-28 | a project is on the free tier until billing is set up in Google AI Studio |
+
+### Models
+
+| Catalog id | Label | Sent as (`global`) | Ratios | Resolution | `thinking_level` (default) | Prompt |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gemini-nano-banana-2.1` | Nano Banana 2.1 | `gemini-nano-banana-2.1` | the 14 | 1K, 2K, 4K | minimal, medium, high (medium) | 131,072 |
+| `gemini-3-pro-image` | Nano Banana Pro | `gemini-3-pro-image` | the 10 | 1K, 2K, 4K | none: it always thinks | 65,536 |
+| `gemini-3.1-flash-lite-image` | Nano Banana 2 Lite | `gemini-3.1-flash-lite-image` | the 10 | 1K | minimal, high (minimal) | 65,536 |
+| `gemini-3.1-flash-image` | Nano Banana 2 (deprecated) | `gemini-3.1-flash-image` | the 14 | 1K, 2K, 4K | minimal, high (minimal) | 131,072 |
+
+- The 14 ratios are 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 5:4, 4:5, 21:9, 4:1,
+  1:4, 8:1, and 1:8; the 10 are the same without 4:1, 1:4, 8:1, and 1:8 (the
+  guide's tables; Lite's page names the ten).
+- Nano Banana 2.1 is the model Google recommends for new projects; Pro is for
+  the most demanding images (text, diagrams, product shots); Lite is the
+  fastest, at 1K only, and "not optimized for multiple reference inputs".
+  Each description says so.
+- Every image model is of kind `image`, delivers JPEG (`outputFormat:
+  jpeg`, below), answers at once, and offers the one mode `reference` with 0
+  to 14 images. The prompt is required (`always`). Google states no prompt
+  limit besides the input token limit, so the catalog bounds the prompt, text
+  inputs included, at as many characters as the model takes input tokens
+  (the Prompt column).
+- `gemini-3.1-flash-image` is deprecated: Google deprecated it on 2026-10-06
+  without a shutdown date and names 2.1 as its replacement. It is shown only
+  to cards that already use it.
+- **Left out.** `gemini-2.5-flash-image`: the guide calls it "the legacy
+  pioneer" and recommends moving to Lite, and it shuts down on 2027-03-15; no
+  page recommends it, and no card uses it before launch. The previews
+  (`gemini-3.1-flash-image-preview` and `gemini-3-pro-image-preview`, shut
+  down on 2026-06-25, and older ones) and Imagen (shut down on 2026-08-17).
+  The size `512` of `gemini-3.1-flash-image`: the shared resolutions start at
+  1K, and the model is deprecated.
+
+### Inputs
+
+- Reference images travel inline as base64, each as `{"type": "image",
+  "mime_type", "data"}` with the type its bytes show (`image/png`,
+  `image/jpeg`, `image/webp`; the window draws any other image to PNG), in
+  the order of the plan, after the prompt.
+- At most 14, the guide's limit for every image model. The guide also splits
+  the 14 by use (objects, characters, style) per model, which the card does
+  not tell apart, so only the total is checked.
+- A request whose inputs as base64 would pass 100 MB is refused before
+  anything is sent, as for the video model. The image understanding page
+  (2026-09-23) still says that inline images limit a request to 20 MB; the
+  changelog of 2026-01-08 raised the limit to 100 MB, and File input methods
+  gives 100 MB, so the 100 MB check applies.
+- Videos, PDFs, and audio are not offered: an image model's references are
+  images.
+
+### Parameters
+
+| Name | Label | Kind | Values | Default | Models | Sent as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ratio` | Ratio | choice, ratio shapes | Adaptive (`adaptive`), then the model's ratios | Adaptive | all | `response_format.aspect_ratio`; nothing for Adaptive |
+| `resolution` | Resolution | choice | 1K (`1k`), 2K (`2k`), 4K (`4k`); 1K only on Lite | 1K | all | `response_format.image_size`: `1K`, `2K`, `4K` (Google refuses a lowercase k) |
+| `thinking_level` | Thinking | choice, advanced | the model's levels: Minimal, Medium, High | the model's default | 2.1, Lite, 3.1 Flash | `generation_config.thinking_level` |
+
+- Adaptive leaves the shape to Google, which matches the reference images or
+  makes a square without them; its tooltip says so.
+- `thinking_level` is named as Google's field, since no other provider has
+  it, and is always sent with the model's default unless the card chose
+  another level.
+- No `count`: one request makes one final image. The API has no number of
+  images, and Google warns that the model does not always follow a number
+  asked for in the prompt.
+- No seed: the reference lists `generation_config.seed`, but no page shows it
+  for image models (below).
+
+### Request
+
+`POST /interactions`, sent once and not in the background:
+
+```json
+{
+  "model": "gemini-nano-banana-2.1",
+  "input": [
+    { "type": "text", "text": "<the prompt>" },
+    { "type": "image", "mime_type": "image/png", "data": "<base64>" }
+  ],
+  "response_format": { "type": "image", "mime_type": "image/jpeg", "image_size": "2K", "aspect_ratio": "16:9" },
+  "generation_config": { "thinking_level": "high" }
+}
+```
+
+- `input` is the prompt, then the reference images in the plan's order; a
+  request without images sends the prompt alone.
+- `response_format.type` `image` drops the conversational text from the
+  answer. `mime_type` is always `image/jpeg`: the reference names no other
+  value, so the model declares JPEG and a draft has its final name before it
+  generates. A file that arrives in another format still lands under its own.
+- `generation_config` is sent only for a model with a thinking level.
+- Not sent: `background` (no page says that an image model runs in the
+  background, and one image is made within one request: the create waits up
+  to ten minutes for its answer), `store` (Google's default, as for every
+  request of this module), `delivery` (inline is the default), `tools`
+  (Search grounding, whose search suggestions must be shown with the image,
+  which a card cannot), `safety_settings`, `previous_interaction_id`,
+  `system_instruction`, and `seed`.
+
+### Answer
+
+The answer is the interaction, holding the steps the model made:
+
+| Status | Output |
+| --- | --- |
+| `completed` with an image in a `model_output` step | the last such image (the SDK's `output_image` is "the last generated image block"), its bytes written to the request's target, with the format its `mime_type` names; the bytes decide |
+| `completed` without an image | refused: "Google finished the generation without an image", with the model's text or the interaction's errors when it has them |
+| `failed` | refused with the interaction's errors, such as a blocked image (`image_safety`) in Google's words, or the output step's error |
+| `cancelled`, `incomplete`, `requires_action`, `budget_exceeded` | refused, with the words of the video model's states; `incomplete`: "Google ended the generation before the image was finished." |
+| `queued`, `in_progress` | Google did not finish the interaction within its answer: its `id` is answered as a task and followed like a video interaction, `GET /interactions/{id}`; a completed image interaction then answers its image as the task's output, written to the targets named with the task, and the statuses above that end without an image fail the task |
+| any other | the outcome is unknown: the image may have been made |
+
+- Images inside `thought` steps (the model's interim "thought images") are
+  not outputs.
+- An image answered as an address (`uri`) instead of base64 is answered as
+  that address, a Files API resource name made the download address under
+  the endpoint as for a video; the key goes only to the endpoint's origin.
+
+### Errors
+
+As for the video model ([Errors](#errors)): 401 and 403 are `auth`, 402
+(`payment_required`, Prepay credits depleted) is `balance`, 429 is
+`rateLimited`, and other 4xx are `rejected`. A create whose connection drops
+after it was sent, or whose answer is a server error (408 or 5xx), has an
+unknown outcome and is never sent again. A prompt or an image that Google
+blocks (`image_safety`, `image_prohibited_content`, `safety`, and the other
+blocked codes) comes either as an error answer, `rejected` with Google's
+message, or as a failed interaction, a refused output with it. A key of a
+free-tier project is answered with the paid-tier message.
+
+### Facts not confirmed
+
+- Whether an image model runs in the background: no page says so, and
+  BaseHalf does not ask for it.
+- Whether `response_format.mime_type` takes `image/png`: one REST example of
+  the guide sends it, while the reference names `image/jpeg` only; and which
+  type Google answers when none is asked for.
+- Whether `generation_config.seed` applies to image models.
+- How Google words its refusal of a free-tier key for these models.
+- Lite's page says "14 aspect ratios" and lists ten; the catalog offers the
+  ten it lists.
+
+### Acceptance criteria
+
+1. The catalog lists the four image models above under Google with exactly
+   their ratios, resolutions, thinking levels, and prompt bounds, each of kind
+   `image`, delivering JPEG, and answering at once, with 3.1 Flash Image
+   deprecated and no other image model.
+2. A request sends the prompt, then each reference image as base64 in the
+   plan's order, to `/interactions` once and without `background`;
+   `response_format` always has the type `image` and the MIME type
+   `image/jpeg`, `image_size` in upper case, and `aspect_ratio` unless the
+   ratio is Adaptive; `thinking_level` goes only to models that have it.
+3. A completed answer writes its last image to the target; one without an
+   image, a failed one, and a blocked one answer a refused output with
+   Google's words; an answer still running is followed by its id until its
+   image lands.
+4. 401, 402, 429, a refusal that names the free tier, and a blocked prompt
+   answer `auth`, `balance`, `rateLimited`, `auth` with the paid-tier
+   message, and `rejected`; a create whose connection drops answers an
+   unknown outcome and was sent once.
+5. `check` refuses more than 14 reference images, a ratio the model does not
+   take, and a request over 100 MB, and nothing is sent then.
+
+### Verification
+
+`vscode-base/extensions/basehalf-ai-video/test/google.test.ts` runs the image
+models through the provider commands against a local server that answers
+like the Interactions API. No test calls Google or uses a real key.

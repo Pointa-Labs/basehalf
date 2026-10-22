@@ -214,14 +214,13 @@ export class BaseHalfUpstreamActions extends Disposable {
 		return !!await this.run(label, node, context, () => this.referenceEditService.add(node, picked.path, { label }));
 	}
 
-	/** **Add Downstream**: picks a node that can be downstream and lists this node in its store. */
+	/** **Add Downstream**: picks any node of the workspace folder, a draft included, and lists this node in its store. */
 	async addDownstream(node: IBaseHalfUpstreamActionNode, downstream: readonly IBaseHalfIndexedDownstream[], context: IBaseHalfUpstreamActionContext): Promise<boolean> {
 		const excluded = this.keys(node, [node.relativePath, ...downstream.map(entry => entry.node.relativePath)]);
 		const picked = await this.pickNode(node, {
 			title: localize('basehalf.upstream.addDownstream.title', "Add downstream of {0}", basename(node.resource)),
 			placeholder: localize('basehalf.upstream.addDownstream.placeholder', "Choose a card this one flows into"),
 			include: candidate => !excluded.has(this.key(node, candidate.path))
-				&& !this.referenceIndexService.getUpstreamOnlyReason(candidate)
 		}, context);
 		if (!picked) {
 			return false;
@@ -393,7 +392,8 @@ export class BaseHalfUpstreamActions extends Disposable {
 	/**
 	 * Every node the canvas could show in a workspace folder: files from file
 	 * search (ignore files and exclude settings disregarded, symbolic links
-	 * ignored) and the folders that contain them.
+	 * ignored), the drafts the reference index knows (reference graph,
+	 * "Drafts"), and the folders that contain them.
 	 */
 	listNodes(workspaceFolder: URI): Promise<readonly IBaseHalfUpstreamNodeCandidate[]> {
 		const key = this.uriIdentityService.extUri.getComparisonKey(workspaceFolder);
@@ -443,9 +443,12 @@ export class BaseHalfUpstreamActions extends Disposable {
 				...(description ? { description } : {})
 			});
 		};
-		for (const match of complete.results) {
+		const files = complete.results.flatMap(match => {
 			const path = getRelativePath(workspaceFolder, match.resource);
-			if (!path || !isBaseHalfCanvasPathEligible(path, false)) {
+			return path ? [path] : [];
+		});
+		for (const path of [...files, ...this.referenceIndexService.getDrafts(workspaceFolder)]) {
+			if (!isBaseHalfCanvasPathEligible(path, false)) {
 				continue;
 			}
 			add(path, 'file');
@@ -502,24 +505,18 @@ export class BaseHalfUpstreamActions extends Disposable {
 			});
 			return element;
 		};
-		const upstreamOnly = view?.upstreamOnly;
-		const readOnly = !!upstreamOnly;
-
-		// Upstream: this node's own, editable list.
+		// Upstream: this node's own, editable list. Every node can be
+		// downstream, a draft and a generated file included (D63).
 		const upstreamSection = append(container, $('.basehalf-canvas-card-badge-section.upstream'));
 		upstreamSection.setAttribute('data-testid', 'badge-upstream');
 		const upstreamTitle = append(upstreamSection, $('.basehalf-canvas-card-badge-section-title'));
 		upstreamTitle.textContent = localize('basehalf.upstream.section.upstream', "Upstream");
 		const helper = append(upstreamSection, $('.basehalf-canvas-card-badge-helper'));
-		helper.textContent = readOnly
-			? node.kind === 'folder'
-				? localize('basehalf.upstream.readOnly.folder', "This folder can't receive upstream context.")
-				: localize('basehalf.upstream.readOnly.file', "This file can't receive upstream context.")
-			: view?.storeKind === 'sidecar'
-				? `${localize('basehalf.upstream.helper.lead', "Context that flows into this card.")} ${node.kind === 'folder'
-					? localize('basehalf.upstream.helper.sidecarFolder', "BaseHalf keeps this list for this folder.")
-					: localize('basehalf.upstream.helper.sidecar', "BaseHalf keeps this list for this file.")}`
-				: `${localize('basehalf.upstream.helper.lead', "Context that flows into this card.")} ${localize('basehalf.upstream.helper.file', "Saved inside this file, so agents reading it see it too.")}`;
+		helper.textContent = view?.storeKind === 'sidecar'
+			? `${localize('basehalf.upstream.helper.lead', "Context that flows into this card.")} ${node.kind === 'folder'
+				? localize('basehalf.upstream.helper.sidecarFolder', "BaseHalf keeps this list for this folder.")
+				: localize('basehalf.upstream.helper.sidecar', "BaseHalf keeps this list for this file.")}`
+			: `${localize('basehalf.upstream.helper.lead', "Context that flows into this card.")} ${localize('basehalf.upstream.helper.file', "Saved inside this file, so agents reading it see it too.")}`;
 		if (!view) {
 			const unavailable = append(upstreamSection, $('.basehalf-canvas-card-badge-empty'));
 			unavailable.textContent = localize('basehalf.upstream.unavailable', "The upstream list could not be read.");
@@ -528,37 +525,33 @@ export class BaseHalfUpstreamActions extends Disposable {
 				// The reason, with a repair inside BaseHalf when there is one.
 				// The user is never sent to the file.
 				const row = this.issueRow(upstreamSection, baseHalfUpstreamStoreProblemMessage(view.storeKind, view.problem, view.readError), 'store');
-				if (!readOnly && baseHalfUpstreamStoreCanRebuild(view.storeKind, view.problem, view.readError)) {
+				if (baseHalfUpstreamStoreCanRebuild(view.storeKind, view.problem, view.readError)) {
 					button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.rebuildList', "Rebuild List"), () => this.rebuildList(node, context, baseHalfUpstreamRebuildCarriesOver(view.storeKind, view.problem)), 'add-upstream')
 						.setAttribute('data-testid', 'badge-upstream-rebuild');
 				}
 			}
 			if (view.misplacedSidecar) {
 				const row = this.issueRow(upstreamSection, localize('basehalf.upstream.misplacedSidecar', "An upstream list for this note is saved outside the note."), 'misplaced');
-				if (!readOnly) {
-					button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.moveIntoFile', "Move into File"), () => this.moveIntoFile(node, context), 'add-upstream');
-				}
+				button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.moveIntoFile', "Move into File"), () => this.moveIntoFile(node, context), 'add-upstream');
 			}
 			const list = append(upstreamSection, $('.basehalf-canvas-card-badge-list.upstream'));
 			for (const entry of view.entries) {
-				this.renderUpstreamEntry(list, entry, options, readOnly, button, listen);
+				this.renderUpstreamEntry(list, entry, options, button, listen);
 			}
 			if (view.entries.length === 0 && !view.storeIssue) {
-				if (!readOnly) {
-					const empty = append(upstreamSection, $('.basehalf-canvas-card-badge-empty'));
-					empty.setAttribute('data-testid', 'badge-upstream-empty');
-					empty.textContent = localize('basehalf.upstream.empty', "Nothing flows into this card yet. Add upstream, or drag a connection into it on the canvas.");
-				}
+				const empty = append(upstreamSection, $('.basehalf-canvas-card-badge-empty'));
+				empty.setAttribute('data-testid', 'badge-upstream-empty');
+				empty.textContent = localize('basehalf.upstream.empty', "Nothing flows into this card yet. Add upstream, or drag a connection into it on the canvas.");
 			}
 		}
-		const addUpstream = readOnly ? undefined : button(
+		const addUpstream = button(
 			upstreamSection,
 			'basehalf-canvas-card-add-reference',
 			localize('basehalf.upstream.addUpstream', "+ Add Upstream"),
 			() => this.addUpstream(node, view, context),
 			'add-upstream'
 		);
-		addUpstream?.setAttribute('data-testid', 'badge-add-upstream');
+		addUpstream.setAttribute('data-testid', 'badge-add-upstream');
 
 		// Downstream: derived; each × writes the other node's store.
 		const downstreamSection = append(container, $('.basehalf-canvas-card-badge-section.downstream'));
@@ -590,11 +583,6 @@ export class BaseHalfUpstreamActions extends Disposable {
 						event.stopPropagation();
 						options.openNode(downstream.node.relativePath);
 					});
-					// The file a node shows as its result keeps the bytes it showed:
-					// BaseHalf never removes entries from it.
-					if (this.referenceIndexService.getUpstreamOnlyReason(downstream.node)) {
-						continue;
-					}
 					const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
 					remove.type = 'button';
 					remove.title = localize('basehalf.upstream.removeDownstream', "Remove from the upstream of {0}", downstream.node.relativePath);
@@ -635,14 +623,13 @@ export class BaseHalfUpstreamActions extends Disposable {
 			'add-downstream'
 		);
 		addDownstream.setAttribute('data-testid', 'badge-add-downstream');
-		return { ...(addUpstream ? { addUpstream } : {}), addDownstream };
+		return { addUpstream, addDownstream };
 	}
 
 	private renderUpstreamEntry(
 		list: HTMLElement,
 		entry: IBaseHalfUpstreamEntryView,
 		options: IBaseHalfBadgeConnectionsOptions,
-		readOnly: boolean,
 		button: (parent: HTMLElement, className: string, label: string, run: () => Promise<unknown>, focus?: BaseHalfBadgeConnectionsFocusTarget) => HTMLButtonElement,
 		listen: <K extends keyof HTMLElementEventMap>(element: HTMLElement, type: K, handler: (event: HTMLElementEventMap[K]) => void) => void
 	): void {
@@ -671,7 +658,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 			text.textContent = entry.text || localize('basehalf.upstream.entry.emptyText', "(empty)");
 			text.title = entry.text;
 		}
-		if (entry.status === 'valid' && !readOnly) {
+		if (entry.status === 'valid') {
 			const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
 			remove.type = 'button';
 			remove.title = localize('basehalf.upstream.removeUpstream', "Remove {0} from upstream", entry.target?.relativePath ?? entry.text);
@@ -695,13 +682,10 @@ export class BaseHalfUpstreamActions extends Disposable {
 			});
 			return;
 		}
-		if (entry.status === 'valid') {
-			return;
-		}
 		const message = append(row, $('span.basehalf-canvas-card-badge-issue-message'));
 		message.textContent = baseHalfUpstreamEntryMessage(entry);
 		const actions = append(row, $('span.basehalf-canvas-card-badge-issue-actions'));
-		if (entry.status === 'dangling' && entry.path !== undefined && !readOnly) {
+		if (entry.status === 'dangling' && entry.path !== undefined) {
 			const entryPath = entry.path;
 			const relinkTo = append(actions, $('span.basehalf-canvas-card-badge-relink-slot'));
 			void this.findRelinkSuggestion(node, view, entryPath).then(suggestion => {
@@ -716,15 +700,13 @@ export class BaseHalfUpstreamActions extends Disposable {
 			button(actions, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.relinkEverywhere', "Relink Everywhere…"), () => this.relinkEverywhere(node, entry, context), 'add-upstream')
 				.setAttribute('data-testid', 'badge-upstream-relink-everywhere');
 		}
-		if (entry.status === 'invalid' && entry.workspacePath !== undefined && !readOnly) {
+		if (entry.status === 'invalid' && entry.workspacePath !== undefined) {
 			const workspacePath = entry.workspacePath;
 			button(actions, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.useWorkspacePath', "Use {0}", workspacePath), () => this.relinkEntry(node, view, entry, context, workspacePath), 'add-upstream')
 				.setAttribute('data-testid', 'badge-upstream-use-workspace-path');
 		}
-		if (!readOnly) {
-			const remove = button(actions, 'basehalf-canvas-card-badge-issue-action.subtle', localize('basehalf.upstream.removeAction', "Remove"), () => this.removeEntry(node, entry, context), 'add-upstream');
-			remove.setAttribute('data-testid', 'badge-upstream-remove');
-		}
+		const remove = button(actions, 'basehalf-canvas-card-badge-issue-action.subtle', localize('basehalf.upstream.removeAction', "Remove"), () => this.removeEntry(node, entry, context), 'add-upstream');
+		remove.setAttribute('data-testid', 'badge-upstream-remove');
 	}
 
 	private issueRow(parent: HTMLElement, text: string, kind: string): HTMLElement {
@@ -818,10 +800,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 		const view = issue.kind === 'entry' ? await this.referenceIndexService.resolveUpstream(issue.node).catch(() => undefined) : undefined;
 		const actions: ActionPick[] = [];
 		const entry = issue.entry;
-		// A node that can't be downstream (reserved outputs, and the file a
-		// `.bhnode` shows as its result) is read-only: its issues offer no action.
-		const readOnly = !!this.referenceIndexService.getUpstreamOnlyReason(issue.node);
-		if (issue.kind === 'entry' && entry && !readOnly) {
+		if (issue.kind === 'entry' && entry) {
 			if (entry.status === 'dangling' && entry.path !== undefined) {
 				const suggestion = await this.findRelinkSuggestion(node, view, entry.path).catch(() => undefined);
 				if (suggestion) {
@@ -836,10 +815,10 @@ export class BaseHalfUpstreamActions extends Disposable {
 			}
 			actions.push({ label: localize('basehalf.upstream.removeAction', "Remove"), run: () => this.removeEntry(issue.node, entry, context) });
 		}
-		if (issue.kind === 'misplacedSidecar' && !readOnly) {
+		if (issue.kind === 'misplacedSidecar') {
 			actions.push({ label: localize('basehalf.upstream.moveIntoFile', "Move into File"), run: () => this.moveIntoFile(issue.node, context) });
 		}
-		if (issue.kind === 'store' && !readOnly && baseHalfUpstreamStoreCanRebuild(issue.storeKind, issue.problem)) {
+		if (issue.kind === 'store' && baseHalfUpstreamStoreCanRebuild(issue.storeKind, issue.problem)) {
 			actions.push({ label: localize('basehalf.upstream.rebuildList', "Rebuild List"), run: () => this.rebuildList(issue.node, context, baseHalfUpstreamRebuildCarriesOver(issue.storeKind, issue.problem)) });
 		}
 		return actions;

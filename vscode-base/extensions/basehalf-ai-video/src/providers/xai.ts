@@ -7,7 +7,7 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
+import type { ModulePollState, OutputLocation, ProviderModule, TaskSucceeded, VideoLocation } from './module.ts';
 import type {
 	CatalogMode,
 	CatalogModel,
@@ -25,16 +25,20 @@ import type {
 } from './types.ts';
 
 /**
- * xAI's Grok Imagine video models with the user's own key (D59;
- * `docs/specs/video-providers/xai.md`, which records the pages each fact
- * comes from). One API key as a bearer token; every input inline as a data
- * URL; the create answers a request id that `GET /videos/{id}` follows until
- * the task ends; no cancellation. Each model has one id for every task, and
- * the mode chooses the endpoint.
+ * xAI's Grok Imagine video and image models with the user's own key (D59,
+ * D64; `docs/specs/providers/xai.md`, which records the pages each fact comes
+ * from). One API key as a bearer token; every input inline as a data URL; the
+ * create answers a request id that `GET /videos/{id}` or `GET /images/{id}`
+ * follows until the task ends; no cancellation. Each video model has one id
+ * for every task, and the mode chooses the endpoint; an image request without
+ * reference images is a generation, with them an edit, and is always deferred.
  */
 
 type XaiModelId = 'grok-imagine-video-1.5' | 'grok-imagine-video-1.5-lite' | 'grok-imagine-video';
+type XaiImageModelId = 'grok-imagine-image-2.0' | 'grok-imagine-image';
 type Resolution = '480p' | '720p' | '1080p';
+type ImageResolution = '1k' | '2k';
+type ImageQuality = 'auto' | 'low' | 'medium';
 
 // --- labels -------------------------------------------------------------------------------------
 
@@ -67,6 +71,28 @@ const TEXT = Object.freeze({
 			description: 'Text, a start frame, or up to 7 reference images to video with sound at 480p or 720p; it also edits clips of up to 8.7 seconds and extends clips by 2 to 10 seconds.'
 		}
 	}),
+	imageModels: Object.freeze<Record<XaiImageModelId, { readonly label: string; readonly description: string }>>({
+		'grok-imagine-image-2.0': {
+			label: 'Grok Imagine Image 2.0',
+			description: 'xAI\'s image model: images from a prompt, or edits of up to 5 images, at 1K or 2K, up to 10 at a time, at Low or Medium quality.'
+		},
+		'grok-imagine-image': {
+			label: 'Grok Imagine Image',
+			description: 'Images from a prompt, or edits of up to 3 images, at 1K or 2K, up to 10 at a time.'
+		}
+	}),
+	adaptive: 'Adaptive',
+	quality: 'Quality',
+	count: 'Images',
+	imageResolutions: Object.freeze<Record<ImageResolution, string>>({ '1k': '1K', '2k': '2K' }),
+	qualities: Object.freeze<Record<ImageQuality, string>>({ auto: 'Auto', low: 'Low', medium: 'Medium' }),
+	tipImageRatio: 'The shape of the image. Adaptive lets xAI choose one for the prompt, or keeps the shape of the first reference image.',
+	tipQuality: 'Auto lets xAI choose: it currently makes a new image at Low and an edit at Medium. Medium spends more effort on detail.',
+	oneImageRatio: (label: string) => `With one reference image, ${label} keeps the shape of that image. Choose Adaptive for Ratio, or connect another image.`,
+	noImageAddress: 'xAI gave no address for this image.',
+	imageWithheld: 'xAI withheld this image because it did not pass moderation; xAI still charges for the generation.',
+	noImages: 'xAI reports that the images are ready but gives no list of them AI Video can read.',
+	notOffered: (label: string) => `xAI does not offer ${label} in this region.`,
 	noRequestId: 'xAI accepted the request but gave no request id AI Video can read.',
 	failed: 'xAI reports that the generation failed.',
 	withheld: 'xAI withheld the video because it did not pass moderation; xAI still charges for the generation.',
@@ -74,10 +100,11 @@ const TEXT = Object.freeze({
 	noAddress: 'xAI reports that the video is ready but gives no address AI Video can read.',
 	notReady: 'xAI has no video for this request yet.',
 	unknownStatus: (status: string) => `xAI reports a status AI Video does not know: ${status}.`,
-	rateLimits: 'xAI takes 10 requests a second for each video model unless the team\'s limit was raised.',
+	rateLimits: 'xAI takes 10 requests a second for each video model and 6 for each image model at the first usage tier, unless the team\'s limit was raised.',
 	notMp4: (label: string) => `${label} is not an MP4 video; xAI edits and extends MP4 videos only.`,
 	notImage: (label: string) => `${label} is not a PNG, JPEG, or WebP image.`,
-	noOtherMedia: (label: string) => `${label} cannot be sent: xAI takes images and the clip to work on only.`
+	noOtherMedia: (label: string) => `${label} cannot be sent: xAI takes images and the clip to work on only.`,
+	imagesOnly: (label: string) => `${label} cannot be sent: xAI's image models take reference images only.`
 });
 
 // --- the models ---------------------------------------------------------------------------------
@@ -208,6 +235,81 @@ function declareModel(model: XaiModel): CatalogModel {
 	};
 }
 
+// --- the image models ---------------------------------------------------------------------------
+
+interface XaiImageModel {
+	/** The catalog id, which is also the id xAI takes. */
+	readonly id: XaiImageModelId;
+	/** The most source images of an edit. */
+	readonly references: number;
+	/** The values of `aspect_ratio` it takes besides `auto`, in the order the panel shows them. */
+	readonly ratios: readonly string[];
+	/** Whether it takes `quality`. */
+	readonly quality: boolean;
+}
+
+/** The ratios of both image models before the wide ones, and the phone shapes after them. */
+const IMAGE_RATIOS_COMMON: readonly string[] = Object.freeze(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2']);
+const IMAGE_RATIOS_PHONES: readonly string[] = Object.freeze(['19.5:9', '9:19.5', '20:9', '9:20']);
+
+const IMAGE_MODELS: readonly XaiImageModel[] = Object.freeze([
+	// 2.0 "additionally accepts quality, up to five source images for editing, and the 21:9 and 5:2 aspect ratios".
+	{ id: 'grok-imagine-image-2.0', references: 5, ratios: [...IMAGE_RATIOS_COMMON, '21:9', '5:2', ...IMAGE_RATIOS_PHONES], quality: true },
+	{ id: 'grok-imagine-image', references: 3, ratios: [...IMAGE_RATIOS_COMMON, ...IMAGE_RATIOS_PHONES], quality: false }
+] satisfies XaiImageModel[]);
+
+/** The models API's `max_prompt_length` of its example, read as characters, the smaller reading. */
+const IMAGE_PROMPT_MAX_LENGTH = 1024;
+/** `n`: 1 to 10 images in one request. */
+const IMAGE_COUNT_MAX = 10;
+/** xAI's `auto`, which is sent as nothing: the shape the model picks for the prompt, or that of the first reference image. */
+const ADAPTIVE = 'adaptive';
+const IMAGE_RESOLUTIONS: readonly ImageResolution[] = Object.freeze(['1k', '2k']);
+const IMAGE_QUALITIES: readonly ImageQuality[] = Object.freeze(['auto', 'low', 'medium']);
+
+function declareImageModel(model: XaiImageModel): CatalogModel {
+	const parameters: CatalogParameter[] = [
+		{
+			name: 'ratio',
+			label: TEXT.ratio,
+			tooltip: TEXT.tipImageRatio,
+			kind: 'choice',
+			display: 'ratio',
+			options: [{ value: ADAPTIVE, label: TEXT.adaptive }, ...model.ratios.map(value => ({ value, label: value }))],
+			default: ADAPTIVE
+		},
+		{
+			name: 'resolution',
+			label: TEXT.resolution,
+			kind: 'choice',
+			options: IMAGE_RESOLUTIONS.map(value => ({ value, label: TEXT.imageResolutions[value] })),
+			default: '1k'
+		}
+	];
+	if (model.quality) {
+		parameters.push({
+			name: 'quality',
+			label: TEXT.quality,
+			tooltip: TEXT.tipQuality,
+			kind: 'choice',
+			options: IMAGE_QUALITIES.map(value => ({ value, label: TEXT.qualities[value] })),
+			default: 'auto'
+		});
+	}
+	parameters.push({ name: 'count', label: TEXT.count, kind: 'integer', min: 1, max: IMAGE_COUNT_MAX, step: 1, default: 1 });
+	return {
+		id: model.id,
+		kind: 'image',
+		label: TEXT.imageModels[model.id].label,
+		description: TEXT.imageModels[model.id].description,
+		providerModels: { global: model.id },
+		prompt: { required: 'always', maxLength: IMAGE_PROMPT_MAX_LENGTH },
+		modes: [{ id: 'reference', label: TEXT.modes.reference, inputs: inputs({ images: { min: 0, max: model.references } }), limits: {} }],
+		parameters,
+		outputFormat: 'jpeg'
+	};
+}
+
 const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'xai',
 	label: TEXT.provider,
@@ -215,7 +317,7 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 		{ id: 'global', label: TEXT.region, baseUrl: 'https://api.x.ai/v1', console: 'https://console.x.ai/team/default/api-keys' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
-	models: MODELS.map(declareModel)
+	models: [...MODELS.map(declareModel), ...IMAGE_MODELS.map(declareImageModel)]
 });
 
 function modelOf(id: string): XaiModel {
@@ -226,8 +328,17 @@ function modelOf(id: string): XaiModel {
 	return model;
 }
 
+function imageModelOf(id: string): XaiImageModel | undefined {
+	return IMAGE_MODELS.find(entry => entry.id === id);
+}
+
 function labelOf(model: XaiModel): string {
 	return TEXT.models[model.id].label;
+}
+
+/** Whether the region offers the model, as its declaration says. */
+function offered(model: string, region: string): boolean {
+	return PROVIDER.models.find(entry => entry.id === model)?.providerModels[region] !== undefined;
 }
 
 // --- requests -----------------------------------------------------------------------------------
@@ -285,6 +396,40 @@ function createRequest(model: XaiModel, mode: ModeId, params: Params, prompt: st
 	return { path: CREATE_PATHS[mode], value };
 }
 
+/**
+ * The path and the JSON of an image request (xai.md, "Image models",
+ * "Requests"): a generation without reference images, an edit with them,
+ * always deferred so that it runs as a task.
+ */
+function imageRequest(model: XaiImageModel, params: Params, prompt: string, images: readonly string[]): { readonly path: string; readonly value: Record<string, unknown> } {
+	const value: Record<string, unknown> = { model: model.id, prompt };
+	if (images.length === 1) {
+		value.image = { url: images[0] };
+	} else if (images.length > 1) {
+		value.images = images.map(url => ({ url }));
+	}
+	value.n = params.count;
+	value.resolution = params.resolution;
+	if (typeof params.ratio === 'string' && params.ratio !== ADAPTIVE && images.length !== 1) {
+		// The edit of one image always takes that image's shape: xAI says not to set a ratio then.
+		value.aspect_ratio = params.ratio;
+	}
+	if (model.quality) {
+		value.quality = params.quality;
+	}
+	value.deferred = true;
+	return { path: images.length ? '/images/edits' : '/images/generations', value };
+}
+
+/** The request id of a create's answer, the task id. */
+function requestIdOf(answer: HttpAnswer): string {
+	const requestId = answer.object().request_id;
+	if (typeof requestId !== 'string' || !requestId.trim()) {
+		throw unknownOutcome(TEXT.noRequestId);
+	}
+	return requestId;
+}
+
 /** An input read whole and written as a data URL, its type read from its bytes. */
 async function dataUrlFor(item: PlannedItem): Promise<string> {
 	if (item.slot === 'video' || item.slot === 'audio') {
@@ -304,6 +449,26 @@ async function dataUrlFor(item: PlannedItem): Promise<string> {
 	return dataUrlOf(read, MEDIA_MIME_TYPES[format]);
 }
 
+/** Sends an image request once and answers its request id (xai.md, "Image models", "Requests"). */
+async function submitImage(model: XaiImageModel, request: SubmitRequest, http: ProviderHttp): Promise<string> {
+	if (!offered(model.id, request.region)) {
+		throw rejected(TEXT.notOffered(TEXT.imageModels[model.id].label));
+	}
+	const items = plannedItems(request.inputs);
+	// The one mode of an image model takes reference images only; anything else is refused before any file is read.
+	for (const item of items) {
+		if (item.slot !== 'image') {
+			throw rejected(TEXT.imagesOnly(item.label));
+		}
+	}
+	const images: string[] = [];
+	for (const item of items) {
+		images.push(await dataUrlFor(item));
+	}
+	const { path, value } = imageRequest(model, request.params, request.prompt, images);
+	return requestIdOf(await http.create({ method: 'POST', path, body: { kind: 'json', value } }));
+}
+
 function words(value: unknown): string | undefined {
 	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
@@ -314,8 +479,9 @@ interface TaskAnswer {
 	readonly body?: Record<string, unknown>;
 }
 
-async function askAbout(ref: TaskRef, http: ProviderHttp): Promise<TaskAnswer> {
-	const answer: HttpAnswer = await http.request({ method: 'GET', path: `/videos/${encodeURIComponent(ref.remoteId)}` });
+/** Asks about a task of a video model at `/videos`, or of an image model at `/images`. */
+async function askAbout(ref: TaskRef, http: ProviderHttp, collection: 'videos' | 'images' = 'videos'): Promise<TaskAnswer> {
+	const answer: HttpAnswer = await http.request({ method: 'GET', path: `/${collection}/${encodeURIComponent(ref.remoteId)}` });
 	if (answer.status === 202) {
 		// Still in progress; the body, when AI Video can read it, says how far.
 		try {
@@ -340,8 +506,16 @@ function failureMessage(error: unknown): string {
 	return [message ?? TEXT.failed, code ? `(${code})` : ''].filter(Boolean).join(' ');
 }
 
-/** A task's state from xAI's answer (xai.md, "Asking about a task"). */
-function stateOf(answer: TaskAnswer): PollState {
+/** How the answer of a finished task is read for the kind of its files. */
+interface Finish<T> {
+	/** The answer of a task that is `done`. */
+	readonly done: (body: Record<string, unknown>) => T;
+	/** What `expired` says, for the kind that documents it. */
+	readonly expired?: string;
+}
+
+/** A task's state from xAI's answer, its `done` read by the kind of the task's files (xai.md, "Asking about a task"). */
+function taskState<T extends ModulePollState>(answer: TaskAnswer, finish: Finish<T>): PollState | T {
 	const body = answer.body;
 	const status = body ? words(body.status) : undefined;
 	if (!body || status === undefined) {
@@ -355,28 +529,59 @@ function stateOf(answer: TaskAnswer): PollState {
 			const progress = progressOf(body);
 			return progress > 0 ? { state: 'running', fraction: progress / 100 } : { state: 'pending' };
 		}
-		case 'done': {
-			const video = isRecord(body.video) ? body.video : undefined;
-			if (video?.respect_moderation === false) {
-				return { state: 'failed', message: TEXT.withheld };
-			}
-			const url = words(video?.url);
-			if (!url) {
-				throw unreadable(TEXT.noAddress);
-			}
-			return { state: 'succeeded', videoUrl: url };
-		}
+		case 'done':
+			return finish.done(body);
 		case 'failed':
 			return { state: 'failed', message: failureMessage(body.error) };
-		case 'expired':
-			return { state: 'failed', message: TEXT.expired };
 		default:
+			if (status === 'expired' && finish.expired !== undefined) {
+				return { state: 'failed', message: finish.expired };
+			}
 			if (answer.inProgress) {
 				// HTTP 202 says the generation still runs, whatever the status is called.
 				return { state: 'pending' };
 			}
 			throw unreadable(TEXT.unknownStatus(status.slice(0, 40)));
 	}
+}
+
+/** A finished video task: the address of its video, or a video moderation withheld. */
+const VIDEO_FINISH: Finish<PollState> = Object.freeze({
+	done(body: Record<string, unknown>): PollState {
+		const video = isRecord(body.video) ? body.video : undefined;
+		if (video?.respect_moderation === false) {
+			return { state: 'failed', message: TEXT.withheld };
+		}
+		const url = words(video?.url);
+		if (!url) {
+			throw unreadable(TEXT.noAddress);
+		}
+		return { state: 'succeeded', videoUrl: url };
+	},
+	expired: TEXT.expired
+});
+
+/** One image of a finished task: its temporary address, or why it has none. */
+function imageOutputOf(entry: unknown): OutputLocation {
+	if (isRecord(entry) && entry.respect_moderation === false) {
+		return { refused: TEXT.imageWithheld };
+	}
+	const url = isRecord(entry) ? words(entry.url) : undefined;
+	return url ? { url } : { refused: TEXT.noImageAddress };
+}
+
+/** A finished image task: one output per entry of `data`, in xAI's order. */
+const IMAGE_FINISH: Finish<TaskSucceeded> = Object.freeze({
+	done(body: Record<string, unknown>): TaskSucceeded {
+		if (!Array.isArray(body.data)) {
+			throw unreadable(TEXT.noImages);
+		}
+		return { state: 'succeeded', outputs: body.data.map(imageOutputOf) };
+	}
+});
+
+function stateOf(answer: TaskAnswer): PollState {
+	return taskState(answer, VIDEO_FINISH);
 }
 
 // --- errors -------------------------------------------------------------------------------------
@@ -431,28 +636,44 @@ function ruleProblems(model: XaiModel, request: CheckRequest, counts: PlannedCou
 	return problems;
 }
 
+/**
+ * A request too large for AI Video to send: `value` is the JSON of the request
+ * with empty inputs, to which the inputs add their data URLs.
+ */
+function sizeProblems(value: Record<string, unknown>, measured: readonly MeasuredItem[]): string[] {
+	let encoded = 0;
+	for (const item of measured) {
+		const type = item.facts.format ? MEDIA_MIME_TYPES[item.facts.format] : 'application/octet-stream';
+		encoded += `data:${type};base64,`.length + base64Length(item.facts.bytes);
+	}
+	const size = Buffer.byteLength(JSON.stringify(value), 'utf8') + encoded;
+	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
+	return size > limit ? [`The inputs make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller inputs.`] : [];
+}
+
 /** A clip that is not an MP4, and a request too large for AI Video to send. */
 function fileProblems(model: XaiModel, request: CheckRequest, measured: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
 	const media: SentMedia[] = [];
-	let encoded = 0;
 	for (const item of measured) {
 		if (item.slot === 'source' && item.facts.format === 'mov') {
 			// The declared lengths already refused a clip that is neither an MP4 nor a MOV.
 			problems.push(TEXT.notMp4(item.label));
 		}
-		const type = item.facts.format ? MEDIA_MIME_TYPES[item.facts.format] : 'application/octet-stream';
 		media.push({ slot: item.slot, url: '' });
-		encoded += `data:${type};base64,`.length + base64Length(item.facts.bytes);
 	}
-	// The JSON of the request with empty inputs, then the inputs as data URLs.
 	const { value } = createRequest(model, request.mode, request.params, request.prompt, media);
-	const size = Buffer.byteLength(JSON.stringify(value), 'utf8') + encoded;
-	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
-	if (size > limit) {
-		problems.push(`The inputs make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller inputs.`);
+	return [...problems, ...sizeProblems(value, measured)];
+}
+
+/** The rules of an image request (xai.md, "Image models", "Rules between parameters"), and its size. */
+function imageProblems(model: XaiImageModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): string[] {
+	const problems: string[] = [];
+	if (counts.images === 1 && request.params.ratio !== undefined && request.params.ratio !== ADAPTIVE) {
+		problems.push(TEXT.oneImageRatio(TEXT.imageModels[model.id].label));
 	}
-	return problems;
+	const { value } = imageRequest(model, request.params, request.prompt, measured.map(() => ''));
+	return [...problems, ...sizeProblems(value, measured)];
 }
 
 // --- the module ---------------------------------------------------------------------------------
@@ -469,9 +690,13 @@ export const XAI: ProviderModule = Object.freeze({
 	readError: readXaiError,
 
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
-		const model = modelOf(request.model);
 		const counts = countsOf(request.inputs);
 		const measured = await measureItems(request.inputs, media);
+		const image = imageModelOf(request.model);
+		if (image) {
+			return { problems: imageProblems(image, request, counts, measured) };
+		}
+		const model = modelOf(request.model);
 		const problems = [
 			...ruleProblems(model, request, counts),
 			...fileProblems(model, request, measured)
@@ -480,9 +705,13 @@ export const XAI: ProviderModule = Object.freeze({
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
+		const image = imageModelOf(request.model);
+		if (image) {
+			return submitImage(image, request, http);
+		}
 		const model = modelOf(request.model);
-		if (PROVIDER.models.find(entry => entry.id === model.id)?.providerModels[request.region] === undefined) {
-			throw rejected(`xAI does not offer ${labelOf(model)} in this region.`);
+		if (!offered(model.id, request.region)) {
+			throw rejected(TEXT.notOffered(labelOf(model)));
 		}
 		const items = plannedItems(request.inputs);
 		// A reference video or audio is refused before any file is read.
@@ -496,15 +725,13 @@ export const XAI: ProviderModule = Object.freeze({
 			media.push({ slot: item.slot, url: await dataUrlFor(item) });
 		}
 		const { path, value } = createRequest(model, request.mode, request.params, request.prompt, media);
-		const answer = await http.create({ method: 'POST', path, body: { kind: 'json', value } });
-		const requestId = answer.object().request_id;
-		if (typeof requestId !== 'string' || !requestId.trim()) {
-			throw unknownOutcome(TEXT.noRequestId);
-		}
-		return requestId;
+		return requestIdOf(await http.create({ method: 'POST', path, body: { kind: 'json', value } }));
 	},
 
-	async poll(ref: TaskRef, http: ProviderHttp): Promise<PollState> {
+	async poll(ref: TaskRef, http: ProviderHttp): Promise<ModulePollState> {
+		if (imageModelOf(ref.model)) {
+			return taskState(await askAbout(ref, http, 'images'), IMAGE_FINISH);
+		}
 		return stateOf(await askAbout(ref, http));
 	},
 

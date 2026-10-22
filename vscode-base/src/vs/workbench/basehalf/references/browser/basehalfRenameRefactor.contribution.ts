@@ -19,6 +19,7 @@ import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanv
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfComposeOwedEntryMoves, IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove } from '../../workspace/common/basehalfMovedItemsService.js';
+import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfReferenceRefusalReason } from '../common/basehalfReferenceEdit.js';
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
@@ -45,7 +46,7 @@ const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });
  * Why a store was not written that will not hold for good: the entry is
  * owed, and is written when the reason has gone.
  */
-const TEMPORARY_REFUSALS: ReadonlySet<string> = new Set<BaseHalfReferenceRefusalReason>(['beingMoved', 'flushFailed', 'unsaved', 'conflict', 'error', 'indexLoading']);
+const TEMPORARY_REFUSALS: ReadonlySet<string> = new Set<BaseHalfReferenceRefusalReason>(['beingMoved', 'flushFailed', 'unsaved', 'conflict', 'error']);
 
 /** One workspace folder's part of a prepared move. */
 interface IPreparedRename {
@@ -100,8 +101,8 @@ interface IPendingRename {
  *   reason that passes (unsaved changes, a move in progress), or the index
  *   had not seen every store, the move is kept with what BaseHalf last saw
  *   and tried again: when the index finished a scan, when a document is saved
- *   or reverted, and at open. A Video node that is generating is written at
- *   once: its upstream list and its task are written with compare and swap.
+ *   or reverted, and at open. The list of a generation card is written at
+ *   once, also while it generates: its generation recorded its inputs.
  * - A folder marked with the source-tree marker is never rewritten by itself.
  */
 export class BaseHalfRenameRefactorContribution extends Disposable implements IWorkbenchContribution {
@@ -493,8 +494,8 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		}
 		const owed: IBaseHalfOwedEntryMove[] = [];
 		for (const move of this.movedItemsService.getOwedEntryMoves(workspaceFolder)) {
-			// An old path that names an item again is that item's path now.
-			if (!(await this.fileService.exists(this.node(workspaceFolder, move.from).resource))) {
+			// An old path that names an item again, a draft included, is that item's path now.
+			if (!(await this.fileService.exists(this.node(workspaceFolder, move.from).resource)) && !(await baseHalfPathHoldsDraft(this.fileService, workspaceFolder, move.from))) {
 				owed.push(move);
 			}
 		}

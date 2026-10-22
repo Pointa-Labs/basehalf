@@ -9,6 +9,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IBaseHalfCanvasMirrorService } from './basehalfCanvasMirror.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from './basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
+import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 
@@ -69,6 +70,10 @@ export class BaseHalfCanvasChosenPlaces {
 	 *   the move is held back because the file has unsaved changes.
 	 * - One listing is not enough to call a file gone: it can leave out a file
 	 *   that a tool is rewriting. Each path is looked at again by itself.
+	 * - A draft is an item without a file: its row is never removed as the row
+	 *   of an item that is gone, also when `children` leaves it out (canvas
+	 *   card placement, "A draft is an item"). A generated file that is gone
+	 *   has a record and is no draft: its row goes like any other.
 	 * - `pathKey` maps a path to what two spellings of the same path share.
 	 */
 	async goneRows(folder: IBaseHalfCanvasFolderState, children: readonly string[], layout: IBaseHalfCanvasFile | null, pathKey: (path: string) => string = path => path): Promise<string[]> {
@@ -155,9 +160,9 @@ export class BaseHalfCanvasChosenPlaces {
 		}
 	}
 
-	/** The paths that name nothing on disk right now. */
+	/** The paths that name nothing on disk right now: no file, no folder, and no draft. */
 	private async absent(folder: IBaseHalfCanvasFolderState, paths: readonly string[]): Promise<string[]> {
-		const checked = await Promise.all(paths.map(async path => await this.fileService.exists(URI.joinPath(folder.workspaceFolder, ...path.split('/'))) ? undefined : path));
+		const checked = await Promise.all(paths.map(async path => await this.fileService.exists(URI.joinPath(folder.workspaceFolder, ...path.split('/'))) || await baseHalfPathHoldsDraft(this.fileService, folder.workspaceFolder, path) ? undefined : path));
 		return checked.filter((path): path is string => path !== undefined);
 	}
 }

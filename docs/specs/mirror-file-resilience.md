@@ -340,11 +340,19 @@ disk.
   ([generation cards](generation-cards.md#deleting)): they move with their
   item, they are kept on a delete to the trash, and a permanent delete
   removes them. They store no `path`, so they move byte for byte, also when
-  they cannot be read. Before a permanent delete removes one that cannot be
-  read, BaseHalf saves it as a recovery copy
-  (`.bh/cache/recovered/mirror/<node path>/generation.<12 hex digits>.yaml`
+  they cannot be read. Before a permanent delete or a retirement removes one
+  that cannot be read, or a move replaces it, BaseHalf saves it as a recovery
+  copy (`.bh/cache/recovered/mirror/<node path>/generation.<12 hex digits>.yaml`
   or `made.<12 hex digits>.yaml`), so content it cannot read is never
   destroyed.
+- A move through the workbench onto the path of a draft moves the draft aside
+  first, as relocation does
+  ([generation cards](generation-cards.md#drafts-and-missing-files)). A draft
+  below the new path of a moved folder whose path names nothing, one that
+  reached this computer without its folder, stays a draft there and is not
+  retired. What was a draft is read before the move reaches the disk: after
+  it, a draft and the card information of a file that is gone look the same.
+  The same holds for a delete, which reads which files have no `made.yaml`.
 
 A mirror directory that still holds such a file is not pruned.
 

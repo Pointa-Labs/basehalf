@@ -47,7 +47,10 @@ import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/bas
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
 import { createBaseHalfNodeDocument, IBaseHalfNodeDocument, parseBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../video/common/basehalfNodeDocument.js';
-import { IBaseHalfVideoGenerationService } from '../../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { serializeBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
+import { BaseHalfDraftOperations } from '../../../workspace/browser/basehalfDraftOperations.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../workspace/test/browser/basehalfGenerationTaskStoreFake.js';
 import { IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../common/basehalfReferenceIndex.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
@@ -62,7 +65,9 @@ class TestMovedItems {
 		...baseHalfNoMovedItems,
 		onDidRelocate: this._onDidRelocate.event,
 		getOwedEntryMoves: () => this.owed,
-		setOwedEntryMoves: (_workspaceFolder, moves) => { this.owed = [...moves]; }
+		setOwedEntryMoves: (_workspaceFolder, moves) => { this.owed = [...moves]; },
+		// A draft that BaseHalf moved is reported as relocated.
+		acceptDraftMove: (_workspaceFolder, from, to) => this.relocated([{ from, to, kind: 'file', rule: 'draft' }])
 	};
 
 	/** The card information of items that were moved outside BaseHalf has followed them. */
@@ -81,9 +86,11 @@ const folder = URI.file('/work');
 class TestFileSystemProvider extends InMemoryFileSystemProvider {
 	/** When set, a read of a file waits for the promise it returns. */
 	readGate: ((resource: URI) => Promise<void> | undefined) | undefined;
+	/** Whether the provider says it has a trash; a delete to it removes the file, as nothing restores in these tests. */
+	trash = false;
 
 	override get capabilities(): FileSystemProviderCapabilities {
-		return super.capabilities & ~FileSystemProviderCapabilities.FileOpenReadWriteClose;
+		return (super.capabilities & ~FileSystemProviderCapabilities.FileOpenReadWriteClose) | (this.trash ? FileSystemProviderCapabilities.Trash : 0);
 	}
 
 	/** When set, a write of a file it accepts is refused by the file system. */
@@ -182,10 +189,14 @@ interface IHarness {
 	readonly refactor: IBaseHalfReferenceRefactorService;
 	readonly undoRedo: IUndoRedoService;
 	readonly movedItems: TestMovedItems;
+	readonly draftOperations: IBaseHalfDraftOperations;
+	readonly index: IBaseHalfReferenceIndexService;
+	/** The moves the task records were told about, as workspace-relative paths. */
+	retargets(): string[];
 	/** A document was saved. */
 	documentSaved(): void;
 	move(from: string, to: string, isUndoing?: boolean): Promise<void>;
-	/** A permanent workbench delete (the harness has no trash). */
+	/** A workbench delete: to the trash with the `trash` option, permanent otherwise. */
 	delete(path: string): Promise<void>;
 	/** The prompt whose message contains `text`, once it is shown. */
 	prompt(text: string): Promise<RecordedPrompt>;
@@ -194,16 +205,17 @@ interface IHarness {
 	tree(): Promise<Record<string, string>>;
 }
 
-async function createHarness(disposables: DisposableStore, files: Record<string, string>, options: { readonly generating?: readonly string[]; readonly partialIndex?: boolean } = {}): Promise<IHarness> {
+async function createHarness(disposables: DisposableStore, files: Record<string, string>, options: { readonly partialIndex?: boolean; readonly trash?: boolean } = {}): Promise<IHarness> {
 	const fileService = disposables.add(new FileService(new NullLogService()));
 	const provider = disposables.add(new TestFileSystemProvider());
+	provider.trash = !!options.trash;
 	disposables.add(fileService.registerProvider(Schemas.file, provider));
 	await fileService.createFolder(folder);
 	for (const [path, content] of Object.entries(files)) {
 		await fileService.writeFile(joinPath(folder, ...path.split('/')), VSBuffer.fromString(content));
 	}
 	await timeout(20);
-	const configuration = new TestConfigurationService({ files: { autoSave: 'afterDelay', enableTrash: false, exclude: { hidden: true } } });
+	const configuration = new TestConfigurationService({ files: { autoSave: 'afterDelay', enableTrash: !!options.trash, exclude: { hidden: true } } });
 	const instantiationService = workbenchInstantiationService({ fileService: () => fileService, configurationService: () => configuration }, disposables);
 	instantiationService.stub(IWorkspaceContextService, new TestContextService(testWorkspace(folder)));
 	instantiationService.stub(ISearchService, new BaseHalfInMemoryFileSearchService(fileService));
@@ -234,10 +246,8 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	instantiationService.stub(IBaseHalfVideoGenerationService, {
-		onDidChangeProgress: Event.None,
-		isGenerating: (resource: URI) => (options.generating ?? []).some(path => resource.path === joinPath(folder, ...path.split('/')).path)
-	} as Partial<IBaseHalfVideoGenerationService> as IBaseHalfVideoGenerationService);
+	const taskStore = new BaseHalfRecordingGenerationTaskStore();
+	instantiationService.stub(IBaseHalfGenerationTaskStore, taskStore);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	const refactor = instantiationService.createInstance(BaseHalfReferenceRefactorService);
 	if (options.partialIndex) {
@@ -247,6 +257,8 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	await index.whenReady(folder);
 	const movedItems = disposables.add(new TestMovedItems());
 	instantiationService.stub(IBaseHalfMovedItemsService, movedItems.service);
+	const draftOperations = instantiationService.createInstance(BaseHalfDraftOperations);
+	instantiationService.stub(IBaseHalfDraftOperations, draftOperations);
 	disposables.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 	disposables.add(instantiationService.createInstance(BaseHalfRenameRefactorContribution));
 	const workingCopyFileService = instantiationService.get(IWorkingCopyFileService);
@@ -266,6 +278,9 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		refactor,
 		undoRedo: instantiationService.get(IUndoRedoService),
 		movedItems,
+		draftOperations,
+		index,
+		retargets: () => taskStore.retargets.map(({ from, to }) => `${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`),
 		documentSaved: () => {
 			const document = new TestWorkingCopy(joinPath(folder, 'saved.md'));
 			const registration = instantiationService.get(IWorkingCopyService).registerWorkingCopy(document);
@@ -275,7 +290,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 			document.dispose();
 		},
 		async delete(path) {
-			await workingCopyFileService.delete([{ resource: joinPath(folder, ...path.split('/')), recursive: true }], CancellationToken.None);
+			await workingCopyFileService.delete([{ resource: joinPath(folder, ...path.split('/')), recursive: true, useTrash: !!options.trash }], CancellationToken.None);
 		},
 		async move(from, to, isUndoing) {
 			await workingCopyFileService.move([{ file: { source: joinPath(folder, ...from.split('/')), target: joinPath(folder, ...to.split('/')) } }], CancellationToken.None, isUndoing ? { isUndoing } : undefined);
@@ -354,7 +369,7 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 				request: { provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: '', inputs: ['docs/a.md'] }
 			})
 		};
-		const harness = await createHarness(disposables, fixture, { generating: ['generating.bhnode'] });
+		const harness = await createHarness(disposables, fixture);
 		const before = await harness.tree();
 
 		await harness.move('docs', 'archive');
@@ -777,6 +792,142 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 			refusedWhilePending: true,
 			files: [null, '# B\n', null],
 			badges: [badge('a.md'), 'path: "c.md"\nkind: file\n']
+		});
+	});
+
+	test('a generated file moves with its prompt and record, a draft at its new path moves aside, and the task records take the new paths', async () => {
+		const harness = await createHarness(disposables, {
+			'brief.md': '# Brief\n',
+			'shot.mp4': 'video',
+			'.bh/mirror/shot.mp4/generation.yaml': 'prompt: "the clip"\n',
+			'.bh/mirror/shot.mp4/made.yaml': 'id: "t1"\n',
+			'.bh/mirror/shot.mp4/upstream.yaml': 'upstream:\n  - brief.md\n',
+			'clips/notes.md': '# Notes\n',
+			// A draft with a card, under the name the file takes.
+			'.bh/mirror/clips/shot.mp4/generation.yaml': 'prompt: "the draft"\n',
+			'.bh/mirror/clips/shot.mp4/upstream.yaml': 'upstream:\n  - clips/notes.md\n',
+			'.bh/mirror/clips/canvas.yaml': ['path: "clips"', 'cards:', '  - path: "clips/notes.md"', '    kind: file', '    x: 1', '    y: 20', '    width: 260', '    height: 140', '  - path: "clips/shot.mp4"', '    kind: file', '    x: 400', '    y: 20', '    width: 720', '    height: 405', 'edges: []', ''].join('\n'),
+			'uses.md': '---\nupstream:\n  - shot.mp4\n---\n# Uses\n'
+		});
+		await harness.move('shot.mp4', 'clips/shot.mp4');
+		await until(async () => (await harness.read('uses.md'))?.includes('clips/shot.mp4') === true, 'the entry that names the file was not updated');
+		const tree = await harness.tree();
+		assert.deepStrictEqual({
+			file: [tree['.bh/mirror/clips/shot.mp4/generation.yaml'], tree['.bh/mirror/clips/shot.mp4/made.yaml'], tree['.bh/mirror/clips/shot.mp4/upstream.yaml']],
+			draft: [tree['.bh/mirror/clips/shot-2.mp4/generation.yaml'], tree['.bh/mirror/clips/shot-2.mp4/upstream.yaml']],
+			left: Object.keys(tree).filter(path => path.startsWith('.bh/mirror/shot.mp4/')),
+			rows: tree['.bh/mirror/clips/canvas.yaml']?.split('\n').filter(line => line.includes('path: "clips/')).map(line => line.trim()),
+			retargets: harness.retargets(),
+			uses: tree['uses.md']
+		}, {
+			file: ['prompt: "the clip"\n', 'id: "t1"\n', 'upstream:\n  - brief.md\n'],
+			draft: ['prompt: "the draft"\n', 'upstream:\n  - clips/notes.md\n'],
+			left: [],
+			// The draft keeps its place under its new name; the file had no row to bring along.
+			rows: ['- path: "clips/notes.md"', '- path: "clips/shot-2.mp4"'],
+			retargets: ['clips/shot.mp4 -> clips/shot-2.mp4', 'shot.mp4 -> clips/shot.mp4'],
+			uses: '---\nupstream:\n  - clips/shot.mp4\n---\n# Uses\n'
+		});
+	});
+
+	test('a folder that is moved keeps the drafts left at its new path, and one whose path an item takes moves aside', async () => {
+		const harness = await createHarness(disposables, {
+			'shots/x.mp4': 'video',
+			'shots/notes.md': '# Notes\n',
+			'.bh/mirror/shots/x.mp4/generation.yaml': 'prompt: "the file"\n',
+			'.bh/mirror/shots/x.mp4/made.yaml': 'id: "t1"\n',
+			// Drafts that reached this computer without their folder.
+			'.bh/mirror/scenes/kept.mp4/generation.yaml': 'prompt: "kept"\n',
+			'.bh/mirror/scenes/kept.mp4/badge.yaml': 'path: "scenes/kept.mp4"\nkind: file\ndescription: "Kept"\n',
+			'.bh/mirror/scenes/x.mp4/generation.yaml': 'prompt: "aside"\n'
+		});
+		await harness.move('shots', 'scenes');
+		await until(async () => (await harness.read('.bh/mirror/scenes/x.mp4/made.yaml')) !== undefined, 'the folder\'s card information did not move');
+		const tree = await harness.tree();
+		assert.deepStrictEqual({
+			mirror: Object.fromEntries(Object.entries(tree).filter(([path]) => path.startsWith('.bh/mirror/scenes/') && !path.endsWith('canvas.yaml'))),
+			retargets: harness.retargets()
+		}, {
+			mirror: {
+				'.bh/mirror/scenes/kept.mp4/badge.yaml': 'path: "scenes/kept.mp4"\nkind: file\ndescription: "Kept"\n',
+				'.bh/mirror/scenes/kept.mp4/generation.yaml': 'prompt: "kept"\n',
+				'.bh/mirror/scenes/x-2.mp4/generation.yaml': 'prompt: "aside"\n',
+				'.bh/mirror/scenes/x.mp4/generation.yaml': 'prompt: "the file"\n',
+				'.bh/mirror/scenes/x.mp4/made.yaml': 'id: "t1"\n'
+			},
+			retargets: ['scenes/x.mp4 -> scenes/x-2.mp4', 'shots -> scenes']
+		});
+	});
+
+	test('a draft that BaseHalf moves is a moved item: the entries that name it are rewritten, and its own list follows what it names', async () => {
+		const harness = await createHarness(disposables, {
+			'brief.md': '# Brief\n',
+			'uses.md': '---\nupstream:\n  - shots/next.mp4\n---\n# Uses\n',
+			'shots/notes.md': '# Notes\n',
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/next.mp4/upstream.yaml': 'upstream:\n  - brief.md\n'
+		});
+		await harness.draftOperations.move(joinPath(folder, 'shots', 'next.mp4'), joinPath(folder, 'shots', 'opening.mp4'));
+		await until(async () => (await harness.read('uses.md'))?.includes('shots/opening.mp4') === true, 'the entry that names the draft was not updated');
+		// The index knows the draft at its new path, with its list, before what the list names moves.
+		await until(() => harness.index.getDrafts(folder).join() === 'shots/opening.mp4' && harness.index.getDownstream({ resource: joinPath(folder, 'brief.md'), workspaceFolder: folder, relativePath: 'brief.md' }).some(entry => entry.node.relativePath === 'shots/opening.mp4'), 'the index did not follow the draft');
+		await harness.move('brief.md', 'docs/brief.md');
+		await until(async () => (await harness.read('.bh/mirror/shots/opening.mp4/upstream.yaml'))?.includes('docs/brief.md') === true, 'the draft\'s own list was not updated');
+		assert.deepStrictEqual({ uses: await harness.read('uses.md'), retargets: harness.retargets(), owed: harness.movedItems.owed, shown: harness.notifications.prompts.length }, {
+			uses: '---\nupstream:\n  - shots/opening.mp4\n---\n# Uses\n',
+			retargets: ['shots/next.mp4 -> shots/opening.mp4', 'brief.md -> docs/brief.md'],
+			owed: [],
+			shown: 0
+		});
+	});
+
+	test('a delete to the trash keeps a generated file\'s prompt and record, a file without a record loses its prompt with any delete, and a permanent delete removes them all', async () => {
+		const unreadable = '<<<<<<< ours\nprompt: "a"\n=======\nprompt: "b"\n>>>>>>> theirs\n';
+		// A whole record, which a permanent delete removes without a copy.
+		const record = serializeBaseHalfGenerationMade({ id: 't3', startedAt: '2026-10-19T08:00:00.000Z', finishedAt: '2026-10-19T08:02:10.000Z', provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: {}, prompt: 'c', inputs: [] });
+		const files = {
+			'a.mp4': 'video',
+			'.bh/mirror/a.mp4/generation.yaml': 'prompt: "a"\n',
+			'.bh/mirror/a.mp4/made.yaml': 'id: "t1"\n',
+			'.bh/mirror/a.mp4/upstream.yaml': 'upstream:\n  - b.png\n',
+			// Uploaded to a draft: no record.
+			'b.png': 'png',
+			'.bh/mirror/b.png/generation.yaml': 'prompt: "b"\n',
+			'c.mp4': 'video',
+			'.bh/mirror/c.mp4/generation.yaml': unreadable,
+			'.bh/mirror/c.mp4/made.yaml': record,
+			'shots/d.mp4': 'video',
+			'.bh/mirror/shots/d.mp4/generation.yaml': 'prompt: "d"\n',
+			'.bh/mirror/shots/d.mp4/made.yaml': 'id: "t4"\n',
+			'.bh/mirror/shots/e.mp4/generation.yaml': 'prompt: "a draft"\n',
+			'shots/f.png': 'png',
+			'.bh/mirror/shots/f.png/generation.yaml': 'prompt: "f"\n'
+		};
+		const mirror = (tree: Record<string, string>) => Object.keys(tree).filter(path => path.startsWith('.bh/mirror/') && !path.endsWith('badge.yaml') && !path.endsWith('canvas.yaml'));
+		const trash = await createHarness(disposables, files, { trash: true });
+		for (const path of ['a.mp4', 'b.png', 'shots']) {
+			await trash.delete(path);
+		}
+		const permanent = await createHarness(disposables, files);
+		for (const path of ['a.mp4', 'b.png', 'c.mp4', 'shots']) {
+			await permanent.delete(path);
+		}
+		const permanentTree = await permanent.tree();
+		const recovered = Object.keys(await permanent.fileService.resolve(joinPath(folder, '.bh', 'cache', 'recovered', 'mirror', 'c.mp4')).then(stat => Object.fromEntries((stat.children ?? []).map(child => [child.name, true]))));
+
+		assert.deepStrictEqual({ trash: mirror(await trash.tree()), permanent: mirror(permanentTree), recovered: recovered.map(name => name.replace(/\.[0-9a-f]{12}\./, '.<digest>.')) }, {
+			trash: [
+				'.bh/mirror/a.mp4/generation.yaml',
+				'.bh/mirror/a.mp4/made.yaml',
+				'.bh/mirror/a.mp4/upstream.yaml',
+				'.bh/mirror/c.mp4/generation.yaml',
+				'.bh/mirror/c.mp4/made.yaml',
+				'.bh/mirror/shots/d.mp4/generation.yaml',
+				'.bh/mirror/shots/d.mp4/made.yaml',
+				'.bh/mirror/shots/e.mp4/generation.yaml'
+			],
+			permanent: [],
+			recovered: ['generation.<digest>.yaml']
 		});
 	});
 });
