@@ -455,18 +455,22 @@ export interface IBaseHalfDraftOperations {
 
 	/**
 	 * Renames or moves a draft to `target`, which must be free (no file, no
-	 * folder, no draft), in a folder that exists, in the same workspace
-	 * folder, and keep the draft's kind. Its card information, card row, and
-	 * task records move in one exclusive run under the workspace mutation
-	 * lease; the entries that name it are rewritten right after, as after any
-	 * move. Resolves with `target`.
+	 * folder, no draft, and no card information of a generated file that is
+	 * in the trash or missing), in a folder that exists, in the same
+	 * workspace folder, and keep the draft's kind. Its card information, card
+	 * row, and task records move in one exclusive run under the workspace
+	 * mutation lease, and the path the task records name holds the draft's
+	 * `generation.yaml` throughout: a move that fails leaves the draft whole
+	 * where it was. The entries that name it are rewritten right after, as
+	 * after any move. Resolves with `target`.
 	 */
 	move(draft: URI, target: URI, options?: IBaseHalfDraftMoveOptions): Promise<URI>;
 
 	/**
 	 * Removes a draft's card information and card row in one exclusive run.
-	 * Resolves with what an undo needs. A generation that runs on the draft is
-	 * the caller's to stop first (generation cards, "Deleting").
+	 * Resolves with what an undo needs. Refuses, and changes nothing, while a
+	 * generation that has not ended still lands on the draft: the caller
+	 * releases the card first (generation cards, "Deleting").
 	 */
 	delete(draft: URI): Promise<IBaseHalfDraftSnapshot>;
 

@@ -16,11 +16,11 @@ import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../canvas/common/ba
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfBadgeMirrorService } from '../../references/common/basehalfBadgeMirror.js';
 import { baseHalfIsDraft, baseHalfIsDraftInformation, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
-import { baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
+import { BASEHALF_GENERATION_INFO_FILE, baseHalfGenerationKindOfPath, isBaseHalfGenerationTaskEnded } from '../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfDraftMoveOptions, IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationTaskStore } from '../../video/common/basehalfVideoGeneration.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfRelocateBadgeText } from '../common/basehalfMirrorCascadeOperation.js';
-import { baseHalfDeleteMirrorFile, baseHalfPreserveUnreadableGenerationFile, baseHalfReadMirrorFile, baseHalfWriteMirrorFile } from '../common/basehalfMirrorFiles.js';
+import { baseHalfDeleteMirrorFile, baseHalfReadMirrorFile, baseHalfWriteMirrorFile } from '../common/basehalfMirrorFiles.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot, baseHalfPruneEmptyMirrorDirectories } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfMovedItemsService } from '../common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
@@ -39,15 +39,25 @@ interface IDraftLocation {
 	readonly path: string;
 }
 
+/** A mirror file a move wrote at the new path: what was there before (`null` for nothing), and what it wrote. */
+interface IWrittenFile {
+	readonly resource: URI;
+	readonly previous: VSBuffer | null;
+	readonly next: VSBuffer;
+}
+
 /**
  * Renames, moves, and deletes drafts, and writes back a deleted one
  * (generation cards, "Moving, renaming, copying, and undo" and "Deleting").
  * A draft has no file, so each operation works on what it has: every file of
  * its directory under `.bh/mirror/`, its card row and the edge anchor rows that
  * name it in its folder's layout, and the task records that name it. Each runs
- * as one exclusive run under the workspace mutation lease. After a move the
- * entries that name the draft are rewritten as after any move: following
- * moved items owes them, and the rename refactor writes them.
+ * as one exclusive run under the workspace mutation lease. A move keeps the
+ * draft's `generation.yaml` at the path its task records name at every step,
+ * so that a generation never lands on a path that has lost its card. After a
+ * move the entries that name the draft are rewritten as after any move:
+ * following moved items owes them, and the rename refactor writes them. A
+ * draft that generates is not deleted.
  */
 export class BaseHalfDraftOperations implements IBaseHalfDraftOperations {
 	declare readonly _serviceBrand: undefined;
@@ -94,6 +104,7 @@ export class BaseHalfDraftOperations implements IBaseHalfDraftOperations {
 		return this.workspaceMutationCoordinator.runExclusive(location.workspaceFolder, async lease => {
 			const { workspaceFolder, path } = location;
 			await this.assertDraft(workspaceFolder, path);
+			await this.assertNotGenerating(workspaceFolder, draft, path);
 			const files = await this.readDirectory(workspaceFolder, path);
 			const layout = await this.layoutOf(workspaceFolder, path);
 			// The card row and the edge anchor rows that name it go with it.
@@ -147,10 +158,19 @@ export class BaseHalfDraftOperations implements IBaseHalfDraftOperations {
 	/**
 	 * Moves the draft at `from` to `to` inside the lease: its mirror files,
 	 * its card row, and its task records; then following moved items owes the
-	 * entries that name it. A file, folder, or draft at `to` refuses the move;
-	 * card information that a missing item left at `to` gives way, as it does
-	 * to a move through the workbench. With `aside`, an item has arrived at
-	 * `from`, and only the card information there has to be a draft's.
+	 * entries that name it. A file, a folder, a draft, or the card information
+	 * of a generated file that is in the trash or missing (a `generation.yaml`
+	 * or a `made.yaml`) at `to` refuses the move; the rest of what an item that
+	 * is gone left at `to` gives way, as it does to a move through the
+	 * workbench. With `aside`, an item has arrived at `from`, and only the card
+	 * information there has to be a draft's.
+	 *
+	 * The path that the task records name always holds the draft's
+	 * `generation.yaml`: every file is written at the new path first,
+	 * `generation.yaml` last, and the card row moves; then the task records
+	 * take the new path; only then does the old path give up its files. A
+	 * failure before the records name the new path takes back what was
+	 * written, and the draft is whole at its old path.
 	 */
 	private async moveLocked(workspaceFolder: URI, from: string, to: string, lease: IBaseHalfWorkspaceMutationLease, aside: boolean): Promise<void> {
 		await this.assertDraft(workspaceFolder, from, aside);
@@ -161,7 +181,8 @@ export class BaseHalfDraftOperations implements IBaseHalfDraftOperations {
 				: localize('basehalf.draft.videoName', "A video card needs a name that ends in .mp4, .mov, .m4v, or .webm."));
 		}
 		const facts = await baseHalfReadDraftFacts(this.fileService, workspaceFolder, to);
-		if (facts.itemExists || baseHalfIsDraftInformation(facts)) {
+		// A generated file that is in the trash or missing keeps its record: its card comes back with the file.
+		if (facts.itemExists || facts.hasGenerationInfo || facts.hasMade) {
 			throw new BaseHalfDraftOperationError(localize('basehalf.draft.taken', "{0} is already taken.", basename(this.resource(workspaceFolder, to))));
 		}
 		const slash = to.lastIndexOf('/');
@@ -171,49 +192,145 @@ export class BaseHalfDraftOperations implements IBaseHalfDraftOperations {
 
 		const files = await this.readDirectory(workspaceFolder, from);
 		const leftovers = await this.readDirectory(workspaceFolder, to);
-		for (const [name, contents] of files) {
-			const target = this.mirrorFile(workspaceFolder, to, name);
-			const current = leftovers.get(name) ?? null;
-			let next = contents;
-			if (name === BADGE_FILE_NAME) {
-				const relocated = baseHalfRelocateBadgeText(contents.toString(), to);
-				if (relocated !== undefined) {
-					next = VSBuffer.fromString(relocated);
-				}
-			}
-			if (!current?.equals(next)) {
-				if (current) {
-					await baseHalfPreserveUnreadableGenerationFile(this.fileService, workspaceFolder, target, current);
-				}
-				await baseHalfWriteMirrorFile(this.fileService, workspaceFolder, target, next, current);
-			}
-			await baseHalfDeleteMirrorFile(this.fileService, workspaceFolder, this.mirrorFile(workspaceFolder, from, name), contents);
+		const written = await this.writeAtNewPath(workspaceFolder, to, files, leftovers);
+		try {
+			await this.canvasMirrorService.relocateNode(workspaceFolder, from, to, { retireDestination: true }, lease);
+		} catch (error) {
+			await this.takeBack(workspaceFolder, written);
+			throw error;
 		}
-		// What an item that is gone left at the new path gives way.
+		try {
+			// A generation that runs on the draft lands where the draft is now.
+			await this.taskStore.retarget(this.resource(workspaceFolder, from), this.resource(workspaceFolder, to));
+		} catch (error) {
+			await this.undoMove(workspaceFolder, from, to, written, lease);
+			throw error;
+		}
+		await this.giveUpOldPath(workspaceFolder, from, to, files, leftovers);
+		await this.prune(workspaceFolder, from);
+		this.movedItemsService.acceptDraftMove(workspaceFolder, from, to);
+		this.logService.info(`[BaseHalf] moved the draft ${from} to ${to}`);
+	}
+
+	/**
+	 * Writes every file of the draft at the new path against what is there,
+	 * `generation.yaml` last, so that the new path holds no draft before all
+	 * of it is there; a relocated `badge.yaml` gets its new `path`. Resolves
+	 * with what was written. A failure takes it back and rejects.
+	 */
+	private async writeAtNewPath(workspaceFolder: URI, to: string, files: ReadonlyMap<string, VSBuffer>, leftovers: ReadonlyMap<string, VSBuffer>): Promise<IWrittenFile[]> {
+		const written: IWrittenFile[] = [];
+		try {
+			for (const name of [...files.keys()].sort((a, b) => Number(a === BASEHALF_GENERATION_INFO_FILE) - Number(b === BASEHALF_GENERATION_INFO_FILE))) {
+				const resource = this.mirrorFile(workspaceFolder, to, name);
+				const previous = leftovers.get(name) ?? null;
+				let next = files.get(name)!;
+				if (name === BADGE_FILE_NAME) {
+					const relocated = baseHalfRelocateBadgeText(next.toString(), to);
+					if (relocated !== undefined) {
+						next = VSBuffer.fromString(relocated);
+					}
+				}
+				if (previous?.equals(next)) {
+					continue;
+				}
+				await baseHalfWriteMirrorFile(this.fileService, workspaceFolder, resource, next, previous);
+				written.push({ resource, previous, next });
+			}
+		} catch (error) {
+			await this.takeBack(workspaceFolder, written);
+			throw error;
+		}
+		return written;
+	}
+
+	/** Takes back what {@link writeAtNewPath} wrote, the last first: a file that was there gets its bytes again. Best effort. */
+	private async takeBack(workspaceFolder: URI, written: readonly IWrittenFile[]): Promise<void> {
+		for (const file of [...written].reverse()) {
+			try {
+				if (file.previous) {
+					await baseHalfWriteMirrorFile(this.fileService, workspaceFolder, file.resource, file.previous, file.next);
+				} else {
+					await baseHalfDeleteMirrorFile(this.fileService, workspaceFolder, file.resource, file.next);
+				}
+			} catch (error) {
+				this.logService.warn(`[BaseHalf] could not take back ${file.resource.toString()}`, error);
+			}
+		}
+	}
+
+	/**
+	 * The task records could not all take the new path. Those that did move
+	 * back, and then the card row and the files: the draft is whole at its old
+	 * path again. When the records cannot be moved back, the draft's card
+	 * information stays at both paths, so that every record still names a path
+	 * that holds its `generation.yaml`.
+	 */
+	private async undoMove(workspaceFolder: URI, from: string, to: string, written: readonly IWrittenFile[], lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		try {
+			await this.taskStore.retarget(this.resource(workspaceFolder, to), this.resource(workspaceFolder, from));
+		} catch (error) {
+			this.logService.warn(`[BaseHalf] the task records of the draft ${from} could not be moved back from ${to}; its card information stays at both paths`, error);
+			return;
+		}
+		try {
+			await this.canvasMirrorService.relocateNode(workspaceFolder, to, from, { retireDestination: true }, lease);
+		} catch (error) {
+			this.logService.warn(`[BaseHalf] could not move the card row of the draft ${from} back from ${to}`, error);
+		}
+		await this.takeBack(workspaceFolder, written);
+	}
+
+	/**
+	 * Once the task records name the new path, the old path gives up the
+	 * draft's files, `generation.yaml` first, so that no draft is left there
+	 * when a removal fails; and what an item that is gone left at the new path,
+	 * which no file of the draft replaced, gives way. The draft has moved by
+	 * then: a file that cannot be removed is logged and left.
+	 */
+	private async giveUpOldPath(workspaceFolder: URI, from: string, to: string, files: ReadonlyMap<string, VSBuffer>, leftovers: ReadonlyMap<string, VSBuffer>): Promise<void> {
+		for (const name of [...files.keys()].sort((a, b) => Number(b === BASEHALF_GENERATION_INFO_FILE) - Number(a === BASEHALF_GENERATION_INFO_FILE))) {
+			const resource = this.mirrorFile(workspaceFolder, from, name);
+			try {
+				await baseHalfDeleteMirrorFile(this.fileService, workspaceFolder, resource, files.get(name));
+			} catch (error) {
+				this.logService.warn(`[BaseHalf] the draft moved to ${to}, but ${resource.toString()} could not be removed`, error);
+			}
+		}
 		for (const [name, contents] of leftovers) {
 			if (files.has(name)) {
 				continue;
 			}
-			if (name === BADGE_FILE_NAME) {
-				await this.badgeMirrorService.patchBadge({ resource: this.resource(workspaceFolder, to), workspaceFolder, relativePath: to, kind: 'file' }, () => null);
-				continue;
+			try {
+				if (name === BADGE_FILE_NAME) {
+					await this.badgeMirrorService.patchBadge({ resource: this.resource(workspaceFolder, to), workspaceFolder, relativePath: to, kind: 'file' }, () => null);
+				} else {
+					await baseHalfDeleteMirrorFile(this.fileService, workspaceFolder, this.mirrorFile(workspaceFolder, to, name), contents);
+				}
+			} catch (error) {
+				this.logService.warn(`[BaseHalf] the draft moved to ${to}, but the ${name} that was left there could not be retired`, error);
 			}
-			const resource = this.mirrorFile(workspaceFolder, to, name);
-			await baseHalfPreserveUnreadableGenerationFile(this.fileService, workspaceFolder, resource, contents);
-			await baseHalfDeleteMirrorFile(this.fileService, workspaceFolder, resource, contents);
 		}
-		await this.canvasMirrorService.relocateNode(workspaceFolder, from, to, { retireDestination: true }, lease);
-		// A generation that runs on the draft lands where the draft is now.
-		await this.taskStore.retarget(this.resource(workspaceFolder, from), this.resource(workspaceFolder, to));
-		await this.prune(workspaceFolder, from);
-		this.movedItemsService.acceptDraftMove(workspaceFolder, from, to);
-		this.logService.info(`[BaseHalf] moved the draft ${from} to ${to}`);
 	}
 
 	private async assertDraft(workspaceFolder: URI, path: string, aside = false): Promise<void> {
 		const facts = await baseHalfReadDraftFacts(this.fileService, workspaceFolder, path);
 		if (!(aside ? baseHalfIsDraftInformation(facts) : baseHalfIsDraft(facts))) {
 			throw new BaseHalfDraftOperationError(localize('basehalf.draft.notDraft', "{0} is not a draft any more.", basename(this.resource(workspaceFolder, path))));
+		}
+	}
+
+	/**
+	 * A draft is not deleted while a generation that has not ended still lands
+	 * on it (generation cards, "Deleting"): its file would be paid for and then
+	 * have nowhere to go. The canvas releases the card first, which stops the
+	 * generation, or, for one of several cards, gives up that card's file.
+	 */
+	private async assertNotGenerating(workspaceFolder: URI, draft: URI, path: string): Promise<void> {
+		await this.taskStore.refresh(workspaceFolder);
+		const task = this.taskStore.forCard(draft);
+		if (task && !isBaseHalfGenerationTaskEnded(task) && task.cards.some(card => card.path === path && card.state === 'waiting')) {
+			throw new BaseHalfDraftOperationError(localize('basehalf.draft.generating', "This card is generating. Stop it first."));
 		}
 	}
 
