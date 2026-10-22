@@ -245,6 +245,10 @@ inputs:
 - A draft in a folder that does not exist on this computer is not shown. Git
   drops a folder without files, so a folder that holds only drafts reaches a
   teammate as drafts without a folder; they show when the folder exists.
+- Only "not found" tells BaseHalf that a card's file or card information is
+  not there. What it cannot look at (a read error, too many open files, a
+  permission, a symbolic link on the way) is never taken for absence: a card
+  is not called deleted, gone, or free because the disk did not answer.
 
 ### The task record
 
@@ -813,9 +817,11 @@ is a file does:
   rule 4). Renaming keeps the kind: a draft's name keeps an extension of its
   kind.
   - A draft moves only to a name that no file, folder, or draft has, in a
-    folder that exists, within its workspace folder. Card information that an
-    item that is gone left under that name gives way, as it does to a move of
-    a file through the workbench.
+    folder that exists, within its workspace folder. The card information of
+    a generated file that is in the trash or missing, a `generation.yaml` or
+    a `made.yaml`, takes the name too: the file comes back with its record.
+    The rest of what an item that is gone left under that name gives way, as
+    it does to a move of a file through the workbench.
   - Its card information, card row, and task records move in one exclusive
     run under the workspace mutation lease; the entries that name it are
     rewritten right after, as after any move, and are owed until they are.
@@ -823,6 +829,17 @@ is a file does:
   BaseHalf or [followed](following-moved-items.md#relocation) after a move
   outside it, writes the card's new path into the task record in the same
   exclusive run, so that the files land where the card is.
+  - The path a task record names always holds the card's `generation.yaml`.
+    The card information is written at the new path first, then the record
+    takes the new path, and only then does the old path give up its
+    `generation.yaml` and `made.yaml`. A move that fails part-way leaves the
+    card whole at the path its record names: a draft's move through BaseHalf
+    takes back what it wrote, and a stage of the mirror cascade that fails,
+    or a Skip, leaves the generation information at both paths.
+  - A card whose `generation.yaml` finds its place at the new path taken,
+    after a move outside BaseHalf, keeps all of its card information at the
+    old path, and its record keeps naming it
+    ([following moved items](following-moved-items.md#relocation)).
 - **Copying** a generation card makes a new card in the folder where it is
   pasted, named with the next free number: of a draft, a draft with the same
   prompt and settings; of a card with its file, a copy of the file with the
@@ -841,6 +858,11 @@ is a file does:
   the generation service to release the card before the draft operations
   delete it; a draft whose card information is gone when its file arrives
   gets no file either, however it was deleted.
+- The draft operations do not delete a draft that a generation that has not
+  ended still lands on. They refuse with "This card is generating. Stop it
+  first." and change nothing, so that a file that is paid for always has its
+  card to land on. A released card is not landed on: the generation of one
+  card has stopped, and one card of several has given up its file.
 - Deleting a card with its file deletes the file as any file is deleted. A
   delete to the trash of a generated file keeps `generation.yaml` and
   `made.yaml`, as it keeps `upstream.yaml`: the card leaves the canvas as a
@@ -990,10 +1012,11 @@ Card information
 5. Renaming a card with its file in Finder, and renaming a draft on the
    canvas, keep the card's prompt, settings, record, connections, and place;
    renaming the folder of a generating draft in Finder lands the file in the
-   renamed folder.
+   renamed folder; a rename of a generating draft that fails part-way leaves
+   the draft whole where its task record names it.
 6. Deleting a generated file to the trash takes its card off the canvas and
    offers nothing to generate; restoring it brings the card back with its
-   prompt and record.
+   prompt and record, and renaming a draft to its name meanwhile is refused.
 7. A `generation.yaml` with git's conflict markers leaves the card shown and
    the panel usable; saving a prompt keeps a recovery copy, and `made.yaml` is
    unchanged.
@@ -1121,9 +1144,12 @@ The player
   drawn from that catalog; of the reference index and edit service with
   drafts; of the mirror cascade and following moved items with
   `generation.yaml`, `made.yaml`, drafts, and a folder moved during a
-  generation; for criterion 31, what the panel's footer holds, the labels of
-  the regions on Providers, and the catalog that `--list-capabilities` gives
-  agents; the player's gestures, controls, and sound
+  generation, also when a step of the move fails; of the draft operations,
+  with a move that fails part-way and a delete while the draft generates;
+  of the one rule of drafts, with a disk that cannot be read; for criterion
+  31, what the panel's footer holds, the labels of the regions on Providers,
+  and the catalog that `--list-capabilities` gives agents; the player's
+  gestures, controls, and sound
   (`basehalfCanvasCardVideoPlayer.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, and 32
