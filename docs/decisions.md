@@ -2166,7 +2166,7 @@ the user's Codex out. No reference product reads the login.
 **Consequences.**
 - A model of the catalog has a kind, image or video, and a card offers the
   models of its kind.
-- Provider requests that answer at once with the files (OpenAI, Google,
+- Provider requests that answer at once with the files (OpenAI, Google, Alibaba,
   ByteDance, MiniMax) run beside the ones that run as tasks.
 - An image model makes its image from references, or from the prompt alone
   when it has none, and declares the format it delivers, so that a draft has
