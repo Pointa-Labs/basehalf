@@ -20,7 +20,7 @@ import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/c
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, BaseHalfReferenceRefusalReason, IBaseHalfReferenceEditService } from './basehalfReferenceEdit.js';
 import { baseHalfUpstreamEntryGrammarProblem, baseHalfUpstreamEntryProblem, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from './basehalfReferenceEntries.js';
 import { IBaseHalfReferenceIndexService, IBaseHalfUpstreamView } from './basehalfReferenceIndex.js';
-import { BaseHalfUpstreamStoreKind, isBaseHalfUpstreamReservedOutput } from './basehalfReferenceStore.js';
+import { BaseHalfUpstreamStoreKind } from './basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
 
 /**
@@ -69,11 +69,12 @@ export interface IBaseHalfLegacyMalformedKey {
  * - `rootOrMetadata`: an endpoint is the workspace root or under `.bh/`.
  * - `invalidPath`: an endpoint the legacy grammar never accepted, or that no
  *   upstream entry can name (a control character).
- * - `cannotBeDownstream`: the downstream is in the reserved outputs tree or is
- *   the file a `.bhnode` shows as its result.
  * - `malformedKey`: a legacy key whose value is not a list of paths.
+ *
+ * Every node can be downstream since D63, so no pair is dropped for its
+ * downstream.
  */
-export type BaseHalfLegacyDropReason = 'oneSided' | 'self' | 'rootOrMetadata' | 'invalidPath' | 'cannotBeDownstream' | 'malformedKey';
+export type BaseHalfLegacyDropReason = 'oneSided' | 'self' | 'rootOrMetadata' | 'invalidPath' | 'malformedKey';
 
 /**
  * Why a pair was not written this time, for a reason the user can fix. Its
@@ -95,7 +96,6 @@ export type BaseHalfLegacyDeferReason =
 	| 'missingDownstream'
 	| 'limit'
 	| 'beingMoved'
-	| 'indexLoading'
 	| 'failed';
 
 export type BaseHalfLegacyPairStatus =
@@ -323,7 +323,6 @@ export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | Bas
 		case 'invalidPath': return localize('basehalf.migration.reason.invalidPath', "The recorded path isn't valid");
 		case 'otherWorkspaceFolder': return localize('basehalf.migration.reason.otherWorkspaceFolder', "It points into another workspace folder");
 		case 'symbolicLink': return localize('basehalf.migration.reason.symbolicLink', "It is a symbolic link or inside one");
-		case 'cannotBeDownstream': return localize('basehalf.migration.reason.cannotBeDownstream', "This file can't receive upstream context");
 		case 'malformedKey': return localize('basehalf.migration.reason.malformedKey', "The earlier connection list can't be read");
 		case 'unsaved': return localize('basehalf.migration.reason.unsaved', "It has unsaved changes and auto-save is off");
 		case 'conflict': return localize('basehalf.migration.reason.conflict', "It has a save conflict");
@@ -335,7 +334,6 @@ export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | Bas
 		case 'missingDownstream': return localize('basehalf.migration.reason.missingDownstream', "The file no longer exists");
 		case 'limit': return localize('basehalf.migration.reason.limit', "The node already has 64 upstream entries");
 		case 'beingMoved': return localize('basehalf.migration.reason.beingMoved', "It was being moved");
-		case 'indexLoading': return localize('basehalf.migration.reason.indexLoading', "Connections were still loading");
 		// The recorded error text names files and system error codes; it stays in the record.
 		case 'failed': return localize('basehalf.migration.reason.failed', "It could not be written");
 	}
@@ -538,7 +536,6 @@ export interface IBaseHalfReferenceMigrationService {
 interface IDownstreamInfo {
 	readonly exists: boolean;
 	readonly node?: IBaseHalfWorkspaceResource;
-	readonly upstreamOnly?: boolean;
 	readonly view?: IBaseHalfUpstreamView;
 }
 
@@ -769,9 +766,6 @@ export class BaseHalfReferenceMigrationService implements IBaseHalfReferenceMigr
 		if (baseHalfUpstreamEntryProblem(pair.upstream, pair.downstream, identity) === 'self') {
 			return 'self';
 		}
-		if (isBaseHalfUpstreamReservedOutput(pair.downstream) || this.referenceIndexService.getUpstreamOnlyReason(this.node(workspaceFolder, pair.downstream))) {
-			return 'cannotBeDownstream';
-		}
 		return undefined;
 	}
 
@@ -791,9 +785,6 @@ export class BaseHalfReferenceMigrationService implements IBaseHalfReferenceMigr
 		if (!this.ownedBy(workspaceFolder, pair.upstream) || !this.ownedBy(workspaceFolder, pair.downstream)) {
 			return deferred('otherWorkspaceFolder');
 		}
-		if (isBaseHalfUpstreamReservedOutput(pair.downstream)) {
-			return dropped('cannotBeDownstream');
-		}
 		let info = downstreams.get(pair.downstream);
 		if (!info) {
 			info = this.downstreamInfo(workspaceFolder, pair.downstream);
@@ -802,9 +793,6 @@ export class BaseHalfReferenceMigrationService implements IBaseHalfReferenceMigr
 		const downstream = await info;
 		if (!downstream.exists) {
 			return deferred('missingDownstream');
-		}
-		if (downstream.upstreamOnly) {
-			return dropped('cannotBeDownstream');
 		}
 		const view = downstream.view;
 		const storeKind = view?.storeKind;
@@ -829,9 +817,6 @@ export class BaseHalfReferenceMigrationService implements IBaseHalfReferenceMigr
 			await this.fileService.stat(node.resource);
 		} catch {
 			return { exists: false };
-		}
-		if (this.referenceIndexService.getUpstreamOnlyReason(node)) {
-			return { exists: true, node, upstreamOnly: true };
 		}
 		let view: IBaseHalfUpstreamView;
 		try {
@@ -1161,14 +1146,12 @@ function refusalDeferral(reason: BaseHalfReferenceRefusalReason): BaseHalfLegacy
 		case 'foreign': return 'foreign';
 		case 'notWritable':
 		case 'frontmatterTooLarge':
-		case 'upstreamOnly':
 			return 'notWritable';
 		case 'orphaned':
 		case 'missingNode':
 			return 'missingDownstream';
 		case 'limit': return 'limit';
 		case 'beingMoved': return 'beingMoved';
-		case 'indexLoading': return 'indexLoading';
 		case 'symbolicLink': return 'symbolicLink';
 		case 'error': return 'saveFailed';
 		default: return 'failed';

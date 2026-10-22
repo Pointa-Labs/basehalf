@@ -83,8 +83,6 @@ export interface IBaseHalfRenameStore {
 	/** The downstream node's path; after the move and its mirror cascade, its current path. */
 	readonly nodePath: string;
 	readonly storeKind: BaseHalfUpstreamStoreKind;
-	/** The node could not be downstream when the move was prepared (reserved output, sealed or imported Result artifact). */
-	readonly upstreamOnly: boolean;
 	/** The entries that named a moved path, as written. */
 	readonly entries: readonly string[];
 }
@@ -102,7 +100,6 @@ export function baseHalfSnapshotRenameStores(
 	stores: readonly IBaseHalfIndexedStore[],
 	moves: readonly IBaseHalfPathMove[],
 	identity: IBaseHalfUpstreamIdentity,
-	isUpstreamOnly: (node: IBaseHalfWorkspaceResource) => boolean,
 	exclude: readonly string[] = []
 ): IBaseHalfRenameStore[] {
 	const out: IBaseHalfRenameStore[] = [];
@@ -118,7 +115,7 @@ export function baseHalfSnapshotRenameStores(
 			return target !== undefined && target !== item.path ? [item.text] : [];
 		});
 		if (entries.length > 0) {
-			out.push({ nodePath: store.node.relativePath, storeKind: store.storeKind, upstreamOnly: isUpstreamOnly(store.node), entries });
+			out.push({ nodePath: store.node.relativePath, storeKind: store.storeKind, entries });
 		}
 	}
 	return out.sort((left, right) => left.nodePath.localeCompare(right.nodePath));
@@ -207,14 +204,13 @@ export interface IBaseHalfRenameStoreState {
 	readonly items: readonly IBaseHalfUpstreamItem[] | undefined;
 	/** The entries recorded when the move was prepared. */
 	readonly snapshotEntries: readonly string[];
-	readonly upstreamOnly: boolean;
 	/** Why the reference edit service would refuse to write this store. */
 	readonly blocking?: { readonly reason: BaseHalfReferenceRefusalReason; readonly message: string };
 }
 
 /**
  * Why a store is left out: a refusal of the reference edit service
- * (`unsaved`, `markedFolder`, `upstreamOnly`, `unreadable`, …).
+ * (`unsaved`, `markedFolder`, `unreadable`, …).
  */
 export type BaseHalfRenameSkipReason = BaseHalfReferenceRefusalReason;
 
@@ -253,7 +249,7 @@ export interface IBaseHalfRenameUpdateInput {
 	readonly stores: readonly IBaseHalfRenameStoreState[];
 	readonly moves: readonly IBaseHalfPathMove[];
 	readonly identity: IBaseHalfUpstreamIdentity;
-	/** Whether a workspace-relative path names an existing node now. */
+	/** Whether a workspace-relative path names an existing node now: a file, a folder, or a draft. */
 	readonly exists: (path: string) => boolean;
 	/** Old paths that earlier unanswered plans own: entries they cover are never rewritten. */
 	readonly exclude?: readonly string[];
@@ -264,9 +260,9 @@ export interface IBaseHalfRenameUpdateInput {
  * entries that still name an old path and whose old path still names no
  * node; a spelling-only move rewrites every entry whose spelling differs from
  * the new one. Entries inside a moved folder that name other items of that
- * folder are covered like any other store. Stores the edit service refuses
- * (`blocking`), upstream-only nodes, and unreadable stores are skipped with
- * their reason.
+ * folder are covered like any other store, and so is the list of a draft.
+ * Stores the edit service refuses (`blocking`) and unreadable stores are
+ * skipped with their reason.
  */
 export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBaseHalfRenameUpdatePlan {
 	const { identity, moves } = input;
@@ -276,10 +272,6 @@ export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBa
 	const stores = [...input.stores].sort((left, right) => left.node.relativePath.localeCompare(right.node.relativePath));
 	for (const store of stores) {
 		const node = store.node;
-		if (store.upstreamOnly) {
-			skipped.push({ node, reason: 'upstreamOnly', ...(store.blocking?.reason === 'upstreamOnly' ? { message: store.blocking.message } : {}) });
-			continue;
-		}
 		if (store.blocking) {
 			skipped.push({ node, reason: store.blocking.reason, message: store.blocking.message });
 			continue;

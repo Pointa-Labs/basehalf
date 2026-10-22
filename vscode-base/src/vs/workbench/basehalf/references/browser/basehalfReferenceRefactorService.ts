@@ -21,6 +21,7 @@ import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvas
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import { BASEHALF_NODE_DOCUMENT_MAX_BYTES, extractBaseHalfNodeUpstreamLenient } from '../../video/common/basehalfNodeDocument.js';
 import {
 	BaseHalfReferenceEditFailure,
@@ -189,7 +190,6 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 			this.referenceIndexService.getStores(workspaceFolder),
 			moves,
 			this.identity(workspaceFolder),
-			node => !!this.referenceIndexService.getUpstreamOnlyReason(node),
 			exclude
 		);
 	}
@@ -199,14 +199,14 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 		const exclude = input.exclude ?? [];
 		const identity = this.identity(workspaceFolder);
 		const states = await Promise.all(input.stores.map(store => this.readStoreState(workspaceFolder, identity, store)));
-		// Which old paths name a node now: those entries are left alone.
+		// Which old paths name a node now, a draft included: those entries are left alone.
 		const existing = new Set<string>();
 		await Promise.all(states.flatMap(state => (state.items ?? []).flatMap(item => {
 			const path = item.path;
 			if (path === undefined || baseHalfPathIsCovered(path, exclude, identity) || baseHalfRemapMovedPath(path, moves, identity) === undefined) {
 				return [];
 			}
-			return [this.fileService.exists(this.node(workspaceFolder, path).resource).then(exists => {
+			return [this.nodeExists(workspaceFolder, path).then(exists => {
 				if (exists) {
 					existing.add(identity.key(path));
 				}
@@ -480,21 +480,21 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 	/** Reads one planned store at its current path: the Markdown model when loaded, disk otherwise. */
 	private async readStoreState(workspaceFolder: URI, identity: IBaseHalfUpstreamIdentity, store: IBaseHalfRenameStore): Promise<IBaseHalfRenameStoreState> {
 		const node = this.node(workspaceFolder, store.nodePath);
-		const base = {
-			node,
-			snapshotEntries: store.entries,
-			upstreamOnly: store.upstreamOnly || !!this.referenceIndexService.getUpstreamOnlyReason(node)
-		};
+		const base = { node, snapshotEntries: store.entries };
 		let isDirectory: boolean;
 		try {
 			isDirectory = (await this.fileService.stat(node.resource)).isDirectory;
 		} catch {
-			return {
-				...base,
-				storeKind: store.storeKind,
-				items: undefined,
-				blocking: { reason: 'missingNode', message: localize('basehalf.references.refactor.missing', "{0} no longer exists.", basename(node.resource)) }
-			};
+			// A draft has no file: its list is its upstream.yaml (reference graph, "Drafts").
+			if (!await baseHalfPathHoldsDraft(this.fileService, workspaceFolder, store.nodePath).catch(() => false)) {
+				return {
+					...base,
+					storeKind: store.storeKind,
+					items: undefined,
+					blocking: { reason: 'missingNode', message: localize('basehalf.references.refactor.missing', "{0} no longer exists.", basename(node.resource)) }
+				};
+			}
+			isDirectory = false;
 		}
 		const nodeKind = baseHalfUpstreamStoreKind(store.nodePath, isDirectory);
 		// A note whose list lives in its sidecar was indexed as that sidecar
@@ -528,6 +528,11 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 			this.logService.warn(`[BaseHalf] could not read the upstream list of ${store.nodePath}`, error);
 			return { ...base, storeKind, items: undefined };
 		}
+	}
+
+	/** Whether a path names a node now: a file, a folder, or a draft. */
+	private async nodeExists(workspaceFolder: URI, path: string): Promise<boolean> {
+		return await this.fileService.exists(this.node(workspaceFolder, path).resource) || baseHalfPathHoldsDraft(this.fileService, workspaceFolder, path);
 	}
 
 	private storeEdit(edit: IBaseHalfRenameUpdatePlan['edits'][number]): IBaseHalfReferenceStoreEdit {
@@ -573,8 +578,6 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 	private skipText(skip: IBaseHalfRenameSkip): string {
 		const name = basename(skip.node.resource);
 		switch (skip.reason) {
-			case 'upstreamOnly':
-				return localize('basehalf.references.skip.upstreamOnly', "{0} (a result or output file, which can't receive upstream context)", name);
 			case 'unreadable':
 				return localize('basehalf.references.skip.unreadable', "{0} (its upstream list can't be read)", name);
 			default:
