@@ -4,10 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Alibaba (Wan) provider module (docs/specs/video-providers/alibaba.md)
+ * The Alibaba (Wan, Qwen-Image) provider module (docs/specs/providers/alibaba.md)
  * through the provider commands, against a local server that answers like
- * DashScope and a second one that answers like the OSS host of its
- * temporary upload. Nothing here talks to Alibaba Cloud.
+ * DashScope, a second one that answers like the OSS host of its temporary
+ * upload, and one that serves the images it makes. Nothing here talks to
+ * Alibaba Cloud.
  */
 
 import assert from 'node:assert/strict';
@@ -21,8 +22,8 @@ import { ALIBABA } from '../src/providers/alibaba.ts';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/providers/commands.ts';
 import { describeBytes, type MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { Media } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav, type Received, type TestServer } from './providerTestKit.ts';
+import type { CatalogParameter, Media } from '../src/providers/types.ts';
+import { error, gifHeader, isoMedia, partTargets, plannedFiles, png, recordingSleep, routed, sendJson, serveFiles, startServer, tinyJpeg, tinyPng, value, wav, type Received, type TestServer } from './providerTestKit.ts';
 
 const KEY = 'sk-alibaba-local-test-1';
 const OSS_ACCESS_KEY = 'LTAI-local-upload';
@@ -47,6 +48,9 @@ const GIF = file('moving.gif', gifHeader(640, 360));
 const M4A = file('voice.m4a', isoMedia(3, { brand: 'M4A ' }));
 /** An MP4 whose length AI Video cannot read. */
 const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'));
+/** 10:1 and 1:5, for the shapes an Adaptive size is held within. */
+const WIDE = file('wide.png', png(2000, 200));
+const TALL = file('tall.png', png(300, 1500));
 
 const image = (fsPath: string): Media => ({ fsPath, mimeType: 'image/png' });
 const video = (fsPath: string): Media => ({ fsPath, mimeType: 'video/mp4' });
@@ -191,10 +195,10 @@ test('the provider is shipped with two regions, one key, and one model per versi
 		label: provider.label,
 		regions: provider.regions.map(region => [region.id, region.baseUrl]),
 		credentials: provider.credentials.map(credential => credential.id),
-		models: provider.models.map(model => [model.id, model.label, `${model.providerModels.cn} ${model.providerModels.intl}`, model.modes.map(mode => mode.id).join('+'), model.prompt.required])
+		models: provider.models.filter(model => model.kind === 'video').map(model => [model.id, model.label, `${model.providerModels.cn} ${model.providerModels.intl}`, model.modes.map(mode => mode.id).join('+'), model.prompt.required])
 	}, {
 		id: 'alibaba',
-		label: 'Alibaba (Wan)',
+		label: 'Alibaba (Wan, Qwen-Image)',
 		regions: [['cn', 'https://dashscope.aliyuncs.com'], ['intl', 'https://dashscope-intl.aliyuncs.com']],
 		credentials: ['apiKey'],
 		models: [
@@ -787,10 +791,10 @@ test('check refuses what Alibaba Cloud cannot take: videos and audio outside Chi
 		flashWithoutFrame: await problems(checkRequest('wan2.6-flash', 'frames', {}, 'p', plannedFiles()))
 	};
 	assert.deepEqual(results, {
-		intlReference: [`${REGION_REASON} Choose China (Beijing) in Video Providers, or leave out the videos and audio.`],
-		intlAudio: [`${REGION_REASON} Choose China (Beijing) in Video Providers, or leave out the audio.`],
+		intlReference: [`${REGION_REASON} Choose China (Beijing) in Providers, or leave out the videos and audio.`],
+		intlAudio: [`${REGION_REASON} Choose China (Beijing) in Providers, or leave out the audio.`],
 		intlImages: [],
-		intlWan27Video: [`${REGION_REASON} Choose China (Beijing) in Video Providers, or leave out the videos.`],
+		intlWan27Video: [`${REGION_REASON} Choose China (Beijing) in Providers, or leave out the videos.`],
 		chinaReference: [],
 		r2vNothing: ['Wan 2.7 in References mode needs at least one reference image or video.'],
 		r2vTooMany: ['Wan 2.7 in References mode takes at most 5 reference images and videos together; 6 are planned.'],
@@ -916,4 +920,432 @@ test('check answers the routed task in each region, also with input videos, and 
 		cnWan27EditUnreadable: 'wan2.7-videoedit',
 		cnWan27Extend: 'wan2.7-i2v'
 	});
+});
+
+// --- image models ------------------------------------------------------------------------------------
+
+const MiB = 1024 * 1024;
+const IMAGE_PATH = '/api/v1/services/aigc/multimodal-generation/generation';
+const RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'];
+
+/** A request of an image model, with a target for each image its count may make. */
+function imageRequest(endpoint: string, model: string, params: Record<string, unknown>, prompt: string, images: readonly Media[] = [], region = 'cn') {
+	return { ...submitRequest(endpoint, model, 'reference', params, prompt, { images }, region), targets: partTargets(typeof params.count === 'number' ? params.count : 1) };
+}
+
+/** A parameter of an image model in one line: its name, whether it is optional and under More, and its values and default. */
+function describeImageParameter(parameter: CatalogParameter): string {
+	const name = `${parameter.name}${parameter.optional ? '?' : ''}${parameter.advanced ? ' (More)' : ''}`;
+	switch (parameter.kind) {
+		case 'choice':
+			return `${name}: ${parameter.options.map(option => `${option.value}=${option.label}`).join(' ')} = ${parameter.default}`;
+		case 'integer':
+		case 'number':
+			return `${name}: ${parameter.min}-${parameter.max}${parameter.default !== undefined ? ` = ${parameter.default}` : ''}`;
+		case 'boolean':
+			return `${name} = ${parameter.default}`;
+		case 'text':
+			return `${name}: text ${parameter.maxLength}`;
+	}
+}
+
+interface ImageProvider {
+	readonly api: TestServer;
+	readonly cdn: TestServer;
+	close(): Promise<void>;
+}
+
+/**
+ * DashScope's synchronous image call on one server, which answers each request
+ * with as many image addresses as its `n` asks, in one choice as Wan does, on a
+ * storage host on another server. A handler answers first when it returns true.
+ */
+async function startImageProvider(handler?: Handler): Promise<ImageProvider> {
+	const files: Record<string, Buffer> = { '/result/photo.jpg': tinyJpeg() };
+	for (let index = 1; index <= 6; index++) {
+		files[`/result/${index}.png`] = tinyPng();
+	}
+	const cdn = await startServer(routed(serveFiles(files)));
+	const api = await startServer((request, response, socket) => {
+		if (handler?.(request, response, socket)) {
+			return;
+		}
+		if (request.method === 'POST' && request.path === IMAGE_PATH) {
+			const { parameters } = bodyOf(request) as { parameters: { n?: number } };
+			const count = parameters.n ?? 1;
+			const content = Array.from({ length: count }, (_entry, index) => ({ image: `${cdn.url}/result/${index + 1}.png?Expires=1`, type: 'image' }));
+			sendJson(response, 200, { output: { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content } }], finished: true }, usage: { image_count: count, size: '2048*2048' }, request_id: 'image-request' });
+			return;
+		}
+		sendJson(response, 404, { code: 'NotFound', message: 'Not found!' });
+	});
+	return { api, cdn, close: async () => { await api.close(); await cdn.close(); } };
+}
+
+function imageCreates(provider: ImageProvider): Received[] {
+	return provider.api.received.filter(request => request.path.endsWith('/multimodal-generation/generation'));
+}
+
+test('the image models follow the video models: PNG, answered at once, in both regions, with their references, limits, and settings', () => {
+	const provider = buildCatalog([ALIBABA]).providers[0];
+	assert.deepEqual(provider.models.map(model => model.kind), [...Array(7).fill('video'), ...Array(6).fill('image')]);
+	const ratio = `ratio: adaptive=Adaptive ${RATIOS.map(entry => `${entry}=${entry}`).join(' ')} = adaptive`;
+	const seed = 'seed? (More): 0-2147483647';
+	const qwen = (negativePrompt: boolean) => [
+		ratio,
+		'resolution: 1k=1K 2k=2K = 2k',
+		'count: 1-6 = 1',
+		...(negativePrompt ? ['negative_prompt? (More): text 500'] : []),
+		'prompt_extend (More) = true',
+		'watermark (More) = false',
+		seed
+	];
+	const wan = (levels: string) => [ratio, `resolution: ${levels} = 2k`, 'count: 1-4 = 1', 'watermark (More) = false', seed];
+	const qwenLimits = { imageMaxSide: 8000, imageAspect: [0.1, 10], imageMaxBytes: 10 * MiB };
+	const wanLimits = { imageMinSide: 240, imageMaxSide: 8000, imageAspect: [0.125, 8], imageMaxBytes: 20 * MiB };
+	const references = (max: number) => ({ startFrame: 'none', endFrame: 'none', images: { min: 0, max }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' });
+	const entry = (id: string, label: string, maxLength: number, max: number, limits: unknown, parameters: string[]) => ({
+		id,
+		label,
+		providerModels: { cn: id, intl: id },
+		prompt: { required: 'always', maxLength },
+		outputFormat: 'png',
+		answersAtOnce: true,
+		modes: [{ id: 'reference', label: 'References', inputs: references(max), limits }],
+		parameters,
+		deprecated: undefined
+	});
+	assert.deepEqual(provider.models.filter(model => model.kind === 'image').map(model => ({
+		id: model.id,
+		label: model.label,
+		providerModels: model.providerModels,
+		prompt: model.prompt,
+		outputFormat: model.outputFormat,
+		answersAtOnce: model.answersAtOnce,
+		modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits })),
+		parameters: model.parameters.map(describeImageParameter),
+		deprecated: model.deprecated
+	})), [
+		entry('qwen-image-3.0-pro', 'Qwen-Image 3.0 Pro', 4500, 3, qwenLimits, qwen(true)),
+		entry('qwen-image-3.0', 'Qwen-Image 3.0', 4500, 3, qwenLimits, qwen(true)),
+		entry('qwen-image-2.1-pro', 'Qwen-Image 2.1 Pro', 4500, 10, qwenLimits, qwen(false)),
+		entry('qwen-image-2.1-turbo', 'Qwen-Image 2.1 Turbo', 4500, 10, qwenLimits, qwen(false)),
+		entry('wan2.7-image-pro', 'Wan 2.7 Image Pro', 5000, 9, wanLimits, wan('1k=1K 2k=2K 4k=4K')),
+		entry('wan2.7-image', 'Wan 2.7 Image', 5000, 9, wanLimits, wan('1k=1K 2k=2K'))
+	]);
+	const tooltips = provider.models.filter(model => model.kind === 'image').map(model => model.parameters.find(parameter => parameter.name === 'ratio')?.tooltip);
+	assert.deepEqual([...new Set(tooltips)], ['The shape of the image. Adaptive follows the last reference image, and is square without one.']);
+});
+
+test('each image model sends one synchronous request with the key, its references as data URLs before the prompt, and its settings under Alibaba\'s names', async () => {
+	const provider = await startImageProvider();
+	try {
+		const providers = commands();
+		const api = provider.api.url;
+		const message = (prompt: string, ...images: string[]) => ({ messages: [{ role: 'user', content: [...images.map(fsPath => ({ image: dataUrl(fsPath) })), { text: prompt }] }] });
+		const cases: [string, ReturnType<typeof imageRequest>, unknown][] = [
+			['Qwen 3.0 Pro from the prompt, with the defaults', imageRequest(api, 'qwen-image-3.0-pro', {}, 'A lighthouse at dusk.'), {
+				model: 'qwen-image-3.0-pro',
+				input: message('A lighthouse at dusk.'),
+				parameters: { size: '2048*2048', n: 1, prompt_extend: true, watermark: false }
+			}],
+			['Qwen 3.0 with two references and every setting', imageRequest(api, 'qwen-image-3.0', { ratio: '16:9', resolution: '1k', count: 3, negative_prompt: 'blur', prompt_extend: false, watermark: true, seed: 7 }, 'Image 1 wears the hat of Image 2.', [image(PORTRAIT), image(START)], 'intl'), {
+				model: 'qwen-image-3.0',
+				input: message('Image 1 wears the hat of Image 2.', PORTRAIT, START),
+				parameters: { size: '1280*720', n: 3, negative_prompt: 'blur', prompt_extend: false, watermark: true, seed: 7 }
+			}],
+			['Qwen 3.0 Pro sends no blank negative prompt', imageRequest(api, 'qwen-image-3.0-pro', { negative_prompt: '  ', ratio: '3:4' }, 'A portrait.'), {
+				model: 'qwen-image-3.0-pro',
+				input: message('A portrait.'),
+				parameters: { size: '1728*2304', n: 1, prompt_extend: true, watermark: false }
+			}],
+			['Qwen 2.1 Pro Adaptive takes the shape of the last reference', imageRequest(`${api}/api/v1`, 'qwen-image-2.1-pro', { count: 2 }, 'Put Image 1 into Image 2.', [image(PORTRAIT), image(START)]), {
+				model: 'qwen-image-2.1-pro',
+				input: message('Put Image 1 into Image 2.', PORTRAIT, START),
+				parameters: { size: '2720*1536', n: 2, prompt_extend: true, watermark: false }
+			}],
+			['Qwen 2.1 Turbo Adaptive from the prompt alone is square', imageRequest(api, 'qwen-image-2.1-turbo', { resolution: '1k', count: 6, seed: 0 }, '一只猫。'), {
+				model: 'qwen-image-2.1-turbo',
+				input: message('一只猫。'),
+				parameters: { size: '1024*1024', n: 6, prompt_extend: true, watermark: false, seed: 0 }
+			}],
+			['Wan 2.7 Image Pro at 4K from the prompt alone', imageRequest(api, 'wan2.7-image-pro', { ratio: '21:9', resolution: '4k', count: 4 }, 'A wide valley.'), {
+				model: 'wan2.7-image-pro',
+				input: message('A wide valley.'),
+				parameters: { size: '6160*2640', n: 4, watermark: false }
+			}],
+			['Wan 2.7 Image Pro Adaptive with references sends the level alone', imageRequest(api, 'wan2.7-image-pro', { watermark: true }, 'Spray the graffiti of Image 2 onto Image 1.', [image(START), image(END)], 'intl'), {
+				model: 'wan2.7-image-pro',
+				input: message('Spray the graffiti of Image 2 onto Image 1.', START, END),
+				parameters: { size: '2K', n: 1, watermark: true }
+			}],
+			['Wan 2.7 Image Adaptive from the prompt alone at 1K', imageRequest(api, 'wan2.7-image', { resolution: '1k', seed: 42 }, 'A flower shop.'), {
+				model: 'wan2.7-image',
+				input: message('A flower shop.'),
+				parameters: { size: '1K', n: 1, watermark: false, seed: 42 }
+			}]
+		];
+		const answers = [];
+		for (const [, request] of cases) {
+			answers.push(value(await providers.submit(request)));
+		}
+		const sent = imageCreates(provider);
+		assert.deepEqual({
+			bodies: sent.map(bodyOf),
+			paths: [...new Set(sent.map(request => `${request.method} ${request.path}`))],
+			headers: [...new Set(sent.map(request => `${request.headers.authorization} | ${request.headers['content-type']} | ${request.headers['x-dashscope-async'] ?? 'no async'}`))],
+			others: provider.api.received.length - sent.length,
+			outputs: answers.map(answer => (answer as { readonly outputs?: readonly unknown[] }).outputs?.length ?? 'a task')
+		}, {
+			bodies: cases.map(([, , body]) => body),
+			paths: [`POST ${IMAGE_PATH}`],
+			headers: [`Bearer ${KEY} | application/json | no async`],
+			others: 0,
+			outputs: [1, 3, 1, 2, 6, 4, 1, 1]
+		});
+	} finally {
+		await provider.close();
+	}
+});
+
+test('a ratio is sent as the size of its table at each resolution, and Adaptive as Wan\'s level or the last reference\'s shape held within 8:1', async () => {
+	const provider = await startImageProvider();
+	try {
+		const providers = commands();
+		const sizeOf = async (model: string, params: Record<string, unknown>, images: readonly Media[] = []) => {
+			value(await providers.submit(imageRequest(provider.api.url, model, params, 'A test card.', images)));
+			return (bodyOf(imageCreates(provider).at(-1)!) as { parameters: { size: string } }).parameters.size;
+		};
+		const table: Record<string, string[]> = {};
+		for (const ratio of RATIOS) {
+			table[ratio] = [
+				await sizeOf('qwen-image-3.0', { ratio, resolution: '1k' }),
+				await sizeOf('qwen-image-2.1-turbo', { ratio, resolution: '2k' }),
+				await sizeOf('wan2.7-image', { ratio, resolution: '1k' }),
+				await sizeOf('wan2.7-image', { ratio, resolution: '2k' }),
+				await sizeOf('wan2.7-image-pro', { ratio, resolution: '4k' })
+			];
+		}
+		const adaptive = {
+			qwenWide: await sizeOf('qwen-image-3.0-pro', { resolution: '1k' }, [image(WIDE)]),
+			qwenTall: await sizeOf('qwen-image-2.1-pro', {}, [image(START), image(TALL)]),
+			qwenSquare: await sizeOf('qwen-image-3.0-pro', {}),
+			wanLevels: [await sizeOf('wan2.7-image-pro', { resolution: '1k' }, [image(START)]), await sizeOf('wan2.7-image-pro', { resolution: '4k' })]
+		};
+		assert.deepEqual({ table, adaptive }, {
+			table: {
+				'1:1': ['1024*1024', '2048*2048', '1024*1024', '2048*2048', '4096*4096'],
+				'16:9': ['1280*720', '2560*1440', '1280*720', '2560*1440', '5376*3024'],
+				'9:16': ['720*1280', '1440*2560', '720*1280', '1440*2560', '3024*5376'],
+				'4:3': ['1152*864', '2304*1728', '1152*864', '2304*1728', '4672*3504'],
+				'3:4': ['864*1152', '1728*2304', '864*1152', '1728*2304', '3504*4672'],
+				'3:2': ['1248*832', '2496*1664', '1248*832', '2496*1664', '4992*3328'],
+				'2:3': ['832*1248', '1664*2496', '832*1248', '1664*2496', '3328*4992'],
+				'21:9': ['1456*624', '3024*1296', '1456*624', '3024*1296', '6160*2640']
+			},
+			adaptive: {
+				// 2000 × 200 is 10:1, wider than Qwen makes: held at 8:1.
+				qwenWide: '2816*352',
+				// The last reference decides: 300 × 1500.
+				qwenTall: '912*4576',
+				qwenSquare: '2048*2048',
+				wanLevels: ['1K', '4K']
+			}
+		});
+	} finally {
+		await provider.close();
+	}
+});
+
+test('the images of an answer are its outputs in order, an address AI Video does not take is refused alone, and an image downloads without the key', async () => {
+	let shape: 'choices' | 'refused' = 'choices';
+	const provider: ImageProvider = await startImageProvider((request, response) => {
+		if (request.path !== IMAGE_PATH) {
+			return false;
+		}
+		const cdn = provider.cdn.url;
+		const choices = shape === 'choices'
+			// One choice per image, a text item among them, and a JPEG.
+			? [
+				{ finish_reason: 'stop', message: { role: 'assistant', content: [{ image: `${cdn}/result/1.png?Expires=1`, type: 'image' }] } },
+				{ finish_reason: 'stop', message: { role: 'assistant', content: [{ text: 'Here you go.', type: 'text' }, { image: `${cdn}/result/photo.jpg`, type: 'image' }] } }
+			]
+			: [{ finish_reason: 'stop', message: { role: 'assistant', content: [{ image: 'http://images.example.com/plain.png', type: 'image' }, { image: `${cdn}/result/2.png`, type: 'image' }] } }];
+		sendJson(response, 200, { output: { choices, finished: true }, request_id: 'r' });
+		return true;
+	});
+	try {
+		const providers = commands();
+		const several = value(await providers.submit(imageRequest(provider.api.url, 'qwen-image-3.0', { count: 2 }, 'Two kites.')));
+		shape = 'refused';
+		const refused = value(await providers.submit(imageRequest(provider.api.url, 'wan2.7-image', { count: 2 }, 'Two boats.')));
+		const target = partTargets(1)[0];
+		const downloaded = value(await providers.download({ provider: 'alibaba', region: 'cn', endpoint: provider.api.url, credentials: { apiKey: KEY }, model: 'qwen-image-3.0', kind: 'image', url: `${provider.cdn.url}/result/photo.jpg`, targetFsPath: target }));
+		assert.deepEqual({
+			several,
+			refused,
+			downloaded,
+			same: readFileSync(target).equals(tinyJpeg()),
+			storage: provider.cdn.received.map(request => `${request.path} ${request.headers.authorization ?? 'no key'}`)
+		}, {
+			several: { outputs: [{ url: `${provider.cdn.url}/result/1.png?Expires=1` }, { url: `${provider.cdn.url}/result/photo.jpg` }] },
+			refused: { outputs: [{ refused: 'The provider gave an image address that does not start with https://.' }, { url: `${provider.cdn.url}/result/2.png` }] },
+			downloaded: { size: tinyJpeg().byteLength, format: 'jpeg' },
+			same: true,
+			storage: ['/result/photo.jpg no key']
+		});
+	} finally {
+		await provider.close();
+	}
+});
+
+test('an answer with fewer images than asked, a refusal inside a 2xx answer, an answer without images, and too few targets are told apart', async () => {
+	let answer: unknown = { output: { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: [] } }], finished: true }, request_id: 'r' };
+	const provider = await startImageProvider((request, response) => {
+		if (request.path !== IMAGE_PATH) {
+			return false;
+		}
+		sendJson(response, 200, answer);
+		return true;
+	});
+	try {
+		const providers = commands();
+		const request = () => imageRequest(provider.api.url, 'qwen-image-2.1-pro', { count: 2 }, 'Two lamps.');
+		const empty = value(await providers.submit(request()));
+		answer = { request_id: 'r', code: 'DataInspectionFailed', message: 'Output data may contain inappropriate content.' };
+		const refusal = error(await providers.submit(request()));
+		answer = { request_id: 'r' };
+		const unreadable = error(await providers.submit(request()));
+		const before = imageCreates(provider).length;
+		const fewTargets = error(await providers.submit({ ...request(), targets: partTargets(1) }));
+		assert.deepEqual({ empty, refusal, unreadable, fewTargets, sent: [before, imageCreates(provider).length] }, {
+			empty: { outputs: [] },
+			refusal: { code: 'rejected', message: 'Output data may contain inappropriate content. (DataInspectionFailed)' },
+			unreadable: { code: 'unknownOutcome', message: 'Alibaba Cloud accepted the request but answered without images AI Video can read.' },
+			fewTargets: { code: 'rejected', message: 'Qwen-Image 2.1 Pro may make 2 files, but the request names 1 to write them to. AI Video sent nothing.' },
+			sent: [3, 3]
+		});
+	} finally {
+		await provider.close();
+	}
+});
+
+test('image errors: a refused key, each model\'s rate limit, an empty balance, refused content, an unknown model, and lost answers, each create sent once', async () => {
+	let reply: [number, unknown, Record<string, string>?] = [401, { code: 'InvalidApiKey', message: 'Invalid API-key provided.', request_id: 'r' }];
+	let drop = false;
+	const provider = await startImageProvider((request, response, socket) => {
+		if (request.path !== IMAGE_PATH) {
+			return false;
+		}
+		if (drop) {
+			socket.destroy();
+			return true;
+		}
+		sendJson(response, reply[0], reply[1], reply[2]);
+		return true;
+	});
+	try {
+		const sleep = recordingSleep();
+		const providers = commands({ http: { sleep: sleep.sleep } });
+		const create = (model = 'qwen-image-3.0-pro') => providers.submit(imageRequest(provider.api.url, model, {}, 'A mountain lake.'));
+		const outcomes: Record<string, unknown> = {};
+		outcomes.badKey = error(await create());
+		reply = [429, { code: 'Throttling.RateQuota', message: 'Requests rate limit exceeded, please try again later.', request_id: 'r' }];
+		outcomes.qwenProLimit = error(await create());
+		outcomes.turboLimit = error(await create('qwen-image-2.1-turbo')).message;
+		outcomes.wanLimit = error(await create('wan2.7-image')).message;
+		reply = [429, { code: 'Throttling', message: 'Requests throttling triggered.', request_id: 'r' }, { 'Retry-After': '7' }];
+		outcomes.waitAsked = error(await create('qwen-image-3.0')).message;
+		reply = [429, { code: 'PrepaidBillOverdue', message: 'The prepaid bill is overdue.', request_id: 'r' }];
+		outcomes.overdue = error(await create()).code;
+		reply = [400, { code: 'Arrearage', message: 'Access denied, please make sure your account is in good standing.', request_id: 'r' }];
+		outcomes.arrearage = error(await create()).code;
+		reply = [400, { code: 'DataInspectionFailed', message: 'Input data may contain inappropriate content.', request_id: 'r' }];
+		outcomes.content = error(await create());
+		reply = [400, { code: 'IPInfringementSuspect', message: 'Input data is suspected of being involved in IP infringement.', request_id: 'r' }];
+		outcomes.infringement = error(await create());
+		reply = [400, { code: 'InvalidParameter', message: 'Model not exist.', request_id: 'r' }];
+		outcomes.modelNotExist = error(await create('qwen-image-2.1-turbo'));
+		reply = [404, { code: 'ModelNotFound', message: 'Model can not be found.', request_id: 'r' }];
+		outcomes.modelNotFound = error(await create('qwen-image-2.1-pro')).code;
+		reply = [500, { code: 'InternalError', message: 'An internal error has occured, please try again later or contact service support.', request_id: 'r' }];
+		outcomes.serverError = error(await create()).code;
+		drop = true;
+		outcomes.dropped = error(await create()).code;
+		const workspace = 'A model released after September 30, 2026 may be offered only on the host of your workspace: enter its API host, from the Model Studio console, as the Endpoint in Providers.';
+		assert.deepEqual({ ...outcomes, creates: imageCreates(provider).length, waits: sleep.waits }, {
+			badKey: { code: 'auth', message: 'Invalid API-key provided. (InvalidApiKey)', status: 401 },
+			qwenProLimit: { code: 'rateLimited', message: 'Requests rate limit exceeded, please try again later. (Throttling.RateQuota) Alibaba Cloud takes at most 5 requests a minute for Qwen-Image 3.0 Pro.', status: 429 },
+			turboLimit: 'Requests rate limit exceeded, please try again later. (Throttling.RateQuota) Alibaba Cloud takes at most 120 requests a minute for Qwen-Image 2.1 Turbo.',
+			wanLimit: 'Requests rate limit exceeded, please try again later. (Throttling.RateQuota) Alibaba Cloud takes at most 5 requests a second and works on at most 5 at once for Wan 2.7 Image.',
+			waitAsked: 'Requests throttling triggered. (Throttling) Alibaba Cloud takes at most 20 requests a minute for Qwen-Image 3.0. The provider asks to wait 7 seconds.',
+			overdue: 'balance',
+			arrearage: 'balance',
+			content: { code: 'rejected', message: 'Input data may contain inappropriate content. (DataInspectionFailed)', status: 400 },
+			infringement: { code: 'rejected', message: 'Input data is suspected of being involved in IP infringement. (IPInfringementSuspect) Prompt Rewriting can cause this: turn it off and generate again.', status: 400 },
+			modelNotExist: { code: 'rejected', message: `Model not exist. (InvalidParameter) ${workspace}`, status: 400 },
+			modelNotFound: 'rejected',
+			serverError: 'unknownOutcome',
+			dropped: 'unknownOutcome',
+			creates: 13,
+			// A create is never sent again.
+			waits: []
+		});
+	} finally {
+		await provider.close();
+	}
+});
+
+test('check adds the rules of the image models to the declarations\' own, and a request it refuses is not sent', async () => {
+	const providers = commands();
+	const problems = async (model: string, params: Record<string, unknown>, images: readonly Media[] = [], prompt = 'A test card.', checker = providers) =>
+		value(await checker.check(checkRequest(model, 'reference', params, prompt, { images }))).problems;
+	const NARROW = file('narrow.png', png(200, 400));
+	const SKEWED = file('skewed.png', png(2200, 200));
+	// Ten images of 9.9 MiB are 99 MiB, 132 MiB once encoded; nine of 15 MiB are 180 MiB once encoded.
+	const heavy = (bytes: number): MediaInspector => ({ inspect: async () => ({ bytes, format: 'png', width: 1000, height: 1000 }) });
+	const results = {
+		wanPro4kWithReference: await problems('wan2.7-image-pro', { resolution: '4k' }, [image(START)]),
+		wanPro4kFromPrompt: await problems('wan2.7-image-pro', { resolution: '4k' }),
+		wan4k: await problems('wan2.7-image', { resolution: '4k' }),
+		qwen30FourReferences: await problems('qwen-image-3.0', {}, [image(START), image(END), image(PORTRAIT), image(START)]),
+		qwen21NegativePrompt: await problems('qwen-image-2.1-turbo', { negative_prompt: 'blur' }),
+		qwenSevenImages: await problems('qwen-image-3.0-pro', { count: 7 }),
+		wanFiveImages: await problems('wan2.7-image', { count: 5 }),
+		wanSmallSide: await problems('wan2.7-image', {}, [image(NARROW)]),
+		qwenSkewed: await problems('qwen-image-2.1-pro', {}, [image(SKEWED)]),
+		gif: await problems('qwen-image-3.0', {}, [image(GIF)]),
+		noPrompt: await problems('wan2.7-image', {}, [], ' '),
+		qwenLongPrompt: await problems('qwen-image-3.0', {}, [], 'a'.repeat(4501)),
+		qwenHeavy: await problems('qwen-image-2.1-pro', {}, Array.from({ length: 10 }, () => image(START)), 'p', commands({ inspector: () => heavy(Math.round(9.9 * MiB)) })),
+		wanHeavy: await problems('wan2.7-image-pro', {}, Array.from({ length: 9 }, () => image(START)), 'p', commands({ inspector: () => heavy(15 * MiB) })),
+		providerModel: value(await providers.check(checkRequest('wan2.7-image', 'reference', {}, 'p', {}, 'intl'))).providerModel
+	};
+	assert.deepEqual(results, {
+		wanPro4kWithReference: ['Wan 2.7 Image Pro makes 4K images from the prompt alone; with reference images, choose 1K or 2K.'],
+		wanPro4kFromPrompt: [],
+		wan4k: ['Resolution cannot be 4k for Wan 2.7 Image; choose 1K, 2K.'],
+		qwen30FourReferences: ['Qwen-Image 3.0 in References mode takes at most 3 reference images; 4 are planned.'],
+		qwen21NegativePrompt: ['Qwen-Image 2.1 Turbo has no setting named "negative_prompt".'],
+		qwenSevenImages: ['Images must be between 1 and 6.'],
+		wanFiveImages: ['Images must be between 1 and 4.'],
+		wanSmallSide: ['Reference image 1 narrow.png is 200 × 400 px; each side must be between 240 and 8000 px.'],
+		qwenSkewed: ['Reference image 1 skewed.png has an aspect ratio (width to height) of 11.00; it must be between 0.1 and 10.'],
+		gif: ['Reference image 1 moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
+		noPrompt: ['Write a prompt: Wan 2.7 Image needs one.'],
+		qwenLongPrompt: ['The prompt is 4501 characters long; Qwen-Image 3.0 takes at most 4500.'],
+		qwenHeavy: ['The images are 132.0 MiB together once encoded; AI Video sends at most 128 MiB in one request. Use fewer or smaller images.'],
+		wanHeavy: ['The images are 180 MiB together once encoded; AI Video sends at most 128 MiB in one request. Use fewer or smaller images.'],
+		providerModel: 'wan2.7-image'
+	});
+	const provider = await startImageProvider();
+	try {
+		const refused = error(await providers.submit(imageRequest(provider.api.url, 'wan2.7-image-pro', { resolution: '4k' }, 'A city.', [image(START)])));
+		assert.deepEqual({ refused, sent: provider.api.received.length }, {
+			refused: { code: 'rejected', message: 'Wan 2.7 Image Pro makes 4K images from the prompt alone; with reference images, choose 1K or 2K.' },
+			sent: 0
+		});
+	} finally {
+		await provider.close();
+	}
 });

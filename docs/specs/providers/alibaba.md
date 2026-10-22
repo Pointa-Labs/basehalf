@@ -1,16 +1,21 @@
-# Alibaba (Wan)
+# Alibaba (Wan, Qwen-Image)
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; image models, 2026-10-22)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
 Related: [providers and the model catalog](../providers.md),
 [generation cards](../generation-cards.md)
 
 This specification owns the provider module `alibaba` of the AI Video
 extension (`extensions/basehalf-ai-video/src/providers/alibaba.ts`): the Wan
-and HappyHorse video models of Alibaba Cloud Model Studio (DashScope), their
-declarations in the catalog, and the requests that run them.
+and HappyHorse video models and the Qwen-Image and Wan image models of
+Alibaba Cloud Model Studio (DashScope), their declarations in the catalog,
+and the requests that run them. The sections up to
+[Image models](#image-models) are about the video models.
 Everything the six provider commands do for every provider is owned by
 [providers and the model catalog](../providers.md).
+
+The provider is labeled **Alibaba (Wan, Qwen-Image)**.
 
 ## Sources
 
@@ -256,8 +261,17 @@ Every path is under `{endpoint}/api/v1`.
   provider's message and code. `Arrearage`, `PrepaidBillOverdue`,
   `PostpaidBillOverdue`, `BudgetLimitExceeded`, and
   `AllocationQuota.FreeTierOnly` are `balance`; `CommodityNotPurchased`
-  (sent with 429) is `rejected`; other statuses follow the contract
-  (`InvalidApiKey` 401 is `auth`, `Throttling.*` 429 is `rateLimited`).
+  (sent with 429) is `rejected`; `DataInspectionFailed` and
+  `IPInfringementSuspect` (the content check and the intellectual-property
+  check, sent with 400) are `rejected`, and the second adds that Prompt
+  Rewriting can cause it, as the image pages say; other statuses follow the
+  contract (`InvalidApiKey` 401 is `auth`, `Throttling.*` 429 is
+  `rateLimited`). A model the endpoint does not know (`ModelNotFound`, or
+  `InvalidParameter` with "Model not exist.") adds that a model released
+  after 2026-09-30 may be offered only on the workspace's own host, whose API
+  host the user enters as the **Endpoint** in Providers
+  ([Regions, hosts, and credentials](#regions-hosts-and-credentials)). This
+  holds for every model of the module, image and video.
 - **Limits**: 5 requests a second and 5 running tasks per account and model,
   for every model here; over either, HTTP 429 `Throttling.*`. A
   rate-limited message says so. The task query takes 20 requests a second.
@@ -295,6 +309,214 @@ Every path is under `{endpoint}/api/v1`.
 - The Asset Center `asset_id` inputs: the center holds only videos the
   provider generated.
 
+## Image models
+
+### Image sources
+
+Read on 2026-10-22, international pages under
+`https://www.alibabacloud.com/help/en/model-studio/` and China pages under
+`https://help.aliyun.com/zh/model-studio/`, which document the same
+parameters.
+
+| Page | What it settles |
+| --- | --- |
+| `qwen-image-generation-and-editing-api-reference` (updated 2026-10-11; China 2026-10-10) | the Qwen-Image 3.0 and 2.1 models, the synchronous and asynchronous calls, the body, `n`, `size`, `negative_prompt`, `prompt_extend`, `watermark`, `seed`, the input limits, the answer |
+| `wan-image-generation-and-editing-api-reference` (updated 2026-10-11) | the Wan 2.7 Image models, `size` levels and `W*H`, `n`, image sets, `watermark`, `seed`, the input limits, the answer with several images |
+| `qwen-image-api` (updated 2026-10-11) | the earlier Qwen-Image series: its 500-character negative prompt |
+| `regions` (updated 2026-10-13) | the shared hosts' 600-second request timeout, and that they get no new features after 2026-09-30 |
+| `manage-asynchronous-tasks` (updated 2026-10-11) | the task query, the only asynchronous call any page shows on the shared host |
+| `rate-limit` (updated 2026-10-22) | each image model's limit |
+| `error-code` (updated 2026-10-11) | `DataInspectionFailed`, `IPInfringementSuspect`, `InvalidParameter` "Model not exist.", `ModelNotFound` |
+| `newly-released-models` (updated 2026-10-22) | release dates |
+
+### The synchronous call
+
+Every image model is created by the synchronous call
+`POST /services/aigc/multimodal-generation/generation`, which answers with
+the images, and declares `answersAtOnce`. The asynchronous create
+(`POST /services/aigc/image-generation/generation` with
+`X-DashScope-Async: enable`, polled at `GET /tasks/{task_id}`) would let a
+generation outlive a reload, but every image page shows both calls on
+workspace hosts only, and no official page shows the asynchronous image
+create on the shared hosts BaseHalf uses (`manage-asynchronous-tasks` shows
+only the task query there). Alibaba recommends the synchronous call ("full
+feature coverage"). It may take up to the shared host's 600-second request
+timeout, the ten minutes `submit` waits for an answer at once
+([providers, Requests](../providers.md#requests)).
+
+### Models
+
+Each id is sent as it is, the same in both regions. No retirement dates are
+published.
+
+| Catalog id | Label | Does | References |
+| --- | --- | --- | --- |
+| `qwen-image-3.0-pro` | Qwen-Image 3.0 Pro | text to image; edits and references | 0–3 |
+| `qwen-image-3.0` | Qwen-Image 3.0 | the same, faster | 0–3 |
+| `qwen-image-2.1-pro` | Qwen-Image 2.1 Pro | text to image; edits from up to 10 images; a transparent PNG when the prompt asks for one | 0–10 |
+| `qwen-image-2.1-turbo` | Qwen-Image 2.1 Turbo | the same, faster | 0–10 |
+| `wan2.7-image-pro` | Wan 2.7 Image Pro | text to image up to 4K; edits and references | 0–9 |
+| `wan2.7-image` | Wan 2.7 Image | the same at 1K and 2K, faster | 0–9 |
+
+- Every image model has the kind `image`, `outputFormat: "png"` (Alibaba
+  answers PNG only), `answersAtOnce: true`, and the one mode References
+  (`reference`) with `images.min` 0: without a reference the prompt alone
+  makes the image.
+- The prompt is always required. Qwen takes at most 4,500 characters:
+  Alibaba advises at most 4,500 tokens and gives no character limit, and a
+  character is rarely more than one token. Wan takes at most 5,000 characters
+  and cuts a longer prompt, so the declarations refuse one.
+- The image models are listed after the video models, in this order.
+- Qwen-Image 2.1 came out on 2026-10-02 (Pro) and 2026-10-09 (Turbo), after
+  the shared hosts stopped getting new features; whether they serve it is
+  not documented. It is declared in both regions; a host that does not know
+  it answers that the model does not exist, and the message says how to use
+  the workspace's host ([Image requests](#image-requests)).
+
+### Inputs
+
+| | Qwen-Image 3.0, 2.1 | Wan 2.7 Image |
+| --- | --- | --- |
+| Formats sent | PNG, JPEG, WebP (the provider also takes BMP, TIFF, GIF) | PNG, JPEG, WebP (also BMP) |
+| Each side | at most 8,000 px | 240–8,000 px |
+| Aspect (width to height) | 1:10–10:1 (`imageAspect: [0.1, 10]`) | 1:8–8:1 |
+| Size | 10 MiB | 20 MiB |
+
+- References are data URLs of their own format, read from the bytes, in the
+  order of the inputs, before the text. The window draws an image of another
+  format to PNG first.
+- Wan's pages document PNG "without an alpha channel"; AI Video sends a PNG
+  as it is, as for the video models.
+- `check` refuses images whose encoding is larger than the 128 MiB AI Video
+  sends in one request.
+
+### Image parameters
+
+| Name | Label | Kind | Values (the default in bold) | Models | Sent as |
+| --- | --- | --- | --- | --- | --- |
+| `ratio` | Ratio | choice, ratio shapes | **`adaptive`** (Adaptive), `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `21:9` | all | with `resolution`, as `parameters.size` |
+| `resolution` | Resolution | choice | `1k`, **`2k`** (1K, 2K); also `4k` (4K) on Wan 2.7 Image Pro | all | with `ratio`, as `parameters.size` |
+| `count` | Images | integer | 1–6 (Qwen), 1–4 (Wan), **1** | all | `parameters.n` |
+| `negative_prompt` | Negative Prompt | text, 500, optional, More | | Qwen-Image 3.0 Pro, 3.0 | `parameters.negative_prompt`, when not blank |
+| `prompt_extend` | Prompt Rewriting | boolean, More | **on** (Alibaba's default) | Qwen | `parameters.prompt_extend` |
+| `watermark` | Watermark | boolean, More | **off** (Alibaba's default) | all | `parameters.watermark` |
+| `seed` | Seed | integer 0–2147483647, optional, More | | all | `parameters.seed`, when set |
+
+The ratio's tooltip says that Adaptive follows the last reference image and
+is square without one. The size sent, `parameters.size`:
+
+- **A ratio** at a resolution is `W*H` in exactly that ratio, in whole
+  multiples of 16, as large as the resolution's pixels allow (1K is
+  1024 × 1024 pixels, 2K is 2048 × 2048, 4K is 4096 × 4096, as Wan's levels
+  are defined):
+
+  | Ratio | 1K | 2K | 4K (Wan 2.7 Image Pro) |
+  | --- | --- | --- | --- |
+  | 1:1 | `1024*1024` | `2048*2048` | `4096*4096` |
+  | 16:9 | `1280*720` | `2560*1440` | `5376*3024` |
+  | 9:16 | `720*1280` | `1440*2560` | `3024*5376` |
+  | 4:3 | `1152*864` | `2304*1728` | `4672*3504` |
+  | 3:4 | `864*1152` | `1728*2304` | `3504*4672` |
+  | 3:2 | `1248*832` | `2496*1664` | `4992*3328` |
+  | 2:3 | `832*1248` | `1664*2496` | `3328*4992` |
+  | 21:9 | `1456*624` | `3024*1296` | `6160*2640` |
+
+  Every size is inside the providers' ranges: Qwen 512×512 to 2048×2048
+  pixels, Wan 768×768 to 2048×2048 (4096×4096 for Wan 2.7 Image Pro from the
+  prompt alone), aspect 1:8 to 8:1. The pages give no table of sizes for
+  these models; Qwen rounds a size to multiples of 16 itself.
+- **Adaptive** on Wan is the level alone, `1K`, `2K`, or `4K`: Wan then takes
+  the shape of the last reference image, and makes a square without one.
+  Qwen takes no level, so the module sends the same: the last reference
+  image's shape at the resolution's pixels (`W*H` rounded down to multiples
+  of 16, the shape held within 1:8–8:1), or the square of the resolution
+  without a reference. Qwen's own choice of a size from the prompt (no
+  `size`) is not offered: the resolution would then not be what was chosen.
+- Rule between parameters and inputs, reported by `check`: Wan 2.7 Image Pro
+  makes 4K images only from the prompt alone; with reference images it
+  takes 1K or 2K.
+
+### Image requests
+
+- **Create**: `POST /services/aigc/multimodal-generation/generation` under
+  `{endpoint}/api/v1`, once, through `http.create`, which waits up to ten
+  minutes for the answer; no `X-DashScope-Async`:
+
+  ```json
+  {
+  	"model": "qwen-image-3.0-pro",
+  	"input": { "messages": [{ "role": "user", "content": [{ "image": "data:image/png;base64,…" }, { "text": "<prompt>" }] }] },
+  	"parameters": { "size": "2560*1440", "n": 2, "negative_prompt": "…", "prompt_extend": true, "watermark": false, "seed": 7 }
+  }
+  ```
+
+  The content holds the references in order, then exactly one text item.
+  Wan models send no `negative_prompt` and no `prompt_extend`.
+- **Answer**: every `image` of every item of `output.choices[].message.content`,
+  in order, is one output (Wan answers several images inside one choice). Each
+  is a PNG address on an OSS host, valid for 24 hours, which the window
+  downloads without the key. An answer whose choices hold fewer images than
+  asked leaves the other cards to fail as fewer images
+  ([generation cards](../generation-cards.md#several-images-from-one-generation)):
+  the pages document no image refused on its own, and Alibaba charges only
+  for the images it made. A 2xx answer without choices that carries a `code`
+  is a refusal read as an error; one without either has an unknown outcome.
+- No poll and no cancel: the answer is the result.
+- **Errors**: as for the video models ([Requests](#requests)). Too many
+  requests (`Throttling.*`, 429) names the model's own limit: 5 requests a
+  minute for Qwen-Image 3.0 Pro, 20 for Qwen-Image 3.0 and 2.1 Pro, 120 for
+  Qwen-Image 2.1 Turbo, and 5 requests a second and 5 at once for each Wan
+  2.7 Image model. `IPInfringementSuspect` says that Prompt Rewriting can
+  cause it. A model the host does not know adds how to use the workspace's
+  host.
+
+### Left out, and why
+
+- **Image sets** of Wan (`enable_sequential`): the model decides how many
+  images it makes, up to `n`, while a generation makes its cards before it
+  sends ([generation cards](../generation-cards.md#several-images-from-one-generation)).
+- **Boxes** (`bbox_list`) and the **colour palette** (`color_palette`) of
+  Wan: coordinates of an input and colours with shares are not inputs or
+  settings a card has.
+- **Thinking** (`enable_thinking` of Qwen, `thinking_mode` of Wan) and
+  Qwen's `prompt_extend_mode`: Alibaba's defaults apply (thinking on, direct
+  rewriting).
+- **The earlier image models** (`qwen-image-2.0*`, `qwen-image-max`,
+  `-plus`, `-edit*`, `wan2.6-t2i`, `wan2.6-image`, Wan 2.5, 2.2, and 2.1):
+  replaced by the models above.
+- **Z-Image**, the **OpenAI-compatible** call, and the Vidu image models
+  served through DashScope: the Vidu module has its own.
+
+### Open questions
+
+1. Whether the shared hosts serve Qwen-Image 2.1. Declared in both regions;
+   the message of a host that does not know a model says how to use the
+   workspace's host.
+2. Whether the shared hosts take the asynchronous image create. The
+   synchronous call is used.
+3. Qwen's prompt and negative prompt limits are not given in characters for
+   these models; BaseHalf takes 4,500 and 500.
+4. Whether Wan requires a prompt; BaseHalf requires one.
+5. Whether one image of several can be refused alone; the pages document no
+   such answer.
+
+### Acceptance criteria
+
+1. The catalog lists the six image models with the kind `image`, PNG,
+   answered at once, in both regions, with exactly their mode, limits, and
+   parameters above, after the video models.
+2. Each model's request goes once to the synchronous call with the key and
+   without `X-DashScope-Async`, its references as data URLs before the text,
+   and the size of the table; Adaptive sends Wan's level and Qwen's size of
+   the last reference image.
+3. The answer's images are the outputs in order, an address AI Video does not
+   take is refused on its own, and an image downloads without the key.
+4. A refused key answers `auth`, too many requests `rateLimited` with the
+   model's limit, an empty balance `balance`, a refused content `rejected`,
+   and an answer that never comes `unknownOutcome`, each after one request.
+5. `check` refuses 4K with references on Wan 2.7 Image Pro and too large a
+   request, and a request it refuses is not sent.
+
 ## Verification
 
 `extensions/basehalf-ai-video/test/alibaba.test.ts` runs the module through
@@ -305,4 +527,8 @@ Wan 2.6 text to video; the upload with its form and without the key; Edit
 and Extend refused outside China; polls through every state, the download,
 cancelling a pending and a running task, refused keys, too many requests, a
 create whose connection drops (sent once, unknown outcome), the endpoint with
-and without `/api/v1`, and every rule above.
+and without `/api/v1`, and every rule above. For the image models it runs
+the catalog, the body of each model with and without references, every size
+of the table and of Adaptive, answers with several images and with an
+address that is refused, the download, the errors above, and the rules of
+`check`.

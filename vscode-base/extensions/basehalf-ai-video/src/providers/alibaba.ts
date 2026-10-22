@@ -5,11 +5,12 @@
 
 import { randomUUID } from 'node:crypto';
 import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, type FormPart, type ProviderHttp } from './http.ts';
+import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
+import { DEFAULT_HTTP_OPTIONS, retryAfterMs, type FormPart, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
+import type { AnsweredAtOnce, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
 import type {
+	CatalogMode,
 	CatalogModel,
 	CatalogParameter,
 	CatalogProvider,
@@ -30,15 +31,19 @@ import type {
 
 /**
  * Alibaba Cloud Model Studio (DashScope): the Wan and HappyHorse video models
- * with the user's own key (D59; docs/specs/video-providers/alibaba.md).
+ * and the Qwen-Image and Wan image models with the user's own key (D59, D64;
+ * docs/specs/providers/alibaba.md).
  *
- * The catalog lists one model per version. Alibaba has one model id per task
- * of a version (text to video, image to video, references, editing); the mode
- * and the inputs of a generation choose the task, `check` answers its id, and
- * `submit` sends that id. One create endpoint serves every task, each with its
- * own `input` and `parameters`. Images go inline as data URLs. Videos and
+ * The catalog lists one video model per version. Alibaba has one model id per
+ * task of a version (text to video, image to video, references, editing); the
+ * mode and the inputs of a generation choose the task, `check` answers its id,
+ * and `submit` sends that id. One create endpoint serves every task, each with
+ * its own `input` and `parameters`. Images go inline as data URLs. Videos and
  * audio are taken only as addresses, so in China (Beijing) they go through the
  * provider's temporary upload, and elsewhere `check` refuses them.
+ *
+ * The image models are made by the synchronous call, which answers with the
+ * addresses of the images (alibaba.md, "The synchronous call").
  */
 
 type Region = 'cn' | 'intl';
@@ -77,7 +82,7 @@ interface ModelSpec {
 
 /** Every label of the provider's catalog entry, in English, in one place to translate later. */
 const LABELS = Object.freeze({
-	provider: 'Alibaba (Wan)',
+	provider: 'Alibaba (Wan, Qwen-Image)',
 	regionCn: 'China (Beijing)',
 	regionIntl: 'International (Singapore)',
 	apiKey: 'API Key',
@@ -121,7 +126,22 @@ const LABELS = Object.freeze({
 	wan26: 'Wan 2.6',
 	wan26Description: 'Text or a start frame to video with sound and multi-shot storytelling; 2 to 15 seconds.',
 	wan26Flash: 'Wan 2.6 Flash',
-	wan26FlashDescription: 'A start frame to video, faster, with or without sound; 2 to 15 seconds.'
+	wan26FlashDescription: 'A start frame to video, faster, with or without sound; 2 to 15 seconds.',
+	count: 'Images',
+	tipImageRatio: 'The shape of the image. Adaptive follows the last reference image, and is square without one.',
+	tipQwenWatermark: 'Adds a watermark to the image.',
+	qwen30Pro: 'Qwen-Image 3.0 Pro',
+	qwen30ProDescription: 'From the prompt alone or up to 3 reference images: 1 to 6 images at 1K or 2K.',
+	qwen30: 'Qwen-Image 3.0',
+	qwen30Description: 'The faster Qwen-Image 3.0, with the same inputs and settings.',
+	qwen21Pro: 'Qwen-Image 2.1 Pro',
+	qwen21ProDescription: 'From the prompt alone or up to 10 reference images: 1 to 6 images at 1K or 2K, transparent when the prompt asks for it.',
+	qwen21Turbo: 'Qwen-Image 2.1 Turbo',
+	qwen21TurboDescription: 'The faster Qwen-Image 2.1, with the same inputs and settings.',
+	wan27ImagePro: 'Wan 2.7 Image Pro',
+	wan27ImageProDescription: 'From the prompt alone or up to 9 reference images: 1 to 4 images at 1K or 2K, and 4K from the prompt alone.',
+	wan27Image: 'Wan 2.7 Image',
+	wan27ImageDescription: 'The faster Wan 2.7 Image at 1K or 2K, with the same inputs.'
 });
 
 // --- resolutions -----------------------------------------------------------------------------------
@@ -390,6 +410,103 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 
 const SPECS: ReadonlyMap<string, ModelSpec> = new Map(MODEL_SPECS.map(spec => [spec.model.id, spec]));
 
+// --- image models ----------------------------------------------------------------------------------
+
+/** How an image model's size is sent: Qwen takes `W*H` only, Wan also a level alone. */
+type ImageFamily = 'qwen' | 'wan';
+
+/** An image resolution, as the catalog names it (providers, "Shared names"). */
+type ImageLevel = '1k' | '2k' | '4k';
+
+/** One image model: its declaration, how its size is sent, and its limit, which a rate-limited message names. */
+interface ImageSpec {
+	readonly model: CatalogModel;
+	readonly family: ImageFamily;
+	readonly rateLimit: string;
+}
+
+/** Each level as it is labeled, which is also how Wan takes it alone. */
+const IMAGE_LEVEL_NAMES: Readonly<Record<ImageLevel, string>> = Object.freeze({ '1k': '1K', '2k': '2K', '4k': '4K' });
+/** The side of the square of each level's pixels: 1K is 1024 × 1024, as Wan defines its levels. */
+const IMAGE_LEVEL_SIDES: Readonly<Record<ImageLevel, number>> = Object.freeze({ '1k': 1024, '2k': 2048, '4k': 4096 });
+const IMAGE_RATIOS = Object.freeze(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9']);
+/** Qwen-Image takes each side up to 8,000 px, the longer at most ten times the shorter, and 10 MB. */
+const QWEN_IMAGES: ModeLimits = { imageMaxSide: 8000, imageAspect: [1 / 10, 10], imageMaxBytes: 10 * MiB };
+/** Qwen takes at most 4,500 tokens of prompt, and a character is rarely more than one. */
+const QWEN_PROMPT_CHARACTERS = 4500;
+const WAN_IMAGE_PROMPT_CHARACTERS = 5000;
+const QWEN_MAX_IMAGES = 6;
+const WAN_MAX_IMAGES = 4;
+
+function imageModes(maxReferences: number, limits: ModeLimits): CatalogMode[] {
+	return [{ id: 'reference', label: LABELS.modeReference, inputs: inputs({ images: { min: 0, max: maxReferences } }), limits }];
+}
+
+/** The parameters every image model has, then its own. */
+function imageParameters(levels: readonly ImageLevel[], maxCount: number, own: readonly CatalogParameter[]): CatalogParameter[] {
+	return [
+		{
+			name: 'ratio',
+			label: LABELS.ratio,
+			tooltip: LABELS.tipImageRatio,
+			kind: 'choice',
+			display: 'ratio',
+			options: [{ value: 'adaptive', label: LABELS.adaptive }, ...options(IMAGE_RATIOS)],
+			default: 'adaptive'
+		},
+		{ name: 'resolution', label: LABELS.resolution, kind: 'choice', options: levels.map(level => ({ value: level, label: IMAGE_LEVEL_NAMES[level] })), default: '2k' },
+		{ name: 'count', label: LABELS.count, kind: 'integer', min: 1, max: maxCount, step: 1, default: 1 },
+		...own
+	];
+}
+
+const QWEN_WATERMARK: CatalogParameter = { name: 'watermark', label: LABELS.watermark, tooltip: LABELS.tipQwenWatermark, kind: 'boolean', default: false, advanced: true };
+
+/** An image model: the same id in both regions, PNG, and its images in the answer to the request. */
+function imageModel(id: string, label: string, description: string, maxPrompt: number, modes: CatalogMode[], parameters: CatalogParameter[]): CatalogModel {
+	return {
+		id,
+		kind: 'image',
+		label,
+		description,
+		providerModels: both(id),
+		prompt: { required: 'always', maxLength: maxPrompt },
+		modes,
+		parameters,
+		outputFormat: 'png',
+		answersAtOnce: true
+	};
+}
+
+function qwenImage(id: string, label: string, description: string, maxReferences: number, negativePrompt: boolean, perMinute: number): ImageSpec {
+	const own = [...(negativePrompt ? [NEGATIVE_PROMPT] : []), PROMPT_EXTEND, QWEN_WATERMARK, SEED];
+	return {
+		family: 'qwen',
+		rateLimit: `Alibaba Cloud takes at most ${perMinute} requests a minute for ${label}.`,
+		model: imageModel(id, label, description, QWEN_PROMPT_CHARACTERS, imageModes(maxReferences, QWEN_IMAGES), imageParameters(['1k', '2k'], QWEN_MAX_IMAGES, own))
+	};
+}
+
+function wanImage(id: string, label: string, description: string, levels: readonly ImageLevel[]): ImageSpec {
+	return {
+		family: 'wan',
+		rateLimit: `Alibaba Cloud takes at most 5 requests a second and works on at most 5 at once for ${label}.`,
+		model: imageModel(id, label, description, WAN_IMAGE_PROMPT_CHARACTERS, imageModes(9, WAN_IMAGES), imageParameters(levels, WAN_MAX_IMAGES, [WAN_WATERMARK, SEED]))
+	};
+}
+
+/** The image models, after the video models (alibaba.md, "Image models"). */
+const IMAGE_MODEL_SPECS: readonly ImageSpec[] = [
+	qwenImage('qwen-image-3.0-pro', LABELS.qwen30Pro, LABELS.qwen30ProDescription, 3, true, 5),
+	qwenImage('qwen-image-3.0', LABELS.qwen30, LABELS.qwen30Description, 3, true, 20),
+	qwenImage('qwen-image-2.1-pro', LABELS.qwen21Pro, LABELS.qwen21ProDescription, 10, false, 20),
+	qwenImage('qwen-image-2.1-turbo', LABELS.qwen21Turbo, LABELS.qwen21TurboDescription, 10, false, 120),
+	wanImage('wan2.7-image-pro', LABELS.wan27ImagePro, LABELS.wan27ImageProDescription, ['1k', '2k', '4k']),
+	wanImage('wan2.7-image', LABELS.wan27Image, LABELS.wan27ImageDescription, ['1k', '2k'])
+];
+
+const IMAGE_SPECS: ReadonlyMap<string, ImageSpec> = new Map(IMAGE_MODEL_SPECS.map(spec => [spec.model.id, spec]));
+
 const PROVIDER: CatalogProvider = {
 	id: 'alibaba',
 	label: LABELS.provider,
@@ -398,7 +515,7 @@ const PROVIDER: CatalogProvider = {
 		{ id: 'intl', label: LABELS.regionIntl, baseUrl: 'https://dashscope-intl.aliyuncs.com', console: 'https://modelstudio.console.alibabacloud.com/ap-southeast-1/model/settings/api-key' }
 	],
 	credentials: [{ id: 'apiKey', label: LABELS.apiKey, placeholder: 'sk-…' }],
-	models: MODEL_SPECS.map(spec => spec.model)
+	models: [...MODEL_SPECS.map(spec => spec.model), ...IMAGE_MODEL_SPECS.map(spec => spec.model)]
 };
 
 // --- check -----------------------------------------------------------------------------------------
@@ -430,7 +547,7 @@ function regionProblems(request: CheckRequest, counts: PlannedCounts): string[] 
 	}
 	if (counts.videos > 0 || counts.audios > 0) {
 		const kinds = counts.videos > 0 && counts.audios > 0 ? 'videos and audio' : counts.videos > 0 ? 'videos' : 'audio';
-		return [`${REGION_MEDIA_REASON} Choose China (Beijing) in Video Providers, or leave out the ${kinds}.`];
+		return [`${REGION_MEDIA_REASON} Choose China (Beijing) in Providers, or leave out the ${kinds}.`];
 	}
 	return [];
 }
@@ -548,14 +665,25 @@ function taskPath(http: ProviderHttp, remoteId: string, suffix = ''): string {
 	return apiPath(http, `/tasks/${encodeURIComponent(remoteId)}${suffix}`);
 }
 
-/** An image as `data:<type>;base64,…`, its type read from its bytes. */
-async function imageDataUrl(media: Media, label: string, maxBytes: number): Promise<string> {
+/** The width and height of an image, as its header gives them. */
+interface Shape {
+	readonly width: number;
+	readonly height: number;
+}
+
+/** An image as `data:<type>;base64,…`, its type read from its bytes, with its shape. */
+async function readImage(media: Media, label: string, maxBytes: number): Promise<{ readonly dataUrl: string; readonly shape?: Shape }> {
 	const read = await readMedia(media, maxBytes, label);
-	const { format } = await measure(bufferSource(read.bytes));
+	const { format, width, height } = await measure(bufferSource(read.bytes));
 	if (format !== 'png' && format !== 'jpeg' && format !== 'webp') {
 		throw rejected(`${label} is not a PNG, JPEG, or WebP image.`);
 	}
-	return dataUrlOf(read, MEDIA_MIME_TYPES[format]);
+	return { dataUrl: dataUrlOf(read, MEDIA_MIME_TYPES[format]), ...(width && height ? { shape: { width, height } } : {}) };
+}
+
+/** An image as `data:<type>;base64,…`, its type read from its bytes. */
+async function imageDataUrl(media: Media, label: string, maxBytes: number): Promise<string> {
+	return (await readImage(media, label, maxBytes)).dataUrl;
 }
 
 interface UploadPolicy {
@@ -737,6 +865,177 @@ function requestBody(routed: Task, request: SubmitRequest, entries: readonly Med
 	return { model: routed.id, input, parameters: providerParameters(routed, request.mode, request.params) };
 }
 
+// --- image requests --------------------------------------------------------------------------------
+
+/** Sizes are whole multiples of 16, and their shape is at most 8:1 either way. */
+const IMAGE_SIZE_STEP = 16;
+const IMAGE_MAX_ASPECT = 8;
+
+function greatestDivisor(a: number, b: number): number {
+	return b === 0 ? a : greatestDivisor(b, a % b);
+}
+
+/**
+ * `W*H` in exactly a ratio such as `16:9`, in whole multiples of 16, as large
+ * as the square of `side` pixels allows (alibaba.md, "Image parameters").
+ */
+function sizeOfRatio(ratio: string, side: number): string {
+	const [width, height] = ratio.split(':').map(Number);
+	const divisor = greatestDivisor(width, height);
+	const across = IMAGE_SIZE_STEP * width / divisor;
+	const down = IMAGE_SIZE_STEP * height / divisor;
+	const pixels = side * side;
+	let steps = Math.max(1, Math.floor(Math.sqrt(pixels / (across * down))));
+	while (across * down * (steps + 1) * (steps + 1) <= pixels) {
+		steps++;
+	}
+	while (steps > 1 && across * down * steps * steps > pixels) {
+		steps--;
+	}
+	return `${across * steps}*${down * steps}`;
+}
+
+/** `W*H` of a shape at the square of `side` pixels: rounded down to multiples of 16, the shape held within 1:8 to 8:1. */
+function sizeOfShape(shape: Shape, side: number): string {
+	const aspect = Math.min(IMAGE_MAX_ASPECT, Math.max(1 / IMAGE_MAX_ASPECT, shape.width / shape.height));
+	const floor = (value: number) => Math.max(IMAGE_SIZE_STEP, Math.floor(value / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP);
+	let width = floor(side * Math.sqrt(aspect));
+	let height = floor(side / Math.sqrt(aspect));
+	// Rounding can tip the shape past 8:1; shortening the long side only makes the image smaller.
+	width = Math.min(width, height * IMAGE_MAX_ASPECT);
+	height = Math.min(height, width * IMAGE_MAX_ASPECT);
+	return `${width}*${height}`;
+}
+
+/**
+ * The `size` an image model is sent: a ratio at the resolution's pixels; for
+ * Adaptive, Wan's level alone, and for Qwen the shape of the last reference
+ * image at the resolution's pixels, or its square without one.
+ */
+function imageSize(spec: ImageSpec, params: Params, lastReference: Shape | undefined): string {
+	const level = String(params.resolution) as ImageLevel;
+	if (!Object.hasOwn(IMAGE_LEVEL_SIDES, level)) {
+		throw rejected(`${spec.model.label} has no resolution ${String(params.resolution)}.`);
+	}
+	const side = IMAGE_LEVEL_SIDES[level];
+	if (params.ratio !== 'adaptive') {
+		return sizeOfRatio(String(params.ratio), side);
+	}
+	if (spec.family === 'wan') {
+		return IMAGE_LEVEL_NAMES[level];
+	}
+	return lastReference ? sizeOfShape(lastReference, side) : `${side}*${side}`;
+}
+
+/** The body of an image model's create: one message of the references in order and then the prompt, and the parameters under Alibaba's names. */
+async function imageRequestBody(spec: ImageSpec, request: SubmitRequest): Promise<Record<string, unknown>> {
+	const content: Record<string, string>[] = [];
+	const maxBytes = limitOf(spec.model.modes[0].limits, 'image');
+	let lastReference: Shape | undefined;
+	for (const item of plannedItems(request.inputs)) {
+		if (item.slot !== 'image') {
+			throw rejected(`${spec.model.label} takes reference images only.`);
+		}
+		const image = await readImage(item.media, item.label, maxBytes);
+		content.push({ image: image.dataUrl });
+		lastReference = image.shape;
+	}
+	content.push({ text: request.prompt });
+	const params = request.params;
+	const parameters: Record<string, ParamValue> = { size: imageSize(spec, params, lastReference) };
+	if (typeof params.count === 'number') {
+		parameters.n = params.count;
+	}
+	if (spec.family === 'qwen') {
+		const negativePrompt = params.negative_prompt;
+		if (typeof negativePrompt === 'string' && negativePrompt.trim()) {
+			parameters.negative_prompt = negativePrompt;
+		}
+		if (typeof params.prompt_extend === 'boolean') {
+			parameters.prompt_extend = params.prompt_extend;
+		}
+	}
+	if (typeof params.watermark === 'boolean') {
+		parameters.watermark = params.watermark;
+	}
+	if (typeof params.seed === 'number') {
+		parameters.seed = params.seed;
+	}
+	return { model: spec.model.providerModels[request.region], input: { messages: [{ role: 'user', content }] }, parameters };
+}
+
+/**
+ * The images of an answer, in order: every `image` of every choice's content.
+ * A 2xx answer without choices that carries a code is a refusal; one without
+ * either cannot be read, though the images may have been made.
+ */
+function imageOutputsOf(body: Record<string, unknown>): OutputLocation[] {
+	const output = body.output;
+	const choices = isRecord(output) ? output.choices : undefined;
+	if (!Array.isArray(choices)) {
+		const reading = typeof body.code === 'string' && body.code.trim() ? readAlibabaError(200, body) : undefined;
+		if (reading) {
+			throw new ProviderFailure(reading.code ?? 'rejected', reading.message ?? 'Alibaba Cloud refused the request.');
+		}
+		throw unknownOutcome('Alibaba Cloud accepted the request but answered without images AI Video can read.');
+	}
+	const outputs: OutputLocation[] = [];
+	for (const choice of choices) {
+		const message = isRecord(choice) ? choice.message : undefined;
+		const content = isRecord(message) && Array.isArray(message.content) ? message.content : [];
+		for (const item of content) {
+			if (isRecord(item) && typeof item.image === 'string' && item.image.trim()) {
+				outputs.push({ url: item.image.trim() });
+			}
+		}
+	}
+	return outputs;
+}
+
+/** A refused create of an image model, read as every error is, with the model's own limit when it is a rate limit. */
+function imageCreateRefused(spec: ImageSpec, answer: HttpAnswer): ProviderFailure {
+	let body: unknown;
+	try {
+		body = answer.json();
+	} catch {
+		body = undefined;
+	}
+	const failure = failureForStatus(answer.status, readAlibabaError(answer.status, body, spec.rateLimit), true);
+	const asked = retryAfterMs(answer.headers['retry-after']);
+	return failure.code === 'rateLimited' && asked !== undefined && asked > 0
+		? new ProviderFailure(failure.code, `${failure.message} The provider asks to wait ${Math.ceil(asked / 1000)} seconds.`, failure.status)
+		: failure;
+}
+
+/** Rules of an image model that its declarations cannot express, and a request too large to send. */
+async function imageCheck(spec: ImageSpec, request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	const problems: string[] = [];
+	if (request.params.resolution === '4k' && countsOf(request.inputs).images > 0) {
+		problems.push(`${spec.model.label} makes 4K images from the prompt alone; with reference images, choose 1K or 2K.`);
+	}
+	problems.push(...formatProblems(await measureItems(request.inputs, media)));
+	return { problems, providerModel: spec.model.providerModels[request.region] };
+}
+
+/** Sends an image model's request once and answers its images (alibaba.md, "Image requests"). */
+async function imageSubmit(spec: ImageSpec, request: SubmitRequest, http: ProviderHttp): Promise<AnsweredAtOnce> {
+	if (spec.model.providerModels[request.region] === undefined) {
+		throw rejected(`${LABELS.provider} does not offer ${spec.model.label} in this region.`);
+	}
+	const body = await imageRequestBody(spec, request);
+	const answer = await http.create({
+		method: 'POST',
+		path: apiPath(http, '/services/aigc/multimodal-generation/generation'),
+		body: { kind: 'json', value: body },
+		// Read here, so that a rate-limited answer names this model's own limit.
+		accept: [429]
+	});
+	if (answer.status === 429) {
+		throw imageCreateRefused(spec, answer);
+	}
+	return { outputs: imageOutputsOf(answer.object()) };
+}
+
 /** A task's state from its query answer. */
 function pollStateOf(body: Record<string, unknown>): PollState {
 	const output = body.output;
@@ -773,19 +1072,32 @@ const ERROR_CODES: Readonly<Record<string, ProviderErrorReading['code']>> = Obje
 	'PostpaidBillOverdue': 'balance',
 	'BudgetLimitExceeded': 'balance',
 	'AllocationQuota.FreeTierOnly': 'balance',
-	'CommodityNotPurchased': 'rejected'
+	'CommodityNotPurchased': 'rejected',
+	'DataInspectionFailed': 'rejected',
+	'IPInfringementSuspect': 'rejected'
 });
 
-/** An error answer of DashScope, `{code, message, request_id}`: its message with its code, and the contract's code where the provider's says more. */
-function readAlibabaError(status: number, body: unknown): ProviderErrorReading | undefined {
+/** The pages advise generating again without Prompt Rewriting when the intellectual-property check refuses. */
+const PROMPT_REWRITING_ADVICE = 'Prompt Rewriting can cause this: turn it off and generate again.';
+/** The shared hosts get no new features after 2026-09-30 (alibaba.md, "Requests"). */
+const WORKSPACE_HOST_ADVICE = 'A model released after September 30, 2026 may be offered only on the host of your workspace: enter its API host, from the Model Studio console, as the Endpoint in Providers.';
+
+/**
+ * An error answer of DashScope, `{code, message, request_id}`: its message with
+ * its code and what the user can do, and the contract's code where the
+ * provider's says more. A rate-limited answer adds `rateLimitNote`.
+ */
+function readAlibabaError(status: number, body: unknown, rateLimitNote = RATE_LIMIT_NOTE): ProviderErrorReading | undefined {
 	if (!isRecord(body)) {
 		return undefined;
 	}
 	const code = typeof body.code === 'string' && body.code.trim() ? body.code.trim() : undefined;
 	const message = typeof body.message === 'string' ? body.message.trim() : '';
 	const throttled = status === 429 && (code === undefined || code.startsWith('Throttling'));
-	const text = [message, code ? `(${code})` : '', throttled ? RATE_LIMIT_NOTE : ''].filter(Boolean).join(' ');
-	const mapped = code ? ERROR_CODES[code] : undefined;
+	const unknownModel = code === 'ModelNotFound' || (code === 'InvalidParameter' && /model not exist/i.test(message));
+	const advice = unknownModel ? WORKSPACE_HOST_ADVICE : code === 'IPInfringementSuspect' ? PROMPT_REWRITING_ADVICE : '';
+	const text = [message, code ? `(${code})` : '', throttled ? rateLimitNote : '', advice].filter(Boolean).join(' ');
+	const mapped = code && Object.hasOwn(ERROR_CODES, code) ? ERROR_CODES[code] : undefined;
 	return text || mapped ? { ...(text ? { message: text } : {}), ...(mapped ? { code: mapped } : {}) } : undefined;
 }
 
@@ -809,6 +1121,10 @@ export const ALIBABA: ProviderModule = Object.freeze({
 	readError: readAlibabaError,
 
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+		const image = IMAGE_SPECS.get(request.model);
+		if (image) {
+			return imageCheck(image, request, media);
+		}
 		const spec = SPECS.get(request.model);
 		if (!spec) {
 			return { problems: [] };
@@ -824,7 +1140,11 @@ export const ALIBABA: ProviderModule = Object.freeze({
 		return { problems, providerModel: routed.id };
 	},
 
-	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
+	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string | AnsweredAtOnce> {
+		const image = IMAGE_SPECS.get(request.model);
+		if (image) {
+			return imageSubmit(image, request, http);
+		}
 		const spec = specOf(request.model);
 		if (spec.model.providerModels[request.region] === undefined) {
 			throw rejected(`${LABELS.provider} does not offer ${spec.model.label} in this region.`);

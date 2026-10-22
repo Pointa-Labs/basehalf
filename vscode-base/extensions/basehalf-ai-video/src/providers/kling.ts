@@ -7,7 +7,7 @@ import { countsOf, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, describeBytes, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
+import type { ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
 import type {
 	CatalogMode,
 	CatalogModel,
@@ -19,21 +19,24 @@ import type {
 	Params,
 	ParamValue,
 	PlannedMedia,
-	PollState,
 	ProviderErrorCode,
 	SubmitRequest,
 	TaskRef
 } from './types.ts';
 
 /**
- * Kling's video models on its new API, where the model is part of the path
- * (D59; `docs/specs/video-providers/kling.md`, which records the pages each
- * fact comes from). One API key as a bearer token; images inline as plain
- * base64; tasks asked about at `GET /tasks`; no cancellation.
+ * Kling's video models on its new API, where the model is part of the path,
+ * and its image models on its earlier API, where the model is `model_name`
+ * (D59, D64; `docs/specs/providers/kling.md`, which records the pages each
+ * fact comes from). One API key as a bearer token for both; images inline as
+ * plain base64; video tasks asked about at `GET /tasks`, image tasks at their
+ * own call's path; no cancellation.
  */
 
 type KlingModelId = 'kling-3.0-turbo' | 'kling-3.0' | 'kling-3.0-omni' | 'kling-o1' | 'kling-2.6' | 'kling-2.5-turbo';
 type Resolution = '720p' | '1080p' | '4k';
+type KlingImageModelId = 'kling-image-3.0-omni' | 'kling-image-3.0' | 'kling-image-o1';
+type ImageResolution = '1k' | '2k' | '4k';
 
 // --- labels -------------------------------------------------------------------------------------
 
@@ -49,6 +52,27 @@ const LABELS = Object.freeze({
 	ratioTooltip: 'The shape of the video. A video made from a start frame takes the shape of the frame.',
 	duration: 'Duration',
 	sound: 'Sound',
+	count: 'Images',
+	adaptive: 'Adaptive',
+	imageResolutions: Object.freeze<Record<ImageResolution, string>>({ '1k': '1K', '2k': '2K', '4k': '4K' }),
+	negativePrompt: 'Negative Prompt',
+	negativePromptTooltip: 'What the image should not show. Kling takes it only when no reference image is connected.',
+	imageModels: Object.freeze<Record<KlingImageModelId, { readonly label: string; readonly description: string; readonly ratioTooltip?: string }>>({
+		'kling-image-3.0-omni': {
+			label: 'Kling Image 3.0 Omni',
+			description: 'From the prompt alone or up to 10 reference images: 1 to 9 images at up to 4K.',
+			ratioTooltip: 'The shape of the image. Adaptive lets Kling choose it from the reference images, and needs one.'
+		},
+		'kling-image-3.0': {
+			label: 'Kling Image 3.0',
+			description: 'From the prompt alone or one reference image: 1 to 9 images at 1K or 2K.'
+		},
+		'kling-image-o1': {
+			label: 'Kling Image O1',
+			description: 'From the prompt alone or up to 10 reference images, keeping their details and style: 1 to 9 images at 1K or 2K.',
+			ratioTooltip: 'The shape of the image. Adaptive lets Kling choose it from the prompt and the reference images.'
+		}
+	}),
 	models: Object.freeze<Record<KlingModelId, { readonly label: string; readonly description: string }>>({
 		'kling-3.0-turbo': {
 			label: 'Kling 3.0 Turbo',
@@ -205,6 +229,90 @@ function declareModel(model: KlingModel): CatalogModel {
 	};
 }
 
+// --- the image models ---------------------------------------------------------------------------
+
+interface KlingImageModel {
+	/** The catalog id. */
+	readonly id: KlingImageModelId;
+	/** Kling's `model_name`, the same in both regions. */
+	readonly modelName: string;
+	/** `generations`: `/v1/images/generations`; `omni`: `/v1/images/omni-image`. Each task is asked about under its call's path. */
+	readonly api: 'generations' | 'omni';
+	readonly maxReferences: number;
+	readonly resolutions: readonly ImageResolution[];
+	/** Whether Adaptive (Kling's `auto`) is a choice, and whether it needs a reference image. */
+	readonly adaptive: 'none' | 'withReference' | 'always';
+	readonly defaultRatio: string;
+	/** Kling Image 3.0 takes a negative prompt from the prompt alone. */
+	readonly negativePrompt: boolean;
+}
+
+/** The image models, after the video models (kling.md, "Image catalog"). */
+const IMAGE_MODELS: readonly KlingImageModel[] = Object.freeze([
+	{
+		id: 'kling-image-3.0-omni', modelName: 'kling-v3-omni', api: 'omni', maxReferences: 10,
+		resolutions: ['1k', '2k', '4k'], adaptive: 'withReference', defaultRatio: '16:9', negativePrompt: false
+	},
+	{
+		id: 'kling-image-3.0', modelName: 'kling-v3', api: 'generations', maxReferences: 1,
+		resolutions: ['1k', '2k'], adaptive: 'none', defaultRatio: '16:9', negativePrompt: true
+	},
+	{
+		id: 'kling-image-o1', modelName: 'kling-image-o1', api: 'omni', maxReferences: 10,
+		resolutions: ['1k', '2k'], adaptive: 'always', defaultRatio: 'adaptive', negativePrompt: false
+	}
+]);
+
+/** 10 MB, the largest image Kling's image calls take. */
+const REFERENCE_MAX_BYTES = 10 * 1024 * 1024;
+const IMAGE_RATIOS: readonly string[] = Object.freeze(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']);
+const IMAGE_PROMPT_MAX_LENGTH = 2500;
+const IMAGE_MAX_COUNT = 9;
+const REFERENCE_LIMITS = Object.freeze({ ...IMAGE_LIMITS, imageMaxBytes: REFERENCE_MAX_BYTES });
+
+function declareImageModel(model: KlingImageModel): CatalogModel {
+	const text = LABELS.imageModels[model.id];
+	const ratios = IMAGE_RATIOS.map(ratio => ({ value: ratio, label: ratio }));
+	const parameters: CatalogParameter[] = [
+		{
+			name: 'ratio',
+			label: LABELS.ratio,
+			...(text.ratioTooltip ? { tooltip: text.ratioTooltip } : {}),
+			kind: 'choice',
+			display: 'ratio',
+			options: model.adaptive === 'none' ? ratios : [...ratios, { value: 'adaptive', label: LABELS.adaptive }],
+			default: model.defaultRatio
+		},
+		{
+			name: 'resolution',
+			label: LABELS.resolution,
+			kind: 'choice',
+			options: model.resolutions.map(resolution => ({ value: resolution, label: LABELS.imageResolutions[resolution] })),
+			default: '1k'
+		},
+		{ name: 'count', label: LABELS.count, kind: 'integer', min: 1, max: IMAGE_MAX_COUNT, step: 1, default: 1 }
+	];
+	if (model.negativePrompt) {
+		parameters.push({ name: 'negative_prompt', label: LABELS.negativePrompt, tooltip: LABELS.negativePromptTooltip, kind: 'text', maxLength: IMAGE_PROMPT_MAX_LENGTH, multiline: true, optional: true, advanced: true });
+	}
+	return {
+		id: model.id,
+		kind: 'image',
+		label: text.label,
+		description: text.description,
+		providerModels: { cn: model.modelName, intl: model.modelName },
+		prompt: { required: 'always', maxLength: IMAGE_PROMPT_MAX_LENGTH },
+		modes: [{
+			id: 'reference',
+			label: LABELS.modes.reference,
+			inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: model.maxReferences }, videos: NO_INPUTS, audios: NO_INPUTS, source: 'none' },
+			limits: REFERENCE_LIMITS
+		}],
+		parameters,
+		outputFormat: 'png'
+	};
+}
+
 const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'kling',
 	label: LABELS.provider,
@@ -213,8 +321,12 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 		{ id: 'intl', label: LABELS.regions.intl, baseUrl: 'https://api-singapore.klingai.com', console: 'https://kling.ai/dev/api-key' }
 	],
 	credentials: [{ id: 'apiKey', label: LABELS.apiKey }],
-	models: MODELS.map(declareModel)
+	models: [...MODELS.map(declareModel), ...IMAGE_MODELS.map(declareImageModel)]
 });
+
+function imageModelOf(id: string): KlingImageModel | undefined {
+	return IMAGE_MODELS.find(entry => entry.id === id);
+}
 
 function modelOf(id: string): KlingModel {
 	const model = MODELS.find(entry => entry.id === id);
@@ -237,9 +349,9 @@ function labelOf(model: KlingModel): string {
  * outcome or an error to ask again after.
  */
 const ERROR_CODES: ReadonlyMap<number, { readonly code?: ProviderErrorCode; readonly text: string }> = new Map([
-	[1000, { code: 'auth', text: 'Kling refused the API key. Check it in Video Providers.' }],
-	[1001, { code: 'auth', text: 'Kling received no API key. Set it in Video Providers.' }],
-	[1002, { code: 'auth', text: 'Kling refused the API key as invalid. Check it in Video Providers.' }],
+	[1000, { code: 'auth', text: 'Kling refused the API key. Check it in Providers.' }],
+	[1001, { code: 'auth', text: 'Kling received no API key. Set it in Providers.' }],
+	[1002, { code: 'auth', text: 'Kling refused the API key as invalid. Check it in Providers.' }],
 	[1003, { code: 'auth', text: 'Kling does not accept the API key yet.' }],
 	[1004, { code: 'auth', text: 'The Kling API key has expired. Make a new one in the Kling console.' }],
 	[1100, { code: 'rejected', text: 'The Kling account is in an abnormal state. Check it in the Kling console.' }],
@@ -383,6 +495,114 @@ function videoUrlOf(task: Record<string, unknown>): string | undefined {
 	return undefined;
 }
 
+// --- image requests -----------------------------------------------------------------------------
+
+function imageLabelOf(model: KlingImageModel): string {
+	return LABELS.imageModels[model.id].label;
+}
+
+/** The path of an image model's call, under which its tasks are asked about too. */
+function imageCallPath(model: KlingImageModel): string {
+	return model.api === 'generations' ? '/v1/images/generations' : '/v1/images/omni-image';
+}
+
+/** The JSON of an image model's create, its references as plain base64 in order (kling.md, "Image requests"). */
+function createImageRequest(model: KlingImageModel, region: string, params: Params, prompt: string, images: readonly string[]): Record<string, unknown> {
+	const sentModel = PROVIDER.models.find(entry => entry.id === model.id)?.providerModels[region];
+	if (!sentModel) {
+		throw rejected(`Kling does not offer ${imageLabelOf(model)} in this region.`);
+	}
+	const value: Record<string, unknown> = { model_name: sentModel, prompt };
+	if (model.api === 'generations') {
+		const negativePrompt = params.negative_prompt;
+		if (typeof negativePrompt === 'string' && negativePrompt.trim()) {
+			value.negative_prompt = negativePrompt;
+		}
+		if (images.length) {
+			value.image = images[0];
+		}
+	} else if (images.length) {
+		value.image_list = images.map(image => ({ image }));
+	}
+	value.resolution = params.resolution;
+	value.n = params.count;
+	value.aspect_ratio = params.ratio === 'adaptive' ? 'auto' : params.ratio;
+	return value;
+}
+
+/** The task id of an accepted image create: `data.task_id` on Kling's earlier API. */
+function createdImageTaskId(answer: HttpAnswer): string {
+	const body = answer.object();
+	const code = codeOf(body.code);
+	if (code !== undefined && code !== 0) {
+		throw answeredFailure(code, body.message, true);
+	}
+	const id = isRecord(body.data) ? body.data.task_id : undefined;
+	if (typeof id !== 'string' || !id.trim()) {
+		throw unknownOutcome('Kling accepted the request but gave no task id AI Video can read.');
+	}
+	return id;
+}
+
+/** An image task as the query of its call gives it. */
+async function askAboutImage(model: KlingImageModel, ref: TaskRef, http: ProviderHttp): Promise<Record<string, unknown>> {
+	const answer = await http.request({ method: 'GET', path: `${imageCallPath(model)}/${encodeURIComponent(ref.remoteId)}`, headers: JSON_HEADERS });
+	const body = answer.object();
+	const code = codeOf(body.code);
+	if (code !== undefined && code !== 0) {
+		throw answeredFailure(code, body.message, false);
+	}
+	if (!isRecord(body.data)) {
+		throw unreadable('Kling answered about the task in a form AI Video cannot read.');
+	}
+	return body.data;
+}
+
+/** The images of a task that succeeded, in order: each one's clean `url`, never its `watermark_url`. */
+function imageOutputsOf(task: Record<string, unknown>): OutputLocation[] {
+	const result = task.task_result;
+	const outputs: OutputLocation[] = [];
+	for (const image of isRecord(result) && Array.isArray(result.images) ? result.images : []) {
+		if (isRecord(image) && typeof image.url === 'string' && image.url.trim()) {
+			outputs.push({ url: image.url.trim() });
+		}
+	}
+	return outputs;
+}
+
+/** An image task's state (kling.md, "Image requests"). */
+function imagePollState(task: Record<string, unknown>): ModulePollState {
+	switch (task.task_status) {
+		case 'submitted':
+			return { state: 'pending' };
+		case 'processing':
+			return { state: 'running' };
+		case 'succeed': {
+			const outputs = imageOutputsOf(task);
+			if (!outputs.length) {
+				throw unreadable('Kling reports that the task succeeded but gives no address of its images.');
+			}
+			return { state: 'succeeded', outputs };
+		}
+		case 'failed':
+			return { state: 'failed', message: typeof task.task_status_msg === 'string' && task.task_status_msg.trim() ? task.task_status_msg : 'Kling reports that the task failed.' };
+		default:
+			throw unreadable(`Kling reports a task state AI Video does not know: ${String(task.task_status).slice(0, 40)}.`);
+	}
+}
+
+async function submitImage(model: KlingImageModel, request: SubmitRequest, http: ProviderHttp): Promise<string> {
+	const images: string[] = [];
+	for (const item of plannedItems(request.inputs)) {
+		if (item.slot !== 'image') {
+			throw rejected(`${imageLabelOf(model)} takes reference images only.`);
+		}
+		images.push(base64Of(await readMedia(item.media, REFERENCE_MAX_BYTES, item.label)));
+	}
+	const value = createImageRequest(model, request.region, request.params, request.prompt, images);
+	return createdImageTaskId(await http.create({ method: 'POST', path: imageCallPath(model), body: { kind: 'json', value } }));
+}
+
 // --- checks -------------------------------------------------------------------------------------
 
 /** The rules between parameters and inputs that the declarations cannot express (kling.md, "Rules between parameters"). */
@@ -410,9 +630,15 @@ function ruleProblems(model: KlingModel, request: CheckRequest, counts: PlannedC
 	return problems;
 }
 
+/** A request whose JSON with empty images, and then its images as base64, is larger than AI Video sends. */
+function sizeProblems(value: unknown, imageBytes: number): string[] {
+	const size = Buffer.byteLength(JSON.stringify(value), 'utf8') + imageBytes;
+	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
+	return size > limit ? [`The images make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller images.`] : [];
+}
+
 /** A request too large for AI Video to send. */
 async function fileProblems(model: KlingModel, request: CheckRequest, inputs: PlannedMedia, media: MediaInspector): Promise<string[]> {
-	const problems: string[] = [];
 	const images: SentImage[] = [];
 	let imageBytes = 0;
 	for (const item of plannedItems(inputs)) {
@@ -423,13 +649,28 @@ async function fileProblems(model: KlingModel, request: CheckRequest, inputs: Pl
 		images.push({ slot: item.slot, base64: '' });
 		imageBytes += base64Length(facts.bytes);
 	}
-	// The JSON of the request with empty images, then the images as base64.
-	const { value } = createRequest(model, request.region, request.params, request.prompt, images);
-	const size = Buffer.byteLength(JSON.stringify(value), 'utf8') + imageBytes;
-	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
-	if (size > limit) {
-		problems.push(`The images make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller images.`);
+	return sizeProblems(createRequest(model, request.region, request.params, request.prompt, images).value, imageBytes);
+}
+
+/** The rules of an image model that its declarations cannot express (kling.md, "Image parameters"), and a request too large to send. */
+async function imageProblems(model: KlingImageModel, request: CheckRequest, media: MediaInspector): Promise<string[]> {
+	const problems: string[] = [];
+	const label = imageLabelOf(model);
+	const references = countsOf(request.inputs).images;
+	if (model.adaptive === 'withReference' && request.params.ratio === 'adaptive' && references === 0) {
+		problems.push(`${label} chooses the shape itself only from reference images; choose a ratio, or connect an image.`);
 	}
+	const negativePrompt = request.params.negative_prompt;
+	if (model.negativePrompt && references > 0 && typeof negativePrompt === 'string' && negativePrompt.trim()) {
+		problems.push(`${label} takes a negative prompt only when no reference image is connected; clear the negative prompt, or remove the image.`);
+	}
+	const images: string[] = [];
+	let imageBytes = 0;
+	for (const item of plannedItems(request.inputs)) {
+		imageBytes += base64Length((await media.inspect(item.media)).bytes);
+		images.push('');
+	}
+	problems.push(...sizeProblems(createImageRequest(model, request.region, request.params, request.prompt, images), imageBytes));
 	return problems;
 }
 
@@ -457,6 +698,10 @@ export const KLING: ProviderModule = {
 	},
 
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+		const image = imageModelOf(request.model);
+		if (image) {
+			return { problems: await imageProblems(image, request, media) };
+		}
 		const model = modelOf(request.model);
 		const problems = ruleProblems(model, request, countsOf(request.inputs));
 		problems.push(...await fileProblems(model, request, request.inputs, media));
@@ -464,6 +709,10 @@ export const KLING: ProviderModule = {
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
+		const image = imageModelOf(request.model);
+		if (image) {
+			return submitImage(image, request, http);
+		}
 		const model = modelOf(request.model);
 		const items = plannedItems(request.inputs);
 		// A video or audio input is refused before any file is read.
@@ -477,7 +726,11 @@ export const KLING: ProviderModule = {
 		return createdTaskId(answer);
 	},
 
-	async poll(ref: TaskRef, http: ProviderHttp): Promise<PollState> {
+	async poll(ref: TaskRef, http: ProviderHttp): Promise<ModulePollState> {
+		const image = imageModelOf(ref.model);
+		if (image) {
+			return imagePollState(await askAboutImage(image, ref, http));
+		}
 		const task = await askAbout(ref, http);
 		switch (task.status) {
 			case 'submitted':
