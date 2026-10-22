@@ -56,8 +56,10 @@ The suites are `workbench` (the window at startup, the surfaces BaseHalf
 hides, the Agent Area, Source Control, and Settings), `canvas`, `cardDetail`
 (Card Detail and its projections, the rich editor among them), `navigation`
 (Quick Open, Quick Text Search, the Explorer, back and forward, and what
-happens to the files of the workspace), and `video` (the AI Video node). A new
-step goes into the suite of its area. A suite that needs something done first
+happens to the files of the workspace), and `video` (generation cards of
+images and videos: drafts, the panel, a generation against the local test
+provider, Providers, the starter template, and Sequence). A new step goes
+into the suite of its area. A suite that needs something done first
 does it itself, never relying on another suite.
 
 For changes to the rich Markdown projection (what it reads, which blocks it
@@ -94,8 +96,8 @@ with a marquee, the set of several selected cards with its box (moving it,
 arranging it, undo), Tidy Canvas with its question that keeps or reverts,
 the sidebar showing exactly Files, Git, and Search with no plugin command,
 the button of the sidebar at the left end of the title bar and none in Card
-Detail, and the video node flows of the built-in AI Video. Extend its acceptance coverage when a
-changed workbench flow is not represented there.
+Detail, and the generation card flows of the built-in AI Video. Extend its
+acceptance coverage when a changed workbench flow is not represented there.
 
 The broader VS Code-base suite is:
 

@@ -1,16 +1,18 @@
 # Agent launch context
 
-Status: Active (2026-09-27)
-Decision: [D36](../decisions.md#d36--basehalf-stops-writing-agent-guides-into-workspaces-new-2026-09-27)
+Status: Active (2026-09-27; canvas workflows revised 2026-10-22 for D63)
+Decisions: [D36](../decisions.md#d36--basehalf-stops-writing-agent-guides-into-workspaces-new-2026-09-27),
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
 Related: [reference graph](reference-graph.md),
-[workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md)
+[workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
+[generation cards](generation-cards.md#agents)
 
 ## Problem
 
 BaseHalf no longer writes instructions into workspace `CLAUDE.md` or
 `AGENTS.md`. Agents started from Agent Area still need to know how BaseHalf
 stores relationships, and how to discover and run canvas workflows:
-`basehalf --list-capabilities`, `--run-node`, and `--run-operation`.
+`basehalf --list-capabilities`, `--generate`, and `--run-operation`.
 
 Agent Area launches these agents itself, so BaseHalf can pass that context at
 launch without touching user files.
@@ -29,8 +31,8 @@ These receive no launch context:
   from `/etc/codex/config.toml`, from project `.codex/config.toml` files above
   the workspace folder, and from a `CODEX_HOME` that only the terminal
   environment may define. Its default sandbox also denies the `basehalf` bridge
-  socket, so the canvas workflow commands would be refused. Codex still sees the `upstream` lists of Markdown and `.bhnode` files in the files
-  themselves.
+  socket, so the canvas workflow commands would be refused. Codex still sees
+  the `upstream` lists of Markdown notes in the notes themselves.
 - VS Code extension agents.
 - Plain Terminal sessions.
 - Remote sessions.
@@ -92,14 +94,16 @@ The instruction covers the following, in this order.
    - canvas layout;
    - reading aids;
    - each card's one-line `description`, in `.bh/mirror/<path>/badge.yaml`;
-   - upstream lists BaseHalf keeps, in `.bh/mirror/<path>/upstream.yaml`.
+   - upstream lists BaseHalf keeps, in `.bh/mirror/<path>/upstream.yaml`;
+   - each generation card's prompt and settings, in
+     `.bh/mirror/<path>/generation.yaml`, and what made its file, in
+     `made.yaml`.
 
    Read a node's `description` when you need to know what the user says it is
    for. Never delete or regenerate `.bh/`. Edit it only when the user asks.
 2. **Relationships.** `A → B` means A's context flows into B. The downstream
    file lists its upstream paths:
    - a Markdown note, under the `upstream` key of its frontmatter;
-   - a `.bhnode`, under its `upstream` field;
    - any other node, in `.bh/mirror/<path>/upstream.yaml`. A note with no
      `upstream` key may have its list there too: then edit that list, not the
      note.
@@ -117,9 +121,8 @@ The instruction covers the following, in this order.
    ```
 
    To find what flows out of X, search for X's path in the `upstream` entries
-   of Markdown and `.bhnode` files and in `.bh/mirror/**/upstream.yaml`. `.bh`
-   is hidden, so search it explicitly. Markdown links never create
-   relationships.
+   of Markdown files and in `.bh/mirror/**/upstream.yaml`. `.bh` is hidden, so
+   search it explicitly. Markdown links never create relationships.
 3. **Preserving relationships.**
    - When you rewrite or restructure a file, edit it in place and keep its
      frontmatter, including the upstream list, unchanged. Never delete and
@@ -143,24 +146,29 @@ The instruction covers the following, in this order.
      date. Follow this instruction instead.
 4. **Canvas workflows.**
    - Before any canvas workflow, run `basehalf --list-capabilities`. Its JSON
-     is the only authority for node documents, templates, and operations.
-   - A Video node is a `.bhnode` whose `kind` is `video`. Write only its
-     `title`, `prompt`, `upstream`, and `generation`; BaseHalf writes `task`
-     and `result`. Its inputs are its `upstream` entries, in order
-     ([Video node](video-node.md#what-an-agent-may-write)).
-   - `generation` holds `provider`, `model`, `mode`, and `params`, chosen
-     from `host.videoCatalog` of `basehalf --list-capabilities`: a model of a
-     provider, one of its modes, and values its parameters accept; a
+     is the only authority for the model catalog, templates, and operations.
+   - A generation card is an image or a video file; a draft is one whose file
+     does not exist yet. Write `prompt`, `provider`, `model`, `mode`, and
+     `params` in its `generation.yaml` to make a draft or change its next
+     generation; never write `made.yaml`. Its inputs are the entries of its
+     `upstream.yaml`, in order
+     ([generation cards](generation-cards.md#what-an-agent-may-write)).
+   - Choose `provider`, `model`, `mode`, and `params` from
+     `host.modelCatalog` of `basehalf --list-capabilities`: a model of the
+     card's kind, one of its modes, and values its parameters accept; a
      parameter left out takes its default. A provider that is not set up
-     there runs once the user sets it up in Video Providers
-     ([Video node, Agents](video-node.md#agents)).
-   - Use `basehalf --run-node <workspace-relative .bhnode>` to start a saved
-     Video node. It prints the path of the node that runs and does not wait
-     for the video.
+     there runs once the user sets it up in Providers
+     ([generation cards, Agents](generation-cards.md#agents)).
+   - Use `basehalf --generate <workspace-relative path>` to generate a card,
+     a draft or one with its file. It prints the path of every card that
+     generates, refuses values the model does not accept, and does not wait
+     for the files.
    - Use `basehalf --run-operation '<json>'` only for operations that
      discovery returned.
    - A generation continues after the session closes.
    - These commands work only inside Agent Area terminals.
+
+   The text never names `.bhnode`, `outputs/`, or `--run-node` (D63).
 
 ## Acceptance criteria
 
@@ -176,17 +184,20 @@ The instruction covers the following, in this order.
 3. A unit test holds the text under 4 KiB in UTF-8 and locks these phrases:
    - `relative to the workspace folder`
    - `keep its frontmatter, including the upstream list`
-   - `update every \`upstream\` entry that names its old path`
-   - the move example command
-   - `not to your current directory`
-   - `do not move the item`
-   - `Only if \`basehalf\` is not found`
+   - `You can move and rename files and folders with ordinary tools.`
+   - `an entry that names the old path of a moved item is broken until it is updated`
+   - `Never move, rename, or delete anything under \`.bh/\`.`
    - `Never delete or regenerate \`.bh/\``
    - `out of date`
    - `basehalf --list-capabilities`
-   - `` `generation` holds `provider`, `model`, `mode`, and `params` `` and
-     `host.videoCatalog`
+   - `.bh/mirror/<path>/generation.yaml` and `never write \`made.yaml\``
+   - `` Write `prompt`, `provider`, `model`, `mode`, and `params` `` and
+     `host.modelCatalog`
+   - `basehalf --generate`
    - the example block
+
+   It also finds none of `.bhnode`, `outputs/`, `--run-node`, and
+   `host.videoCatalog` in the text.
 4. A unit test shows the terminal exit message for a long multi-line argument
    by its first non-blank line and `…`, and leaves a short multi-line argument
    unchanged.

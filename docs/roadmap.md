@@ -182,9 +182,9 @@ specifications are [reference graph](specs/reference-graph.md) and
 Done means:
 
 - Each reference `A → B` is stored once, in B's `upstream` list: Markdown
-  frontmatter, the `.bhnode` `upstream` field, or
-  `.bh/mirror/<path>/upstream.yaml` for other nodes. The reverse direction is
-  derived by an in-memory index and never stored.
+  frontmatter, or `.bh/mirror/<path>/upstream.yaml` for other nodes, drafts
+  of generation cards included. The reverse direction is derived by an
+  in-memory index and never stored.
 - Reference operations write through the document's working copy or a
   compare-and-swap writer, with the specified canvas undo, refusals, and
   recovery.
@@ -192,8 +192,9 @@ Done means:
   repair actions; nothing removes them automatically.
 - Workbench moves offer the rename refactor, and legacy badge pairs move into
   downstream stores only after the user confirms.
-- `badge.yaml`, `canvas.yaml`, `adhd.yaml`, `appearance.yaml`, and
-  `upstream.yaml` are read/written through explicit services.
+- `badge.yaml`, `canvas.yaml`, `adhd.yaml`, `appearance.yaml`,
+  `upstream.yaml`, `generation.yaml`, and `made.yaml` are read/written
+  through explicit services.
 - Canvas viewports persist per folder in VS Code workspace storage, not in the
   workspace.
 - Legacy focus and agent-harness files are removed automatically and disclosed;

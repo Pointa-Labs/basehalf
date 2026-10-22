@@ -67,11 +67,13 @@ what you mean by "this".
 - **Connections live in the files.** BaseHalf keeps user content in real
   files. A note's `upstream` frontmatter lists what flows into it, and `.bh/`
   holds BaseHalf project metadata: canvas layout, descriptions, reading aids,
-  and the upstream lists of non-Markdown files.
-- **Video from your own providers.** A Video node is a prompt over its
-  connections: the images, videos, audio, and notes connected to it are its
-  inputs, in order. It runs 51 models from 12 video providers with the user's
-  own keys, and the video it makes is an ordinary file in the workspace.
+  the upstream lists of non-Markdown files, and the prompts of generated
+  images and videos.
+- **Images and videos from your own providers.** A generated image or video
+  is an ordinary file in the folder, and that file is its card. The images,
+  videos, audio, and notes connected to a card are its inputs, in order, and
+  its prompt and settings travel with the file. BaseHalf runs the image and
+  video models of 13 providers with the user's own keys.
 - **VS Code is the lower layer.** BaseHalf reuses VS Code's Explorer, Search,
   SCM/Git, quick input, working-copy/file services, menus, settings, extension
   host, and terminal process APIs.
@@ -134,30 +136,35 @@ flowchart LR
   mirror --> canvas["canvas.yaml"]
   mirror --> aids["adhd.yaml / appearance.yaml"]
   mirror --> sidecar["upstream.yaml"]
+  mirror --> generation["generation.yaml / made.yaml"]
 ```
 
 The format is deliberately plain:
 
 - A Markdown note lists the files that flow into it under the `upstream` key of
-  its frontmatter; a `.bhnode` keeps the same list in its `upstream` field.
-- A Video node is a `.bhnode` that also holds its prompt, provider, model, and
-  settings. The videos it makes are written under `outputs/`.
+  its frontmatter.
 - `.bh/mirror/<path>/upstream.yaml` keeps the upstream list of a folder, PDF,
-  or other non-Markdown file.
+  image, video, or other non-Markdown file.
+- A generated image or video is an ordinary file under the name of its card.
+  `.bh/mirror/<path>/generation.yaml` holds the prompt, model, and settings
+  of its next generation, and `.bh/mirror/<path>/made.yaml` the record of the
+  generation that made it. A `generation.yaml` whose file does not exist yet
+  is a draft: a card on the canvas that has not generated.
 - `.bh/mirror/<path>/badge.yaml` stores a file or folder description.
 - `.bh/mirror/<folder>/canvas.yaml` stores the place and size of every card and
   edge anchors for that folder canvas.
 - `.bh/mirror/<file>/adhd.yaml` stores per-file reading aids such as highlights
   and read ranges, and `.bh/mirror/<path>/appearance.yaml` stores visual
   presentation.
-- `.bh/cache/` holds machine-local state: run leases, undo stashes, recovery
-  copies of files BaseHalf could not read, and `selection.yaml`, what the user
-  last selected, for agents to read.
+- `.bh/cache/` holds machine-local state: the records of generations that run
+  on this computer, undo stashes, recovery copies of files BaseHalf could not
+  read, and `selection.yaml`, what the user last selected, for agents to read.
 
 BaseHalf never edits your `.gitignore`. It writes one ignore file of its own,
 `.bh/.gitignore`, which keeps card places (`canvas.yaml`) and `.bh/cache/` out
-of git. Descriptions, reading aids, and non-Markdown upstream lists can be
-committed and travel with the folder. Canvas viewports are kept per machine,
+of git. Descriptions, reading aids, non-Markdown upstream lists, and the
+prompts, drafts, and records of generated files can be committed and travel
+with the folder. Canvas viewports are kept per machine,
 outside the workspace.
 
 References are an explicit directed context-flow graph: `A → B` means A's
@@ -204,13 +211,15 @@ layout, and references follow.
 - Run Codex, Claude Code, curated extension agents, and shell agents inside the
   Agent Area. Agents can read what you selected: a folder, one or several
   cards, or text in a note. The status bar shows what they see.
-- Generate videos from Video nodes with your own key for ByteDance (Seedance),
-  Kling, Alibaba (Wan), MiniMax (Hailuo), Vidu, Google, PixVerse, Luma, Runway,
-  xAI (Grok Imagine), LTX, or Black Forest Labs. The panel shows each model's
-  own settings, and a running generation continues after a restart. What a
+- Generate images and videos on cards with your own key for ByteDance
+  (Seedance), Kling, Alibaba (Wan), MiniMax (Hailuo), Vidu, Google, PixVerse,
+  Luma, Runway, xAI (Grok Imagine), LTX, Black Forest Labs, or OpenAI (images).
+  A new image or video card is a draft until it generates; its file then
+  lands in the folder under the card's name. The panel shows each model's own
+  settings, and a running generation continues after a restart. What a
   generation costs is in your provider's console.
-- Find BaseHalf's settings, the Video Providers page, and About (the version
-  and updates) in Settings under BaseHalf.
+- Find BaseHalf's settings, the Providers page, and About (the version and
+  updates) in Settings under BaseHalf.
 - Update in place: an update is downloaded once, in the background, and
   installed when BaseHalf quits, or at the latest at its next start. Release
   Notes opens the release page.
@@ -218,8 +227,8 @@ layout, and references follow.
 The smoke guards this shape in five suites: the workbench (hidden competing
 surfaces, the Files / Git / Search sidebar, Agent Area sessions, Source
 Control, and Settings), the canvas, Card Detail with its Markdown projections,
-navigation (Quick Open, Quick Text Search, and Explorer routing), and the Video
-node.
+navigation (Quick Open, Quick Text Search, and Explorer routing), and the
+image and video cards.
 
 ## Install
 
@@ -289,7 +298,8 @@ vscode-base/                         current desktop product source
   extensions/basehalf/               rich Markdown editor, in-card note
                                      editor, and other bundles
   extensions/basehalf-ai-video/      built-in AI Video: Sequence, the starter
-                                     template, and the video provider modules
+                                     template, the model catalog, and the
+                                     image and video provider modules
   build/basehalf/                    macOS package, DMG, and update scripts
   BASEHALF_UPSTREAM.md               VS Code import baseline
 
@@ -311,10 +321,11 @@ packages/                            historical BaseHalf core/desktop material
 4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
    render as Agent Area sessions, not the stock terminal panel.
 5. **Fixed shell, extensible main canvas.** The built-in AI Video adds
-   templates, card projections, the Sequence view, and the requests of the
-   Video node to its providers without replacing the canvas model, BaseHalf
-   navigation, the sidebar, or Agent Area. The plugin platform it is built on
-   is frozen: nothing can be installed or published. See
+   templates, card projections, the Sequence view, and the requests that
+   image and video cards send to their providers without replacing the
+   canvas model, BaseHalf navigation, the sidebar, or Agent Area. The plugin
+   platform it is built on is frozen: nothing can be installed or published.
+   See
    [built-in AI Video and the frozen plugin platform](docs/specs/built-in-ai-video-and-plugin-freeze.md)
    and the [plugin architecture](docs/plugin-architecture.md).
 6. **Markdown shares one truth.** Rich, source, and preview projections operate

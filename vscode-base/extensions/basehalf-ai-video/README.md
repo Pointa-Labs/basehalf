@@ -1,14 +1,14 @@
 # BaseHalf AI Video
 
 BaseHalf AI Video is built into BaseHalf. It holds the model catalog and the
-video provider integrations of the Video node, contributes a starter video
-workflow, and plays an ordered Sequence of clips. The Video node itself (its
-file, its inputs, the panel, the card, a generation, and the Video Providers
-page) belongs to the window, which draws everything from the catalog this
-extension answers; see the
-[video providers specification](../../../docs/specs/video-providers.md) (D59),
-the [video node specification](../../../docs/specs/video-node.md), and the
-[domain contract](docs/product-contract.md).
+provider integrations of image and video generation cards, contributes a
+starter video workflow, and plays an ordered Sequence of clips. The
+generation cards themselves (their files and generation information, drafts,
+inputs, the panel, the card, a generation, and the Providers page) belong to
+the window, which draws everything from the catalog this extension answers;
+see [providers and the model catalog](../../../docs/specs/providers.md) (D59,
+D64), [generation cards](../../../docs/specs/generation-cards.md) (D63), and
+the [domain contract](docs/product-contract.md).
 
 ## Video providers
 
@@ -87,7 +87,7 @@ What every provider gets from the framework:
 ### Adding a provider module
 
 1. Read the provider's official documentation and write its section under
-   "Providers" in the video providers specification first: regions,
+   "Providers" in the providers specification first: regions,
    credentials, models with their ids per region, modes with their inputs and
    limits, every parameter, the rules between parameters, endpoints, the
    request mapping, task states, where the video is, cancellation, and the
@@ -132,24 +132,24 @@ parameter properties, namespaces).
 
 | Provider | Module | Specification |
 | --- | --- | --- |
-| ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/video-providers/bytedance.md) |
-| Kling | `kling.ts` | [Kling](../../../docs/specs/video-providers/kling.md) |
-| Alibaba Cloud Model Studio (Wan and HappyHorse) | `alibaba.ts` | [Alibaba (Wan)](../../../docs/specs/video-providers/alibaba.md) |
-| MiniMax (Hailuo and H3) | `minimax.ts` | [MiniMax (Hailuo)](../../../docs/specs/video-providers/minimax.md) |
-| Vidu | `vidu.ts` | [Vidu](../../../docs/specs/video-providers/vidu.md) |
-| Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/video-providers/google.md) |
-| PixVerse | `pixverse.ts` | [PixVerse](../../../docs/specs/video-providers/pixverse.md) |
-| Luma | `luma.ts` | [Luma](../../../docs/specs/video-providers/luma.md) |
-| Runway | `runway.ts` | [Runway](../../../docs/specs/video-providers/runway.md) |
-| xAI (Grok Imagine) | `xai.ts` | [xAI (Grok Imagine)](../../../docs/specs/video-providers/xai.md) |
-| LTX | `ltx.ts` | [LTX](../../../docs/specs/video-providers/ltx.md) |
-| Black Forest Labs (FLUX) | `bfl.ts` | [Black Forest Labs (FLUX)](../../../docs/specs/video-providers/bfl.md) |
+| ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/providers/bytedance.md) |
+| Kling | `kling.ts` | [Kling](../../../docs/specs/providers/kling.md) |
+| Alibaba Cloud Model Studio (Wan and HappyHorse) | `alibaba.ts` | [Alibaba (Wan)](../../../docs/specs/providers/alibaba.md) |
+| MiniMax (Hailuo and H3) | `minimax.ts` | [MiniMax (Hailuo)](../../../docs/specs/providers/minimax.md) |
+| Vidu | `vidu.ts` | [Vidu](../../../docs/specs/providers/vidu.md) |
+| Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/providers/google.md) |
+| PixVerse | `pixverse.ts` | [PixVerse](../../../docs/specs/providers/pixverse.md) |
+| Luma | `luma.ts` | [Luma](../../../docs/specs/providers/luma.md) |
+| Runway | `runway.ts` | [Runway](../../../docs/specs/providers/runway.md) |
+| xAI (Grok Imagine) | `xai.ts` | [xAI (Grok Imagine)](../../../docs/specs/providers/xai.md) |
+| LTX | `ltx.ts` | [LTX](../../../docs/specs/providers/ltx.md) |
+| Black Forest Labs (FLUX) | `bfl.ts` | [Black Forest Labs (FLUX)](../../../docs/specs/providers/bfl.md) |
 
 ## Sequence
 
-Each shot folder can carry a small `shot.json` with a stable id, title, and
-primary clip-node path. `video-sequence.json` is an ordinary, readable project
-file:
+Each shot folder can carry a small `shot.json` with a stable id, a title, and
+the path of its clip, the shot's video card. `video-sequence.json` is an
+ordinary, readable project file:
 
 ```json
 {
@@ -159,41 +159,45 @@ file:
     {
       "id": "shot-01",
       "title": "Opening",
-      "nodeId": "clip-node-01",
-      "videoNodePath": "shots/shot-01/clip.bhnode"
+      "videoPath": "shots/shot-01/clip.mp4",
+      "generationId": "20261019T080000-k3f9"
     }
   ]
 }
 ```
 
 `clipNodePath` in a Shot document is relative to the directory containing that
-`shot.json`. `videoNodePath` in a Sequence item is relative to the directory
-containing `video-sequence.json`. Each item stores a readable path and stable
-node identity. The referenced file must be a Video node that holds a video
-whose file exists. The item order is playback order.
+`shot.json` and names the shot's video card, a draft until it generates.
+`videoPath` in a Sequence item is relative to the directory containing
+`video-sequence.json` and names a video file. For a video that BaseHalf
+generated, `generationId` is the `id` of its `made.yaml`. An item is
+available when its path is a video file and, when it has a `generationId`,
+that file's `made.yaml` has that `id`; otherwise it shows as missing or
+changed. The item order is playback order.
 
-A node's video never changes: generating again makes a new node beside it. To
-replace a clip in playback order, remove the old item and add the new node.
+A generated video never changes: generating again makes a new card beside
+it. To replace a clip in playback order, remove the old item and add the new
+video. Deleting a video changes no Sequence; its item shows as missing.
 
 Open `video-sequence.json` in Card Detail to inspect and play its saved order.
 Clicking a clip plays it, **Play all** advances when each clip ends, and row
-actions open the node, move it earlier or later, repair a moved path, or
+actions open the video, move it earlier or later, repair a moved path, or
 remove it from playback order. Sequence does not trim, transition, mix, or
 render a final movie.
 
 The matching Command Palette actions are the Agent, keyboard, and accessibility
 fallback for the same operations:
 
-- **BaseHalf: Show Video Sequence Status…** checks every path, stable node id,
-  and video file.
-- **BaseHalf: Add Video Result to Sequence…** appends one node that holds a
-  video.
+- **BaseHalf: Show Video Sequence Status…** checks every path, video file,
+  and `generationId`.
+- **BaseHalf: Add Video Result to Sequence…** appends one video card with its
+  file, and the `id` of its `made.yaml` when it has one.
 - **BaseHalf: Move Video Sequence Clip…** moves one item earlier or later.
 - **BaseHalf: Remove Video Sequence Clip…** removes only the playback-order
-  reference and keeps the node and its video.
-- **BaseHalf: Repair Moved Video Sequence Clip…** changes only a missing saved
-  path after a bounded scan finds one node with the same identity that holds a
-  video.
+  reference and keeps the video.
+- **BaseHalf: Repair Moved Video Sequence Clip…** updates only the path of an
+  item after a bounded scan finds the one video whose `made.yaml` has the
+  item's `generationId`.
 
 Extension-based Agents can call the same commands with structured arguments:
 
@@ -207,7 +211,7 @@ await vscode.commands.executeCommand(
   'pointa.basehalf-ai-video.addSequenceItemFromVideoResult',
   {
     sequence,
-    videoNode: vscode.Uri.file('/project/video/shots/shot-01/clip.bhnode'),
+    video: vscode.Uri.file('/project/video/shots/shot-01/clip.mp4'),
     itemId: 'shot-01',
     title: 'Opening'
   },
@@ -218,9 +222,10 @@ await vscode.commands.executeCommand(
 
 Run **BaseHalf: Create Video Workflow…** to make the starter workflow in the
 current folder: a brief, a script, and a first shot with a plan, a sound plan,
-an empty Video node, and `shot.json`, plus an empty Sequence. The two notes of
-the shot are connected to its Video node, so their text joins its prompt. The
-template contains no credentials, tasks, results, or outputs.
+a video draft, and `shot.json`, plus an empty Sequence. The two notes of the
+shot are connected to its video draft, so their text joins its prompt, and
+they keep the shot folder in git. The template contains no credentials, task
+records, or generated files.
 
 ## Development
 
@@ -242,7 +247,7 @@ node --experimental-strip-types scripts/basehalf-video-mock-provider.mts --port 
 ```
 
 It prints its base URL, `http://127.0.0.1:8123/api/v3`, to enter as the
-ByteDance endpoint in Video Providers with that key. A task is queued for a
+ByteDance endpoint in Providers with that key. A task is queued for a
 third of `--seconds`, then runs, then succeeds with a small MP4 served
 without a key. `DELETE` cancels a queued task. `--fail
 key|reject|task|expire|drop|slow` makes every request fail that way; a prompt

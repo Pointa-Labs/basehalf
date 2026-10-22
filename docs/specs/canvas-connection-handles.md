@@ -93,9 +93,10 @@ Not in scope, and unchanged:
   ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
   With `window.menuStyle: native`, the OS closes the menu before the window is
   told, and the line goes as soon as the close is reported.
-- After an item is chosen, the line stays until the new node's edge is drawn,
-  and the edge replaces it. If no new edge from the source appears within
-  2 seconds, because the create failed or was refused, the line is removed.
+- After an item is chosen, the line stays until the edge of the new note or
+  draft is drawn, and the edge replaces it. If no new edge from the source
+  appears within 2 seconds, because the create failed or was refused, the
+  line is removed.
 
 ## Acceptance criteria
 
@@ -114,5 +115,5 @@ Not in scope, and unchanged:
    open, from the source handle to the release point, at 40% and 100% zoom on
    a panned canvas. Escape, or a click on empty canvas, removes it in the same
    frame as the menu. Choosing an item keeps it until exactly one edge
-   from the source to the new node is drawn in its place.
+   from the source to the new note or draft is drawn in its place.
 5. The smoke covers criteria 1, 3, and 4.

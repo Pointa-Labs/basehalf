@@ -24,7 +24,7 @@ per feature:
 | `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/`, `snap/`, and `tidy/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
 | `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5 |
 | `agentArea/` | The Agent Area, its terminal, the agent skill, and the selection agents can see | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
-| `video/` | The Video node, its `.bhnode` file, and the video providers | [Video node](../specs/video-node.md), [video providers](../specs/video-providers.md) |
+| `video/` | Generation cards of images and videos: their drafts and generation information, the task records, the model catalog as the window receives it, the providers' settings, and the Providers page | [Generation cards](../specs/generation-cards.md), [providers and the model catalog](../specs/providers.md) |
 | `plugins/` | The frozen plugin platform, the extension points that AI Video uses, and the extension allowlist | [Built-in AI Video and the frozen plugin platform](../specs/built-in-ai-video-and-plugin-freeze.md) |
 
 Inside a feature folder, files are in VS Code's layer folders: `common/`,
@@ -92,10 +92,11 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 - `canvas/` is the core: the model and its layout file, the view and its
   lifecycle, rendering, and the services that features use.
 - A canvas feature, such as the zoom controls, the badge editor, note editing
-  on a card, the Video panel, selection and arrangement, connections, or
-  tidying, is a class registered with `registerBaseHalfCanvasContribution` in
-  its own folder `canvasContrib/<feature>/`, with its own layer folders, tests,
-  and stylesheets. The canvas view creates each registered feature once,
+  on a card, the panel of a generation card, selection and arrangement,
+  connections, or tidying, is a class registered with
+  `registerBaseHalfCanvasContribution` in its own folder
+  `canvasContrib/<feature>/`, with its own layer folders, tests, and
+  stylesheets. The canvas view creates each registered feature once,
   through dependency injection, and hands it `IBaseHalfCanvasView`
   (`canvas/browser/basehalfCanvasExtensions.ts`): what a feature may read and
   do of the canvas. A feature uses nothing else of the view. When a feature
@@ -162,9 +163,9 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
   and the sideways scrollbar in `shell/browser/media/`. None depends on the
   order they load in.
 - Next: parts that are features of their own move on into `canvasContrib/`,
-  in the order of how often their code changed: the Video cards and their
-  actions, connections, creating cards, the badge editor, Card Detail, and
-  note editing.
+  in the order of how often their code changed: the generation cards and
+  their actions, connections, creating cards, the badge editor, Card Detail,
+  and note editing.
 - On 2026-10-20, 75 of VS Code's files carried BaseHalf changes, most of them
   unmarked. They are marked, or replaced by an extension point, when their
   subsystem is next ported from a newer VS Code, not in a pass of their own.

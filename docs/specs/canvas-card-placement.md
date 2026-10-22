@@ -219,8 +219,11 @@ fourth: it goes where the user pointed
 
 1. **Size.** The size at which a card of its kind is drawn when it is new:
    300 × 220 for a file, 248 × 188 for a folder, and 720 × 405 for a video
-   node. BaseHalf chooses the place when it knows the size. For a node file
-   it reads the kind of the node first.
+   generation card, a draft or one with its file. An image generation card
+   has the size of a file. BaseHalf chooses the place when it knows the size.
+   For a video it looks for its generation information first; the kind of a
+   draft comes from its extension
+   ([generation cards](generation-cards.md#terms)).
 2. **Place.**
    - The user pointed at it: the pointed place,
      [as it is](#a-pointed-place-is-taken-as-it-is).
@@ -336,7 +339,8 @@ group whose slot is taken.
 | Create a card from a connection line | pointed: the side of the new card that the line enters is centered on the point where the line was released |
 | Create a card without a point: the Create button, or a keyboard command | computed: the middle of the visible part of the canvas |
 | Create a note from a selection in a PDF | computed: beside the PDF's card |
-| Generate from a Video node that holds a video, in the window or with `basehalf --run-node` | computed: 40 to the right of the original card, for the new node ([Video node](video-node.md#generating-again)) |
+| Generate from a generation card that has its file, in the window or with `basehalf --generate` | computed: 40 to the right of the original card, for the new draft ([generation cards](generation-cards.md#generating-again)) |
+| Generate several images at once | computed: the drafts of the further images in a row to the right of the card the generation runs on, each 40 to the right of the one before ([generation cards](generation-cards.md#several-images-from-one-generation)) |
 | Drop, paste, or move files and folders onto the canvas at a point | for the item at position *i* of *n*: slot *i* of a block of cells that starts at the point and has as many columns as the square root of *n*, rounded up, and at most 4 |
 | Anything else: a file that a program or an agent adds, a card that is dragged onto a folder card, a move in the file tree, a move outside BaseHalf | none |
 
@@ -380,8 +384,8 @@ was at the end of the canvas, outside the window, and could not be clicked.
 - Undo of a drag or a resize puts the row back as it was, a chosen row
   included.
 - Files and folders that the user drops or pastes at a point get the size of
-  their kind, which for a node file is read first. A card that is moved to
-  that point from another folder keeps the size it had.
+  their kind ([When a card appears](#when-a-card-appears)). A card that is
+  moved to that point from another folder keeps the size it had.
 
 ### A row follows its item
 
@@ -452,9 +456,16 @@ also when the item was moved outside BaseHalf.
   file that a tool is rewriting at that moment. BaseHalf looks at each such
   path again by itself, when it draws and once more before it writes.
 - **A move that is held back keeps its row.** A file that is renamed while
-  it has unsaved changes, or a node that is running, is followed later
+  it has unsaved changes is followed later
   ([following moved items](following-moved-items.md#relocation)). Its row
   waits for it.
+- **A draft is an item.** A path that holds a draft is present: a draft has
+  a row like any card, and its row is never removed as the row of an item
+  that is gone
+  ([generation cards](generation-cards.md#drafts-and-missing-files)).
+  Deleting the draft removes its row. A generation card whose generated file
+  is gone is not a draft but a missing file, and its row follows the rules
+  of this section like that of any item that is gone.
 - **Its place is open in the drawing that removes it.** A card that appears
   in the same drawing can take it.
 - A row of the user's whose item is gone stays, as before. An item that is
@@ -748,8 +759,8 @@ written with this document.
    - The user's cards are spread wider than five cells: the rows of new
      cards are that wide.
    - The user's cards leave an empty stretch between them: it stays empty.
-   - The last card is a video node: the next card is 40 to the right of it,
-     and a new row starts 60 below it.
+   - The last card is a video generation card: the next card is 40 to the
+     right of it, and a new row starts 60 below it.
 8. **Computed.** A card created with the Create button is in the middle of
    the visible part of the canvas when it is open there. When the middle is
    taken, it is at the nearest open place. When the visible part of the
@@ -801,7 +812,9 @@ written with this document.
 22. **More than 300.** A folder with 320 files gets 300 rows. A file added
     then gets no card. After one shown file is deleted, the first file
     without a card gets one, at the end.
-23. **A video node** that appears gets a row of 720 × 405.
+23. **A generation card** that appears, a draft or one with its file, gets a
+    row of 720 × 405 for a video and 300 × 220 for an image. A draft's row
+    stays while the draft is there.
 24. **Case only.** On a volume that ignores letter case, a file whose name
     changes only in case keeps its row, and no second row is written.
 25. **Nothing else.** Showing canvases writes only `canvas.yaml` files under

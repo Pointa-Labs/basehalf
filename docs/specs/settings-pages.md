@@ -1,14 +1,17 @@
 # BaseHalf's pages in Settings
 
-Status: Active (2026-10-21)
+Status: Active (2026-10-21; the Video Providers page is Providers since
+2026-10-22, D64)
 Decisions: [D49](../decisions.md#d49--the-state-of-an-update-is-a-page-in-settings-not-a-card-new-2026-10-12)
-put the About page in Settings, and
+put the About page in Settings,
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-the Video Providers page.
-Related: [video providers](video-providers.md#credentials-regions-and-endpoints)
-(what the Video Providers page holds), [app update](app-update.md#where-an-update-shows)
-(what the About page holds), [Video node](video-node.md#the-panel) (Set Up and
-Video Providers… of the panel)
+the Video Providers page, and
+[D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+renamed it Providers.
+Related: [providers](providers.md#credentials-regions-and-endpoints)
+(what the Providers page holds), [app update](app-update.md#where-an-update-shows)
+(what the About page holds), [generation cards](generation-cards.md#the-panel)
+(Set Up and Providers… of the panel)
 
 This specification owns the BaseHalf group of the Settings table of contents,
 the pages BaseHalf draws there, how Settings opens at a page, and what
@@ -17,7 +20,8 @@ specification linked above.
 
 ## Problem
 
-Measured in the real window on 2026-10-21:
+Measured in the real window on 2026-10-21, when the Providers page was
+called Video Providers:
 
 - **Set Up flashed another page.** Settings opened on Commonly Used and
   switched to Video Providers 20 to 35 ms later, two to four frames, every
@@ -54,13 +58,13 @@ Measured in the real window on 2026-10-21:
   the middle of the window, unless `workbench.editor.useModal` is `off`; then
   it opens in the editor area, where it keeps its place between openings.
 - **Page**: a part of Settings that BaseHalf draws in place of a list of
-  settings: **Video Providers** and **About**.
+  settings: **Providers** and **About**.
 - **Table of contents**: the list of groups at the left of Settings.
 
 ## The BaseHalf group
 
 The table of contents has a group **BaseHalf**. It lists BaseHalf's settings
-by area, each area that has settings, and then the pages Video Providers and
+by area, each area that has settings, and then the pages Providers and
 About:
 
 | Entry | Holds |
@@ -68,7 +72,7 @@ About:
 | Editor | `basehalf.editor.*` |
 | Canvas | `basehalf.canvas.*` |
 | Agent Area | `basehalf.agent.*` and `basehalf.agents.*` |
-| Video Providers | the page ([video providers](video-providers.md#credentials-regions-and-endpoints)) |
+| Providers | the page ([providers](providers.md#credentials-regions-and-endpoints)) |
 | About | the page ([app update](app-update.md#where-an-update-shows)) |
 
 - Every BaseHalf setting is in exactly one area, and every area holds a
@@ -92,10 +96,10 @@ About:
 
 ## Opening Settings at a page
 
-These open Settings at a page: **Set Up** and **Video Providers…** of the
-Video panel and its model menu, the command **Video Providers** (also in the
+These open Settings at a page: **Set Up** and **Providers…** of the panel of
+a generation card and its model menu, the command **Providers** (also in the
 Preferences part of the application menu), and the command **About
-BaseHalf**. Video Providers opens at a provider when one is given.
+BaseHalf**. Providers opens at a provider when one is given.
 
 - **The first frame shows the page.** Settings never shows another page or a
   list of settings before it, and the overlay never shows an empty body.
@@ -136,7 +140,7 @@ BaseHalf**. Video Providers opens at a provider when one is given.
   pages, from the id of a page's entry to the page.
 - `ISettingsEditorOptions.customSection` in
   `services/preferences/common/preferences.ts`: opening Settings at a page,
-  with what the page should show (for Video Providers, a provider). The
+  with what the page should show (for Providers, a provider). The
   option travels with the opening, as the base's own `query` does, so the
   first drawing of Settings already holds the page.
 - `contrib/preferences/browser/settingsEditor2.ts`: shows a page in place of
@@ -148,14 +152,13 @@ BaseHalf**. Video Providers opens at a provider when one is given.
 
 ## Acceptance criteria
 
-1. Set Up of the Video panel, the command Video Providers, and the command
-   About BaseHalf open Settings at the page, in the overlay and in the
-   editor area: sampled every frame in the real window from the click on, no
-   frame shows Settings with another entry selected, with the settings
-   list, or without the page.
-2. With a search typed in Settings, Video Providers from the application
-   menu shows the page with an empty search box and the page's entry
-   selected.
+1. Set Up of the panel of a generation card, the command Providers, and the
+   command About BaseHalf open Settings at the page, in the overlay and in
+   the editor area: sampled every frame in the real window from the click
+   on, no frame shows Settings with another entry selected, with the
+   settings list, or without the page.
+2. With a search typed in Settings, Providers from the application menu
+   shows the page with an empty search box and the page's entry selected.
 3. With Settings in the editor area, closing it on a page and opening it
    again shows that page.
 4. Switching User and Workspace while a page is shown keeps the page, the
@@ -177,6 +180,6 @@ BaseHalf**. Video Providers opens at a provider when one is given.
   (`shell/test/browser/basehalfSettingsLayout.test.ts`); a page is an entry
   of the table of contents and no heading of the settings list
   (`settingsCustomSections.test.ts`).
-- The smoke: Settings opens at Video Providers from its command and from Set
-  Up (`areas/workbench/settings.mts`, `areas/video/videoNode.mts`). The smoke
+- The smoke: Settings opens at Providers from its command and from Set Up
+  (`areas/workbench/settings.mts`, `areas/video/videoNode.mts`). The smoke
   runs Settings in the editor area.

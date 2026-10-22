@@ -2,8 +2,8 @@
 
 Status: Active (2026-10-19)
 Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-Related: [Video providers and the model catalog](../video-providers.md),
-[Video node](../video-node.md#a-generation)
+Related: [Providers and the model catalog](../providers.md),
+[generation cards](../generation-cards.md#a-generation)
 
 This specification owns the MiniMax provider of the catalog: its regions,
 the models it declares with each one's modes, inputs, limits, and
@@ -11,7 +11,7 @@ parameters, and how its requests are made and its tasks read.
 It is implemented in
 `vscode-base/extensions/basehalf-ai-video/src/providers/minimax.ts`; the
 contract every provider follows is in
-[video providers and the model catalog](../video-providers.md).
+[providers and the model catalog](../providers.md).
 
 ## Sources
 
@@ -90,7 +90,7 @@ lists the same names.
   least one input and at most 12 together, used in that order. MiniMax never
   mixes frames and references in one request; the two modes keep them apart.
 - Images, in both modes: PNG, JPEG, or WebP (MiniMax also takes HEIC and
-  HEIF, which a Video node does not take as images), 256 to 5760 px on each
+  HEIF, which a generation card does not take as images), 256 to 5760 px on each
   side, 0.4 to 2.5 in width over height, at most 30 MiB. MiniMax writes MB:
   a file's size is read as MiB, and the whole request's as 64,000,000 bytes
   ([Requests](#requests)).
@@ -116,7 +116,7 @@ lists the same names.
 ## Parameters
 
 A parameter that every provider shares takes the catalog's shared name and
-values ([video providers, Parameters](../video-providers.md#parameters)), so
+values ([providers, Parameters](../providers.md#parameters)), so
 that choosing another model keeps it; the others are named as MiniMax's
 fields. The request maps each to MiniMax's field and value
 ([Requests](#requests)).
@@ -253,7 +253,7 @@ success; any other code is an error, read as follows:
 | 2013 | invalid parameters | `rejected`; for a query, `notFound` (its one parameter is the task id) |
 | any other | | `rejected` |
 
-- An HTTP error maps by its status as [Requests](../video-providers.md#requests)
+- An HTTP error maps by its status as [Requests](../providers.md#requests)
   says; the codes and the V2 error types (`authorized_error`,
   `rate_limit_error`, `insufficient_balance_error`) refine a 4xx answer only,
   never 408 or 5xx, so a create answered by a server error keeps its unknown

@@ -1,7 +1,9 @@
 # Canvas card name
 
-Status: Active (2026-10-13; the name of a note revised the same day for D55)
-Decision: [D55](../decisions.md)
+Status: Active (2026-10-13; the name of a note revised the same day for D55;
+a generation card's name is its file's name, 2026-10-22 for D63)
+Decisions: [D55](../decisions.md),
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
 Related: [canvas selection and arrangement](canvas-selection-and-arrangement.md)
 (what a card of a set answers),
 [canvas card interaction continuity](canvas-card-interaction-continuity.md),
@@ -63,8 +65,6 @@ Not in scope, and unchanged:
 - The Files view, Search, and Quick Open. They list files and show file
   names.
 - F2, and Rename in the toolbar and the menu.
-- The title of a video card. It is kept inside the card's document and is
-  changed in the card's own surface.
 - The title of Card Detail and its Rename button.
 
 ## Terms
@@ -76,7 +76,9 @@ Not in scope, and unchanged:
 - **File name**: the name of the item on disk.
 - **Name**: what BaseHalf shows for an item where it names the item. For a
   note it is the file name without its extension. For every other file and
-  for every folder it is the file name.
+  for every folder it is the file name, a generated image or video included.
+  For a draft it is the name its file will have
+  ([generation cards](generation-cards.md#the-card)).
 - **Name target**: the element that shows the name. It is as wide as the
   text it shows. A name that is longer than the room of the caption is cut
   with an ellipsis, and the name target then ends where the room ends. The
@@ -155,16 +157,15 @@ shown there without the ending. Everywhere else such a folder keeps it.
 ### Which names can be changed in place
 
 The name of a card can be changed in place when the name is the card's file
-name and the file is there: a note, another file, a folder.
+name and the file is there: a note, another file, a folder, and a generation
+card with its file. The name of a draft can be changed in place too: it is
+the name its file will have, and renaming the draft moves its card
+information and its row to the new name
+([generation cards](generation-cards.md#moving-renaming-copying-and-undo)).
 
-It cannot be changed in place on:
-
-- **A video card.** Its name is the title inside the card's document.
-  Renaming the card changes only the path of that document, and the caption
-  would show the same title afterwards.
-- **A card whose file is missing.** There is nothing to rename.
-
-On these two the name target behaves as the rest of the caption does.
+It cannot be changed in place on a card whose file is missing and that is
+not a draft: there is nothing to rename. On such a card the name target
+behaves as the rest of the caption does.
 
 ### The pointer
 
@@ -174,8 +175,9 @@ text cursor. Over the rest of the caption it is as before.
 Two states come first:
 
 - While a card is dragged, the pointer is the drag cursor, also over a name.
-- While a video card waits for the user to pick an input, the pointer over
-  a card is the cursor of the pick, also over its name.
+- While a generation card waits for the user to pick an input (**Pick on
+  Canvas**), the pointer over a card is the cursor of the pick, also over its
+  name.
 
 ### Input on the name target
 
@@ -237,6 +239,12 @@ its text does not stand where the name stood.
 - For another file it holds the file name, and the part before the
   extension is selected. For a folder and for a file without an extension
   the whole name is selected.
+- For a draft it holds the name its file will have, and the part before the
+  extension is selected, as for another file. A draft keeps its kind, so a
+  name that does not end with an extension of that kind cannot be used
+  ([generation cards](generation-cards.md#terms)): for an image draft `.png`,
+  `.jpg`, `.jpeg`, `.webp`, `.gif`, `.avif`, or `.bmp`, and for a video draft
+  `.mp4`, `.mov`, `.m4v`, or `.webm`.
 - It has the keyboard when it opens, whichever way it was opened. What the
   user types next replaces the selected part.
 - The title of Card Detail is renamed by the same rules, in its own input.
@@ -248,12 +256,14 @@ its text does not stand where the name stood.
 - **No card is selected while a name is edited**, whichever way the editor
   was opened. F2 and Rename open it for a card that is selected: that
   selection ends when the editor opens.
-- **Enter** renames the file. Afterwards no card is selected, and the canvas
+- **Enter** renames the file, or, for a draft, moves its card information
+  and its row to the new name. Afterwards no card is selected, and the canvas
   has the keyboard, as after Escape. A
   name that was not changed closes the editor and renames nothing. A name
   that cannot be used keeps the editor open and shows why: an empty name, a
   name with a path separator, a name the file system does not take, the
-  name of another item of the folder.
+  name of another item of the folder, a draft included
+  ([generation cards](generation-cards.md#creating-a-generation-card)).
 - **Escape** closes the editor. Nothing is renamed.
 - **A press outside the editor** renames when the name can be used. When it
   cannot, the editor closes and nothing is renamed. What the press lands on
@@ -335,7 +345,7 @@ card.
    the glyph of a folder enters the folder.
 9. A press on a name that moves more than the drag distance moves the card
    and opens no editor.
-10. On a video card and on a card whose file is missing, the cursor over
+10. On a card whose file is missing and that is not a draft, the cursor over
     the name is not `text`, and a double click on the name does what a
     double click on the glyph does.
 11. In a set, a double click on a name changes nothing.
@@ -360,6 +370,12 @@ card.
     there, a double click selects a word, and a secondary click changes
     nothing. After each of them the editor has the keyboard, no card is
     selected, and no toolbar or menu is shown.
+27. A double click on the name of a draft, `video.mp4`, opens the editor
+    with `video` selected. Enter with `shot` moves the draft to `shot.mp4`:
+    its card keeps its place, its prompt, and its connections. A name that
+    ends with `.png`, and the name of another draft of the folder, are not
+    accepted for it. On a generation card with its file, Enter renames the
+    file.
 
 The name that is shown
 
@@ -410,8 +426,11 @@ The editor in place
   the code before this change the step fails at its first editor: no
   keyboard and nothing selected.
 - Criteria 3, 9, and 11 were measured in a development window on a
-  disposable workspace: see below. The two cards of criterion 10 follow
-  from the unit test and were not driven.
+  disposable workspace: see below. The card of criterion 10 follows from the
+  unit test and was not driven.
+- Criterion 27 is part of criterion 5 of
+  [generation cards](generation-cards.md#acceptance-criteria), whose smoke
+  renames a draft on the canvas.
 
 ### Seen in the real window (2026-10-13)
 
@@ -495,5 +514,7 @@ rewritten.
 - **The name in a sentence.** A question before a delete and the name of a
   step of undo say the file name, so a note is `plan.md` there and `plan`
   on its card. Whether they say the name is open.
-- **Changing the title of a video card in place.** It needs a write to the
-  card's document that does not collide with the card's own surface.
+
+The title of a video card, which was kept inside the card's document, is
+gone: since D63 the name of a generation card is its file's name, and it is
+changed in place like any other.

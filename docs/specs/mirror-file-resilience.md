@@ -1,9 +1,11 @@
 # Mirror file reading, writing, and recovery
 
-Status: Active (2026-10-10)
-Decision: [D40](../decisions.md#d40--mirror-metadata-never-blocks-the-user-new-2026-10-10)
+Status: Active (2026-10-10; `generation.yaml` and `made.yaml` added
+2026-10-22 for D63)
+Decisions: [D40](../decisions.md#d40--mirror-metadata-never-blocks-the-user-new-2026-10-10),
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
 Related: [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
-[reference graph](reference-graph.md)
+[reference graph](reference-graph.md), [generation cards](generation-cards.md)
 
 ## Problem
 
@@ -35,9 +37,9 @@ where a description or keyword such as `2024` or `true` had the same effect.
 
 ## Non-goals
 
-- `upstream.yaml` and the `upstream` keys of Markdown and `.bhnode` files.
-  They are reference truth: unreadable and invalid entries stay visible issues
-  that only the user repairs ([reference graph](reference-graph.md)).
+- `upstream.yaml` and the `upstream` key of Markdown files. They are
+  reference truth: unreadable and invalid entries stay visible issues that
+  only the user repairs ([reference graph](reference-graph.md)).
 - `appearance.yaml`, which has its own one-line grammar.
 - Following items that are moved outside BaseHalf. That is specified in
   [following moved items](following-moved-items.md), which relocates mirror
@@ -47,15 +49,20 @@ where a description or keyword such as `2024` or `true` had the same effect.
 
 ## Terms
 
-- **Mirror file**: `canvas.yaml`, `badge.yaml`, or `adhd.yaml` under
-  `.bh/mirror/`.
+- **Mirror file**: `canvas.yaml`, `badge.yaml`, `adhd.yaml`,
+  `generation.yaml`, or `made.yaml` under `.bh/mirror/`.
 - **Layout file**: `canvas.yaml`. It holds the place and size of every card
   and edge anchor memory, and it is kept out of git
   ([canvas card placement](canvas-card-placement.md)). BaseHalf rewrites it
   on every card move and when a card appears. A lost row costs one new
   place: its card appears again, at the end of the canvas.
-- **Annotation file**: `badge.yaml` (a description) or `adhd.yaml` (reading
-  aids). The user authored its content.
+- **Annotation file**: `badge.yaml` (a description), `adhd.yaml` (reading
+  aids), or `generation.yaml` (what the next generation of a generation card
+  uses, [generation cards](generation-cards.md#generationyaml)). The user
+  authored its content, in BaseHalf or through an agent.
+- **Record**: `made.yaml`, what made a generated file
+  ([generation cards](generation-cards.md#madeyaml)). BaseHalf writes it
+  once, when the file lands, and never writes it again.
 - **Content failure**: the bytes of a mirror file cannot be read as that
   file: a YAML syntax error, a root that is not a mapping, a `path` that does
   not name the file's node ([The stored path](#the-stored-path)), or a field
@@ -69,8 +76,9 @@ where a description or keyword such as `2024` or `true` had the same effect.
 
 ## Value grammar
 
-`basehalfMirrorYaml.ts` owns the grammar. The three mirror services use it and
-keep no reader of their own.
+`basehalfMirrorYaml.ts` owns the grammar. The canvas, badge, and ADHD mirror
+services and the reader and writer of generation information use it and keep
+no reader of their own.
 
 **Writing.** A string is always written in double quotes with JSON escapes. A
 number is written as plain decimal text.
@@ -112,12 +120,14 @@ that rounds to zero at the written precision is refused before serialization.
 
 ## The stored path
 
-Every mirror file stores the `path` of its node. A file whose stored path
-names another node is a content failure. A stored path that differs from the
-node's path only in letter case or Unicode normalization still names the node:
-the file was found in that node's mirror directory, and this is what a rename
-made outside BaseHalf leaves behind on a file system that ignores those
-differences.
+Every mirror file but `generation.yaml` and `made.yaml` stores the `path` of
+its node; those two store none, because where they are says which card they
+belong to ([generation cards](generation-cards.md#generationyaml)). A file
+whose stored path names another node is a content failure. A stored path
+that differs from the node's path only in letter case or Unicode
+normalization still names the node: the file was found in that node's mirror
+directory, and this is what a rename made outside BaseHalf leaves behind on a
+file system that ignores those differences.
 
 - Such a file is read as the node's own, with no damage and no recovery copy.
 - In a canvas, card rows and edge ends that start with the stored spelling of
@@ -233,16 +243,24 @@ being moved", keeps its text.
 
 ## Annotation files
 
-`badge.yaml` and `adhd.yaml` use the value grammar and the write check. A
-description or keyword that looks like a number, a boolean, or `null` is read
-as the text the user typed.
+`badge.yaml`, `adhd.yaml`, and `generation.yaml` use the value grammar and
+the write check. A description, keyword, or prompt that looks like a number,
+a boolean, or `null` is read as the text the user typed.
+
+`generation.yaml` is read field by field: a field with the wrong shape reads
+as absent and the others are used, and only a file that is not YAML at all,
+such as one with the markers of a git conflict, has a content failure.
+BaseHalf writes only the fields it changes, against the bytes it read
+([generation cards](generation-cards.md#generationyaml)).
 
 ### Reading
 
 Reading an annotation file never fails because of its content. A file with a
 content failure, which includes an incomplete document, reads as a node
-without a description or without reading aids. The description field and the
-reading-aid controls stay usable. Reading changes nothing on disk.
+without a description or without reading aids, or as a generation card
+without a prompt and without settings, which is still a generation card. The
+description field, the reading-aid controls, and the panel of a generation
+card stay usable. Reading changes nothing on disk.
 
 A badge with a content failure is not an issue on its card: the badge editor
 shows the empty description field, and neither the card nor the canvas counts
@@ -262,12 +280,14 @@ file under `.bh/`.
 
 ### Writing over content that could not be read
 
-When the user saves a description, a keyword, or a read mark for a node whose
-annotation file has a content failure, BaseHalf first saves a recovery copy of
-the file, in the same place and under the same rules as for a layout file:
+When the user saves a description, a keyword, a read mark, or a generation
+card's prompt or setting for a node whose annotation file has a content
+failure, BaseHalf first saves a recovery copy of the file, in the same place
+and under the same rules as for a layout file:
 
 `.bh/cache/recovered/mirror/<node path>/badge.<12 hex digits>.yaml`
 `.bh/cache/recovered/mirror/<node path>/adhd.<12 hex digits>.yaml`
+`.bh/cache/recovered/mirror/<node path>/generation.<12 hex digits>.yaml`
 
 It then writes the new file against the exact bytes it read. If the copy
 cannot be written, the annotation file is not changed and the write fails as
@@ -282,7 +302,13 @@ After the write, BaseHalf shows one information notification:
 > one. A copy of the old one is kept.
 
 For reading aids it says "the saved reading aids", "saved new ones", and "A
+copy of the old ones is kept." For a generation card it says "BaseHalf could
+not read the saved prompt and settings of <name>, so it saved the new ones. A
 copy of the old ones is kept."
+
+A `made.yaml` is never written over. One that cannot be read is left as it
+is, byte for byte, and the card shows its file without its record
+([generation cards](generation-cards.md#madeyaml)).
 
 BaseHalf does not replace an annotation file on its own. The replacement
 happens only as part of a write the user asked for.
@@ -310,6 +336,15 @@ disk.
   last saw, so that an item that was moved outside BaseHalf is followed
   before anything of it is marked orphan
   ([following moved items](following-moved-items.md#when-basehalf-compares)).
+- `generation.yaml` and `made.yaml` relocate and retire like `upstream.yaml`
+  ([generation cards](generation-cards.md#deleting)): they move with their
+  item, they are kept on a delete to the trash, and a permanent delete
+  removes them. They store no `path`, so they move byte for byte, also when
+  they cannot be read. Before a permanent delete removes one that cannot be
+  read, BaseHalf saves it as a recovery copy
+  (`.bh/cache/recovered/mirror/<node path>/generation.<12 hex digits>.yaml`
+  or `made.<12 hex digits>.yaml`), so content it cannot read is never
+  destroyed.
 
 A mirror directory that still holds such a file is not pruned.
 
@@ -413,10 +448,19 @@ are logged.
 14. In the product, creating a folder named `09` on a canvas, moving another
     card, and deleting the folder shows no notice or notification, keeps the
     moved card where it was dropped, and removes the folder's row.
+15. A `generation.yaml` with git's conflict markers reads as a generation
+    card without a prompt and settings, and one with a field of the wrong
+    shape keeps its other fields. Saving a prompt over the first saves a
+    recovery copy with the original bytes, writes a readable file, and
+    reports the copy. A `made.yaml` that cannot be read is never written
+    over. The cascade moves both files byte for byte with their item, keeps
+    them on a delete to the trash, and saves a recovery copy of one that
+    cannot be read before a permanent delete removes it.
 
 ## Verification
 
 - Unit tests of `basehalfMirrorYaml`, the canvas, badge, and ADHD mirror
-  services, and the cascade recovery cover criteria 1–10, 12, and 13.
+  services, the reader of generation information, and the cascade recovery
+  cover criteria 1–10, 12, 13, and 15.
 - The BaseHalf smoke covers criteria 11 and 14, and the badge part of
   criterion 10, against its fixture workspace.

@@ -2,7 +2,7 @@
 
 Status: Active (2026-10-19)
 Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-Parent: [Video providers and the model catalog](../video-providers.md)
+Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Luma module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/luma.ts`): the

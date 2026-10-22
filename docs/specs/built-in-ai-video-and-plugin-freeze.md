@@ -36,7 +36,8 @@ Three things were true on 2026-10-11.
 
 - Deleting the plugin platform's code, release tooling, infrastructure
   definitions, or developer packages.
-- How a Video node runs. [Video node](video-node.md) owns it (D58).
+- How a generation card generates an image or a video.
+  [Generation cards](generation-cards.md) owns it (D58, D63, D64).
 - A switch that turns AI Video off (D45).
 - Keeping plugins that earlier builds installed from the catalog running, or
   cleaning them up. The product is not launched; such installs stop running
@@ -55,8 +56,8 @@ Three things were true on 2026-10-11.
   user's extension profile, from the bundled payload or from the catalog.
 - **Admitted.** Allowed to contribute templates, card projections,
   structural cleanups, and agent capabilities. Since D58, AI Video also
-  answers the Video node's provider commands; recipes and model catalogs are
-  gone.
+  answers the provider commands of generation cards; recipes and the
+  reviewed model catalogs that plugins declared are gone.
 - **Plugin surface.** The Plugins item in the Activity Bar, the Plugins page
   in the center, the Manage Plugins command with its menu entry, and links
   that open a plugin.
@@ -72,12 +73,12 @@ Three things were true on 2026-10-11.
    identity anywhere else is not admitted.
 3. On the first start of a fresh profile, with no network and no user action,
    AI Video's starter template, Sequence view, agent capabilities, and the
-   Video node's provider commands are available.
+   provider commands of generation cards are available.
 4. AI Video has the version that the application ships. It has no update,
    restore, enable, disable, or uninstall of its own.
 5. Every way into AI Video works without the plugin surface: the starter
-   template from the canvas, a Video node's panel, the Sequence view from a
-   sequence file, and its commands from the Command Palette.
+   template from the canvas, a generation card's panel, the Sequence view
+   from a sequence file, and its commands from the Command Palette.
 6. The release notes of the release that carries this change say that AI
    Video is built in and that the Plugins library is gone. Since
    [D48](../decisions.md#d48--release-notes-are-written-once-on-the-releases-page-new-2026-10-12)
@@ -133,9 +134,10 @@ Three things were true on 2026-10-11.
 ## Failure and recovery
 
 - **The built-in copy does not load,** for example because the application is
-  damaged. A Video node cannot generate: its generation fails with a message
-  that AI Video could not start and that reinstalling BaseHalf repairs it, as
-  does an unfinished template setup. The rest of BaseHalf works.
+  damaged. A generation card cannot generate: its generation fails with a
+  message that AI Video could not start and that reinstalling BaseHalf
+  repairs it, as does an unfinished template setup. The rest of BaseHalf
+  works.
 - **A profile copy of AI Video has a higher version than the built-in copy.**
   The extension scanner then prefers the profile copy, which is not admitted,
   so AI Video is unavailable as in the case above. No distributed build can
@@ -174,9 +176,10 @@ Services:
 
 ## Compatibility
 
-- Workspaces need no change. Video nodes, sequence files, and results made
-  with any earlier AI Video version stay ordinary local files and open as
-  before.
+- Workspaces need no change. Sequence files, and the videos made with any
+  earlier AI Video version, stay ordinary local files. Since D63 nothing is
+  converted: an earlier `.bhnode` shows as an ordinary file and `outputs/` as
+  an ordinary folder ([generation cards](generation-cards.md#non-goals)).
 - A profile that an earlier build installed AI Video into keeps that copy on
   disk, unused. No profile data is changed or removed.
 - Builds that are already distributed keep reading the registry and keep
@@ -204,8 +207,8 @@ Services:
    it.
 9. No user-visible text names Plugins, installing a plugin, or the catalog.
 10. The promotion workflow has no schedule trigger.
-11. The video node flows of the smoke pass on a fresh fixture profile with no
-    install step.
+11. The generation card flows of the smoke pass on a fresh fixture profile
+    with no install step.
 12. A profile in which an earlier build disabled AI Video starts with it
     enabled.
 
@@ -219,7 +222,7 @@ Services:
   and one that scans every compiled module for an import of the frozen
   surface.
 - The smoke asserts the three Activity Bar items and the missing command, and
-  runs the video node flows on a fresh profile (criteria 3, 4, and 11).
+  runs the generation card flows on a fresh profile (criteria 3, 4, and 11).
 - A packaged macOS arm64 build for criteria 1 and 2:
   `npm run basehalf:plugin:layout-smoke -- --app <application>` checks the
   packaged layout and the packaged product configuration, and the smoke's
@@ -243,15 +246,16 @@ Paths are under `vscode-base/` unless they start with a dot.
 - Packaging: `build/gulpfile.vscode.ts` ships AI Video with the built-in
   extensions and copies no payload folder.
 - No plugin surface: `electron-browser/basehalfPluginPlatform.contribution.ts`
-  loads only the credential store, which keeps the keys of the video
-  providers (D58). The catalog service, the plugin state store, the
+  loads only the credential store, which keeps the keys of the providers
+  (D58, D64). The catalog service, the plugin state store, the
   management service, the Plugins view, the Plugin Library, and the
   contribution that restored the catalog cache and handled plugin links stay
   in the tree and are not loaded.
   `test/node/basehalfPluginPlatformBoundary.test.ts` guards this.
 - Release checks: `scripts/basehalf-plugin-release.mts` refuses a manifest
-  that declares recipes or model catalogs, and a template node with fields
-  other than `path`, `kind`, `title`, and, for a Video node, `prompt` (D58).
+  that declares recipes or model catalogs, and a template draft with fields
+  other than `path` and `prompt` (D58, D63). A template declares no
+  `.bhnode`.
   An activation event must name something the manifest declares, with one
   exception: the official AI Video may activate on the four provider
   commands of the host, which it answers without declaring them.

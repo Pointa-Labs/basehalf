@@ -91,8 +91,8 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, and D45 in
   Markdown links navigate but do not create reference edges. Edges carry no
   relationship prose.
 - `A → B` is stored once, in B's store: the `upstream` frontmatter key of a
-  Markdown file, the `upstream` field of a `.bhnode`, or
-  `.bh/mirror/<path>/upstream.yaml` for any other node. A Markdown note with
+  Markdown file, or `.bh/mirror/<path>/upstream.yaml` for any other node, a
+  draft included. A Markdown note with
   no `upstream` key that cannot take one, or that already has a list in its
   `upstream.yaml`, uses that file as its store (D42). The reverse direction
   is derived in memory and never stored. `canvas.yaml` edge rows are anchor
@@ -170,21 +170,29 @@ The first two points are owned by
 - The shell is fixed. The host owns the sidebar, canvas, navigation,
   reference semantics, node lifecycle, credentials, and Agent Area. AI Video
   adds a template, a file-specific Card Detail projection, structural
-  cleanup, and the Video node's provider commands. This boundary is internal,
-  so both sides may change together. AI Video's project file transitions and
-  structural cleanups may not change any upstream value.
+  cleanup, and the provider commands of generation cards. This boundary is
+  internal, so both sides may change together. AI Video's project file
+  transitions and structural cleanups may not change any upstream value.
 - The initial extension ecosystem is curated around Git, GitHub,
   GitHub Authentication, Codex, and Claude rather than a general marketplace.
 - Workflow output is ordinary local user-owned data. Domain truth does not
-  move into `.bh/mirror/` or an extension-private database.
-- A Video node's inputs are its connections, in the order of its `upstream`
-  list; no role is stored beside them. Its video is one ordinary file under
-  `outputs/`; a node with a video never runs again, and generating from it
-  makes a new node. A generation records its provider task id in the node's
-  file before it waits, never sends a request again by itself, and continues
-  after a restart ([video node](../specs/video-node.md)).
+  move into an extension-private database, and into `.bh/mirror/` only as
+  card information: since D63 the prompt and settings of a generation card
+  and the record of what made its file are card information there, while the
+  generated image or video is an ordinary file in the user's folder.
+- A generation card's file is the card: an ordinary image or video file in
+  the card's folder, under the card's name. Its inputs are its connections,
+  in the order of its `upstream` list; no role is stored beside them. What
+  the next generation uses is its `generation.yaml` and what made its file is
+  its `made.yaml`, card information that follows the file. A draft is a card
+  before its file exists; a card whose generated file is gone is a missing
+  file, never a draft. A card with its file never generates again:
+  generating from it makes a new draft. A generation is recorded on this
+  computer only, under `.bh/cache/`, and followed by one window; it never
+  sends a request again by itself and continues after a restart
+  ([generation cards](../specs/generation-cards.md)).
 
-See public decisions D26–D28, D33, D45, and D58.
+See public decisions D26–D28, D33, D45, D58, D63, and D64.
 [plugin-architecture.md](../plugin-architecture.md) and
 [plugin-development.md](../plugin-development.md) describe the frozen platform
 (D25, D29–D32) and the contribution points that AI Video still uses.

@@ -554,6 +554,11 @@ extension host can run them.
 
 ## D27 — Plugin workflow output is local user-owned data (NEW, 2026-07-12)
 
+> **Revised by D63 (2026-10-22).** What made a generated file, and a draft
+> before its file exists, are card information in `.bh/mirror/`; the
+> generated content itself stays an ordinary file in the user's folder. The
+> rest of D27 stands.
+
 **Decision.** Users and their Agents may explicitly execute plugin workflows.
 Workflow definitions, project files, and generated artifacts are ordinary
 local user files. BaseHalf and official plugins do not retain a BaseHalf-cloud
@@ -817,6 +822,10 @@ descriptions, or the upstream lists of non-Markdown nodes, which live under
 through `basehalf.workspace.move`.
 
 ## D37 — References are stored once, by the downstream node (NEW, 2026-09-27)
+
+> **Revised by D63 (2026-10-22).** No `.bhnode` holds an upstream list any
+> more: every node that is not a Markdown note, a draft included, keeps its
+> list in `.bh/mirror/<path>/upstream.yaml`. The rest of D37 stands.
 
 **Decision.** A reference `A → B` is stored only by B, as B's `upstream` list.
 - A Markdown file keeps the list in YAML frontmatter.
@@ -1101,6 +1110,12 @@ agent started anywhere.
 
 
 ## D44 — A card's information follows its item, whoever moved it (NEW, 2026-10-11)
+
+> **Revised by D63 (2026-10-22).** A card's `generation.yaml` and `made.yaml`
+> are card information, and a draft is an item with card information and no
+> file, which follows a folder that is moved outside BaseHalf. A card that
+> generates is no longer held back from following a move. The rest of D44
+> stands.
 
 **Decision.** An item that anyone renames or moves with ordinary tools keeps
 its card, with no command for agents, no background program, and no question
@@ -1806,6 +1821,13 @@ is different now:
 > built-in provider integrations and their model catalog. The rest of D58
 > stands.
 
+> **Revised by D63 (2026-10-22).** The node file, its task and result, and
+> `outputs/` are replaced: a generated video is an ordinary file that is its
+> card, with its prompt and settings in `generation.yaml` and the record of
+> what made it in `made.yaml` ([generation cards](specs/generation-cards.md)).
+> The inputs in the order of the connections, the panel, and generating again
+> into a new card stand.
+
 **Decision.** A Video node is a `.bhnode` with a prompt, settings, and its
 connections. Its connections are its inputs, in the order of its `upstream`
 list: in frames mode the first image is the start frame and the second the
@@ -1820,7 +1842,7 @@ generation records its provider task id in the node's file as soon as it has
 it, continues after a reload or a restart, and writes its video as an
 ordinary file under `outputs/`. A node with a video never runs again:
 generating from it makes a new node beside it. See
-[video node](specs/video-node.md).
+[video node](specs/generation-cards.md).
 
 **Why.** On 2026-10-14 the user found the Video node confusing and pointed to
 an open-source canvas that does the same job more simply. A study of that
@@ -1875,6 +1897,16 @@ handed over the open choices; this decision records them.
 > **Revised by D61 (2026-10-21).** The estimated price and the currency of
 > each region are removed: BaseHalf shows no price. The rest of D59 stands.
 
+> **Revised by D63 (2026-10-22).** A card keeps `provider`, `model`, `mode`,
+> and `params` in its `generation.yaml`, not in a `.bhnode`, and
+> `host.videoCatalog` becomes `host.modelCatalog`.
+
+> **Revised by D64 (2026-10-22).** The catalog's models have a kind, image
+> or video, OpenAI joins as a provider of image models, and the Video
+> Providers page becomes Providers
+> ([providers and the model catalog](specs/providers.md)). The rest of D59
+> stands.
+
 **Decision.** BaseHalf ships one integration per video provider, on the
 provider's own API, together with a catalog that declares each model exactly:
 the regions that offer it, its modes, the inputs each mode takes and their
@@ -1884,7 +1916,7 @@ the request, the price shown before a run, and what agents read are all drawn
 from that catalog. Users bring their own credentials: one set per provider,
 with a region and an optional endpoint, stored encrypted on the computer. A
 `.bhnode` is version 6 and stores `provider`, `model`, `mode`, and `params`.
-See [Video providers and the model catalog](specs/video-providers.md).
+See [Video providers and the model catalog](specs/providers.md).
 
 **Why.** D58 kept nine models in a table in the window and let users type any
 other model id into a channel. The table decided the settings, how they
@@ -1964,7 +1996,7 @@ Video panel, not on the Video Providers page, and not in what agents read of
 the model catalog. What a generation costs is in the console of the user's
 provider, where the user got the key. Models declare no price lists, regions
 no currency, and `check` answers no price or estimate.
-See [Video providers and the model catalog](specs/video-providers.md).
+See [Video providers and the model catalog](specs/providers.md).
 
 **Why.** On 2026-10-21 the user found the estimate beside Generate of little
 use and decided that users look up their costs on the page where they set up
@@ -1987,6 +2019,12 @@ price change of every provider.
 
 ## D62 — A card's video is the card's picture, and the pointer plays it (NEW, 2026-10-22)
 
+> **Revised by D63 (2026-10-22).** A Video card is the card of a video file
+> in the canvas's own folder, so it opens over that canvas as every file
+> opens over its folder; the special rule for opening a Video card, and the
+> other kinds of node, are gone. The player and its rules stand
+> ([generation cards, "The player"](specs/generation-cards.md#the-player)).
+
 **Decision.** On the canvas, the picture of a video belongs to its card, on
 a Video card and on the card of a video file alike. A click selects the card
 and never starts or stops the video, a drag moves the card, a double click
@@ -1995,7 +2033,7 @@ card plays the video without sound, and leaving the card pauses it. Controls
 drawn by BaseHalf, not the system's, show over the picture while the pointer
 is on the card or the card is selected. Card Detail opened from a Video card
 lies over the canvas the card is on. See
-[Video node, "The player"](specs/video-node.md#the-player).
+[Video node, "The player"](specs/generation-cards.md#the-player).
 
 **Why.** On 2026-10-22 the user found the video card odd: with the grab hand
 a click played or paused the video, and a drag sometimes did not move the
@@ -2016,3 +2054,127 @@ the user had been on.
   which follows its folder when that moves. The file of another kind of node
   still opens over its own folder, where Card Detail actions such as a
   branch from a PDF put what they make; so does a file opened any other way.
+
+## D63 — A generated file is its card (NEW, 2026-10-22)
+
+**Decision.** An image or a video that BaseHalf generates is an ordinary file
+in the card's folder, under the card's name, and that file is the card. What
+the next generation uses (the prompt, the model, and its settings) is the
+card's `.bh/mirror/<path>/generation.yaml`, and the record of the generation
+that made the file is its `made.yaml`, written once; both are card
+information beside its description and its upstream list, and they follow
+the file wherever it moves. A card exists before its file: a draft is a
+`generation.yaml` alone, shown on the canvas, and its file lands under its own
+name. A card whose generated file is gone is a missing file, never a draft
+again. A generation that runs is recorded on the computer that started it,
+under `.bh/cache/`, and only that computer follows and settles it, one window
+at a time. `.bhnode` documents and the `outputs/` tree are removed. See
+[generation cards](specs/generation-cards.md).
+
+**Why.** On 2026-10-21 the user asked why BaseHalf had invented `.bhnode` at
+all: Files showed `video.bhnode` and no video, and the video lay under
+`outputs/<node id>/`, which put an `outputs` folder card beside the Video
+card. Renaming the card changed a title inside the JSON, and Card Detail found
+what made a video by reading every node file beside it. The running task sat
+in the node file, so a teammate who pulled it through git settled a task that
+only the starter's computer could follow, and it failed on theirs. On
+2026-10-22, asked how image generation should store its images, the user chose
+to change videos and images together. The card information that D44 already
+carries along with a file is where a description and an upstream list live;
+a prompt and the record of what made a file are the same kind of thing, and
+git's model keeps unfinished work local.
+
+**What was set aside.**
+- Keeping `.bhnode` and adding image nodes. Faster to build, but Files would
+  show node files instead of images, and a later change would redo two kinds.
+- Writing the prompt and the record into the image's or video's own metadata,
+  as a node-graph tool does with its PNG and MP4 files. A draft has no file to
+  write into, and a file sent to someone else carries its prompt.
+- A placeholder file for a draft. It is another invented file in the user's
+  folder.
+- Keeping the running task in shared card information. Only the computer that
+  started a generation can follow it.
+- One file for the prompt and the record. The panel, agents, and git edit the
+  prompt; a conflict or an agent's rewrite would take the record with it.
+- Offering to generate again when a generated file is missing. A file deleted
+  to the trash, or one a teammate's clone does not have, would look like a draft
+  and be paid for twice.
+
+**Consequences.**
+- Revises D27: what made a generated file, and a draft, live in
+  `.bh/mirror/`; the generated content is an ordinary file in the user's
+  folder.
+- Revises D37: no `.bhnode` holds an upstream list; every node that is not a
+  Markdown note, drafts included, keeps its list in `upstream.yaml`.
+- Revises D58 and D59: the node file, its result, its task, and `outputs/`
+  are replaced. The inputs in the order of the connections, the panel, the
+  catalog, and generating again into a new card stay.
+- Revises D44: `generation.yaml` and `made.yaml` are card information, and a
+  draft is an item with card information and no file, which follows a moved
+  folder. A card that generates is no longer held back from following a move:
+  the move takes its task record along.
+- `made.yaml` records the paths of the notes whose text joined the prompt,
+  never their text, so that git shares no note the user did not commit.
+- The six New Node actions and their empty nodes are removed; a file is put on
+  a canvas by putting it in the folder.
+- `basehalf --run-node` becomes `basehalf --generate`, `host.videoCatalog`
+  becomes `host.modelCatalog`, the extension API `inspectCanvasNode` becomes
+  `inspectGenerationCard`, and Sequence items name video files.
+- The product has not launched: `.bhnode` files and `outputs/` folders that
+  exist are not converted.
+
+## D64 — BaseHalf generates images with the same cards, panel, and providers (NEW, 2026-10-22)
+
+**Decision.** An image is generated the way a video is: a generation card with
+the panel under it, its inputs in the order of its connections, and a model
+from the catalog that BaseHalf ships, run with the user's own key. The catalog
+adds the image models of ten providers that BaseHalf integrates for video
+(ByteDance, Alibaba, Kling, MiniMax, Vidu, Google, Luma, Runway, xAI, and
+Black Forest Labs) and OpenAI as a new provider, and the Video Providers page
+becomes Providers. A ChatGPT subscription is used through the user's own Codex
+in the Agent Area: BaseHalf never reads or forwards a Codex login, and Codex
+is not a model of the panel. See [generation cards](specs/generation-cards.md)
+and [providers and the model catalog](specs/providers.md).
+
+**Why.** On 2026-10-22 the user asked whether image generation should follow
+the products in `reference/`: model setup, model choice, the image card, and
+a Codex login. The open-source canvas sets up channels with a script per model,
+guesses a model's kind from its name, and offers one quality list for every
+model, which is what D59 replaced; its panel and its card follow the canvas
+products for media work that BaseHalf follows. The node-graph product declares
+every image model's parameters exactly, as BaseHalf's catalog does. Ten of the
+twelve video providers sell image models under the same key, so a user who set
+up video gets images without a new key. For the subscription, OpenAI's rules of
+2026-09-29 decide: its Sign in with ChatGPT is open to local and open-source
+apps but does not offer image generation; driving Codex's app-server with the
+user's login is tolerated for local and open-source apps and never for
+commercial ones; and reading Codex's stored login breaks its Terms of Use, and
+because its refresh tokens are single use, another app that refreshes one signs
+the user's Codex out. No reference product reads the login.
+
+**What was set aside.**
+- The open-source canvas's channels, per-model scripts, model kind guessed from
+  the name, and one quality list for every model, for D59's reasons.
+- Codex as a model of the panel through its app-server. OpenAI recommends
+  against it, it makes one image of about 1.57 million pixels whose size,
+  quality, and count cannot be chosen, and its protocol is marked experimental.
+  It can become a provider once Sign in with ChatGPT offers image generation.
+- Reading or refreshing the Codex login.
+- Running a local node-graph tool as a provider. Its "model" is a workflow the
+  user built, which a fixed catalog cannot declare.
+
+**Consequences.**
+- A model of the catalog has a kind, image or video, and a card offers the
+  models of its kind.
+- Provider requests that answer at once with the files (OpenAI, Google,
+  ByteDance, MiniMax) run beside the ones that run as tasks.
+- An image model makes its image from references, or from the prompt alone
+  when it has none, and declares the format it delivers, so that a draft has
+  its final name before it generates. Image parameters such as `quality`,
+  `count`, `background`, and the resolutions `1K`, `2K`, and `4K` join the
+  shared parameter names.
+- A generation of several images makes one card per image before it sends:
+  the canvas products for media work show several results of one node, but a
+  file is a card, and each image is a file.
+- The agent skill says how an agent puts an image it made itself, with its own
+  image generation, onto the canvas.

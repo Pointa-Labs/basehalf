@@ -2,7 +2,7 @@
 
 Status: Active (2026-10-19)
 Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-Parent: [Video providers and the model catalog](../video-providers.md)
+Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Black Forest Labs module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/bfl.ts`): the
@@ -277,7 +277,7 @@ tasks"), a sign to wait for a running task.
 ## What is left out, and why
 
 - **FLUX Video Upscale** (`/v1/flux-tools/video-upscale-v1`): upscaling is
-  not generation ([non-goals](../video-providers.md#non-goals)), and it does
+  not generation ([non-goals](../providers.md#non-goals)), and it does
   not fit Edit, which changes what a clip shows on a prompt: the upscale
   changes the clip's size.
 - **Drafts and Draft Enhance** (`draft`, `mode: "draft_enhance"`): a draft

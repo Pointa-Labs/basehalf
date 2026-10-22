@@ -2,7 +2,7 @@
 
 Status: Active (2026-10-19)
 Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-Parent: [Video providers and the model catalog](../video-providers.md)
+Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the LTX module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/ltx.ts`): the
@@ -318,13 +318,13 @@ A 429 that asks to wait (`Retry-After`) says the wait, as the contract has it.
 
 - **HDR** (`/v2/video-to-video-hdr`): it converts a video to HDR and answers
   EXR frames (`exr_frames_url`), not an MP4: a video tool, not generation
-  ([non-goals](../video-providers.md#non-goals)).
+  ([non-goals](../providers.md#non-goals)).
 - **Reframe** (`/v2/video-to-video-reframe`): it fills a new frame around a
   video, and LTX picks its own model for it (a `model` sent is ignored), so
   it belongs to no catalog model; it reshapes a video rather than making one.
 - **The last frame of audio to video** (`last_frame_uri` there): References
   takes images as references, not frames, and Frames takes no audio
-  ([Video node, Inputs](../video-node.md#inputs)).
+  ([generation cards, Inputs](../generation-cards.md#inputs)).
 - **The retake's `resolution`**: it offers only 1920×1080 and 1080×1920, the
   same size LTX picks from the clip's orientation when none is sent.
 - **HTTPS addresses as inputs**: BaseHalf sends files inline or through

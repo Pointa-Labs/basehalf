@@ -2,7 +2,7 @@
 
 Status: Active (2026-10-19)
 Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-Parent: [Video providers and the model catalog](../video-providers.md)
+Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the PixVerse module of AI Video
 (`vscode-base/extensions/basehalf-ai-video/src/providers/pixverse.ts`): the
@@ -275,7 +275,7 @@ and plan; the console shows it.
   Image-to-Video: not generation of this kind, or not this node's inputs.
 - **Lipsync, Sound Effect, Swap, Video Edit, Motion Control, Restyle, Upscale,
   Image Avatar, and the agents**: editing or other flows
-  ([non-goals](../video-providers.md#non-goals)).
+  ([non-goals](../providers.md#non-goals)).
 - **Negative prompt, motion mode, style, camera movement, and watermark**: no
   create page of 2026-10-19 documents them; a task's answer still carries
   `negative_prompt` and `style`, which the module does not read.

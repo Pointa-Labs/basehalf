@@ -2,15 +2,15 @@
 
 Status: Active (2026-10-19)
 Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-Related: [video providers and the model catalog](../video-providers.md),
-[Video node](../video-node.md)
+Related: [providers and the model catalog](../providers.md),
+[generation cards](../generation-cards.md)
 
 This specification owns the provider module `alibaba` of the AI Video
 extension (`extensions/basehalf-ai-video/src/providers/alibaba.ts`): the Wan
 and HappyHorse video models of Alibaba Cloud Model Studio (DashScope), their
 declarations in the catalog, and the requests that run them.
 Everything the six provider commands do for every provider is owned by
-[video providers and the model catalog](../video-providers.md).
+[providers and the model catalog](../providers.md).
 
 ## Sources
 
@@ -111,7 +111,7 @@ the id the request would be sent with, and `submit` sends exactly that id.
 
 ## Parameters
 
-The shared names of [video providers](../video-providers.md#parameters)
+The shared names of [providers](../providers.md#parameters)
 (`resolution`, `ratio`, `duration`, `sound`, `seed`, `negative_prompt`,
 `prompt_extend`, `watermark`) and Alibaba's own (`shot_type`,
 `audio_setting`). A model declares the union of its tasks' parameters, with
@@ -282,7 +282,7 @@ Every path is under `{endpoint}/api/v1`.
   Wan 2.7 References, and the end frame of Wan 2.7 Extend
   (`first_clip` with `last_frame`): the node's Frames mode takes images only,
   its References mode no frame, and its Extend mode the clip alone
-  ([Video node, Inputs](../video-node.md#inputs)), and a voice belongs to one
+  ([generation cards, Inputs](../generation-cards.md#inputs)), and a voice belongs to one
   reference, which an input cannot say. Wan 3.0 References takes audio.
 - Wan 3.0 `file` and `link` inputs (documents and web pages): a node's inputs
   are images, videos, audio, and text.

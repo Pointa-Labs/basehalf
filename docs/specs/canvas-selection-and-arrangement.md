@@ -237,7 +237,8 @@ The canvas scene has the keyboard focus afterwards.
 Shift held during a marquee changes only where it may begin. The marquee
 replaces the selection. It does not add to it.
 
-No marquee is drawn while a video card waits for the user to pick an input.
+No marquee is drawn while a generation card waits for the user to pick an
+input.
 
 ### A set
 
@@ -355,7 +356,7 @@ with a **Tidy Canvas** button, before Snap to Cards and the zoom control.
 Shift+Alt+F does the same while the keyboard focus is in the canvas and not
 in a place for typing, so also while a button of the canvas has it. The
 button is disabled while the canvas shows fewer than two cards and while a
-video card waits for the user to pick an input.
+generation card waits for the user to pick an input.
 
 **What it moves.** Every card of the canvas that is shown. It does not look
 at the selection, and the selection stays as it is. It never changes a

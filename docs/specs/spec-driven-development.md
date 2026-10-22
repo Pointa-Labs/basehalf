@@ -109,10 +109,13 @@ These services honor the marker:
 - **Migration** of legacy badge pairs does not run
   ([reference graph](reference-graph.md#source-tree-guard)).
 - **Sidecar writes**: BaseHalf writes no `upstream.yaml` and refuses
-  connections whose target needs a sidecar store. An explicitly requested
-  Markdown or `.bhnode` upstream edit is an ordinary user edit; it writes only
-  that store, with no `canvas.yaml` anchor row, no `adhd.yaml`, and nothing
-  else under `.bh/`. The rename refactor always prompts.
+  connections whose target needs a sidecar store, a generation card included.
+  An explicitly requested Markdown upstream edit is an ordinary user edit; it
+  writes only that store, with no `canvas.yaml` anchor row, no `adhd.yaml`,
+  and nothing else under `.bh/`. The rename refactor always prompts.
+- **Generation information**: BaseHalf writes no `generation.yaml`, no
+  `made.yaml`, and no task record, so no draft is created and no card
+  generates there ([generation cards](generation-cards.md)).
 - **Legacy record**: BaseHalf writes no `.bh/legacy-references.yaml`.
 - **Agent launch context**: Agent Area sessions whose workspace has any marked
   folder receive no BaseHalf launch instruction

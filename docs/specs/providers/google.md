@@ -1,7 +1,7 @@
 # Google (Gemini API)
 
 Status: implemented (D59). Part of
-[video providers and the model catalog](../video-providers.md), which defines
+[providers and the model catalog](../providers.md), which defines
 the catalog, the requests, and the rules every provider follows.
 
 Implemented in `extensions/basehalf-ai-video/src/providers/google.ts`.
@@ -20,7 +20,7 @@ and the Changelog (2026-10-14).
 
 BaseHalf records the provider's task id as soon as a request is accepted and
 asks about the task later, also after a reload or a restart
-([Video node, A generation](../video-node.md#a-generation)). The Gemini API
+([generation cards, A generation](../generation-cards.md#a-generation)). The Gemini API
 serves its video model through the Interactions API, whose video examples
 make one call that answers with the finished video. The same API runs an
 interaction in the background, and BaseHalf uses that:
@@ -261,7 +261,7 @@ with a `snake_case` code; older Google answers carry a numeric `code` and a
 `status` such as `RESOURCE_EXHAUSTED`. The message is Google's (its code, or
 its status, when it has no message). Every code of the API errors page
 agrees with its HTTP status, so the statuses map as in
-[Requests](../video-providers.md#requests): `authentication` (401) and
+[Requests](../providers.md#requests): `authentication` (401) and
 `permission_denied` (403) are `auth`, `payment_required` (402, Prepay
 credits depleted) is `balance`, `rate_limit_exceeded`, `quota_exceeded`, and
 `too_many_requests` (429) are `rateLimited`, `invalid_request` and

@@ -1,12 +1,15 @@
 # Reference graph: downstream-owned upstream lists
 
 Status: Active (2026-09-27; Open File removed 2026-10-10 for D41; a note that
-cannot hold its list keeps it in its sidecar, 2026-10-10 for D42)
+cannot hold its list keeps it in its sidecar, 2026-10-10 for D42; node
+documents removed and drafts added, 2026-10-22 for D63)
 Decisions: [D37](../decisions.md#d37--references-are-stored-once-by-the-downstream-node-new-2026-09-27),
 [D41](../decisions.md#d41--users-are-not-expected-to-read-code-or-open-hidden-files-new-2026-10-10),
-[D42](../decisions.md#d42--a-note-that-cannot-hold-its-upstream-list-keeps-it-with-basehalf-new-2026-10-10)
+[D42](../decisions.md#d42--a-note-that-cannot-hold-its-upstream-list-keeps-it-with-basehalf-new-2026-10-10),
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
 Related: [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
-[agent launch context](agent-launch-context.md)
+[agent launch context](agent-launch-context.md),
+[generation cards](generation-cards.md)
 
 ## Problem
 
@@ -47,8 +50,6 @@ listed A in `referenced_by`. That design had three problems:
 - An agent command that answers "what is downstream of X". Agents search for
   `upstream` entries instead. A query command may be specified later.
 - TOML (`+++`) frontmatter, MDX, or other markup formats as downstream stores.
-- Excluding frontmatter from Markdown input revisions or executor text (see
-  [Execution](#execution)).
 - Enforcing `.basehalf-no-workspace-setup` for the canvas layout, appearance,
   and ADHD writers beyond what [Source-tree guard](#source-tree-guard)
   requires.
@@ -56,7 +57,9 @@ listed A in `referenced_by`. That design had three problems:
 ## Terminology
 
 - **Node**: a workspace file or folder that the canvas can show as a card. The
-  workspace root folder and anything under `.bh/` are not nodes.
+  workspace root folder and anything under `.bh/` are not nodes. A draft is a
+  node too: a generation card whose file does not exist yet
+  ([generation cards](generation-cards.md#drafts-and-missing-files)).
 - **Reference `A → B`**: A is the **upstream** and B is the **downstream**.
 - **Upstream list**: the ordered list of upstream entries that a downstream
   node stores. It is the only reference truth.
@@ -86,9 +89,12 @@ listed A in `referenced_by`. That design had three problems:
    - add or remove an upstream or downstream entry in the badge editor;
    - Relink, Relink Everywhere, Remove, Use Workspace Path, and Move into File
      on an issue;
-   - creating a connected node (PDF branch, Create from Connection, and the
-     node that generating again from a Video node with a video makes);
-   - a new order of a Video node's inputs in its panel;
+   - creating a connected node (PDF branch, Create from Connection, the
+     draft that generating again from a generation card with its file makes,
+     and the drafts a generation of several images makes);
+   - renaming a draft whose model delivers another format, or whose image
+     arrived in another format;
+   - a new order of a generation card's inputs in its panel;
    - template instantiation the user started;
    - the rename refactor after a move, which rewrites the entries that name
      the moved item without asking
@@ -96,9 +102,10 @@ listed A in `referenced_by`. That design had three problems:
    - a migration the user confirmed;
    - undo and redo of any of these.
 
-   Writes of a Video node's prompt, settings, task, and result carry
-   `upstream` through unchanged. No background process changes an upstream
-   value.
+   A generation card's prompt and settings are written to its
+   `generation.yaml`, the record of what made its file to its `made.yaml`,
+   and its task record to `.bh/cache/`; none of these writes changes an
+   upstream value. No background process changes an upstream value.
 5. People, agents, and other tools may edit stores as ordinary text. Saved
    content is truth. BaseHalf never reverts it without an explicit user action.
 6. Reviewed plugins must not change upstream values. The host plugin APIs
@@ -112,8 +119,7 @@ The downstream node's kind decides where its upstream list lives.
 | Downstream node | Store |
 | --- | --- |
 | Markdown file (extension `.md` or `.markdown`, any case) | YAML frontmatter key `upstream` |
-| `.bhnode` document | top-level `upstream` array in the node document |
-| Any other node: folder, PDF, image, audio, video, code, text, and so on | `.bh/mirror/<path>/upstream.yaml` |
+| Any other node: folder, PDF, image, audio, video, code, text, a draft, and so on | `.bh/mirror/<path>/upstream.yaml` |
 
 ### A note that cannot hold its list
 
@@ -151,16 +157,9 @@ the key is in.
   the sidecar. The badge then offers Move into File, and that move is refused
   with the size reason.
 
-These are **upstream-only**. BaseHalf refuses every change to their stores,
-removals and no-op removals included, and never writes their bytes:
-
-- files under the reserved outputs tree (`outputs/…`);
-- a file that a `.bhnode` shows as its result (`result.artifact.path`),
-  imported or generated.
-
-Entries already present in the bytes of a file a node shows are still read.
-Files under the reserved outputs tree are not indexed as stores: the tree
-holds what generations wrote.
+Every node can be downstream. A generated image or video is an ordinary file,
+and its list is in its `upstream.yaml` like that of any other file
+([generation cards](generation-cards.md#card-information)).
 
 ## Path grammar
 
@@ -295,42 +294,35 @@ comments, quoting, and the body stay byte-identical.
   identity, writes nothing and succeeds. Removing an entry that is not listed
   writes nothing and succeeds.
 
-## Node document store
+## Drafts
 
-- A `.bhnode` document is version 6 ([Video node](video-node.md#the-node-file)).
-  Its required top-level `upstream` array is the node's upstream list. For a
-  Video node it is also the node's inputs, in order.
-- The strict parser requires `upstream` to be an array and preserves its items
-  verbatim on serialize. It never rejects the document because of an item. Each
-  of the following is a per-entry problem that appears in Issues, while the
-  node's other fields stay readable. A Video node does not use such an item as
-  an input:
-  - a non-string item;
-  - an entry that violates the grammar;
-  - a self entry;
-  - a duplicate;
-  - an entry past the 64th.
-- A document of an earlier version is unreadable: its card says so, the index
-  reads no list from it, and every write to it is refused. The product has not
-  launched, so nothing converts it.
-- **Connect into a node** appends an entry in every phase of the node: empty,
-  generating, ended without a video, and with a video. An entry that is
-  already listed is never listed twice. A generation records the inputs it
-  used when it starts (`task.request.inputs`, then
-  `result.generation.request.inputs`), so a later change of the list never
-  changes what made a video.
-- **Disconnect** removes the entry in every phase.
-- **Refusals**: a write that would exceed 64 entries is refused ("This node
-  already has 64 upstream entries").
-- A copy of a node starts with `upstream: []`.
-- Writes use the existing node-document writer (expected-bytes compare and
-  swap). The Video node store writes the whole document through the reference
-  edit service, with the bytes it read as the expected state and the planned
-  document as the next state. A write that finds the file changed is planned
-  again from the new bytes. With an undo label the write is one canvas undo
-  step, whose undo restores the whole document and refuses when any part of
-  it changed since. These writes add no `canvas.yaml` anchor rows; their edges
-  use existing or default anchors.
+A draft is a node: a `generation.yaml` with no `made.yaml` whose path names
+no file, a generation card whose image or video does not exist yet
+([generation cards](generation-cards.md#drafts-and-missing-files)). The
+index treats a path that holds a draft as present.
+
+- Its store is its `upstream.yaml`, under the rules of
+  [Sidecar store](#sidecar-store). For a generation card, a draft or one with
+  its file, the list is also its inputs, in order
+  ([generation cards](generation-cards.md#inputs)).
+- **Connect into a draft** appends an entry, as into any sidecar node. So
+  does a connect into a generation card while it generates and after its
+  file has arrived. An entry that is already listed is never listed twice. A
+  generation records the inputs it used when it starts, so a later change of
+  the list never changes what made a file.
+- **An entry that names a draft** is not dangling: it draws an edge and
+  shows no issue. As an input it is unavailable until the draft has its
+  file.
+- When the draft's file arrives, the same `upstream.yaml` is the store of the
+  card with its file. Nothing moves.
+- **A missing file is not a draft.** A generation card that has a
+  `made.yaml` and whose file is gone is a node that is gone, as any file
+  that is gone: entries that name it are dangling, and its `upstream.yaml`
+  stays until the file returns ([Sidecar store](#sidecar-store)).
+- **A copy** of a generation card starts with no upstream list, as every
+  copied sidecar node does.
+- The product has not launched: a `.bhnode` that an earlier build wrote is an
+  ordinary file, whose own `upstream` field is not read.
 
 ## Sidecar store
 
@@ -347,8 +339,7 @@ comments, quoting, and the body stay byte-identical.
   for this note is saved outside the note" and offers **Move into File**. The
   list stays in use until the user moves it.
 - **Wrong owner.** An `upstream.yaml` that belongs to a Markdown note with an
-  `upstream` key of its own, or to a `.bhnode`, is ignored and reported the
-  same way.
+  `upstream` key of its own is ignored and reported the same way.
 - **Move into File**, in one explicit operation:
   - appends to the file's own store the entries it does not already list, in
     order;
@@ -357,7 +348,9 @@ comments, quoting, and the body stay byte-identical.
   edges and no downstream entries. It becomes live again if a node reappears at
   that path. This holds for a note too: when a note is added, restored from
   the trash, or brought back by a branch switch, the index reads its sidecar
-  again.
+  again. An `upstream.yaml` whose path is a draft is live: a draft is a node
+  ([Drafts](#drafts)). That of a generation card whose generated file is gone
+  is not: the card is a missing file until its file returns.
 - **Workbench move.** The node's `upstream.yaml` moves with its mirror
   directory. The mirror cascade never changes the upstream value of any other
   node; only the [rename refactor](#rename-refactor) does.
@@ -366,6 +359,8 @@ comments, quoting, and the body stay byte-identical.
     restore brings its upstream list back. The same applies to every descendant
     of a deleted folder.
   - A permanent delete removes the file.
+  - Deleting a draft removes its `upstream.yaml` with the rest of its card
+    information ([generation cards](generation-cards.md#deleting)).
 - **Copy.** A copied sidecar node starts with no upstream list. Unlike Markdown,
   its list does not travel in its bytes.
 - **Move into File** moves every entry BaseHalf can read into the file, a
@@ -396,23 +391,25 @@ comments, quoting, and the body stay byte-identical.
 
 - **Truth** is saved disk content. Unsaved buffers are never indexed.
 - **Enumeration.** For each workspace folder, the index covers every Markdown
-  and `.bhnode` file that the canvas could show.
+  file that the canvas could show, and every draft.
   - It uses file search with every exclude setting and ignore file disregarded,
     and with symbolic links ignored.
   - Its explicit exclusions are the canvas-ineligible names (the canvas
     `SKIP_NAMES` and hidden file names, and the root `CLAUDE.md` and
-    `AGENTS.md`), plus `.bh/`, `.git/`, and the reserved outputs tree.
+    `AGENTS.md`), plus `.bh/` and `.git/`.
   - Extensions match without regard to case.
   - Sidecar stores come from a walk of `.bh/mirror/**/upstream.yaml`. The walk
     never follows symbolic links.
+  - Drafts are the ones the generation card store lists: a `generation.yaml`
+    with no `made.yaml`, whose path has a generation extension and names no
+    file or folder
+    ([generation cards](generation-cards.md#drafts-and-missing-files)).
 - **Reads.** Markdown reads at most the first 64 KiB. A leading BOM is removed
   before recognition. When a badge editor or Card Detail opens a node, that
   node's own store is read directly, so its Upstream list never depends on
   enumeration.
 - **Ownership.** A file belongs to the innermost workspace folder that contains
   it. An outer folder skips files owned by a nested folder.
-- **Result artifacts.** The index also reports the set of files that `.bhnode`
-  documents show as their result, imported or generated.
 
 ### States
 
@@ -443,6 +440,7 @@ drops its stores, problems, and pending prompts.
 | A folder is added, or a path of unknown type is added | re-scan the subtree, including its mirror walk |
 | A path is deleted | drop every store at or under that path, including sidecars under the matching mirror path |
 | A change under `.bh/mirror/**/upstream.yaml` | re-read that sidecar |
+| A `generation.yaml` or `made.yaml` under `.bh/mirror/` is added or removed | check again whether that path holds a draft |
 
 The deleted paths of one event batch are dropped in one pass over the stores.
 Each store is looked up among the deleted paths by its own path and the
@@ -465,7 +463,7 @@ does nothing.
 | --- | --- | --- |
 | Canvas edges | cards shown, no edges, and a "Loading connections" status | drawn; the status notes unscanned files |
 | Badge editor Downstream list, toggle counts | "Loading…", no counts | shown, marked incomplete |
-| Any Markdown store change (connect, remove, undo, redo) | waits up to 10 s, because the result-artifact check needs the index, then refuses with "Still loading connections" | allowed |
+| Any Markdown store change (connect, remove, undo, redo) | allowed: since D63 no store change needs the index | allowed |
 | Delete confirmation | "Checking connections…"; confirming is allowed | "at least N items" |
 | Rename refactor, Relink Everywhere, migration | wait for ready, with progress | proceed, and the prompt or report says "at least" |
 
@@ -490,11 +488,10 @@ reported.
 
 Before writing anything, an operation resolves and validates every store it
 will touch:
-- the target kind, including upstream-only targets;
+- the target kind;
 - whether the store is readable and writable;
 - the state of the Markdown model, and the flush (steps 2 and 3 below);
-- the source-tree guard;
-- the upstream-only rules.
+- the source-tree guard.
 
 If any store fails, the operation writes nothing and names the blocking stores.
 
@@ -550,8 +547,7 @@ reference operation (Invariant 4) and never runs by itself.
 - a sidecar `upstream.yaml` that cannot be read.
 
 It is not offered for a frontmatter mapping that is not a block mapping in
-column 0 and already holds `upstream`, for a `.bhnode` that cannot be read, or
-for a node that cannot be downstream. For these the row states the reason and
+column 0 and already holds `upstream`. For it the row states the reason and
 has no action.
 
 A note that cannot hold a list keeps it in its sidecar
@@ -614,11 +610,11 @@ The refusal rules of every other write apply: a marked folder, a read-only or
 unsaved document, and a symbolic link refuse the rebuild with their reason. After a rebuild the store is readable and writable,
 and its issue is gone.
 
-### Node documents and sidecars
+### Sidecars
 
-Node documents are written by the node-document writer. Sidecars are written by
-the reference edit service with expected-bytes compare and swap. Both run under
-the same workspace mutation lease.
+Sidecars, the lists of drafts included, are written by the reference edit
+service with expected-bytes compare and swap, under the workspace mutation
+lease.
 
 ### Multi-document operations
 
@@ -630,10 +626,10 @@ These operations write several stores:
 - templates.
 
 They run the preflight, then apply every Markdown edit in one bulk edit, then
-write node documents and sidecars. If a later step fails, a notification lists
-exactly which documents changed and which did not, and the same report goes to
-the BaseHalf log. If the window closes during an operation, the remaining steps
-do not resume. Entries that were not yet updated stay visible as issues.
+write sidecars. If a later step fails, a notification lists exactly which
+documents changed and which did not, and the same report goes to the BaseHalf
+log. If the window closes during an operation, the remaining steps do not
+resume. Entries that were not yet updated stay visible as issues.
 
 ### Undo
 
@@ -653,9 +649,9 @@ do not resume. Entries that were not yet updated stay visible as issues.
   - Redo mirrors this.
   - A multi-store gesture is one element and one canvas undo step. Canvas undo
     never skips a refused element to undo an older one.
-  - The element joins the undo stacks of the canvas and of every node document
-    or sidecar store it changed, so a newer canvas step supersedes older undone
-    steps of those nodes. It never joins a Markdown document's stack, which the
+  - The element joins the undo stacks of the canvas and of every sidecar
+    store it changed, so a newer canvas step supersedes older undone steps of
+    those nodes. It never joins a Markdown document's stack, which the
     document's own text undo owns.
 - **Document editor.** Undo in a document's editor follows that document's own
   text undo stack. It can undo the text of a reference edit while the model is
@@ -714,12 +710,10 @@ imply a reference.
 
 ### Connecting
 
-A connection's target must be a node that can be downstream (see
+A connection's target can be any node, a draft included (see
 [Stores](#stores)). These connections are refused with an explanation:
 - into a note whose own `upstream` key BaseHalf cannot read or edit in place
   (the message names Rebuild List when it applies);
-- into a `.bhnode` that BaseHalf cannot read, such as one of an earlier
-  version;
 - into a node whose store needs a `.bh/` write in a marked folder (see
   [Source-tree guard](#source-tree-guard)).
 
@@ -737,11 +731,13 @@ A connection's target must be a node that can be downstream (see
   Releasing a connection drag from a card on empty canvas opens a context menu
   at the release point. It is the same kind of menu as the double-click create
   menu, never Quick Input.
-  - **Items.** **Note**; then **Image**, **Video**, and **Audio**; then
-    **File**, **PDF**, and **Presentation**. These are the double-click menu's
-    New Note and New Media or Document kinds.
+  - **Items.** **Note**, **Image**, and **Video**. These are the double-click
+    menu's New Note, New Image, and New Video. The earlier items for empty
+    audio, file, PDF, and presentation nodes are removed (D63).
   - **First bytes.** The new node lists the source as its only `upstream`
-    entry in its initial bytes. There is no "created but not connected" state.
+    entry before it exists: a note in its initial bytes, and a draft in its
+    `upstream.yaml`, which is written before its `generation.yaml`. There is
+    no "created but not connected" state.
   - **Edge and placement.** The edge runs from the dragged handle to the
     opposite side of the new card. That side is centered on the release point.
     The card is not moved from there, also when it reaches into another card
@@ -752,19 +748,22 @@ A connection's target must be a node that can be downstream (see
   - **Note** creates `untitled.md` (or the next free `untitled-N.md`). Its
     content is only a frontmatter block that lists the source. It opens for
     inline editing, as New Note does.
-  - **Media and document kinds** create `<kind>.bhnode`, or the next
-    `<kind>-N.bhnode` that has no file and no canvas row. The node is titled
-    with the kind and selected. It is an empty node of version 6 whose
-    `upstream` lists the source. **Video** is offered from every source: the
-    source becomes the new Video node's first input, and the node's panel
-    says how the generation uses it
-    ([Video node](video-node.md#inputs)).
+  - **Image** and **Video** create a draft named `image` or `video` with the
+    extension of the model's output (`image.png`, `video.mp4`), with the next
+    free number when the name is taken by a file, a folder, or a draft, as
+    New Image and New Video do
+    ([generation cards](generation-cards.md#creating-a-generation-card)).
+    The draft is selected, and its panel shows. Both are offered from every
+    source, a note included: the source becomes the draft's first input, and
+    the panel says how a generation uses it
+    ([generation cards](generation-cards.md#inputs)).
   - **Cancel.** Escape or a click outside closes the menu and writes nothing.
-  - **Undo.** For a `.bhnode`, one canvas undo step removes the node, its
-    card, and its edge together. The connection lives in the file. A note is
-    undone the way New Note is. Canvas history is linear: a new canvas action
-    discards the actions that were undone and not redone, in every folder, so
-    a later redo never brings back a removed node.
+  - **Undo.** For a draft, one canvas undo step removes the draft with its
+    card information, its card, and its edge together, and refuses while the
+    draft generates. The connection lives in the draft's `upstream.yaml`. A
+    note is undone the way New Note is. Canvas history is linear: a new
+    canvas action discards the actions that were undone and not redone, in
+    every folder, so a later redo never brings back a removed node.
 
 ### Deleting
 
@@ -783,7 +782,7 @@ undo step.
 | --- | --- |
 | Markdown file | keeps its bytes and entries. Entries that do not resolve show as dangling. A note whose list is kept in its sidecar starts with no upstream list, like a sidecar node. |
 | Folder | entries inside it that name other items in the original folder still name the originals. The copy confirmation states this. |
-| `.bhnode` | forked with `upstream: []`: a new identity with the same title, and for a Video node the same prompt and settings, and no task or result |
+| Generation card, a draft or one with its file | a new card with the same prompt and settings; a copy of a card with its file gets a `made.yaml` with a new `id` that says it is a copy. It starts with no upstream list and no task ([generation cards](generation-cards.md#moving-renaming-copying-and-undo)) |
 | Sidecar node | starts with no upstream list |
 
 ### First frontmatter notice
@@ -815,8 +814,8 @@ The card flip face and the Card Detail badge zone share one editor.
       matches typing against name and path.
   - × removes an entry.
 - **Downstream.** The derived list, with navigation to each node.
-  - **Add Downstream** opens the same picker, limited to nodes that can be
-    downstream. It adds this node to the chosen node's upstream list.
+  - **Add Downstream** opens the same picker. It adds this node to the chosen
+    node's upstream list.
   - × removes this node from that node's list. Its tooltip names the file:
     "Remove from the upstream of <path>".
   - Both actions write the other node's store exactly as a canvas connect or
@@ -843,11 +842,10 @@ The card flip face and the Card Detail badge zone share one editor.
     code (D41), so every repair it offers is an action in its own interface.
     An earlier **Open File** action is removed from all of them.
 
-    **Known gap.** Two states have no repair in the product. A note whose
+    **Known gap.** One state has no repair in the product. A note whose
     frontmatter is not a block mapping in column 0 and already holds
     `upstream` has its entries read, and edits to it are refused with the
-    reason. An unreadable `.bhnode` is a node-document matter outside this
-    specification.
+    reason.
 - **Counts.**
   - The collapsed summary and the card toggle tooltip show "↑N upstream · ↓M
     downstream", counting nodes in any folder, plus "· K issues" when there are
@@ -858,17 +856,15 @@ The card flip face and the Card Detail badge zone share one editor.
   - Upstream: "Nothing flows into this card yet. Add upstream, or drag a
     connection into it on the canvas."
   - Downstream: "Nothing draws on this card yet."
-- **Cannot be downstream** (reserved outputs, and files that nodes show):
-  Upstream is shown read-only with "This <kind> can't receive
-  upstream context." There is no Add Upstream, and Remove is unavailable.
-- **`.bhnode` rows** are plain entries, and × removes one in every phase of
-  the node. A Video node's panel shows its inputs with their names and how a
-  generation uses them ([Video node](video-node.md#inputs)).
+- **A generation card's rows** are plain entries, and × removes one whether
+  or not the card has its file, also while it generates. Its panel shows its
+  inputs with their names and how a generation uses them
+  ([generation cards](generation-cards.md#inputs)).
 
 ### Wording
 
 UI copy uses "upstream", "downstream", and "connection". It avoids
-"reference", which also names a Video node's reference mode.
+"reference", which also names the references mode of a generation card.
 
 Every string the reference interface shows is written for someone who does not
 read code (D41):
@@ -897,9 +893,8 @@ Store issue rows, in the badge editor and in Show Upstream Issues:
 | A list BaseHalf reads but will not edit in place (a Markdown entry over several lines; a sidecar that is a flow mapping) | "BaseHalf can't change this upstream list the way it is written." | Rebuild List |
 | A value used by another tool | "Another tool keeps something else where this upstream list goes." | Rebuild List |
 | A frontmatter mapping BaseHalf cannot edit that already holds `upstream` | "BaseHalf can't save connections into this note because of how the file begins." | none |
-| An unreadable `.bhnode` | "This node can't be read." | none |
 | A store the file system refuses to read | "The upstream list could not be read: <plain failure reason>" | none |
-| A sidecar list for a note that could hold it, or for a node that has a list in its own file | "An upstream list for this note is saved outside the note." | Move into File |
+| A sidecar list for a note that could hold it, or for a note that has a list of its own | "An upstream list for this note is saved outside the note." | Move into File |
 | Entries inside a leading block BaseHalf does not recognize, in a note with no sidecar | "The connections written at the top of this note are not in use." | Rebuild List |
 
 Refusal messages for the same states, where <name> is the node's file name:
@@ -913,7 +908,6 @@ Refusal messages for the same states, where <name> is the node's file name:
 | A value used by another tool | "Another tool keeps something else where the upstream list of <name> goes. To connect anyway, use Rebuild List in its badge." |
 | A frontmatter mapping BaseHalf cannot edit that already holds `upstream`; Move into File into a note that cannot take a list | "BaseHalf can't save connections into <name> because of how the file begins." |
 | Move into File into a note whose frontmatter is beyond the size window | "BaseHalf can't save connections into <name>: the top of the file is too large to change." |
-| An unreadable `.bhnode` | "<name> can't be read." |
 | A sidecar the file system refuses to read | "The upstream list of <name> could not be read: <plain failure reason>" |
 | A sidecar behind a symbolic link | "BaseHalf keeps the upstream list of <name> behind a symbolic link. BaseHalf doesn't change files through links." |
 | A marked folder | "<name> is in a folder BaseHalf is set to leave alone." |
@@ -956,14 +950,14 @@ are moves and follow the same rules.
 - **Undo.** The update adds no undo step of its own. Undoing a workbench move
   is a move back, which updates the entries back.
 - **Scope.** Entries inside a moved folder that name other items in the same
-  folder are updated too. A `.bhnode` is updated in every phase, a generating
-  one included: its generation recorded its inputs when it started.
+  folder are updated too. The list of a generation card is updated whether or
+  not it has its file, also while it generates: its generation recorded its
+  inputs when it started. A moved draft is a moved item, and the entries that
+  name it are updated as for a file.
 - **Not written now, written later.** A document with unsaved changes when
   auto-save is off is written when it is saved or reverted. Until then the
   entry is broken and shows as broken.
-- **Never written:**
-  - files that nodes show;
-  - anything in a marked folder.
+- **Never written:** anything in a marked folder.
 - **Case-only rename.** On a case-insensitive file system the entries still
   match. Their spelling is updated, because other systems match exact
   spelling.
@@ -1026,13 +1020,11 @@ Each pair ends in exactly one outcome:
   - a failed save;
   - a missing downstream;
   - an endpoint owned by another workspace folder;
-  - a store reached through a symbolic link;
-  - a `.bhnode` whose pairs would exceed 64 entries.
+  - a store reached through a symbolic link.
 - **Dropped.** The pair can never be represented, and it is recorded:
   - one-sided;
   - self;
   - a workspace-root or `.bh/` endpoint;
-  - a downstream that cannot be downstream;
   - an item the legacy grammar rejected, a path with a control character, or a
     malformed legacy key.
 
@@ -1051,8 +1043,7 @@ downstream write:
 > Move Connections · Preview · Later
 
 With only notes the last sentence ends after "M notes."; with only other items
-it reads "BaseHalf will save them in the lists it keeps for K items." When
-`.bhnode` files change too, the prompt adds "It will also update J nodes."
+it reads "BaseHalf will save them in the lists it keeps for K items."
 The report follows the [wording](#wording) rules: a row for a legacy key that
 cannot be read is described as "an earlier connection list in its badge".
 
@@ -1099,42 +1090,42 @@ opens the report.
   to workspace-relative, under the instantiation folder:
   - new Markdown files receive the `upstream` list in their initial bytes,
     merged into any template frontmatter by the planner;
-  - new `.bhnode` documents receive `upstream`;
-  - sidecar nodes receive `upstream.yaml`, subject to the source-tree guard.
-- Template validation, in the SDK and in the host, rejects:
-  - references whose target cannot be downstream;
-  - template text files whose frontmatter contains an `upstream` key.
+  - sidecar nodes, the template's drafts included, receive `upstream.yaml`,
+    subject to the source-tree guard.
+- Template validation, in the SDK and in the host, rejects template text
+  files whose frontmatter contains an `upstream` key.
 - Pending template setup records move to the storage key
   `basehalf.canvas.pendingTemplateSetups.v2`. Version 1 records from an older
   build are discarded, with a warning that names the setup.
 
 ## Generation
 
-- A Video node's generation reads the node's own `upstream`, in order, from
-  its file ([Video node](video-node.md#inputs)). It reads no other store.
+- A generation reads the card's own upstream list, in order, from its
+  `upstream.yaml` ([generation cards](generation-cards.md#inputs)). It reads
+  no other store.
 - A dangling entry is an input that is not there: the panel shows it dimmed
-  with its reason, and it is not sent.
-- A generation records the paths it used in its task's request when it
-  starts. Upstream edits afterwards never change a generation that runs or
-  the record of a video that exists.
-- Markdown inputs are read whole, without their frontmatter, when the
-  generation starts.
+  with its reason, and it is not sent. An entry that names a draft is not
+  dangling; it is unavailable until the draft has its file.
+- A generation records the paths it used in its task record when it starts,
+  and in `made.yaml` when its file lands. Upstream edits afterwards never
+  change a generation that runs or the record of a file that exists.
+- Markdown inputs are read without their frontmatter when the generation
+  starts, as [Inputs](generation-cards.md#inputs) says.
 
 ## Capability discovery
 
 Discovery describes the new model. The node command bridge version increases,
 because both ends validate these literals.
 
-- `host.nodeDocument` names the version 6 document, its node kinds, the
-  fields BaseHalf owns (`task` and `result`), the run command, and the
-  authoring contract of a Video node.
-- `host.contextEdge` states five things:
+- `host.contextEdge` states three things:
   - the downstream stores the edge;
   - the Markdown store is the `upstream` frontmatter key;
-  - the node store is the `upstream` field;
-  - a `.bhnode` entry stands for the file the node shows (`node-result`);
-  - a Video node uses its inputs in the order of its `upstream` list.
-- Discovery lists no recipes (D58).
+  - a generation card uses its inputs in the order of its `upstream` list.
+- `host.modelCatalog` is the model catalog that agents choose a card's
+  `provider`, `model`, `mode`, and `params` from
+  ([generation cards](generation-cards.md#agents)).
+- Discovery has no `host.nodeDocument`, and `host.contextEdge` names no node
+  store and no `node-result` source (D63). It lists no recipes (D58).
 - `host.operations` lists the template operation when templates are
   installed, and nothing otherwise. Host operation ids are reserved,
   including the retired `basehalf.workspace.move`: a plugin capability that
@@ -1146,8 +1137,8 @@ A reviewed plugin's project file transition and structural cleanup may not
 change any upstream value.
 
 The host reads the upstream state of both the expected bytes and the next bytes
-with the index reader. For `.bhnode` it uses the lenient extractor. A state is
-either "unreadable" or the ordered list of raw entry strings, valid and invalid.
+with the index reader. A state is either "unreadable" or the ordered list of
+raw entry strings, valid and invalid.
 For a Markdown file the list includes the
 [entries inside an unrecognized leading block](#recognition), because
 BaseHalf carries those into the note's sidecar.
@@ -1169,7 +1160,7 @@ In a marked folder:
 - BaseHalf runs no migration and writes no `upstream.yaml` and no
   `.bh/legacy-references.yaml`.
 - It refuses connections whose target needs a sidecar store.
-- A Markdown or `.bhnode` upstream edit that the user explicitly requests is an
+- A Markdown upstream edit that the user explicitly requests is an
   ordinary user edit and is allowed. BaseHalf writes only that store: no
   `canvas.yaml` anchor row, no `adhd.yaml`, and nothing else under `.bh/`. The
   edge is drawn with default anchors.
@@ -1188,7 +1179,6 @@ In a marked folder:
 | Model changed between planning and applying | Re-plan once, then refuse |
 | Save fails | Notice with Retry and Revert Change |
 | Partial multi-document failure | Report lists changed and unchanged documents, and is logged |
-| `.bhnode` of an earlier version | No edges from it; it shows as unreadable, and every write to it is refused |
 | Index building | See [Consumers before ready](#consumers-before-ready) |
 
 ## Delivery
@@ -1205,7 +1195,7 @@ slice 4, or slice 5 without slice 3.
    - Entry grammar, planner, the three stores, the index, and the edit service.
    - Canvas, undo, badge editor, issues, delete, and copy.
    - `.bhnode` version 4, with execution, discovery, and the bridge version
-     (replaced by version 5, D58).
+     (replaced by version 5, D58; node documents removed by D63).
    - Plugin guard, template materialization with pending setups version 2, and
      migration.
 4. **Rename refactor, Relink Everywhere, and ADHD `line_base`.**
@@ -1236,18 +1226,19 @@ slice 4, or slice 5 without slice 3.
      changes nothing.
    - A dirty rich editor on B neither reports a conflict nor reverts the entry.
    - With auto-save off and unsaved text in B, the connect is refused.
-4. Connecting into a `.bhnode` appends to its `upstream` in one write. The
-   node rules hold:
-   - A document of version 5 or older is unreadable, and every write to it is
-     refused.
-   - A version 6 document with one invalid item opens, shows the issue, and
-     does not use the item as an input.
-   - Connecting and disconnecting work in every phase, a generating node and
-     a node with a video included.
-   - A copy yields `upstream: []`.
+4. Connecting into a draft appends to its `upstream.yaml` in one write. The
+   draft rules hold:
+   - An entry that names a draft draws an edge and shows no issue. An entry
+     that names a generated file deleted to the trash shows as broken, and
+     restoring the file brings back the file's own list.
+   - A draft's list with one invalid entry shows the issue, and the draft
+     does not use the entry as an input.
+   - Connecting and disconnecting work on a draft, on a generation card that
+     generates, and on one with its file.
+   - A copy of a generation card starts with no upstream list.
 5. The sidecar store and target rules hold:
-   - Connecting into a folder or PDF writes its `upstream.yaml`.
-   - Connecting into an outputs file or a file a node shows is refused.
+   - Connecting into a folder, a PDF, or an image or video file writes its
+     `upstream.yaml`.
    - An empty entry, or an entry under `.bh/`, is reported as invalid.
    - Move into File moves sidecar entries into a Markdown file's frontmatter.
 6. The index behaves as specified:
@@ -1266,7 +1257,8 @@ slice 4, or slice 5 without slice 3.
      including stores in excluded paths, and lists the skipped ones.
    - Skip leaves entries dangling, and a terminal move produces no prompt.
    - Planner unit tests cover a folder move, a case-only rename, an entry that
-     names a sibling inside the moved folder, and nodes in every phase.
+     names a sibling inside the moved folder, a renamed draft, and a
+     generation card that generates.
 9. Migration:
    - Complete legacy pairs are written after confirmation.
    - Every processed pair is recorded before any key is removed.
@@ -1279,8 +1271,8 @@ slice 4, or slice 5 without slice 3.
 11. Capability discovery and bridge validation use the new literals on both
     ends.
 12. The badge editor behaves as specified:
-    - Add Upstream, Add Downstream, ×, the issue actions, counts, empty
-      states, and read-only upstream-only nodes all behave as specified.
+    - Add Upstream, Add Downstream, ×, the issue actions, counts, and empty
+      states all behave as specified.
     - Add Upstream from `a/b/note.md` can pick `a/overview.md` and
       `sources/book.pdf`, and writes `note.md`.
 13. Templates merge `upstream` through the planner. Validation rejects
@@ -1297,13 +1289,14 @@ slice 4, or slice 5 without slice 3.
       point, not Quick Input. Escape writes nothing.
     - Note creates a note whose first bytes list the source in `upstream`. It
       draws the edge and opens inline editing.
-    - Image creates an empty image `.bhnode` of version 6 with `upstream`
-      naming the source.
+    - Image creates an image draft whose `upstream.yaml` names the source.
     - Video is offered from every source, a text source included, and
-      creates an empty Video node whose first input is the source.
-    - One canvas undo removes a created `.bhnode`, its card, and its edge. A
+      creates a video draft whose first input is the source.
+    - The menu offers no item for an empty audio, file, PDF, or presentation
+      node.
+    - One canvas undo removes a created draft, its card, and its edge. A
       later canvas action, undone and redone in another folder, redoes that
-      action and not the removed node.
+      action and not the removed draft.
 16. ADHD ranges stay aligned after a connect, an agent frontmatter edit, and an
     undo. A legacy `adhd.yaml` is converted exactly once.
 17. Moves: see the acceptance criteria of

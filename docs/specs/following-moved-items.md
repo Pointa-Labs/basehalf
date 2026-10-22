@@ -4,11 +4,14 @@ Status: Active (2026-10-11). Reviewed three times; the third review, of the
 git model, is folded in. Implementation in progress; the specifications
 listed under [Specifications this changes](#specifications-this-changes) are
 updated in the commit that implements the part they describe.
-Decision: [D44](../decisions.md#d44--a-cards-information-follows-its-item-whoever-moved-it-new-2026-10-11)
+Decisions: [D44](../decisions.md#d44--a-cards-information-follows-its-item-whoever-moved-it-new-2026-10-11),
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
+(generation information, drafts, and generating cards)
 Related: [reference graph](reference-graph.md),
 [mirror file resilience](mirror-file-resilience.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
-[agent skill](agent-skill.md), [agent launch context](agent-launch-context.md)
+[agent skill](agent-skill.md), [agent launch context](agent-launch-context.md),
+[generation cards](generation-cards.md)
 
 ## Problem
 
@@ -113,11 +116,13 @@ it by path, and where an edit to the file changes nothing.
 ## Terms
 
 - **Item**: a file or folder in a workspace folder that the canvas could show.
-  The [reference graph](reference-graph.md#terminology) calls it a node.
+  The [reference graph](reference-graph.md#terminology) calls it a node. A
+  draft is an item too: a `generation.yaml` with no `made.yaml` and no file
+  yet ([generation cards](generation-cards.md#drafts-and-missing-files)).
 - **Card information** of an item:
   1. its files under `.bh/mirror/<path>/`: `badge.yaml`, `appearance.yaml`,
-     `adhd.yaml`, and `upstream.yaml`; for a folder also its `canvas.yaml` and
-     everything below its mirror directory;
+     `adhd.yaml`, `upstream.yaml`, `generation.yaml`, and `made.yaml`; for a
+     folder also its `canvas.yaml` and everything below its mirror directory;
   2. its card row and its edge anchor rows in its parent folder's
      `canvas.yaml`;
   3. the upstream entries in other items' stores that name its path, or for a
@@ -156,7 +161,7 @@ it by path, and where an edit to the file changes nothing.
     exclusions of the
     [reference index's enumeration](reference-graph.md#sources). Symbolic
     links are left out. This listing is new: the index lists only Markdown
-    and `.bhnode` files;
+    files and drafts;
   - the fingerprint, with the size and modification time it was computed at,
     of every followed file and of the first 200 files below each followed
     folder, at any depth, in path order. The second group is what lets a
@@ -337,11 +342,16 @@ then acts on the pairs of followed items.
    is still unpaired takes the same relative path below the folder's new
    path, as it does when a folder is moved through the workbench. An item
    that is no longer there leaves its card information without an item at
-   the new path, as it would have at the old one.
+   the new path, as it would have at the old one. A draft below the folder
+   is such an item: its card information takes the new path, and it is a
+   draft there, as it was at the old one.
 
 Anything else is not recognized, and today's behavior applies: the sweep at
 open marks its `badge.yaml` orphan, and the entries that name it show as
-broken.
+broken. The sweep never marks the `badge.yaml` of a draft: a draft is card
+information without a file by design. A generation card whose generated file
+is gone, which has a `made.yaml`, is not a draft, and the sweep treats it as
+any file that is gone.
 
 A file that appeared is fingerprinted only when a file disappeared in the
 same comparison. Rule 2 is skipped when the number of unpaired text files
@@ -389,10 +399,12 @@ relocated in one run ([many items at once](#many-items-at-once)).
 2. **Check again.** The old path still names nothing and the new path still
    names an item of the same kind. Otherwise the item is skipped.
 3. **Held back**: an item with unsaved changes in an editor for its old path
-   or below it, and a Video node that is generating or a folder that holds
-   one, under its old or its new path.
+   or below it.
    It stays a pending pair. While it is held back it does not keep the
-   canvas from redrawing.
+   canvas from redrawing. A generation card that generates, or a folder that
+   holds one, is not held back: the same run writes the card's new path into
+   its task record, so that its files land where the card is
+   ([generation cards](generation-cards.md#moving-renaming-copying-and-undo)).
 4. **Mirror files and canvas rows** move piece by piece. A piece is one
    mirror file, or one row of a `canvas.yaml`.
    - A piece moves when its place at the new path is free. Then the piece at
@@ -410,6 +422,12 @@ relocated in one run ([many items at once](#many-items-at-once)).
      [recovery copy](mirror-file-resilience.md) and the moved card takes its
      place.
    - A relocated `badge.yaml` gets its new `path` and loses an orphan mark.
+     `generation.yaml` and `made.yaml` store no `path` and move as they are.
+   - **A draft at the new path moves aside.** When the item arrives at the
+     path of a draft, the draft's card information and card row first move
+     to the next free name, as a rename of the draft does, and the item's
+     own card information then moves in
+     ([generation cards](generation-cards.md#drafts-and-missing-files)).
    - **A card row that BaseHalf chose** at the new path is not something of
      the user's, and gives way
      ([canvas card placement](canvas-card-placement.md#a-row-follows-its-item)).
@@ -547,7 +565,7 @@ this section, the reference index's
 until its relocation has finished: when it was held back, when the window
 closed in the middle, and when a stage failed for an environmental reason.
 BaseHalf tries every pending pair again at open, at each comparison, and
-when the editor or the run that held it back ends. A failure is logged. It
+when the editor that held it back ends. A failure is logged. It
 shows no Retry and Skip notification: nothing the user did is waiting on it.
 A pair whose relocation failed does not keep the canvas from redrawing, like
 a pair that is held back: it waits for the next try, and the canvas does not
@@ -591,14 +609,12 @@ move: a move this specification follows, and a move through the workbench.
   them. It tries again
   when the reference index becomes `ready`, when a document is saved or
   reverted, and at open. This covers a document with unsaved changes and
-  stores that a `partial` index did not see. A `.bhnode` is written at once
-  in every phase, a generating one included. Moves compose: after `a` to `b` and `b` to
-  `c`, entries that name `a` or `b` get `c`. At most 1,000 moves are kept.
+  stores that a `partial` index did not see. The list of a generation card is
+  written at once, also while the card generates. Moves compose: after `a`
+  to `b` and `b` to `c`, entries that name `a` or `b` get `c`. At most 1,000
+  moves are kept.
 - Until an owed entry is rewritten it is broken in the store and shows as
   broken, so the canvas and the store agree.
-- **A store that is never rewritten** stays as the
-  [rename refactor](reference-graph.md#rename-refactor) defines: the files
-  that nodes show. They keep the old path on purpose.
 - **A marked folder** is never rewritten by itself, neither its notes nor its
   sidecars. The rename refactor asked there; with the question gone, it
   leaves the entries as they are.
@@ -848,8 +864,7 @@ with the same expectations.
 23. **What many files share says little.** Two notes whose only common text
     is a heading are not paired. Two notes made from one template that
     several other notes also use, whose own text differs, are not paired,
-    although the template is most of each. The same holds for two `.bhnode`
-    documents with the same frame and different content. A small note of
+    although the template is most of each. A small note of
     ordinary words, renamed and edited among notes that use the same words,
     is paired, also when the edit adds words that no other file has.
 24. **A folder that was already there.** All files of a described folder are
@@ -886,6 +901,13 @@ with the same expectations.
     passed, and not before.
 29. **In the real window, many at once.** Recorded, not automated: the table
     under [many items at once](#many-items-at-once).
+30. **Generation cards.** A folder that holds a draft and a file is renamed
+    outside: the draft is at the new path with its prompt and place. A folder
+    renamed outside while a card in it generates is followed at once, and the
+    file lands in the renamed folder. A file recognized as moved onto a
+    draft's path keeps its own card, and the draft moves to the next free
+    name. These are criteria 5 and 8 of
+    [generation cards](generation-cards.md#acceptance-criteria) too.
 
 ## Verification
 

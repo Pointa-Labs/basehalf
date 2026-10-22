@@ -5,13 +5,16 @@
 > The portal does not accept submissions, and nothing is reviewed or
 > published.
 
-> **Removed by D58.** Recipes, recipe executors, the reviewed model and
-> provider connection catalogs, connection validators, and model service
+> **Removed by D58 and D63.** Recipes, recipe executors, the reviewed model
+> and provider connection catalogs, connection validators, and model service
 > access for extensions are gone
-> ([D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)). A Video node is a prompt over its
-> connections, run by the user's own providers
-> ([Video node](../specs/video-node.md)). Where this page describes them,
-> it records the platform as it was built.
+> ([D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)).
+> So are `.bhnode` node documents and the `outputs/` tree
+> ([D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)): a
+> generated image or video is an ordinary file that is its own card, made
+> over its connections by the user's own providers
+> ([generation cards](../specs/generation-cards.md)). Where this page
+> describes them, it records the platform as it was built.
 
 ## Publish from the plugin project
 

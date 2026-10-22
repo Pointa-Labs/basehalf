@@ -53,11 +53,13 @@ In the workspace, under `.bh/`:
 | --- | --- | --- |
 | `.bh/mirror/<path>/badge.yaml` | project metadata | description |
 | `.bh/mirror/<path>/upstream.yaml` | project metadata | the upstream list of a non-Markdown node (reference truth, [reference graph](reference-graph.md#sidecar-store)) |
+| `.bh/mirror/<path>/generation.yaml` | project metadata | what the next generation of a generation card uses: its prompt, model, and settings. Without a `made.yaml` and without a file at `<path>`, it is a draft ([generation cards](generation-cards.md#generationyaml)) |
+| `.bh/mirror/<path>/made.yaml` | project metadata | the record of the generation that made the file at `<path>`, written once by BaseHalf ([generation cards](generation-cards.md#madeyaml)) |
 | `.bh/mirror/<folder>/canvas.yaml` | kept in the folder, not shared through git | the place and size of every card, and edge anchor memory ([canvas card placement](canvas-card-placement.md)) |
 | `.bh/mirror/<file>/adhd.yaml` | project metadata | reading aids |
 | `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation |
 | `.bh/legacy-references.yaml` | project metadata | append-only migration record, only after a migration |
-| `.bh/cache/` | machine-local runtime state | run leases, undo stashes, recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)), and `selection.yaml`, the record of [the selection agents can see](selection-for-agents.md); not shared through git, and not watched for changes |
+| `.bh/cache/` | machine-local runtime state | the task records of generations and their partial downloads under `generation/` ([generation cards](generation-cards.md#the-task-record)), undo stashes, recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)), and `selection.yaml`, the record of [the selection agents can see](selection-for-agents.md); not shared through git, and not watched for changes, except `generation/`, which BaseHalf watches so that every window of the workspace shows the same generations |
 | `.bh/.gitignore` | BaseHalf's own ignore file | hides itself, every `canvas.yaml`, and `.bh/cache/` from git ([canvas card placement](canvas-card-placement.md#places-stay-out-of-git)) |
 
 BaseHalf does not create or edit the user's `.gitignore`. Lines that earlier
@@ -65,8 +67,9 @@ releases appended there stay unless the user removes them. The one ignore
 file BaseHalf writes is its own, inside `.bh/`. It is written before the
 first layout or working file, and one that is there is left as it is.
 
-Project metadata may be committed, so that descriptions and the upstream
-lists BaseHalf keeps travel with the folder. Card places do not: they change
+Project metadata may be committed, so that descriptions, the upstream lists
+BaseHalf keeps, and the prompts, settings, drafts, and records of generation
+cards travel with the folder. Card places do not: they change
 too often, and each person arranges their own canvas (D46). Nobody has to be
 told to ignore `.bh/cache/` any more.
 

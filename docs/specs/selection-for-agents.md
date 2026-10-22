@@ -1,7 +1,8 @@
 # The selection agents can see
 
-Status: Active (2026-10-14)
-Decision: [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14)
+Status: Active (2026-10-14; a selected draft, 2026-10-22 for D63)
+Decisions: [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
 Related: [agent skill](agent-skill.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [canvas selection and arrangement](canvas-selection-and-arrangement.md),
@@ -137,6 +138,10 @@ text: "核心概念\nIR（原始需求）：用户想要什么（业务导向、
   do. The workspace folder itself is `.`.
 - `cards` has `paths`, a list of the selected cards in the order of the
   canvas's list order, instead of `path`.
+- A selected draft is recorded as a `card`, by the path its file will have,
+  and `draft: true` is added: there is no file at that path yet
+  ([generation cards](generation-cards.md#drafts-and-missing-files)). Among
+  `cards`, a draft is listed by that path like any card.
 - `text` adds `first_line` and `last_line`, the first and last line of the
   note's file that hold the selection, counted from 1 and including the
   frontmatter, and `text`, the selected text as the note shows it: without
@@ -168,7 +173,8 @@ are there already. It shows the icon and the text of the table above.
   follows when the selection settles.
 - A card shows the name and the glyph of its caption: a note's name has no
   extension ([canvas card name](canvas-card-name.md)), other files keep
-  theirs, and a node shows its title and the glyph of its kind.
+  theirs, a generation card included, and a draft shows the name its file
+  will have with the glyph of its kind.
 - The start of the selected text is the text with each run of white space,
   line breaks included, made one space.
 - Resting the pointer on the entry shows "Agents that use the BaseHalf skill
@@ -264,7 +270,9 @@ waits for the removal.
 file watching by default (`files.watcherExclude`), so a write wakes neither
 git nor the canvas. The canvas also ignores a change of files that are all
 under `.bh/cache/`, for a user who changes that setting: the canvas of a
-workspace folder holds `.bh/` and would otherwise draw again.
+workspace folder holds `.bh/` and would otherwise draw again. The one part of
+`.bh/cache/` that BaseHalf watches is `generation/`, the task records of
+generations ([generation cards](generation-cards.md#the-task-record)).
 
 **The highlight.** The note editor on a card draws the selection itself
 while focus is in another part of the window, because the browser drops the
@@ -291,9 +299,9 @@ whenever the Agent Area or the status bar changes size or visibility.
    - the record reads back through a YAML parser as the fields above, also
      for a path with a colon and a hash, a folder named `true`, text with
      quotes, tabs, and a leading dash, and text over 10,000 characters, which
-     is cut and marked;
+     is cut and marked; a selected draft is a `card` with `draft: true`;
    - the label of each kind: a folder's name, a note's name without its
-     extension, a file's name with it, a node's caption, a number of cards,
+     extension, a file's name with it, a draft's name, a number of cards,
      and the start of selected text with white space made single spaces, at
      most 120 characters;
    - text of only white space counts as none; characters YAML does not allow

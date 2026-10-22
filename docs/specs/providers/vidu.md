@@ -2,7 +2,7 @@
 
 Status: Active (2026-10-19)
 Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-Owner: [Video providers and the model catalog](../video-providers.md), which
+Owner: [Providers and the model catalog](../providers.md), which
 this page details for the provider `vidu`
 Module: `vscode-base/extensions/basehalf-ai-video/src/providers/vidu.ts`
 
@@ -10,8 +10,8 @@ This page records what the Vidu module of AI Video declares and sends: its
 regions and credentials, its models with their modes, inputs, parameters, and
 rules, how a request is built, and how a task is followed and cancelled.
 Everything not said here follows
-[Video providers and the model catalog](../video-providers.md) and the
-[Video node](../video-node.md).
+[Providers and the model catalog](../providers.md) and
+[generation cards](../generation-cards.md).
 
 ## Sources
 
@@ -117,7 +117,7 @@ Sizes the pages give in MB are read as MiB.
 
 The models declare these parameters with the values their pages list; the
 second table says which model has which. They take the names and values every
-provider shares ([Shared names](../video-providers.md#parameters)), so that
+provider shares ([Shared names](../providers.md#parameters)), so that
 choosing another model keeps them, and the module sends each under Vidu's
 field and value:
 
@@ -253,7 +253,7 @@ one of the documented error codes:
 
 | `reason` | Code of the contract | Message |
 | --- | --- | --- |
-| `Unauthorized`, `Forbidden` (401, 403) | `auth` | the key is not accepted, check it in Video Providers |
+| `Unauthorized`, `Forbidden` (401, 403) | `auth` | the key is not accepted, check it in Providers |
 | `CreditInsufficient` (400) | `balance` | the account has too few credits |
 | `QuotaExceeded` (429) | `rateLimited` | too many tasks at once; Vidu runs up to 5 at a time for an organization |
 | `TooManyRequests`, `SystemThrottling` (429) | `rateLimited` | requests too frequent, or Vidu is limiting them |
@@ -284,7 +284,7 @@ create it answers has an unknown outcome. The same meanings describe the
 - **Video extension and smart multi-frame**: the function list names them, but
   the API reference of 2026-10-19 has no page for either.
 - **Off-peak mode** (`off_peak`): its tasks run within 48 hours, longer than a
-  generation waits ([Video node, Ending without a video](../video-node.md#ending-without-a-video)).
+  generation waits ([generation cards, Ending without its files](../generation-cards.md#ending-without-its-files)).
 - **`is_rec` of Q2 and Q3**: their pages say that Vidu then generates from a
   prompt of its own and leaves the user's aside.
 - **`voice_id`, `bgm`, `movement_amplitude`**: a voice comes from a separate
