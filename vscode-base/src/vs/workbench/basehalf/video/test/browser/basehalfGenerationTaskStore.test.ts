@@ -11,6 +11,7 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../../base/common/network.js';
 import { joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
@@ -19,11 +20,14 @@ import { testWorkspace } from '../../../../../platform/workspace/test/common/tes
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { baseHalfGenerationTaskFolder, BaseHalfGenerationTaskStore } from '../../browser/basehalfGenerationTaskStore.js';
 import {
+	BASEHALF_GENERATION_STALE_MS,
 	createBaseHalfGenerationTask,
 	failBaseHalfGenerationTask,
 	heartbeatBaseHalfGenerationTask,
 	IBaseHalfGenerationRequest,
 	IBaseHalfGenerationTask,
+	landBaseHalfGenerationTask,
+	recordBaseHalfGenerationLanded,
 	runBaseHalfGenerationTask,
 	serializeBaseHalfGenerationTask,
 	stopBaseHalfGenerationTask,
@@ -212,6 +216,52 @@ suite('BaseHalfGenerationTaskStore', () => {
 			records: [running.id, draft.id, file.id].sort(),
 			names: [`${running.id}-1.part`, `${running.id}.json`, `${draft.id}.json`, `${file.id}.json`].sort()
 		});
+	});
+
+	test('of the windows that claim the takeover of a record said alive at one moment, one does; a claim that nothing came of for 90 seconds can be claimed again', () => runWithFakedTimers({ startTime: Date.parse(START) }, async () => {
+		const harness = await createHarness();
+		const first = harness.window();
+		const second = harness.window();
+		const task = harness.task('20261022T080000-dddd0001', ['shots/video.mp4']);
+		await first.create(root, task);
+		await second.refresh();
+		const claims = await Promise.all([first.claimTakeover(task.id, task.aliveAt), second.claimTakeover(task.id, task.aliveAt)]);
+		const again = await second.claimTakeover(task.id, task.aliveAt);
+		// The window that claimed it is gone before it said the record alive.
+		await timeout(BASEHALF_GENERATION_STALE_MS);
+		const later = await Promise.all([first.claimTakeover(task.id, task.aliveAt), second.claimTakeover(task.id, task.aliveAt)]);
+		await first.remove(task.id);
+		const left = (await harness.fileService.resolve(baseHalfGenerationTaskFolder(root))).children?.map(child => child.name) ?? [];
+		assert.deepStrictEqual({ claims: claims.filter(Boolean).length, again, later: later.filter(Boolean).length, left }, { claims: 1, again: false, later: 1, left: [] });
+	}));
+
+	test('a reading of the records that this window writes into meanwhile still takes what other windows wrote', async () => {
+		const harness = await createHarness();
+		const store = harness.window();
+		const own = harness.task('20261022T080000-eeee0001', ['shots/own.mp4']);
+		await store.whenReady();
+		await store.create(root, own);
+		// Other windows wrote these; this window has not read them yet.
+		const others = Array.from({ length: 8 }, (_, index) => harness.task(`20261022T080000-eeee01${index}0`, [`shots/other-${index}.mp4`], 'w2'));
+		for (const task of others) {
+			await harness.write(`.bh/cache/generation/${task.id}.json`, serializeBaseHalfGenerationTask(task));
+		}
+		const reading = store.refresh();
+		const writing = store.update(own.id, current => heartbeatBaseHalfGenerationTask(current, 'w1', LATER));
+		await Promise.all([reading, writing]);
+		assert.deepStrictEqual({ others: others.filter(task => !!store.get(task.id)).length, own: store.get(own.id)?.aliveAt }, { others: others.length, own: LATER });
+	});
+
+	test('when the folder opens, removes an ended record whose cards that got no file are gone, though its landed images are there', async () => {
+		const harness = await createHarness();
+		let task = createBaseHalfGenerationTask({ id: '20261022T080000-ffff0001', kind: 'image', cards: ['shots/image.png', 'shots/image-2.png'], follower: 'w1', now: START });
+		task = recordBaseHalfGenerationLanded(landBaseHalfGenerationTask(runBaseHalfGenerationTask(submitBaseHalfGenerationTask(task, request, 'Rain.', false), 'cgt-1')), 0);
+		task = failBaseHalfGenerationTask(task, 'Refused.', LATER);
+		await harness.write(`.bh/cache/generation/${task.id}.json`, serializeBaseHalfGenerationTask(task));
+		await harness.write('shots/image.png', 'png');
+		const store = harness.window();
+		await store.whenReady();
+		assert.deepStrictEqual([store.list().length, await harness.exists(`.bh/cache/generation/${task.id}.json`)], [0, false]);
 	});
 
 	test('writes a record it is given over the one there, and a new one into the only folder', async () => {

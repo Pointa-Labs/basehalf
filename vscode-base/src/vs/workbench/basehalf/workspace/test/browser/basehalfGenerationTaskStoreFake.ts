@@ -51,6 +51,10 @@ export class BaseHalfRecordingGenerationTaskStore implements IBaseHalfGeneration
 
 	async remove(): Promise<void> { }
 
+	async claimTakeover(): Promise<boolean> {
+		return true;
+	}
+
 	partFile(task: IBaseHalfGenerationTask, index: number): URI {
 		return URI.file(`/cache/${task.id}-${index + 1}.part`);
 	}
