@@ -21,6 +21,7 @@ import {
 	IBaseHalfVideoProviderSetup
 } from './basehalfVideoCatalog.js';
 import { IBaseHalfVideoNodeFields } from './basehalfVideoNode.js';
+import { BaseHalfGenerationKind, IBaseHalfGenerationInfo, IBaseHalfGenerationMade, IBaseHalfGenerationTask } from './basehalfGenerationInfo.js';
 
 /**
  * The services a Video node uses (D58, D59). The node store reads and writes
@@ -233,4 +234,151 @@ export interface IBaseHalfVideoGenerationService {
 
 	isGenerating(resource: URI): boolean;
 	getProgress(resource: URI): IBaseHalfVideoGenerationProgress | undefined;
+}
+
+// --- generation cards (D63) -----------------------------------------------------------------
+//
+// The services of a generation card: the card store reads and writes its
+// generation information and lists drafts; the task record store keeps the
+// records of `.bh/cache/generation/` of this computer; the draft operations
+// rename, move, and delete a draft with all of its card information. They
+// replace the node store above, which goes once nothing reads `.bhnode` files.
+
+/** What a window knows of a generation card. */
+export interface IBaseHalfGenerationCardSnapshot {
+	/** The card's file, whether or not it exists. */
+	readonly resource: URI;
+	/** Workspace-relative path of the card. */
+	readonly path: string;
+	readonly kind: BaseHalfGenerationKind;
+	/** Whether the file exists. A draft has none and no `made.yaml`. */
+	readonly hasFile: boolean;
+	/** What the next generation uses, field by field as far as it could be read. */
+	readonly info: IBaseHalfGenerationInfo;
+	/** `false` when `generation.yaml` was not YAML at all; a save keeps a recovery copy first. */
+	readonly infoReadable: boolean;
+	/** The record of the generation that made the file. */
+	readonly made?: IBaseHalfGenerationMade;
+	/** A `made.yaml` is there but cannot be read; it is left as it is. */
+	readonly madeUnreadable?: boolean;
+	/** The valid upstream entries, in order: the card's inputs. */
+	readonly upstream: readonly string[];
+}
+
+/** A draft of a folder, as its canvas lists it. */
+export interface IBaseHalfGenerationDraft {
+	readonly resource: URI;
+	/** The name its file will have. */
+	readonly name: string;
+	readonly kind: BaseHalfGenerationKind;
+}
+
+export const IBaseHalfGenerationCardStore = createDecorator<IBaseHalfGenerationCardStore>('baseHalfGenerationCardStore');
+
+/** Reads and writes the generation information of cards (generation cards, "Card information"). */
+export interface IBaseHalfGenerationCardStore {
+	readonly _serviceBrand: undefined;
+
+	/** Fires when the generation information of a card changed, written by BaseHalf, an agent, or git, with the card's resource. */
+	readonly onDidChange: Event<URI>;
+
+	/** Whether the item at `resource` is a generation card: a draft, or a file with a generation extension that has generation information. */
+	isGenerationCard(resource: URI): Promise<boolean>;
+
+	/** Reads a generation card. Rejects when `resource` is not one. */
+	read(resource: URI): Promise<IBaseHalfGenerationCardSnapshot>;
+
+	/** The drafts of a folder: generation information without `made.yaml` whose path names no item there. */
+	listDrafts(folder: URI): Promise<readonly IBaseHalfGenerationDraft[]>;
+
+	/**
+	 * Changes what the card's next generation uses. Writes only the fields that
+	 * `mutate` changed, against the bytes it read, and plans again when the file
+	 * changed underneath; `mutate` may run more than once and must not have side
+	 * effects. A file that is not YAML at all is first kept as a recovery copy.
+	 */
+	update(resource: URI, mutate: (info: IBaseHalfGenerationInfo) => IBaseHalfGenerationInfo): Promise<IBaseHalfGenerationCardSnapshot>;
+
+	/** Replaces the card's upstream entries with the same entries in a new order, as one undo step. */
+	reorderUpstream(resource: URI, upstream: readonly string[]): Promise<IBaseHalfGenerationCardSnapshot>;
+
+	/** Resolves the card's upstream entries in order. An entry that names a draft resolves without a file. */
+	resolveInputs(snapshot: IBaseHalfGenerationCardSnapshot): Promise<readonly IBaseHalfVideoResolvedInput[]>;
+
+	/**
+	 * The first free name in `folder` from `base` and `extension`, numbered as
+	 * the canvas numbers what it creates, where a file, a folder, and a draft
+	 * all count as taken.
+	 */
+	nextFreeName(folder: URI, base: string, extension: string, startOrdinal?: number): Promise<string>;
+
+	/**
+	 * Makes a draft: its `generation.yaml`, and its `upstream.yaml` when
+	 * `upstream` is given, written first. Places no card; the caller does.
+	 * Rejects when the name is taken.
+	 */
+	createDraft(folder: URI, name: string, info: IBaseHalfGenerationInfo, upstream?: readonly string[]): Promise<URI>;
+
+	/** Writes the card's `made.yaml` once. Rejects when the card has one. */
+	writeMade(resource: URI, made: IBaseHalfGenerationMade): Promise<void>;
+}
+
+export const IBaseHalfGenerationTaskStore = createDecorator<IBaseHalfGenerationTaskStore>('baseHalfGenerationTaskStore');
+
+/** The task records of this computer (generation cards, "The task record"). */
+export interface IBaseHalfGenerationTaskStore {
+	readonly _serviceBrand: undefined;
+
+	/** Fires when a record was written or removed, by this window or another one. */
+	readonly onDidChange: Event<void>;
+
+	/** The records of the open workspace folders, kept current by watching `.bh/cache/generation/`. */
+	list(): readonly IBaseHalfGenerationTask[];
+
+	/** The record that names the card: one that is not ended, or else the last one that ended. */
+	forCard(resource: URI): IBaseHalfGenerationTask | undefined;
+
+	/** Writes a record into `.bh/cache/generation/` of the workspace folder that holds its cards. */
+	write(task: IBaseHalfGenerationTask): Promise<void>;
+
+	/** Removes a record and its partial downloads. */
+	remove(taskId: string): Promise<void>;
+
+	/** Where the `index`-th output of a generation is downloaded: `.bh/cache/generation/<task id>-<n>.part`. */
+	partFile(task: IBaseHalfGenerationTask, index: number): URI;
+
+	/**
+	 * Writes the new path of a card, or of every card below a folder, into the
+	 * records that name it, after a move or a rename (generation cards, "Moving,
+	 * renaming, copying, and undo"). Called inside the exclusive run of the move.
+	 */
+	retarget(from: URI, to: URI): Promise<void>;
+}
+
+/** What undoing a draft operation needs: every piece of the draft's card information. */
+export interface IBaseHalfDraftSnapshot {
+	readonly resource: URI;
+	/** The draft's card information files by name (`generation.yaml`, `upstream.yaml`, `badge.yaml`, …), as bytes. */
+	readonly files: ReadonlyMap<string, Uint8Array>;
+}
+
+export const IBaseHalfDraftOperations = createDecorator<IBaseHalfDraftOperations>('baseHalfDraftOperations');
+
+/**
+ * Renames, moves, and deletes drafts. A draft has no file, so these move or
+ * remove its card information, its card row, and the task record that names
+ * it, and rewrite the entries that name it, as a move of a file does
+ * (generation cards, "Moving, renaming, copying, and undo").
+ */
+export interface IBaseHalfDraftOperations {
+	readonly _serviceBrand: undefined;
+
+	/** Renames or moves a draft to `target`, which must be free and keep the draft's kind. Resolves with `target`. */
+	move(draft: URI, target: URI): Promise<URI>;
+
+	/** Removes a draft's card information and card row. Resolves with what an undo needs. */
+	delete(draft: URI): Promise<IBaseHalfDraftSnapshot>;
+
+	/** Writes back a deleted draft, for undo. Rejects when its path is taken. */
+	restore(snapshot: IBaseHalfDraftSnapshot): Promise<void>;
 }
