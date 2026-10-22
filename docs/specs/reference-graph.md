@@ -1094,6 +1094,34 @@ opens the report.
 
 ## Templates
 
+A template is one JSON document of version 1 with four lists:
+
+- `files`: the text files it creates, each `{ path, contents }`.
+- `drafts`: the generation cards it creates without a file, each
+  `{ path, prompt }`. The path has a generation extension, which gives the
+  draft its kind ([generation cards](generation-cards.md#terms)). `prompt`
+  is at most 64 KiB and may be left out, which is an empty prompt. A draft
+  declares nothing else: its provider, model, mode, and values are this
+  computer's.
+- `cards`: a card row `{ path, x, y, width, height }` for a file or a draft.
+- `references`: connections `{ from, to, fromAnchor, toAnchor }` between the
+  files and drafts it creates.
+
+Paths are relative to the template and portable. No path ends in `.bhnode`,
+and a template with a `nodes` list is refused (D63). Every folder that holds
+a draft also holds a file of the template, so that the folder exists on every
+computer the project reaches through git
+([generation cards](generation-cards.md#drafts-and-missing-files)).
+
+- Instantiation creates the project folder, its folders, and its files, and
+  writes the card rows and anchor rows the template declares, drafts'
+  included. Then it makes each draft through the card store: its
+  `upstream.yaml` with the references into it, written first, then its
+  `generation.yaml` with the template's prompt and the provider, model, mode,
+  and values of the last generation of the draft's kind on this computer,
+  made legal for that model, as New Image and New Video do. A draft keeps the
+  name the template gives it. Last, it writes the `upstream.yaml` of the
+  other sidecar targets.
 - Template `references` pairs keep their format. The host materializes each
   pair into the target node's store. It rebases each path from template-relative
   to workspace-relative, under the instantiation folder:
@@ -1106,6 +1134,13 @@ opens the report.
 - Pending template setup records move to the storage key
   `basehalf.canvas.pendingTemplateSetups.v2`. Version 1 records from an older
   build are discarded, with a warning that names the setup.
+- A setup that is finished later makes the drafts that are not there yet and
+  keeps the ones that are. A draft whose path an item or other card
+  information took meanwhile is refused with its name, and nothing of it is
+  written.
+- Undoing the creation of a project moves its folder away and keeps the card
+  information of its drafts, as a delete to the trash does; redoing it shows
+  them again.
 
 ## Generation
 
@@ -1133,6 +1168,10 @@ because both ends validate these literals.
 - `host.modelCatalog` is the model catalog that agents choose a card's
   `provider`, `model`, `mode`, and `params` from
   ([generation cards](generation-cards.md#agents)).
+- `host.generationCards` is the contract of what an agent may write to make
+  or change a generation card, and the command that generates it
+  ([generation cards](generation-cards.md#agents)). The bridge that carries
+  discovery and `basehalf --generate` is version 5.
 - Discovery has no `host.nodeDocument`, and `host.contextEdge` names no node
   store and no `node-result` source (D63). It lists no recipes (D58).
 - `host.operations` lists the template operation when templates are

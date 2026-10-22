@@ -72,9 +72,16 @@ Inspection accepts an item only when:
 1. its path names a video file that exists;
 2. when the item has a `generationId`, that file's `made.yaml` has that `id`.
 
-Otherwise the item shows as missing or changed. Sequence reads only a card's
-kind, whether it has its file, and the `id` of its `made.yaml` from the
-host's `inspectGenerationCard`.
+Otherwise the item shows as missing or changed: missing when its path names
+no video file, changed when the video there has no `made.yaml` with the
+item's `generationId`. For an item of either kind that has a
+`generationId`, inspection looks for the moved video: a bounded scan of the
+videos below the folder of the Sequence file, at most 256, for the one whose
+`made.yaml` has that `id`. When it finds exactly one, it offers **Repair
+Moved Video Sequence Clip**. A file must be a regular file inside the open
+workspace folder, not a symbolic link. Sequence reads only a card's kind,
+whether it has its file, and the `id` of its `made.yaml` from the host's
+`inspectGenerationCard`; it reads nothing under `.bh/`.
 
 ## Sequence operations
 
