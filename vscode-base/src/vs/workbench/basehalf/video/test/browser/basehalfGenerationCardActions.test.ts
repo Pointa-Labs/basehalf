@@ -257,7 +257,7 @@ suite('BaseHalfGenerationCardActions', () => {
 		});
 	});
 
-	test('a copy of a draft has its prompt and settings and no upstream list, under the next free number, and undo deletes it', async () => {
+	test('a copy of a draft has its prompt and settings and no upstream list, under its own name where that is free and the next free number otherwise, and undo deletes it', async () => {
 		const harness = await createHarness(disposables, {
 			'shots/.keep': '',
 			'other/.keep': '',
@@ -268,12 +268,12 @@ suite('BaseHalfGenerationCardActions', () => {
 		const pasted = await harness.actions.copyDraft(harness.resource('shots/shot-2.mp4'), harness.resource('other'), 'Paste shot-2.mp4');
 		const copies = {
 			paths: [duplicate.path, pasted.path],
-			info: await harness.read('.bh/mirror/shots/shot.mp4/generation.yaml'),
-			upstream: await harness.exists('.bh/mirror/other/shot.mp4/upstream.yaml')
+			info: await harness.read('.bh/mirror/shots/shot-3.mp4/generation.yaml'),
+			upstream: await harness.exists('.bh/mirror/other/shot-2.mp4/upstream.yaml')
 		};
 		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
-		assert.deepStrictEqual({ copies, undone: await harness.exists('.bh/mirror/other/shot.mp4/generation.yaml') }, {
-			copies: { paths: ['/work/shots/shot.mp4', '/work/other/shot.mp4'], info: 'prompt: "A pier."\nprovider: "acme"\n', upstream: false },
+		assert.deepStrictEqual({ copies, undone: await harness.exists('.bh/mirror/other/shot-2.mp4/generation.yaml') }, {
+			copies: { paths: ['/work/shots/shot-3.mp4', '/work/other/shot-2.mp4'], info: 'prompt: "A pier."\nprovider: "acme"\n', upstream: false },
 			undone: false
 		});
 	});

@@ -49,7 +49,7 @@ import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../../../c
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget } from './basehalfCanvasViewShared.js';
+import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget } from './basehalfCanvasViewShared.js';
 
 /**
  * Making things on the canvas: the inline editors that name a new item or
@@ -1062,6 +1062,8 @@ export class BaseHalfCanvasCreation {
 		const uniqueResources = [...new Map(resources.map(resource => [resource.toString(), resource])).values()];
 		const transfers: { readonly source: URI; readonly target: URI; readonly kind: 'file' | 'folder' }[] = [];
 		const drafts: URI[] = [];
+		// Two items of one paste never take the same name.
+		const reserved = new Set<string>();
 		for (const source of uniqueResources) {
 			if (operation === 'move' && this.view.uriIdentityService.extUri.isEqual(dirname(source), folder.resource)) {
 				continue;
@@ -1084,8 +1086,11 @@ export class BaseHalfCanvasCreation {
 			if (stat.isDirectory && isEqualOrParent(folder.resource, source)) {
 				throw new Error(localize('basehalf.canvas.import.ancestor', "A folder cannot be imported into itself or one of its descendants."));
 			}
-			const target = await this.freeTransferTarget(folder, source, stat.isDirectory, operation === 'move' || incrementalNaming === 'disabled', incrementalNaming);
+			const target = operation === 'copy'
+				? await this.copyTarget(folder, source, stat.isDirectory, incrementalNaming === 'disabled', incrementalNaming, reserved)
+				: await this.freeTransferTarget(folder, source, stat.isDirectory, true, incrementalNaming, reserved);
 			if (target) {
+				reserved.add(this.view.uriIdentityService.extUri.getComparisonKey(target));
 				transfers.push({ source, target, kind: stat.isDirectory ? 'folder' : 'file' });
 			}
 		}
@@ -1193,6 +1198,30 @@ export class BaseHalfCanvasCreation {
 					: localize('basehalf.canvas.import.progressMany', "Importing {0} items", transfers.length),
 			confirmBeforeUndo: this.confirmExplorerUndo()
 		});
+	}
+
+	/**
+	 * The path a copy of an item takes in the canvas's folder. The copy of a
+	 * generation card with its file is named as the copy of a draft is
+	 * (generation cards, "Moving, renaming, copying, and undo"): its own name
+	 * where that is free, and the next free number after its own otherwise.
+	 * Any other item is named as the Explorer names a pasted item. No copy
+	 * takes a draft's name, nor one in `reserved`.
+	 */
+	async copyTarget(
+		folder: IBaseHalfCanvasFolderState,
+		source: URI,
+		isDirectory: boolean,
+		allowOverwrite: boolean,
+		incrementalNaming: IFilesConfiguration['explorer']['incrementalNaming'],
+		reserved?: ReadonlySet<string>
+	): Promise<URI | undefined> {
+		if (isDirectory || !await this.view.generationCardStore.isGenerationCard(source)) {
+			return this.freeTransferTarget(folder, source, isDirectory, allowOverwrite, incrementalNaming, reserved);
+		}
+		return baseHalfCanvasGenerationCopyTarget(folder.resource, basename(source),
+			(base, extension, ordinal) => this.view.generationCardStore.nextFreeName(folder.resource, base, extension, ordinal),
+			candidate => !!reserved?.has(this.view.uriIdentityService.extUri.getComparisonKey(candidate)));
 	}
 
 	/**

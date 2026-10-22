@@ -14,7 +14,7 @@ import { clearExplorerFileClipboardCut, findValidPasteFileTargetForResource, set
 import '../../../../contrib/files/browser/fileCommands.js';
 import { NEW_FILE_COMMAND_ID, NEW_UNTITLED_FILE_COMMAND_ID } from '../../../../contrib/files/browser/fileConstants.js';
 import { IExplorerService } from '../../../../contrib/files/browser/files.js';
-import { baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget } from '../../browser/view/basehalfCanvasViewShared.js';
+import { baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget } from '../../browser/view/basehalfCanvasViewShared.js';
 
 suite('BaseHalfCanvasFileOperations', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -68,6 +68,27 @@ suite('BaseHalfCanvasFileOperations', () => {
 			'/workspace/shots/shot copy 3.mp4',
 			'/workspace/shots/image copy.png',
 			'/workspace/shots/other.png'
+		]);
+	});
+
+	test('a copy of a generation card keeps its name where that is free, and takes the next free number after its own otherwise, never one another copy took', async () => {
+		const taken = new Set(['shot.mp4', 'shot-2.mp4', 'shot-4.mp4']);
+		const nextFreeName = async (base: string, extension: string, startOrdinal: number) => {
+			for (let ordinal = startOrdinal; ; ordinal++) {
+				const name = ordinal <= 1 ? `${base}.${extension}` : `${base}-${ordinal}.${extension}`;
+				if (!taken.has(name)) {
+					return name;
+				}
+			}
+		};
+		const reserved = new Set(['/workspace/shots/shot-3.mp4']);
+		const target = async (name: string) => (await baseHalfCanvasGenerationCopyTarget(URI.file('/workspace/shots'), name, nextFreeName, candidate => reserved.has(candidate.path))).path;
+		assert.deepStrictEqual([await target('shot-2.mp4'), await target('shot.mp4'), await target('image.png'), await target('shot-7.mp4')], [
+			// 2 is taken, 3 is another copy's, 4 is taken.
+			'/workspace/shots/shot-5.mp4',
+			'/workspace/shots/shot-5.mp4',
+			'/workspace/shots/image.png',
+			'/workspace/shots/shot-7.mp4'
 		]);
 	});
 

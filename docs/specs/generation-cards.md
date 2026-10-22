@@ -200,6 +200,9 @@ inputs:
 - `id` is unique to this file: the task id, with `-<n>` for the n-th image of
   a generation that made several. `output` and `outputs` then say which one
   of how many it is.
+- `copyOf` is in the record of a copy only: the `id` of the record of the
+  file it copies, the first one for a copy of a copy. The rest of the record
+  is the original's.
 - `prompt` is the card's own prompt as it was sent. The text of the text
   inputs that joined it is not recorded; `inputs` names those notes, as it
   names every input, in the order they were listed. So a note's text is never
@@ -829,12 +832,24 @@ is a file does:
   outside it, writes the card's new path into the task record in the same
   exclusive run, so that the files land where the card is.
 - **Copying** a generation card makes a new card in the folder where it is
-  pasted, named with the next free number: of a draft, a draft with the same
-  prompt and settings; of a card with its file, a copy of the file with the
-  same `generation.yaml` and a `made.yaml` whose `id` is new and which says it
-  is a copy of the original's. Neither has upstream entries or a task. On the
-  canvas, Copy and Paste and Duplicate copy a draft as they copy a file; a
-  copy of a card with its file is made by any copy of its file, in Files too.
+  pasted: of a draft, a draft with the same prompt and settings; of a card
+  with its file, a copy of the file with the same `generation.yaml` and a
+  `made.yaml` whose `id` is new and which says it is a copy of the original's.
+  Neither has upstream entries or a task. On the canvas, Copy and Paste and
+  Duplicate copy a draft as they copy a file, and name the copy of either
+  kind as a pasted draft is named: its own name where that is free, and the
+  next free number after its own otherwise (`shot-2.mp4` duplicated beside
+  itself is `shot-3.mp4`).
+  - A copy of a card with its file is made by any copy of its file through
+    the workbench, in Files too, under the name the copy takes there. A copy
+    of a folder copies the cards below it, the drafts among them; the record
+    of a generated file that is gone is not copied.
+  - Card information that is already at the path a copy takes stays, as it
+    is for a file that appears at a draft's path. A copy from outside the
+    open folders, or into a folder BaseHalf is set to leave alone, gets none.
+  - When the card information of a copy cannot be written, the copy is a
+    plain file, and BaseHalf says "BaseHalf could not copy the prompt and
+    settings of <name>."
 - **Undo.** Creating, renaming, moving, deleting, and copying a draft are each
   one step of the canvas undo stack, which keeps all of the draft's card
   information. Undo and redo refuse, and say why, while the draft generates;

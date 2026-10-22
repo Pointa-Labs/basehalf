@@ -251,7 +251,7 @@ export class BaseHalfCanvasSelectionActions {
 		const drafts = items.filter(item => item.generation?.draft);
 		for (const item of items.filter(candidate => !candidate.generation?.draft)) {
 			// Neither another copy nor a draft has the name a copy takes.
-			const target = await this.view.creation.freeTransferTarget(folder, item.stat.resource, item.kind === 'folder', false, naming, reserved);
+			const target = await this.view.creation.copyTarget(folder, item.stat.resource, item.kind === 'folder', false, naming, reserved);
 			if (!target) {
 				return;
 			}

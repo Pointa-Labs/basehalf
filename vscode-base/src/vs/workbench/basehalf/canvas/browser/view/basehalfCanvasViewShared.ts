@@ -12,7 +12,7 @@ import { localize } from '../../../../../nls.js';
 import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
 import { findValidPasteFileTargetForResource, incrementFileName } from '../../../../contrib/files/browser/fileActions.js';
-import { baseHalfGenerationKindOfPath } from '../../../video/common/basehalfGenerationInfo.js';
+import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeNode } from '../../../references/common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasDamage, IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
@@ -285,6 +285,30 @@ export function baseHalfCanvasDraftNameProblem(name: string, kind: 'image' | 'vi
 	return kind === 'image'
 		? localize('basehalf.canvas.name.imageDraft', "An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.")
 		: localize('basehalf.canvas.name.videoDraft', "A video card needs a name that ends in .mp4, .mov, .m4v, or .webm.");
+}
+
+/**
+ * The path the copy of a generation card takes in `folder` (generation
+ * cards, "Moving, renaming, copying, and undo"): its own name where that is
+ * free, and the next free number after its own otherwise, as `nextFreeName`
+ * numbers from an ordinal on, never a path that `isReserved` reports, such as
+ * the one another copy of the same paste took.
+ */
+export async function baseHalfCanvasGenerationCopyTarget(
+	folder: URI,
+	name: string,
+	nextFreeName: (base: string, extension: string, startOrdinal: number) => Promise<string>,
+	isReserved: (candidate: URI) => boolean
+): Promise<URI> {
+	const { base, extension } = baseHalfGenerationNameParts(name);
+	for (let ordinal = baseHalfGenerationNameOrdinal(name); ;) {
+		const free = await nextFreeName(base, extension, ordinal);
+		const target = joinPath(folder, free);
+		if (!isReserved(target)) {
+			return target;
+		}
+		ordinal = baseHalfGenerationNameOrdinal(free) + 1;
+	}
 }
 
 /**

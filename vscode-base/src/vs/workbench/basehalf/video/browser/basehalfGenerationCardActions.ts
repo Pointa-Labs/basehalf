@@ -120,9 +120,10 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		if (snapshot.hasFile || snapshot.made) {
 			throw new Error(localize('basehalf.generation.actions.notDraft', "{0} is not a draft any more.", basename(draft)));
 		}
+		// Its own name where that is free, and the next free number after its own otherwise.
 		const { base, extension } = baseHalfGenerationNameParts(basename(draft));
 		for (let attempt = 1; ; attempt++) {
-			const name = await this.cardStore.nextFreeName(folder, base, extension);
+			const name = await this.cardStore.nextFreeName(folder, base, extension, baseHalfGenerationNameOrdinal(basename(draft)));
 			const copy = joinPath(folder, name);
 			// A draft has no record: the id of a copy's record is not used.
 			if (await this.cardStore.writeCopy(draft, copy, '')) {
