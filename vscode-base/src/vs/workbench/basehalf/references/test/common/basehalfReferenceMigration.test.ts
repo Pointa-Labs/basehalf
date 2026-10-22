@@ -85,7 +85,7 @@ suite('BaseHalfReferenceMigration', () => {
 				{ upstream: 'a.md', downstream: 'b.md', inReferences: true, inReferencedBy: true, status: { kind: 'write' }, storeKind: 'markdown' },
 				{ upstream: 'c.md', downstream: 'b.md', inReferences: true, inReferencedBy: true, status: { kind: 'write' }, storeKind: 'markdown' },
 				{ upstream: 'a.md', downstream: 'docs', inReferences: true, inReferencedBy: true, status: { kind: 'write' }, storeKind: 'sidecar' },
-				{ upstream: 'a.md', downstream: 'clip.bhnode', inReferences: true, inReferencedBy: true, status: { kind: 'write' }, storeKind: 'node' },
+				{ upstream: 'a.md', downstream: 'clip.mp4', inReferences: true, inReferencedBy: true, status: { kind: 'write' }, storeKind: 'sidecar' },
 				{ upstream: 'd.md', downstream: 'b.md', inReferences: true, inReferencedBy: true, status: { kind: 'present' }, storeKind: 'markdown' },
 				{ upstream: 'e.md', downstream: 'b.md', inReferences: true, inReferencedBy: false, status: { kind: 'dropped', reason: 'oneSided' } },
 				{ upstream: 'a.md', downstream: 'gone.md', inReferences: true, inReferencedBy: true, status: { kind: 'deferred', reason: 'missingDownstream' } }
@@ -98,10 +98,10 @@ suite('BaseHalfReferenceMigration', () => {
 			rows: rows.map(row => `${row.section} ${row.downstream} [${row.upstreams.join(', ')}]${row.reason ? ` ${row.reason}` : ''}${row.key ? ` ${row.key}` : ''}`),
 			pairsInRows: rows.reduce((sum, row) => sum + row.upstreams.length, 0)
 		}, {
-			counts: { connections: 4, notes: 1, nodeDocuments: 1, metadataItems: 1 },
+			counts: { connections: 4, notes: 1, metadataItems: 2 },
 			rows: [
 				'add b.md [a.md, c.md]',
-				'add clip.bhnode [a.md]',
+				'add clip.mp4 [a.md]',
 				'add docs [a.md]',
 				'present b.md [d.md]',
 				'cannot b.md [e.md] oneSided',

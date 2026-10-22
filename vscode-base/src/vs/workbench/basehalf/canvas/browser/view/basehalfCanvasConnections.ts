@@ -119,9 +119,6 @@ export class BaseHalfCanvasConnections {
 
 	/** Why a card can never receive a connection right now, if it cannot. */
 	private canvasUpstreamRefusal(node: IBaseHalfUpstreamActionNode, name: string, marked: boolean): string | undefined {
-		if (this.view.referenceIndexService.getUpstreamOnlyReason(node)) {
-			return localize('basehalf.canvas.connect.upstreamOnly', "{0} can't receive upstream context.", name);
-		}
 		if (marked && baseHalfUpstreamStoreKind(node.relativePath, node.kind === 'folder') === 'sidecar') {
 			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", name);
 		}

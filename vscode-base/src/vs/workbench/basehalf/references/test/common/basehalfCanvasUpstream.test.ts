@@ -88,14 +88,13 @@ suite('BaseHalfCanvasUpstream', () => {
 		const storeProblems = ['mappingValue', 'duplicateKey', 'anchorAliasTag', 'blockScalar', 'invalidDocument', 'foreignValue', 'frontmatterRejected', 'tomlFrontmatter', 'mappingNotBlock', 'frontmatterBeyondWindow', 'multilineItem', undefined] as const;
 		const entryProblems = ['empty', 'notScalar', 'notString', 'absolute', 'backslash', 'controlCharacter', 'invalidSegment', 'metadata', 'self', 'duplicate', 'overLimit', undefined] as const;
 		const messages = [
-			...(['markdown', 'sidecar', 'node'] as const).flatMap(storeKind => storeProblems.map(problem => baseHalfUpstreamStoreProblemMessage(storeKind, problem))),
+			...(['markdown', 'sidecar'] as const).flatMap(storeKind => storeProblems.map(problem => baseHalfUpstreamStoreProblemMessage(storeKind, problem))),
 			baseHalfUpstreamStoreProblemMessage('sidecar', undefined, 'permission denied'),
 			...entryProblems.map(problem => baseHalfUpstreamEntryMessage({ status: 'invalid', problem }))
 		];
-		assert.deepStrictEqual(messages.filter(message => message === '' || /`|frontmatter|yaml|toml|json|metadata|sidecar|\.bh|node document|\bkey\b|mapping|anchor|alias|scalar/i.test(message)), []);
+		assert.deepStrictEqual(messages.filter(message => message === '' || /`|frontmatter|yaml|toml|json|metadata|sidecar|\.bh|\bkey\b|mapping|anchor|alias|scalar/i.test(message)), []);
 		assert.deepStrictEqual({
 			unreadableSidecar: baseHalfUpstreamStoreProblemMessage('sidecar', 'invalidDocument'),
-			unreadableNode: baseHalfUpstreamStoreProblemMessage('node', 'invalidDocument'),
 			foreign: baseHalfUpstreamStoreProblemMessage('markdown', 'foreignValue'),
 			readButNotEditable: [baseHalfUpstreamStoreProblemMessage('markdown', 'multilineItem'), baseHalfUpstreamStoreProblemMessage('sidecar', 'mappingNotBlock')],
 			blockEntries: baseHalfUpstreamStoreProblemMessage('sidecar', 'frontmatterRejected'),
@@ -103,7 +102,6 @@ suite('BaseHalfCanvasUpstream', () => {
 			readError: baseHalfUpstreamStoreProblemMessage('sidecar', undefined, 'permission denied')
 		}, {
 			unreadableSidecar: 'BaseHalf can\'t read this upstream list.',
-			unreadableNode: 'This node can\'t be read.',
 			foreign: 'Another tool keeps something else where this upstream list goes.',
 			// Their entries are read and shown; only editing in place is refused.
 			readButNotEditable: new Array(2).fill('BaseHalf can\'t change this upstream list the way it is written.'),
@@ -120,14 +118,14 @@ suite('BaseHalfCanvasUpstream', () => {
 		);
 	});
 
-	test('finds the downstream stores that name deleted items, nodes in every phase included, leaving deleted stores alone', () => {
+	test('finds the downstream stores that name deleted items, generation cards included, leaving deleted stores alone', () => {
 		const stores: IBaseHalfIndexedStore[] = [
 			markdownStore('notes/a.md', ['book.pdf', 'other.md']),
 			markdownStore('notes/b.md', ['src', 'src/inner.md', 'book.pdf']),
 			// Inside a deleted folder: it goes away with the folder.
 			markdownStore('src/inside.md', ['book.pdf']),
-			// A node's entries are removed whatever its phase.
-			{ ...markdownStore('video.bhnode', ['book.pdf', 'src/inner.md']), storeKind: 'node' },
+			// A generation card's entries are removed whatever its phase.
+			{ ...markdownStore('shots/video.mp4', ['book.pdf', 'src/inner.md']), storeKind: 'sidecar', sidecarState: 'active' },
 			// An inactive sidecar contributes nothing.
 			{ ...markdownStore('folder', ['book.pdf']), storeKind: 'sidecar', sidecarState: 'missingNode' }
 		];
@@ -136,7 +134,7 @@ suite('BaseHalfCanvasUpstream', () => {
 			[
 				{ node: 'notes/a.md', entries: ['book.pdf'] },
 				{ node: 'notes/b.md', entries: ['src', 'src/inner.md', 'book.pdf'] },
-				{ node: 'video.bhnode', entries: ['book.pdf', 'src/inner.md'] }
+				{ node: 'shots/video.mp4', entries: ['book.pdf', 'src/inner.md'] }
 			]
 		);
 	});

@@ -779,7 +779,6 @@ export class BaseHalfCanvasRenderer {
 				storeKind: view.storeKind,
 				problem: view.problem,
 				storeIssue: view.storeIssue,
-				upstreamOnly: view.upstreamOnly,
 				misplaced: !!view.misplacedSidecar,
 				entries: view.entries.map(entry => [entry.index, entry.text, entry.status, entry.problem, entry.workspacePath, entry.target?.relativePath])
 			} : undefined,

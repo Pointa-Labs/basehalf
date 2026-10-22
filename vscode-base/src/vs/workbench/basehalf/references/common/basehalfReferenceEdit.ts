@@ -3,7 +3,6 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
@@ -12,7 +11,6 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoRedoGroup, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
-import { IBaseHalfNodeDocument } from '../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfUpstreamItemValue } from './basehalfReferenceEntries.js';
 import { BaseHalfUpstreamStoreKind, baseHalfUpstreamItemsEqual } from './basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
@@ -31,19 +29,11 @@ export const BASEHALF_REFERENCE_FLUSH_TIMEOUT_MS = 2_000;
  */
 export interface IBaseHalfUpstreamStoreSnapshot {
 	readonly items: readonly IBaseHalfUpstreamItemValue[];
-	/**
-	 * `.bhnode` only, recorded by a `nodeDocument` operation: the whole
-	 * document in its serialized form. A Video node store write changes other
-	 * fields (the prompt, the settings, the order of the inputs) in the same
-	 * write, so canvas undo compares and restores the whole document.
-	 */
-	readonly document?: string;
 }
 
 /** Whether two store snapshots are identical. */
 export function baseHalfUpstreamSnapshotsEqual(left: IBaseHalfUpstreamStoreSnapshot, right: IBaseHalfUpstreamStoreSnapshot): boolean {
-	return baseHalfUpstreamItemsEqual(left.items, right.items)
-		&& (left.document ?? null) === (right.document ?? null);
+	return baseHalfUpstreamItemsEqual(left.items, right.items);
 }
 
 /**
@@ -52,8 +42,9 @@ export function baseHalfUpstreamSnapshotsEqual(left: IBaseHalfUpstreamStoreSnaps
  * in the Unicode form of the name on disk and without a trailing slash.
  */
 export type BaseHalfReferenceEditOperation =
-	/** Appends an entry (connect, Add Upstream, Add Downstream, a Video node's
-	 * Pick on Canvas). An entry that is already listed is never listed twice. */
+	/** Appends an entry (connect, Add Upstream, Add Downstream, a generation
+	 * card's Pick on Canvas). An entry that is already listed is never listed
+	 * twice. */
 	| { readonly kind: 'add'; readonly entry: string }
 	/** Removes every item naming the entry (disconnect, ×). */
 	| { readonly kind: 'remove'; readonly entry: string }
@@ -84,14 +75,7 @@ export type BaseHalfReferenceEditOperation =
 	 * every store together. `store` names the store to transition when it is
 	 * not the node's own store (undo of Move into File re-creates the node's
 	 * misplaced `sidecar`); it defaults to the node's own store. */
-	| { readonly kind: 'transition'; readonly from: IBaseHalfUpstreamStoreSnapshot; readonly to: IBaseHalfUpstreamStoreSnapshot; readonly store?: BaseHalfUpstreamStoreKind }
-	/** A Video node store write of a `.bhnode` document: writes `next`, whose
-	 * upstream list may change together with its other fields, in one write
-	 * when the document on disk still has the bytes `expected`, and refuses
-	 * with `changedSinceEdit` otherwise. Its result snapshots carry the whole
-	 * document, so canvas undo restores the other fields with the list.
-	 * `.bhnode` stores only. */
-	| { readonly kind: 'nodeDocument'; readonly expected: VSBuffer; readonly next: IBaseHalfNodeDocument };
+	| { readonly kind: 'transition'; readonly from: IBaseHalfUpstreamStoreSnapshot; readonly to: IBaseHalfUpstreamStoreSnapshot; readonly store?: BaseHalfUpstreamStoreKind };
 
 /** One in-place entry replacement of a `replaceEntries` operation. */
 export interface IBaseHalfUpstreamEntryReplacement {
@@ -187,11 +171,9 @@ export type BaseHalfReferenceRefusalReason =
 	| 'notWritable'
 	/** Another tool keeps a value where the upstream list goes. */
 	| 'foreign'
-	/** The Markdown or `.bhnode` store is a symbolic link, lies below one, or
-	 * resolves outside its workspace folder. BaseHalf never writes through links. */
+	/** The Markdown store is a symbolic link, lies below one, or resolves
+	 * outside its workspace folder. BaseHalf never writes through links. */
 	| 'symbolicLink'
-	/** "This node already has 64 upstream entries". */
-	| 'limit'
 	/** A sidecar write in a folder marked with `.basehalf-no-workspace-setup`. */
 	| 'markedFolder'
 	/** The downstream node does not exist: no file, no folder, and no draft. */
@@ -266,7 +248,7 @@ export interface IBaseHalfReferenceUndoElementOptions {
 	 * its other undo elements (the folder's `canvas.yaml`), so a later canvas
 	 * action clears this element's redo. Never pass a Markdown document URI:
 	 * the document's own undo stack owns its text edit. `pushUndoElement` adds
-	 * the node of every node document and sidecar store the step changed.
+	 * the node of every sidecar store the step changed.
 	 */
 	readonly resources: readonly URI[];
 	readonly stores: readonly IBaseHalfReferenceUndoStore[];
@@ -299,8 +281,8 @@ export interface IBaseHalfReferenceEditService {
 	/**
 	 * Runs one operation over several stores: preflight of every store (which
 	 * writes nothing on failure), then every Markdown edit in one bulk edit and
-	 * its saves, then node documents and sidecars. Non-Markdown stores listed
-	 * before the first Markdown edit are written first.
+	 * its saves, then sidecars. Sidecars listed before the first Markdown edit
+	 * are written first.
 	 *
 	 * When the operation both adds and removes entries (a target-end
 	 * reconnect, its undo, Move into File), every store that adds entries is
@@ -317,9 +299,9 @@ export interface IBaseHalfReferenceEditService {
 	 */
 	check(edits: readonly IBaseHalfReferenceStoreEdit[]): Promise<readonly IBaseHalfReferenceBlockingStore[]>;
 	/**
-	 * **Move into File**: appends the entries of the node's misplaced
-	 * `upstream.yaml` that its Markdown or `.bhnode` store does not already
-	 * list, in order, then removes the `upstream.yaml`. The entries and the
+	 * **Move into File**: appends the entries of the note's misplaced
+	 * `upstream.yaml` that its frontmatter does not already list, in order,
+	 * then removes the `upstream.yaml`. The entries and the
 	 * removal come from one read of the file: if it changed in between, the
 	 * operation is refused. It is refused as well while the file holds an
 	 * invalid entry other than a repeated one, so no entry is lost.

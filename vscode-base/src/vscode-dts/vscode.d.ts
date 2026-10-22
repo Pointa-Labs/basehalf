@@ -21275,12 +21275,12 @@ declare module 'vscode' {
 		 * the current workspace.
 		 *
 		 * A transition may not change any BaseHalf `upstream` value: the
-		 * `upstream` frontmatter key of a Markdown file or the `upstream` field of
-		 * a `.bhnode` document. The host reads the upstream state of `expected`
-		 * and `next` (either unreadable, or the ordered raw entries) and rejects
-		 * the transition unless both are identical, including a change that
-		 * breaks or repairs a Markdown frontmatter fence. Upstream entries change
-		 * only through explicit user actions in BaseHalf.
+		 * `upstream` frontmatter key of a Markdown file. The host reads the
+		 * upstream state of `expected` and `next` (either unreadable, or the
+		 * ordered raw entries) and rejects the transition unless both are
+		 * identical, including a change that breaks or repairs a Markdown
+		 * frontmatter fence. Upstream entries change only through explicit user
+		 * actions in BaseHalf.
 		 */
 		export function applyProjectFileTransition(resource: Uri, expected: Uint8Array, next: Uint8Array, label: string): Thenable<void>;
 

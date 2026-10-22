@@ -48,7 +48,6 @@ import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/bas
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BaseHalfLegacyMigrationGate } from '../../../workspace/common/basehalfLegacyMigrationGate.js';
-import { createBaseHalfNodeDocument, parseBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../common/basehalfReferenceIndex.js';
 import {
@@ -62,7 +61,6 @@ import {
 	parseBaseHalfLegacyRecords
 } from '../../common/basehalfReferenceMigration.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
-import { baseHalfNodeTestId } from '../../../video/test/common/basehalfNodeTestFixtures.js';
 import { BaseHalfInMemoryFileSearchService, baseHalfNoMovedItems } from './basehalfReferenceTestFixtures.js';
 
 const folder = URI.file('/work');
@@ -191,14 +189,6 @@ function badge(path: string, options: { kind?: 'file' | 'folder'; description?: 
 	return text;
 }
 
-function nodeDocument(id: number): string {
-	return serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-		id: baseHalfNodeTestId(id),
-		kind: 'video',
-		title: 'Clip'
-	}));
-}
-
 function outcomes(result: IBaseHalfLegacyMigrationResult): string[] {
 	return result.folders.flatMap(folderResult => folderResult.pairs.map(pair => `${pair.upstream}→${pair.downstream} ${pair.outcome}${pair.reason ? ` ${pair.reason}` : ''}`));
 }
@@ -217,20 +207,20 @@ suite('BaseHalfReferenceMigration (services)', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('moves complete pairs after confirmation, records every pair first, and removes keys only on a later detection', async () => {
-		const a = badge('notes/a.md', { description: 'Trunk', references: ['notes/b.md', 'docs', 'clip.bhnode', 'one.md'] });
+		const a = badge('notes/a.md', { description: 'Trunk', references: ['notes/b.md', 'docs', 'clip.mp4', 'one.md'] });
 		const b = badge('notes/b.md', { referencedBy: ['notes/a.md'] });
 		const docs = badge('docs', { kind: 'folder', description: 'Docs', referencedBy: ['notes/a.md'] });
-		const clip = badge('clip.bhnode', { referencedBy: ['notes/a.md'] });
+		const clip = badge('clip.mp4', { referencedBy: ['notes/a.md'] });
 		const fixture: Record<string, string> = {
 			'notes/a.md': '# A\n',
 			'notes/b.md': '---\ntitle: B\n---\n# B\n',
 			'one.md': '# One\n',
 			'docs/readme.txt': 'readme',
-			'clip.bhnode': nodeDocument(1),
+			'clip.mp4': 'video',
 			'.bh/mirror/notes/a.md/badge.yaml': a,
 			'.bh/mirror/notes/b.md/badge.yaml': b,
 			'.bh/mirror/docs/badge.yaml': docs,
-			'.bh/mirror/clip.bhnode/badge.yaml': clip
+			'.bh/mirror/clip.mp4/badge.yaml': clip
 		};
 		const harness = await createHarness(disposables, fixture);
 		const first = harness.session();
@@ -244,13 +234,13 @@ suite('BaseHalfReferenceMigration (services)', () => {
 			tree: await harness.tree()
 		}, {
 			planned: [
-				'notes/a.md→clip.bhnode write',
+				'notes/a.md→clip.mp4 write',
 				'notes/a.md→docs write',
 				'notes/a.md→notes/b.md write',
 				'notes/a.md→one.md dropped oneSided'
 			],
 			preview: [
-				'add clip.bhnode [notes/a.md]',
+				'add clip.mp4 [notes/a.md]',
 				'add docs [notes/a.md]',
 				'add notes/b.md [notes/a.md]',
 				'cannot one.md [notes/a.md]'
@@ -265,12 +255,12 @@ suite('BaseHalfReferenceMigration (services)', () => {
 			counts: [result.moved, result.files, result.notMoved],
 			b: after['notes/b.md'],
 			docs: after['.bh/mirror/docs/upstream.yaml'],
-			clip: parseBaseHalfNodeDocument(after['clip.bhnode']).upstream,
+			clip: after['.bh/mirror/clip.mp4/upstream.yaml'],
 			records: records(after[recordPath]),
-			badges: [after['.bh/mirror/notes/a.md/badge.yaml'], after['.bh/mirror/notes/b.md/badge.yaml'], after['.bh/mirror/docs/badge.yaml'], after['.bh/mirror/clip.bhnode/badge.yaml']]
+			badges: [after['.bh/mirror/notes/a.md/badge.yaml'], after['.bh/mirror/notes/b.md/badge.yaml'], after['.bh/mirror/docs/badge.yaml'], after['.bh/mirror/clip.mp4/badge.yaml']]
 		}, {
 			outcomes: [
-				'notes/a.md→clip.bhnode migrated',
+				'notes/a.md→clip.mp4 migrated',
 				'notes/a.md→docs migrated',
 				'notes/a.md→notes/b.md migrated',
 				'notes/a.md→one.md dropped oneSided'
@@ -278,9 +268,9 @@ suite('BaseHalfReferenceMigration (services)', () => {
 			counts: [3, 3, 1],
 			b: '---\ntitle: B\nupstream:\n  - notes/a.md\n---\n# B\n',
 			docs: 'upstream:\n  - notes/a.md\n',
-			clip: ['notes/a.md'],
+			clip: 'upstream:\n  - notes/a.md\n',
 			records: [
-				'notes/a.md→clip.bhnode migrated',
+				'notes/a.md→clip.mp4 migrated',
 				'notes/a.md→docs migrated',
 				'notes/a.md→notes/b.md migrated',
 				'notes/a.md→one.md dropped oneSided'
@@ -297,14 +287,14 @@ suite('BaseHalfReferenceMigration (services)', () => {
 		assert.strictEqual(await harness.session().detect(folder), undefined);
 		const settled = await harness.tree();
 		assert.deepStrictEqual({
-			badges: [settled['.bh/mirror/notes/a.md/badge.yaml'], settled['.bh/mirror/notes/b.md/badge.yaml'], settled['.bh/mirror/docs/badge.yaml'], settled['.bh/mirror/clip.bhnode/badge.yaml']],
+			badges: [settled['.bh/mirror/notes/a.md/badge.yaml'], settled['.bh/mirror/notes/b.md/badge.yaml'], settled['.bh/mirror/docs/badge.yaml'], settled['.bh/mirror/clip.mp4/badge.yaml']],
 			records: records(settled[recordPath]).length
 		}, {
 			badges: [
 				badge('notes/a.md', { description: 'Trunk' }),
 				badge('notes/b.md'),
 				badge('docs', { kind: 'folder', description: 'Docs' }),
-				badge('clip.bhnode')
+				badge('clip.mp4')
 			],
 			records: 4
 		});
@@ -438,16 +428,16 @@ suite('BaseHalfReferenceMigration (services)', () => {
 		assert.deepStrictEqual(await harness.tree(), { 'a.md': '# A\n' });
 	});
 
-	test('the preflight plans a node like a note, and each store is written once', async () => {
+	test('the preflight plans a file like a note, and each store is written once', async () => {
 		const harness = await createHarness(disposables, {
 			'a.md': '# A\n',
 			'c.md': '# C\n',
 			'b.md': '# B\n',
-			'clip.bhnode': nodeDocument(2),
-			'.bh/mirror/a.md/badge.yaml': badge('a.md', { references: ['b.md', 'clip.bhnode'] }),
+			'clip.mp4': 'video',
+			'.bh/mirror/a.md/badge.yaml': badge('a.md', { references: ['b.md', 'clip.mp4'] }),
 			'.bh/mirror/c.md/badge.yaml': badge('c.md', { references: ['b.md'] }),
 			'.bh/mirror/b.md/badge.yaml': badge('b.md', { referencedBy: ['a.md', 'c.md'] }),
-			'.bh/mirror/clip.bhnode/badge.yaml': badge('clip.bhnode', { referencedBy: ['a.md'] })
+			'.bh/mirror/clip.mp4/badge.yaml': badge('clip.mp4', { referencedBy: ['a.md'] })
 		});
 		const session = harness.session();
 		const plan = await session.plan(folder);
@@ -455,8 +445,8 @@ suite('BaseHalfReferenceMigration (services)', () => {
 			planned: planned(plan),
 			counts: baseHalfLegacyPromptCounts(plan ? [plan] : [])
 		}, {
-			planned: ['a.md→b.md write', 'c.md→b.md write', 'a.md→clip.bhnode write'],
-			counts: { connections: 3, notes: 1, nodeDocuments: 1, metadataItems: 0 }
+			planned: ['a.md→b.md write', 'c.md→b.md write', 'a.md→clip.mp4 write'],
+			counts: { connections: 3, notes: 1, metadataItems: 1 }
 		});
 
 		harness.provider.writes.clear();
@@ -465,13 +455,13 @@ suite('BaseHalfReferenceMigration (services)', () => {
 			outcomes: outcomes(result),
 			counts: [result.moved, result.files],
 			b: await harness.read('b.md'),
-			clip: parseBaseHalfNodeDocument((await harness.read('clip.bhnode'))!).upstream,
+			clip: await harness.read('.bh/mirror/clip.mp4/upstream.yaml'),
 			writes: harness.provider.writes.get('/work/b.md')
 		}, {
-			outcomes: ['a.md→b.md migrated', 'c.md→b.md migrated', 'a.md→clip.bhnode migrated'],
+			outcomes: ['a.md→b.md migrated', 'c.md→b.md migrated', 'a.md→clip.mp4 migrated'],
 			counts: [3, 2],
 			b: '---\nupstream:\n  - a.md\n  - c.md\n---\n# B\n',
-			clip: ['a.md'],
+			clip: 'upstream:\n  - a.md\n',
 			writes: 1
 		});
 	});

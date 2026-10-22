@@ -38,20 +38,6 @@ import { baseHalfPlainFailureReason, baseHalfUserFacingErrorMessage } from '../.
 import { baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
 import {
-	addBaseHalfNodeUpstreamEntry,
-	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	BaseHalfNodeJsonValue,
-	baseHalfNodeUpstreamItemValues,
-	BaseHalfNodeUpstreamEditError,
-	IBaseHalfNodeDocument,
-	parseBaseHalfNodeDocument,
-	parseBaseHalfNodeDocumentBytes,
-	removeBaseHalfNodeUpstreamEntry,
-	replaceBaseHalfNodeUpstreamEntry,
-	serializeBaseHalfNodeDocument,
-	setBaseHalfNodeUpstream
-} from '../../video/common/basehalfNodeDocument.js';
-import {
 	BASEHALF_REFERENCE_FLUSH_TIMEOUT_MS,
 	BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY,
 	BaseHalfReferenceEditFailure,
@@ -72,12 +58,10 @@ import {
 	IBaseHalfUpstreamStoreSnapshot
 } from '../common/basehalfReferenceEdit.js';
 import {
-	BASEHALF_UPSTREAM_MAX_NODE_ENTRIES,
 	baseHalfNormalizeUpstreamEntry,
 	baseHalfUpstreamEntryProblem,
 	baseHalfUpstreamIdentity,
-	IBaseHalfUpstreamIdentity,
-	IBaseHalfUpstreamItemValue
+	IBaseHalfUpstreamIdentity
 } from '../common/basehalfReferenceEntries.js';
 import { IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
 import {
@@ -99,7 +83,6 @@ import {
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
 
 const SIDECAR_MAX_BYTES = 64 * 1024;
-const NODE_WRITE_TEMP_POSTFIX = '.basehalf-node-upstream-tmp';
 const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
 /** Operations the service performs internally besides the public ones. */
@@ -167,7 +150,7 @@ interface IPreparedStore extends IStoreTarget {
 	plannedText?: string;
 	versionId?: number;
 	dirtyBeforeEdit?: boolean;
-	/** Node documents and sidecars */
+	/** Sidecars */
 	expectedBytes?: VSBuffer | null;
 	nextBytes?: VSBuffer | 'delete';
 	savedText?: string;
@@ -183,12 +166,11 @@ class StoreRefusal extends Error {
 /**
  * Performs every reference operation (D37). Markdown stores are edited
  * through the document's text model with a minimal edit (own undo stack, no
- * canvas undo source) and saved; `.bhnode` documents through the node
- * document writer; sidecars with an expected-bytes compare and swap. Every
- * write runs under the workspace mutation lease of its folder. Every node can
- * be downstream, a draft included, whose store is its `upstream.yaml`
- * (reference graph, "Drafts"), and a generated file, which holds its own
- * inputs (D63). It never writes a Markdown or `.bhnode` store through a
+ * canvas undo source) and saved; sidecars with an expected-bytes compare and
+ * swap. Every write runs under the workspace mutation lease of its folder.
+ * Every node can be downstream, a draft included, whose store is its
+ * `upstream.yaml` (reference graph, "Drafts"), and a generated file, which
+ * holds its own inputs (D63). It never writes a Markdown store through a
  * symbolic link.
  */
 export class BaseHalfReferenceEditService extends Disposable implements IBaseHalfReferenceEditService {
@@ -310,17 +292,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			const text = model?.isResolved() ? model.textEditorModel.getValue() : await this.readText(node.resource, undefined, node.workspaceFolder);
 			return text === undefined ? undefined : readSnapshot(readBaseHalfMarkdownUpstream(text, { nodePath: node.relativePath, identity }));
 		}
-		if (storeKind === 'node') {
-			const bytes = await this.readOptional(node.resource, BASEHALF_NODE_DOCUMENT_MAX_BYTES, undefined);
-			if (bytes === null) {
-				return undefined;
-			}
-			try {
-				return nodeSnapshot(parseBaseHalfNodeDocumentBytes(bytes.buffer));
-			} catch {
-				return undefined;
-			}
-		}
 		const sidecar = baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath);
 		const text = await this.readText(sidecar, SIDECAR_MAX_BYTES, node.workspaceFolder);
 		return readSnapshot(readBaseHalfSidecarUpstream(text, { nodePath: node.relativePath, identity }));
@@ -335,8 +306,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		}
 		// Canvas geometry steps also join the undo stacks of the cards they
 		// move, and canvas redo takes the oldest redo step of the canvas source
-		// in any stack. A node document or sidecar store is written without a
-		// text edit, so nothing else clears the redo history of its node: join
+		// in any stack. A sidecar store is written without a text edit, so
+		// nothing else clears the redo history of its node: join
 		// that node's stack too, so an older undone step of the card is dropped
 		// there instead of being redone ahead of this one. A Markdown document
 		// never joins, even for its misplaced sidecar: its own undo stack owns
@@ -439,7 +410,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			? 'sidecar'
 			: operation.kind === 'transition' && operation.store !== undefined
 				? operation.store
-				: edit.ownFile || operation.kind === 'nodeDocument'
+				: edit.ownFile
 					? nodeKind
 					: undefined;
 		// Otherwise a note's content decides between the note and its sidecar.
@@ -600,10 +571,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		if (addsEntries(operation) && !target.exists) {
 			throw new StoreRefusal('missingNode', this.message('missingNode', target.node.resource));
 		}
-		if (operation.kind === 'nodeDocument' && target.storeKind !== 'node') {
-			throw new StoreRefusal('notWritable', this.message('notWritable', target.node.resource));
-		}
-		if (target.storeKind !== 'sidecar') {
+		if (target.storeKind === 'markdown') {
 			await this.assertNotSymbolicLink(target);
 		}
 		if (mode === 'write' && operation.kind === 'replaceEntries' && operation.onlyDangling) {
@@ -614,9 +582,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		switch (target.storeKind) {
 			case 'markdown':
 				prepared = mode === 'check' ? await this.checkMarkdown(target) : await this.prepareMarkdown(target);
-				break;
-			case 'node':
-				prepared = await this.prepareNode(target);
 				break;
 			case 'sidecar':
 				prepared = await this.prepareSidecar(target);
@@ -641,9 +606,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	/**
-	 * A Markdown or `.bhnode` store is never written through a symbolic link:
-	 * no path component from the workspace folder down to the store may be a
-	 * link, and the store's real path must stay inside the workspace folder.
+	 * A Markdown store is never written through a symbolic link: no path
+	 * component from the workspace folder down to the store may be a link, and
+	 * the store's real path must stay inside the workspace folder.
 	 */
 	private async assertNotSymbolicLink(target: IStoreTarget): Promise<void> {
 		if (!target.exists) {
@@ -826,132 +791,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				return operation.entries.map(entry => ({ kind: 'add', entry: baseHalfNormalizeUpstreamEntry(entry) }));
 			case 'rebuild':
 				return [{ kind: 'rebuild' }];
-			case 'nodeDocument':
 			case 'deleteSidecar':
 				return [];
-		}
-	}
-
-	private async prepareNode(target: IStoreTarget): Promise<IPreparedStore> {
-		const resource = target.storeResource;
-		const bytes = target.exists ? await this.readOptional(resource, BASEHALF_NODE_DOCUMENT_MAX_BYTES, undefined) : null;
-		if (bytes === null) {
-			return missingStore(target);
-		}
-		let document: IBaseHalfNodeDocument;
-		try {
-			document = parseBaseHalfNodeDocumentBytes(bytes.buffer);
-		} catch (error) {
-			this.logService.warn(`[BaseHalf] ${target.node.relativePath} can't be read`, error);
-			throw new StoreRefusal('unreadable', localize('basehalf.references.nodeUnreadable', "{0} can't be read.", basename(resource)));
-		}
-		// A node accepts upstream changes in every phase: a generation records
-		// the inputs it used when it starts.
-		const operation = target.edit.operation;
-		if (operation.kind === 'rebuild') {
-			// A node document is one JSON value BaseHalf writes whole: there is
-			// no list inside it to write again.
-			throw new StoreRefusal('notWritable', localize('basehalf.references.rebuildUnavailable', "The upstream list of {0} can't be rebuilt.", basename(resource)));
-		}
-		// A Video node store write, and its undo, compare and restore the whole
-		// document, not only the list.
-		const withDocument = operation.kind === 'nodeDocument'
-			|| (operation.kind === 'transition' && (operation.from.document !== undefined || operation.to.document !== undefined));
-		const expected = nodeSnapshot(document, withDocument);
-		let transition: TransitionState | undefined;
-		if (operation.kind === 'transition') {
-			transition = transitionState(expected, operation);
-			if (transition !== 'from') {
-				return { ...unchangedStore(target), expected, next: expected, transition, expectedBytes: bytes };
-			}
-		}
-		if (operation.kind === 'nodeDocument' && !bytes.equals(operation.expected)) {
-			throw new StoreRefusal('changedSinceEdit', this.message('changedSinceEdit', resource));
-		}
-		let next: IBaseHalfNodeDocument;
-		try {
-			next = this.nextNodeDocument(document, operation, target.identity);
-		} catch (error) {
-			if (error instanceof BaseHalfNodeUpstreamEditError) {
-				const reason: BaseHalfReferenceRefusalReason = error.refusal;
-				throw new StoreRefusal(reason, this.message(reason, resource));
-			}
-			this.logService.warn(`[BaseHalf] the upstream change to ${target.node.relativePath} was not planned`, error);
-			throw new StoreRefusal('notWritable', localize('basehalf.references.nodeNotWritable', "This change can't be saved to {0}.", basename(resource)));
-		}
-		const nextBytes = next === document ? undefined : VSBuffer.fromString(serializeBaseHalfNodeDocument(next));
-		const changed = nextBytes !== undefined && !nextBytes.equals(bytes);
-		return {
-			...unchangedStore(target),
-			expected,
-			next: changed ? nodeSnapshot(next, withDocument) : expected,
-			...(transition ? { transition } : {}),
-			changed,
-			expectedBytes: bytes,
-			...(changed ? { nextBytes } : {})
-		};
-	}
-
-	private nextNodeDocument(document: IBaseHalfNodeDocument, operation: InternalOperation, identity: IBaseHalfUpstreamIdentity): IBaseHalfNodeDocument {
-		switch (operation.kind) {
-			case 'add':
-				return addBaseHalfNodeUpstreamEntry(document, operation.entry, identity);
-			case 'remove':
-				return removeBaseHalfNodeUpstreamEntry(document, operation.entry, identity);
-			case 'replace':
-				return replaceBaseHalfNodeUpstreamEntry(document, operation.from, operation.to, identity);
-			case 'replaceEntries': {
-				let next = document;
-				for (const replacement of operation.replacements) {
-					next = replaceBaseHalfNodeUpstreamEntry(next, replacement.from, replacement.to, identity);
-				}
-				return next;
-			}
-			case 'append': {
-				let next = document;
-				for (const entry of operation.entries) {
-					next = addBaseHalfNodeUpstreamEntry(next, entry, identity);
-				}
-				return next;
-			}
-			case 'removeAt':
-			case 'replaceAt': {
-				const item = document.upstream[operation.index];
-				const text = baseHalfNodeUpstreamItemValues(document.upstream)[operation.index]?.text;
-				if (item === undefined || text !== operation.expected) {
-					throw new BaseHalfNodeUpstreamEditError('entryMissing', `'${operation.expected}' is no longer listed as upstream.`);
-				}
-				if (typeof item === 'string') {
-					const key = identity.key(baseHalfNormalizeUpstreamEntry(item));
-					const first = document.upstream.findIndex(candidate => typeof candidate === 'string' && identity.key(baseHalfNormalizeUpstreamEntry(candidate)) === key);
-					if (first === operation.index && operation.kind === 'replaceAt') {
-						return replaceBaseHalfNodeUpstreamEntry(document, item, operation.to, identity);
-					}
-				}
-				const upstream: BaseHalfNodeJsonValue[] = [...document.upstream];
-				if (operation.kind === 'removeAt') {
-					upstream.splice(operation.index, 1);
-				} else {
-					const toKey = identity.key(baseHalfNormalizeUpstreamEntry(operation.to));
-					const listed = document.upstream.some((candidate, index) => index !== operation.index && typeof candidate === 'string' && identity.key(baseHalfNormalizeUpstreamEntry(candidate)) === toKey);
-					if (listed) {
-						upstream.splice(operation.index, 1);
-					} else {
-						upstream[operation.index] = baseHalfNormalizeUpstreamEntry(operation.to);
-					}
-				}
-				return setBaseHalfNodeUpstream(document, upstream);
-			}
-			case 'transition':
-				if (operation.to.document !== undefined) {
-					return parseBaseHalfNodeDocument(operation.to.document);
-				}
-				return setBaseHalfNodeUpstream(document, operation.to.items.map(itemToJson));
-			case 'nodeDocument':
-				return nextNodeDocumentSave(document, operation.next, identity);
-			case 'deleteSidecar':
-			case 'rebuild':
-				return document;
 		}
 	}
 
@@ -986,8 +827,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				throw new StoreRefusal('changedSinceEdit', this.changedSinceEditMessage(target));
 			}
 			plan = bytes === null ? { kind: 'noop' } : { kind: 'delete' };
-		} else if (operation.kind === 'nodeDocument') {
-			throw new StoreRefusal('notWritable', this.message('notWritable', target.node.resource));
 		} else {
 			if (operation.kind === 'transition') {
 				transition = read.readable ? transitionState(expected, operation) : 'other';
@@ -1113,9 +952,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	/**
-	 * Writes one phase: non-Markdown stores listed before the first Markdown
-	 * store, then every Markdown edit in one bulk edit and its saves, then the
-	 * remaining node documents and sidecars.
+	 * Writes one phase: the sidecars listed before the first Markdown store,
+	 * then every Markdown edit in one bulk edit and its saves, then the
+	 * remaining sidecars.
 	 */
 	private async writePhase(stores: readonly IPreparedStore[], options: IBaseHalfReferenceEditOptions, leases: FolderLeases): Promise<void> {
 		const firstMarkdown = stores.findIndex(store => store.storeKind === 'markdown');
@@ -1182,13 +1021,10 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		this.logService.warn(`[BaseHalf] replaced the upstream.yaml of ${store.node.relativePath}, which held content BaseHalf could not use; its bytes are kept at ${recoveryCopy.toString()}`);
 	}
 
-	/** Node documents (node-document writer) and sidecars (expected-bytes compare and swap). */
+	/** Sidecars, with an expected-bytes compare and swap. */
 	private async writeFileStore(store: IPreparedStore, retried = false): Promise<void> {
 		try {
-			if (store.storeKind === 'node') {
-				await this.fileService.writeFileWithExpectedContents(store.storeResource, store.nextBytes as VSBuffer, store.expectedBytes ?? null, { atomic: { postfix: NODE_WRITE_TEMP_POSTFIX } });
-				this.referenceIndexService.acceptSavedContent(store.node, 'node', (store.nextBytes as VSBuffer).toString());
-			} else if (store.nextBytes === 'delete') {
+			if (store.nextBytes === 'delete') {
 				await this.preserveReplacedSidecar(store);
 				await this.deleteSidecar(store);
 				this.referenceIndexService.acceptSavedContent(store.node, 'sidecar', undefined);
@@ -1208,7 +1044,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				// The store changed between planning and writing: re-plan once.
 				let replanned: IPreparedStore;
 				try {
-					replanned = store.storeKind === 'node' ? await this.prepareNode(store) : await this.prepareSidecar(store);
+					replanned = await this.prepareSidecar(store);
 				} catch (replanError) {
 					store.outcome = 'failed';
 					store.error = replanError instanceof Error ? replanError.message : String(replanError);
@@ -1538,7 +1374,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'notWritable': return localize('basehalf.references.notWritable', "BaseHalf can't save connections into {0} because of how the file begins.", file);
 			case 'foreign': return localize('basehalf.references.foreign', "Another tool keeps something else where the upstream list of {0} goes. To connect anyway, use Rebuild List in its badge.", file);
 			case 'symbolicLink': return localize('basehalf.references.symbolicLink', "{0} is a symbolic link or inside one. BaseHalf doesn't change files through links.", file);
-			case 'limit': return localize('basehalf.references.limit', "This node already has 64 upstream entries.");
 			case 'markedFolder': return localize('basehalf.references.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", file);
 			case 'missingNode': return localize('basehalf.references.missingNode', "{0} no longer exists.", file);
 			case 'invalidEntry': return localize('basehalf.references.invalidEntryGeneric', "This path can't be listed as upstream of {0}.", file);
@@ -1627,9 +1462,6 @@ function addsEntries(operation: InternalOperation): boolean {
 			const before = new Set(operation.from.items.map(item => item.text));
 			return operation.to.items.some(item => !before.has(item.text));
 		}
-		case 'nodeDocument':
-			// Video node store writes are single-store writes that may add entries.
-			return operation.next.upstream.length > 0;
 		default:
 			return false;
 	}
@@ -1651,27 +1483,11 @@ function entriesToWrite(operation: InternalOperation): readonly string[] {
 	}
 }
 
-/**
- * Validates a Video node store write of a `.bhnode` document: the same node,
- * and no more than 64 entries when the list grows.
- */
-function nextNodeDocumentSave(document: IBaseHalfNodeDocument, next: IBaseHalfNodeDocument, identity: IBaseHalfUpstreamIdentity): IBaseHalfNodeDocument {
-	if (next.id !== document.id || next.kind !== document.kind) {
-		throw new Error('The saved node document belongs to another node.');
-	}
-	const listed = new Set(document.upstream.flatMap(item => typeof item === 'string' ? [identity.key(baseHalfNormalizeUpstreamEntry(item))] : []));
-	const grows = next.upstream.some(item => typeof item === 'string' && !listed.has(identity.key(baseHalfNormalizeUpstreamEntry(item))));
-	if (grows && next.upstream.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES) {
-		throw new BaseHalfNodeUpstreamEditError('limit', `This node already has ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
-	}
-	return next;
-}
-
 function unchangedStore(target: IStoreTarget): IPreparedStore {
 	return { ...target, expected: { items: [] }, next: { items: [] }, changed: false, createdFrontmatter: false, outcome: 'unchanged' };
 }
 
-/** A Markdown or `.bhnode` store whose file does not exist holds no entries. */
+/** A Markdown store whose file does not exist holds no entries. */
 function missingStore(target: IStoreTarget): IPreparedStore {
 	const store = unchangedStore(target);
 	const operation = target.edit.operation;
@@ -1682,33 +1498,11 @@ function readSnapshot(read: IBaseHalfUpstreamStoreRead): IBaseHalfUpstreamStoreS
 	return { items: read.items.map(item => ({ text: item.text, scalar: item.scalar })) };
 }
 
-function nodeSnapshot(document: IBaseHalfNodeDocument, withDocument = false): IBaseHalfUpstreamStoreSnapshot {
-	return {
-		items: baseHalfNodeUpstreamItemValues(document.upstream),
-		...(withDocument ? { document: serializeBaseHalfNodeDocument(document) } : {})
-	};
-}
-
 function transitionState(current: IBaseHalfUpstreamStoreSnapshot, operation: { readonly from: IBaseHalfUpstreamStoreSnapshot; readonly to: IBaseHalfUpstreamStoreSnapshot }): TransitionState {
-	// A store's snapshot carries the whole document exactly when the
-	// transition does (a `.bhnode` written by the Video node store); every
-	// other snapshot has only items.
-	const comparable = (snapshot: IBaseHalfUpstreamStoreSnapshot): IBaseHalfUpstreamStoreSnapshot => current.document === undefined ? { items: snapshot.items } : snapshot;
-	if (baseHalfUpstreamSnapshotsEqual(current, comparable(operation.from))) {
+	if (baseHalfUpstreamSnapshotsEqual(current, operation.from)) {
 		return 'from';
 	}
-	return baseHalfUpstreamSnapshotsEqual(current, comparable(operation.to)) ? 'to' : 'other';
-}
-
-function itemToJson(item: IBaseHalfUpstreamItemValue): BaseHalfNodeJsonValue {
-	if (item.scalar) {
-		return item.text;
-	}
-	try {
-		return JSON.parse(item.text) as BaseHalfNodeJsonValue;
-	} catch {
-		return item.text;
-	}
+	return baseHalfUpstreamSnapshotsEqual(current, operation.to) ? 'to' : 'other';
 }
 
 /** Plans several list operations in sequence and folds them into one text plan.

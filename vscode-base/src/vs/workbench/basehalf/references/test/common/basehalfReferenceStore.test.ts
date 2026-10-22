@@ -12,7 +12,6 @@ import {
 	BaseHalfUpstreamListOperation,
 	BaseHalfUpstreamTextPlan,
 	baseHalfUpstreamStoreKind,
-	isBaseHalfUpstreamReservedOutput,
 	planBaseHalfMarkdownUpstreamEdit,
 	planBaseHalfSidecarUpstreamEdit,
 	readBaseHalfMarkdownUpstream,
@@ -299,7 +298,6 @@ suite('BaseHalfReferenceStore', () => {
 
 	test('detects plugin transitions that change an upstream value, including a broken fence', () => {
 		const note = '---\ntitle: x\nupstream:\n  - a.md\n---\nBody\n';
-		const node = JSON.stringify({ version: 6, title: 'x', upstream: ['a.md'] });
 		assert.deepStrictEqual([
 			baseHalfTransitionChangesUpstream('n.md', note, note.replace('Body', 'New body')),
 			baseHalfTransitionChangesUpstream('n.md', note, note.replace('title: x', 'title: y')),
@@ -312,11 +310,9 @@ suite('BaseHalfReferenceStore', () => {
 			baseHalfTransitionChangesUpstream('n.md', '# N\n', '---\nA quote.\n---\n# N\n'),
 			baseHalfTransitionChangesUpstream('n.md', note, undefined),
 			baseHalfTransitionChangesUpstream('n.md', undefined, '# new\n'),
-			baseHalfTransitionChangesUpstream('n.bhnode', node, node.replace('"x"', '"y"')),
-			baseHalfTransitionChangesUpstream('n.bhnode', node, node.replace('a.md', 'b.md')),
-			baseHalfTransitionChangesUpstream('n.bhnode', node, '{'),
+			// Any other file keeps its list under .bh/, which no transition reaches.
 			baseHalfTransitionChangesUpstream('image.png', 'a', 'b')
-		], [false, false, true, true, true, true, false, true, false, false, true, true, false]);
+		], [false, false, true, true, true, true, false, true, false, false]);
 	});
 
 	test('Rebuild List writes a list BaseHalf could not use as one block list of the entries it can read', () => {
@@ -460,16 +456,13 @@ suite('BaseHalfReferenceStore', () => {
 		});
 	});
 
-	test('chooses the store kind and upstream-only outputs', () => {
+	test('chooses the store kind: a note\'s frontmatter, or the list BaseHalf keeps for any other node', () => {
 		assert.deepStrictEqual([
 			baseHalfUpstreamStoreKind('a/Note.MD', false),
 			baseHalfUpstreamStoreKind('a/n.markdown', false),
-			baseHalfUpstreamStoreKind('clip.BHNODE', false),
+			baseHalfUpstreamStoreKind('clip.MP4', false),
 			baseHalfUpstreamStoreKind('book.pdf', false),
-			baseHalfUpstreamStoreKind('folder.md', true),
-			isBaseHalfUpstreamReservedOutput('outputs/run/x.md'),
-			isBaseHalfUpstreamReservedOutput('Outputs/x:y.md'),
-			isBaseHalfUpstreamReservedOutput('notes/outputs/x.md')
-		], ['markdown', 'markdown', 'node', 'sidecar', 'sidecar', true, true, false]);
+			baseHalfUpstreamStoreKind('folder.md', true)
+		], ['markdown', 'markdown', 'sidecar', 'sidecar', 'sidecar']);
 	});
 });

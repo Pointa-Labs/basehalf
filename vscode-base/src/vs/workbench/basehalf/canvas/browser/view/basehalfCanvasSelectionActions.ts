@@ -434,9 +434,7 @@ export class BaseHalfCanvasSelectionActions {
 		return {
 			state,
 			stores: baseHalfCanvasDeleteImpact(
-				// A sealed or imported Result artifact keeps the bytes its node
-				// pins: its entries are never removed, so it is not offered.
-				this.view.referenceIndexService.getStores(folder.workspaceFolder).filter(store => !this.view.referenceIndexService.getUpstreamOnlyReason(store.node)),
+				this.view.referenceIndexService.getStores(folder.workspaceFolder),
 				items.map(item => item.path),
 				this.view.upstreamIdentity(folder.workspaceFolder)
 			)
@@ -541,15 +539,11 @@ export class BaseHalfCanvasSelectionActions {
 					return;
 				}
 				this.view.lastCanvasContextMenu = undefined;
-				// An edge into a sealed or imported Result artifact can't be
-				// disconnected: BaseHalf never changes that file's bytes.
-				const upstreamOnly = !!this.view.referenceIndexService.getUpstreamOnlyReason(this.view.workspaceNode(current.workspaceFolder, edge.to, edge.toKind));
 				this.view.contextMenuService.showContextMenu({
 					getAnchor: () => request.anchor,
 					getActions: () => [toAction({
 						id: 'basehalf.canvas.disconnectSelection',
 						label: localize('basehalf.canvas.edge.disconnect', "Disconnect"),
-						enabled: !upstreamOnly,
 						run: () => this.view.connections.removeEdgeFromScene(sceneKey, structuralEpoch, edge)
 					})],
 					onHide: wasCancelled => {

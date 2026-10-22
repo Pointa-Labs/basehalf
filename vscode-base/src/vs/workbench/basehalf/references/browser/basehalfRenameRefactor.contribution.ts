@@ -404,10 +404,8 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				const entries = read.items.filter(item => item.path !== undefined).length;
 				// The list stays in use where it is. Moving it is offered only
 				// into a note that can hold it.
-				const noteText = stat.isFile && baseHalfUpstreamStoreKind(path, false) === 'markdown'
-					? utf8Decoder.decode((await this.fileService.readFile(node.resource, { length: BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES })).value.buffer)
-					: undefined;
-				if (entries > 0 && (noteText === undefined || readBaseHalfMarkdownUpstream(noteText).writable)) {
+				const noteText = utf8Decoder.decode((await this.fileService.readFile(node.resource, { length: BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES })).value.buffer);
+				if (entries > 0 && readBaseHalfMarkdownUpstream(noteText).writable) {
 					out.push({ node, entries });
 				}
 			} catch {

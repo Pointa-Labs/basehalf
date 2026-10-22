@@ -182,9 +182,6 @@ export function baseHalfUpstreamStoreProblemMessage(storeKind: BaseHalfUpstreamS
 	if (readError !== undefined) {
 		return localize('basehalf.upstream.store.readError', "The upstream list could not be read: {0}", readError);
 	}
-	if (problem === 'invalidDocument' && storeKind === 'node') {
-		return localize('basehalf.upstream.store.invalidDocument', "This node can't be read.");
-	}
 	if (baseHalfUpstreamRebuildCarriesOver(storeKind, problem)) {
 		return localize('basehalf.upstream.store.blockEntries', "The connections written at the top of this note are not in use.");
 	}
@@ -223,8 +220,8 @@ export function baseHalfUpstreamRebuildCarriesOver(storeKind: BaseHalfUpstreamSt
 /**
  * Whether **Rebuild List** can write a store's list again (reference graph,
  * "Rebuilding a list"): a Markdown list whose value BaseHalf cannot use, or a
- * sidecar it cannot read. A document BaseHalf cannot edit safely, a node
- * document, and a store the file system refuses to read cannot be rebuilt.
+ * sidecar it cannot read. A document BaseHalf cannot edit safely and a store
+ * the file system refuses to read cannot be rebuilt.
  */
 export function baseHalfUpstreamStoreCanRebuild(storeKind: BaseHalfUpstreamStoreKind, problem: BaseHalfUpstreamStoreProblem | undefined, readError?: string): boolean {
 	if (readError !== undefined || problem === undefined) {
@@ -236,8 +233,6 @@ export function baseHalfUpstreamStoreCanRebuild(storeKind: BaseHalfUpstreamStore
 				|| problem === 'blockScalar' || problem === 'foreignValue' || problem === 'multilineItem';
 		case 'sidecar':
 			return true;
-		case 'node':
-			return false;
 	}
 }
 
