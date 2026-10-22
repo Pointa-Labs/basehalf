@@ -113,9 +113,11 @@ export interface ProviderModule {
 	 * Where the video of a succeeded task is, when its poll gave no address,
 	 * and the headers it needs; or the video itself, for a provider that
 	 * answers it inside the task's answer. The headers go only to the
-	 * endpoint's own origin; without them, the credential headers do.
+	 * endpoint's own origin; without them, the credential headers do. A module
+	 * whose polls always give the address, or one of image models only, leaves
+	 * it out: a download without an address then fails as unreadable.
 	 */
-	videoLocation(ref: TaskRef, http: ProviderHttp): Promise<VideoLocation>;
+	videoLocation?(ref: TaskRef, http: ProviderHttp): Promise<VideoLocation>;
 
 	/**
 	 * Asks the provider to stop a task, best effort. Answers false when the

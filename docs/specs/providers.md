@@ -391,8 +391,8 @@ answer cross-origin requests from the window.
   that starts like a PNG, JPEG, or WebP, at most 64 MiB. A refusal from another
   origin means the address expired. `download` takes the kind and the
   output's address; a video without an address is found by the provider
-  module, and an output that has an address needs no task id, since a
-  provider that answers at once gives none. It answers the size and the
+  module where it can find one, and an output that has an address needs no
+  task id, since a provider that answers at once gives none. It answers the size and the
   format the bytes start like, which decides the file's extension.
 - A provider module maps its own task states to `pending`, `running`,
   `succeeded` with the addresses of the outputs, or `failed` and `cancelled`

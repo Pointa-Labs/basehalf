@@ -273,3 +273,24 @@ test('poll, download, and cancel dispatch to the module; a download without an a
 		await server.close();
 	}
 });
+
+test('a module that leaves out videoLocation downloads a video only from the address its poll gave', async () => {
+	const video = isoMedia(2);
+	const server = await startServer((request, response) => {
+		response.writeHead(200, { 'Content-Type': 'video/mp4' });
+		response.end(video);
+	});
+	try {
+		const providers = commands({ videoLocation: undefined });
+		const ref = { provider: 'testprovider', region: 'home', endpoint: `${server.url}/v1`, credentials: { apiKey: KEY }, model: 'clip-1', remoteId: 't-1' };
+		const withAddress = value(await providers.download({ ...ref, videoUrl: `${server.url}/v1/tasks/t-1/video`, targetFsPath: join(folder, 'located.mp4.part') }));
+		const withoutAddress = error(await providers.download({ ...ref, targetFsPath: join(folder, 'unlocated.mp4.part') }));
+		assert.deepEqual({ withAddress, withoutAddress, requests: server.received.length }, {
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { code: 'invalidResponse', message: 'AI Video needs the address the poll gave to download a video from Test Provider.' },
+			requests: 1
+		});
+	} finally {
+		await server.close();
+	}
+});

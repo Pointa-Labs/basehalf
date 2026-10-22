@@ -9,7 +9,7 @@ import { downloadAddress, downloadFile, MAX_ADDRESS_LENGTH, type DownloadOptions
 import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.ts';
 import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.ts';
 import { createMediaInspector, type MediaInspector } from './media.ts';
-import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput } from './module.ts';
+import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.ts';
 import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.ts';
 import type {
 	CancelResult,
@@ -170,7 +170,14 @@ export class VideoProviderCommands {
 				throw rejected('AI Video downloads an image only from the address the provider gave.');
 			}
 			http = this.http(resolved.module, request);
-			const location = address !== undefined ? { url: address } : await resolved.module.videoLocation(request, http);
+			let location: OutputAddress | VideoLocation;
+			if (address !== undefined) {
+				location = { url: address };
+			} else if (resolved.module.videoLocation) {
+				location = await resolved.module.videoLocation(request, http);
+			} else {
+				throw unreadable(`AI Video needs the address the poll gave to download a video from ${resolved.provider.label}.`);
+			}
 			const file = await downloadFile(http, location, request.targetFsPath, kind, this.options.download);
 			return { size: file.size, format: file.format };
 		}, undefined, () => http?.secretValues);
