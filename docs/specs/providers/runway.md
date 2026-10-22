@@ -1,7 +1,8 @@
 # Runway
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; image models, 2026-10-22)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Runway module of AI Video
@@ -9,7 +10,8 @@ This specification owns the Runway module of AI Video
 catalog entry it declares, the requests it sends, and how it reads Runway's
 answers. What is the same for every provider (the commands, checks from the
 declarations, retries, the download, plain messages) is owned by the parent
-specification and is not repeated here.
+specification and is not repeated here. The video models are specified
+first; the image models are in [Image models](#image-models).
 
 ## Sources
 
@@ -327,3 +329,170 @@ of a rolling 24 hours answers 429. Requests per minute are not limited.
 module through the provider commands against local servers that answer like
 Runway's API, its storage, and its CDN; `test/providerHttp.test.ts` covers
 `ProviderHttp.retry`. No test calls Runway or uses a real key.
+
+## Image models
+
+Runway's own image models run on the same API, region, key, version header,
+uploads, tasks, cancellation, and errors as its video models. This part says
+what differs; everything it does not say is as above.
+
+### Sources of the image models
+
+Runway's API documentation, read on 2026-10-22; the request fields were read
+again that day in `openapi.json` and on `api.md`.
+
+| Page (path) | What this part takes from it |
+| --- | --- |
+| `api.md` and `openapi.json` (API version `2024-11-06`) | `POST /v1/text_to_image` for `gen4_image` and `gen4_image_turbo`: `promptText` (required, 1 to 1,000 UTF-16 code units), `ratio` (required, one of 16 pixel sizes), `referenceImages` (0 to 3, and 1 to 3 for Turbo, each `{uri, tag}`), the tag's rule (3 to 16 characters, pattern `^[a-z][a-z0-9_]+$`), `seed` (0 to 4294967295), `contentModeration.publicFigureThreshold`; the answer `{id}` |
+| `guides/using-the-api.md` | a tagged reference is named in the prompt "using at-mention syntax", as `@bunny facing the camera`; an untagged reference styles the output |
+| `guides/models.md` | Gen-4 Image and Gen-4 Image Turbo are Runway's own image models |
+| `guides/pricing.md` (no price is taken) | Gen-4 Image's images are of a 720p or a 1080p class; Turbo's are of any |
+| `assets/inputs.md` | image inputs: JPEG, PNG, or WebP, no GIF; a data URI of at most 5 MB of encoded text, an HTTPS address of at most 16 MB, an upload of at most 200 MB; references smaller than 640 × 640 or larger than 4K "not recommended" |
+| `assets/outputs.md` | output addresses expire within 24 to 48 hours |
+| `usage/tiers.md` | "all image generation models" share one concurrency limit; a task beyond it waits as `THROTTLED` |
+| `api-details/api_changelog.md` | Gen-4 Image on 2025-05-16, Gen-4 Image Turbo on 2025-08-19 |
+
+### Gen-4 Image and Gen-4 Image Turbo
+
+| Catalog id | Label | Sent as | Images | What it does |
+| --- | --- | --- | --- | --- |
+| `gen4_image` | Gen-4 Image | `gen4_image` | 0 to 3 | an image of 720p or 1080p from the prompt, guided by the connected images |
+| `gen4_image_turbo` | Gen-4 Image Turbo | `gen4_image_turbo` | 1 to 3 | the same, faster, and always from connected images |
+
+- `kind: "image"`, `outputFormat: "png"`; each request is a task, as for the
+  videos. One image per task: neither model has an output count.
+- The prompt is always required, at most 1,000 characters, counted in UTF-16
+  code units as for the videos (the rule of `check` applies to every model).
+- Neither model is deprecated.
+
+### Mode and inputs of the image models
+
+One mode, References (`reference`): 0 to 3 images for Gen-4 Image and 1 to 3
+for Turbo, and no frames, videos, audio, or source. Each image is at most
+8,000 px a side and 127 MiB, as a start frame is ([Modes and
+inputs](#modes-and-inputs)). No `imageFormats` is declared: Runway takes PNG,
+JPEG, and WebP, and the window draws any other image to PNG.
+
+- Each image is a tagged reference. The tags are `image1`, `image2`, and
+  `image3`, in the order of the inputs: lowercase letters and digits, which
+  both the pattern of the reference and the wider wording of the guide take.
+- The prompt names a reference with an at-mention of its tag, such as
+  `@image1 in the style of @image2`. Each model's description says so.
+- A reference goes inline as a data URI when the URI is at most 5 MiB, and
+  otherwise through the upload ([Inputs and the upload](#inputs-and-the-upload)),
+  named `reference-image.<png|jpg|webp>`.
+
+### Parameters of the image models
+
+| Name | Label | Kind | Values (default in bold) | Sent as |
+| --- | --- | --- | --- | --- |
+| `resolution` | Resolution | choice | `720p` (720p), **`1080p`** (1080p) | with `ratio`, as the pixel size in `ratio` |
+| `ratio` | Ratio | choice, ratio shapes | **`16:9`**, `9:16`, `4:3`, `3:4`, `1:1`, `21:9` | `ratio`, as the pixel size below |
+| `seed` | Seed | integer, optional, More | 0 to 2147483647 | `seed` |
+| `publicFigureThreshold` | Public Figures | choice, More | **`auto`** (Auto), `low` (Low) | `contentModeration.publicFigureThreshold` |
+
+The pixel size sent in `ratio`:
+
+| Ratio | 720p | 1080p |
+| --- | --- | --- |
+| 16:9 | `1280:720` | `1920:1080` |
+| 9:16 | `720:1280` | `1080:1920` |
+| 4:3 | `960:720` | `1440:1080` |
+| 3:4 | `720:960` | `1080:1440` |
+| 1:1 | `720:720` | `1080:1080` |
+| 21:9 | `1680:720` | `2112:912` |
+
+- Runway names the classes of Gen-4 Image's images 720p and 1080p, so
+  `resolution` takes those two of the shared values, not the 1K to 4K of
+  other image models. A size is of the 720p class when its shorter side is
+  720 px, and of the 1080p class when it is 1080 px; `2112:912` is the
+  1080p class's 21:9, close to 1920 × 1080 in pixels as `1680:720` is to
+  1280 × 720 in the 720p class. Every shape has both sizes.
+- Runway requires `ratio` and gives no default: 16:9 at 1080p, the size of
+  Runway's own examples, is BaseHalf's.
+- `seed` and `publicFigureThreshold` are as for the videos.
+- Not offered, because the models have none: an output count, a negative
+  prompt, an output format, and a watermark.
+
+### Requests of the image models
+
+`POST /v1/text_to_image`, sent once, with `Authorization: Bearer <key>` and
+`X-Runway-Version: 2024-11-06`:
+
+```json
+{
+	"model": "gen4_image",
+	"promptText": "@image1 in the style of @image2",
+	"ratio": "1920:1080",
+	"referenceImages": [
+		{ "uri": "data:image/png;base64,<image>", "tag": "image1" },
+		{ "uri": "runway://<upload>", "tag": "image2" }
+	],
+	"seed": 7,
+	"contentModeration": { "publicFigureThreshold": "auto" }
+}
+```
+
+- `referenceImages` only with images; `seed` only when it is set;
+  `contentModeration` always.
+- The answer is `{id}`, the task id; an answer without it leaves the outcome
+  unknown, as for the videos.
+
+### Answers of the image models
+
+`GET /v1/tasks/{id}` maps the states as for the videos
+([Asking about a task](#asking-about-a-task)), except `SUCCEEDED`: it answers
+one output for each address of `output`, in Runway's order; a succeeded task
+without one cannot be read. An address lasts 24 to 48 hours and is answered
+as it is: the window downloads it at once, without the key or the version
+header.
+
+- `SAFETY.OUTPUT.*` says that Runway's moderation refused the image it made;
+  the other failure sentences are the videos'.
+- Cancel is the videos' ([Cancel](#cancel)): `DELETE` only to a task that has
+  not ended.
+- The 401 and 429 sentences name no kind of model: 429 says that a project
+  starts as many generations of each model in 24 hours as its usage tier
+  allows, with tier 1's 50 video generations as the example.
+
+### Left out of the image models
+
+- **The other four sizes** (`1024:1024`, `1168:880`, `1360:768`,
+  `1808:768`): Runway does not say whether they are of the 720p or the 1080p
+  class, so a resolution cannot name them.
+- **Image models Runway resells**: GPT Image, Gemini and Nano Banana,
+  Seedream, Grok Imagine Image, Ideogram, FIBO, and Muse Image, for the reason
+  the videos give ([Left out](#left-out)).
+- **Untagged references**: every reference is tagged, so that the prompt can
+  name each one.
+- **Inputs as HTTPS addresses**: AI Video sends its files itself.
+
+### Not confirmed for the image models
+
+- The format of the image: Runway documents none for these models.
+  BaseHalf declares PNG; a file in another format still lands, under its own
+  extension.
+- The class of the four sizes left out.
+- What Gen-4 Image does with a tagged reference that the prompt does not
+  name.
+
+### Acceptance criteria of the image models
+
+1. The catalog has Gen-4 Image (0 to 3 images) and Gen-4 Image Turbo (1 to 3)
+   of kind image, with PNG output and exactly the mode, limits, and
+   parameters above; `buildCatalog` accepts them.
+2. Each request goes once to `/v1/text_to_image` with the pixel size of its
+   ratio and resolution, the references tagged `image1` to `image3` in order,
+   inline up to 5 MiB and uploaded above, the seed when set, and the
+   moderation setting.
+3. A poll answers the addresses of a succeeded task as outputs, which
+   download without the key; a moderated image fails with its sentence.
+4. Cancel sends `DELETE` once, only to a task that has not ended.
+5. 401 answers `auth`, 402 `balance`, 429 `rateLimited`; a refused request
+   sends nothing.
+
+### Verification of the image models
+
+`test/runway.test.ts` runs both image models through the provider commands
+against the same local API, storage, and CDN as the video models. No test
+calls Runway or uses a real key.
