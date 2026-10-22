@@ -34,3 +34,25 @@ export async function waitUntil(predicate, description, timeoutMs = 10_000) {
 	}
 	throw new Error(`Timed out waiting for ${description}${lastError instanceof Error ? `; last observation failed: ${lastError.message}` : ''}`);
 }
+
+// Reads with `read` until `accept` takes what it read; fails with the last reading.
+export async function waitForReading(read, accept, description, timeoutMs = 15_000) {
+	const deadline = Date.now() + timeoutMs;
+	let value;
+	let failure;
+	for (; ;) {
+		try {
+			value = await read();
+			failure = undefined;
+			if (accept(value)) {
+				return value;
+			}
+		} catch (error) {
+			failure = error;
+		}
+		if (Date.now() > deadline) {
+			throw new Error(`Timed out waiting for ${description}; last read: ${failure ? `failed with ${failure instanceof Error ? failure.message : String(failure)}` : JSON.stringify(value)}`);
+		}
+		await new Promise(resolve => setTimeout(resolve, 50));
+	}
+}

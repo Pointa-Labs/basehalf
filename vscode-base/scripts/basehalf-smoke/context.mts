@@ -26,7 +26,7 @@ export const sharedDataDir = path.join(runRoot, 'shared-data');
 export const extensionsDir = path.join(runRoot, 'extensions');
 // On macOS the temporary folder lies behind a symbolic link (/var is
 // /private/var). The window opens the workspace by that path, while a shell in
-// its terminal reports the real one: `basehalf --run-node` must find the
+// its terminal reports the real one: `basehalf --generate` must find the
 // workspace either way.
 export const workspacePath = path.join(runRoot, 'workspace');
 // Where the window installs the BaseHalf skill instead of the home folder, so
