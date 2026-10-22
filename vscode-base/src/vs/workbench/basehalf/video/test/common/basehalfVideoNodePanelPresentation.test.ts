@@ -239,7 +239,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			west: { label: 'Acme Video', detail: 'West · Acme Global', items: ['Acme Motion 2*', 'Acme Still (Not offered in West · Acme Global)', 'Acme Clip'] },
 			legacy: ['Acme Motion 2', 'Acme Still', 'Acme Clip', 'Acme Legacy*'],
 			loading: { message: 'Loading the video models…', groups: [], end: 'Video Providers…' },
-			failed: 'BaseHalf could not load the video models: AI Video is not running.'
+			failed: 'BaseHalf could not load the models: AI Video is not running.'
 		});
 	});
 
@@ -285,12 +285,12 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			: null])), {
 			generating: null,
 			loading: null,
-			failed: 'BaseHalf could not load the video models: AI Video is not running.',
+			failed: 'BaseHalf could not load the models: AI Video is not running.',
 			noModel: null,
 			unknownModel: 'acme-motion-9 is not a model BaseHalf offers. Choose another model.',
-			notSetUp: 'Borealis Media is not set up. Set it up in Video Providers. [Set Up → borealis]',
-			region: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers. [Video Providers… → acme]',
-			modeRegion: 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Video Providers. [Video Providers… → acme]',
+			notSetUp: 'Borealis Media is not set up. Set it up in Providers. [Set Up → borealis]',
+			region: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers. [Video Providers… → acme]',
+			modeRegion: 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Providers. [Video Providers… → acme]',
 			check: 'frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.',
 			nothingToSend: null,
 			ready: null
@@ -323,7 +323,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			model: { label: presentation.model.label, outlined: presentation.model.outlined, title: presentation.model.title }
 		}])), {
 			generating: { blocker: 'generating', generate: 'stop enabled: Stop Generating', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
-			loading: { blocker: 'catalogLoading', generate: 'generate disabled: The video models are still loading.', model: { label: 'Loading Models…', outlined: false, title: 'Loading Models…' } },
+			loading: { blocker: 'catalogLoading', generate: 'generate disabled: The models are still loading.', model: { label: 'Loading Models…', outlined: false, title: 'Loading Models…' } },
 			noModel: { blocker: 'noModel', generate: 'generate disabled: Choose a model to generate.', model: { label: 'Choose Model', outlined: true, title: 'Choose a model to generate.' } },
 			unknownModel: {
 				blocker: 'unknownModel',
@@ -332,13 +332,13 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			},
 			notSetUp: {
 				blocker: 'notSetUp',
-				generate: 'generate disabled: Borealis Media is not set up. Set it up in Video Providers.',
-				model: { label: 'Borealis One', outlined: true, title: 'Borealis Media is not set up. Set it up in Video Providers.' }
+				generate: 'generate disabled: Borealis Media is not set up. Set it up in Providers.',
+				model: { label: 'Borealis One', outlined: true, title: 'Borealis Media is not set up. Set it up in Providers.' }
 			},
 			region: {
 				blocker: 'region',
-				generate: 'generate disabled: Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.',
-				model: { label: 'Acme Still', outlined: true, title: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.' }
+				generate: 'generate disabled: Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.',
+				model: { label: 'Acme Still', outlined: true, title: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.' }
 			},
 			check: { blocker: 'check', generate: 'generate disabled: The prompt is longer than 2,000 characters.', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
 			nothingToSend: { blocker: 'nothingToSend', generate: 'generate disabled: Write a prompt or connect an input to generate.', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },

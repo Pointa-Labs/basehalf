@@ -163,9 +163,14 @@ export interface IBaseHalfVideoProviderSettingsService {
 	 */
 	getAccess(provider: IBaseHalfVideoCatalogProvider, region?: string): Promise<IBaseHalfVideoProviderAccess | undefined>;
 
-	/** The provider, model, mode, and values the last generation on this computer used; a new Video node starts with them. */
-	getLastUsed(): IBaseHalfVideoGenerationChoice | undefined;
-	setLastUsed(generation: IBaseHalfVideoGenerationChoice): void;
+	/**
+	 * The provider, model, mode, and values the last generation of a kind on
+	 * this computer used (`video` when no kind is given); a new card of that
+	 * kind starts with them.
+	 */
+	getLastUsed(kind?: BaseHalfGenerationKind): IBaseHalfVideoGenerationChoice | undefined;
+	/** Remembers the last generation of a kind (`video` when no kind is given). */
+	setLastUsed(generation: IBaseHalfVideoGenerationChoice, kind?: BaseHalfGenerationKind): void;
 
 	/** Opens the page where the user sets up providers, on a provider when one is given. */
 	openSettings(providerId?: string): Promise<void>;

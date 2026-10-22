@@ -6,9 +6,15 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
+	BASEHALF_GENERATION_MAX_FILE_BYTES,
 	baseHalfGenerationCandidateName,
 	baseHalfGenerationClaimWinner,
+	baseHalfGenerationExtensionMatchesFormat,
+	baseHalfGenerationFileFormat,
+	baseHalfGenerationFormatExtension,
+	baseHalfGenerationInfoChangedFields,
 	baseHalfGenerationKindOfPath,
+	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationMadeCopy,
 	baseHalfGenerationMadeOfTask,
 	baseHalfGenerationNameParts,
@@ -17,10 +23,12 @@ import {
 	BaseHalfGenerationInfoError,
 	BASEHALF_GENERATION_STALE_MS,
 	createBaseHalfGenerationTask,
+	createBaseHalfGenerationTaskId,
 	failBaseHalfGenerationCard,
 	failBaseHalfGenerationTask,
 	heartbeatBaseHalfGenerationTask,
 	IBaseHalfGenerationRequest,
+	isBaseHalfGenerationFileAccepted,
 	isBaseHalfGenerationTaskSettled,
 	isBaseHalfGenerationTaskStale,
 	landBaseHalfGenerationTask,
@@ -37,7 +45,8 @@ import {
 	setBaseHalfGenerationChoice,
 	setBaseHalfGenerationPrompt,
 	stopBaseHalfGenerationTask,
-	submitBaseHalfGenerationTask
+	submitBaseHalfGenerationTask,
+	writeBaseHalfGenerationInfoFields
 } from '../../common/basehalfGenerationInfo.js';
 
 suite('BaseHalfGenerationInfo', () => {
@@ -70,6 +79,45 @@ suite('BaseHalfGenerationInfo', () => {
 			const taken = new Set(['shot.mp4', 'shot-2.mp4']);
 			assert.strictEqual(baseHalfGenerationNextFreeName('shot', 'mp4', name => taken.has(name)), 'shot-3.mp4');
 			assert.strictEqual(baseHalfGenerationWithExtension('shots/image.png', 'jpg'), 'shots/image.jpg');
+			assert.deepStrictEqual(['shot-3.mp4', 'shot.mp4', 'take-two.png', 'x-12'].map(baseHalfGenerationNameOrdinal), [3, 1, 1, 12]);
+		});
+
+		test('a task id is sortable by its start and unique enough between windows', () => {
+			assert.strictEqual(createBaseHalfGenerationTaskId(Date.parse('2026-10-22T08:00:00.123Z'), () => 'AB12-cd34-ef56'), '20261022T080000-ab12cd34');
+		});
+	});
+
+	suite('generated files', () => {
+		const bytes = (...values: (number | string)[]) => Uint8Array.from(values.flatMap(value => typeof value === 'string' ? [...value].map(character => character.charCodeAt(0)) : [value]));
+
+		test('a file\'s format is read from its first bytes, and decides its extension', () => {
+			assert.deepStrictEqual([
+				bytes(0x89, 'PNG', 0x0D, 0x0A, 0x1A, 0x0A),
+				bytes(0xFF, 0xD8, 0xFF, 0xE0),
+				bytes('RIFF', 0, 0, 0, 0, 'WEBP'),
+				bytes(0, 0, 0, 24, 'ftypisom'),
+				bytes('GIF89a'),
+				bytes(0x89, 'PN')
+			].map(baseHalfGenerationFileFormat), ['png', 'jpeg', 'webp', 'mp4', undefined, undefined]);
+			assert.deepStrictEqual((['png', 'jpeg', 'webp', 'mp4'] as const).map(baseHalfGenerationFormatExtension), ['png', 'jpg', 'webp', 'mp4']);
+			assert.deepStrictEqual([
+				baseHalfGenerationExtensionMatchesFormat('shots/a.jpeg', 'jpeg'),
+				baseHalfGenerationExtensionMatchesFormat('shots/a.JPG', 'jpeg'),
+				baseHalfGenerationExtensionMatchesFormat('shots/a.png', 'jpeg'),
+				baseHalfGenerationExtensionMatchesFormat('shots/a.mov', 'mp4')
+			], [true, true, false, false]);
+		});
+
+		test('a video lands as an MP4 of at most 512 MiB, an image as a PNG, JPEG, or WebP of at most 64 MiB', () => {
+			assert.deepStrictEqual([
+				isBaseHalfGenerationFileAccepted('video', 'mp4', BASEHALF_GENERATION_MAX_FILE_BYTES.video),
+				isBaseHalfGenerationFileAccepted('video', 'mp4', BASEHALF_GENERATION_MAX_FILE_BYTES.video + 1),
+				isBaseHalfGenerationFileAccepted('video', 'png', 10),
+				isBaseHalfGenerationFileAccepted('image', 'webp', 10),
+				isBaseHalfGenerationFileAccepted('image', 'jpeg', 64 * 1024 * 1024 + 1),
+				isBaseHalfGenerationFileAccepted('image', undefined, 10),
+				isBaseHalfGenerationFileAccepted('image', 'png', 0)
+			], [true, false, false, true, false, false, false]);
 		});
 	});
 
@@ -108,6 +156,42 @@ suite('BaseHalfGenerationInfo', () => {
 
 		test('an empty file is a draft with an empty prompt', () => {
 			assert.deepStrictEqual(parseBaseHalfGenerationInfo(''), { info: { prompt: '' }, readable: true, ignored: [] });
+		});
+
+		test('writes only the fields that changed, and keeps every other byte: a value an agent wrote, a comment, and a field BaseHalf does not know', () => {
+			const text = '# notes of the agent\nprompt: "old"\nmodel: "acme-still"\nprovider: "acme"\nlook: [warm, soft]\nparams:\n  duration: 5\n';
+			const before = parseBaseHalfGenerationInfo(text).info;
+			const prompt = writeBaseHalfGenerationInfoFields(text, before, setBaseHalfGenerationPrompt(before, '图片1 at dawn\n"slow"'));
+			const added = writeBaseHalfGenerationInfoFields(prompt, parseBaseHalfGenerationInfo(prompt).info, { ...parseBaseHalfGenerationInfo(prompt).info, mode: 'frames' });
+			const removed = writeBaseHalfGenerationInfoFields(added, parseBaseHalfGenerationInfo(added).info, { prompt: '图片1 at dawn\n"slow"', provider: 'acme', model: 'acme-still', mode: 'frames' });
+			assert.deepStrictEqual({ prompt, added, removed }, {
+				prompt: '# notes of the agent\nprompt: "图片1 at dawn\\n\\"slow\\""\nmodel: "acme-still"\nprovider: "acme"\nlook: [warm, soft]\nparams:\n  duration: 5\n',
+				added: '# notes of the agent\nprompt: "图片1 at dawn\\n\\"slow\\""\nmodel: "acme-still"\nprovider: "acme"\nlook: [warm, soft]\nparams:\n  duration: 5\nmode: "frames"\n',
+				removed: '# notes of the agent\nprompt: "图片1 at dawn\\n\\"slow\\""\nmodel: "acme-still"\nprovider: "acme"\nlook: [warm, soft]\nmode: "frames"\n'
+			});
+			assert.deepStrictEqual(baseHalfGenerationInfoChangedFields(before, parseBaseHalfGenerationInfo(removed).info), ['prompt', 'mode', 'params']);
+		});
+
+		test('a prompt typed in the panel and a model an agent wrote meanwhile both stay', () => {
+			const read = parseBaseHalfGenerationInfo('prompt: ""\nprovider: "acme"\nmodel: "acme-motion-2"\n').info;
+			// The agent changed the model after the panel read the file; the panel plans its prompt again from the new bytes.
+			const agent = 'prompt: ""\nprovider: "acme"\nmodel: "acme-still"\n';
+			const again = writeBaseHalfGenerationInfoFields(agent, parseBaseHalfGenerationInfo(agent).info, setBaseHalfGenerationPrompt(parseBaseHalfGenerationInfo(agent).info, 'Rain'));
+			assert.deepStrictEqual([read.model, parseBaseHalfGenerationInfo(again).info], ['acme-motion-2', { prompt: 'Rain', provider: 'acme', model: 'acme-still' }]);
+		});
+
+		test('no text, and a mapping in braces, are written whole; line breaks of the file are kept', () => {
+			const info = { prompt: 'p', provider: 'acme', params: { sound: true, duration: 5 } };
+			assert.deepStrictEqual([
+				writeBaseHalfGenerationInfoFields(undefined, { prompt: '' }, info),
+				writeBaseHalfGenerationInfoFields('{prompt: "q", extra: 1}', { prompt: 'q' }, info),
+				writeBaseHalfGenerationInfoFields('prompt: "q"\r\nmodel: "m"\r\n', { prompt: 'q', model: 'm' }, { prompt: 'r', model: 'm' })
+			], [
+				'prompt: "p"\nprovider: "acme"\nparams:\n  duration: 5\n  sound: true\n',
+				'prompt: "p"\nprovider: "acme"\nparams:\n  duration: 5\n  sound: true\n',
+				'prompt: "r"\r\nmodel: "m"\r\n'
+			]);
+			assert.strictEqual(writeBaseHalfGenerationInfoFields('prompt: "q"\n', { prompt: 'q' }, { prompt: 'q' }), 'prompt: "q"\n');
 		});
 	});
 

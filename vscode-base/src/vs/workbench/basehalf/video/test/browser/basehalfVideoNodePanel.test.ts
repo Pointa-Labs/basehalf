@@ -496,7 +496,7 @@ suite('BaseHalfVideoNodePanel', () => {
 				modelTooltip: 'Choose a model to generate.',
 				generated: 0
 			},
-			notSetUp: { label: 'Acme Video is not set up. Set it up in Video Providers.', outlined: true }
+			notSetUp: { label: 'Acme Video is not set up. Set it up in Providers.', outlined: true }
 		});
 	});
 
@@ -565,8 +565,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		store.writeFromElsewhere({ prompt: 'Rain', generation: READY });
 		await settle();
 		assert.deepStrictEqual({ notSetUp, region, ready: { hidden: reason.hidden, height: panel.height }, opened: providers.opened }, {
-			notSetUp: { hidden: false, text: 'Borealis Media is not set up. Set it up in Video Providers.', action: 'Set Up', beforeFooter: true, height: notSetUp.height },
-			region: { hidden: false, text: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.', action: 'Video Providers…', beforeFooter: true },
+			notSetUp: { hidden: false, text: 'Borealis Media is not set up. Set it up in Providers.', action: 'Set Up', beforeFooter: true, height: notSetUp.height },
+			region: { hidden: false, text: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.', action: 'Video Providers…', beforeFooter: true },
 			ready: { hidden: true, height: 180 },
 			opened: ['borealis', 'acme']
 		});
@@ -715,7 +715,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		catalog.set({ kind: 'ready', catalog: TEST_VIDEO_CATALOG });
 		await settle();
 		assert.deepStrictEqual({ loading, menu, ready: [model.textContent, find(panel, '.bh-video-panel-settings').hidden] }, {
-			loading: { model: 'Loading Models…', settingsHidden: true, generate: 'The video models are still loading.', loads: 1, catalog: 'loading' },
+			loading: { model: 'Loading Models…', settingsHidden: true, generate: 'The models are still loading.', loads: 1, catalog: 'loading' },
 			menu: ['Loading the video models…', '', 'Video Providers…'],
 			ready: ['Acme Motion 2', false]
 		});

@@ -20,8 +20,9 @@ import {
 	IBaseHalfVideoProviderAccess
 } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
-import { normalizeBaseHalfVideoGeneration } from '../common/basehalfVideoNode.js';
+import { baseHalfGenerationChoice, BaseHalfGenerationKind, normalizeBaseHalfGenerationInfo } from '../common/basehalfGenerationInfo.js';
 import {
+	BASEHALF_IMAGE_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_PROVIDERS_COMMAND_ID,
 	BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY,
@@ -53,8 +54,8 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 	private readonly mutations = this._register(new Queue<void>());
 	private settingsRaw: string | undefined;
 	private settings: ReadonlyMap<string, IBaseHalfVideoStoredProviderSettings>;
-	private lastUsedRaw: string | undefined;
-	private lastUsed: IBaseHalfVideoGenerationChoice | undefined;
+	/** The last values used, per kind, as stored and as read. */
+	private readonly lastUsed: Record<BaseHalfGenerationKind, { raw: string | undefined; value: IBaseHalfVideoGenerationChoice | undefined }>;
 
 	constructor(
 		@IStorageService private readonly storageService: IStorageService,
@@ -65,8 +66,7 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		super();
 		this.settingsRaw = this.storageService.get(BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY, StorageScope.APPLICATION);
 		this.settings = parseBaseHalfVideoProviderSettings(this.settingsRaw);
-		this.lastUsedRaw = this.storageService.get(BASEHALF_VIDEO_LAST_USED_STORAGE_KEY, StorageScope.APPLICATION);
-		this.lastUsed = parseLastUsed(this.lastUsedRaw);
+		this.lastUsed = { image: this.readLastUsed('image'), video: this.readLastUsed('video') };
 
 		const listeners = this._register(new DisposableStore());
 		// Another window changed a provider, or this one did: read it again only
@@ -79,14 +79,15 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 				this._onDidChange.fire();
 			}
 		}));
-		this._register(this.storageService.onDidChangeValue(StorageScope.APPLICATION, BASEHALF_VIDEO_LAST_USED_STORAGE_KEY, listeners)(() => {
-			const raw = this.storageService.get(BASEHALF_VIDEO_LAST_USED_STORAGE_KEY, StorageScope.APPLICATION);
-			if (raw !== this.lastUsedRaw) {
-				this.lastUsedRaw = raw;
-				this.lastUsed = parseLastUsed(raw);
-				this._onDidChange.fire();
-			}
-		}));
+		for (const kind of ['image', 'video'] as const) {
+			this._register(this.storageService.onDidChangeValue(StorageScope.APPLICATION, LAST_USED_STORAGE_KEYS[kind], listeners)(() => {
+				const read = this.readLastUsed(kind);
+				if (read.raw !== this.lastUsed[kind].raw) {
+					this.lastUsed[kind] = read;
+					this._onDidChange.fire();
+				}
+			}));
+		}
 	}
 
 	getStatus(provider: IBaseHalfVideoCatalogProvider): IBaseHalfVideoProviderStatus {
@@ -164,7 +165,7 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		if (values === undefined) {
 			// Neither used nor deleted, and the record stays as it is: the provider still
 			// shows as set up, and values that can be read again work again.
-			throw new BaseHalfVideoProviderSettingsError(localize('basehalf.video.providerSettings.unreadable', "BaseHalf can't read the credentials of {0} on this computer. Set them again in Video Providers.", provider.label));
+			throw new BaseHalfVideoProviderSettingsError(localize('basehalf.video.providerSettings.unreadable', "BaseHalf can't read the credentials of {0} on this computer. Set them again in Providers.", provider.label));
 		}
 		const present = provider.credentials.filter(credential => values[credential.id] !== undefined).map(credential => credential.id);
 		const stored = this.stored(provider.id);
@@ -190,24 +191,21 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		});
 	}
 
-	getLastUsed(): IBaseHalfVideoGenerationChoice | undefined {
-		return this.lastUsed;
+	getLastUsed(kind: BaseHalfGenerationKind = 'video'): IBaseHalfVideoGenerationChoice | undefined {
+		return this.lastUsed[kind].value;
 	}
 
-	setLastUsed(generation: IBaseHalfVideoGenerationChoice): void {
-		let normalized: IBaseHalfVideoGenerationChoice;
-		try {
-			normalized = normalizeBaseHalfVideoGeneration(generation);
-		} catch {
+	setLastUsed(generation: IBaseHalfVideoGenerationChoice, kind: BaseHalfGenerationKind = 'video'): void {
+		const normalized = normalizeLastUsed(generation);
+		if (!normalized) {
 			return;
 		}
 		const raw = JSON.stringify(normalized);
-		if (raw === this.lastUsedRaw) {
+		if (raw === this.lastUsed[kind].raw) {
 			return;
 		}
-		this.lastUsedRaw = raw;
-		this.lastUsed = normalized;
-		this.storageService.store(BASEHALF_VIDEO_LAST_USED_STORAGE_KEY, raw, StorageScope.APPLICATION, StorageTarget.MACHINE);
+		this.lastUsed[kind] = { raw, value: normalized };
+		this.storageService.store(LAST_USED_STORAGE_KEYS[kind], raw, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		this._onDidChange.fire();
 	}
 
@@ -227,6 +225,11 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 			this.logService.warn(`BaseHalf could not read the credentials of a video provider: ${getErrorMessage(error)}`);
 			return undefined;
 		}
+	}
+
+	private readLastUsed(kind: BaseHalfGenerationKind): { raw: string | undefined; value: IBaseHalfVideoGenerationChoice | undefined } {
+		const raw = this.storageService.get(LAST_USED_STORAGE_KEYS[kind], StorageScope.APPLICATION);
+		return { raw, value: parseLastUsed(raw) };
 	}
 
 	private stored(providerId: string): IBaseHalfVideoStoredProviderSettings {
@@ -259,13 +262,38 @@ function normalizeBaseHalfVideoEndpointQuietly(value: string): string | undefine
 	}
 }
 
+/** Where the last values of each kind are stored (providers, "Credentials, regions, and endpoints"). */
+const LAST_USED_STORAGE_KEYS: Readonly<Record<BaseHalfGenerationKind, string>> = Object.freeze({
+	image: BASEHALF_IMAGE_LAST_USED_STORAGE_KEY,
+	video: BASEHALF_VIDEO_LAST_USED_STORAGE_KEY
+});
+
 function parseLastUsed(raw: string | undefined): IBaseHalfVideoGenerationChoice | undefined {
 	if (!raw) {
 		return undefined;
 	}
 	try {
-		const generation = normalizeBaseHalfVideoGeneration(JSON.parse(raw));
-		return generation.model ? generation : undefined;
+		const generation = normalizeLastUsed(JSON.parse(raw));
+		return generation?.model ? generation : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** A generation choice that generation information could hold, or `undefined`. */
+function normalizeLastUsed(value: unknown): IBaseHalfVideoGenerationChoice | undefined {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return undefined;
+	}
+	const { provider, model, mode, params } = value as IBaseHalfVideoGenerationChoice;
+	try {
+		return baseHalfGenerationChoice(normalizeBaseHalfGenerationInfo({
+			prompt: '',
+			...(provider !== undefined ? { provider } : {}),
+			...(model !== undefined ? { model } : {}),
+			...(mode !== undefined ? { mode } : {}),
+			...(params !== undefined ? { params } : {})
+		}));
 	} catch {
 		return undefined;
 	}

@@ -302,10 +302,10 @@ suite('BaseHalfVideoGenerationService', () => {
 			'Choose a model to generate.',
 			'acme-motion-9 is not a model BaseHalf offers. Choose another model.',
 			'Write a prompt or connect an input to generate.',
-			'This node is generating.',
-			'Borealis Media is not set up. Set it up in Video Providers.',
+			'This card is already generating.',
+			'Borealis Media is not set up. Set it up in Providers.',
 			'The start frame is smaller than 300 pixels.',
-			'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Video Providers.'
+			'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.'
 		]);
 		assert.strictEqual(harness.commands.count(SUBMIT), 0);
 		assert.deepStrictEqual(BOREALIS.credentials.map(credential => credential.id), ['accessKey', 'secretKey']);
@@ -316,7 +316,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		harness.commands.catalog = () => { throw new Error('command not found'); };
 		const node = shotNode(harness, {}, []);
 		await assert.rejects(() => harness.service.generate(node), (error: Error) => error instanceof BaseHalfVideoGenerationError
-			&& error.message === 'BaseHalf could not load the video models: AI Video, which provides the video models, is not running.');
+			&& error.message === 'BaseHalf could not load the models: AI Video, which provides the video models, is not running.');
 		assert.deepStrictEqual([harness.store.history(node), harness.commands.count(SUBMIT)], [[], 0]);
 	}));
 

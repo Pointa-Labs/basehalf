@@ -14,6 +14,7 @@ import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVide
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
 import { IBaseHalfVideoProviderStatus } from '../../common/basehalfVideoGeneration.js';
 import {
+	BASEHALF_IMAGE_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_PROVIDERS_COMMAND_ID,
 	BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY,
@@ -173,6 +174,26 @@ suite('BaseHalfVideoProviderSettingsService', () => {
 		});
 	});
 
+	test('keeps the last values of an image apart from those of a video, each under its own key', () => {
+		const { service, storage } = createHarness();
+		const video = { provider: 'acme', model: 'acme-motion-2', mode: 'frames' as const, params: { duration: 5 } };
+		const image = { provider: 'acme', model: 'acme-paint', mode: 'reference' as const, params: { count: 4 } };
+		service.setLastUsed(video, 'video');
+		service.setLastUsed(image, 'image');
+		storage.store(BASEHALF_IMAGE_LAST_USED_STORAGE_KEY, JSON.stringify({ ...image, params: { count: 2 } }), StorageScope.APPLICATION, StorageTarget.MACHINE);
+		assert.deepStrictEqual({
+			video: service.getLastUsed('video'),
+			videoByDefault: service.getLastUsed(),
+			image: service.getLastUsed('image'),
+			stored: [JSON.parse(storage.get(BASEHALF_VIDEO_LAST_USED_STORAGE_KEY, StorageScope.APPLICATION) ?? 'null'), BASEHALF_IMAGE_LAST_USED_STORAGE_KEY]
+		}, {
+			video,
+			videoByDefault: video,
+			image: { ...image, params: { count: 2 } },
+			stored: [video, 'basehalf.image.lastUsed.v1']
+		});
+	});
+
 	test('a stored value that cannot be read is neither used nor deleted, works again once it can be read, and Replace and Remove write over it', async () => {
 		const { service, credentials } = createHarness();
 		const address = 'basehalf.modelServices.video.acme.apiKey';
@@ -188,7 +209,7 @@ suite('BaseHalfVideoProviderSettingsService', () => {
 		const replaced = credentials.values.get(address);
 		await service.setCredential(acme, 'apiKey', undefined);
 		assert.deepStrictEqual({ refused, shown, kept, again, replaced, removed: !credentials.values.has(address), setUp: service.getStatus(acme).setUp }, {
-			refused: 'BaseHalf can\'t read the credentials of Acme Video on this computer. Set them again in Video Providers.',
+			refused: 'BaseHalf can\'t read the credentials of Acme Video on this computer. Set them again in Providers.',
 			shown: true,
 			kept: JSON.stringify({ apiKey: 'acme-old' }),
 			again: { apiKey: 'acme-old' },
