@@ -432,7 +432,10 @@ relocated in one run ([many items at once](#many-items-at-once)).
      an item nor any card information is, so that nothing is replaced. The
      same holds below a paired folder, for each of its items that arrives at
      a draft's path. The entries that named the draft's path name the item
-     that took it from then on.
+     that took it from then on. A `generation.yaml` at the new path with
+     exactly the bytes of the item's own at the old path is the item's, which
+     a run that stopped had begun to move, and not a draft's; the item's
+     `generation.yaml` moves after its `made.yaml` for the same reason.
    - **A card row that BaseHalf chose** at the new path is not something of
      the user's, and gives way
      ([canvas card placement](canvas-card-placement.md#a-row-follows-its-item)).

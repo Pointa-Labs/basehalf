@@ -486,7 +486,10 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	 * Before a move or delete reaches the disk, under its reservation: the
 	 * drafts at its targets, which a moved item may take the path of, and the
 	 * generated files without a record that it deletes. Afterwards a draft and
-	 * the card information of a file that is gone look the same.
+	 * the card information of a file that is gone look the same. What cannot
+	 * be read here never holds the user's operation back: it is logged, and the
+	 * cascade then treats nothing there as a draft or as a file without a
+	 * record.
 	 */
 	private async readCardInformationBefore(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], before: IBaseHalfCardInformationBefore): Promise<void> {
 		for (const pair of files) {
@@ -494,13 +497,17 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			if (!location) {
 				continue;
 			}
-			for (const path of await baseHalfWalkDraftInformation(this.fileService, location.workspaceFolder, location.relativePath)) {
-				const itemExists = (await baseHalfReadDraftFacts(this.fileService, location.workspaceFolder, path)).itemExists;
-				if (operation === FileOperation.MOVE && !itemExists) {
-					before.drafts.push({ workspaceFolder: location.workspaceFolder, relativePath: path });
-				} else if (operation === FileOperation.DELETE && itemExists) {
-					before.withoutRecord.push({ workspaceFolder: location.workspaceFolder, relativePath: path });
+			try {
+				for (const path of await baseHalfWalkDraftInformation(this.fileService, location.workspaceFolder, location.relativePath)) {
+					const itemExists = (await baseHalfReadDraftFacts(this.fileService, location.workspaceFolder, path)).itemExists;
+					if (operation === FileOperation.MOVE && !itemExists) {
+						before.drafts.push({ workspaceFolder: location.workspaceFolder, relativePath: path });
+					} else if (operation === FileOperation.DELETE && itemExists) {
+						before.withoutRecord.push({ workspaceFolder: location.workspaceFolder, relativePath: path });
+					}
 				}
+			} catch (error) {
+				this.logService.warn(`BaseHalf mirror cascade: could not read the generation information at '${location.relativePath}' before the ${operation === FileOperation.MOVE ? 'move' : 'delete'}`, error);
 			}
 		}
 	}
@@ -1111,7 +1118,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const relocatable: typeof ready = [];
 		for (const one of ready) {
 			try {
-				await this.moveDraftsAside(workspaceFolder, await baseHalfWalkDraftInformation(this.fileService, workspaceFolder, one.move.to), lease);
+				await this.moveDraftsAside(workspaceFolder, await this.draftsAtNewPath(workspaceFolder, one.move), lease);
 				relocatable.push(one);
 			} catch (error) {
 				this.logService.warn(`BaseHalf mirror cascade: could not move a draft at '${one.move.to}' aside for the card of '${one.move.from}'`, error);
@@ -1129,11 +1136,13 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				if (failed.has(index)) {
 					throw failed.get(index);
 				}
+				// A generation that runs on the item, or below the folder, lands
+				// where it is now. Before the mirror files: once those have all
+				// moved, nothing of the pair is left that can fail.
+				await this.taskStore.retarget(this.workspaceNode(workspaceFolder, move.from).resource, this.workspaceNode(workspaceFolder, move.to).resource);
 				if (!withoutMirrorDirectory) {
 					await this.followMirrorFiles(workspaceFolder, move, lease);
 				}
-				// A generation that runs on the item, or below the folder, lands where it is now.
-				await this.taskStore.retarget(this.workspaceNode(workspaceFolder, move.from).resource, this.workspaceNode(workspaceFolder, move.to).resource);
 				if (move.kind === 'folder') {
 					this.viewportStateService.moveSubtree(this.workspaceNode(workspaceFolder, move.from).resource, this.workspaceNode(workspaceFolder, move.to).resource);
 				}
@@ -1178,6 +1187,26 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		return { ...(heldBack ? { outcome: 'held' as const } : {}), withoutMirrorDirectory };
 	}
 
+	/**
+	 * The drafts at or below the new path of a recognized item, whose path the
+	 * item, or an item below the folder, took. A `generation.yaml` there that
+	 * has exactly the bytes of the one at the matching old path is the item's
+	 * own, which an earlier run had begun to move, and not a draft's.
+	 */
+	private async draftsAtNewPath(workspaceFolder: URI, move: IBaseHalfMovedItem): Promise<string[]> {
+		const drafts: string[] = [];
+		for (const path of await baseHalfWalkDraftInformation(this.fileService, workspaceFolder, move.to)) {
+			const [here, there] = await Promise.all([
+				this.readMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, path, BASEHALF_GENERATION_INFO_FILE)),
+				this.readMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, baseHalfRemapSubtreeRel(path, move.to, move.from), BASEHALF_GENERATION_INFO_FILE))
+			]);
+			if (!here || !there?.equals(here)) {
+				drafts.push(path);
+			}
+		}
+		return drafts;
+	}
+
 	/** An item without a directory under `.bh/mirror/` has no mirror files and no layouts of its own. */
 	private async hasMirrorDirectory(workspaceFolder: URI, relativePath: string): Promise<boolean> {
 		try {
@@ -1200,8 +1229,11 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				lease
 			);
 		}
-		// The drafts below a folder come along: their card information is all they have (rule 4).
-		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE]) {
+		// The drafts below a folder come along: their card information is all
+		// they have (rule 4). `generation.yaml` moves last, after `made.yaml`, so
+		// that a run that stops in between leaves no draft's information at the
+		// new path for the next run to take for a draft's.
+		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, BASEHALF_GENERATION_MADE_FILE, BASEHALF_GENERATION_INFO_FILE]) {
 			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName, move.from)) {
 				const targetPath = baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to);
 				await this.followMirrorFile(workspaceFolder, entry.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);

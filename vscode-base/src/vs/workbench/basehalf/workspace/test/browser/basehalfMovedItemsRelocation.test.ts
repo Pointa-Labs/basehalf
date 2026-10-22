@@ -561,6 +561,28 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		});
 	});
 
+	test('a run that stopped after the generation information of an item reached its new path does not take it for a draft\'s when it runs again', async () => {
+		const prompt = 'prompt: "uploaded to a draft"\n';
+		const fileService = await createFiles({
+			// A file uploaded to a draft: generation information and no record.
+			'pics/a.png': `${PDF}an image of its own`,
+			'.bh/mirror/pics/a.png/generation.yaml': prompt,
+			'.bh/mirror/pics/a.png/badge.yaml': badge('pics/a.png', 'An upload.'),
+			// What a run that stopped after its first piece left at the new path.
+			'.bh/mirror/pics/b.png/generation.yaml': prompt
+		});
+		await open(fileService);
+		await fileService.move(resource('pics/a.png'), resource('pics/b.png'));
+		await settle();
+		await settle();
+		const after = await hidden(fileService);
+
+		assert.deepStrictEqual(Object.fromEntries(Object.entries(after).filter(([path]) => path.startsWith('mirror/pics/') && !path.endsWith('canvas.yaml'))), {
+			'mirror/pics/b.png/badge.yaml': badge('pics/b.png', 'An upload.'),
+			'mirror/pics/b.png/generation.yaml': prompt
+		});
+	});
+
 	test('the sweep at open marks no draft\'s badge, and marks that of a generated file that is gone', async () => {
 		const fileService = await createFiles({
 			'shots/notes.md': '# Notes\n',

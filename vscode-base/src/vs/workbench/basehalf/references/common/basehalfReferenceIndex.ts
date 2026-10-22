@@ -1284,9 +1284,18 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			if (index.disposed) {
 				break;
 			}
+			if (baseHalfGenerationKindOfPath(path) === undefined || !this.isIndexable(index, path)) {
+				continue;
+			}
 			const resource = URI.joinPath(index.folder, ...path.split('/'));
 			const key = this.resourceKey(resource);
-			const holds = this.isIndexable(index, path) && await this.holdsDraft(index.folder, path);
+			const holds = await this.holdsDraft(index.folder, path);
+			const sidecar = baseHalfUpstreamSidecarResource(index.folder, path);
+			const known = index.records.has(this.resourceKey(sidecar));
+			if (holds === index.drafts.has(key) && !known) {
+				// Nothing to look at again: most deleted files never were drafts.
+				continue;
+			}
 			if (holds !== index.drafts.has(key)) {
 				if (holds) {
 					index.drafts.set(key, path);
@@ -1295,12 +1304,8 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				}
 				changed.push(resource);
 			}
-			if (baseHalfGenerationKindOfPath(path) === undefined || !this.isIndexable(index, path)) {
-				continue;
-			}
-			const sidecar = baseHalfUpstreamSidecarResource(index.folder, path);
 			const result = await this.readStoreResource(index, sidecar);
-			if ((result.kind !== 'missing' || index.records.has(this.resourceKey(sidecar))) && this.applyRead(index, sidecar, result, false)) {
+			if ((result.kind !== 'missing' || known) && this.applyRead(index, sidecar, result, false)) {
 				changed.push(resource);
 			}
 		}
