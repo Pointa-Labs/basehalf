@@ -5,11 +5,13 @@
 
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
+import { Disposable, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { ResourceMap } from '../../../../../base/common/map.js';
-import { basename, joinPath } from '../../../../../base/common/resources.js';
+import { basename, dirname, isEqual, isEqualOrParent, joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ICommandEvent, ICommandService } from '../../../../../platform/commands/common/commands.js';
-import { IFileService } from '../../../../../platform/files/common/files.js';
+import { FileSystemProviderCapabilities, IFileChange, IFileService, IWatchOptions } from '../../../../../platform/files/common/files.js';
+import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
 import {
 	BASEHALF_VIDEO_PROVIDER_COMMANDS,
@@ -49,6 +51,49 @@ interface IFakeNode {
 	readonly path: string;
 	readonly upstream: readonly string[];
 	fields: IBaseHalfVideoNodeFields;
+}
+
+/**
+ * An in-memory file system that writes whole files (the in-memory
+ * provider's open, write, and close path does not truncate) and whose
+ * watchers correlate their events as the watcher of the disk does: a change
+ * under a watch request with a correlation id is reported once more with
+ * that id, to that watcher alone. Every window of a test that shares it sees
+ * the changes the others make.
+ */
+export class BaseHalfTestFileSystemProvider extends InMemoryFileSystemProvider {
+	private readonly providerChanges: Event<readonly IFileChange[]> = this.onDidChangeFile;
+	private readonly changes = this._register(new Emitter<readonly IFileChange[]>());
+	override readonly onDidChangeFile: Event<readonly IFileChange[]> = this.changes.event;
+	private readonly watches = new Set<{ readonly resource: URI; readonly recursive: boolean; readonly correlationId: number }>();
+
+	constructor() {
+		super();
+		this._register(this.providerChanges(changes => {
+			this.changes.fire(changes);
+			for (const watch of [...this.watches]) {
+				const seen = changes.filter(change => watch.recursive
+					? isEqualOrParent(change.resource, watch.resource)
+					: isEqual(change.resource, watch.resource) || isEqual(dirname(change.resource), watch.resource));
+				if (seen.length) {
+					this.changes.fire(seen.map(change => ({ type: change.type, resource: change.resource, cId: watch.correlationId })));
+				}
+			}
+		}));
+	}
+
+	override get capabilities(): FileSystemProviderCapabilities {
+		return super.capabilities & ~FileSystemProviderCapabilities.FileOpenReadWriteClose;
+	}
+
+	override watch(resource: URI, options: IWatchOptions): IDisposable {
+		if (typeof options.correlationId !== 'number') {
+			return Disposable.None;
+		}
+		const watch = { resource, recursive: options.recursive, correlationId: options.correlationId };
+		this.watches.add(watch);
+		return toDisposable(() => this.watches.delete(watch));
+	}
 }
 
 /**

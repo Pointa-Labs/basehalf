@@ -330,20 +330,49 @@ export interface IBaseHalfGenerationCardStore {
 
 export const IBaseHalfGenerationTaskStore = createDecorator<IBaseHalfGenerationTaskStore>('baseHalfGenerationTaskStore');
 
-/** The task records of this computer (generation cards, "The task record"). */
+/**
+ * The task records of this computer (generation cards, "The task record"). A
+ * record lives in `.bh/cache/generation/<task id>.json` of the workspace
+ * folder that holds its cards. Every change of a record is a compare and swap
+ * against the bytes it read, so that a heartbeat, a takeover, a stop, and a
+ * move that retargets the record never write over one another.
+ */
 export interface IBaseHalfGenerationTaskStore {
 	readonly _serviceBrand: undefined;
 
 	/** Fires when a record was written or removed, by this window or another one. */
 	readonly onDidChange: Event<void>;
 
+	/** Resolves once the records of the open workspace folders have been read the first time. */
+	whenReady(): Promise<void>;
+
+	/** Reads the records of a workspace folder, or of every open one, from disk again now. */
+	refresh(folder?: URI): Promise<void>;
+
 	/** The records of the open workspace folders, kept current by watching `.bh/cache/generation/`. */
 	list(): readonly IBaseHalfGenerationTask[];
+
+	/** The record with this id, as last read. */
+	get(taskId: string): IBaseHalfGenerationTask | undefined;
+
+	/** The workspace folder that holds the record with this id. */
+	folderOf(taskId: string): URI | undefined;
 
 	/** The record that names the card: one that is not ended, or else the last one that ended. */
 	forCard(resource: URI): IBaseHalfGenerationTask | undefined;
 
-	/** Writes a record into `.bh/cache/generation/` of the workspace folder that holds its cards. */
+	/** Writes a new record into `.bh/cache/generation/` of the workspace folder. Rejects when a record of that id is there. */
+	create(folder: URI, task: IBaseHalfGenerationTask): Promise<void>;
+
+	/**
+	 * Changes a record against the bytes it read, and again from the new bytes
+	 * when they changed underneath; `mutate` may run more than once and must
+	 * not have side effects. Returning the record it was given writes nothing.
+	 * Resolves with the record as it is now, or `undefined` when it is gone.
+	 */
+	update(taskId: string, mutate: (task: IBaseHalfGenerationTask) => IBaseHalfGenerationTask): Promise<IBaseHalfGenerationTask | undefined>;
+
+	/** Writes a record into `.bh/cache/generation/` of the workspace folder that holds it, or of the only open one for a new record. */
 	write(task: IBaseHalfGenerationTask): Promise<void>;
 
 	/** Removes a record and its partial downloads. */
