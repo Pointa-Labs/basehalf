@@ -18,7 +18,7 @@ suite('BaseHalfCanvasResourceDeletionService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('delegates canvas deletion to the shared file-operation transaction', async () => {
-		const one = URI.file('/workspace/one.bhnode');
+		const one = URI.file('/workspace/one.mp4');
 		const folder = URI.file('/workspace/shots');
 		let deleteGroup: UndoRedoGroup | undefined;
 		const explorer = new class extends mock<IExplorerService>() {
@@ -68,7 +68,7 @@ suite('BaseHalfCanvasResourceDeletionService', () => {
 		const service = new BaseHalfCanvasResourceDeletionService(new class extends mock<IExplorerService>() {
 			override async applyBulkEdit(): Promise<void> { called = true; }
 		});
-		const resource = URI.file('/workspace/one.bhnode');
+		const resource = URI.file('/workspace/one.mp4');
 
 		await assert.rejects(service.delete([
 			{ resource, folder: false, maxSize: 100 },
@@ -91,7 +91,7 @@ suite('BaseHalfCanvasResourceDeletionService', () => {
 		source.cancel();
 
 		await assert.rejects(service.delete(
-			[{ resource: URI.file('/workspace/one.bhnode'), folder: false, maxSize: 100 }],
+			[{ resource: URI.file('/workspace/one.mp4'), folder: false, maxSize: 100 }],
 			{ permanently: true, undoLabel: 'Delete', progressLabel: 'Deleting', confirmBeforeUndo: false },
 			source.token
 		), error => isCancellationError(error));

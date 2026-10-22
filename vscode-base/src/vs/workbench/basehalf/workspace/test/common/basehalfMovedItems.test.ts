@@ -221,15 +221,15 @@ suite('BaseHalfMovedItems', () => {
 		const frame = (prompt: string) => `{\n  "kind": "node",\n  "version": 3,\n  "recipe": { "id": "basehalf.video.compose", "engine": "default" },\n  "inputs": [], "outputs": [], "state": "draft",\n  "prompt": ${JSON.stringify(prompt)}\n}`;
 		const kept = (count: number, path: (index: number) => string, content: (own: string) => string) => Object.fromEntries(Array.from({ length: count }, (_, index) => [path(index), content(`Topic${index} covers point${index}, detail${index} and outcome${index}.`)]));
 		const meetings = kept(5, index => `meetings/1${index}.md`, template);
-		const nodes = kept(4, index => `keep${index}.bhnode`, frame);
+		const shots = kept(4, index => `keep${index}.json`, frame);
 		const budget = 'Budget review: the travel line is cut by a tenth.';
 		const hiring = 'Hiring: two offers go out on Friday afternoon.';
 		// One note is deleted and another is created, with other notes of the same template still there.
 		const templates = await recognize({ 'meetings/03.md': template(budget), ...meetings }, { 'meetings/07.md': template(hiring), ...meetings }, [file('meetings/03.md')]);
 		const frames = await recognize(
-			{ 'a.bhnode': frame('A slow pan across the harbor at dawn, in muted colors.'), ...nodes },
-			{ 'b.bhnode': frame('A fast cut between three faces in a crowded market.'), ...nodes },
-			[file('a.bhnode')]
+			{ 'a.json': frame('A slow pan across the harbor at dawn, in muted colors.'), ...shots },
+			{ 'b.json': frame('A fast cut between three faces in a crowded market.'), ...shots },
+			[file('a.json')]
 		);
 		const heading = await recognize({ 'todo.md': '# Notes\nBuy milk and bread for the week.' }, { 'calls.md': '# Notes\nCall the dentist about Thursday.' }, [file('todo.md')]);
 		// The same template note, renamed and with its own text edited a little, is still paired.

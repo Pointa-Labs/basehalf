@@ -235,7 +235,7 @@ suite('UndoRedoService', () => {
 			redo: () => { calls.push(`redo ${label}`); }
 		});
 
-		service.pushElement(element('create node', 'canvas-a.yaml', 'node.bhnode'), undefined, source);
+		service.pushElement(element('create card', 'canvas-a.yaml', 'clip.mp4'), undefined, source);
 		service.pushElement(element('other source', 'other.txt'), undefined, otherSource);
 		await service.undo(source);
 		await service.undo(otherSource);
@@ -246,12 +246,12 @@ suite('UndoRedoService', () => {
 		assert.deepStrictEqual({
 			calls,
 			sourceCanRedo: service.canRedo(source),
-			nodeCanRedo: service.canRedo(URI.file('node.bhnode')),
+			cardCanRedo: service.canRedo(URI.file('clip.mp4')),
 			otherSourceCanRedo: service.canRedo(otherSource)
 		}, {
-			calls: ['undo create node', 'undo other source', 'undo resize card', 'redo resize card'],
+			calls: ['undo create card', 'undo other source', 'undo resize card', 'redo resize card'],
 			sourceCanRedo: false,
-			nodeCanRedo: false,
+			cardCanRedo: false,
 			otherSourceCanRedo: true
 		});
 	});
