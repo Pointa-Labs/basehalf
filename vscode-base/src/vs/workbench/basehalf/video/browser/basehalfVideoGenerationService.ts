@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { mainWindow } from '../../../../base/browser/window.js';
-import { disposableTimeout, IntervalTimer } from '../../../../base/common/async.js';
+import { disposableTimeout, IntervalTimer, timeout } from '../../../../base/common/async.js';
 import { decodeBase64, encodeBase64, VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
@@ -17,8 +17,8 @@ import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { IChecksumService } from '../../../../platform/checksum/common/checksumService.js';
-import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
-import { FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { FileOperationResult, FileSystemProviderCapabilities, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -28,6 +28,8 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
+import { baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
+import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { baseHalfIsDraftInformation, baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import {
@@ -39,10 +41,13 @@ import {
 	baseHalfGenerationExtensionMatchesFormat,
 	baseHalfGenerationFileFormat,
 	baseHalfGenerationFormatExtension,
+	baseHalfGenerationInfoChangedFields,
 	BaseHalfGenerationKind,
 	baseHalfGenerationMadeOfTask,
 	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationNameParts,
+	BaseHalfGenerationPathKey,
+	baseHalfGenerationTaskCardIndex,
 	baseHalfGenerationTaskNamesCard,
 	createBaseHalfGenerationTask,
 	createBaseHalfGenerationTaskId,
@@ -59,6 +64,7 @@ import {
 	landBaseHalfGenerationTask,
 	recordBaseHalfGenerationLanded,
 	recordBaseHalfGenerationLanding,
+	reviveBaseHalfGenerationTask,
 	runBaseHalfGenerationTask,
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
@@ -147,6 +153,19 @@ const RASTER_VECTOR_SIDE = 1024;
 const FORMAT_HEAD_BYTES = 16;
 /** How often the landing of one file tries another name when its name was taken at the last moment. */
 const LANDING_ATTEMPTS = 3;
+/** How often the landing of one file is tried when something fails before the file is moved. */
+const LANDING_TRIES = 3;
+/** How long apart those tries are. */
+const LANDING_RETRY_DELAY = 5_000;
+/** How long landing waits for a move outside BaseHalf that is still being followed, each try. */
+const MOVES_SETTLE_WAIT = 10_000;
+/** A file up to this size is put in place by the file system's exclusive create, which never replaces a file. */
+const EXCLUSIVE_PUBLISH_MAX_BYTES = 256 * 1024 * 1024;
+const PUBLISH_TEMP_POSTFIX = '.basehalf-tmp';
+/** How often `made.yaml` is tried before the card says that the file landed without it. */
+const MADE_ATTEMPTS = 3;
+/** Windows that find a record stale look again at different moments, up to this much later. */
+const TAKEOVER_JITTER = 5_000;
 
 const DIRECT_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' });
 const DIRECT_IMAGE_FORMATS: Readonly<Record<string, BaseHalfVideoImageFormat>> = Object.freeze({ '.png': 'png', '.jpg': 'jpeg', '.jpeg': 'jpeg', '.webp': 'webp' });
@@ -177,6 +196,22 @@ interface IPreparedGeneration {
 	readonly lastUsed: IBaseHalfVideoGenerationChoice;
 }
 
+/** A file received in full into its partial download, of a format a card of its kind takes. */
+interface IReceivedFile {
+	readonly part: URI;
+	readonly format: BaseHalfVideoOutputFormat;
+}
+
+/** How one try of landing a file ended. */
+type ILandingOutcome = { readonly kind: 'done' | 'dropped' } | { readonly kind: 'retry'; readonly detail: string };
+
+/** Where a received file goes ({@link BaseHalfVideoGenerationService.placeOf}). */
+type IPlace =
+	| { readonly kind: 'card'; readonly target: URI }
+	| { readonly kind: 'beside'; readonly target: URI; readonly info: IBaseHalfGenerationInfo }
+	| { readonly kind: 'deleted' }
+	| { readonly kind: 'wait' };
+
 /** The cards a generation lands on (generation cards, "Starting", step 4). */
 interface IPlannedCards {
 	/** Workspace-relative paths, in the order of the outputs. */
@@ -199,6 +234,12 @@ class FollowedGeneration {
 	lastUsed: IBaseHalfVideoGenerationChoice | undefined;
 	stopped = false;
 	ended = false;
+	/**
+	 * The request is on its way: until its answer is handled, a record that
+	 * another window ended as failed meanwhile is not let go, since the answer
+	 * may take the generation up again.
+	 */
+	receiving = false;
 	cancelSent = false;
 	transientSince: number | undefined;
 	unreadableAnswers = 0;
@@ -270,6 +311,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
 		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly mutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
+		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IChecksumService private readonly checksumService: IChecksumService,
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
@@ -302,13 +344,18 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	isGenerating(resource: URI): boolean {
 		const located = this.locate(resource);
 		const task = located ? this.taskStore.forCard(resource) : undefined;
-		return !!task && !!located && !isBaseHalfGenerationTaskEnded(task) && task.cards.some(card => card.path === located.path && card.state === 'waiting');
+		if (!task || !located || isBaseHalfGenerationTaskEnded(task)) {
+			return false;
+		}
+		const index = baseHalfGenerationTaskCardIndex(task, located.path, this.pathKey(located.folder));
+		return index >= 0 && task.cards[index].state === 'waiting';
 	}
 
 	getProgress(resource: URI): IBaseHalfVideoGenerationProgress | undefined {
 		const located = this.locate(resource);
-		const key = located?.folder.toString();
-		const follow = located ? [...this.followed.values()].find(candidate => !candidate.ended && candidate.folder.toString() === key && candidate.paths.includes(located.path)) : undefined;
+		const folderKey = located?.folder.toString();
+		const key = located ? this.pathKey(located.folder) : undefined;
+		const follow = located && key ? [...this.followed.values()].find(candidate => !candidate.ended && candidate.folder.toString() === folderKey && candidate.paths.some(path => key(path) === key(located.path))) : undefined;
 		if (!follow) {
 			return undefined;
 		}
@@ -324,6 +371,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			snapshot = await this.cardStore.read(resource);
 		} catch (error) {
 			throw toGenerationError(error);
+		}
+		if (!snapshot.hasFile && (snapshot.made || snapshot.madeUnreadable)) {
+			// A missing file is not a draft: it never generates.
+			throw new BaseHalfVideoGenerationError(missingFileMessage(basename(resource)));
 		}
 		const folder = this.workspaceFolderOf(resource);
 		// 2. A card that generates does not generate twice.
@@ -374,6 +425,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			throw toGenerationError(error);
 		}
 		follow.recorded = true;
+		// Said alive from the start, so that a long preparation is not taken for a window that is gone.
+		this.startHeartbeat();
 		const made: URI[] = [];
 		let prepared: IPreparedGeneration;
 		try {
@@ -413,7 +466,6 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		follow.access = prepared.access;
 		follow.model = ref.model.id;
 		this.setPhase(follow, 'waiting');
-		this.startHeartbeat();
 		void this.submit(follow, prepared.request, prepared.lastUsed).catch(error => this.submitFailedUnexpectedly(follow, error));
 		return Object.freeze(planned.paths.map(path => this.resourceOf(folder, path)));
 	}
@@ -459,11 +511,12 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const folder = this.taskStore.folderOf(task.id);
 		await this.taskStore.refresh(folder);
 		const now = Date.now();
+		const key = folder ? this.pathKey(folder) : undefined;
 		const rivals = this.taskStore.list().filter(other => other.id !== task.id
 			&& this.taskStore.folderOf(other.id)?.toString() === folder?.toString()
 			&& !isBaseHalfGenerationTaskEnded(other)
 			&& !(other.state === 'preparing' && isBaseHalfGenerationTaskStale(other, now))
-			&& task.cards.some(card => baseHalfGenerationTaskNamesCard(other, card.path)));
+			&& task.cards.some(card => baseHalfGenerationTaskNamesCard(other, card.path, key)));
 		if (rivals.length && baseHalfGenerationClaimWinner([this.taskStore.get(task.id) ?? task, ...rivals])?.id !== task.id) {
 			throw generatingError();
 		}
@@ -471,10 +524,12 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	/** A card that generates again leaves the record of its earlier generation that ended without its file. */
 	private async removeEndedRecordsOf(task: IBaseHalfGenerationTask): Promise<void> {
-		const folder = this.taskStore.folderOf(task.id)?.toString();
+		const workspaceFolder = this.taskStore.folderOf(task.id);
+		const folder = workspaceFolder?.toString();
+		const key = workspaceFolder ? this.pathKey(workspaceFolder) : undefined;
 		for (const other of this.taskStore.list()) {
 			if (other.id !== task.id && isBaseHalfGenerationTaskEnded(other) && this.taskStore.folderOf(other.id)?.toString() === folder
-				&& task.cards.some(card => baseHalfGenerationTaskNamesCard(other, card.path))) {
+				&& task.cards.some(card => baseHalfGenerationTaskNamesCard(other, card.path, key))) {
 				await this.taskStore.remove(other.id);
 			}
 		}
@@ -687,19 +742,37 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	// --- running -------------------------------------------------------------------------------
 
-	/** Step 8: send the request once; record the provider's task id, or land what it answered with. */
+	/**
+	 * Step 8: send the request once; record the provider's task id, or land
+	 * what it answered with. While the request is on its way, another window
+	 * may end the record as failed, taking this window for gone: the answer is
+	 * taken up all the same (generation cards, "Continuing after a reload or a
+	 * restart").
+	 */
 	private async submit(follow: FollowedGeneration, request: IBaseHalfVideoSubmitRequest, lastUsed: IBaseHalfVideoGenerationChoice): Promise<void> {
+		follow.receiving = true;
+		try {
+			await this.sendAndTakeUp(follow, request, lastUsed);
+		} finally {
+			follow.receiving = false;
+		}
+	}
+
+	private async sendAndTakeUp(follow: FollowedGeneration, request: IBaseHalfVideoSubmitRequest, lastUsed: IBaseHalfVideoGenerationChoice): Promise<void> {
 		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.submit, request, parseSubmitResult, true);
 		if (answer.ok && hasKey(answer.value, { remoteId: true })) {
 			follow.remoteId = answer.value.remoteId;
 		}
 		if (follow.stopped || follow.ended) {
-			// Stopped while the request was on its way: a task the provider made
-			// after all is cancelled, and files that came with the answer go.
+			// Stopped by the user, or its record removed, while the request was on
+			// its way: a task the provider made after all is cancelled, and files
+			// that came with the answer go.
 			if (answer.ok && hasKey(answer.value, { remoteId: true })) {
 				await this.cancelRemote(follow);
 			}
-			await this.deleteParts(follow);
+			if (follow.stopped) {
+				await this.deleteParts(follow);
+			}
 			return;
 		}
 		if (!answer.ok) {
@@ -712,10 +785,16 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		const remoteId = answer.value.remoteId;
-		const running = await this.taskStore.update(follow.taskId, task => task.state === 'submitting' ? runBaseHalfGenerationTask(task, remoteId) : task);
+		const nowText = new Date(Date.now()).toISOString();
+		const running = await this.taskStore.update(follow.taskId, task => task.state === 'submitting'
+			? runBaseHalfGenerationTask(task, remoteId)
+			// Ended as failed by another window while the request was on its way: the provider has the task, so it is followed after all.
+			: task.state === 'failed' && !this.hasRival(follow.folder, task)
+				? reviveBaseHalfGenerationTask(task, this.follower, nowText, { state: 'running', remoteId })
+				: task);
 		if (running?.state !== 'running' || running.follower !== this.follower) {
-			// The record was stopped or taken meanwhile: nobody follows this task,
-			// so it is cancelled where the provider allows it.
+			// The record was stopped or is gone: nobody follows this task, so it
+			// is cancelled where the provider allows it.
 			this.logService.info(`[BaseHalf generation] ${follow.taskId} changed while its request was sent.`);
 			await this.cancelRemote(follow);
 			this.untrack(follow);
@@ -752,13 +831,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
-	/** Step 9: ask the provider about the task. */
+	/**
+	 * Step 9: ask the provider about the task. The two hours a generation may
+	 * take count only while the provider still says that it is not done: a
+	 * task that finished while no window asked, or while the computer slept,
+	 * lands however late it is asked.
+	 */
 	private async poll(follow: FollowedGeneration): Promise<void> {
 		if (follow.stopped || follow.ended) {
-			return;
-		}
-		if (Date.now() - follow.startedAt >= BASEHALF_VIDEO_TASK_TIME_LIMIT) {
-			await this.fail(follow, tooLongMessage(follow.kind));
 			return;
 		}
 		if (!await this.stillFollowed(follow)) {
@@ -780,6 +860,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		switch (state.state) {
 			case 'pending':
 			case 'running':
+				if (Date.now() - follow.startedAt >= BASEHALF_VIDEO_TASK_TIME_LIMIT) {
+					await this.fail(follow, tooLongMessage(follow.kind));
+					return;
+				}
 				this.setPhase(follow, state.state === 'pending' ? 'waiting' : 'generating', state.fraction);
 				this.schedulePoll(follow, BASEHALF_VIDEO_POLL_INTERVAL);
 				return;
@@ -831,13 +915,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	/**
 	 * Step 10: each file lands on its card in the order of the outputs. The
-	 * record is `landing` from the moment the provider has the files. Each file
-	 * that is received in full, downloaded or written by AI Video, is checked
-	 * and its size and SHA-256 written into the record before it lands, so
-	 * that a window that takes the record over lands it again without a second
-	 * download; a file received only in part is asked for again. An output the
-	 * provider refused fails its card alone, and the cards that no output
-	 * reaches fail as the ones the provider made nothing for.
+	 * record is `landing` from the moment the provider has the files. The
+	 * files AI Video wrote with its answer are complete, and their sizes and
+	 * SHA-256 go into the record in one write before the first of them lands;
+	 * a file downloaded from an address gets its own once it is received in
+	 * full. So a window that takes the record over lands them again without a
+	 * second download, and asks again for a file received only in part. An
+	 * output the provider refused fails its card alone, and the cards that no
+	 * output reaches fail as the ones the provider made nothing for.
 	 */
 	private land(follow: FollowedGeneration, sources: readonly LandingSource[] | undefined): Promise<void> {
 		const previous = follow.landing ?? Promise.resolve();
@@ -847,17 +932,37 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	private async doLand(follow: FollowedGeneration, sources: readonly LandingSource[] | undefined): Promise<void> {
-		if (follow.stopped || follow.ended) {
+		if (follow.stopped) {
 			await this.deleteParts(follow);
 			return;
 		}
+		if (follow.ended) {
+			// Followed by another window now: the files belong to the task, not to this window.
+			return;
+		}
 		this.setPhase(follow, 'saving');
-		const task = await this.taskStore.update(follow.taskId, current => current.state === 'submitting' || current.state === 'running' ? landBaseHalfGenerationTask(current) : current);
-		if (task?.state !== 'landing' || task.follower !== this.follower) {
+		const nowText = new Date(Date.now()).toISOString();
+		const task = await this.taskStore.update(follow.taskId, current => {
+			if (current.state === 'submitting' || current.state === 'running') {
+				return landBaseHalfGenerationTask(current);
+			}
+			// Another window ended it as failed while this one received the files: they land all the same.
+			if (current.state === 'failed' && sources !== undefined && !this.hasRival(follow.folder, current)) {
+				return reviveBaseHalfGenerationTask(current, this.follower, nowText, { state: 'landing' });
+			}
+			return current;
+		});
+		if (!task || task.state === 'stopped') {
+			follow.stopped = true;
 			await this.deleteParts(follow);
 			this.untrack(follow);
 			return;
 		}
+		if (task.state !== 'landing' || task.follower !== this.follower) {
+			this.untrack(follow);
+			return;
+		}
+		const prepared = sources ? await this.receiveWritten(follow, sources) : new Map<number, IReceivedFile>();
 		let retry = false;
 		for (let index = 0; index < task.cards.length; index++) {
 			if (follow.stopped || follow.ended) {
@@ -868,6 +973,11 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 				continue;
 			}
 			try {
+				const ready = prepared.get(index);
+				if (ready) {
+					await this.landFile(follow, index, ready.part, ready.format);
+					continue;
+				}
 				if (card.landing) {
 					await this.recoverLanding(follow, index);
 					continue;
@@ -879,12 +989,15 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 					await this.landFile(follow, index, received.part, received.format);
 				}
 			} catch (error) {
-				this.logService.error(`[BaseHalf generation] Card ${index + 1} of ${follow.taskId} could not land: ${getErrorMessage(error)}`);
-				await this.failCard(follow, index, saveFailedMessage(follow.kind, error));
+				this.logService.error(`[BaseHalf generation] Card ${index + 1} of ${follow.taskId} could not be received: ${getErrorMessage(error)}`);
+				await this.failCard(follow, index, receiveFailedMessage(follow.kind, error));
 			}
 		}
-		if (follow.stopped || follow.ended) {
+		if (follow.stopped) {
 			await this.deleteParts(follow);
+			return;
+		}
+		if (follow.ended) {
 			return;
 		}
 		if (retry && follow.remoteId && follow.access) {
@@ -896,11 +1009,60 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	/**
+	 * The files AI Video wrote with its answer: complete, since it answers only
+	 * after it wrote them. Each is checked, and the sizes and SHA-256 of the
+	 * ones taken go into the record in one write, before the first of them
+	 * lands, so that a reload while they land loses none of them.
+	 */
+	private async receiveWritten(follow: FollowedGeneration, sources: readonly LandingSource[]): Promise<Map<number, IReceivedFile>> {
+		const task = this.taskStore.get(follow.taskId);
+		const received = new Map<number, IReceivedFile & { readonly size: number; readonly sha256: string }>();
+		if (!task) {
+			return new Map();
+		}
+		for (const [index, source] of sources.entries()) {
+			const card = task.cards[index];
+			if (source?.kind !== 'written' || !card || card.state !== 'waiting' || card.landing) {
+				continue;
+			}
+			const part = this.taskStore.partFile(task, index);
+			try {
+				if (!this.uriIdentityService.extUri.isEqual(URI.file(source.path), part)) {
+					this.logService.warn(`[BaseHalf generation] AI Video wrote ${source.path}, not ${part.fsPath}.`);
+				}
+				const checked = await this.checkFile(follow, part);
+				if (hasKey(checked, { problem: true })) {
+					await this.deleteQuietly(part);
+					await this.failCard(follow, index, checked.problem);
+					continue;
+				}
+				received.set(index, { part, format: checked.format, size: (await this.fileService.stat(part)).size, sha256: await this.sha256(part) });
+			} catch (error) {
+				this.logService.error(`[BaseHalf generation] Card ${index + 1} of ${follow.taskId} could not be received: ${getErrorMessage(error)}`);
+				await this.failCard(follow, index, receiveFailedMessage(follow.kind, error));
+			}
+		}
+		if (!received.size) {
+			return new Map();
+		}
+		const marked = await this.taskStore.update(follow.taskId, current => {
+			let next = current;
+			for (const [index, file] of received) {
+				if (next.state === 'landing' && next.cards[index]?.state === 'waiting') {
+					next = recordBaseHalfGenerationLanding(next, index, { path: next.cards[index].path, size: file.size, sha256: file.sha256 });
+				}
+			}
+			return next;
+		});
+		return new Map([...received].filter(([index]) => !!marked?.cards[index]?.landing).map(([index, file]) => [index, { part: file.part, format: file.format }]));
+	}
+
+	/**
 	 * Receives the output of one card into its partial download: downloads it
 	 * when it is an address, checks it, and writes its size and SHA-256 into
 	 * the record.
 	 */
-	private async receive(follow: FollowedGeneration, index: number, source: LandingSource | undefined): Promise<{ readonly part: URI; readonly format: BaseHalfVideoOutputFormat } | 'failed' | 'retry'> {
+	private async receive(follow: FollowedGeneration, index: number, source: LandingSource | undefined): Promise<IReceivedFile | 'failed' | 'retry'> {
 		const task = this.taskStore.get(follow.taskId)!;
 		const part = this.taskStore.partFile(task, index);
 		if (!source) {
@@ -936,8 +1098,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			? recordBaseHalfGenerationLanding(current, index, { path: current.cards[index].path, size, sha256 })
 			: current);
 		if (!marked?.cards[index]?.landing) {
-			// Stopped, or this card was deleted meanwhile: its file is not kept.
-			await this.deleteQuietly(part);
+			if (this.isDroppedForGood(follow, marked, index)) {
+				await this.deleteQuietly(part);
+			}
 			return 'failed';
 		}
 		return { part, format: checked.format };
@@ -971,8 +1134,12 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			kind: follow.kind,
 			targetFsPath: part.fsPath
 		}, parseDownloadResult, false);
-		if (follow.stopped || follow.ended) {
+		if (follow.stopped) {
 			await this.deleteQuietly(part);
+			return 'failed';
+		}
+		if (follow.ended) {
+			// Followed by another window now: what was downloaded stays for it.
 			return 'failed';
 		}
 		if (answer.ok) {
@@ -1001,7 +1168,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			size = (await this.fileService.stat(part)).size;
 			head = (await this.fileService.readFile(part, { length: FORMAT_HEAD_BYTES })).value.buffer;
 		} catch (error) {
-			return { problem: saveFailedMessage(follow.kind, error) };
+			return { problem: receiveFailedMessage(follow.kind, error) };
 		}
 		const format = baseHalfGenerationFileFormat(head);
 		if (!format || !isBaseHalfGenerationFileAccepted(follow.kind, format, size)) {
@@ -1015,73 +1182,191 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	/**
-	 * Steps 2 to 6 of landing for one received file, inside the workspace
-	 * mutation lease, so that no move or rename runs between deciding the
-	 * file's place and moving it there. A format other than the draft's
-	 * extension first renames the draft, which writes its new path into the
-	 * record. Then the path is read from the record again; a draft that was
-	 * deleted meanwhile gets no file; a folder that is gone is made again; the
-	 * record says where the file is being moved; the file is moved into place
-	 * without replacing anything, to the next free name beside the card with a
-	 * copy of its `generation.yaml` when its path is taken by then; and
-	 * `made.yaml` is written.
+	 * Whether the file of a card is not wanted any more, so that it is removed:
+	 * the user stopped the generation, its record is gone, or the card was
+	 * released because it is being deleted. A record that another window
+	 * follows now, or that another window ended as failed, keeps its files.
 	 */
-	private async landFile(follow: FollowedGeneration, index: number, part: URI, format: BaseHalfVideoOutputFormat): Promise<void> {
-		await this.mutationCoordinator.runExclusive(follow.folder, async lease => {
-			await this.renameForFormat(follow, index, format, lease);
-			for (let attempt = 1; attempt <= LANDING_ATTEMPTS; attempt++) {
-				const task = await this.taskStore.update(follow.taskId, current => current);
-				const card = task?.cards[index];
-				if (!task || !card?.landing || card.state !== 'waiting' || task.state !== 'landing' || task.follower !== this.follower || follow.stopped) {
-					// Stopped, or this card was deleted meanwhile: its file is not kept.
-					await this.deleteQuietly(part);
-					return;
-				}
-				const resource = this.resourceOf(follow.folder, card.path);
-				const facts = await baseHalfReadDraftFacts(this.fileService, follow.folder, card.path);
-				if (!facts.itemExists && !baseHalfIsDraftInformation(facts)) {
-					// The draft was deleted while it generated (generation cards, "Deleting"): its file is not landed.
-					await this.deleteQuietly(part);
-					await this.failCard(follow, index, cardDeletedMessage());
-					return;
-				}
-				const parent = dirname(resource);
-				if (!await this.fileService.exists(parent)) {
-					await this.fileService.createFolder(parent);
-				}
-				const target = await this.fileService.exists(resource) ? await this.besideTakenCard(follow, resource) : resource;
-				const landing = card.landing;
-				const marked = await this.taskStore.update(follow.taskId, current => current.state === 'landing' && current.cards[index]?.state === 'waiting'
-					? recordBaseHalfGenerationLanding(current, index, { path: this.relativePath(follow.folder, target), size: landing.size, sha256: landing.sha256 })
-					: current);
-				if (marked?.cards[index]?.landing?.path !== this.relativePath(follow.folder, target)) {
-					await this.deleteQuietly(part);
-					return;
-				}
-				try {
-					await this.fileService.move(part, target, false);
-				} catch (error) {
-					if (isMoveConflict(error) && attempt < LANDING_ATTEMPTS) {
-						// The name was taken at the last moment, outside BaseHalf: take the next one.
-						continue;
-					}
-					throw error;
-				}
-				await this.finishLanding(follow, index, target);
-				if (!this.uriIdentityService.extUri.isEqual(target, resource)) {
-					await placeBaseHalfCardsBeside(this.placementServices(), baseHalfParentCanvasFolder({ resource, workspaceFolder: follow.folder, relativePath: card.path }), card.path,
-						[{ path: this.relativePath(follow.folder, target), size: BASEHALF_GENERATION_CARD_SIZE[follow.kind] }], { lease });
-				}
-				return;
-			}
-		});
+	private isDroppedForGood(follow: FollowedGeneration, task: IBaseHalfGenerationTask | undefined, index: number): boolean {
+		if (follow.stopped || !task || task.state === 'stopped') {
+			return true;
+		}
+		const card = task.cards[index];
+		return card?.state === 'failed' && !(task.state === 'failed' && card.error === task.error);
 	}
 
 	/**
-	 * Landing, step 2: a file of another format than the draft's extension
-	 * renames the draft to that format's extension, inside the lease that the
-	 * landing holds.
+	 * Steps 2 to 6 of landing for one received file. A problem before the
+	 * file is moved keeps the file and tries again a few seconds later, and
+	 * fails the card only when it keeps coming back; a problem after the move
+	 * leaves the file where it is and says so.
 	 */
+	private async landFile(follow: FollowedGeneration, index: number, part: URI, format: BaseHalfVideoOutputFormat): Promise<void> {
+		for (let attempt = 1; ; attempt++) {
+			const final = attempt >= LANDING_TRIES;
+			const outcome = await this.tryLandFile(follow, index, part, format, final);
+			if (outcome.kind !== 'retry') {
+				return;
+			}
+			if (follow.stopped || follow.ended) {
+				return;
+			}
+			if (final) {
+				this.logService.error(`[BaseHalf generation] Card ${index + 1} of ${follow.taskId} could not be put in place: ${outcome.detail}`);
+				await this.failCard(follow, index, placeFailedMessage(follow.kind, outcome.detail));
+				return;
+			}
+			await timeout(LANDING_RETRY_DELAY);
+		}
+	}
+
+	/**
+	 * One try of steps 2 to 6, inside the workspace mutation lease, so that no
+	 * move or rename of this window runs between deciding the file's place and
+	 * moving it there. A move outside BaseHalf that is still being followed
+	 * finishes first. Then a draft of another format than the file is renamed
+	 * for it; the path is read from the record again; the file's place is
+	 * decided ({@link placeOf}); a folder that is gone is made again; the
+	 * record says where the file goes; the file is put there without
+	 * replacing anything ({@link publish}); and `made.yaml` is written.
+	 */
+	private async tryLandFile(follow: FollowedGeneration, index: number, part: URI, format: BaseHalfVideoOutputFormat, final: boolean): Promise<ILandingOutcome> {
+		await this.movedItemsService.whenSettled(follow.folder, MOVES_SETTLE_WAIT);
+		try {
+			return await this.mutationCoordinator.runExclusive(follow.folder, async lease => {
+				await this.renameForFormat(follow, index, format, lease);
+				for (let attempt = 1; attempt <= LANDING_ATTEMPTS; attempt++) {
+					const task = await this.taskStore.update(follow.taskId, current => current);
+					const card = task?.cards[index];
+					if (this.isDroppedForGood(follow, task, index)) {
+						await this.deleteQuietly(part);
+						return { kind: 'dropped' };
+					}
+					if (!task || !card?.landing || card.state !== 'waiting' || task.state !== 'landing' || task.follower !== this.follower || follow.ended) {
+						// Followed by another window now: the file stays for it.
+						return { kind: 'dropped' };
+					}
+					const landing = card.landing;
+					if (!await this.fileService.exists(part)) {
+						// Put in place by an earlier try that did not finish: only its record is left to write.
+						const placed = this.resourceOf(follow.folder, landing.path);
+						if (await this.matches(placed, landing.size, landing.sha256)) {
+							await this.finishLanding(follow, index, placed, landing.path !== card.path ? this.infoOfRecord(follow) : undefined);
+							return { kind: 'done' };
+						}
+						await this.failCard(follow, index, lostFileMessage());
+						return { kind: 'dropped' };
+					}
+					const place = await this.placeOf(follow, card.path, format, final);
+					if (place.kind === 'wait') {
+						return { kind: 'retry', detail: 'a move is still being followed' };
+					}
+					if (place.kind === 'deleted') {
+						// The card was deleted while it generated (generation cards, "Deleting"): its file is not landed.
+						await this.deleteQuietly(part);
+						await this.failCard(follow, index, cardDeletedMessage());
+						return { kind: 'dropped' };
+					}
+					const parent = dirname(place.target);
+					if (!await this.fileService.exists(parent)) {
+						await this.fileService.createFolder(parent);
+					}
+					const targetPath = this.relativePath(follow.folder, place.target);
+					const marked = await this.taskStore.update(follow.taskId, current => current.state === 'landing' && current.cards[index]?.state === 'waiting'
+						? recordBaseHalfGenerationLanding(current, index, { path: targetPath, size: landing.size, sha256: landing.sha256 })
+						: current);
+					if (marked?.cards[index]?.landing?.path !== targetPath) {
+						continue;
+					}
+					if (!await this.publish(part, place.target)) {
+						// The name was taken at the last moment, outside BaseHalf: the file goes beside it.
+						continue;
+					}
+					await this.finishLanding(follow, index, place.target, place.kind === 'beside' ? place.info : undefined);
+					if (place.kind === 'beside') {
+						await placeBaseHalfCardsBeside(this.placementServices(), baseHalfParentCanvasFolder({ resource: this.resourceOf(follow.folder, card.path), workspaceFolder: follow.folder, relativePath: card.path }), card.path,
+							[{ path: targetPath, size: BASEHALF_GENERATION_CARD_SIZE[follow.kind] }], { lease });
+					}
+					return { kind: 'done' };
+				}
+				return { kind: 'retry', detail: 'every name BaseHalf tried was taken' };
+			});
+		} catch (error) {
+			return { kind: 'retry', detail: plainDetail(getErrorMessage(error), []) };
+		}
+	}
+
+	/**
+	 * Where a received file goes (generation cards, "Landing"): on its card,
+	 * the draft at the record's path; beside it, at the next free name with
+	 * the extension of the file's format and with the generation information
+	 * it was made with, when a file took the path, or when the draft's card
+	 * information is not at the path and BaseHalf cannot tell that it was
+	 * deleted; or nowhere, when the card was deleted: its card information is
+	 * gone and no move is being followed. While a move is being followed, it
+	 * waits, except on the last try.
+	 */
+	private async placeOf(follow: FollowedGeneration, path: string, format: BaseHalfVideoOutputFormat, final: boolean): Promise<IPlace> {
+		const folder = follow.folder;
+		const resource = this.resourceOf(folder, path);
+		const facts = await baseHalfReadDraftFacts(this.fileService, folder, path);
+		const settled = this.movedItemsService.isSettled(folder) && !this.movedItemsService.isMoving(folder, path);
+		if (!facts.itemExists && baseHalfIsDraftInformation(facts)) {
+			if (!settled && !final && !await this.fileService.exists(dirname(resource))) {
+				// Its folder is gone while a move is followed: it may be on its way, and is not made again yet.
+				return { kind: 'wait' };
+			}
+			return { kind: 'card', target: resource };
+		}
+		if (!facts.itemExists && !settled && !final) {
+			return { kind: 'wait' };
+		}
+		if (!facts.itemExists && settled && await this.mirrorDirectoryGone(folder, path)) {
+			return { kind: 'deleted' };
+		}
+		const own = facts.hasGenerationInfo ? await this.cardStore.read(resource).then(snapshot => snapshot.info, () => undefined) : undefined;
+		const parts = baseHalfGenerationNameParts(basename(resource));
+		const free = await this.cardStore.nextFreeName(dirname(resource), parts.base, baseHalfGenerationFormatExtension(format), baseHalfGenerationNameOrdinal(basename(resource)));
+		return { kind: 'beside', target: URI.joinPath(dirname(resource), free), info: own ?? this.infoOfRecord(follow) ?? { prompt: '' } };
+	}
+
+	/** Whether nothing of a card's card information is left: its directory under `.bh/mirror/` is not there. */
+	private async mirrorDirectoryGone(folder: URI, path: string): Promise<boolean> {
+		try {
+			await this.fileService.stat(URI.joinPath(baseHalfMirrorRoot(folder), ...baseHalfMirrorPathSegments(path)));
+			return false;
+		} catch (error) {
+			return error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_NOT_FOUND;
+		}
+	}
+
+	/**
+	 * Puts a received file at `target` without ever replacing what is there.
+	 * A file up to 256 MiB is written there with the file system's exclusive
+	 * create, which publishes it only under a name that no file has, even one
+	 * taken at the last moment; a larger one is moved there when the name is
+	 * free. Resolves `false` when the name is taken.
+	 */
+	private async publish(part: URI, target: URI): Promise<boolean> {
+		const size = (await this.fileService.stat(part)).size;
+		try {
+			if (size <= EXCLUSIVE_PUBLISH_MAX_BYTES && this.fileService.hasCapability(target, FileSystemProviderCapabilities.FileAtomicWriteExclusive)) {
+				const bytes = (await this.fileService.readFile(part)).value;
+				await this.fileService.writeFileWithExpectedContents(target, bytes, null, { atomic: { postfix: PUBLISH_TEMP_POSTFIX } });
+				await this.deleteQuietly(part);
+			} else {
+				await this.fileService.move(part, target, false);
+			}
+			return true;
+		} catch (error) {
+			if (isNameTaken(error)) {
+				return false;
+			}
+			throw error;
+		}
+	}
+
+	/** Landing, step 2: a file of another format than the draft's extension renames the draft to that format's extension, inside the lease that the landing holds. */
 	private async renameForFormat(follow: FollowedGeneration, index: number, format: BaseHalfVideoOutputFormat, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
 		const card = this.taskStore.get(follow.taskId)?.cards[index];
 		if (!card || baseHalfGenerationExtensionMatchesFormat(card.path, format)) {
@@ -1090,7 +1375,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const resource = this.resourceOf(follow.folder, card.path);
 		const snapshot = await this.cardStore.read(resource).catch(() => undefined);
 		if (!snapshot || snapshot.hasFile || snapshot.made) {
-			// Not a draft any more: the file lands beside it under the card's name.
+			// Not a draft any more: the file lands beside it under its own format's name.
 			return;
 		}
 		const name = basename(resource);
@@ -1100,43 +1385,53 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		try {
 			await this.draftOperations.move(resource, URI.joinPath(dirname(resource), next), { lease });
 		} catch (error) {
-			// The file still lands, under the path the record holds.
+			// The file still lands, by what the record and the card information say then.
 			this.logService.warn(`[BaseHalf generation] ${card.path} could not be renamed to ${next}: ${getErrorMessage(error)}`);
 		}
 	}
 
-	/** The next free name beside a card whose path is taken, with a copy of the card's `generation.yaml`. */
-	private async besideTakenCard(follow: FollowedGeneration, resource: URI): Promise<URI> {
-		const parent = dirname(resource);
-		const name = basename(resource);
-		const parts = baseHalfGenerationNameParts(name);
-		const free = await this.cardStore.nextFreeName(parent, parts.base, parts.extension, baseHalfGenerationNameOrdinal(name));
-		const info = await this.cardStore.read(resource).then(snapshot => snapshot.info, () => undefined);
-		await this.cardStore.createDraft(parent, free, info ?? this.infoOfRecord(follow) ?? { prompt: '' });
-		return URI.joinPath(parent, free);
-	}
-
-	/** What the generation used, as generation information: for a copy whose card has none. */
+	/** What the generation used, as generation information: for a card that lands beside one whose information is not there. */
 	private infoOfRecord(follow: FollowedGeneration): IBaseHalfGenerationInfo | undefined {
 		const request = this.taskStore.get(follow.taskId)?.request;
 		return request ? { prompt: request.prompt, provider: request.provider, model: request.model, mode: request.mode, params: request.params } : undefined;
 	}
 
-	/** Landing, step 6: `made.yaml`, and the card is landed. */
-	private async finishLanding(follow: FollowedGeneration, index: number, target: URI): Promise<void> {
+	/**
+	 * Landing, step 6: `made.yaml`, then, for a file that landed beside its
+	 * card, the generation information it was made with; and the card is
+	 * landed. A `made.yaml` that cannot be written leaves the file in place,
+	 * and the card says so.
+	 */
+	private async finishLanding(follow: FollowedGeneration, index: number, target: URI, info?: IBaseHalfGenerationInfo): Promise<void> {
 		const task = this.taskStore.get(follow.taskId);
 		if (!task) {
 			return;
 		}
 		const made = baseHalfGenerationMadeOfTask(task, index, new Date(Date.now()).toISOString());
-		try {
-			await this.cardStore.writeMade(target, made);
-		} catch (error) {
-			// Written before a crash: the record of this generation is there already.
-			const existing = await this.cardStore.read(target).then(snapshot => snapshot.made, () => undefined);
-			if (existing?.id !== made.id) {
-				throw error;
+		let failure: Error | undefined;
+		for (let attempt = 1; attempt <= MADE_ATTEMPTS; attempt++) {
+			try {
+				await this.cardStore.writeMade(target, made);
+				failure = undefined;
+				break;
+			} catch (error) {
+				// Written before a crash: the record of this generation is there already.
+				const existing = await this.cardStore.read(target).then(snapshot => snapshot.made, () => undefined);
+				if (existing?.id === made.id) {
+					failure = undefined;
+					break;
+				}
+				failure = error instanceof Error ? error : new Error(String(error));
 			}
+		}
+		if (failure) {
+			this.logService.error(`[BaseHalf generation] The record of how ${target.toString()} was made could not be written: ${failure.message}`);
+			await this.failCard(follow, index, recordFailedMessage(follow.kind, failure));
+			return;
+		}
+		const targetPath = this.relativePath(follow.folder, target);
+		if (info && !(await baseHalfReadDraftFacts(this.fileService, follow.folder, targetPath)).hasGenerationInfo) {
+			await this.cardStore.update(target, () => info).catch(error => this.logService.warn(`[BaseHalf generation] ${targetPath} did not get its prompt and settings: ${getErrorMessage(error)}`));
 		}
 		await this.taskStore.update(follow.taskId, current => current.cards[index]?.state === 'waiting' && current.state === 'landing' ? recordBaseHalfGenerationLanded(current, index) : current);
 		this.fireCards(follow);
@@ -1145,19 +1440,21 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	/**
 	 * A card whose record says what was being landed (generation cards,
 	 * "Landing"): the file at the recorded path with the recorded size and
-	 * SHA-256 was moved into place before a crash, and only step 6 is left; a
+	 * SHA-256 was put in place before a crash, and only step 6 is left; a
 	 * partial download that matches them was received in full and lands now.
 	 */
 	private async recoverLanding(follow: FollowedGeneration, index: number): Promise<void> {
 		const task = this.taskStore.get(follow.taskId);
-		const landing = task?.cards[index]?.landing;
-		if (!task || !landing) {
+		const card = task?.cards[index];
+		const landing = card?.landing;
+		if (!task || !card || !landing) {
 			return;
 		}
 		const target = this.resourceOf(follow.folder, landing.path);
 		const part = this.taskStore.partFile(task, index);
 		if (await this.matches(target, landing.size, landing.sha256)) {
-			await this.mutationCoordinator.runExclusive(follow.folder, () => this.finishLanding(follow, index, target));
+			const info = landing.path !== card.path ? this.infoOfRecord(follow) : undefined;
+			await this.mutationCoordinator.runExclusive(follow.folder, () => this.finishLanding(follow, index, target, info));
 			return;
 		}
 		if (await this.matches(part, landing.size, landing.sha256)) {
@@ -1274,12 +1571,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		if (!located || !task || isBaseHalfGenerationTaskEnded(task)) {
 			return;
 		}
-		const index = task.cards.findIndex(card => card.path === located.path);
+		const index = baseHalfGenerationTaskCardIndex(task, located.path, this.pathKey(located.folder));
 		if (index < 0 || task.cards[index].state !== 'waiting') {
 			return;
 		}
-		if (task.cards.filter(card => card.state === 'waiting').length === 1 && task.cards.length === 1) {
+		if (task.cards.length === 1) {
+			// Its only card goes: the generation is stopped, and its record goes with the card.
 			await this.stop(resource);
+			await this.taskStore.remove(task.id, current => current.state === 'stopped');
 			return;
 		}
 		await this.taskStore.update(task.id, current => current.cards[index]?.state === 'waiting' ? failBaseHalfGenerationCard(current, index, cardDeletedMessage()) : current);
@@ -1298,6 +1597,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel, follow.taskRef(), parseAnything, false);
 	}
 
+	/** Ends the generation as failed. Its partial downloads stay with its record: only a stop or the record's removal takes them. */
 	private async fail(follow: FollowedGeneration, message: string): Promise<void> {
 		follow.timer?.dispose();
 		const endedAt = new Date(Date.now()).toISOString();
@@ -1306,7 +1606,6 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		} catch (error) {
 			this.logService.info(`[BaseHalf generation] The failure of ${follow.taskId} was not written: ${getErrorMessage(error)}`);
 		}
-		await this.deleteParts(follow);
 		this.untrack(follow);
 	}
 
@@ -1351,6 +1650,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			}
 			const task = this.taskStore.get(follow.taskId);
 			if (!task || isBaseHalfGenerationTaskEnded(task) || task.follower !== this.follower) {
+				if (task?.state === 'failed' && follow.receiving) {
+					// Ended by another window while this one waits for the provider's answer: the answer decides.
+					continue;
+				}
 				// Stopped, removed, or taken over elsewhere: this window lets it go.
 				follow.stopped = !task || task.state === 'stopped' || follow.stopped;
 				this.untrack(follow);
@@ -1372,7 +1675,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const alive = Date.parse(task.aliveAt);
 		const wait = (Number.isFinite(alive) ? alive : 0) + BASEHALF_GENERATION_STALE_MS - Date.now();
 		if (wait > 0) {
-			this.checkLater(task.id, wait + 1_000);
+			// Windows look again at different moments, so that they rarely try at once.
+			this.checkLater(task.id, wait + 1_000 + takeoverJitter());
 			return;
 		}
 		this.takingOver.add(task.id);
@@ -1389,13 +1693,27 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		const nowText = new Date(now).toISOString();
-		const stale = (current: IBaseHalfGenerationTask) => !isBaseHalfGenerationTaskEnded(current) && isBaseHalfGenerationTaskStale(current, Date.now()) && current.follower === task.follower;
+		// Unchanged since it was found stale: the same window, said alive at the same moment.
+		const stale = (current: IBaseHalfGenerationTask) => !isBaseHalfGenerationTaskEnded(current) && isBaseHalfGenerationTaskStale(current, Date.now())
+			&& current.follower === task.follower && current.aliveAt === task.aliveAt;
+		const access = task.state === 'running' || task.state === 'landing' ? await this.accessOfTask(task) : undefined;
+		const unasked = !access && task.state === 'running';
+		if (unasked && now - Date.parse(task.startedAt) < BASEHALF_VIDEO_TASK_TIME_LIMIT) {
+			// The provider is not set up for this task on this computer: it waits
+			// for a window that can follow it.
+			this.checkLater(taskId, BASEHALF_GENERATION_STALE_MS + takeoverJitter());
+			return;
+		}
+		// Of the windows that find the record stale, the one that claims it first
+		// takes it over; the others leave it to that window.
+		if (!await this.taskStore.claimTakeover(taskId, task.aliveAt)) {
+			this.checkLater(taskId, BASEHALF_GENERATION_STALE_MS + takeoverJitter());
+			return;
+		}
 		switch (task.state) {
 			case 'preparing':
 				// Nothing was sent.
-				if (stale((await this.taskStore.update(taskId, current => current)) ?? task)) {
-					await this.taskStore.remove(taskId);
-				}
+				await this.taskStore.remove(taskId, current => stale(current) && current.state === 'preparing');
 				return;
 			case 'submitting':
 				// Never sent again: whether the provider has it is unknown.
@@ -1404,15 +1722,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 					: current);
 				return;
 		}
-		const access = await this.accessOfTask(task);
-		if (!access && task.state === 'running') {
-			// The provider is not set up for this task on this computer: it waits
-			// for a window that can follow it, until it is certainly over.
-			if (now - Date.parse(task.startedAt) >= BASEHALF_VIDEO_TASK_TIME_LIMIT) {
-				await this.taskStore.update(taskId, current => stale(current) ? failBaseHalfGenerationTask(current, tooLongMessage(current.kind), nowText) : current);
-			} else {
-				this.checkLater(taskId, BASEHALF_GENERATION_STALE_MS);
-			}
+		if (unasked) {
+			// Two hours after its start, and nobody could ask the provider: it ends, and says why.
+			await this.taskStore.update(taskId, current => stale(current) ? failBaseHalfGenerationTask(current, unaskedMessage(), nowText) : current);
 			return;
 		}
 		const taken = await this.taskStore.update(taskId, current => stale(current) ? heartbeatBaseHalfGenerationTask(current, this.follower, nowText) : current);
@@ -1472,6 +1784,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 					? heartbeatBaseHalfGenerationTask(current, this.follower, now)
 					: current);
 				if (!task || task.follower !== this.follower || isBaseHalfGenerationTaskEnded(task)) {
+					if (task?.state === 'failed' && follow.receiving) {
+						// Ended by another window while this one waits for the provider's answer: the answer decides.
+						continue;
+					}
 					follow.stopped = follow.stopped || !task || task.state === 'stopped';
 					this.untrack(follow);
 				}
@@ -1481,12 +1797,19 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
-	/** Whether this window still follows the generation: its record names this window and has not ended. */
+	/**
+	 * Whether this window still follows the generation: its record names this
+	 * window and has not ended. A record the user stopped takes its partial
+	 * downloads with it; one that another window follows or ended keeps them,
+	 * since they belong to the task and not to a window.
+	 */
 	private async stillFollowed(follow: FollowedGeneration): Promise<boolean> {
 		const task = await this.taskStore.update(follow.taskId, current => current).catch(() => undefined);
 		if (!task || isBaseHalfGenerationTaskEnded(task) || task.follower !== this.follower) {
 			follow.stopped = follow.stopped || !task || task.state === 'stopped';
-			await this.deleteParts(follow);
+			if (task?.state === 'stopped') {
+				await this.deletePartsOf(task);
+			}
 			this.untrack(follow);
 			return false;
 		}
@@ -1520,7 +1843,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	private pushDraftsUndo(resource: URI, drafts: readonly URI[], info: IBaseHalfGenerationInfo): void {
 		const folder = this.workspaceFolderOf(resource);
 		const canvas = this.canvasMirrorService.canvasResource(baseHalfParentCanvasFolder({ resource, workspaceFolder: folder, relativePath: this.relativePath(folder, resource) }));
-		this.undoRedoService.pushElement(new BaseHalfGeneratedDraftsUndoElement([canvas, ...drafts], drafts, JSON.stringify(info), {
+		this.undoRedoService.pushElement(new BaseHalfGeneratedDraftsUndoElement([canvas, ...drafts], drafts, info, {
 			isGenerating: draft => this.isGenerating(draft),
 			read: draft => this.cardStore.read(draft),
 			draftOperations: this.draftOperations,
@@ -1536,12 +1859,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		try {
 			raw = await this.commandService.executeCommand(command, argument);
 		} catch (error) {
-			if (!CommandsRegistry.getCommand(command)) {
-				// AI Video never registered the command: nothing was sent.
+			if (isCommandNotFound(error, command)) {
+				// AI Video has not registered the command, so it did not run: nothing was sent.
 				return { ok: false, unavailable: true, error: { code: 'network', message: localize('basehalf.video.generation.extensionMissing', "AI Video, which sends the request, is not running.") } };
 			}
-			// AI Video stopped while it ran the command: for a request, whether it
-			// reached the provider is unknown.
+			// The command ran, or AI Video stopped while it ran it, which also
+			// takes its commands away: for a request, whether it reached the
+			// provider is unknown.
 			return { ok: false, unavailable: !isSubmit, error: { code: isSubmit ? 'unknownOutcome' : 'network', message: getErrorMessage(error) } };
 		}
 		return parseProviderAnswer(raw, parse);
@@ -1644,6 +1968,20 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
+	/** How the paths of cards are compared in a workspace folder: without letter case where its volume ignores it. */
+	private pathKey(folder: URI): BaseHalfGenerationPathKey {
+		return this.uriIdentityService.extUri.ignorePathCasing(folder) ? path => path.toLowerCase() : path => path;
+	}
+
+	/** Whether another generation that has not ended lands on one of the task's cards. */
+	private hasRival(folder: URI, task: IBaseHalfGenerationTask): boolean {
+		const key = this.pathKey(folder);
+		return this.taskStore.list().some(other => other.id !== task.id
+			&& !isBaseHalfGenerationTaskEnded(other)
+			&& this.taskStore.folderOf(other.id)?.toString() === folder.toString()
+			&& task.cards.some(card => baseHalfGenerationTaskNamesCard(other, card.path, key)));
+	}
+
 	private placementServices() {
 		return { fileService: this.fileService, canvasMirrorService: this.canvasMirrorService, logService: this.logService };
 	}
@@ -1682,9 +2020,11 @@ interface IDraftsUndoServices {
 
 /**
  * Undo removes the drafts a generation made and redo brings them back, as
- * one step (generation cards, "Moving, renaming, copying, and undo"). Both
- * refuse while a draft generates and when its card information changed
- * since, and keep the step. A generation itself is not undone.
+ * one step (generation cards, "Moving, renaming, copying, and undo"). While a
+ * draft generates, undo refuses and keeps the step, which can be undone once
+ * the generation ended. Once a draft has its file, or its card information
+ * changed since, the step is done with: a generation is not undone, so undo
+ * changes nothing and the next undo goes to the step before.
  */
 class BaseHalfGeneratedDraftsUndoElement implements IWorkspaceUndoRedoElement {
 	readonly type = UndoRedoElementType.Workspace;
@@ -1695,17 +2035,25 @@ class BaseHalfGeneratedDraftsUndoElement implements IWorkspaceUndoRedoElement {
 	constructor(
 		readonly resources: readonly URI[],
 		private readonly drafts: readonly URI[],
-		private readonly info: string,
+		private readonly info: IBaseHalfGenerationInfo,
 		private readonly services: IDraftsUndoServices
 	) { }
 
 	async undo(): Promise<void> {
-		const refusal = await this.refusal();
-		if (refusal) {
-			this.services.notificationService.info(refusal);
+		const generating = this.drafts.find(draft => this.services.isGenerating(draft));
+		if (generating) {
+			this.services.notificationService.info(localize('basehalf.video.generation.undoGenerating', "{0} is generating. Stop it first.", basename(generating)));
 			const copy = new BaseHalfGeneratedDraftsUndoElement(this.resources, this.drafts, this.info, this.services);
 			this.services.undoRedoService.pushElement(copy, UndoRedoGroup.None, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 			return;
+		}
+		for (const draft of this.drafts) {
+			const snapshot = await this.services.read(draft).catch(() => undefined);
+			if (!snapshot || snapshot.hasFile || snapshot.made || snapshot.madeUnreadable || baseHalfGenerationInfoChangedFields(this.info, snapshot.info).length) {
+				// Generated, or changed since: nothing is undone, and the step is done with.
+				this.snapshots = undefined;
+				return;
+			}
 		}
 		const snapshots: IBaseHalfDraftSnapshot[] = [];
 		for (const draft of this.drafts) {
@@ -1722,19 +2070,6 @@ class BaseHalfGeneratedDraftsUndoElement implements IWorkspaceUndoRedoElement {
 				this.services.notificationService.info(getErrorMessage(error));
 			}
 		}
-	}
-
-	private async refusal(): Promise<string | undefined> {
-		for (const draft of this.drafts) {
-			if (this.services.isGenerating(draft)) {
-				return localize('basehalf.video.generation.undoGenerating', "{0} is generating. Stop it first.", basename(draft));
-			}
-			const snapshot = await this.services.read(draft).catch(() => undefined);
-			if (!snapshot || snapshot.hasFile || snapshot.made || JSON.stringify(snapshot.info) !== this.info) {
-				return localize('basehalf.video.generation.undoChanged', "{0} changed since this step.", basename(draft));
-			}
-		}
-		return undefined;
 	}
 }
 
@@ -1874,6 +2209,42 @@ export function closedWhileAnsweringMessage(): string {
 	return localize('basehalf.video.generation.closedWhileAnswering', "BaseHalf closed while the provider was making the files. They may have been made and charged, but BaseHalf could not receive them. Check the provider's console.");
 }
 
+/** The message of a card whose file is gone: a missing file never generates (generation cards, "Drafts and missing files"). */
+function missingFileMessage(name: string): string {
+	return localize('basehalf.video.generation.missingFile', "{0} is not there any more: it was moved or deleted. Restore it to generate from it.", name);
+}
+
+/** Receiving a file failed: downloading it, reading it, or checking it. */
+function receiveFailedMessage(kind: BaseHalfGenerationKind, error: unknown): string {
+	return kind === 'image'
+		? localize('basehalf.video.generation.receiveFailedImage', "BaseHalf could not receive the image from the provider: {0}", plainDetail(getErrorMessage(error), []))
+		: localize('basehalf.video.generation.receiveFailed', "BaseHalf could not receive the video from the provider: {0}", plainDetail(getErrorMessage(error), []));
+}
+
+/** The file was received, but could not be put into the card's folder, however often it was tried. */
+function placeFailedMessage(kind: BaseHalfGenerationKind, detail: string): string {
+	return kind === 'image'
+		? localize('basehalf.video.generation.placeFailedImage', "BaseHalf received the image but could not put it into its folder: {0}", detail)
+		: localize('basehalf.video.generation.placeFailed', "BaseHalf received the video but could not put it into its folder: {0}", detail);
+}
+
+/** The file is in its folder; the record of how it was made could not be written. */
+function recordFailedMessage(kind: BaseHalfGenerationKind, error: Error): string {
+	return kind === 'image'
+		? localize('basehalf.video.generation.recordFailedImage', "The image is in its folder, but BaseHalf could not record how it was made: {0}", plainDetail(error.message, []))
+		: localize('basehalf.video.generation.recordFailed', "The video is in its folder, but BaseHalf could not record how it was made: {0}", plainDetail(error.message, []));
+}
+
+/** A received file that is gone before it was put in place. */
+function lostFileMessage(): string {
+	return localize('basehalf.video.generation.lostFile', "The file BaseHalf received is gone before it could be put in place. Check the provider's console.");
+}
+
+/** Two hours after the start, no window of this computer could ask the provider about the task. */
+function unaskedMessage(): string {
+	return localize('basehalf.video.generation.unasked', "BaseHalf could not ask the provider about this generation, because the provider is not set up on this computer. It may have finished there: check the provider's console.");
+}
+
 function cardDeletedMessage(): string {
 	return localize('basehalf.video.generation.cardDeleted', "The card was deleted.");
 }
@@ -1918,12 +2289,6 @@ function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: fal
 		default:
 			return detail ? `${unknownOutcomeMessage()} (${detail})` : unknownOutcomeMessage();
 	}
-}
-
-function saveFailedMessage(kind: BaseHalfGenerationKind, error: unknown): string {
-	return kind === 'image'
-		? localize('basehalf.video.generation.saveFailedImage', "BaseHalf could not save the image in the workspace: {0}", plainDetail(getErrorMessage(error), []))
-		: localize('basehalf.video.generation.saveFailed', "BaseHalf could not save the video in the workspace: {0}", plainDetail(getErrorMessage(error), []));
 }
 
 function missingInputMessage(path: string): string {
@@ -1977,8 +2342,23 @@ function throwIfCancelled(token: CancellationToken): void {
 	}
 }
 
-function isMoveConflict(error: unknown): boolean {
-	return error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_MOVE_CONFLICT;
+/** Whether putting a file in place failed because its name is taken: by a move, or by an exclusive create. */
+function isNameTaken(error: unknown): boolean {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+	const result = toFileOperationResult(error);
+	return result === FileOperationResult.FILE_MOVE_CONFLICT || result === FileOperationResult.FILE_MODIFIED_SINCE;
+}
+
+/** The command service's refusal of a command that no one registered: then the command did not run at all. */
+function isCommandNotFound(error: unknown, command: string): boolean {
+	return error instanceof Error && error.message === `command '${command}' not found`;
+}
+
+/** Up to {@link TAKEOVER_JITTER} milliseconds, different in every window. */
+function takeoverJitter(): number {
+	return Math.floor(Math.random() * TAKEOVER_JITTER);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

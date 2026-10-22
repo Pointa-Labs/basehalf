@@ -264,13 +264,26 @@ inputs:
   `landing` (the provider has made the files; they are received and moved
   into place), `failed`, and `stopped`.
 - **One follower.** The window that started a generation follows it and writes
-  that it is alive every 30 seconds. Another window takes a generation over
-  only when that has not happened for 90 seconds.
+  that it is alive every 30 seconds, from the moment it writes the record, so
+  that a long preparation is not taken for a window that is gone. Another
+  window takes a generation over only when that has not happened for 90
+  seconds. Windows look again at different moments, a few seconds apart.
+- **One window takes a record over.** Before it acts on a stale record, a
+  window claims it by creating `.bh/cache/generation/<task id>.<ms>.takeover`
+  for the moment the record was last said alive, with the file system's
+  exclusive create: of the windows that try, exactly one does, and the others
+  leave the record to it. A claim that nothing came of, because the window
+  that made it is gone before it said the record alive, can be claimed again
+  90 seconds later, by a claim named after it, again by one window.
 - **Every change of a record is written against the bytes that were read**,
   and planned again from the new bytes when they changed underneath, so that
   a heartbeat, a takeover, a stop, and a move that writes a card's new path
-  never write over one another; of two windows that take over the same
-  record, one does.
+  never write over one another. A record that nothing was sent for is
+  removed only when the bytes on disk still say so.
+- **Partial downloads belong to the task**, not to a window: they are removed
+  when the user stops the generation, when its record is removed, and when
+  the window that follows it is done with them, never because another window
+  follows the record now or ended it.
 - The record of a generation that ended without its files stays until the
   card generates again or is deleted, so that the card can say why. The record
   of a generation that landed is removed once each `made.yaml` is written, and
@@ -278,11 +291,16 @@ inputs:
   several whose draft was deleted.
 - BaseHalf watches `.bh/cache/generation/` and nothing else of `.bh/cache/`, so
   every window of the workspace on this computer shows the same state.
-- When the workspace opens, BaseHalf removes partial downloads that no record
-  that has not ended names, and ended records whose cards are gone (no file
-  and no draft). A record that has not ended keeps its partial downloads:
-  another window may be receiving them, as AI Video writes the files of a
-  provider that answers at once while the record is `submitting`.
+- When the workspace opens, BaseHalf removes the partial downloads and claims
+  of records that are gone, the partial downloads of records the user
+  stopped, the claims of records said alive since, and ended records whose
+  cards that got no file are all gone (no file and no draft); a card that
+  landed does not keep its record. A record that failed keeps its partial
+  downloads: the window that sent its request may still receive the answer
+  ([Continuing after a reload or a restart](#continuing-after-a-reload-or-a-restart)).
+- On a volume that ignores letter case, `shots/Video.mp4` and `shots/video.mp4`
+  name the same card: a record is found for a card, and claims it, whatever
+  case names it.
 - A teammate who pulls a draft through git gets its prompt, settings, and
   connections, and no task: a generation is followed and settled only on the
   computer that started it.
@@ -652,7 +670,9 @@ The steps before 5 write nothing; a stop at step 6 or 7 removes the record
 and leaves no card it made:
 
 1. Save the panel's pending prompt and read the card's generation
-   information.
+   information. A card with a `made.yaml`, readable or not, whose file is
+   gone is a missing file, not a draft: stop with "<name> is not there any
+   more: it was moved or deleted. Restore it to generate from it."
 2. If the card or the card that a generation of several images would use is
    generating, stop with "This card is already generating."
 3. Read the catalog and the provider's setup. Stop with the first blocker that
@@ -680,7 +700,10 @@ and leaves no card it made:
    card. Then write the request record and the state `submitting`.
 8. Send the request through the AI Video extension. When the provider returns
    its task id, write it and the state `running`. When it answers with the
-   files at once, continue at step 10.
+   files at once, continue at step 10. Nothing was sent only when AI Video has
+   not registered the command, so it did not run; any other refusal of the
+   call, such as AI Video stopping while it ran it, leaves the outcome
+   unknown.
 9. Ask the provider about the task every 5 seconds, the first time after 3
    seconds, and show the phase and progress on the cards.
 10. Land the files ([Landing](#landing)).
@@ -689,29 +712,52 @@ and leaves no card it made:
 
 ### Landing
 
-Each file the generation made lands on its card. Steps 2 to 6 run inside the
-workspace mutation lease, so that no move or rename runs between deciding its
-place and moving it there:
+Each file the generation made lands on its card. A paid file is thrown away
+only when the user stopped the generation or the card was deleted. Steps 2 to
+6 run inside the workspace mutation lease, so that no move or rename runs
+between deciding its place and moving it there; before them, a move outside
+BaseHalf that is still being followed is let finish, up to 10 seconds:
 
 1. Download the file to `.bh/cache/generation/<task id>-<n>.part`, never into
    the user's folder. Check it: a video is an MP4 of at most 512 MiB; an image
    is a PNG, JPEG, or WebP of at most 64 MiB. A file the provider answered with
    at once is checked the same way. Write its size and SHA-256 in the record
    as soon as it is received in full, so that a window that takes the record
-   over lands it without downloading it again. A file received only in part
+   over lands it without downloading it again; the files a provider answered
+   with at once are complete when the answer comes, and are recorded together
+   in one write before the first of them lands. A file received only in part
    is removed and asked for again; the file of a provider that answers at once
    cannot be asked for again, and its card fails with a message saying so.
 2. Read the card's path from the record, where every move or rename of the
    card has written it. When the file's format differs from the card's
    extension and the card is still a draft, the draft is first renamed to the
    format's extension, with the next free number if that name is taken.
-3. When the card's folder is gone, create it again.
+3. Decide the file's place. The draft at the path is its card. When a file
+   took the path by then, or when the draft's card information is not at the
+   path and BaseHalf cannot tell that the card was deleted (part of it moved,
+   or a move is still being followed), the file goes beside it: the next free
+   name in that folder with the extension of the file's format, with the
+   generation information of the card at the path, or else the one the
+   generation was made with, and its card appears to the right. The card was
+   deleted when its record says the canvas released it, or when none of its
+   card information is left and no move is being followed: then the file is
+   not landed. When the card's folder is gone, it is created again, unless a
+   move is still being followed, which is waited for first.
 4. Write in the record what is being landed: the path, the size, and the
    SHA-256 of the file.
-5. Move the file into place without replacing anything there: when the path
-   is taken by then, the file takes the next free name beside it, with a copy
-   of the card's `generation.yaml`, and its card appears to the right.
-6. Write `made.yaml`, and when every file has landed, remove the record.
+5. Put the file in place without ever replacing anything there: a file of up
+   to 256 MiB is written there by the file system's exclusive create, which
+   fails when the name is taken even at the last moment; a larger one is
+   moved there when the name is free. When the name is taken, the file goes
+   beside it as in step 3.
+6. Write `made.yaml`, then, for a file that went beside its card, its
+   `generation.yaml`; and when every file has landed, remove the record.
+
+A problem before the file is put in place keeps the file and tries again, up
+to three times 5 seconds apart, and only then fails the card, saying that the
+file was received but could not be put into its folder. A problem after it,
+writing `made.yaml`, leaves the file where it is, and the card says that the
+file is in its folder but its record could not be written.
 
 After a crash between step 5 and 6, the window that follows the record again
 finds the file at the path with the recorded size and SHA-256, and finishes
@@ -733,14 +779,17 @@ step 6 without downloading again.
 - **Asking fails**: a network error is retried at the next interval for up to
   30 minutes in a row; a refused key fails the task; a task the provider does
   not know fails the task.
-- **Too long**: two hours after the start, the task fails with a message that
-  says so.
+- **Too long**: when the provider still says that the task is not done two
+  hours after its start, the task fails with a message that says so. The
+  limit counts only answers: a task that finished while no window asked, or
+  while the computer slept, lands however late it is asked.
 - **Stop**: the user presses the stop square on one of its cards. BaseHalf
   stops asking, asks the provider to cancel where it can (best effort), and
   records the task as `stopped`. A file that arrives later, also from a
   provider that answers at once, is deleted and not kept.
 - **A card is deleted** while it generates: the generation is stopped first
-  when it was the only card; otherwise that card's file is not landed.
+  when it was the only card, and its record goes with the card; otherwise that
+  card's file is not landed.
 
 The card shows the failure; the Generate button starts a new generation on
 the same card. An error is plain text without secrets or markup, at most 4
@@ -758,7 +807,8 @@ seconds:
   the request records, at the endpoint set up on this computer while the
   provider is still set up in that region, and otherwise at that region's base
   URL. A task whose provider is not set up any more fails once it is two hours
-  old;
+  old, saying that BaseHalf could not ask the provider and that it may have
+  finished there;
 - a `landing` task is taken over and landed;
 - a `submitting` task fails, never sent again: for a provider with tasks, with
   a message saying that BaseHalf closed while the request was on its way and
@@ -767,6 +817,13 @@ seconds:
   may have been made and charged, but BaseHalf could not receive them. Check
   the provider's console.";
 - a `preparing` task is removed, since nothing was sent.
+
+The window that sent a request takes up its answer also when another window
+ended the record as failed meanwhile, taking it for gone, as after a sleep:
+the files the provider answered with land, and a task the provider made is
+followed, with the record `landing` or `running` again and the cards that the
+failure ended waiting again, unless another generation has claimed the card
+since.
 
 ### Generating again
 
@@ -831,7 +888,12 @@ is a file does:
 - **Undo.** Creating, renaming, moving, and deleting a draft are each one step
   of the canvas undo stack, which keeps all of the draft's card information.
   Undo and redo refuse while the draft generates, and when its card
-  information changed since. A generation itself is not undone.
+  information changed since. A generation itself is not undone. The drafts a
+  generation made are one step, named Generate: while one of them generates,
+  undo refuses and keeps the step for later; once one has its file, or its
+  prompt or settings changed (compared field by field, in whatever order an
+  agent wrote them), the step is done with, so undo changes nothing and the
+  next undo goes to the step before.
 
 ## Deleting
 
@@ -839,8 +901,9 @@ is a file does:
   step. When it generates, the generation is stopped first, or, when it is one
   of several cards of a generation, its image is not landed. The canvas asks
   the generation service to release the card before the draft operations
-  delete it; a draft whose card information is gone when its file arrives
-  gets no file either, however it was deleted.
+  delete it; a draft whose card information is all gone when its file
+  arrives, while no move is being followed, gets no file either, however it
+  was deleted.
 - Deleting a card with its file deletes the file as any file is deleted. A
   delete to the trash of a generated file keeps `generation.yaml` and
   `made.yaml`, as it keeps `upstream.yaml`: the card leaves the canvas as a
