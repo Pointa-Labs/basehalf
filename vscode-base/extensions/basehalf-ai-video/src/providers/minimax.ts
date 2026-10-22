@@ -7,17 +7,19 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
+import type { AnsweredAtOnce, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
 import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, ParamValue, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
- * MiniMax's video models on MiniMax's own API, in China (`api.minimax.cn`)
- * and internationally (`api.minimax.io`), with a key of the region
- * (`docs/specs/video-providers/minimax.md`). MiniMax H3 and H3 Max run on the
+ * MiniMax's video and image models on MiniMax's own API, in China
+ * (`api.minimax.cn`) and internationally (`api.minimax.io`), with a key of the
+ * region (`docs/specs/providers/minimax.md`). MiniMax H3 and H3 Max run on the
  * V2 API, which takes a `content` list of text, frames, and references;
  * images travel as data URLs, videos and audio as uploaded files
  * (`mm_file://`). The Hailuo models run on the V1 API, which takes frames as
- * data URLs and reports its errors in `base_resp` of an HTTP 200 answer.
+ * data URLs and reports its errors in `base_resp` of an HTTP 200 answer. The
+ * image models answer `POST /v1/image_generation` with the images, as base64,
+ * and report their errors in `base_resp` as V1 does.
  */
 
 type MediaKind = 'image' | 'video' | 'audio';
@@ -29,7 +31,9 @@ const MODEL_TEXTS: Readonly<Record<string, { readonly label: string; readonly de
 	'h3-max': { label: 'MiniMax H3 Max', description: 'A faster MiniMax H3 at 480P or 768P, 5 to 15 seconds, from the same inputs.' },
 	'hailuo-2.3': { label: 'Hailuo 2.3', description: '6 or 10 seconds at 768P, or 6 seconds at 1080P, from a prompt or a start frame.' },
 	'hailuo-2.3-fast': { label: 'Hailuo 2.3 Fast', description: 'A faster Hailuo 2.3 that brings a start frame to life: 6 or 10 seconds at 768P, or 6 seconds at 1080P.' },
-	'hailuo-02': { label: 'Hailuo 02', description: '6 or 10 seconds at 768P, or 6 seconds at 1080P, from a prompt, a start frame, or a start and an end frame; 512P from a start frame alone.' }
+	'hailuo-02': { label: 'Hailuo 02', description: '6 or 10 seconds at 768P, or 6 seconds at 1080P, from a prompt, a start frame, or a start and an end frame; 512P from a start frame alone.' },
+	'image-01': { label: 'MiniMax Image-01', description: 'Up to 9 images at about 1K from a prompt, or from a prompt and one reference image of a person.' },
+	'image-01-live': { label: 'MiniMax Image-01 Live', description: 'Image-01 with drawing styles (comic, lively, medieval, watercolor): up to 9 images from a prompt, or from a prompt and one reference image of a person. Offered in China.' }
 });
 
 const TEXT = Object.freeze({
@@ -54,6 +58,25 @@ const TEXT = Object.freeze({
 		watermark: 'Watermark',
 		watermarkTooltip: 'Marks the video as made by AI. Offered in the China region only.'
 	},
+	image: {
+		ratioTooltip: 'The shape of the image, at about 1K.',
+		count: 'Images',
+		countTooltip: 'How many images to make with one request.',
+		promptOptimizerTooltip: 'Lets MiniMax rewrite the prompt for a better image. Turn it off to keep the prompt as written.',
+		style: 'Style',
+		styleTooltip: 'A drawing style MiniMax gives the images.',
+		styles: { comic: 'Comic', lively: 'Lively', medieval: 'Medieval', watercolor: 'Watercolor' },
+		styleWeight: 'Style Weight',
+		styleWeightTooltip: 'How strongly the style shows, from 0.1 to 1.',
+		seed: 'Seed',
+		seedTooltip: 'The same seed with the same request gives similar images. Leave it empty for a new one each time.',
+		watermarkTooltip: 'Marks the images as made by AI. Offered in the China region only.'
+	},
+	imageReferenceOnly: (label: string) => `${label} cannot be sent: MiniMax's image models take one reference image only.`,
+	imageBlocked: 'MiniMax\'s content check stopped this image.',
+	unreadableImage: 'MiniMax answered an image AI Video cannot read.',
+	noImages: 'MiniMax accepted the request but answered no images AI Video can read.',
+	noImageTask: (model: string) => `${model} answers with its images at once: there is no task to ask about.`,
 	needsRatio: (model: string) => `${model} needs a ratio for a video made from the prompt alone: choose one, or connect an image.`,
 	referencesNeedInput: (model: string) => `${model} in References mode needs at least one image, video, or audio clip.`,
 	tooManyReferences: (model: string, count: number) => `${model} takes at most 12 references together; ${count} are planned.`,
@@ -72,7 +95,7 @@ const TEXT = Object.freeze({
 	uploadFailed: (label: string, detail: string) => `${label} could not be uploaded to MiniMax: ${detail}`,
 	uploadUnreadable: 'MiniMax answered the upload in a form AI Video cannot read.',
 	errorCode: (code: number) => `MiniMax answered with error code ${code}.`,
-	rateLimits: 'MiniMax takes 20 requests a minute for Hailuo models, and 300 requests a minute with at most 30 tasks at a time for H3 models.',
+	rateLimits: 'MiniMax takes 20 requests a minute for Hailuo models, 300 requests a minute with at most 30 tasks at a time for H3 models, and 10 requests a minute for image models.',
 	noTaskId: 'MiniMax accepted the request but gave no task id AI Video can read.',
 	noTask: 'MiniMax answered without the task.',
 	unknownStatus: (status: string) => `MiniMax reports a task status AI Video does not know: ${status || 'none'}.`,
@@ -110,7 +133,24 @@ interface HailuoModel {
 	readonly startFrameOnly: readonly string[];
 }
 
-type MiniMaxModel = H3Model | HailuoModel;
+/** The image models, which `POST /v1/image_generation` answers at once. */
+interface ImageModel {
+	readonly api: 'image';
+	readonly id: string;
+	readonly providerModel: string;
+	readonly regions: readonly ('cn' | 'intl')[];
+	readonly ratios: readonly string[];
+	/** The drawing styles of `style`, which only Image-01 Live takes. */
+	readonly styles: boolean;
+}
+
+type MiniMaxModel = H3Model | HailuoModel | ImageModel;
+
+/** The ratios of Image-01, in the order the panel shows them, with the sizes MiniMax makes: 16:9 is 1280 × 720, 21:9 is 1344 × 576. */
+const IMAGE_RATIOS = Object.freeze(['16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16', '21:9']);
+
+/** The drawing styles of Image-01 Live, by the catalog's values: MiniMax's own words. */
+const STYLES: Readonly<Record<keyof typeof TEXT.image.styles, string>> = Object.freeze({ comic: '漫画', lively: '元气', medieval: '中世纪', watercolor: '水彩' });
 
 const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 	{
@@ -157,6 +197,24 @@ const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 		startFrame: 'optional',
 		endFrame: true,
 		startFrameOnly: ['512P']
+	},
+	{
+		api: 'image',
+		id: 'image-01',
+		providerModel: 'image-01',
+		regions: ['cn', 'intl'],
+		ratios: IMAGE_RATIOS,
+		styles: false
+	},
+	{
+		api: 'image',
+		id: 'image-01-live',
+		providerModel: 'image-01-live',
+		// The international text-to-image page does not name it.
+		regions: ['cn'],
+		// 21:9 is Image-01's only.
+		ratios: IMAGE_RATIOS.filter(ratio => ratio !== '21:9'),
+		styles: true
 	}
 ]);
 
@@ -190,8 +248,22 @@ const H3_REFERENCE_LIMITS = Object.freeze({
 });
 /** "Short edge > 300px; aspect ratio between 2:5 and 5:2". */
 const HAILUO_LIMITS = Object.freeze({ imageMinSide: 301, imageAspect: [0.4, 2.5] as const, imageMaxBytes: HAILUO_IMAGE_MAX_BYTES });
+/** The character reference of an image model: "JPG, JPEG, PNG; less than 10MB". */
+const IMAGE_REFERENCE_MAX_BYTES = 10 * MIB - 1;
+const IMAGE_MODEL_MAX_BYTES: Readonly<Record<MediaKind, number>> = Object.freeze({ image: IMAGE_REFERENCE_MAX_BYTES, video: 0, audio: 0 });
+const IMAGE_MODEL_LIMITS = Object.freeze({ imageFormats: ['png', 'jpeg'] as const, imageMaxBytes: IMAGE_REFERENCE_MAX_BYTES });
+/** The most images one request makes (`n`). */
+const MAX_IMAGES = 9;
 
 function modesOf(model: MiniMaxModel): CatalogMode[] {
+	if (model.api === 'image') {
+		return [{
+			id: 'reference',
+			label: TEXT.modes.reference,
+			inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 1 }, videos: NONE, audios: NONE, source: 'none' },
+			limits: IMAGE_MODEL_LIMITS
+		}];
+	}
 	if (model.api === 'v1') {
 		return [{
 			id: 'frames',
@@ -226,7 +298,7 @@ function catalogResolution(resolution: string): string {
 
 /** MiniMax's own value of each resolution of the catalog, such as `768P` for `768p`. */
 const MINIMAX_RESOLUTIONS: ReadonlyMap<string, string> = new Map(MODELS_IN_ORDER
-	.flatMap(model => model.api === 'v2' ? model.resolutions : Object.keys(model.durations))
+	.flatMap(model => model.api === 'v2' ? model.resolutions : model.api === 'v1' ? Object.keys(model.durations) : [])
 	.map(resolution => [catalogResolution(resolution), resolution]));
 
 /** MiniMax's own value of a resolution of the catalog, or undefined for one MiniMax does not make. */
@@ -245,8 +317,50 @@ function resolutionParameter(resolutions: readonly string[], defaultResolution: 
 	};
 }
 
+function imageParametersOf(model: ImageModel): CatalogParameter[] {
+	const labels = TEXT.image;
+	const parameters: CatalogParameter[] = [
+		{
+			name: 'ratio',
+			label: TEXT.parameters.ratio,
+			tooltip: labels.ratioTooltip,
+			kind: 'choice',
+			display: 'ratio',
+			options: model.ratios.map(value => ({ value, label: value })),
+			// MiniMax's default; it has no Adaptive.
+			default: '1:1'
+		},
+		{ name: 'count', label: labels.count, tooltip: labels.countTooltip, kind: 'integer', min: 1, max: MAX_IMAGES, step: 1, default: 1 },
+		// The shared name of MiniMax's `prompt_optimizer`, off by default as MiniMax's is.
+		{ name: 'prompt_extend', label: TEXT.parameters.promptOptimizer, tooltip: labels.promptOptimizerTooltip, kind: 'boolean', default: false }
+	];
+	if (model.styles) {
+		const names = labels.styles;
+		parameters.push(
+			{
+				name: 'style_type',
+				label: labels.style,
+				tooltip: labels.styleTooltip,
+				kind: 'choice',
+				options: (Object.keys(STYLES) as (keyof typeof STYLES)[]).map(value => ({ value, label: names[value] })),
+				optional: true
+			},
+			{ name: 'style_weight', label: labels.styleWeight, tooltip: labels.styleWeightTooltip, kind: 'number', min: 0.1, max: 1, step: 0.1, default: 0.8, advanced: true }
+		);
+	}
+	parameters.push(
+		{ name: 'seed', label: labels.seed, tooltip: labels.seedTooltip, kind: 'integer', min: 0, max: 2147483647, step: 1, optional: true, advanced: true },
+		// The shared name of MiniMax's `aigc_watermark`.
+		{ name: 'watermark', label: TEXT.parameters.watermark, tooltip: labels.watermarkTooltip, kind: 'boolean', default: false, advanced: true }
+	);
+	return parameters;
+}
+
 function parametersOf(model: MiniMaxModel): CatalogParameter[] {
 	const labels = TEXT.parameters;
+	if (model.api === 'image') {
+		return imageParametersOf(model);
+	}
 	if (model.api === 'v1') {
 		return [
 			resolutionParameter(Object.keys(model.durations), '768P'),
@@ -289,6 +403,21 @@ function parametersOf(model: MiniMaxModel): CatalogParameter[] {
 
 function catalogModel(model: MiniMaxModel): CatalogModel {
 	const text = TEXT.models[model.id];
+	if (model.api === 'image') {
+		return {
+			id: model.id,
+			kind: 'image',
+			label: text.label,
+			description: text.description,
+			providerModels: Object.fromEntries(model.regions.map(region => [region, model.providerModel])),
+			prompt: { required: 'always', maxLength: 1500 },
+			modes: modesOf(model),
+			parameters: parametersOf(model),
+			// MiniMax states no format; its guides save the images as JPEG.
+			outputFormat: 'jpeg',
+			answersAtOnce: true
+		};
+	}
 	return {
 		id: model.id,
 		label: text.label,
@@ -381,8 +510,17 @@ function formatProblems(items: readonly MeasuredItem[]): string[] {
 	return problems;
 }
 
+/** The rules of an image model that its declarations cannot say. */
+function imageRules(request: CheckRequest): string[] {
+	// Only the China pages document `aigc_watermark`.
+	return request.params.watermark === true && request.region !== 'cn' ? [TEXT.watermarkChinaOnly] : [];
+}
+
 async function check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 	const model = modelOf(request.model);
+	if (model.api === 'image') {
+		return { problems: imageRules(request) };
+	}
 	const counts = countsOf(request.inputs);
 	const problems = model.api === 'v2' ? h3Rules(model, request, counts) : hailuoRules(model, request, counts);
 	const measured = await measureItems(request.inputs, media);
@@ -514,6 +652,7 @@ function idOf(answer: HttpAnswer, value: unknown, field: string): string | undef
 
 const V2_CREATE = '/v2/video_generation';
 const V2_QUERY = '/v2/query/video_generation';
+const IMAGE_CREATE = '/v1/image_generation';
 const V1_CREATE = '/v1/video_generation';
 const V1_QUERY = '/v1/query/video_generation';
 const V1_RETRIEVE = '/v1/files/retrieve';
@@ -713,9 +852,66 @@ async function submitHailuo(model: HailuoModel, request: SubmitRequest, resoluti
 	return id;
 }
 
-async function submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
+/**
+ * Sends an image request once and answers its images: the files MiniMax
+ * answered, then one refusal for each image its content check withheld.
+ */
+async function submitImage(model: ImageModel, request: SubmitRequest, http: ProviderHttp): Promise<AnsweredAtOnce> {
+	if (!model.regions.includes(request.region as ImageModel['regions'][number])) {
+		throw rejected(TEXT.notOffered(TEXT.models[model.id].label));
+	}
+	let subject: string | undefined;
+	for (const item of plannedItems(request.inputs)) {
+		if (item.slot !== 'image' || subject !== undefined) {
+			// The one mode takes one reference image and nothing else.
+			throw rejected(TEXT.imageReferenceOnly(item.label));
+		}
+		subject = inlineUrl(await prepare(item, IMAGE_MODEL_MAX_BYTES));
+	}
+	const params = request.params;
+	const style = model.styles && typeof params.style_type === 'string' ? STYLES[params.style_type as keyof typeof STYLES] : undefined;
+	const body: Record<string, unknown> = {
+		model: model.providerModel,
+		prompt: request.prompt,
+		aspect_ratio: params.ratio,
+		n: params.count,
+		prompt_optimizer: params.prompt_extend === true,
+		// The images themselves: at about 1K, nine of them make a small answer.
+		response_format: 'base64',
+		...(typeof params.seed === 'number' ? { seed: params.seed } : {}),
+		...(subject !== undefined ? { subject_reference: [{ type: 'character', image_file: subject }] } : {}),
+		...(style !== undefined ? { style: { style_type: style, style_weight: params.style_weight } } : {}),
+		// Only the China pages document the watermark.
+		...(request.region === 'cn' ? { aigc_watermark: params.watermark === true } : {})
+	};
+	const answer = await http.create({ method: 'POST', path: IMAGE_CREATE, body: { kind: 'json', value: body } });
+	const object = answer.object();
+	throwOnBaseResp(object, 'create');
+	return { outputs: imageOutputs(object) };
+}
+
+/** The images of an answer in MiniMax's order, then the ones its content check withheld. */
+function imageOutputs(object: Record<string, unknown>): OutputLocation[] {
+	const data = isRecord(object.data) ? object.data : undefined;
+	const files = Array.isArray(data?.image_base64) ? data.image_base64 : [];
+	const addresses = Array.isArray(data?.image_urls) ? data.image_urls : [];
+	const withheld = Math.min(MAX_IMAGES, codeOf(isRecord(object.metadata) ? object.metadata.failed_count : undefined) ?? 0);
+	if (!data && !withheld) {
+		throw unknownOutcome(TEXT.noImages);
+	}
+	return [
+		...files.map((file): OutputLocation => typeof file === 'string' && file ? { bytes: Buffer.from(file, 'base64') } : { refused: TEXT.unreadableImage }),
+		...addresses.map((address): OutputLocation => typeof address === 'string' && address ? { url: address } : { refused: TEXT.unreadableImage }),
+		...Array.from({ length: withheld }, (): OutputLocation => ({ refused: TEXT.imageBlocked }))
+	];
+}
+
+async function submit(request: SubmitRequest, http: ProviderHttp): Promise<string | AnsweredAtOnce> {
 	const model = modelOf(request.model);
 	const label = TEXT.models[model.id].label;
+	if (model.api === 'image') {
+		return submitImage(model, request, http);
+	}
 	if (request.region !== 'cn' && request.region !== 'intl') {
 		throw rejected(TEXT.notOffered(label));
 	}
@@ -795,13 +991,22 @@ function hailuoState(object: Record<string, unknown>): PollState {
 	}
 }
 
-async function poll(ref: TaskRef, http: ProviderHttp): Promise<PollState> {
+/** The video model of a task; an image model answered with its images and has no task to ask about. */
+function videoModelOf(ref: TaskRef): H3Model | HailuoModel {
 	const model = modelOf(ref.model);
+	if (model.api === 'image') {
+		throw rejected(TEXT.noImageTask(TEXT.models[model.id].label));
+	}
+	return model;
+}
+
+async function poll(ref: TaskRef, http: ProviderHttp): Promise<PollState> {
+	const model = videoModelOf(ref);
 	return model.api === 'v2' ? h3State(await readH3Task(ref, http)) : hailuoState((await readHailuoTask(ref, http)).object);
 }
 
 async function videoLocation(ref: TaskRef, http: ProviderHttp): Promise<VideoLocation> {
-	const model = modelOf(ref.model);
+	const model = videoModelOf(ref);
 	if (model.api === 'v2') {
 		const state = h3State(await readH3Task(ref, http));
 		if (state.state !== 'succeeded') {
@@ -831,8 +1036,8 @@ async function videoLocation(ref: TaskRef, http: ProviderHttp): Promise<VideoLoc
 
 async function cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean> {
 	const model = modelOf(ref.model);
-	if (model.api === 'v1') {
-		// The V1 API cannot cancel a task.
+	if (model.api === 'v1' || model.api === 'image') {
+		// The V1 API cannot cancel a task, and an image model answered with its images.
 		return false;
 	}
 	// Only a queued task can be cancelled; a DELETE on a task that ended deletes its record.

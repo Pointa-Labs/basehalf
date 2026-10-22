@@ -12,8 +12,8 @@ import test from 'node:test';
 import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { MINIMAX } from '../src/providers/minimax.ts';
 import { buildCatalog } from '../src/providers/registry.ts';
-import type { CatalogModel, CatalogParameter, PollState } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav, webpHeader, type Received } from './providerTestKit.ts';
+import type { CatalogModel, CatalogParameter, Output, PollState } from '../src/providers/types.ts';
+import { error, gifHeader, isoMedia, jpegHeader, partTargets, plannedFiles, png, recordingSleep, routed, sendJson, serveFiles, startServer, tinyJpeg, tinyPng, value, wav, webpHeader, type Received } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-minimax-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -49,7 +49,7 @@ const VIDEO = isoMedia(2);
 
 const KEY = 'mm-test-key-0123456789abcdef';
 const NO_INPUTS = { images: [], videos: [], audios: [] };
-const LIMITS = 'MiniMax takes 20 requests a minute for Hailuo models, and 300 requests a minute with at most 30 tasks at a time for H3 models.';
+const LIMITS = 'MiniMax takes 20 requests a minute for Hailuo models, 300 requests a minute with at most 30 tasks at a time for H3 models, and 10 requests a minute for image models.';
 /** The file ids the fake hands out: 64-bit numbers beyond 2^53, which a JSON number cannot keep. */
 const FIRST_FILE_ID = 9007199254740993n;
 
@@ -245,7 +245,7 @@ function summary(parameter: CatalogParameter): string {
 	}
 }
 
-test('the catalog entry declares both regions, the API key, and five models with their modes, inputs, limits, and parameters', () => {
+test('the catalog entry declares both regions, the API key, and five video models with their modes, inputs, limits, and parameters', () => {
 	const provider = buildCatalog([MINIMAX]).providers[0];
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'minimax',
@@ -256,7 +256,8 @@ test('the catalog entry declares both regions, the API key, and five models with
 		],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
-	const models = Object.fromEntries(provider.models.map((model: CatalogModel) => [model.id, {
+	const videos = provider.models.filter(model => model.kind === 'video');
+	const models = Object.fromEntries(videos.map((model: CatalogModel) => [model.id, {
 		label: model.label,
 		ids: model.providerModels,
 		prompt: `${model.prompt.required} ${model.prompt.maxLength}`,
@@ -304,11 +305,11 @@ test('the catalog entry declares both regions, the API key, and five models with
 		}
 	});
 	// The shared resolution values, labelled as MiniMax writes them.
-	assert.deepEqual(provider.models.map(model => {
+	assert.deepEqual(videos.map(model => {
 		const resolution = model.parameters.find(parameter => parameter.name === 'resolution');
 		return resolution?.kind === 'choice' ? resolution.options.map(option => `${option.value}=${option.label}`).join(' ') : '';
 	}), ['768p=768p 2k=2K', '480p=480p 768p=768p', '768p=768p 1080p=1080p', '768p=768p 1080p=1080p', '512p=512p 768p=768p 1080p=1080p']);
-	assert.deepEqual(provider.models.map(model => model.modes.map(mode => mode.limits)), [
+	assert.deepEqual(videos.map(model => model.modes.map(mode => mode.limits)), [
 		...Array.from({ length: 2 }, () => [
 			{ imageMinSide: 256, imageMaxSide: 5760, imageAspect: [0.4, 2.5], imageMaxBytes: 30 * MIB },
 			{ imageMinSide: 256, imageMaxSide: 5760, imageAspect: [0.4, 2.5], imageMaxBytes: 30 * MIB, videoSeconds: [2, 15], videoTotalSeconds: 15, videoMaxBytes: 50 * MIB, audioSeconds: [2, 15], audioTotalSeconds: 15, audioMaxBytes: 15 * MIB }
@@ -766,5 +767,259 @@ test('no message carries the key, and a relay endpoint with a path is followed',
 		});
 	} finally {
 		await relay.close();
+	}
+});
+
+// --- the image models ---------------------------------------------------------------------------
+
+/** An image request in References mode, with a new target for each image it may make. */
+function imageGeneration(model: string, params: Record<string, unknown>, prompt: string, inputs: Record<string, unknown> = NO_INPUTS) {
+	const count = typeof params.count === 'number' ? params.count : 1;
+	return { model, mode: 'reference', params, prompt, inputs, targets: partTargets(count) };
+}
+
+/** MiniMax's answer with these images as base64 and `withheld` images its content check stopped. */
+function imagesAnswer(files: readonly Buffer[], withheld = 0): Record<string, unknown> {
+	return {
+		id: '03ff3cd0820949eb8a410056b5f21d38',
+		data: { image_base64: files.map(file => file.toString('base64')) },
+		metadata: { success_count: String(files.length), failed_count: String(withheld) },
+		base_resp: { status_code: 0, status_msg: 'success' }
+	};
+}
+
+/** The JSON bodies of the image requests a server received, in order. */
+function imageBodies(received: readonly Received[]): Record<string, unknown>[] {
+	return received.filter(entry => entry.method === 'POST' && entry.path.endsWith('/v1/image_generation')).map(entry => JSON.parse(entry.body.toString('utf8')));
+}
+
+function outputsOf(submitted: unknown): Output[] {
+	return (submitted as { readonly outputs: Output[] }).outputs;
+}
+
+test('the image models answer at once: Image-01 in both regions and Image-01 Live in China, with one reference, JPEG, and their parameters', () => {
+	const provider = buildCatalog([MINIMAX]).providers[0];
+	const images = Object.fromEntries(provider.models.filter(model => model.kind === 'image').map(model => [model.id, {
+		label: model.label,
+		ids: model.providerModels,
+		format: model.outputFormat,
+		atOnce: model.answersAtOnce,
+		prompt: `${model.prompt.required} ${model.prompt.maxLength}`,
+		modes: model.modes.map(mode => `${mode.id}: start ${mode.inputs.startFrame}, end ${mode.inputs.endFrame}, images ${mode.inputs.images.min}-${mode.inputs.images.max}, videos ${mode.inputs.videos.max}, audio ${mode.inputs.audios.max}`),
+		limits: model.modes.map(mode => mode.limits),
+		parameters: model.parameters.map(summary)
+	}]));
+	const reference = ['reference: start none, end none, images 0-1, videos 0, audio 0'];
+	const limits = [{ imageFormats: ['png', 'jpeg'], imageMaxBytes: 10 * MIB - 1 }];
+	const tail = ['seed=0-2147483647/1:unset (more)', 'watermark:false (more)'];
+	assert.deepEqual(images, {
+		'image-01': {
+			label: 'MiniMax Image-01',
+			ids: { cn: 'image-01', intl: 'image-01' },
+			format: 'jpeg',
+			atOnce: true,
+			prompt: 'always 1500',
+			modes: reference,
+			limits,
+			parameters: ['ratio=16:9|4:3|3:2|1:1|2:3|3:4|9:16|21:9:1:1', 'count=1-9/1:1', 'prompt_extend:false', ...tail]
+		},
+		'image-01-live': {
+			label: 'MiniMax Image-01 Live',
+			ids: { cn: 'image-01-live' },
+			format: 'jpeg',
+			atOnce: true,
+			prompt: 'always 1500',
+			modes: reference,
+			limits,
+			parameters: ['ratio=16:9|4:3|3:2|1:1|2:3|3:4|9:16:1:1', 'count=1-9/1:1', 'prompt_extend:false', 'style_type=comic|lively|medieval|watercolor:undefined', 'style_weight=0.1-1/0.1:0.8 (more)', ...tail]
+		}
+	});
+	const style = provider.models.find(model => model.id === 'image-01-live')?.parameters.find(parameter => parameter.name === 'style_type');
+	assert.deepEqual(style?.kind === 'choice' ? { labels: style.options.map(option => option.label), optional: style.optional } : undefined, { labels: ['Comic', 'Lively', 'Medieval', 'Watercolor'], optional: true });
+});
+
+test('an image request is sent once with the exact body: the prompt alone, a character reference as a data URL, the seed, the style as MiniMax words it, and the watermark in China only', async () => {
+	const server = await startServer((request, response) => {
+		const body = JSON.parse(request.body.toString('utf8'));
+		sendJson(response, 200, imagesAnswer(Array.from({ length: Number(body.n) }, () => tinyJpeg())));
+	});
+	try {
+		const providers = commands();
+		const sent = async (region: string, request: ReturnType<typeof imageGeneration>) => {
+			const outputs = outputsOf(value(await providers.submit({ ...access(server.url, region), ...request })));
+			return { body: imageBodies(server.received).at(-1), outputs: outputs.map(output => (output as { readonly format?: string }).format ?? output) };
+		};
+		const alone = await sent('intl', imageGeneration('image-01', { ratio: '16:9', count: 3, prompt_extend: true }, 'A man in a white t-shirt on Venice Beach, 90s documentary style.'));
+		const person = await sent('cn', imageGeneration('image-01', { seed: 42, watermark: true }, 'Image 1 reading in a library.', { images: [CHARACTER], videos: [], audios: [] }));
+		const styled = await sent('cn', imageGeneration('image-01-live', { ratio: '9:16', style_type: 'watercolor', style_weight: 0.5 }, 'A girl looking out of a window.', { images: [END], videos: [], audios: [] }));
+		const plain = await sent('cn', imageGeneration('image-01-live', {}, 'A girl looking out of a window.'));
+		assert.deepEqual({ alone, person, styled, plain, paths: server.received.map(entry => `${entry.method} ${entry.path} ${entry.headers.authorization}`) }, {
+			alone: {
+				body: { model: 'image-01', prompt: 'A man in a white t-shirt on Venice Beach, 90s documentary style.', aspect_ratio: '16:9', n: 3, prompt_optimizer: true, response_format: 'base64' },
+				outputs: ['jpeg', 'jpeg', 'jpeg']
+			},
+			person: {
+				body: {
+					model: 'image-01',
+					prompt: 'Image 1 reading in a library.',
+					aspect_ratio: '1:1',
+					n: 1,
+					prompt_optimizer: false,
+					response_format: 'base64',
+					seed: 42,
+					subject_reference: [{ type: 'character', image_file: `data:image/png;base64,${base64(CHARACTER)}` }],
+					aigc_watermark: true
+				},
+				outputs: ['jpeg']
+			},
+			styled: {
+				body: {
+					model: 'image-01-live',
+					prompt: 'A girl looking out of a window.',
+					aspect_ratio: '9:16',
+					n: 1,
+					prompt_optimizer: false,
+					response_format: 'base64',
+					subject_reference: [{ type: 'character', image_file: `data:image/jpeg;base64,${base64(END)}` }],
+					style: { style_type: '水彩', style_weight: 0.5 },
+					aigc_watermark: false
+				},
+				outputs: ['jpeg']
+			},
+			// Without a style, no style is sent.
+			plain: {
+				body: { model: 'image-01-live', prompt: 'A girl looking out of a window.', aspect_ratio: '1:1', n: 1, prompt_optimizer: false, response_format: 'base64', aigc_watermark: false },
+				outputs: ['jpeg']
+			},
+			paths: Array.from({ length: 4 }, () => `POST /v1/image_generation Bearer ${KEY}`)
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+test('the images answered land in MiniMax\'s order, the ones its content check withheld are refused alone, and addresses download without the key', async () => {
+	const files = await startServer(routed(serveFiles({ '/image/1.jpeg': tinyJpeg(), '/image/2.png': tinyPng() })));
+	let answer: Record<string, unknown> = {};
+	const server = await startServer((request, response) => sendJson(response, 200, answer));
+	try {
+		const providers = commands();
+		const submit = async (count: number) => {
+			const request = { ...access(server.url), ...imageGeneration('image-01', { count }, 'Four postcards of one city.') };
+			return { request, outputs: outputsOf(value(await providers.submit(request))) };
+		};
+		answer = imagesAnswer([tinyJpeg(), tinyPng()], 2);
+		const withheld = await submit(4);
+		answer = { data: { image_urls: [`${files.url}/image/1.jpeg`, `${files.url}/image/2.png`, 7] }, metadata: { success_count: 2, failed_count: 0 }, base_resp: { status_code: 0, status_msg: 'success' } };
+		const addresses = await submit(3);
+		const target = partTargets(1)[0];
+		const downloaded = value(await providers.download({ ...access(server.url), model: 'image-01', kind: 'image', url: `${files.url}/image/1.jpeg`, targetFsPath: target }));
+		answer = { metadata: { success_count: 0, failed_count: 2 }, base_resp: { status_code: 0, status_msg: 'success' } };
+		const allWithheld = await submit(2);
+		const blocked = 'MiniMax\'s content check stopped this image.';
+		assert.deepEqual({
+			withheld: withheld.outputs,
+			written: [readFileSync(withheld.request.targets[0]).equals(tinyJpeg()), readFileSync(withheld.request.targets[1]).equals(tinyPng())],
+			addresses: addresses.outputs,
+			downloaded,
+			keySent: files.received.map(entry => entry.headers.authorization ?? 'none'),
+			allWithheld: allWithheld.outputs
+		}, {
+			withheld: [
+				{ written: withheld.request.targets[0], size: tinyJpeg().byteLength, format: 'jpeg' },
+				{ written: withheld.request.targets[1], size: tinyPng().byteLength, format: 'png' },
+				{ refused: blocked },
+				{ refused: blocked }
+			],
+			written: [true, true],
+			addresses: [{ url: `${files.url}/image/1.jpeg` }, { url: `${files.url}/image/2.png` }, { refused: 'MiniMax answered an image AI Video cannot read.' }],
+			downloaded: { size: tinyJpeg().byteLength, format: 'jpeg' },
+			keySent: ['none'],
+			allWithheld: [{ refused: blocked }, { refused: blocked }]
+		});
+	} finally {
+		await server.close();
+		await files.close();
+	}
+});
+
+test('an image request refused by base_resp, by its HTTP status, or whose answer is lost is sent once and maps as a video request does', async () => {
+	let respond: (response: ServerResponse) => void = response => sendJson(response, 200, {});
+	const server = await startServer((request, response, socket) => {
+		if (request.path === '/drop/v1/image_generation') {
+			socket.destroy();
+			return;
+		}
+		respond(response);
+	});
+	try {
+		const providers = commands();
+		const create = async (answer: (response: ServerResponse) => void, endpoint = server.url) => {
+			respond = answer;
+			return error(await providers.submit({ ...access(endpoint), ...imageGeneration('image-01', {}, 'A storm over the pier.') }));
+		};
+		const code = (status: number, message: string) => (response: ServerResponse) => sendJson(response, 200, { id: '03ff3cd0820949eb8a410056b5f21d38', base_resp: { status_code: status, status_msg: message } });
+		const before = server.received.length;
+		const outcomes = {
+			sensitive: await create(code(1026, 'input new_sensitive')),
+			balance: await create(code(1008, 'insufficient balance')),
+			key: await create(code(2049, 'invalid api key')),
+			busy: await create(code(1002, 'rate limit')),
+			params: await create(code(2013, 'invalid params, aspect_ratio')),
+			internal: await create(code(1000, 'unknown error')),
+			unauthorized: await create(response => sendJson(response, 401, { base_resp: { status_code: 1004, status_msg: 'login fail: Please carry the API secret key in the \'Authorization\' field of the request header' } })),
+			limited: await create(response => sendJson(response, 429, { base_resp: { status_code: 1002, status_msg: 'rate limit' } }, { 'Retry-After': '4' })),
+			nothing: await create(response => sendJson(response, 200, { base_resp: { status_code: 0, status_msg: 'success' } })),
+			dropped: (await create(() => undefined, `${server.url}/drop`)).code
+		};
+		assert.deepEqual({ outcomes, sent: server.received.length - before }, {
+			outcomes: {
+				sensitive: { code: 'rejected', message: 'input new_sensitive (1026)' },
+				balance: { code: 'balance', message: 'insufficient balance (1008)' },
+				key: { code: 'auth', message: 'invalid api key (2049)' },
+				busy: { code: 'rateLimited', message: `rate limit (1002) ${LIMITS}` },
+				params: { code: 'rejected', message: 'invalid params, aspect_ratio (2013)' },
+				internal: { code: 'unknownOutcome', message: 'unknown error (1000)' },
+				unauthorized: { code: 'auth', message: 'login fail: Please carry the API secret key in the \'Authorization\' field of the request header (1004)', status: 401 },
+				limited: { code: 'rateLimited', message: `rate limit (1002) ${LIMITS} The provider asks to wait 4 seconds.`, status: 429 },
+				nothing: { code: 'unknownOutcome', message: 'MiniMax accepted the request but answered no images AI Video can read.' },
+				dropped: 'unknownOutcome'
+			},
+			// Each request was sent once, never again.
+			sent: 10
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+test('check reports the watermark outside China, and the declarations refuse what the image models do not take', async () => {
+	const providers = commands();
+	const problems = async (model: string, params: Record<string, unknown>, prompt: string, inputs: Record<string, unknown>, region = 'intl') =>
+		value(await providers.check({ provider: 'minimax', region, model, mode: 'reference', params, prompt, inputs })).problems;
+	assert.deepEqual(await problems('image-01', { watermark: true }, 'p', NO_INPUTS), ['MiniMax offers the AIGC watermark only in China: turn it off, or set up MiniMax in the China region.']);
+	assert.deepEqual(await problems('image-01', { watermark: true, count: 9 }, 'p', { images: [CHARACTER], videos: [], audios: [] }, 'cn'), []);
+	assert.deepEqual(await problems('image-01-live', {}, 'p', NO_INPUTS), ['MiniMax does not offer MiniMax Image-01 Live in International.']);
+	assert.deepEqual(await problems('image-01', {}, 'p', { images: [CHARACTER, TINY], videos: [], audios: [] }), ['MiniMax Image-01 in References mode takes at most 1 reference image; 2 are planned.']);
+	assert.deepEqual(await problems('image-01', {}, 'p', { images: [PLACE], videos: [], audios: [] }), ['Reference image 1 place.webp is a WebP image; this mode takes PNG or JPEG images.']);
+	assert.deepEqual(await problems('image-01-live', { ratio: '21:9' }, 'p', NO_INPUTS, 'cn'), ['Ratio cannot be 21:9 for MiniMax Image-01 Live; choose 16:9, 4:3, 3:2, 1:1, 2:3, 3:4, 9:16.']);
+	assert.deepEqual(await problems('image-01-live', { style_type: 'anime' }, 'p', NO_INPUTS, 'cn'), ['Style cannot be anime for MiniMax Image-01 Live; choose Comic, Lively, Medieval, Watercolor.']);
+	assert.deepEqual(await problems('image-01', { count: 10 }, 'p', NO_INPUTS), ['Images must be between 1 and 9.']);
+	assert.deepEqual(await problems('image-01', {}, 'x'.repeat(1501), NO_INPUTS), ['The prompt is 1501 characters long; MiniMax Image-01 takes at most 1500.']);
+	assert.deepEqual(await problems('image-01', {}, '', NO_INPUTS), ['Write a prompt: MiniMax Image-01 needs one.']);
+});
+
+test('an image model has no task: poll refuses it, and cancel answers false without a request', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { task: { id: '1', status: 'queued' } }));
+	try {
+		const providers = commands();
+		const ref = { ...access(server.url, 'cn'), model: 'image-01-live', remoteId: '03ff3cd0820949eb8a410056b5f21d38' };
+		assert.deepEqual({ poll: error(await providers.poll(ref)), cancel: value(await providers.cancel(ref)), sent: server.received.length }, {
+			poll: { code: 'rejected', message: 'MiniMax Image-01 Live answers with its images at once: there is no task to ask about.' },
+			cancel: { cancelled: false },
+			sent: 0
+		});
+	} finally {
+		await server.close();
 	}
 });
