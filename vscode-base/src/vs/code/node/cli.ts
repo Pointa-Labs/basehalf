@@ -142,7 +142,7 @@ export async function main(argv: string[]): Promise<void> {
 	}
 
 	if (args['generate']) {
-		// BaseHalf (D63): a generation of the card at the path, as Generate does; prints every card it lands on.
+		// BaseHalf: a generation of the card at the path, as Generate does; prints every card it lands on (D63).
 		const cardPath = args['generate'];
 		let response: IBaseHalfGenerateCommandResponse;
 		const ipcHandlePath = process.env[BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV];

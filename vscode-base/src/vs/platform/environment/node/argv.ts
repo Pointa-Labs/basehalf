@@ -156,6 +156,7 @@ export const OPTIONS: OptionDescriptions<Required<NativeParsedArgs>> = {
 	'disable-chromium-sandbox': { type: 'boolean', cat: 't', description: localize('disableChromiumSandbox', "Use this option only when there is requirement to launch the application as sudo user on Linux or when running as an elevated user in an applocker environment on Windows.") },
 	'sandbox': { type: 'boolean' },
 	'locate-shell-integration-path': { type: 'string', cat: 't', args: ['shell'], description: localize('locateShellIntegrationPath', "Print the path to a terminal shell integration script. Allowed values are 'bash', 'pwsh', 'zsh' or 'fish'.") },
+	// BaseHalf: the agent commands of an Agent Area terminal (D63).
 	'generate': { type: 'string', cat: 'o', args: ['relative-path'], description: localize('basehalfGenerate', "Start a generation of one BaseHalf image or video card in the current workspace and print, as JSON, the path of every card it lands on.") },
 	'run-operation': { type: 'string', cat: 'o', args: ['json-request'], description: localize('basehalfRunOperation', "Run one installed reviewed deterministic operation in the current workspace and print its JSON result.") },
 	'list-capabilities': { type: 'boolean', cat: 'o', description: localize('basehalfListCapabilities', "List the host canvas contract and the reviewed extension capabilities available in the current workspace as JSON.") },
