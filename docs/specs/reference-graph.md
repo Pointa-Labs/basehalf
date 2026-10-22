@@ -299,7 +299,9 @@ comments, quoting, and the body stay byte-identical.
 A draft is a node: a `generation.yaml` with no `made.yaml` whose path names
 no file, a generation card whose image or video does not exist yet
 ([generation cards](generation-cards.md#drafts-and-missing-files)). The
-index treats a path that holds a draft as present.
+index treats a path that holds a draft as present. A draft in a folder that
+does not exist on this computer is not shown, so it is not present either: an
+entry that names it is dangling until a folder of that name exists.
 
 - Its store is its `upstream.yaml`, under the rules of
   [Sidecar store](#sidecar-store). For a generation card, a draft or one with
@@ -310,6 +312,11 @@ index treats a path that holds a draft as present.
   file has arrived. An entry that is already listed is never listed twice. A
   generation records the inputs it used when it starts, so a later change of
   the list never changes what made a file.
+- **A draft that is being made.** Create from Connection writes the draft's
+  `upstream.yaml` before its `generation.yaml`. For that first write the edit
+  service counts the draft as present when its path has a generation
+  extension, names no file or folder, has no `made.yaml`, and lies in a folder
+  that exists; any other path that holds nothing is refused as missing.
 - **An entry that names a draft** is not dangling: it draws an edge and
   shows no issue. As an input it is unavailable until the draft has its
   file.
@@ -402,8 +409,9 @@ index treats a path that holds a draft as present.
     never follows symbolic links.
   - Drafts are the ones the generation card store lists: a `generation.yaml`
     with no `made.yaml`, whose path has a generation extension and names no
-    file or folder
-    ([generation cards](generation-cards.md#drafts-and-missing-files)).
+    file or folder, in a folder that exists
+    ([generation cards](generation-cards.md#drafts-and-missing-files)). The
+    same walk of `.bh/mirror/` that finds the sidecar stores finds them.
 - **Reads.** Markdown reads at most the first 64 KiB. A leading BOM is removed
   before recognition. When a badge editor or Card Detail opens a node, that
   node's own store is read directly, so its Upstream list never depends on
@@ -440,7 +448,8 @@ drops its stores, problems, and pending prompts.
 | A folder is added, or a path of unknown type is added | re-scan the subtree, including its mirror walk |
 | A path is deleted | drop every store at or under that path, including sidecars under the matching mirror path |
 | A change under `.bh/mirror/**/upstream.yaml` | re-read that sidecar |
-| A `generation.yaml` or `made.yaml` under `.bh/mirror/` is added or removed | check again whether that path holds a draft |
+| A `generation.yaml` or `made.yaml` under `.bh/mirror/` is added or removed | check again whether that path holds a draft, and read its sidecar again |
+| A file or folder is added or deleted | check again whether that path, and the drafts below it, hold a draft that is shown |
 
 The deleted paths of one event batch are dropped in one pass over the stores.
 Each store is looked up among the deleted paths by its own path and the
@@ -806,8 +815,8 @@ The card flip face and the Card Detail badge zone share one editor.
     ("…this folder." for folders).
   - **Add Upstream** opens a workspace-wide picker titled "Add upstream to
     <name>". The picker:
-    - lists every node in the downstream node's workspace folder, leaving out
-      the node itself and its current entries;
+    - lists every node in the downstream node's workspace folder, drafts
+      included, leaving out the node itself and its current entries;
     - orders cards on the current canvas first, then the folders above this
       node (nearest first) and their children, then everything else by path;
     - shows each item's name, workspace-relative path, and description, and

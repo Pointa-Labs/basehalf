@@ -35,7 +35,9 @@ import { workbenchInstantiationService } from '../../../../test/browser/workbenc
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../../workspace/browser/basehalfMirrorCascade.contribution.js';
 import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
-import { IBaseHalfVideoGenerationService } from '../../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { BaseHalfDraftOperations } from '../../../workspace/browser/basehalfDraftOperations.js';
+import { BaseHalfRecordingGenerationTaskStore } from '../../../workspace/test/browser/basehalfGenerationTaskStoreFake.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../../plugins/browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceMigrationController } from '../../browser/basehalfReferenceMigration.contribution.js';
@@ -129,7 +131,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	instantiationService.stub(IBaseHalfVideoGenerationService, { onDidChangeProgress: Event.None, isGenerating: () => false } as Partial<IBaseHalfVideoGenerationService> as IBaseHalfVideoGenerationService);
+	instantiationService.stub(IBaseHalfGenerationTaskStore, new BaseHalfRecordingGenerationTaskStore());
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	await index.whenReady(folder);
 	for (const nested of settings.nestedFolders ?? []) {
@@ -148,6 +150,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		session: () => instantiationService.createInstance(BaseHalfReferenceMigrationService),
 		cascade: () => {
 			instantiationService.stub(IBaseHalfMovedItemsService, baseHalfNoMovedItems);
+			instantiationService.stub(IBaseHalfDraftOperations, instantiationService.createInstance(BaseHalfDraftOperations));
 			disposables.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 		},
 		workingCopyFileService: instantiationService.get(IWorkingCopyFileService),

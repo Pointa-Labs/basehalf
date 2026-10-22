@@ -48,7 +48,7 @@ import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordin
 import { baseHalfNodeTestId } from '../../../video/test/common/basehalfNodeTestFixtures.js';
 
 const folder = URI.file('/work');
-const options: IBaseHalfReferenceEditOptions = { label: 'Connect', indexWaitMs: 2000 };
+const options: IBaseHalfReferenceEditOptions = { label: 'Connect' };
 
 class RecordingNotificationService extends TestNotificationService {
 	readonly messages: string[] = [];
@@ -313,6 +313,8 @@ suite('BaseHalfReferenceIndexService', () => {
 			'markdown:hidden/note.md',
 			'markdown:notes/a.md',
 			'markdown:notes/b.md',
+			// `outputs/` is an ordinary folder since D63.
+			'markdown:outputs/run/copy.md',
 			'markdown:quote.md',
 			'node:clip.bhnode',
 			'sidecar:docs:active',
@@ -323,7 +325,7 @@ suite('BaseHalfReferenceIndexService', () => {
 		assert.ok(harness.search.queries.every(query => query.folderQueries.every(folderQuery => folderQuery.disregardIgnoreFiles && folderQuery.ignoreSymlinks)));
 		assert.ok(harness.search.queries.every(query => !JSON.stringify(query.excludePattern).includes('hidden')));
 
-		assert.deepStrictEqual(index.getDownstream(harness.node('b.md')).map(entry => entry.node.relativePath), ['clip.bhnode', 'hidden/note.md', 'notes/a.md']);
+		assert.deepStrictEqual(index.getDownstream(harness.node('b.md')).map(entry => entry.node.relativePath), ['clip.bhnode', 'hidden/note.md', 'notes/a.md', 'outputs/run/copy.md']);
 		assert.deepStrictEqual(index.getDownstream(harness.node('notes/a.md')).map(entry => [entry.node.relativePath, entry.storeKind]), [['clip.bhnode', 'node'], ['docs', 'sidecar']]);
 
 		const view = await index.resolveUpstream(harness.node('notes/a.md'));
@@ -398,16 +400,81 @@ suite('BaseHalfReferenceIndexService', () => {
 		assert.deepStrictEqual((await state()).downstreamOfA, ['own.md:sidecar', 'toml.md:sidecar']);
 	});
 
-	test('reports a dangling entry of a node with a video as an issue, and the file a node shows as upstream-only', async () => {
+	test('reports a dangling entry of a node with a video as an issue; the file a node shows and a file under outputs can be downstream', async () => {
 		const harness = await createHarness(disposables, {
 			'result.bhnode': nodeShowing(2, 'renders/final.md', ['gone.md']),
 			'renders/final.md': '# final\n'
 		});
 		const view = await harness.index.resolveUpstream(harness.node('result.bhnode'));
 		assert.deepStrictEqual(view.entries.map(entry => [entry.status, entry.issue]), [['dangling', true]]);
-		assert.deepStrictEqual(harness.index.getResultArtifacts(folder), ['renders/final.md']);
-		assert.strictEqual(harness.index.getUpstreamOnlyReason(harness.node('renders/final.md')), 'resultArtifact');
-		assert.strictEqual(harness.index.getUpstreamOnlyReason(harness.node('outputs/x.md')), 'reservedOutput');
+		assert.deepStrictEqual([harness.index.getUpstreamOnlyReason(harness.node('renders/final.md')), harness.index.getUpstreamOnlyReason(harness.node('outputs/x.md'))], [undefined, undefined]);
+		assert.strictEqual((await harness.index.readUpstream(harness.node('renders/final.md'))).upstreamOnly, undefined);
+	});
+
+	test('a draft is a node: entries that name it draw edges and show no issue, its kept list is live, and a missing generated file is gone', async () => {
+		const harness = await createHarness(disposables, {
+			'brief.md': '---\nupstream:\n  - shots/next.mp4\n  - shots/landed.mp4\n  - shots/gone.mp4\n  - ghost/far.mp4\n  - shots/script.txt\n---\n',
+			'shots/notes.md': '# Notes\n',
+			'shots/landed.mp4': 'video',
+			// A draft, with the list of its inputs.
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: "A harbor at dawn"\n',
+			'.bh/mirror/shots/next.mp4/upstream.yaml': 'upstream:\n  - shots/notes.md\n',
+			// A generated file with its file.
+			'.bh/mirror/shots/landed.mp4/generation.yaml': 'prompt: "x"\n',
+			'.bh/mirror/shots/landed.mp4/made.yaml': 'id: "t1"\n',
+			// A generated file whose file is gone: a missing file, not a draft.
+			'.bh/mirror/shots/gone.mp4/generation.yaml': 'prompt: "y"\n',
+			'.bh/mirror/shots/gone.mp4/made.yaml': 'id: "t2"\n',
+			'.bh/mirror/shots/gone.mp4/upstream.yaml': 'upstream:\n  - shots/notes.md\n',
+			// A draft in a folder that does not exist on this computer is not shown.
+			'.bh/mirror/ghost/far.mp4/generation.yaml': 'prompt: ""\n',
+			// Generation information under a name without a generation extension is not read.
+			'.bh/mirror/shots/script.txt/generation.yaml': 'prompt: ""\n'
+		});
+		const index = harness.index;
+		const state = async () => ({
+			drafts: index.getDrafts(folder),
+			sidecars: index.getStores(folder).filter(store => store.storeKind === 'sidecar').map(store => `${store.node.relativePath}:${store.sidecarState}`).sort(),
+			downstreamOfNotes: index.getDownstream(harness.node('shots/notes.md')).map(entry => entry.node.relativePath),
+			entries: (await index.readUpstream(harness.node('brief.md'))).entries.map(entry => `${entry.text}:${entry.status}${entry.target?.draft ? ':draft' : ''}`),
+			issues: (await index.getIssues(folder)).map(issue => `${issue.node.relativePath}:${issue.entry?.text ?? issue.kind}`)
+		});
+		assert.deepStrictEqual(await state(), {
+			drafts: ['shots/next.mp4'],
+			sidecars: ['shots/gone.mp4:missingNode', 'shots/next.mp4:active'],
+			downstreamOfNotes: ['shots/next.mp4'],
+			entries: ['shots/next.mp4:valid:draft', 'shots/landed.mp4:valid', 'shots/gone.mp4:dangling', 'ghost/far.mp4:dangling', 'shots/script.txt:dangling'],
+			issues: ['brief.md:shots/gone.mp4', 'brief.md:ghost/far.mp4', 'brief.md:shots/script.txt']
+		});
+		assert.ok(index.isDraft(harness.node('shots/next.mp4')));
+
+		// Its generation information is removed: the path holds nothing.
+		await harness.fileService.del(joinPath(folder, '.bh', 'mirror', 'shots', 'next.mp4', 'generation.yaml'));
+		await until(async () => (await state()).drafts.length === 0, 'a draft without its generation information was still a draft');
+		const withoutInformation = await state();
+		// It comes back.
+		await harness.write('.bh/mirror/shots/next.mp4/generation.yaml', 'prompt: "A harbor at dawn"\n');
+		await until(async () => (await state()).drafts.length === 1, 'the draft did not come back');
+		// Its file arrives: the card is that file's card, with the same list.
+		await harness.write('shots/next.mp4', 'video');
+		await until(async () => (await state()).drafts.length === 0, 'a draft with its file was still a draft');
+		const withFile = await state();
+		// A file without a record that is deleted leaves its draft behind.
+		await harness.fileService.del(joinPath(folder, 'shots', 'next.mp4'));
+		await until(async () => (await state()).drafts.length === 1, 'the file\'s draft did not show again');
+		// The folder of a draft that was not shown comes to exist.
+		await harness.write('ghost/readme.md', '# Ghost\n');
+		await until(async () => (await state()).drafts.length === 2, 'a draft in a folder that came to exist did not show');
+
+		assert.deepStrictEqual({
+			withoutInformation: [withoutInformation.sidecars, withoutInformation.downstreamOfNotes, withoutInformation.entries[0]],
+			withFile: [withFile.sidecars, withFile.downstreamOfNotes, withFile.entries[0]],
+			end: [(await state()).drafts, (await state()).entries[3]]
+		}, {
+			withoutInformation: [['shots/gone.mp4:missingNode', 'shots/next.mp4:missingNode'], [], 'shots/next.mp4:dangling'],
+			withFile: [['shots/gone.mp4:missingNode', 'shots/next.mp4:active'], ['shots/next.mp4'], 'shots/next.mp4:valid'],
+			end: [['ghost/far.mp4', 'shots/next.mp4'], 'ghost/far.mp4:valid:draft']
+		});
 	});
 
 	test('reads no upstream list from a version 4 node', async () => {
@@ -764,22 +831,27 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.deepStrictEqual([clip.upstream, clip.task?.state, shown.upstream, shown.result?.artifact.path], [['loose.md', 'new.md'], 'running', ['new.md'], 'final.mp4']);
 	});
 
-	test('connecting into a folder or PDF writes its sidecar; outputs and the files nodes show are refused', async () => {
+	test('connecting into a folder, a PDF, or an image or video file writes its sidecar; a file under outputs and the file a node shows are ordinary', async () => {
 		const harness = await createHarness(disposables, {
 			'note.md': '# N\n',
 			'docs/x.txt': '',
 			'book.pdf': '%PDF',
+			'shot.mp4': 'video',
 			'outputs/run/copy.md': '# copy\n',
 			'final.md': '# final\n',
 			'result.bhnode': nodeShowing(5, 'final.md')
 		});
 		await harness.edit.add(harness.node('docs'), 'note.md', options);
 		await harness.edit.add(harness.node('book.pdf'), 'note.md', options);
-		assert.deepStrictEqual([await harness.read('.bh/mirror/docs/upstream.yaml'), await harness.read('.bh/mirror/book.pdf/upstream.yaml')], ['upstream:\n  - note.md\n', 'upstream:\n  - note.md\n']);
-		assert.deepStrictEqual(harness.index.getDownstream(harness.node('note.md')).map(entry => entry.node.relativePath), ['book.pdf', 'docs']);
+		await harness.edit.add(harness.node('shot.mp4'), 'note.md', options);
+		await harness.edit.add(harness.node('outputs/run/copy.md'), 'note.md', options);
+		await harness.edit.add(harness.node('final.md'), 'note.md', options);
+		assert.deepStrictEqual(
+			[await harness.read('.bh/mirror/docs/upstream.yaml'), await harness.read('.bh/mirror/book.pdf/upstream.yaml'), await harness.read('.bh/mirror/shot.mp4/upstream.yaml'), await harness.read('outputs/run/copy.md'), await harness.read('final.md')],
+			['upstream:\n  - note.md\n', 'upstream:\n  - note.md\n', 'upstream:\n  - note.md\n', '---\nupstream:\n  - note.md\n---\n# copy\n', '---\nupstream:\n  - note.md\n---\n# final\n']
+		);
+		assert.deepStrictEqual(harness.index.getDownstream(harness.node('note.md')).map(entry => entry.node.relativePath), ['book.pdf', 'docs', 'final.md', 'outputs/run/copy.md', 'shot.mp4']);
 
-		assert.strictEqual((await refusal(harness.edit.add(harness.node('outputs/run/copy.md'), 'note.md', options))).reason, 'upstreamOnly');
-		assert.strictEqual((await refusal(harness.edit.add(harness.node('final.md'), 'note.md', options))).reason, 'upstreamOnly');
 		assert.strictEqual((await refusal(harness.edit.add(harness.node('docs'), '.bh/x', options))).reason, 'invalidEntry');
 
 		await harness.edit.remove(harness.node('docs'), 'note.md', options);
@@ -1115,7 +1187,7 @@ suite('BaseHalfReferenceEditService', () => {
 		}
 	});
 
-	test('never changes the file a node shows, removals included', async () => {
+	test('the file a node shows is a store like any other: a target-end reconnect moves its entry', async () => {
 		const artifact = '---\nupstream:\n  - note.md\n---\n# final\n';
 		const harness = await createHarness(disposables, {
 			'note.md': '# N\n',
@@ -1123,14 +1195,54 @@ suite('BaseHalfReferenceEditService', () => {
 			'final.md': artifact,
 			'result.bhnode': nodeShowing(8, 'final.md')
 		});
-		// Its entries are still read, so the edge into it is drawn.
 		assert.deepStrictEqual(harness.index.getDownstream(harness.node('note.md')).map(entry => entry.node.relativePath), ['final.md']);
-		const reasons = [
-			(await refusal(harness.edit.remove(harness.node('final.md'), 'note.md', options))).reason,
-			(await refusal(harness.edit.apply([{ node: harness.node('final.md'), operation: { kind: 'removeAt', index: 0, expected: 'note.md' } }], options))).reason,
-			(await refusal(harness.edit.move('note.md', harness.node('final.md'), harness.node('other.md'), options))).reason
+		await harness.edit.move('note.md', harness.node('final.md'), harness.node('other.md'), options);
+		assert.deepStrictEqual([await harness.read('final.md'), await harness.read('other.md')], ['# final\n', '---\nupstream:\n  - note.md\n---\n# O\n']);
+	});
+
+	test('connecting into a draft writes its kept list, a new draft\'s list is written before its generation information, and a missing generated file is refused', async () => {
+		const harness = await createHarness(disposables, {
+			'brief.md': '# Brief\n',
+			'shots/notes.md': '# Notes\n',
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/gone.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/gone.mp4/made.yaml': 'id: "t2"\n'
+		});
+		const source = new UndoRedoSource();
+		const connected = await harness.edit.add(harness.node('shots/next.mp4'), 'brief.md', options);
+		harness.edit.pushUndoElement(connected, { label: 'Connect', resources: [joinPath(folder, '.bh', 'mirror', 'shots', 'canvas.yaml')], source });
+		const afterConnect = [await harness.read('.bh/mirror/shots/next.mp4/upstream.yaml'), harness.index.getDownstream(harness.node('brief.md')).map(entry => entry.node.relativePath)];
+		await harness.undoRedo.undo(source);
+		const afterUndo = await harness.read('.bh/mirror/shots/next.mp4/upstream.yaml');
+		await harness.undoRedo.redo(source);
+		const afterRedo = await harness.read('.bh/mirror/shots/next.mp4/upstream.yaml');
+		await harness.edit.add(harness.node('shots/next.mp4'), 'shots/notes.md', options);
+		await harness.edit.remove(harness.node('shots/next.mp4'), 'brief.md', options);
+		const afterDisconnect = await harness.read('.bh/mirror/shots/next.mp4/upstream.yaml');
+
+		// A missing generated file is not a draft, and a path that holds nothing is no node.
+		const refused = [
+			(await refusal(harness.edit.add(harness.node('shots/gone.mp4'), 'brief.md', options))).reason,
+			(await refusal(harness.edit.add(harness.node('shots/new.mp4'), 'brief.md', options))).reason,
+			// Not even as a draft that is being made: a path with a record, outside a folder that exists, or without a generation extension.
+			(await refusal(harness.edit.add(harness.node('shots/gone.mp4'), 'brief.md', { ...options, newDraft: true }))).reason,
+			(await refusal(harness.edit.add(harness.node('nowhere/new.mp4'), 'brief.md', { ...options, newDraft: true }))).reason,
+			(await refusal(harness.edit.add(harness.node('shots/new.txt'), 'brief.md', { ...options, newDraft: true }))).reason
 		];
-		assert.deepStrictEqual([reasons, await harness.read('final.md'), await harness.read('other.md')], [['upstreamOnly', 'upstreamOnly', 'upstreamOnly'], artifact, '# O\n']);
+		// Create from Connection: the list first, then the generation information.
+		await harness.edit.add(harness.node('shots/new.mp4'), 'brief.md', { ...options, newDraft: true });
+		await harness.write('.bh/mirror/shots/new.mp4/generation.yaml', 'prompt: ""\n');
+		await until(() => harness.index.getDrafts(folder).includes('shots/new.mp4'), 'the new draft was not indexed');
+		await until(() => harness.index.getDownstream(harness.node('brief.md')).some(entry => entry.node.relativePath === 'shots/new.mp4'), 'the connection into the new draft was not drawn');
+
+		assert.deepStrictEqual({ afterConnect, afterUndo, afterRedo, afterDisconnect, refused, created: await harness.read('.bh/mirror/shots/new.mp4/upstream.yaml') }, {
+			afterConnect: ['upstream:\n  - brief.md\n', ['shots/next.mp4']],
+			afterUndo: undefined,
+			afterRedo: 'upstream:\n  - brief.md\n',
+			afterDisconnect: 'upstream:\n  - shots/notes.md\n',
+			refused: ['missingNode', 'missingNode', 'missingNode', 'missingNode', 'missingNode'],
+			created: 'upstream:\n  - brief.md\n'
+		});
 	});
 
 	test('a target-end reconnect whose add is not saved never removes the old entry', async () => {

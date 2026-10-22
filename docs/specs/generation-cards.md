@@ -228,9 +228,14 @@ inputs:
   name and the kind's glyph.
 - **A file that appears at a draft's path** becomes the draft's file, and the
   card is that file's card from then on, unless the file is an item that was
-  moved there and is [recognized](following-moved-items.md#recognition): then
-  the moved item keeps its own card information and the draft moves aside to
-  the next free name.
+  moved there, through BaseHalf or outside it and
+  [recognized](following-moved-items.md#recognition): then the moved item
+  keeps its own card information and the draft moves aside to the next free
+  name, the first numbered name of its folder (`shot-2.mp4`, `shot-3.mp4`) at
+  which neither an item nor any card information is. The entries that named
+  the draft's path then name the item that took it: the rename refactor leaves
+  an entry alone whose old path names an item again
+  ([reference graph](reference-graph.md#rename-refactor)).
 - **A missing file**: when the file of a card that has a `made.yaml`
   disappears (deleted in Finder, deleted to the trash, not pulled from git),
   the card is gone from the canvas like any card whose file is gone, and its
@@ -786,6 +791,13 @@ is a file does:
   the folder ([following moved items](following-moved-items.md#recognition),
   rule 4). Renaming keeps the kind: a draft's name keeps an extension of its
   kind.
+  - A draft moves only to a name that no file, folder, or draft has, in a
+    folder that exists, within its workspace folder. Card information that an
+    item that is gone left under that name gives way, as it does to a move of
+    a file through the workbench.
+  - Its card information, card row, and task records move in one exclusive
+    run under the workspace mutation lease; the entries that name it are
+    rewritten right after, as after any move, and are owed until they are.
 - **While a card generates**, a move or a rename of it or of its folder, through
   BaseHalf or [followed](following-moved-items.md#relocation) after a move
   outside it, writes the card's new path into the task record in the same
@@ -811,7 +823,10 @@ is a file does:
   missing file, and restoring the file brings its card back whole. A file
   without `made.yaml`, one that was uploaded to a draft, loses its
   `generation.yaml` with the delete, so that it does not stay behind as a
-  draft. A permanent delete removes them all.
+  draft; so does such a file below a deleted folder. A draft below a folder
+  that is deleted to the trash keeps its card information and shows again
+  when the folder comes back. A permanent delete removes them all, the
+  drafts below a deleted folder included.
 
 ## Agents
 

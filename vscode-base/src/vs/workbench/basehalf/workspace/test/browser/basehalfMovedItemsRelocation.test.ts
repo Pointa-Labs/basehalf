@@ -32,7 +32,9 @@ import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../common/basehalfMirrorIgnor
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../../navigation/common/basehalfEditorFlush.js';
-import { IBaseHalfVideoGenerationService } from '../../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
+import { BaseHalfDraftOperations } from '../../browser/basehalfDraftOperations.js';
+import { BaseHalfRecordingGenerationTaskStore } from './basehalfGenerationTaskStoreFake.js';
 import { BaseHalfMovedItemsService, IBaseHalfMovedItemsService, IBaseHalfMovedItemsTiming } from '../../common/basehalfMovedItemsService.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
@@ -87,7 +89,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 	}
 
 	/** BaseHalf opens on the files: the snapshot service and the cascade that relocates. */
-	async function open(fileService: FileService, options: { readonly storage?: string; readonly dirty?: () => readonly URI[]; readonly generating?: () => readonly URI[] } = {}) {
+	async function open(fileService: FileService, options: { readonly storage?: string; readonly dirty?: () => readonly URI[] } = {}) {
 		const session = disposables.add(new DisposableStore());
 		const instantiationService = workbenchInstantiationService({ fileService: () => fileService }, session);
 		// Unsaved changes, as the working copy service reports them.
@@ -111,13 +113,9 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			forgetSubtree: () => { },
 			moveSubtree: (from: URI, to: URI) => { views.push(`${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`); }
 		} as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-		// Generations, as the generation service reports them: progress names the node, and a node that has ended is not generating.
-		const progress = session.add(new Emitter<URI>());
-		const isGenerating = (node: URI) => (options.generating?.() ?? []).some(generating => generating.toString() === node.toString());
-		instantiationService.stub(IBaseHalfVideoGenerationService, {
-			onDidChangeProgress: progress.event,
-			isGenerating
-		} as Partial<IBaseHalfVideoGenerationService> as IBaseHalfVideoGenerationService);
+		// The task records of this computer: what a move told them.
+		const taskStore = new BaseHalfRecordingGenerationTaskStore();
+		instantiationService.stub(IBaseHalfGenerationTaskStore, taskStore);
 		instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 		const movedItems = session.add(new BaseHalfMovedItemsService(
 			timing,
@@ -130,10 +128,20 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			new NullLogService()
 		));
 		instantiationService.stub(IBaseHalfMovedItemsService, movedItems);
+		const draftOperations = instantiationService.createInstance(BaseHalfDraftOperations);
+		instantiationService.stub(IBaseHalfDraftOperations, draftOperations);
 		session.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 		await movedItems.whenCompared(folder);
 		await settle();
-		return { movedItems, views, close: () => session.dispose(), dirtyChanged: () => dirtyChanged.fire({} as IWorkingCopy), generationChanged: (node: URI) => progress.fire(node) };
+		return {
+			movedItems,
+			views,
+			draftOperations,
+			/** The moves the task records were told about, as workspace-relative paths. */
+			retargets: () => taskStore.retargets.map(({ from, to }) => `${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`),
+			close: () => session.dispose(),
+			dirtyChanged: () => dirtyChanged.fire({} as IWorkingCopy)
+		};
 	}
 
 	const resource = (path: string) => joinPath(folder, ...path.split('/'));
@@ -468,38 +476,128 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		});
 	});
 
-	test('a folder with a generating Video node is held back until the generation has ended, and takes its stored view along', async () => {
+	test('a folder that is renamed outside while a card in it generates is followed at once: its drafts, its generated files, and the task records come along', async () => {
+		const generation = 'prompt: "A harbor at dawn"\nmodel: "seedance-2.5"\n';
+		const made = 'id: "20261019T080000-k3f9"\n';
 		const fileService = await createFiles({
-			'shots/clip.bhnode': '{ "kind": "node", "title": "Harbor at dawn" }\n',
-			'shots/notes.md': 'Notes about the shots of the first scene.\n',
-			'.bh/mirror/shots/badge.yaml': badge('shots', 'The shots of scene one.').replace('kind: file', 'kind: folder')
+			'shots/notes.md': 'Notes about the shots of the first scene, and what each should show.\n',
+			'shots/landed.mp4': `${PDF}a generated video`,
+			'.bh/mirror/shots/badge.yaml': badge('shots', 'The shots of scene one.').replace('kind: file', 'kind: folder'),
+			'.bh/mirror/shots/canvas.yaml': canvas('shots', [row('shots/notes.md', 1), row('shots/next.mp4', 400), row('shots/landed.mp4', 800)]),
+			// A draft that generates: card information and nothing else.
+			'.bh/mirror/shots/next.mp4/generation.yaml': generation,
+			'.bh/mirror/shots/next.mp4/upstream.yaml': 'upstream:\n  - shots/notes.md\n',
+			'.bh/mirror/shots/next.mp4/badge.yaml': badge('shots/next.mp4', 'The opening shot.'),
+			// A generated file with its prompt and its record.
+			'.bh/mirror/shots/landed.mp4/generation.yaml': generation,
+			'.bh/mirror/shots/landed.mp4/made.yaml': made
 		});
-		// The generation was started under the old path.
-		let generating: URI[] = [resource('shots/clip.bhnode')];
-		const session = await open(fileService, { generating: () => generating });
+		const session = await open(fileService);
 		await fileService.move(resource('shots'), resource('scenes'));
-		await settle();
-		const whileGenerating = await hidden(fileService);
-		const held = { badge: whileGenerating['mirror/shots/badge.yaml'] !== undefined, moved: whileGenerating['mirror/scenes/badge.yaml'] !== undefined, pending: session.movedItems.getPendingMoves(folder).length, settled: session.movedItems.isSettled(folder), views: [...session.views] };
-
-		// A report of progress ends nothing; the end of the generation does.
-		session.generationChanged(resource('shots/clip.bhnode'));
-		await settle();
-		const stillHeld = (await hidden(fileService))['mirror/shots/badge.yaml'] !== undefined;
-		generating = [];
-		session.generationChanged(resource('shots/clip.bhnode'));
 		await settle();
 		await settle();
 		const after = await hidden(fileService);
 
-		assert.deepStrictEqual({ held, stillHeld, after: [after['mirror/scenes/badge.yaml'], after['mirror/shots/badge.yaml']], pending: session.movedItems.getPendingMoves(folder).length, views: session.views }, {
-			// It waits for the generation, and does not keep the canvas waiting meanwhile.
-			held: { badge: true, moved: false, pending: 1, settled: true, views: [] },
-			stillHeld: true,
-			after: [badge('scenes', 'The shots of scene one.').replace('kind: file', 'kind: folder'), undefined],
+		assert.deepStrictEqual({
+			moved: Object.fromEntries(Object.entries(after).filter(([path]) => path.startsWith('mirror/scenes/'))),
+			left: Object.keys(after).filter(path => path.startsWith('mirror/shots/') && !path.endsWith('canvas.yaml')),
+			pending: session.movedItems.getPendingMoves(folder).length,
+			retargets: session.retargets(),
+			views: session.views
+		}, {
+			moved: {
+				'mirror/scenes/badge.yaml': badge('scenes', 'The shots of scene one.').replace('kind: file', 'kind: folder'),
+				'mirror/scenes/canvas.yaml': canvas('scenes', [row('scenes/notes.md', 1), row('scenes/next.mp4', 400), row('scenes/landed.mp4', 800)]),
+				'mirror/scenes/landed.mp4/generation.yaml': generation,
+				'mirror/scenes/landed.mp4/made.yaml': made,
+				'mirror/scenes/next.mp4/badge.yaml': badge('scenes/next.mp4', 'The opening shot.'),
+				'mirror/scenes/next.mp4/generation.yaml': generation,
+				'mirror/scenes/next.mp4/upstream.yaml': 'upstream:\n  - shots/notes.md\n'
+			},
+			left: [],
+			// It is not held back: the run wrote the new path into the task records.
 			pending: 0,
+			retargets: ['shots -> scenes'],
 			views: ['shots -> scenes']
 		});
+	});
+
+	test('a file that is recognized at a draft\'s path keeps its own card, and the draft moves aside to the next free name with its card information and place', async () => {
+		const fileService = await createFiles({
+			'clips/shot.mp4': `${PDF}a generated video`,
+			'.bh/mirror/clips/shot.mp4/generation.yaml': 'prompt: "the clip"\n',
+			'.bh/mirror/clips/shot.mp4/made.yaml': 'id: "t1"\n',
+			'.bh/mirror/clips/canvas.yaml': canvas('clips', [row('clips/shot.mp4', 10)]),
+			// A draft in another folder, with a card of its own, under the name the file will take.
+			'shots/notes.md': 'Notes about the shots of the first scene.\n',
+			'.bh/mirror/shots/shot.mp4/generation.yaml': 'prompt: "the draft"\n',
+			'.bh/mirror/shots/shot.mp4/upstream.yaml': 'upstream:\n  - shots/notes.md\n',
+			'.bh/mirror/shots/shot.mp4/badge.yaml': badge('shots/shot.mp4', 'The draft.'),
+			'.bh/mirror/shots/canvas.yaml': canvas('shots', [row('shots/notes.md', 1), row('shots/shot.mp4', 400)])
+		});
+		const session = await open(fileService);
+		await fileService.move(resource('clips/shot.mp4'), resource('shots/shot.mp4'));
+		await settle();
+		await settle();
+		const after = await hidden(fileService);
+
+		assert.deepStrictEqual({
+			shots: Object.fromEntries(Object.entries(after).filter(([path]) => path.startsWith('mirror/shots/'))),
+			clips: Object.keys(after).filter(path => path.startsWith('mirror/clips/') && !path.endsWith('canvas.yaml')),
+			retargets: session.retargets()
+		}, {
+			shots: {
+				'mirror/shots/canvas.yaml': canvas('shots', [row('shots/notes.md', 1), row('shots/shot-2.mp4', 400), [...row('shots/shot.mp4', 740), '    auto: true']]),
+				// The moved file's own card information.
+				'mirror/shots/shot.mp4/generation.yaml': 'prompt: "the clip"\n',
+				'mirror/shots/shot.mp4/made.yaml': 'id: "t1"\n',
+				// The draft, under the next free name.
+				'mirror/shots/shot-2.mp4/badge.yaml': badge('shots/shot-2.mp4', 'The draft.'),
+				'mirror/shots/shot-2.mp4/generation.yaml': 'prompt: "the draft"\n',
+				'mirror/shots/shot-2.mp4/upstream.yaml': 'upstream:\n  - shots/notes.md\n'
+			},
+			clips: [],
+			retargets: ['shots/shot.mp4 -> shots/shot-2.mp4', 'clips/shot.mp4 -> shots/shot.mp4']
+		});
+	});
+
+	test('a run that stopped after the generation information of an item reached its new path does not take it for a draft\'s when it runs again', async () => {
+		const prompt = 'prompt: "uploaded to a draft"\n';
+		const fileService = await createFiles({
+			// A file uploaded to a draft: generation information and no record.
+			'pics/a.png': `${PDF}an image of its own`,
+			'.bh/mirror/pics/a.png/generation.yaml': prompt,
+			'.bh/mirror/pics/a.png/badge.yaml': badge('pics/a.png', 'An upload.'),
+			// What a run that stopped after its first piece left at the new path.
+			'.bh/mirror/pics/b.png/generation.yaml': prompt
+		});
+		await open(fileService);
+		await fileService.move(resource('pics/a.png'), resource('pics/b.png'));
+		await settle();
+		await settle();
+		const after = await hidden(fileService);
+
+		assert.deepStrictEqual(Object.fromEntries(Object.entries(after).filter(([path]) => path.startsWith('mirror/pics/') && !path.endsWith('canvas.yaml'))), {
+			'mirror/pics/b.png/badge.yaml': badge('pics/b.png', 'An upload.'),
+			'mirror/pics/b.png/generation.yaml': prompt
+		});
+	});
+
+	test('the sweep at open marks no draft\'s badge, and marks that of a generated file that is gone', async () => {
+		const fileService = await createFiles({
+			'shots/notes.md': '# Notes\n',
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/next.mp4/badge.yaml': badge('shots/next.mp4', 'A draft.'),
+			'.bh/mirror/shots/gone.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/gone.mp4/made.yaml': 'id: "t1"\n',
+			'.bh/mirror/shots/gone.mp4/badge.yaml': badge('shots/gone.mp4', 'A generated file that is gone.')
+		});
+		await open(fileService);
+		const after = await hidden(fileService);
+		assert.deepStrictEqual([after['mirror/shots/next.mp4/badge.yaml'], after['mirror/shots/gone.mp4/badge.yaml']], [
+			badge('shots/next.mp4', 'A draft.'),
+			badge('shots/gone.mp4', 'A generated file that is gone.', 'orphan: true\n')
+		]);
 	});
 
 	test('an item with unsaved changes is held back and relocated when they are gone, and two windows end with the same result', async () => {

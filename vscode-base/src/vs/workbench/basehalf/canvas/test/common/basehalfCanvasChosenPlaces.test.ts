@@ -342,6 +342,32 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 		});
 	});
 
+	test('a draft\'s row is never removed as the row of an item that is gone, and a generated file that is gone loses its row like any file', async () => {
+		const fileService = await createFiles({
+			'b.md': 'b',
+			'clip.mp4': 'video',
+			'.bh/mirror/clip.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/clip.mp4/made.yaml': 'id: "t1"\n',
+			// A draft: a card without a file, which no listing of the folder shows.
+			'.bh/mirror/shot.mp4/generation.yaml': 'prompt: ""\n'
+		});
+		const window = openWindow(fileService);
+		await draw(fileService, window);
+		// The canvas drew the draft's card, with a place BaseHalf chose.
+		await window.mirror.updateCardGeometries(root, [{ path: 'shot.mp4', kind: 'file', x: 900, y: 20, width: 720, height: 405, auto: true }]);
+		// The generated file is deleted: its record stays, and it is a missing file, not a draft.
+		await fileService.del(URI.joinPath(workspaceFolder, 'clip.mp4'));
+		const layout = await window.mirror.readCanvas(root);
+		const gone = await window.places.goneRows(root, ['b.md'], layout);
+		// Asked to remove the draft's row all the same, the save keeps it.
+		await window.places.save(root, ['shot.mp4', ...gone]);
+
+		assert.deepStrictEqual({ gone, stored: Object.keys(await rows(window)).sort() }, {
+			gone: ['clip.mp4'],
+			stored: ['b.md', 'shot.mp4']
+		});
+	});
+
 	test('a file renamed in letter case only, on a volume that ignores it, keeps its row under the new spelling', async () => {
 		const fileService = await createFiles({ 'Note.md': 'n', 'other.md': 'o' });
 		const window = openWindow(fileService);

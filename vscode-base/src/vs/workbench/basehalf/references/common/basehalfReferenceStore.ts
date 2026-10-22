@@ -67,10 +67,15 @@ export function baseHalfUpstreamSidecarResource(workspaceFolder: URI, relativePa
 	return baseHalfMirrorResource(workspaceFolder, relativePath, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME);
 }
 
-/** Whether a node can never receive upstream context because it lives in the
- * reserved outputs tree (first segment `outputs`, any case). Sealed and
- * imported Result artifacts are the other upstream-only nodes; the reference
- * index reports them. */
+/**
+ * Whether a path lies in the tree that generations of the Video node wrote
+ * (first segment `outputs`, any case).
+ *
+ * @deprecated Since D63 `outputs/` is an ordinary folder and every node can
+ * be downstream: the reference graph, the index, the edit service, and
+ * following moved items no longer ask this. Only the template validation of
+ * the canvas still does, until its owner removes that rule.
+ */
 export function isBaseHalfUpstreamReservedOutput(relativePath: string): boolean {
 	return baseHalfIsReservedOutputTreePath(relativePath) || relativePath.split('/')[0].toLowerCase() === 'outputs';
 }
