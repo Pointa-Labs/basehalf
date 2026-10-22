@@ -212,6 +212,12 @@
 	line-height: 20px;
 }
 
+.basehalf-video-provider-models-kind {
+	margin-right: 8px;
+	color: var(--vscode-descriptionForeground);
+	font-weight: 600;
+}
+
 .basehalf-video-provider-model.unavailable {
 	opacity: 0.5;
 }

@@ -219,7 +219,7 @@ suite('BaseHalfVideoProviderSettingsService', () => {
 		});
 	});
 
-	test('opens the Video Providers page through its command, on a provider when one is given', async () => {
+	test('opens the Providers page through its command, on a provider when one is given', async () => {
 		const { service, commands } = createHarness();
 		await service.openSettings();
 		await service.openSettings('acme');
