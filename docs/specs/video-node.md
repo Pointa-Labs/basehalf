@@ -390,15 +390,48 @@ What a Video card shows follows the node's phase (`baseHalfVideoNodePhase`):
 | generating | the glyph, the phase in words (Waiting, Generating, Downloading), the time since it started, and a progress bar, exact when the provider reports progress |
 | failed | the glyph and the error in at most two lines; the full text in the tooltip |
 | stopped | the glyph and "Stopped" |
-| video | the video, with controls when the card is selected |
+| video | the video in [the player](#the-player) |
 | video file missing | the glyph and "The video file is missing", with its path in the tooltip |
 | video that cannot be played | the glyph and "This video cannot be played here", with its path in the tooltip |
 
 The card keeps its size when a video arrives; the video is fitted inside it.
 The card changes in place when its node changes, as when the panel saves the
-prompt or a generation records its task, and when it is selected or
-deselected: its player stays, and a video that plays goes on playing while
-the card stays selected. Deselecting the card pauses the video where it is.
+prompt, an agent writes the node's file, or a generation records its task,
+and when it is selected or deselected: its player stays, and a video that
+plays goes on playing, except on a card deselected with the pointer
+elsewhere, which pauses it.
+
+### The player
+
+A video on a card plays the way canvas products for media work play the video
+of a node. The card of a video file plays its video the same way.
+
+- **The picture is the card's.** A click on it selects the card and never
+  starts or stops the video, also while it plays. A drag from it moves the
+  card, also when the card is selected. A double click opens the card, as on
+  any card. The pointer over it is the card's grab hand.
+- **The pointer plays it.** While the pointer is on the card, the video plays
+  without sound; when the pointer leaves, it pauses where it is, also when
+  the card is selected. At rest the card shows the frame where the video
+  stopped, at first its first frame, also when the canvas draws the card
+  again. One video or sound on the canvas plays at a time: one that starts
+  pauses the others, a video in a note too. Opening the card, by a double
+  click or **Open**, pauses its video.
+- **Controls drawn by BaseHalf**, not the system's, over the picture while the
+  pointer is on the card or the card is selected: a sound button at the top
+  left, and at the bottom a bar with play and pause, the time played, a
+  position slider, the length, and **Open**, which opens the card as a
+  double click does (a Video card shows its video large in Card Detail). A
+  press on the controls never moves the card, and the pointer over them is
+  the arrow; between them, the picture stays the card's. The controls scale
+  with the canvas, as the rest of the card does, and stay hidden on a
+  picture narrower than 160 screen pixels, as the zoom or a resize leaves it.
+- **Sound starts off.** The sound button turns it on for that card while the
+  card shows its video, also when the canvas draws the card again; the video
+  then plays with sound while the pointer is on it.
+- **The keyboard.** The buttons are buttons; the position slider moves a
+  second with Left and Right, and goes to the start and the end with Home
+  and End. The arrow keys on a control move no card.
 
 Above a selected Video card, the toolbar shows **Upload Video** while the
 node is empty and does not generate. Above a card with a video it shows
@@ -416,7 +449,12 @@ in Finder** (Explorer on Windows, the file manager elsewhere), and **Open**.
   prompt as sent, the inputs in order, and when it started and finished. The
   names of the provider, region, model, mode, and each parameter and value
   come from the catalog when it has them, and are the recorded ids
-  otherwise. An imported video says that it was imported.
+  otherwise. An imported video says that it was imported. Card Detail lies
+  over the canvas the card is on: closing it shows that canvas again, not
+  the folder in `outputs/` that holds the video, and the canvas follows the
+  node's folder when that moves while Card Detail is open. Every way of
+  opening the card does this: the toolbar's **Open**, the player's **Open**,
+  a double click, and **Open** in the card's menu.
 
 ## A generation
 
@@ -672,6 +710,22 @@ Focus
     them with the mouse leaves no ring on the model button or on Capture
     Frame.
 
+The player
+
+25. A click on the picture of a selected card whose video plays leaves the
+    video playing; a drag from the picture of a selected card moves the card;
+    the pointer over the picture is the grab hand, and over the controls the
+    arrow.
+26. The pointer on a card plays its video without sound and leaving the card
+    pauses it, also while the card is selected; the controls show while the
+    pointer is on the card or the card is selected; a press on the position
+    slider moves the video and not the card; the sound button turns the
+    sound on.
+27. The card of a video file plays its video the same way.
+28. **Open** on the player and a double click on the picture open the card
+    and pause its video; closing Card Detail shows the canvas the card is on
+    again, for a Video card too.
+
 ## Verification
 
 - Unit tests of the pure modules (`basehalfVideoNode.test.ts`,
@@ -679,10 +733,12 @@ Focus
   with a fake extension and a test catalog, and of the panel drawn from that
   catalog; for criterion 22, what the panel's footer holds, the labels of the
   regions on Video Providers, and the catalog that `--list-capabilities`
-  gives agents.
+  gives agents; the player's gestures, controls, and sound
+  (`basehalfCanvasCardVideoPlayer.test.ts`); Card Detail over the canvas
+  the card is on (`basehalfCanvasNavigationService.test.ts`).
 - The tests of each provider module ([video providers](video-providers.md#verification)).
-- `npm run basehalf:smoke` with steps for criteria 6 to 17, 19, 20, 24, and
-  the prompt of 23, against the local test provider through the
+- `npm run basehalf:smoke` with steps for criteria 6 to 17, 19, 20, 24 to
+  28, and the prompt of 23, against the local test provider through the
   ByteDance module, with a test key; no paid provider is called.
 - A real-window check of the panel, the settings of models of several
   providers, the focus of a settings field, a generation against the local

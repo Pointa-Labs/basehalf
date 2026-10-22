@@ -1984,3 +1984,35 @@ price change of every provider.
 - An unknown outcome still asks the user to check the provider's console
   before generating again, since a second request may be charged again
   (D58).
+
+## D62 — A card's video is the card's picture, and the pointer plays it (NEW, 2026-10-22)
+
+**Decision.** On the canvas, the picture of a video belongs to its card, on
+a Video card and on the card of a video file alike. A click selects the card
+and never starts or stops the video, a drag moves the card, a double click
+opens it, and the pointer over it is the card's grab hand. The pointer on the
+card plays the video without sound, and leaving the card pauses it. Controls
+drawn by BaseHalf, not the system's, show over the picture while the pointer
+is on the card or the card is selected. Card Detail opened from a Video card
+lies over the canvas the card is on. See
+[Video node, "The player"](specs/video-node.md#the-player).
+
+**Why.** On 2026-10-22 the user found the video card odd: with the grab hand
+a click played or paused the video, and a drag sometimes did not move the
+card. A selected card gave its whole picture to the system's player, so the
+hand promised a drag that never came, and the second click of a double click
+went to the player instead of opening the card. The canvas products for
+media work that BaseHalf follows make the picture the node's, play on hover,
+and draw their own control bar. Closing Card Detail opened from a Video card
+also showed the folder under `outputs/` that holds the video, not the canvas
+the user had been on.
+
+**Consequences.**
+- One player in the canvas draws every video on a card. One video or sound
+  on the canvas plays at a time, in a note too.
+- The controls scale with the canvas, as the rest of a card does, and stay
+  hidden on a picture narrower than 160 screen pixels.
+- Every way of opening a Video card opens its video over the node's canvas,
+  which follows its folder when that moves. The file of another kind of node
+  still opens over its own folder, where Card Detail actions such as a
+  branch from a PDF put what they make; so does a file opened any other way.
