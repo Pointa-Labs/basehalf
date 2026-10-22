@@ -1430,7 +1430,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		const targetPath = this.relativePath(follow.folder, target);
-		if (info && !(await baseHalfReadDraftFacts(this.fileService, follow.folder, targetPath)).hasGenerationInfo) {
+		// A card whose information cannot be read is left as it is: its file has landed, and nothing is written over what may be there.
+		if (info && !(await baseHalfReadDraftFacts(this.fileService, follow.folder, targetPath).catch(() => ({ hasGenerationInfo: true }))).hasGenerationInfo) {
 			await this.cardStore.update(target, () => info).catch(error => this.logService.warn(`[BaseHalf generation] ${targetPath} did not get its prompt and settings: ${getErrorMessage(error)}`));
 		}
 		await this.taskStore.update(follow.taskId, current => current.cards[index]?.state === 'waiting' && current.state === 'landing' ? recordBaseHalfGenerationLanded(current, index) : current);
