@@ -8,7 +8,7 @@ import { isAbsolute } from '../../../../base/common/path.js';
 import { raceCancellationError } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { CancellationError, isCancellationError } from '../../../../base/common/errors.js';
-import { dirname, extUri } from '../../../../base/common/resources.js';
+import { basename, dirname, extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -47,9 +47,10 @@ import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../canvas/co
 import { IBaseHalfCanvasTemplateRegistryService } from '../../canvas/common/basehalfCanvasTemplateRegistry.js';
 import { baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { getBaseHalfGenerationAgentContract } from '../common/basehalfGenerationAgentContract.js';
+import { baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import { baseHalfGenerationKindOfPath } from '../common/basehalfGenerationInfo.js';
 import { baseHalfVideoCatalogForAgents, baseHalfVideoExampleGeneration, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice } from '../common/basehalfVideoCatalog.js';
-import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
+import { baseHalfGenerationMissingFileMessage, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 
 /** How long `--list-capabilities` waits for the model catalog while it loads. */
 const MODEL_CATALOG_WAIT = 10_000;
@@ -300,7 +301,9 @@ export class BaseHalfNodeCommandHandler {
 	 * folder of the command directory, with an image or video extension, whose
 	 * folder is a real folder of that workspace folder, whose file, when it
 	 * has one, is a regular file there, and that the card store knows as a
-	 * generation card: a draft, or a file with generation information.
+	 * generation card: a draft, or a file with generation information. A card
+	 * whose file is gone, which has its `made.yaml` and no file, is a missing
+	 * file: it never generates, and the answer is the one Generate gives.
 	 */
 	private async resolveGenerationCard(request: IBaseHalfGenerateCommandRequest): Promise<IBaseHalfWorkspaceResource> {
 		if (request.version !== BASEHALF_NODE_COMMAND_BRIDGE_VERSION || request.type !== 'generate') {
@@ -319,6 +322,13 @@ export class BaseHalfNodeCommandHandler {
 			|| !extUri.isEqualOrParent(resource, workspaceFolder.uri)
 			|| extUri.isEqual(resource, workspaceFolder.uri)) {
 			throw new Error('The card path does not resolve inside the workspace folder.');
+		}
+		// A missing file is not a draft (generation cards, "Drafts and missing
+		// files"): its made.yaml, readable or not, stays while its file is gone,
+		// also with its folder. It is refused as Generate refuses it.
+		if (!await this.statQuietly(resource)
+			&& (await baseHalfReadDraftFacts(this.fileService, workspaceFolder.uri, workspaceRelativePath)).hasMade) {
+			throw new Error(baseHalfGenerationMissingFileMessage(basename(resource)));
 		}
 		// A draft has no file: its folder is what must be a real folder of the workspace.
 		const folder = dirname(resource);

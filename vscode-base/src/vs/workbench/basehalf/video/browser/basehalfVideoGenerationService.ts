@@ -107,6 +107,7 @@ import {
 	stripBaseHalfMarkdownFrontMatter
 } from '../common/basehalfVideoCatalog.js';
 import {
+	baseHalfGenerationMissingFileMessage,
 	BaseHalfVideoGenerationError,
 	BaseHalfVideoGenerationPhase,
 	IBaseHalfDraftOperations,
@@ -372,7 +373,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		if (!snapshot.hasFile && (snapshot.made || snapshot.madeUnreadable)) {
 			// A missing file is not a draft: it never generates.
-			throw new BaseHalfVideoGenerationError(missingFileMessage(basename(resource)));
+			throw new BaseHalfVideoGenerationError(baseHalfGenerationMissingFileMessage(basename(resource)));
 		}
 		const folder = this.workspaceFolderOf(resource);
 		// 2. A card that generates does not generate twice.
@@ -2178,11 +2179,6 @@ export function orphanedSubmissionMessage(): string {
 /** The message of a `submitting` task of a provider that answers at once, found after BaseHalf closed. */
 export function closedWhileAnsweringMessage(): string {
 	return localize('basehalf.video.generation.closedWhileAnswering', "BaseHalf closed while the provider was making the files. They may have been made and charged, but BaseHalf could not receive them. Check the provider's console.");
-}
-
-/** The message of a card whose file is gone: a missing file never generates (generation cards, "Drafts and missing files"). */
-function missingFileMessage(name: string): string {
-	return localize('basehalf.video.generation.missingFile', "{0} is not there any more: it was moved or deleted. Restore it to generate from it.", name);
 }
 
 /** Receiving a file failed: downloading it, reading it, or checking it. */

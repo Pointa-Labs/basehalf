@@ -5,6 +5,7 @@
 
 import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
+import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import {
 	BaseHalfVideoCatalogState,
@@ -151,6 +152,16 @@ export class BaseHalfVideoGenerationError extends Error {
 		super(message);
 		this.name = 'BaseHalfVideoGenerationError';
 	}
+}
+
+/**
+ * Why a card whose file is gone does not generate (generation cards, "Drafts
+ * and missing files"): its `made.yaml`, readable or not, is there and its file
+ * is not. A missing file never becomes a draft, so what was paid for once is
+ * not generated again. Generate and `basehalf --generate` say the same.
+ */
+export function baseHalfGenerationMissingFileMessage(name: string): string {
+	return localize('basehalf.video.generation.missingFile', "{0} is not there any more: it was moved or deleted. Restore it to generate from it.", name);
 }
 
 /** How a generation was asked for. */
