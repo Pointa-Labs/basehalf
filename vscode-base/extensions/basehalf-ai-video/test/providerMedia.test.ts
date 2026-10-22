@@ -10,9 +10,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { checkCounts, checkLimits, checkParams, checkPrompt, measureItems, resolveParams } from '../src/providers/check.ts';
 import { ProviderFailure } from '../src/providers/failure.ts';
-import { bufferSource, createMediaInspector, dataUrlOf, measure, plannedItems, readMedia } from '../src/providers/media.ts';
+import { bufferSource, createMediaInspector, dataUrlOf, imageFormatOf, measure, plannedItems, readMedia } from '../src/providers/media.ts';
 import type { CatalogModel, Media, PlannedMedia } from '../src/providers/types.ts';
-import { gifHeader, isoMedia, jpegHeader, mp3, png, testProvider, wav, webpHeader } from './providerTestKit.ts';
+import { gifHeader, isoMedia, jpegHeader, mp3, png, testProvider, tinyJpeg, tinyPng, wav, webpHeader } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-provider-media-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -46,6 +46,23 @@ test('image sizes come from PNG, JPEG, WebP, and GIF headers, in files and in da
 		['e.webp', 'webp', 4000, 3000],
 		['f.gif', 'gif', 320, 200],
 		[null, 'png', 300, 400]
+	]);
+});
+
+test('a generated image is told from its signature: a PNG, a JPEG, or a WebP, and nothing else', async () => {
+	assert.deepEqual([
+		imageFormatOf(png(4, 4)),
+		imageFormatOf(jpegHeader(4, 4)),
+		imageFormatOf(webpHeader('VP8 ', 4, 4)),
+		imageFormatOf(gifHeader(4, 4)),
+		imageFormatOf(isoMedia(1)),
+		imageFormatOf(png(4, 4).subarray(0, 7)),
+		imageFormatOf(new Uint8Array(0))
+	], ['png', 'jpeg', 'webp', undefined, undefined, undefined, undefined]);
+	// The tiny images of the test kit are what they say.
+	assert.deepEqual([await measure(bufferSource(tinyPng())), await measure(bufferSource(tinyJpeg()))], [
+		{ format: 'png', width: 2, height: 2 },
+		{ format: 'jpeg', width: 2, height: 2 }
 	]);
 });
 

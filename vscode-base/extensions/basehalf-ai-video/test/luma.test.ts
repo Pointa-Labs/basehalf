@@ -713,8 +713,8 @@ test('the video downloads from the address the poll gave without the key, and wi
 			api: exchanges(api),
 			storage: exchanges(storage)
 		}, {
-			withAddress: { size: video.byteLength },
-			withoutAddress: { size: video.byteLength },
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { size: video.byteLength, format: 'mp4' },
 			same: [true, true],
 			api: [`GET /generations/gen-9 Bearer ${KEY}`, `GET /generations/gen-9 Bearer ${KEY}`],
 			storage: [

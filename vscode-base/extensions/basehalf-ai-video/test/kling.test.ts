@@ -485,8 +485,8 @@ test('the video downloads from the address the poll gave, and without an address
 			same: [readFileSync(first).equals(video), readFileSync(second).equals(video)],
 			paths: server.received.map(request => request.path)
 		}, {
-			withAddress: { size: video.byteLength },
-			withoutAddress: { size: video.byteLength },
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { size: video.byteLength, format: 'mp4' },
 			same: [true, true],
 			paths: ['/tasks?task_ids=task-9', '/kcdn/task-9.mp4', '/tasks?task_ids=task-9', '/kcdn/task-9.mp4']
 		});

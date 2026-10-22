@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { downloadVideo } from '../src/providers/download.ts';
+import { downloadFile } from '../src/providers/download.ts';
 import { ProviderFailure } from '../src/providers/failure.ts';
 import { BoundHttp, parseEndpoint, resolveHttpOptions } from '../src/providers/http.ts';
 import { isoMedia } from './providerTestKit.ts';
@@ -39,13 +39,14 @@ async function failure(promise: Promise<unknown>): Promise<ProviderFailure> {
 
 test('a video the provider answered inline is written to the new .part file, also from a view into a larger buffer', async () => {
 	const target = partPath();
-	const size = await downloadVideo(bound(), { bytes: VIDEO }, target);
+	const { size, format } = await downloadFile(bound(), { bytes: VIDEO }, target, 'video');
 	const backing = new Uint8Array(VIDEO.byteLength + 16);
 	backing.set(VIDEO, 16);
 	const viewTarget = partPath();
-	const viewSize = await downloadVideo(bound(), { bytes: backing.subarray(16) }, viewTarget);
-	assert.deepEqual({ size, same: readFileSync(target).equals(VIDEO), viewSize, viewSame: readFileSync(viewTarget).equals(VIDEO) }, {
+	const { size: viewSize } = await downloadFile(bound(), { bytes: backing.subarray(16) }, viewTarget, 'video');
+	assert.deepEqual({ size, format, same: readFileSync(target).equals(VIDEO), viewSize, viewSame: readFileSync(viewTarget).equals(VIDEO) }, {
 		size: VIDEO.byteLength,
+		format: 'mp4',
 		same: true,
 		viewSize: VIDEO.byteLength,
 		viewSame: true
@@ -54,7 +55,7 @@ test('a video the provider answered inline is written to the new .part file, als
 
 test('an inline video is held to the checks of a download: an MP4, at most the size BaseHalf downloads, a new .part file, and no file left', async () => {
 	const outcome = async (bytes: Uint8Array, target = partPath(), maxBytes?: number) => {
-		const failed = await failure(downloadVideo(bound(), { bytes }, target, maxBytes !== undefined ? { maxBytes } : {}));
+		const failed = await failure(downloadFile(bound(), { bytes }, target, 'video', maxBytes !== undefined ? { maxBytes } : {}));
 		return { code: failed.code, message: failed.message.replace(/: .*$/, ''), left: existsSync(target) };
 	};
 	const taken = partPath();

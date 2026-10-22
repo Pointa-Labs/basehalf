@@ -565,8 +565,8 @@ test('the video downloads from its delivery address without the key, and without
 			asked: api.received.map(request => [request.path, request.headers['x-key']]),
 			downloaded: delivery.received.map(request => [request.path, request.headers['x-key']])
 		}, {
-			withAddress: { size: video.byteLength },
-			withoutAddress: { size: video.byteLength },
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { size: video.byteLength, format: 'mp4' },
 			same: [true, true],
 			asked: [['/get_result?id=task-9', KEY], ['/get_result?id=task-9', KEY]],
 			downloaded: [['/results/task-9/sample.mp4?sig=abc', undefined], ['/results/task-9/sample.mp4?sig=abc', undefined]]

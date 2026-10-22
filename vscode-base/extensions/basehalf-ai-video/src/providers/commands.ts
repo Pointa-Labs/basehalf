@@ -3,13 +3,14 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, measureItems, resolveParams } from './check.ts';
-import { downloadVideo, type DownloadOptions } from './download.ts';
+import { isAbsolute } from 'node:path';
+import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, measureItems, outputCount, resolveParams } from './check.ts';
+import { downloadAddress, downloadFile, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.ts';
 import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.ts';
 import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.ts';
 import { createMediaInspector, type MediaInspector } from './media.ts';
-import type { ProviderModule } from './module.ts';
-import { buildCatalog, PROVIDER_MODULES } from './registry.ts';
+import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput } from './module.ts';
+import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.ts';
 import type {
 	CancelResult,
 	Catalog,
@@ -22,6 +23,9 @@ import type {
 	DownloadResult,
 	Media,
 	ModeId,
+	ModelKind,
+	Output,
+	OutputFormat,
 	Params,
 	ParamValue,
 	PlannedMedia,
@@ -34,7 +38,7 @@ import type {
 } from './types.ts';
 
 /**
- * The six provider commands of AI Video (video providers, "Requests"). Each
+ * The six provider commands of AI Video (providers, "Requests"). Each
  * answers `{ok: true, value}` or `{ok: false, error}` and never throws; keeps
  * nothing between calls; validates its payload strictly; and dispatches to the
  * provider module by its id (`unknownProvider` for an id no module has).
@@ -49,7 +53,15 @@ export interface VideoProviderCommandOptions {
 }
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
+const OUTPUT_FORMATS: ReadonlySet<string> = new Set<OutputFormat>(['png', 'jpeg', 'webp', 'mp4']);
 const MAX_PROMPT_CHARACTERS = 1024 * 1024;
+const MAX_PATH_LENGTH = 4096;
+
+/** What an output the provider refused without a word says, by the kind of the model. */
+const REFUSED_WITHOUT_REASON: Readonly<Record<ModelKind, string>> = Object.freeze({
+	image: 'The provider refused this image.',
+	video: 'The provider refused this video.'
+});
 
 interface Resolved {
 	readonly module: ProviderModule;
@@ -57,6 +69,9 @@ interface Resolved {
 	readonly region: CatalogRegion;
 	readonly model: CatalogModel;
 }
+
+/** Where the outputs of a module come from: the answer of a create, or of a poll. */
+type OutputSource = 'submit' | 'poll';
 
 export class VideoProviderCommands {
 	private readonly catalogValue: Catalog;
@@ -81,6 +96,13 @@ export class VideoProviderCommands {
 		});
 	}
 
+	/**
+	 * Checks the request, sends it once, and answers the provider's task id or,
+	 * for a provider that answers with the files, the outputs, each written to
+	 * its target where the provider gave the file itself. A model that answers
+	 * at once is sent nothing unless the request names a target for every
+	 * output it may make.
+	 */
 	submit(argument: unknown): Promise<ProviderResponse<SubmitResult>> {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
@@ -91,13 +113,30 @@ export class VideoProviderCommands {
 			if (checked.problems.length) {
 				throw rejected(checked.problems[0]);
 			}
-			http = this.http(resolved.module, request);
 			const params = resolveParams(resolved.model, request.mode, request.params, countsOf(request.inputs));
-			const remoteId = await resolved.module.submit({ ...request, params }, http);
-			return { remoteId: taskId(remoteId) };
+			const answersAtOnce = resolved.model.answersAtOnce === true;
+			if (answersAtOnce) {
+				const named = request.targets?.length ?? 0;
+				const needed = outputCount(params);
+				if (named < needed) {
+					throw rejected(needed === 1
+						? `${resolved.model.label} may make 1 file, but the request names none to write it to. AI Video sent nothing.`
+						: `${resolved.model.label} may make ${needed} files, but the request names ${named} to write them to. AI Video sent nothing.`);
+				}
+			}
+			http = this.http(resolved.module, request, answersAtOnce);
+			const answered = await resolved.module.submit({ ...request, params }, http);
+			if (typeof answered === 'string') {
+				return { remoteId: taskId(answered) };
+			}
+			if (!isRecord(answered) || !Array.isArray(answered.outputs)) {
+				throw unknownOutcome('The provider accepted the request but gave no task id AI Video can read.');
+			}
+			return { outputs: await this.keepOutputs(answered.outputs, request.targets, resolved.model, http, secrets, 'submit') };
 		}, () => http?.createAnswered === true, () => http?.secretValues);
 	}
 
+	/** Asks the provider about a task once; a success with files answered inline writes them to the task's targets. */
 	poll(argument: unknown): Promise<ProviderResponse<PollState>> {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
@@ -105,19 +144,35 @@ export class VideoProviderCommands {
 			const ref = parseTaskRef(argument);
 			const resolved = this.resolve(ref);
 			http = this.http(resolved.module, ref);
-			return pollState(await resolved.module.poll(ref, http), [...secrets, ...http.secretValues]);
+			return this.pollState(await resolved.module.poll(ref, http), ref, resolved.model, http, secrets);
 		}, undefined, () => http?.secretValues);
 	}
 
+	/**
+	 * Downloads one output to its target: an image from its address, a video
+	 * from its address or, without one, from where the provider module finds
+	 * it. Only a file of the model's kind is kept; the answer gives its size and
+	 * the format its bytes start like.
+	 */
 	download(argument: unknown): Promise<ProviderResponse<DownloadResult>> {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
 		return answer(secrets, async () => {
 			const request = parseDownloadRequest(argument);
 			const resolved = this.resolve(request);
+			const kind = request.kind ?? 'video';
+			const modelKind = resolved.model.kind ?? 'video';
+			if (kind !== modelKind) {
+				throw rejected(`${resolved.model.label} makes ${modelKind === 'image' ? 'images' : 'videos'}; AI Video downloads only a file of that kind for it.`);
+			}
+			const address = kind === 'image' ? request.url : request.url ?? request.videoUrl;
+			if (kind === 'image' && address === undefined) {
+				throw rejected('AI Video downloads an image only from the address the provider gave.');
+			}
 			http = this.http(resolved.module, request);
-			const location = request.videoUrl !== undefined ? { url: request.videoUrl } : await resolved.module.videoLocation(request, http);
-			return { size: await downloadVideo(http, location, request.targetFsPath, this.options.download) };
+			const location = address !== undefined ? { url: address } : await resolved.module.videoLocation(request, http);
+			const file = await downloadFile(http, location, request.targetFsPath, kind, this.options.download);
+			return { size: file.size, format: file.format };
 		}, undefined, () => http?.secretValues);
 	}
 
@@ -161,13 +216,15 @@ export class VideoProviderCommands {
 		return { module, provider, region, model };
 	}
 
-	private http(module: ProviderModule, access: ProviderAccess): BoundHttp {
+	/** The HTTP of one command; `answersAtOnce`: its create waits for the files (providers, "Requests"). */
+	private http(module: ProviderModule, access: ProviderAccess, answersAtOnce = false): BoundHttp {
 		const credentials = access.credentials;
 		return new BoundHttp(
 			parseEndpoint(access.endpoint),
 			() => module.headers(credentials),
 			module.readError?.bind(module),
-			resolveHttpOptions(this.options.http)
+			resolveHttpOptions(this.options.http),
+			answersAtOnce
 		);
 	}
 
@@ -199,6 +256,95 @@ export class VideoProviderCommands {
 		const all = [...problems, ...own.problems];
 		const providerModel = typeof own.providerModel === 'string' && /^\S{1,256}$/.test(own.providerModel) ? { providerModel: own.providerModel } : {};
 		return { problems: all, ...providerModel };
+	}
+
+	/** A module's state as the contract answers it: progress kept between 0 and 1, messages made plain, and outputs kept. */
+	private async pollState(state: ModulePollState, ref: TaskRef, model: CatalogModel, http: BoundHttp, secrets: readonly string[]): Promise<PollState> {
+		switch (state.state) {
+			case 'pending':
+			case 'running':
+				return state.fraction !== undefined && Number.isFinite(state.fraction)
+					? { state: state.state, fraction: Math.min(1, Math.max(0, state.fraction)) }
+					: { state: state.state };
+			case 'succeeded': {
+				if (state.outputs !== undefined && !Array.isArray(state.outputs)) {
+					throw unreadable('The provider answered files AI Video cannot read.');
+				}
+				const outputs = state.outputs !== undefined ? await this.keepOutputs(state.outputs, ref.targets, model, http, secrets, 'poll') : undefined;
+				return { state: 'succeeded', ...(state.videoUrl ? { videoUrl: state.videoUrl } : {}), ...(outputs ? { outputs } : {}) };
+			}
+			case 'failed':
+			case 'cancelled':
+				return { state: state.state, message: plainMessage(state.message, [...secrets, ...http.secretValues]) || (state.state === 'failed' ? 'The provider reports that the task failed.' : 'The provider reports that the task was cancelled.') };
+			default:
+				throw unreadable('The provider module answered a state AI Video does not know.');
+		}
+	}
+
+	/**
+	 * The outputs of a module as the contract answers them (providers,
+	 * "Requests"), in the provider's order. Outputs beyond the targets are
+	 * dropped, and the log says how many; a file that needs a target when the
+	 * request names none fails the command. Each other output is kept on its own
+	 * ({@link keepOutput}).
+	 */
+	private async keepOutputs(answered: readonly unknown[], targets: readonly string[] | undefined, model: CatalogModel, http: BoundHttp, secrets: readonly string[], source: OutputSource): Promise<Output[]> {
+		const read = answered.map(readOutputLocation);
+		if (read.some(location => location === undefined)) {
+			throw source === 'submit'
+				? unknownOutcome('The provider accepted the request but answered files AI Video cannot read.')
+				: unreadable('The provider answered files AI Video cannot read.');
+		}
+		let locations = read as OutputLocation[];
+		if (targets && locations.length > targets.length) {
+			http.options.log.info(`Dropped ${locations.length - targets.length} of ${locations.length} outputs: the request names ${targets.length} ${targets.length === 1 ? 'file' : 'files'} to write them to.`);
+			locations = locations.slice(0, targets.length);
+		}
+		if (!targets && locations.some(needsTarget)) {
+			throw source === 'submit'
+				? unknownOutcome('The provider answered with the files themselves, but the request names no file to write them to. They may have been made and charged; check the provider\'s console.')
+				: rejected('The provider answered with the files themselves, but the request names no file to write them to.');
+		}
+		const kind = model.kind ?? 'video';
+		const outputs: Output[] = [];
+		for (const [index, location] of locations.entries()) {
+			outputs.push(await this.keepOutput(location, targets?.[index], kind, http, secrets));
+		}
+		return outputs;
+	}
+
+	/**
+	 * One output: a refusal stays a refusal with the provider's reason made
+	 * plain; an address without headers stays an address; inline bytes, and an
+	 * address with headers of its own, which never leave the extension, are
+	 * written to the target under the checks of a download. An output that
+	 * cannot be kept is answered as refused, with the reason.
+	 */
+	private async keepOutput(location: OutputLocation, target: string | undefined, kind: ModelKind, http: BoundHttp, secrets: readonly string[]): Promise<Output> {
+		const plain = (message: string) => plainMessage(message, [...secrets, ...http.secretValues]) || REFUSED_WITHOUT_REASON[kind];
+		if (isRefusal(location)) {
+			return { refused: plain(location.refused) };
+		}
+		if (isAddress(location) && !location.headers) {
+			if (location.url.length > MAX_ADDRESS_LENGTH) {
+				return { refused: plain(`The provider gave ${kind === 'image' ? 'an image' : 'a video'} address longer than AI Video takes.`) };
+			}
+			try {
+				downloadAddress(location.url, kind);
+			} catch (error) {
+				return { refused: plain(error instanceof Error ? error.message : String(error)) };
+			}
+			return { url: location.url };
+		}
+		try {
+			const file = await downloadFile(http, location, target!, kind, this.options.download);
+			return { written: target!, size: file.size, format: file.format };
+		} catch (error) {
+			if (error instanceof ProviderFailure) {
+				return { refused: plain(error.message) };
+			}
+			throw error;
+		}
 	}
 }
 
@@ -248,21 +394,45 @@ function taskId(value: unknown): string {
 	return value;
 }
 
-function pollState(state: PollState, secrets: readonly string[]): PollState {
-	switch (state.state) {
-		case 'pending':
-		case 'running':
-			return state.fraction !== undefined && Number.isFinite(state.fraction)
-				? { state: state.state, fraction: Math.min(1, Math.max(0, state.fraction)) }
-				: { state: state.state };
-		case 'succeeded':
-			return state.videoUrl ? { state: 'succeeded', videoUrl: state.videoUrl } : { state: 'succeeded' };
-		case 'failed':
-		case 'cancelled':
-			return { state: state.state, message: plainMessage(state.message, secrets) || (state.state === 'failed' ? 'The provider reports that the task failed.' : 'The provider reports that the task was cancelled.') };
-		default:
-			throw unreadable('The provider module answered a state AI Video does not know.');
+/** An output a module answered, when it has one of the shapes of {@link OutputLocation}; a file already written is not one. */
+function readOutputLocation(value: unknown): OutputLocation | undefined {
+	if (!isRecord(value)) {
+		return undefined;
 	}
+	const shapes = ['url', 'bytes', 'refused'].filter(key => value[key] !== undefined);
+	if (shapes.length !== 1 || value.written !== undefined) {
+		return undefined;
+	}
+	if (typeof value.refused === 'string') {
+		return { refused: value.refused };
+	}
+	if (value.bytes instanceof Uint8Array) {
+		if (value.format !== undefined && (typeof value.format !== 'string' || !OUTPUT_FORMATS.has(value.format))) {
+			return undefined;
+		}
+		return { bytes: value.bytes, ...(value.format !== undefined ? { format: value.format as OutputFormat } : {}) };
+	}
+	if (typeof value.url === 'string') {
+		const headers = value.headers;
+		if (headers !== undefined && !(isRecord(headers) && Object.values(headers).every(entry => typeof entry === 'string'))) {
+			return undefined;
+		}
+		return { url: value.url, ...(headers !== undefined ? { headers: headers as Record<string, string> } : {}) };
+	}
+	return undefined;
+}
+
+function isRefusal(location: OutputLocation): location is RefusedOutput {
+	return typeof (location as Partial<RefusedOutput>).refused === 'string';
+}
+
+function isAddress(location: OutputLocation): location is OutputAddress {
+	return typeof (location as Partial<OutputAddress>).url === 'string';
+}
+
+/** Whether an output is written by the command: bytes, or an address with headers of its own. */
+function needsTarget(location: OutputLocation): boolean {
+	return isAddress(location) ? location.headers !== undefined : !isRefusal(location);
 }
 
 // --- payloads -----------------------------------------------------------------------------------
@@ -297,7 +467,7 @@ function parseMedia(value: unknown): Media {
 	if (isRecord(value) && typeof value.dataUrl === 'string' && value.dataUrl.startsWith('data:') && value.fsPath === undefined) {
 		return { dataUrl: value.dataUrl };
 	}
-	if (isRecord(value) && typeof value.fsPath === 'string' && value.fsPath.length <= 4096 && typeof value.mimeType === 'string' && /^[a-z]+\/[a-z0-9.+-]+$/i.test(value.mimeType) && value.dataUrl === undefined) {
+	if (isRecord(value) && typeof value.fsPath === 'string' && value.fsPath.length <= MAX_PATH_LENGTH && typeof value.mimeType === 'string' && /^[a-z]+\/[a-z0-9.+-]+$/i.test(value.mimeType) && value.dataUrl === undefined) {
 		return { fsPath: value.fsPath, mimeType: value.mimeType };
 	}
 	throw cannotRead('an input');
@@ -319,6 +489,18 @@ function parsePlannedMedia(value: Record<string, unknown>): PlannedMedia {
 		audios: parseMediaList(value.audios),
 		...(value.source !== undefined ? { source: parseMedia(value.source) } : {})
 	};
+}
+
+/** The new files the outputs of a request are written to: absolute paths ending in `.part`, each named once. */
+function parseTargets(value: unknown): readonly string[] | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (!Array.isArray(value) || !value.length || value.length > MAX_OUTPUTS || new Set(value).size !== value.length
+		|| !value.every(target => typeof target === 'string' && target.length <= MAX_PATH_LENGTH && isAbsolute(target) && target.endsWith('.part'))) {
+		throw rejected(`AI Video writes the outputs of a request only to new .part files, 1 to ${MAX_OUTPUTS} of them, each named once.`);
+	}
+	return [...value];
 }
 
 function parseGeneration(value: unknown, what: string): Record<string, unknown> & { provider: string; region: string; model: string; mode: ModeId; params: Params; prompt: string } {
@@ -365,32 +547,62 @@ export function parseSubmitRequest(value: unknown): SubmitRequest {
 	if (!isRecord(generation.inputs) || !Array.isArray(generation.inputs.images)) {
 		throw cannotRead('inputs');
 	}
+	const targets = parseTargets(generation.targets);
 	return {
 		...parseAccess(generation, 'a request'),
 		model: generation.model,
 		mode: generation.mode,
 		params: generation.params,
 		prompt: generation.prompt,
-		inputs: parsePlannedMedia(generation.inputs)
+		inputs: parsePlannedMedia(generation.inputs),
+		...(targets ? { targets } : {})
 	};
 }
 
-export function parseTaskRef(value: unknown): TaskRef {
+/**
+ * A task of a provider. `withoutTask`: the request names an output by its
+ * address, so it needs no task id; a provider that answered at once gave none.
+ */
+export function parseTaskRef(value: unknown, withoutTask = false): TaskRef {
 	if (!isRecord(value)) {
 		throw cannotRead('a task');
 	}
 	const remoteId = value.remoteId;
-	if (typeof remoteId !== 'string' || !remoteId.trim() || remoteId.length > 256 || /[\u0000- \u007F]/.test(remoteId)) {
+	const noTask = withoutTask && (remoteId === undefined || remoteId === '');
+	if (!noTask && (typeof remoteId !== 'string' || !remoteId.trim() || remoteId.length > 256 || /[\u0000- \u007F]/.test(remoteId))) {
 		throw rejected('The task id is not one a provider gave.');
 	}
-	return { ...parseAccess(value, 'a task'), model: field(value, 'model', 'a task', 64), remoteId };
+	const targets = parseTargets(value.targets);
+	return { ...parseAccess(value, 'a task'), model: field(value, 'model', 'a task', 64), remoteId: noTask ? '' : remoteId as string, ...(targets ? { targets } : {}) };
+}
+
+/** An address of a download, or undefined when there is none. */
+function parseAddress(value: unknown): string | undefined {
+	if (value === undefined || value === '') {
+		return undefined;
+	}
+	if (typeof value !== 'string' || value.length > MAX_ADDRESS_LENGTH) {
+		throw cannotRead('a download');
+	}
+	return value;
 }
 
 export function parseDownloadRequest(value: unknown): DownloadRequest {
-	const ref = parseTaskRef(value);
-	const record = value as Record<string, unknown>;
-	if (typeof record.targetFsPath !== 'string' || (record.videoUrl !== undefined && (typeof record.videoUrl !== 'string' || record.videoUrl.length > 8192))) {
+	if (!isRecord(value)) {
 		throw cannotRead('a download');
 	}
-	return { ...ref, targetFsPath: record.targetFsPath, ...(typeof record.videoUrl === 'string' && record.videoUrl ? { videoUrl: record.videoUrl } : {}) };
+	const url = parseAddress(value.url);
+	const videoUrl = parseAddress(value.videoUrl);
+	const kind = value.kind;
+	if ((kind !== undefined && kind !== 'image' && kind !== 'video') || typeof value.targetFsPath !== 'string' || value.targetFsPath.length > MAX_PATH_LENGTH) {
+		throw cannotRead('a download');
+	}
+	const ref = parseTaskRef(value, url !== undefined || videoUrl !== undefined);
+	return {
+		...ref,
+		targetFsPath: value.targetFsPath,
+		...(videoUrl !== undefined ? { videoUrl } : {}),
+		...(url !== undefined ? { url } : {}),
+		...(kind !== undefined ? { kind: kind as ModelKind } : {})
+	};
 }

@@ -725,8 +725,8 @@ test('the video downloads from the media host without the key, from the poll\'s 
 			asked: api.received.map(request => request.path),
 			downloaded: media.received.map(request => [request.path, request.headers['api-key'], request.headers['ai-trace-id']])
 		}, {
-			withAddress: { size: video.byteLength },
-			withoutAddress: { size: video.byteLength },
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { size: video.byteLength, format: 'mp4' },
 			same: [true, true],
 			asked: ['/openapi/v2/video/result/309', '/openapi/v2/video/result/309'],
 			downloaded: [['/openapi/output/309.mp4', undefined, undefined], ['/openapi/output/309.mp4', undefined, undefined]]

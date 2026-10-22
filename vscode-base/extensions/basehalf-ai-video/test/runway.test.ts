@@ -684,8 +684,8 @@ test('the video downloads from the address of the poll, and without one from a f
 			api: api.received.map(request => request.path),
 			cdn: cdn.received.map(request => [request.path, request.headers.authorization ?? null, request.headers['x-runway-version'] ?? null])
 		}, {
-			withAddress: { size: video.byteLength },
-			withoutAddress: { size: video.byteLength },
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { size: video.byteLength, format: 'mp4' },
 			same: [true, true],
 			api: ['/v1/tasks/task-9', '/v1/tasks/task-9'],
 			cdn: [['/output/task-9.mp4?_jwt=1', null, null], ['/output/task-9.mp4?_jwt=2', null, null]]

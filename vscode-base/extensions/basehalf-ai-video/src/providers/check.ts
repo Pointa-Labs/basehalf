@@ -69,6 +69,12 @@ export function resolveParams(model: CatalogModel, mode: ModeId, params: Params,
 	return resolved;
 }
 
+/** How many files a request with these resolved parameters may make: an image model's `count`, otherwise one. */
+export function outputCount(params: Params): number {
+	const count = params.count;
+	return typeof count === 'number' && Number.isInteger(count) && count > 0 ? count : 1;
+}
+
 function plural(count: number, one: string, many: string): string {
 	return `${count} ${count === 1 ? one : many}`;
 }

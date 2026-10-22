@@ -763,8 +763,8 @@ test('the video downloads from the address the poll gave, without the key, and w
 			cdn: cdn.received.map(request => `${request.path} ${request.headers.authorization ?? 'no key'}`),
 			asked: provider.api.received.map(request => request.path)
 		}, {
-			withAddress: { size: mp4.byteLength },
-			withoutAddress: { size: mp4.byteLength },
+			withAddress: { size: mp4.byteLength, format: 'mp4' },
+			withoutAddress: { size: mp4.byteLength, format: 'mp4' },
 			notReady: { code: 'invalidResponse', message: 'LTX gives no address of a video for this job.' },
 			same: [true, true],
 			cdn: ['/ltx-results/job-9.mp4?X-Goog-Signature=ab no key', '/ltx-results/job-9.mp4?X-Goog-Signature=ab no key'],

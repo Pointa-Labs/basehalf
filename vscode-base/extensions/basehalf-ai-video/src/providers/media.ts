@@ -6,7 +6,7 @@
 import { open, readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute } from 'node:path';
 import { rejected } from './failure.ts';
-import type { Media, PlannedMedia } from './types.ts';
+import type { ImageFormat, Media, PlannedMedia } from './types.ts';
 
 /**
  * The inputs of a generation as bytes: a workspace file or a data URL the
@@ -275,6 +275,28 @@ function optionalSeconds(seconds: number | undefined): { readonly seconds?: numb
 // --- images -------------------------------------------------------------------------------------
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** The bytes {@link imageFormatOf} needs to tell every format it knows. */
+export const IMAGE_SIGNATURE_BYTES = 12;
+
+/**
+ * The image format some bytes start like, from their signature: PNG, JPEG, or
+ * WebP, the formats a generated image is kept in (providers, "Requests").
+ * Undefined for anything else, a GIF included.
+ */
+export function imageFormatOf(head: Uint8Array): ImageFormat | undefined {
+	const bytes = Buffer.from(head.buffer, head.byteOffset, Math.min(head.byteLength, IMAGE_SIGNATURE_BYTES));
+	if (bytes.byteLength >= 8 && bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+		return 'png';
+	}
+	if (bytes.byteLength >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+		return 'jpeg';
+	}
+	if (bytes.byteLength >= 12 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') {
+		return 'webp';
+	}
+	return undefined;
+}
 
 /** Start-of-frame markers of JPEG, which carry the image size. */
 const JPEG_FRAME_MARKERS: ReadonlySet<number> = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);

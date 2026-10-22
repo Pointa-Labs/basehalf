@@ -43,7 +43,7 @@ function submitRequest(endpoint: string, overrides: Record<string, unknown> = {}
 
 test('catalog answers the validated catalog of the modules', () => {
 	const catalog = value(commands().catalog());
-	assert.deepEqual(catalog.providers.map(provider => [provider.id, provider.models.map(model => model.id)]), [['testprovider', ['clip-1', 'clip-away']]]);
+	assert.deepEqual(catalog.providers.map(provider => [provider.id, provider.models.map(model => model.id)]), [['testprovider', ['clip-1', 'clip-away', 'still-1', 'still-tasks']]]);
 	assert.throws(() => new VideoProviderCommands([testModule({ describe: () => ({ ...testModule().describe(), regions: [] }) })]), /at least one region is needed/);
 });
 
@@ -151,7 +151,7 @@ test('payloads are validated strictly, an unknown provider answers unknownProvid
 			// A check takes the files, never counts of them.
 			await providers.check({ provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', params: {}, prompt: 'p', inputs: { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false } }),
 			await providers.check({ provider: 'nobody', region: 'home', model: 'clip-1', mode: 'frames', params: {}, prompt: '', inputs: NO_INPUTS })
-		].map(outcome => error(outcome).code);
+		].map(outcome => error<unknown>(outcome).code);
 		assert.deepEqual({ outcomes, received: server.received.length }, {
 			outcomes: ['unknownProvider', 'rejected', 'rejected', 'rejected', 'auth', 'auth', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'unknownProvider'],
 			received: 0
@@ -263,7 +263,7 @@ test('poll, download, and cancel dispatch to the module; a download without an a
 		const unknown = error(await providers.poll({ ...ref, remoteId: 't-2' }));
 		assert.deepEqual({ polled, downloaded, same: readFileSync(target).equals(video), cancelled, unknown: unknown.code, videoKey: server.received[1].headers.authorization }, {
 			polled: { state: 'succeeded', videoUrl: `${server.url}/v1/tasks/t-1/video` },
-			downloaded: { size: video.byteLength },
+			downloaded: { size: video.byteLength, format: 'mp4' },
 			same: true,
 			cancelled: { cancelled: true },
 			unknown: 'notFound',

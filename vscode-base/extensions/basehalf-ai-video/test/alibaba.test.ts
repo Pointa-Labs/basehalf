@@ -698,10 +698,10 @@ test('a poll maps every task state, and the video is downloaded from its own hos
 				expired: { code: 'notFound', message: 'Alibaba Cloud does not know this task: it does not exist, or it is older than 24 hours.' },
 				odd: 'invalidResponse'
 			},
-			downloaded: { size: mp4.byteLength },
+			downloaded: { size: mp4.byteLength, format: 'mp4' },
 			same: true,
 			withoutAddress: { code: 'invalidResponse', message: 'Alibaba Cloud gave no video address for this task.' },
-			askedAgain: { size: mp4.byteLength },
+			askedAgain: { size: mp4.byteLength, format: 'mp4' },
 			cdnKey: ['no key', 'no key'],
 			queried: ['/api/v1/tasks/t-new', '/api/v1/tasks/t-run']
 		});

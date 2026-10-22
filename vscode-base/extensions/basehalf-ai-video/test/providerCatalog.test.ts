@@ -38,7 +38,7 @@ test('a valid provider builds a frozen copy of its declarations', () => {
 	assert.ok(Object.isFrozen(catalog) && Object.isFrozen(catalog.providers[0].models[0].parameters[0]));
 	// The answer says what every model makes; a module may leave it out for a video model.
 	const declared = testProvider();
-	assert.deepEqual(catalog.providers[0], { ...declared, models: declared.models.map(model => ({ ...model, kind: 'video' })) });
+	assert.deepEqual(catalog.providers[0], { ...declared, models: declared.models.map(model => ({ ...model, kind: model.kind ?? 'video' })) });
 });
 
 test('an image model declares its format and offers only references of images', () => {

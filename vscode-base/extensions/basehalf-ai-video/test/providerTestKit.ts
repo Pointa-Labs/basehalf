@@ -5,9 +5,10 @@
 
 /**
  * What the provider tests share: a local HTTP server that records what it
- * receives, a small provider module declared for the tests, builders of small
- * media files, and planned inputs as such files. Nothing here talks to a real
- * provider.
+ * receives, with routes that answer as an image API and a provider's storage
+ * do; a small provider module declared for the tests; builders of small media
+ * files, tiny valid images among them; planned inputs as such files; and new
+ * files to write outputs to. Nothing here talks to a real provider.
  */
 
 import assert from 'node:assert/strict';
@@ -18,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import zlib from 'node:zlib';
 import { ProviderFailure } from '../src/providers/failure.ts';
+import { imageFormatOf, MEDIA_MIME_TYPES } from '../src/providers/media.ts';
 import type { ProviderModule } from '../src/providers/module.ts';
 import type { CatalogProvider, Media, PlannedMedia, ProviderResponse } from '../src/providers/types.ts';
 
@@ -89,9 +91,126 @@ export function recordingSleep(): { readonly waits: number[]; sleep(ms: number):
 	return { waits, sleep: async (ms: number) => { waits.push(ms); } };
 }
 
+// --- routes -------------------------------------------------------------------------------------
+
+/** A route of a test server: it answers the request and returns true, or returns false and leaves it to the next route. */
+export type TestRoute = (request: Received, response: ServerResponse, socket: Socket) => boolean;
+
+/** A handler for {@link startServer} that gives each request to the first route that takes it, and answers 404 when none does. */
+export function routed(...routes: readonly TestRoute[]): (request: Received, response: ServerResponse, socket: Socket) => void {
+	return (request, response, socket) => {
+		if (!routes.some(route => route(request, response, socket))) {
+			sendJson(response, 404, { error: { message: `No route for ${request.method} ${request.path.split('?')[0]}.` } });
+		}
+	};
+}
+
+/** The type and extension of image bytes, from their signature; other bytes are sent as a plain file. */
+function imageFile(bytes: Buffer): { readonly contentType: string; readonly extension: string } {
+	const format = imageFormatOf(bytes);
+	return format
+		? { contentType: MEDIA_MIME_TYPES[format], extension: format === 'jpeg' ? 'jpg' : format }
+		: { contentType: 'application/octet-stream', extension: 'bin' };
+}
+
+/**
+ * A route that serves files, as a provider's storage or CDN does: `files` maps
+ * a path, without its query, to the bytes a GET of it answers, with the type
+ * of an image's format. It takes no other request.
+ */
+export function serveFiles(files: Readonly<Record<string, Buffer>>): TestRoute {
+	return (request, response) => {
+		const bytes = request.method === 'GET' ? files[request.path.split('?')[0]] : undefined;
+		if (!bytes) {
+			return false;
+		}
+		response.writeHead(200, { 'Content-Type': imageFile(bytes).contentType, 'Content-Length': String(bytes.byteLength) });
+		response.end(bytes);
+		return true;
+	};
+}
+
+export interface ImagesAtOnce {
+	/** The path of the create, such as `/v1/images/generations`; a query is not compared. */
+	readonly path: string;
+	/** POST unless given. */
+	readonly method?: string;
+	/** The images the provider made, in its order. */
+	readonly images: readonly Buffer[];
+	/**
+	 * How each image is answered: its base64, or the address of a file that the
+	 * route serves itself, `/files/at-once-<n>.<extension>` on the server that
+	 * received the create.
+	 */
+	readonly as: 'base64' | 'url';
+	/** The JSON answered, in the provider's form, from the base64 or the address of each image. */
+	readonly shape: (images: readonly string[]) => unknown;
+	/** 200 unless given. */
+	readonly status?: number;
+}
+
+/**
+ * A route that answers a create at once with the images, as an image API that
+ * answers at once does, for example
+ * `answerImagesAtOnce({ path: '/v1/images/generations', images: [tinyPng()], as: 'base64', shape: images => ({ data: images.map(b64_json => ({ b64_json })) }) })`.
+ * With `as: 'url'`, it also serves each image at its address.
+ */
+export function answerImagesAtOnce(options: ImagesAtOnce): TestRoute {
+	const files = new Map(options.images.map((bytes, index) => [`/files/at-once-${index + 1}.${imageFile(bytes).extension}`, bytes]));
+	const serve = serveFiles(Object.fromEntries(files));
+	return (request, response, socket) => {
+		if (options.as === 'url' && serve(request, response, socket)) {
+			return true;
+		}
+		if (request.method !== (options.method ?? 'POST') || request.path.split('?')[0] !== options.path) {
+			return false;
+		}
+		const images = options.as === 'base64'
+			? options.images.map(bytes => bytes.toString('base64'))
+			: [...files.keys()].map(path => `http://${request.headers.host}${path}`);
+		sendJson(response, options.status ?? 200, options.shape(images));
+		return true;
+	};
+}
+
+// --- outputs --------------------------------------------------------------------------------------
+
+let runFolderPath: string | undefined;
+
+/** A folder of the test run, made once and removed when the run ends. */
+function runFolder(): string {
+	if (!runFolderPath) {
+		const folder = mkdtempSync(join(tmpdir(), 'basehalf-provider-run-'));
+		process.once('exit', () => rmSync(folder, { recursive: true, force: true }));
+		runFolderPath = folder;
+	}
+	return runFolderPath;
+}
+
+let targetsMade = 0;
+
+/** `count` new files to write the outputs of a request to, as the window names them: absolute, ending in `.part`, none there yet. */
+export function partTargets(count: number): string[] {
+	return Array.from({ length: count }, () => join(runFolder(), `output-${++targetsMade}.part`));
+}
+
 // --- a provider for the tests -------------------------------------------------------------------
 
-/** The catalog entry of the test provider: two regions, one key, two models. */
+/** A References mode of an image model, which takes up to `max` images and makes an image from the prompt alone. */
+function imageReferences(max: number): CatalogProvider['models'][number]['modes'][number] {
+	return {
+		id: 'reference',
+		label: 'References',
+		inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' },
+		limits: {}
+	};
+}
+
+/**
+ * The catalog entry of the test provider: two regions, one key, two video
+ * models, an image model that answers at once (`still-1`), and an image model
+ * that runs as a task (`still-tasks`), each making 1 to 4 images.
+ */
 export function testProvider(): CatalogProvider {
 	return {
 		id: 'testprovider',
@@ -135,6 +254,27 @@ export function testProvider(): CatalogProvider {
 				prompt: { required: 'always', maxLength: 100 },
 				modes: [{ id: 'frames', label: 'Frames', inputs: { startFrame: 'optional', endFrame: 'none', images: { min: 0, max: 0 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} }],
 				parameters: []
+			},
+			{
+				id: 'still-1',
+				kind: 'image',
+				label: 'Still 1',
+				providerModels: { home: 'still-1-home', away: 'still-1-away' },
+				prompt: { required: 'always', maxLength: 100 },
+				modes: [imageReferences(4)],
+				parameters: [{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 4, step: 1, default: 1 }],
+				outputFormat: 'png',
+				answersAtOnce: true
+			},
+			{
+				id: 'still-tasks',
+				kind: 'image',
+				label: 'Still Tasks',
+				providerModels: { home: 'still-tasks-home' },
+				prompt: { required: 'always', maxLength: 100 },
+				modes: [imageReferences(2)],
+				parameters: [{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 4, step: 1, default: 1 }],
+				outputFormat: 'jpeg'
 			}
 		]
 	};
@@ -192,6 +332,23 @@ export function png(width: number, height: number): Buffer {
 	row[0] = 0;
 	const pixels = Buffer.concat(Array.from({ length: height }, () => row));
 	return Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', header), pngChunk('IDAT', zlib.deflateSync(pixels)), pngChunk('IEND', Buffer.alloc(0))]);
+}
+
+/** A valid PNG of 2 × 2 gray pixels, as a provider that answers with an image may send it. */
+export function tinyPng(): Buffer {
+	return png(2, 2);
+}
+
+/**
+ * A valid baseline JPEG of 2 × 2 pixels, as an encoder (macOS `sips`) wrote
+ * it, its Exif and other metadata segments taken out: JFIF, its frame header,
+ * Huffman and quantization tables, and its scan, so any decoder reads it.
+ */
+const TINY_JPEG_BASE64 = '/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwDj6KKK/qw/ms//2Q==';
+
+/** A valid baseline JPEG of 2 × 2 pixels, made by a real encoder. */
+export function tinyJpeg(): Buffer {
+	return Buffer.from(TINY_JPEG_BASE64, 'base64');
 }
 
 /** The header of a baseline JPEG with an APP0 and a large APP1 segment before its frame header. */
@@ -349,19 +506,13 @@ export interface PlannedCount {
 	readonly source?: boolean;
 }
 
-let plannedFolder: string | undefined;
 const plannedPaths = new Map<string, string>();
 
 /** A small media file of the test run, written once and removed when the run ends. */
 function plannedFile(name: string, mimeType: string, bytes: () => Buffer): Media {
 	let path = plannedPaths.get(name);
 	if (!path) {
-		if (!plannedFolder) {
-			const folder = mkdtempSync(join(tmpdir(), 'basehalf-planned-'));
-			process.once('exit', () => rmSync(folder, { recursive: true, force: true }));
-			plannedFolder = folder;
-		}
-		path = join(plannedFolder, name);
+		path = join(runFolder(), name);
 		writeFileSync(path, bytes());
 		plannedPaths.set(name, path);
 	}

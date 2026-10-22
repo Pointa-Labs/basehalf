@@ -318,7 +318,7 @@ test('a poll follows the interaction from queued through in progress to complete
 		const downloaded = value(await providers.download({ ...ref, targetFsPath: target }));
 		assert.deepEqual({ states, downloaded, same: readFileSync(target).equals(large), asked: gemini.received.map(entry => `${entry.method} ${entry.path} ${entry.headers['x-goog-api-key'] === KEY}`) }, {
 			states: [{ state: 'pending' }, { state: 'running' }, { state: 'succeeded' }],
-			downloaded: { size: large.byteLength },
+			downloaded: { size: large.byteLength, format: 'mp4' },
 			same: true,
 			asked: Array.from({ length: 4 }, () => `GET /v1beta/interactions/v1_run true`)
 		});
@@ -418,13 +418,13 @@ test('the video is written from the interaction\'s base64, or downloaded from th
 			notReady
 		}, {
 			inlinePoll: { state: 'succeeded' },
-			inline: { answer: { size: VIDEO.byteLength }, same: true, left: true },
+			inline: { answer: { size: VIDEO.byteLength, format: 'mp4' }, same: true, left: true },
 			fileUrl: `${gemini.endpoint}/files/abc-123:download?alt=media`,
-			viaFile: { answer: { size: VIDEO.byteLength }, same: true, left: true },
-			fileWithoutPoll: { answer: { size: VIDEO.byteLength }, same: true, left: true },
+			viaFile: { answer: { size: VIDEO.byteLength, format: 'mp4' }, same: true, left: true },
+			fileWithoutPoll: { answer: { size: VIDEO.byteLength, format: 'mp4' }, same: true, left: true },
 			fileKeys: [KEY, KEY],
 			elsewhereUrl: `${cdn.url}/v/video.mp4?token=t`,
-			elsewhere: { answer: { size: VIDEO.byteLength }, same: true, left: true },
+			elsewhere: { answer: { size: VIDEO.byteLength, format: 'mp4' }, same: true, left: true },
 			cdnKey: ['none'],
 			notReady: { answer: { code: 'invalidResponse', message: 'The generation has no video yet.' }, same: false, left: false }
 		});
@@ -457,7 +457,7 @@ test('a relay entered as an endpoint without a path gets every call, and the fil
 			const downloaded = value(await providers.download({ ...taskRef(endpoint, remoteId), targetFsPath: target }));
 			results.push({ remoteId, videoUrl: polled.videoUrl, downloaded, same: readFileSync(target).equals(VIDEO) });
 		}
-		const expected = { remoteId: 'v1_relayed', videoUrl: `${relay.url}/files/abc-123:download?alt=media`, downloaded: { size: VIDEO.byteLength }, same: true };
+		const expected = { remoteId: 'v1_relayed', videoUrl: `${relay.url}/files/abc-123:download?alt=media`, downloaded: { size: VIDEO.byteLength, format: 'mp4' }, same: true };
 		assert.deepEqual({ results, paths: [...new Set(relay.received.map(entry => `${entry.method} ${entry.path} ${entry.headers['x-goog-api-key'] === KEY}`))] }, {
 			results: [expected, expected],
 			paths: ['POST /interactions true', 'GET /interactions/v1_relayed true', 'GET /files/abc-123:download?alt=media true']

@@ -538,8 +538,8 @@ test('the video downloads from the address the poll gave, without the key, and w
 			asked: api.received.map(request => [request.path, request.headers.authorization]),
 			downloaded: host.received.map(request => [request.path, request.headers.authorization])
 		}, {
-			withAddress: { size: video.byteLength },
-			withoutAddress: { size: video.byteLength },
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { size: video.byteLength, format: 'mp4' },
 			same: [true, true],
 			asked: [['/videos/request-9', `Bearer ${KEY}`], ['/videos/request-9', `Bearer ${KEY}`]],
 			downloaded: [['/xai-vidgen-bucket/xai-video-request-9.mp4', undefined], ['/xai-vidgen-bucket/xai-video-request-9.mp4', undefined]]

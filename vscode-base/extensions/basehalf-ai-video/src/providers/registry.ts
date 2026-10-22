@@ -25,6 +25,9 @@ import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvi
  */
 export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, RUNWAY, XAI, LTX, BFL]);
 
+/** The most files one request makes: the largest `count` an image model may declare. */
+export const MAX_OUTPUTS = 16;
+
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
 const IMAGE_FORMATS: ReadonlySet<string> = new Set<ImageFormat>(['png', 'jpeg', 'webp']);
@@ -101,7 +104,7 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 	}
 	const count = model.parameters.find(parameter => parameter.name === 'count');
 	if (count) {
-		check(kind === 'image' && count.kind === 'integer' && count.min >= 1 && count.max <= 16 && count.step === 1, `${at}: count is a whole number from 1 to at most 16, on an image model`);
+		check(kind === 'image' && count.kind === 'integer' && count.min >= 1 && count.max <= MAX_OUTPUTS && count.step === 1, `${at}: count is a whole number from 1 to at most ${MAX_OUTPUTS}, on an image model`);
 	}
 	check(['always', 'withoutMedia', 'never'].includes(model.prompt.required), `${at}: prompt.required must be always, withoutMedia, or never`);
 	check(Number.isInteger(model.prompt.maxLength) && model.prompt.maxLength > 0, `${at}: prompt.maxLength must be a positive whole number`);

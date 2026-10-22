@@ -487,8 +487,8 @@ test('the video downloads from the creation\'s address without the key, also whe
 			api: api.received.map(request => [request.path, request.headers.authorization])
 		}, {
 			polled: { state: 'succeeded', videoUrl: `${storage.url}/creations/c-9.mp4` },
-			withAddress: { size: video.byteLength },
-			withoutAddress: { size: video.byteLength },
+			withAddress: { size: video.byteLength, format: 'mp4' },
+			withoutAddress: { size: video.byteLength, format: 'mp4' },
 			same: [true, true],
 			storage: [['/creations/c-9.mp4', undefined], ['/creations/c-9.mp4', undefined]],
 			api: [['/ent/v2/tasks/t-9/creations', `Token ${KEY}`], ['/ent/v2/tasks/t-9/creations', `Token ${KEY}`]]
