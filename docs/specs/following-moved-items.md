@@ -427,7 +427,12 @@ relocated in one run ([many items at once](#many-items-at-once)).
      path of a draft, the draft's card information and card row first move
      to the next free name, as a rename of the draft does, and the item's
      own card information then moves in
-     ([generation cards](generation-cards.md#drafts-and-missing-files)).
+     ([generation cards](generation-cards.md#drafts-and-missing-files)). The
+     next free name is the first numbered name of the folder at which neither
+     an item nor any card information is, so that nothing is replaced. The
+     same holds below a paired folder, for each of its items that arrives at
+     a draft's path. The entries that named the draft's path name the item
+     that took it from then on.
    - **A card row that BaseHalf chose** at the new path is not something of
      the user's, and gives way
      ([canvas card placement](canvas-card-placement.md#a-row-follows-its-item)).
