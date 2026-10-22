@@ -9,7 +9,6 @@ import { URI } from '../../../../base/common/uri.js';
 import { BaseHalfCanvasAnchor } from './basehalfCanvasModel.js';
 import { BASEHALF_PROJECT_PATH_MAX_LENGTH, baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, BaseHalfGenerationKind, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
-import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES } from '../../references/common/basehalfReferenceEntries.js';
 import {
 	isBaseHalfUpstreamMarkdownName,
 	planBaseHalfMarkdownUpstreamEdit,
@@ -36,8 +35,6 @@ const MAX_ENTRIES = 100;
 const MAX_TEXT_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_TEXT_BYTES = 2 * 1024 * 1024;
 const ANCHORS = new Set<BaseHalfCanvasAnchor>(['north', 'east', 'south', 'west']);
-/** The retired node document (D63): no path of a template has its extension. */
-const RETIRED_NODE_EXTENSION = '.bhnode';
 
 export interface IBaseHalfCanvasTemplateTextFile {
 	readonly path: string;
@@ -100,8 +97,8 @@ export class BaseHalfCanvasTemplateError extends Error {
  * carry tasks, generated files, settings, credentials, executable code, or
  * private extension state. A template never writes `upstream` itself:
  * Markdown text files whose frontmatter has an `upstream` key are rejected.
- * No path ends in `.bhnode`, and every folder that holds a draft also holds a
- * file, so that the folder exists wherever the project is cloned.
+ * Every folder that holds a draft also holds a file, so that the folder
+ * exists wherever the project is cloned.
  */
 export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemplate {
 	if (typeof source !== 'string' || VSBuffer.fromString(source).byteLength > BASEHALF_CANVAS_TEMPLATE_MAX_BYTES) {
@@ -124,9 +121,6 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 	const cards = array(root.cards, 'template.cards').map((value, index) => parseCard(value, `template.cards[${index}]`));
 	const references = array(root.references, 'template.references').map((value, index) => parseReference(value, `template.references[${index}]`));
 	const paths = [...files.map(file => file.path), ...drafts.map(draft => draft.path)];
-	if (files.some(file => file.path.toLowerCase().endsWith(RETIRED_NODE_EXTENSION))) {
-		throw invalid('Template text files cannot use the retired .bhnode extension.');
-	}
 	assertUnique(paths.map(baseHalfProjectPathKey), 'template file and draft paths');
 	assertNoPathPrefixCollisions(paths, 'template file and draft paths');
 	const pathSet = new Set(paths);
@@ -242,11 +236,7 @@ export function materializeBaseHalfCanvasTemplateUpstream(
 	}
 	const drafts = new Map<string, readonly string[]>();
 	for (const draft of template.drafts) {
-		const entries = entriesByTarget.get(draft.path) ?? [];
-		if (entries.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES) {
-			throw invalid(`Template draft '${draft.path}' cannot list more than ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
-		}
-		drafts.set(draft.path, Object.freeze([...entries]));
+		drafts.set(draft.path, Object.freeze([...entriesByTarget.get(draft.path) ?? []]));
 	}
 	const sidecars = template.files
 		.filter(file => !isBaseHalfUpstreamMarkdownName(file.path) && (entriesByTarget.get(file.path)?.length ?? 0) > 0)
