@@ -404,7 +404,10 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			const link = append(editor, $('a.basehalf-video-provider-console')) as HTMLAnchorElement;
 			this.focusable(link, 'console');
 			link.href = consoleUrl;
-			link.textContent = localize('basehalf.video.providers.console', "Get credentials in the console of {0}", status.region.label);
+			// Named by the provider: a region alone is named like "China" or "Global".
+			link.textContent = provider.regions.length > 1
+				? localize('basehalf.video.providers.consoleOfRegion', "Get credentials in the console of {0} ({1})", provider.label, status.region.label)
+				: localize('basehalf.video.providers.console', "Get credentials in the console of {0}", provider.label);
 			disposables.add(addDisposableListener(link, EventType.CLICK, event => {
 				event.preventDefault();
 				void this.openerService.open(URI.parse(consoleUrl), { openExternal: true });

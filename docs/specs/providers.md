@@ -277,7 +277,9 @@ lists the providers of the catalog. For each:
 - **Endpoint**: the region's base URL unless the user enters another one, an
   `https` URL, or an `http` URL on this computer. It is how a relay or a
   private gateway that mirrors the provider's own API is used.
-- A link to the provider's console for the region.
+- A link to the provider's console for the region, named by the provider, and
+  by the region too when the provider has more than one ("Get credentials in
+  the console of OpenAI", "Get credentials in the console of Kling (China)").
 - The provider's models, by name, under Images and Videos, so that the user
   can tell which provider to get credentials from. A kind the provider has
   no model of has no line; a model the region does not offer is dimmed and

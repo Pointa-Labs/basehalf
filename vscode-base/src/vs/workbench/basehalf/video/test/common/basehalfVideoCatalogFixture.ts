@@ -139,7 +139,7 @@ export const BOREALIS_ONE: IBaseHalfVideoCatalogModel = {
 export const BOREALIS: IBaseHalfVideoCatalogProvider = {
 	id: 'borealis',
 	label: 'Borealis Media',
-	regions: [{ id: 'main', label: 'Borealis', baseUrl: 'https://api.borealis.example' }],
+	regions: [{ id: 'main', label: 'Borealis', baseUrl: 'https://api.borealis.example', console: 'https://console.borealis.example' }],
 	credentials: [{ id: 'accessKey', label: 'Access Key' }, { id: 'secretKey', label: 'Secret Key' }],
 	models: [BOREALIS_ONE]
 };

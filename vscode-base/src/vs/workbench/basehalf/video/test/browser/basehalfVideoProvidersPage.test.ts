@@ -197,11 +197,17 @@ suite('BaseHalfVideoProvidersPage', () => {
 			action(field, 'set').click();
 			await settle();
 		}
-		assert.deepStrictEqual({ rows: rows(container), status: providers.getStatus(borealis).setUp, regions: descendants(container).filter(element => element.dataset.region).length }, {
+		assert.deepStrictEqual({
+			rows: rows(container),
+			status: providers.getStatus(borealis).setUp,
+			regions: descendants(container).filter(element => element.dataset.region).length,
+			console: descendants(container).find(element => element.tagName === 'A')?.textContent
+		}, {
 			rows: ['acme:not set up', 'borealis:set up*'],
 			status: true,
-			// One region: no choice to make.
-			regions: 0
+			// One region: no choice to make, and the console is named by the provider.
+			regions: 0,
+			console: 'Get credentials in the console of Borealis Media'
 		});
 	});
 
@@ -240,7 +246,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 				stored: 'https://west.acme.example/api/v1'
 			},
 			relay: { endpoint: 'http://127.0.0.1:8123/api/v1', custom: 'true' },
-			console: 'Get credentials in the console of West · Acme Global',
+			console: 'Get credentials in the console of Acme Video (West · Acme Global)',
 			opened: ['https://console.acme.example/west']
 		});
 	});
