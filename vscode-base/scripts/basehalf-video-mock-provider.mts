@@ -37,11 +37,15 @@
  * - `slow` / `[mock:slow]`: the task never finishes; images are answered only
  *   after the time a task takes (`--seconds`).
  * - `[mock:fewer]`: a set of images has one image fewer than asked.
+ * - `[mock:jpeg]`: the images are JPEG files, also for a model that delivers
+ *   PNG.
  *
  * `GET /__mock/requests` lists the create requests received, of tasks and of
  * images, without keys and with inline media shortened. The fixture video
  * was recorded from a canvas animation with Chromium's MediaRecorder and
- * remuxed with avconvert: 2 s, 320×180, H.264.
+ * remuxed with avconvert: 2 s, 320×180, H.264. The fixture JPEG is a PNG of
+ * one color, 16×16, converted with sips. With `uniqueFiles`, as the smoke
+ * starts it, each file it answers is its own, as a real provider's are.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -53,6 +57,7 @@ import zlib from 'node:zlib';
 
 export const MOCK_VIDEO_PROVIDER_KEY = 'basehalf-mock-key';
 export const MOCK_VIDEO_FIXTURE_URL = new URL('./fixtures/basehalf-video-mock.mp4', import.meta.url);
+export const MOCK_JPEG_FIXTURE_URL = new URL('./fixtures/basehalf-image-mock.jpg', import.meta.url);
 
 export type MockVideoProviderFailure = 'none' | 'key' | 'reject' | 'task' | 'expire' | 'drop' | 'slow';
 const FAILURES: readonly MockVideoProviderFailure[] = ['none', 'key', 'reject', 'task', 'expire', 'drop', 'slow'];
@@ -66,6 +71,13 @@ export interface MockVideoProviderOptions {
 	readonly fail?: MockVideoProviderFailure;
 	/** The bytes served as the video; the fixture by default. */
 	readonly video?: Buffer;
+	/**
+	 * Makes every file it answers a file of its own, as a real provider's are:
+	 * a video ends with an MP4 `free` box, a PNG holds a `tEXt` chunk, and a
+	 * JPEG a comment, each naming its task or image. Without it, the files of
+	 * every task are the same bytes.
+	 */
+	readonly uniqueFiles?: boolean;
 }
 
 /** A create request as received, without its key. */
@@ -116,11 +128,12 @@ const IMAGE_ROLES = new Set(['first_frame', 'last_frame', 'reference_image']);
 export async function startMockVideoProvider(options: MockVideoProviderOptions = {}): Promise<MockVideoProvider> {
 	const key = options.key ?? MOCK_VIDEO_PROVIDER_KEY;
 	const video = options.video ?? readFileSync(MOCK_VIDEO_FIXTURE_URL);
+	const uniqueFiles = options.uniqueFiles === true;
 	let fail: MockVideoProviderFailure = options.fail ?? 'none';
 	let durationMs = options.durationMs ?? 3_000;
 	const tasks = new Map<string, MockTask>();
 	/** The images answered as addresses, by their path under `/files/images/`. */
-	const images = new Map<string, Buffer>();
+	const images = new Map<string, { readonly bytes: Buffer; readonly type: string }>();
 	const requests: MockVideoProviderRequest[] = [];
 	const sockets = new Set<Socket>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
@@ -167,8 +180,8 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 				json(response, 404, { error: { code: 'NoSuchKey', message: 'The specified key does not exist.' } });
 				return;
 			}
-			response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(image.byteLength) });
-			response.end(image);
+			response.writeHead(200, { 'Content-Type': image.type, 'Content-Length': String(image.bytes.byteLength) });
+			response.end(image.bytes);
 			return;
 		}
 		if (path.startsWith('/files/') && request.method === 'GET') {
@@ -178,8 +191,9 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 				json(response, 404, { error: { code: 'NoSuchKey', message: 'The specified key does not exist.' } });
 				return;
 			}
-			response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(video.byteLength) });
-			response.end(video);
+			const file = uniqueFiles ? withFreeBox(video, id) : video;
+			response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(file.byteLength) });
+			response.end(file);
 			return;
 		}
 		if (!path.startsWith('/api/v3/')) {
@@ -290,19 +304,22 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 		const asked = payload!.sequential_image_generation === 'auto' ? (isRecord(options) && typeof options.max_images === 'number' ? options.max_images : 15) : 1;
 		const made = marker('fewer') && asked > 1 ? asked - 1 : asked;
 		const id = `img-${Date.now()}-${randomBytes(3).toString('hex')}`;
+		const jpeg = marker('jpeg');
 		const data: Record<string, unknown>[] = [];
 		for (let number = 1; number <= made; number++) {
 			if (number === made && (fail === 'task' || marker('fail'))) {
 				data.push({ error: { code: 'OutputImageSensitiveContentDetected', message: 'The image could not be made: the output may contain sensitive content.' } });
 				continue;
 			}
-			const image = mockPng(number);
+			const tag = uniqueFiles ? `${id}-${number}` : undefined;
+			const image = jpeg ? withJpegComment(readFileSync(MOCK_JPEG_FIXTURE_URL), tag) : mockPng(number, tag);
+			const format = jpeg ? 'jpeg' : 'png';
 			if (payload!.response_format === 'b64_json') {
-				data.push({ b64_json: image.toString('base64'), size: `${MOCK_IMAGE_SIDE}x${MOCK_IMAGE_SIDE}`, output_format: 'png' });
+				data.push({ b64_json: image.toString('base64'), size: `${MOCK_IMAGE_SIDE}x${MOCK_IMAGE_SIDE}`, output_format: format });
 			} else {
-				const name = `${id}-${number}.png`;
-				images.set(name, image);
-				data.push({ url: `${origin}/files/images/${encodeURIComponent(name)}`, size: `${MOCK_IMAGE_SIDE}x${MOCK_IMAGE_SIDE}`, output_format: 'png' });
+				const name = `${id}-${number}.${jpeg ? 'jpg' : 'png'}`;
+				images.set(name, { bytes: image, type: `image/${format}` });
+				data.push({ url: `${origin}/files/images/${encodeURIComponent(name)}`, size: `${MOCK_IMAGE_SIDE}x${MOCK_IMAGE_SIDE}`, output_format: format });
 			}
 		}
 		const generated = data.filter(entry => entry.error === undefined).length;
@@ -441,8 +458,8 @@ function pngChunk(type: string, data: Buffer): Buffer {
 	return Buffer.concat([length, typed, crc]);
 }
 
-/** A small RGB PNG of one color, another for each number, so that the images of a set differ. */
-export function mockPng(number: number): Buffer {
+/** A small RGB PNG of one color, another for each number, so that the images of a set differ; with `tag`, it holds it as a text chunk. */
+export function mockPng(number: number, tag?: string): Buffer {
 	const color = [(37 * number) % 256, (91 * number + 64) % 256, (53 * number + 128) % 256];
 	const row = Buffer.alloc(1 + MOCK_IMAGE_SIDE * 3);
 	for (let x = 0; x < MOCK_IMAGE_SIDE; x++) {
@@ -454,7 +471,29 @@ export function mockPng(number: number): Buffer {
 	header[8] = 8;
 	header[9] = 2;
 	const pixels = Buffer.concat(Array.from({ length: MOCK_IMAGE_SIDE }, () => row));
-	return Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', header), pngChunk('IDAT', zlib.deflateSync(pixels)), pngChunk('IEND', Buffer.alloc(0))]);
+	const text = tag === undefined ? [] : [pngChunk('tEXt', Buffer.from(`Comment\0${tag}`, 'latin1'))];
+	return Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', header), pngChunk('IDAT', zlib.deflateSync(pixels)), ...text, pngChunk('IEND', Buffer.alloc(0))]);
+}
+
+/** The MP4 with a `free` box after its last box, which players skip, holding `tag`. */
+function withFreeBox(video: Buffer, tag: string): Buffer {
+	const payload = Buffer.from(tag, 'utf8');
+	const header = Buffer.alloc(8);
+	header.writeUInt32BE(8 + payload.byteLength, 0);
+	header.write('free', 4, 'latin1');
+	return Buffer.concat([video, header, payload]);
+}
+
+/** The JPEG with a comment segment after its start marker, holding `tag`. */
+function withJpegComment(jpeg: Buffer, tag: string | undefined): Buffer {
+	if (tag === undefined) {
+		return jpeg;
+	}
+	const payload = Buffer.from(tag, 'latin1');
+	const segment = Buffer.alloc(4);
+	segment.writeUInt16BE(0xfffe, 0);
+	segment.writeUInt16BE(2 + payload.byteLength, 2);
+	return Buffer.concat([jpeg.subarray(0, 2), segment, payload, jpeg.subarray(2)]);
 }
 
 /** The first field of a create request that the API would refuse, by its own documented rules. */

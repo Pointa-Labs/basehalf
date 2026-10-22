@@ -4,11 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * What the smoke's Video node steps (D58, D59, docs/specs/video-node.md) need
- * beside the window: the local test provider of
- * `basehalf-video-mock-provider.mts`, small PNG images, a record of the states
- * a node's file goes through, and a search of the workspace for the test key.
- * Nothing here talks to a real provider.
+ * What the smoke's generation card steps (D63, D64, generation cards,
+ * "Verification") need beside the window: the local test provider of
+ * `basehalf-video-mock-provider.mts`, which answers like ByteDance's ModelArk
+ * API for videos and images, small PNG images, and a search of the workspace
+ * for the test key. Nothing here talks to a real provider.
  */
 
 import fs from 'node:fs';
@@ -16,7 +16,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import type { AddressInfo, Socket } from 'node:net';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { MOCK_VIDEO_FIXTURE_URL, startMockVideoProvider, type MockVideoProvider, type MockVideoProviderRequest } from '../../../basehalf-video-mock-provider.mts';
+import { MOCK_JPEG_FIXTURE_URL, MOCK_VIDEO_FIXTURE_URL, startMockVideoProvider, type MockVideoProvider, type MockVideoProviderRequest } from '../../../basehalf-video-mock-provider.mts';
 
 export interface VideoSmokeProvider {
 	/** The test provider; `requests` lists the create requests it received. */
@@ -24,15 +24,26 @@ export interface VideoSmokeProvider {
 	/** The endpoint the smoke enters for its provider: the relay, at the path of the provider's own API. */
 	readonly endpoint: string;
 	readonly key: string;
-	/** The video the provider serves, to compare a download with. */
+	/** The fixture video, which the provider serves with a box of its own for each task. */
 	readonly video: Buffer;
+	/** Whether the bytes are a video the provider served: the fixture, and a box naming its task. */
+	isVideo(bytes: Buffer): boolean;
+	/** Whether the bytes are an image the provider served for a prompt with `[mock:jpeg]`: the fixture JPEG, with a comment naming it. */
+	isJpeg(bytes: Buffer): boolean;
 	/** The create requests received since `count` of them had arrived. */
 	requestsSince(count: number): readonly MockVideoProviderRequest[];
+	/** When the relay received each request that creates a task or images, in milliseconds since the epoch, oldest first. */
+	readonly creates: readonly number[];
+	/** How long the relay holds each request that creates a task or images from now on. */
+	holdCreates(milliseconds: number): void;
 	close(): Promise<void>;
 }
 
 /**
- * Starts the test provider behind a relay on 127.0.0.1. The relay passes
+ * Starts the test provider behind a relay on 127.0.0.1, answering files of
+ * their own: the file of every task differs from the others, as a real
+ * provider's do, so that BaseHalf can tell one moved file from another by its
+ * content. The relay passes
  * every request on unchanged, and holds a request that creates a task, or
  * images answered at once, for `holdCreateMs` first: on this computer the
  * provider answers within a few milliseconds, and the hold leaves the card
@@ -41,11 +52,16 @@ export interface VideoSmokeProvider {
  * unknown.
  */
 export async function startVideoSmokeProvider(options: { readonly durationMs: number; readonly holdCreateMs: number }): Promise<VideoSmokeProvider> {
-	const mock = await startMockVideoProvider({ durationMs: options.durationMs });
+	const mock = await startMockVideoProvider({ durationMs: options.durationMs, uniqueFiles: true });
+	const video = fs.readFileSync(MOCK_VIDEO_FIXTURE_URL);
+	const jpeg = fs.readFileSync(MOCK_JPEG_FIXTURE_URL);
 	const target = new URL(mock.url);
 	const sockets = new Set<Socket>();
 	const timers = new Set<ReturnType<typeof setTimeout>>();
+	const creates: number[] = [];
+	let holdCreateMs = options.holdCreateMs;
 	const relay = createServer((request: IncomingMessage, response: ServerResponse) => {
+		const receivedAt = Date.now();
 		const chunks: Buffer[] = [];
 		request.on('data', (chunk: Buffer) => chunks.push(chunk));
 		request.on('error', () => response.destroy());
@@ -67,10 +83,11 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 			};
 			const pathname = new URL(request.url ?? '/', mock.url).pathname;
 			if (request.method === 'POST' && /\/contents\/generations\/tasks$|\/videos$|\/images\/generations$/.test(pathname)) {
+				creates.push(receivedAt);
 				const timer = setTimeout(() => {
 					timers.delete(timer);
 					forward();
-				}, options.holdCreateMs);
+				}, holdCreateMs);
 				timers.add(timer);
 			} else {
 				forward();
@@ -90,8 +107,14 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 		mock,
 		endpoint: `http://127.0.0.1:${port}/api/v3`,
 		key: mock.key,
-		video: fs.readFileSync(MOCK_VIDEO_FIXTURE_URL),
+		video,
+		isVideo: bytes => bytes.byteLength > video.byteLength && bytes.subarray(0, video.byteLength).equals(video) && bytes.toString('latin1', video.byteLength + 4, video.byteLength + 8) === 'free',
+		isJpeg: bytes => bytes.byteLength > jpeg.byteLength && bytes.readUInt16BE(0) === 0xffd8 && bytes.readUInt16BE(2) === 0xfffe && bytes.subarray(bytes.byteLength - jpeg.byteLength + 2).equals(jpeg.subarray(2)),
 		requestsSince: count => mock.requests.slice(count),
+		creates,
+		holdCreates: milliseconds => {
+			holdCreateMs = milliseconds;
+		},
 		async close() {
 			for (const timer of timers) {
 				clearTimeout(timer);
@@ -142,54 +165,6 @@ function pngChunk(type: string, data: Buffer): Buffer {
 	const crc = Buffer.alloc(4);
 	crc.writeUInt32BE(zlib.crc32(typed));
 	return Buffer.concat([length, typed, crc]);
-}
-
-/** One state of a Video node's file: its task's state, or `result` once it shows a video. */
-export interface VideoNodeFileState {
-	readonly state: 'submitting' | 'running' | 'failed' | 'stopped' | 'result' | 'idle';
-	readonly taskId?: string;
-	readonly remoteId?: string;
-}
-
-/**
- * Reads a Video node's file every 25 ms and records each state it shows, in
- * order, until `done` holds for the document or `timeoutMs` passes. Runs
- * beside the steps that drive the window.
- */
-export async function recordVideoNodeStates(
-	file: string,
-	done: (document: Record<string, any>) => boolean,
-	timeoutMs: number
-): Promise<{ readonly states: readonly VideoNodeFileState[]; readonly document: Record<string, any> | undefined }> {
-	const states: VideoNodeFileState[] = [];
-	let document: Record<string, any> | undefined;
-	const deadline = Date.now() + timeoutMs;
-	for (; ;) {
-		try {
-			document = JSON.parse(fs.readFileSync(file, 'utf8'));
-		} catch {
-			// Not there yet, or caught between two writes.
-		}
-		if (document) {
-			const task = document.task;
-			const next: VideoNodeFileState = document.result
-				? { state: 'result' }
-				: task
-					? { state: task.state, taskId: task.id, ...(task.remoteId !== undefined ? { remoteId: task.remoteId } : {}) }
-					: { state: 'idle' };
-			const last = states[states.length - 1];
-			if (!last || last.state !== next.state || last.taskId !== next.taskId || last.remoteId !== next.remoteId) {
-				states.push(next);
-			}
-			if (done(document)) {
-				return { states, document };
-			}
-		}
-		if (Date.now() > deadline) {
-			throw new Error(`Timed out after ${timeoutMs} ms waiting for ${file}; it went through ${JSON.stringify(states)} and now reads ${JSON.stringify(document)}`);
-		}
-		await new Promise(resolve => setTimeout(resolve, 25));
-	}
 }
 
 /** The files under `root`, relative to it, whose bytes contain `needle`. Git's own folder is left out: its objects are compressed. */

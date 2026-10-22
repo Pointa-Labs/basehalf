@@ -7,8 +7,8 @@ import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentSeesSelecti
 import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndConnectors, assertCanvasUnreadableBadgeRecovers } from './areas/canvas/badges.mts';
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
 import {
+	assertCanvasCreateMenuMakesDrafts,
 	assertCanvasCreateNoteFileAndFolder,
-	assertCanvasCreateResultNodeSubmenu,
 	assertCanvasDoubleClickCreateMenu,
 	assertCanvasNewFilesGoToTheEnd,
 	assertCanvasNumericFolderNames
@@ -57,8 +57,8 @@ import {
 import { assertCanvasBreadcrumbsRemoved, assertCanvasContainsCard, assertMarkdownRichRevealsText } from './areas/navigation/navigation.mts';
 import { assertExplorerRenameCascadesMirror, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
 import { assertExternalPluginInstalledRelaunch, assertExternalPluginLifecycle, assertExternalPluginUninstalled, assertExternalPluginUpdate } from './areas/plugin/externalPlugin.mts';
-import { runVideoNodeSteps } from './areas/video/videoNode.mts';
-import { assertNoPluginSurface, assertVideoWorkflowTemplate } from './areas/video/workflowTemplate.mts';
+import { assertLandingLeftNoPartialFile, runGenerationCardSteps } from './areas/video/generationCards.mts';
+import { assertNoPluginSurface, assertSequenceAddsGeneratedVideo, assertVideoWorkflowTemplate } from './areas/video/workflowTemplate.mts';
 import {
 	assertAgentAreaChoices,
 	assertAgentAreaTabsAndSplits,
@@ -68,7 +68,7 @@ import {
 	assertTogglePanelRemapsToAgentArea
 } from './areas/workbench/agentArea.mts';
 import { assertCompetingViewContainersHidden, assertHiddenSurfaceCommandsStayHidden, assertOpenEditorsHidden, assertStatusBarCurated } from './areas/workbench/hiddenSurfaces.mts';
-import { assertBaseHalfAboutPage, assertBaseHalfSettingsCategory, assertVideoProvidersPage } from './areas/workbench/settings.mts';
+import { assertBaseHalfAboutPage, assertBaseHalfSettingsCategory, assertProvidersPage } from './areas/workbench/settings.mts';
 import { assertGitBranchCheckoutQuickPick, assertSourceControlPanel, assertSourceControlPublishBranchAction } from './areas/workbench/sourceControl.mts';
 import {
 	assertBaseHalfRootTitlebarBreadcrumb,
@@ -136,7 +136,7 @@ async function runWorkbenchSuite(page) {
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
-	await step('video-providers-page', () => assertVideoProvidersPage(page));
+	await step('providers-page', () => assertProvidersPage(page));
 	await step('settings-about-page', () => assertBaseHalfAboutPage(page));
 }
 
@@ -144,7 +144,7 @@ async function runWorkbenchSuite(page) {
 async function runCanvasSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
-	await step('canvas-create-result-node-submenu', () => assertCanvasCreateResultNodeSubmenu(page));
+	await step('canvas-create-menu-makes-drafts', () => assertCanvasCreateMenuMakesDrafts(page));
 	await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
 	await step('canvas-note-selection-controls', () => assertCanvasNoteInlineWysiwygEditor(page));
 	await step('canvas-numeric-folder-names', () => assertCanvasNumericFolderNames(page));
@@ -261,11 +261,13 @@ async function runNavigationSuite(page) {
 	await step('nothing-installed-after-session', () => assertWorkspaceOpenInstallsNothing());
 }
 
-/** The AI Video node, against the local test provider. */
+/** Generation cards of images and videos: drafts, the panel, generations against the local test provider, Providers, the starter template, and Sequence. */
 async function runVideoSuite(page) {
 	await step('no-plugin-surface', () => assertNoPluginSurface(page));
 	await step('video-workflow-template', () => assertVideoWorkflowTemplate(page));
-	await runVideoNodeSteps(page);
+	await runGenerationCardSteps(page);
+	await step('video-sequence-adds-generated-video', () => assertSequenceAddsGeneratedVideo(page));
+	await step('video-landing-leaves-no-partial-file', () => assertLandingLeftNoPartialFile());
 }
 
 /** The lifecycle of a reviewed external plugin. Not in the whole smoke; it needs --external-plugin-id. */

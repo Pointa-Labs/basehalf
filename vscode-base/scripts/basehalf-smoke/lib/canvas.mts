@@ -81,6 +81,15 @@ export async function openCanvasZoomMenu(page) {
 	return controller;
 }
 
+/** Sets the zoom of the canvas with the zoom menu's field, as the user types it; it takes two decimals, and the canvas keeps four. */
+export async function setCanvasZoomPercent(page, percent) {
+	const controller = await openCanvasZoomMenu(page);
+	await controller.input.fill(`${percent}%`);
+	await controller.input.press('Enter');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(expected => Math.abs(Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) - expected) < 0.00005, percent / 100, { timeout: 10_000 });
+}
+
 export async function zoomCanvas(page, action, options = {}) {
 	if (options.preserveFocus) {
 		const acted = await page.evaluate(({ actionName, useMetaKey }) => {
@@ -282,18 +291,41 @@ export async function emptyCanvasPoint(page) {
 	return point;
 }
 
-export async function clickCanvasCreateSubmenuAction(page, submenuLabel, actionLabel) {
+// Runs an action of the canvas's Create menu, the plus at its corner: New
+// Note, New Image, New Video, New File..., or New Folder....
+export async function clickCanvasCreateAction(page, label) {
 	const createButton = page.locator('.basehalf-canvas-create-button');
 	await createButton.focus();
 	await page.keyboard.press('Enter');
-	const submenu = page.getByRole('menuitem', { name: submenuLabel, exact: true }).filter({ visible: true }).last();
-	await submenu.waitFor({ state: 'visible', timeout: 10_000 });
-	await page.waitForTimeout(150);
-	await submenu.hover();
-	const action = page.getByRole('menuitem', { name: actionLabel, exact: true }).filter({ visible: true }).last();
+	// A command keybinding is part of the menuitem's accessible name (for
+	// example, "New Note ⌘N"). Match the visible action label so the helper
+	// exercises both keybound and unbound create commands.
+	const action = page.locator('.context-view.monaco-menu-container .action-label')
+		.filter({ hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })
+		.filter({ visible: true })
+		.last();
 	await action.waitFor({ state: 'visible', timeout: 10_000 });
+	// VS Code intentionally attaches menu mouse-up listeners after a 100 ms
+	// guard against the pointer event that opened the menu. Let the real widget
+	// settle, then use a normal Playwright click through its public interaction.
 	await page.waitForTimeout(150);
 	await action.click();
+}
+
+// The actions of the Create menu, in order, with a separator as `|`.
+export async function readCanvasCreateMenu(page) {
+	const createButton = page.locator('.basehalf-canvas-create-button');
+	await createButton.focus();
+	await page.keyboard.press('Enter');
+	const menu = page.locator('.context-view.monaco-menu-container').filter({ visible: true }).last();
+	await menu.locator('.action-label').first().waitFor({ state: 'visible', timeout: 10_000 });
+	const items = await menu.evaluate(element => Array.from(element.querySelectorAll('.action-item')).map(item => {
+		const label = (item.querySelector('.action-label')?.textContent ?? '').trim();
+		return item.querySelector('.separator') || item.classList.contains('separator') || !label ? '|' : label;
+	}));
+	await page.keyboard.press('Escape');
+	await menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	return items;
 }
 
 /**

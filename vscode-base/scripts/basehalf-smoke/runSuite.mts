@@ -21,7 +21,7 @@ import {
 	observePage,
 	writeFailureArtifacts
 } from './app.mts';
-import { stopVideoSmokeProvider } from './areas/video/videoNode.mts';
+import { stopVideoSmokeProvider } from './areas/video/generationCards.mts';
 import {
 	app,
 	crashesPath,

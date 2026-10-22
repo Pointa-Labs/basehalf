@@ -3,44 +3,50 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// The Video Providers page, which Settings and the Video node both open.
+// The Providers page (providers and the model catalog, "Credentials, regions,
+// and endpoints"), which Settings and the panel of a generation card both open.
 
 import process from 'process';
-import { root } from '../context.mts';
 import { runCommand } from './quickInput.mts';
 
-export const VIDEO_PROVIDER = 'bytedance';
-export const VIDEO_REGION = 'cn';
+/**
+ * The provider of the catalog that the smoke sets up, and the region it uses:
+ * its module answers the local test provider's API, and the region offers the
+ * image models that make several images in one generation.
+ */
+export const SMOKE_PROVIDER = 'bytedance';
+export const SMOKE_REGION = 'intl';
 
-// The Video Providers page (D59, video providers, "Credentials, regions, and
-// endpoints") is in Settings below BaseHalf, in the place of the former Models
-// & Providers page, and opens from its command.
-export async function openVideoProvidersPage(page) {
-	await runCommand(page, 'Video Providers');
-	return waitForVideoProvidersPage(page);
+// The page is in Settings below BaseHalf, in the place of the former Models &
+// Providers page, and opens from its command, BaseHalf: Providers. The
+// command is named with its category: other commands have Providers in
+// their names.
+export async function openProvidersPage(page) {
+	await runCommand(page, 'BaseHalf: Providers');
+	return waitForProvidersPage(page);
 }
 
-// Video Providers inside Settings, however it was opened.
-export async function waitForVideoProvidersPage(page) {
+// Providers inside Settings, however it was opened.
+export async function waitForProvidersPage(page) {
 	const settingsEditor = page.locator('.settings-editor').first();
 	await settingsEditor.waitFor({ state: 'visible', timeout: 20_000 });
 	const providers = settingsEditor.locator('.basehalf-video-providers').first();
 	await providers.waitFor({ state: 'visible', timeout: 20_000 });
-	await providers.locator('h1', { hasText: /^Video Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
-	await settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^Video Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await providers.locator('h1', { hasText: /^Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	if (await page.locator('.quick-input-widget:visible').count() !== 0) {
-		throw new Error('Video Providers remained inside QuickInput instead of opening inside Settings');
+		throw new Error('Providers remained inside QuickInput instead of opening inside Settings');
 	}
 	return providers;
 }
 
-export async function closeVideoProvidersPage(page, providers) {
+export async function closeProvidersPage(page, providers) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
 	await providers.waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 // The providers the page lists, in order.
-export function readVideoProviderRows(providers) {
+export function readProviderRows(providers) {
 	return providers.evaluate(root => Array.from(root.querySelectorAll('.basehalf-video-provider-row')).map(row => ({
 		id: row.getAttribute('data-provider'),
 		label: row.querySelector('.basehalf-video-provider-row-name')?.textContent ?? null,
@@ -49,30 +55,9 @@ export function readVideoProviderRows(providers) {
 	})), undefined, { timeout: 2_000 });
 }
 
-// Reads with `read` until `accept` takes what it read; fails with the last reading.
-export async function waitForReading(read, accept, description, timeoutMs = 15_000) {
-	const deadline = Date.now() + timeoutMs;
-	let value;
-	let failure;
-	for (; ;) {
-		try {
-			value = await read();
-			failure = undefined;
-			if (accept(value)) {
-				return value;
-			}
-		} catch (error) {
-			failure = error;
-		}
-		if (Date.now() > deadline) {
-			throw new Error(`Timed out waiting for ${description}; last read: ${failure ? `failed with ${failure instanceof Error ? failure.message : String(failure)}` : JSON.stringify(value)}`);
-		}
-		await new Promise(resolve => setTimeout(resolve, 50));
-	}
-}
-
-// The provider the page shows: its regions, its credentials and whether each is set, and its endpoint.
-export function readVideoProviderEditor(providers) {
+// The provider the page shows: its regions, its credentials and whether each
+// is set, its endpoint, and its models under Images and Videos.
+export function readProviderEditor(providers) {
 	return providers.evaluate(root => {
 		const editor = root.querySelector('.basehalf-video-provider-editor');
 		const endpoint = root.querySelector('.basehalf-video-provider-field.endpoint input');
@@ -89,7 +74,17 @@ export function readVideoProviderEditor(providers) {
 			})),
 			endpoint: endpoint?.value ?? null,
 			customEndpoint: endpoint?.getAttribute('data-custom') === 'true',
-			models: Array.from(root.querySelectorAll('.basehalf-video-provider-model')).map(model => ({ id: model.getAttribute('data-model'), label: model.textContent, unavailable: model.classList.contains('unavailable') })),
+			// The models by name, a line per kind: Images, then Videos.
+			kinds: Array.from(root.querySelectorAll('p.basehalf-video-provider-models')).map(line => ({
+				kind: line.getAttribute('data-kind'),
+				label: line.querySelector('.basehalf-video-provider-models-kind')?.textContent ?? null,
+				models: Array.from(line.querySelectorAll('.basehalf-video-provider-model')).map(model => ({
+					id: model.getAttribute('data-model'),
+					label: model.textContent,
+					unavailable: model.classList.contains('unavailable'),
+					description: model.getAttribute('aria-description')
+				}))
+			})),
 			status: root.querySelector('.basehalf-video-providers-status')?.textContent ?? null
 		};
 	}, undefined, { timeout: 2_000 });

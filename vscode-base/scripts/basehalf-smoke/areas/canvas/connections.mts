@@ -392,10 +392,12 @@ async function connectionCreateMenuAction(page, release, label) {
 	return action;
 }
 
-// Create from Connection: each item creates a node whose first bytes list the
-// source as upstream (D37), draws the edge, and leaves the source unchanged. A
-// created .bhnode, its card, and its edge go away in one canvas undo step. The
-// card is where the line was released, and the view stays where it is.
+// Create from Connection: each item creates a card that lists the source as
+// upstream (D37), draws the edge, and leaves the source unchanged. Image and
+// Video make a draft (generation cards, criterion 2): its generation.yaml, its
+// upstream.yaml with the source, and no file. A created draft, its card, and
+// its edge go away in one canvas undo step. The card is where the line was
+// released, and the view stays where it is.
 export async function assertCanvasCreateFromConnection(page) {
 	const source = 'README.md';
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
@@ -408,41 +410,47 @@ export async function assertCanvasCreateFromConnection(page) {
 	await page.locator('.basehalf-canvas-cards').focus();
 	await page.keyboard.press('Escape');
 	const sourceBefore = readWorkspaceFile(source);
-
-	// A connected node takes the first default name with no file or canvas row,
-	// so an earlier step's leftover row can move it to `image-N.bhnode`.
-	const imageNodes = () => fs.readdirSync(workspacePath).filter(name => /^image(-\d+)?\.bhnode$/.test(name));
-	const imagesBefore = new Set(imageNodes());
 	const rowsOfShownCards = async () => {
 		const raw = fs.readFileSync(canvasPath, 'utf8');
 		const shown = await page.locator('.basehalf-canvas-card[data-basehalf-card-path]').evaluateAll(cards => cards.map(card => card.getAttribute('data-basehalf-card-path')));
 		return Object.fromEntries(shown.map(cardPath => [cardPath, readCanvasCardGeometry(raw, cardPath)]));
 	};
-	// Released near the right edge of the canvas: the card reaches past it.
-	const rowsBeforeImage = await rowsOfShownCards();
-	const imageDrop = await dropCanvasConnectionAt(page, source, await canvasConnectionReleasePoint(page, 'rightEdge', source));
-	await (await connectionCreateMenuAction(page, imageDrop.screen, 'Image')).click();
-	let image;
-	await waitUntil(() => (image = imageNodes().find(name => !imagesBefore.has(name))) !== undefined, 'Create from Connection to create an image node');
-	const imagePath = path.join(workspacePath, image);
-	const imageRow = await assertCanvasCardCreatedWhereLineWasReleased(page, canvasPath, image, imageDrop, rowsBeforeImage);
-	if ((imageRow.x + imageRow.width) * imageDrop.view.zoom + imageDrop.view.x <= imageDrop.view.canvas.right) {
-		throw new Error(`The line must be released where the card reaches past the right edge of the canvas: ${JSON.stringify({ imageRow, view: imageDrop.view })}`);
+
+	for (const [label, kind, pattern] of [['Image', 'image', /^image(-\d+)?\.png$/], ['Video', 'video', /^video(-\d+)?\.mp4$/]]) {
+		// A new draft takes the first default name that no file, folder, or draft has.
+		const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
+		const drafts = () => fs.readdirSync(path.join(workspacePath, '.bh', 'mirror')).filter(name => pattern.test(name) && fs.existsSync(path.join(mirror(name), 'generation.yaml')));
+		const draftsBefore = new Set(drafts());
+		// Released near the right edge of the canvas: the card reaches past it.
+		const rowsBefore = await rowsOfShownCards();
+		const drop = await dropCanvasConnectionAt(page, source, await canvasConnectionReleasePoint(page, 'rightEdge', source));
+		await (await connectionCreateMenuAction(page, drop.screen, label)).click();
+		let draft;
+		await waitUntil(() => (draft = drafts().find(name => !draftsBefore.has(name))) !== undefined, `Create from Connection to make a draft of ${kind}`);
+		const row = await assertCanvasCardCreatedWhereLineWasReleased(page, canvasPath, draft, drop, rowsBefore);
+		if ((row.x + row.width) * drop.view.zoom + drop.view.x <= drop.view.canvas.right) {
+			throw new Error(`The line must be released where the card reaches past the right edge of the canvas: ${JSON.stringify({ row, view: drop.view })}`);
+		}
+		const upstream = fs.readFileSync(path.join(mirror(draft), 'upstream.yaml'), 'utf8');
+		if (fs.existsSync(path.join(workspacePath, draft)) || !/^prompt: ""\n/.test(fs.readFileSync(path.join(mirror(draft), 'generation.yaml'), 'utf8'))
+			|| upstream.split(/\r?\n/).filter(line => line.trim()).join('|') !== `upstream:|  - ${source}`) {
+			throw new Error(`Create from Connection must make a draft of ${kind} that lists ${source} as its input, with no file: ${JSON.stringify({ draft, upstream, files: fs.readdirSync(mirror(draft)) })}`);
+		}
+		const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${draft}"]`);
+		if (await card.getAttribute('data-generation') !== 'draft' || await card.getAttribute('data-generation-kind') !== kind) {
+			throw new Error(`The card of ${draft} must be a draft of ${kind}`);
+		}
+		await assertCanvasEdgeVisible(page, source, draft);
+		// The new edge replaces the line kept while the menu was open.
+		await page.locator('[data-testid="canvas-connection-drop-line"]').waitFor({ state: 'detached', timeout: 5_000 });
+		await waitForCanvasCardSelection(page, draft);
+		await waitUntil(() => fs.readFileSync(canvasPath, 'utf8').includes(`to: "${draft}"`), 'canvas.yaml to remember the anchors of the created edge');
+		await readme.focus();
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+		await waitUntil(() => !fs.existsSync(mirror(draft)), `one canvas undo to remove the created ${draft} with its card information`, 15_000);
+		await assertCanvasEdgeGone(page, source, draft);
+		await card.waitFor({ state: 'detached', timeout: 10_000 });
 	}
-	const document = JSON.parse(fs.readFileSync(imagePath, 'utf8'));
-	if (document.version !== 6 || document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== JSON.stringify([source]) || Object.hasOwn(document, 'recipe')) {
-		throw new Error(`Create from Connection created the wrong Image document: ${JSON.stringify(document)}`);
-	}
-	await assertCanvasEdgeVisible(page, source, image);
-	// The new edge replaces the line kept while the menu was open.
-	await page.locator('[data-testid="canvas-connection-drop-line"]').waitFor({ state: 'detached', timeout: 5_000 });
-	await waitForCanvasCardSelection(page, image);
-	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8').includes(`to: "${image}"`), 'canvas.yaml to remember the anchors of the created edge');
-	await readme.focus();
-	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
-	await waitUntil(() => !fs.existsSync(imagePath), `one canvas undo to remove the created ${image}`, 15_000);
-	await assertCanvasEdgeGone(page, source, image);
-	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${image}"]`).waitFor({ state: 'detached', timeout: 10_000 });
 
 	// Released just beside another card: the note lies on that card.
 	const rowsBeforeNote = await rowsOfShownCards();

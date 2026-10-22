@@ -1300,7 +1300,17 @@ The player
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, and 32
   to 38, against the local test provider through the ByteDance module, with a
-  test key; no paid provider is called.
+  test key; no paid provider is called. The test provider answers every task
+  and image with a file of its own, as a real provider does, so that a file
+  moved outside BaseHalf is told from another by its content. After a
+  reload, the smoke has the new window take a generation over at once by
+  writing its task record as it is when the window that followed it last said
+  it was alive two minutes before, and it stands for a delete to the Trash by
+  moving the file out of the workspace, since it deletes permanently. What a
+  window cannot make happen is covered by the unit tests above: a second
+  window of the workspace (criterion 4), a rename that fails part-way
+  (criterion 5), and a crash after a file was moved into place (criterion
+  26).
 - A real-window check of drafts, the panel, the settings of models of several
   providers, a generation of an image, of four images, and of a video against
   the local test provider, a rename in Finder during a generation, and a

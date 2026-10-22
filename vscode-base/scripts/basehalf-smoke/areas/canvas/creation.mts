@@ -14,11 +14,13 @@ import { gitStatusOfWorkspace } from '../../fixture.mts';
 import {
 	assertCanvasFolder,
 	canvasNoteInlineEditor,
-	clickCanvasCreateSubmenuAction,
+	clickCanvasCreateAction,
 	openRootCanvas,
 	panCanvasCardTo,
 	panCanvasToward,
 	readCanvasCardGeometry,
+	readCanvasCreateMenu,
+	setCanvasZoomPercent,
 	waitForCanvasCardSelection,
 	waitForCanvasNoteInlineEditor
 } from '../../lib/canvas.mts';
@@ -53,25 +55,80 @@ export async function assertCanvasDoubleClickCreateMenu(page) {
 	await createAction.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
-export async function assertCanvasCreateResultNodeSubmenu(page) {
-	await clickCanvasCreateSubmenuAction(page, 'New Media or Document', 'Image');
-	const nodePath = path.join(workspacePath, 'image.bhnode');
-	await waitUntil(() => fs.existsSync(nodePath), 'canvas result-node submenu to create an image node');
-	if (await page.locator('.quick-input-widget').isVisible()) {
-		throw new Error('Canvas result-node submenu unexpectedly opened Quick Input');
+/**
+ * Generation cards, "Creating a generation card" and criterion 2: the Create
+ * menu offers New Note, New Image, New Video, New File..., and New Folder...,
+ * with no submenu of nodes. New Image and New Video each make a draft in the
+ * folder of the canvas: a card, selected, with its panel and its prompt
+ * focused, and a `generation.yaml` with an empty prompt (no generation ran on
+ * this computer), and no file. Each is one step of the canvas undo stack.
+ * The Create button puts a card in the middle of the canvas when that is
+ * open, so the step makes room there first, at half size with the cards at
+ * the top left, and hands the view back as it found it.
+ */
+export async function assertCanvasCreateMenuMakesDrafts(page) {
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const readmeBefore = await readme.boundingBox();
+	const zoomBefore = Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom'));
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	if (!readmeBefore || !canvasBox) {
+		throw new Error('The README card and the canvas must be drawn before the drafts are made');
 	}
-	const document = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
-	if (document.version !== 6 || document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== '[]') {
-		throw new Error(`Canvas result-node submenu created the wrong document: ${JSON.stringify(document)}`);
+	await setCanvasZoomPercent(page, 50);
+	await panCanvasCardTo(page, readme, { x: canvasBox.x + 40, y: canvasBox.y + 60 });
+	const menu = await readCanvasCreateMenu(page);
+	const firstGroup = menu.slice(0, menu.indexOf('|') < 0 ? menu.length : menu.indexOf('|'));
+	if (JSON.stringify(firstGroup) !== JSON.stringify(['New Note', 'New Image', 'New Video', 'New File...', 'New Folder...']) || menu.some(item => /New Media|Node/.test(item))) {
+		throw new Error(`The Create menu must offer New Note, New Image, New Video, New File..., and New Folder... first, and no node submenu: ${JSON.stringify(menu)}`);
 	}
-	const card = page.locator('.basehalf-canvas-card[data-basehalf-card-path="image.bhnode"]');
-	await card.waitFor({ state: 'visible', timeout: 10_000 });
-	await waitForCanvasCardSelection(page, 'image.bhnode');
-	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
-		throw new Error('Canvas result-node creation opened content instead of leaving the new card selected');
+	const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
+	const canvasPath = mirror('canvas.yaml');
+	for (const [label, name, size] of [['New Image', 'image.png', { width: 300, height: 220 }], ['New Video', 'video.mp4', { width: 720, height: 405 }]]) {
+		await clickCanvasCreateAction(page, label);
+		const info = path.join(mirror(name), 'generation.yaml');
+		await waitUntil(() => fs.existsSync(info), `${label} to make the draft ${name}`);
+		if (fs.readFileSync(info, 'utf8') !== 'prompt: ""\n' || fs.existsSync(path.join(workspacePath, name)) || fs.readdirSync(mirror(name)).join() !== 'generation.yaml') {
+			throw new Error(`${label} must make a draft with only an empty prompt and no file: ${JSON.stringify({ info: fs.readFileSync(info, 'utf8'), file: fs.existsSync(path.join(workspacePath, name)), files: fs.readdirSync(mirror(name)) })}`);
+		}
+		if (await page.locator('.quick-input-widget').isVisible()) {
+			throw new Error(`${label} unexpectedly opened Quick Input`);
+		}
+		const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+		await card.waitFor({ state: 'visible', timeout: 10_000 });
+		await waitForCanvasCardSelection(page, name);
+		const kind = label === 'New Image' ? 'image' : 'video';
+		const shown = await card.evaluate(element => ({ generation: element.getAttribute('data-generation'), kind: element.getAttribute('data-generation-kind'), face: element.querySelector('.bh-generation-card')?.getAttribute('data-state') ?? null }));
+		if (shown.generation !== 'draft' || shown.kind !== kind || shown.face !== 'draft') {
+			throw new Error(`The card of ${name} must be a draft of ${kind}: ${JSON.stringify(shown)}`);
+		}
+		await waitUntil(() => {
+			const row = readCanvasCardGeometry(fs.readFileSync(canvasPath, 'utf8'), name);
+			return row?.width === size.width && row.height === size.height;
+		}, `the draft ${name} to get a place of ${size.width} by ${size.height}`);
+		await page.waitForFunction(cardPath => {
+			const surface = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface')).find(element => element.getAttribute('data-basehalf-card-path') === cardPath);
+			return document.activeElement === surface?.querySelector('textarea.bh-video-panel-prompt-input');
+		}, name, { timeout: 15_000 });
+		if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+			throw new Error(`${label} opened content instead of leaving the new card selected`);
+		}
 	}
-	fs.rmSync(nodePath, { force: true });
-	await card.waitFor({ state: 'hidden', timeout: 10_000 });
+	// One undo takes back each draft: Escape gives the keyboard from the prompt back to the card.
+	await page.keyboard.press('Escape');
+	await page.waitForFunction(() => document.activeElement?.closest('.react-flow__node')?.getAttribute('data-id') === 'video.mp4', null, { timeout: 10_000 });
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => !fs.existsSync(mirror('video.mp4')), 'one undo to take back the draft video.mp4');
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="video.mp4"]').waitFor({ state: 'detached', timeout: 10_000 });
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]').focus();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => !fs.existsSync(mirror('image.png')), 'the next undo to take back the draft image.png');
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="image.png"]').waitFor({ state: 'detached', timeout: 10_000 });
+	const layout = fs.readFileSync(canvasPath, 'utf8');
+	if (readCanvasCardGeometry(layout, 'image.png') || readCanvasCardGeometry(layout, 'video.mp4')) {
+		throw new Error(`Undo of a new draft must take its place too:\n${layout}`);
+	}
+	await setCanvasZoomPercent(page, Number((zoomBefore * 100).toFixed(2)));
+	await panCanvasCardTo(page, readme, { x: readmeBefore.x, y: readmeBefore.y });
 }
 
 export async function assertCanvasNewFilesGoToTheEnd(page) {
@@ -748,25 +805,6 @@ export async function assertCanvasCreateNoteFileAndFolder(page) {
 		+ '.basehalf-canvas-card[data-basehalf-card-path="smoke-folder"],'
 		+ '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]'
 	), null, { timeout: 10_000 });
-}
-
-async function clickCanvasCreateAction(page, label) {
-	const createButton = page.locator('.basehalf-canvas-create-button');
-	await createButton.focus();
-	await page.keyboard.press('Enter');
-	// A command keybinding is part of the menuitem's accessible name (for
-	// example, "New Note ⌘N"). Match the visible action label so the helper
-	// exercises both keybound and unbound create commands.
-	const action = page.locator('.context-view.monaco-menu-container .action-label')
-		.filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })
-		.filter({ visible: true })
-		.last();
-	await action.waitFor({ state: 'visible', timeout: 10_000 });
-	// VS Code intentionally attaches menu mouse-up listeners after a 100 ms
-	// guard against the pointer event that opened the menu. Let the real widget
-	// settle, then use a normal Playwright click through its public interaction.
-	await page.waitForTimeout(150);
-	await action.click();
 }
 
 export async function centerCanvasCards(page, cards) {

@@ -3,23 +3,16 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// BaseHalf's Settings, its About page, and the Video Providers page.
+// BaseHalf's Settings, its About page, and the Providers page.
 
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { root } from '../../context.mts';
+import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION } from '../../lib/providers.mts';
 import { runCommand } from '../../lib/quickInput.mts';
 import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
-import {
-	closeVideoProvidersPage,
-	openVideoProvidersPage,
-	readVideoProviderEditor,
-	readVideoProviderRows,
-	VIDEO_PROVIDER,
-	VIDEO_REGION,
-	waitForReading
-} from '../../lib/videoProviders.mts';
+import { waitForReading } from '../../lib/steps.mts';
 
 export async function assertBaseHalfSettingsCategory(page) {
 	await runCommand(page, 'Open Settings (UI)');
@@ -78,27 +71,42 @@ export async function assertBaseHalfAboutPage(page) {
 	}
 }
 
-// The page lists the providers of the model catalog, none of them set up in
-// a new profile, VIDEO_PROVIDER among them; each credential it declares is a
-// masked field. The retired Models & Providers page is gone.
-export async function assertVideoProvidersPage(page) {
-	const providers = await openVideoProvidersPage(page);
+// Providers and the model catalog, criteria 8 and 13: the page lists the
+// providers of the model catalog, none of them set up in a new profile,
+// SMOKE_PROVIDER among them; each credential it declares is a masked field;
+// and each provider's models are named under Images and Videos, a line for
+// each kind it has models of. The retired Models & Providers page is gone.
+export async function assertProvidersPage(page) {
+	const providers = await openProvidersPage(page);
 	if (await page.locator('.basehalf-model-connections').count() !== 0) {
-		throw new Error('The retired Models & Providers page is still mounted beside Video Providers');
+		throw new Error('The retired Models & Providers page is still mounted beside Providers');
 	}
-	const rows = await waitForReading(() => readVideoProviderRows(providers), seen => seen.length > 0, 'the providers of the model catalog to be listed', 30_000);
-	if (!rows.some(row => row.id === VIDEO_PROVIDER) || rows.some(row => row.setUp !== 'false')) {
-		throw new Error(`A new profile must list the catalog's providers, none set up, ${VIDEO_PROVIDER} among them: ${JSON.stringify(rows)}`);
+	const rows = await waitForReading(() => readProviderRows(providers), seen => seen.length > 0, 'the providers of the model catalog to be listed', 30_000);
+	if (!rows.some(row => row.id === SMOKE_PROVIDER) || rows.some(row => row.setUp !== 'false')) {
+		throw new Error(`A new profile must list the catalog's providers, none set up, ${SMOKE_PROVIDER} among them: ${JSON.stringify(rows)}`);
 	}
-	await providers.locator(`.basehalf-video-provider-row[data-provider="${VIDEO_PROVIDER}"]`).click();
-	const editor = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.provider === VIDEO_PROVIDER, `the page to show ${VIDEO_PROVIDER}`);
+	await providers.locator(`.basehalf-video-provider-row[data-provider="${SMOKE_PROVIDER}"]`).click();
+	const editor = await waitForReading(() => readProviderEditor(providers), seen => seen.provider === SMOKE_PROVIDER, `the page to show ${SMOKE_PROVIDER}`);
 	if (!editor.credentials.length || editor.credentials.some(credential => credential.set || credential.input !== 'password')
-		|| !editor.regions.some(region => region.id === VIDEO_REGION) || !/^https:\/\//.test(editor.endpoint ?? '')) {
-		throw new Error(`The page must offer a masked field for every credential of ${VIDEO_PROVIDER}, its regions, and its endpoint: ${JSON.stringify(editor)}`);
+		|| !editor.regions.some(region => region.id === SMOKE_REGION) || !/^https:\/\//.test(editor.endpoint ?? '')) {
+		throw new Error(`The page must offer a masked field for every credential of ${SMOKE_PROVIDER}, its regions, and its endpoint: ${JSON.stringify(editor)}`);
 	}
-	// The provider's models by name, so that the user can tell where to get credentials.
-	if (!editor.models.length || editor.models.some(model => !model.id || !model.label)) {
-		throw new Error(`The page must list ${VIDEO_PROVIDER}'s models by name: ${JSON.stringify(editor.models)}`);
+	// The provider's models by name, under Images and then Videos, so that the
+	// user can tell where to get credentials. A provider of images and videos
+	// has both lines; one of videos only, and one of images only, have one.
+	const lines = shown => shown.kinds.map(line => `${line.kind}:${line.label}`).join(' ');
+	if (lines(editor) !== 'image:Images video:Videos' || editor.kinds.some(line => !line.models.length || line.models.some(model => !model.id || !model.label))) {
+		throw new Error(`The page must name ${SMOKE_PROVIDER}'s models under Images and Videos: ${JSON.stringify(editor.kinds)}`);
 	}
-	await closeVideoProvidersPage(page, providers);
+	for (const [provider, expected] of [['pixverse', 'video:Videos'], ['openai', 'image:Images']]) {
+		if (!rows.some(row => row.id === provider)) {
+			continue;
+		}
+		await providers.locator(`.basehalf-video-provider-row[data-provider="${provider}"]`).click();
+		const other = await waitForReading(() => readProviderEditor(providers), seen => seen.provider === provider, `the page to show ${provider}`);
+		if (lines(other) !== expected || other.kinds.some(line => !line.models.length)) {
+			throw new Error(`The page must name the models of ${provider} under the one kind it makes, ${expected}: ${JSON.stringify(other.kinds)}`);
+		}
+	}
+	await closeProvidersPage(page, providers);
 }
