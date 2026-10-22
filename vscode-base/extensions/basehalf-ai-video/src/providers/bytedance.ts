@@ -307,7 +307,7 @@ const SEEDREAM: readonly Seedream[] = Object.freeze([
 	},
 	{
 		id: 'seedream-5.0-lite',
-		// BytePlus's model list gives `seedream-5-0-260128`; its deprecation page names `dola-seedream-5-0-lite-260128`.
+		// BytePlus's model list gives `seedream-5-0-260128`, which "also supports" `seedream-5-0-lite-260128`.
 		providerModels: { cn: 'doubao-seedream-5-0-260128', intl: 'seedream-5-0-260128' },
 		levels: ['2k', '3k', '4k'],
 		sizes: LITE_4_SIZES,

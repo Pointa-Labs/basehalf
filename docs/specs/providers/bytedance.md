@@ -161,11 +161,14 @@ where they differ, the difference is named below.
   `doubao-seedream-4-0-20260415`, which no model list shows. Image models are
   not moved to a new model by themselves. The three are deprecated in China
   only (`deprecatedIn: ["cn"]`); BytePlus retires none of them.
-- **Open: the BytePlus id of 5.0 Lite.** BytePlus's model list gives
-  `seedream-5-0-260128` (and says it also takes `seedream-5-0-lite-260128`),
-  while its deprecation page names `dola-seedream-5-0-lite-260128` as the
-  model that replaces Seedream 3.0. The catalog sends the model list's id; a
-  call with a real key has to show which ids BytePlus accepts.
+- **The BytePlus id of 5.0 Lite** is `seedream-5-0-260128`: BytePlus's model
+  list (`docs/modelark/model-list`, read again 2026-10-23) gives it with
+  "(also supports: seedream-5-0-lite-260128)", and lists the other image
+  models as the catalog sends them (`dola-seedream-5-0-pro-260628`,
+  `dola-seedream-5-0-flash-260915`, `seedream-4-5-251128`,
+  `seedream-4-0-250828`). Its deprecation page names
+  `dola-seedream-5-0-lite-260128` as the model that replaces Seedream 3.0,
+  which no model list shows; the catalog sends the model list's id.
 - BytePlus's `eu-west-1` region stopped 5.0 Lite on 2026-09-10; the `intl`
   base URL is `ap-southeast-1`.
 - Each model must be activated in the provider's console. A model that is not

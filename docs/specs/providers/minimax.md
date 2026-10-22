@@ -329,7 +329,8 @@ page was read again on 2026-10-22 for the names of its style fields.
 - **Open: Image-01 Live outside China.** The international text-to-image page
   leaves it out of its models, while the international image-to-image page
   and model list name it, the latter as making images from a prompt and a
-  reference image. The catalog offers it in China only.
+  reference image. The catalog offers it in China only; the international
+  text-to-image page, read again on 2026-10-23, still lists `image-01` only.
 - No retirement dates are published.
 
 ### Modes and inputs
@@ -357,10 +358,12 @@ page was read again on 2026-10-22 for the names of its style fields.
 - The ratio is always sent; MiniMax has no Adaptive, and its default is 1:1.
   The sizes in parentheses are MiniMax's. MiniMax has no resolution.
 - The style's values are named in English in the catalog and sent as
-  MiniMax's own words. **Open: the style's field names.** The rendered China
-  pages and the files they are drawn from name `style_type` and
-  `style_weight`, while the China site's `openapi.json` names `type` and
-  `weight`; the module sends the names of the pages.
+  MiniMax's own words. The field names are those of the rendered China
+  reference (read again 2026-10-23): `style` is "画风设置，仅当 `model` 为
+  `image-01-live` 时生效", with `style_type` required (`漫画`, `元气`,
+  `中世纪`, `水彩`) and `style_weight` optional, from more than 0 to 1, 0.8 by
+  default. The China site's `openapi.json` still names `type` and `weight`;
+  the module sends the names of the reference.
 - Rules that `check` reports: the AIGC watermark is offered in China only, as
   for video (the international pages document no `aigc_watermark`).
 

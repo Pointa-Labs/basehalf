@@ -369,7 +369,12 @@ published.
 - The image models are listed after the video models, in this order.
 - Qwen-Image 2.1 came out on 2026-10-02 (Pro) and 2026-10-09 (Turbo), after
   the shared hosts stopped getting new features; whether they serve it is
-  not documented. It is declared in both regions; a host that does not know
+  not documented. Read again on 2026-10-23: the image API reference gives
+  Singapore only workspace hosts (`{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com`)
+  and mentions the shared host only in a note on moving, which says "The
+  existing domain remains fully functional"; the 2.1 Pro page lists Singapore
+  with the scope International and names no host. It is declared in both
+  regions; a host that does not know
   it answers that the model does not exist, and the message says how to use
   the workspace's host ([Image requests](#image-requests)).
 

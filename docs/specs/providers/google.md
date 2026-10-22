@@ -457,7 +457,10 @@ free-tier project is answered with the paid-tier message.
 ### Facts not confirmed
 
 - Whether an image model runs in the background: no page says so, and
-  BaseHalf does not ask for it.
+  BaseHalf does not ask for it. The background execution guide (read
+  2026-10-23) names standard Gemini models and managed agents as examples, the
+  Interactions reference says only "Whether to run the model interaction in
+  the background", and neither names an image model.
 - Whether `response_format.mime_type` takes `image/png`: one REST example of
   the guide sends it, while the reference names `image/jpeg` only; and which
   type Google answers when none is asked for.

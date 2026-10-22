@@ -415,8 +415,11 @@ Read on 2026-10-22; no page shows a date. The pages are the same under
 ### Image open questions
 
 1. How many images a task makes: one, by the example; a second creation
-   would be dropped, since a generation names one file.
-2. The format of the images: not documented; PNG is declared.
+   would be dropped, since a generation names one file. The image page, read
+   again on 2026-10-23, still has no count among the fields of the create,
+   and its example still answers one creation.
+2. The format of the images: not documented, also on 2026-10-23 (the page
+   names formats only for the images sent); PNG is declared.
 3. What Adaptive does without a reference: not defined; refused.
 
 ### Image acceptance criteria
