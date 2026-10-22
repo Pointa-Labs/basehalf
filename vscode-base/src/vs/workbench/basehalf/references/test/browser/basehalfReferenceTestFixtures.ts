@@ -33,7 +33,8 @@ export const baseHalfNoMovedItems: IBaseHalfMovedItemsService = {
 	mayStillBeFollowed: () => false,
 	acceptListing: async () => false,
 	acceptWorkbenchMove: () => { },
-	acceptWorkbenchDelete: () => { }
+	acceptWorkbenchDelete: () => { },
+	acceptDraftMove: () => { }
 };
 
 /**

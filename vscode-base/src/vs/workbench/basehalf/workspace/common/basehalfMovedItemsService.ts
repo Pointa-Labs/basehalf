@@ -24,7 +24,6 @@ import { baseHalfIsWorkspaceFolderMarked } from './basehalfLegacyCleanup.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from './basehalfMirrorTree.js';
 import { baseHalfComputeFileFingerprint, baseHalfMovedItemPath, baseHalfRecognizeMovedItems, IBaseHalfFileFingerprint, IBaseHalfFollowedItem, IBaseHalfMovedItem } from './basehalfMovedItems.js';
 import { BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES, IBaseHalfReferenceIndexService } from '../../references/common/basehalfReferenceIndex.js';
-import { isBaseHalfUpstreamReservedOutput } from '../../references/common/basehalfReferenceStore.js';
 
 export const IBaseHalfMovedItemsService = createDecorator<IBaseHalfMovedItemsService>('baseHalfMovedItemsService');
 
@@ -110,7 +109,7 @@ export interface IBaseHalfMovedItemsService {
 	 * the items directly in it, the folder itself, and the folders above it.
 	 * The canvas does not redraw a folder before that,
 	 * so that a moved item's card changes once. A move that is held back by
-	 * unsaved changes or a running node does not count: it waits for the user.
+	 * unsaved changes does not count: it waits for the user.
 	 */
 	isSettled(workspaceFolder: URI, shownFolder?: string): boolean;
 	/** Resolves when the folder {@link isSettled}, or after `timeoutMs`. */
@@ -161,8 +160,10 @@ export interface IBaseHalfMovedItemsService {
 	 * information is at the new path, `kept` when the old path names an item
 	 * again and nothing moved, `gone` when the new path names nothing any
 	 * more, so that the item can be paired again, and `held` when unsaved
-	 * changes or a running node hold it back, or when its relocation failed,
-	 * which leaves it pending and does not keep the canvas waiting.
+	 * changes hold it back, or when its relocation failed, which leaves it
+	 * pending and does not keep the canvas waiting. A generation card that
+	 * generates is not held back: relocation writes its new path into its
+	 * task record (generation cards, "Moving, renaming, copying, and undo").
 	 */
 	acceptRelocated(workspaceFolder: URI, move: IBaseHalfMovedItem, outcome: 'done' | 'kept' | 'gone' | 'held'): void;
 	/**
@@ -185,6 +186,15 @@ export interface IBaseHalfMovedItemsService {
 	acceptWorkbenchMove(workspaceFolder: URI, from: string, to: string): void;
 	/** A delete through the workbench: the snapshot forgets the item. */
 	acceptWorkbenchDelete(workspaceFolder: URI, path: string): void;
+	/**
+	 * A draft was moved or renamed through BaseHalf (generation cards,
+	 * "Moving, renaming, copying, and undo"). It has no file, so nothing
+	 * recognizes it and the snapshot holds nothing of it: its card
+	 * information is at the new path already. The entries that name it are
+	 * owed from now on and rewritten as after a relocation, and
+	 * {@link onDidRelocate} fires for it.
+	 */
+	acceptDraftMove(workspaceFolder: URI, from: string, to: string): void;
 }
 
 /**
@@ -262,7 +272,7 @@ class FolderSnapshot {
 	readonly fingerprints = new Map<string, IStoredFingerprint>();
 	readonly followed = new Map<string, BaseHalfCanvasItemKind>();
 	pending: IBaseHalfMovedItem[] = [];
-	/** The pending moves that unsaved changes or a running node hold back. */
+	/** The pending moves that unsaved changes hold back. */
 	readonly held = new Set<string>();
 	/** The moves that were relocated in the last window. */
 	recent: { readonly move: IBaseHalfMovedItem; readonly at: number }[] = [];
@@ -706,6 +716,12 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		this.endComparisonWithNothingLeft(state);
 		this._onDidChangeSettled.fire();
 		this.scheduleSave(state);
+	}
+
+	acceptDraftMove(workspaceFolder: URI, from: string, to: string): void {
+		if (from !== to) {
+			this.acceptRelocatedTogether(workspaceFolder, [{ from, to, kind: 'file', rule: 'draft' }]);
+		}
 	}
 
 	acceptWorkbenchDelete(workspaceFolder: URI, path: string): void {
@@ -1580,7 +1596,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 	}
 
 	private isEligible(state: FolderSnapshot, path: string, isDirectory: boolean): boolean {
-		return path !== '.bh' && !path.startsWith('.bh/') && !isBaseHalfUpstreamReservedOutput(path) && baseHalfIsCanvasEligiblePath(state.folder, path, isDirectory);
+		return path !== '.bh' && !path.startsWith('.bh/') && baseHalfIsCanvasEligiblePath(state.folder, path, isDirectory);
 	}
 
 	private resource(state: FolderSnapshot, path: string): URI {
