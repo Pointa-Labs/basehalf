@@ -447,7 +447,7 @@ states:
 | --- | --- | --- | --- | --- | --- | --- |
 | ByteDance | China `https://ark.cn-beijing.volces.com/api/v3`, international `https://ark.ap-southeast.bytepluses.com/api/v3` | API key, `Authorization: Bearer` | data URL | audio as data URL; video only as a public URL: not offered | Seedream, answered at once | queued tasks |
 | Kling | China `https://api-beijing.klingai.com`, international `https://api-singapore.klingai.com` | API key, `Authorization: Bearer` | base64 | public URL only: not offered | Kling Image, tasks on its earlier `/v1/images/` API | no |
-| Alibaba | China `https://dashscope.aliyuncs.com`, international `https://dashscope-intl.aliyuncs.com` | API key, `Authorization: Bearer`, `X-DashScope-Async: enable` | data URL | temporary upload (`oss://`) in China only | Qwen-Image and Wan, tasks | pending tasks |
+| Alibaba | China `https://dashscope.aliyuncs.com`, international `https://dashscope-intl.aliyuncs.com` | API key, `Authorization: Bearer`, `X-DashScope-Async: enable` (videos) | data URL | temporary upload (`oss://`) in China only | Qwen-Image and Wan, answered at once | pending tasks |
 | MiniMax | China `https://api.minimax.cn`, international `https://api.minimax.io` | API key, `Authorization: Bearer` | data URL | file upload (`mm_file://`) | image-01, answered at once | queued tasks (H3) |
 | Vidu | China `https://api.vidu.cn`, international `https://api.vidu.com` | API key, `Authorization: Token` | data URL | audio as data URL | Vidu Q2 and Q1, tasks | before it is scheduled |
 | Google | `https://generativelanguage.googleapis.com/v1beta` | API key, `x-goog-api-key` | inline base64 | inline base64 (videos), within the request size | Gemini image models, answered at once | running interactions |
