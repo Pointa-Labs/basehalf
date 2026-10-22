@@ -17,7 +17,7 @@ import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneGeometry, IBaseH
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { IBaseHalfCanvasNodeDocumentTransition, IBaseHalfCanvasUndoNode, reverseCanvasStateTransition, roundCanvasPosition, uniqueUris } from './basehalfCanvasViewShared.js';
+import { IBaseHalfCanvasUndoNode, reverseCanvasStateTransition, roundCanvasPosition, uniqueUris } from './basehalfCanvasViewShared.js';
 
 /** How long a place the user gave a card waits for the move of that card's item before it is saved. */
 const BASEHALF_CANVAS_MOVED_ITEMS_EDIT_HOLD_MS = 2000;
@@ -111,7 +111,6 @@ export class BaseHalfCanvasGeometry {
 		label: string,
 		folder: IBaseHalfCanvasFolderState,
 		nodes: readonly IBaseHalfCanvasUndoNode[],
-		documents: readonly IBaseHalfCanvasNodeDocumentTransition[],
 		apply: (reverse: boolean, lease: IBaseHalfWorkspaceMutationLease) => Promise<void>
 	): void {
 		const uniqueNodes = uniqueCanvasUndoNodes(nodes);
@@ -119,8 +118,7 @@ export class BaseHalfCanvasGeometry {
 		const stamps = stampPaths.map(path => this.view.workspaceMutationCoordinator.captureResource(folder.workspaceFolder, path));
 		const resources = uniqueUris([
 			this.view.canvasMirrorService.canvasResource(folder),
-			...uniqueNodes.map(node => joinPath(folder.workspaceFolder, ...node.path.split('/'))),
-			...documents.map(document => document.resource)
+			...uniqueNodes.map(node => joinPath(folder.workspaceFolder, ...node.path.split('/')))
 		]);
 		const run = async (reverse: boolean): Promise<void> => {
 			await this.view.workspaceMutationCoordinator.runResourceMutation(folder.workspaceFolder, stamps, lease => apply(reverse, lease));
@@ -247,7 +245,6 @@ export class BaseHalfCanvasGeometry {
 				undoLabel,
 				queuedFolder,
 				nodes,
-				[],
 				async (reverse, lease) => {
 					await this.applyCanvasGeometryTransition(queuedFolder, nodes, committedTransition!, reverse, lease);
 					didApplyUndoOrRedo?.(reverse);
@@ -368,7 +365,6 @@ export class BaseHalfCanvasGeometry {
 				undoLabel,
 				folder,
 				nodes,
-				[],
 				(reverse, lease) => this.applyCanvasGeometryTransition(folder, nodes, transition, reverse, lease)
 			);
 			if (this.view.isCurrentSceneKey(sceneKey) && this.view.renderedSceneStructuralEpoch === structuralEpoch) {

@@ -8,6 +8,7 @@ import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { equals } from '../../../../base/common/objects.js';
+import { dirname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { FileChangesEvent, FileOperationResult, IFileService, IFileStat, IFileStatWithPartialMetadata, toFileOperationResult } from '../../../../platform/files/common/files.js';
@@ -37,6 +38,7 @@ import {
 	BaseHalfGenerationParamType,
 	baseHalfGenerationInfoChangedFields,
 	baseHalfGenerationKindOfPath,
+	baseHalfGenerationMadeCopy,
 	baseHalfGenerationNextFreeName,
 	IBaseHalfGenerationInfo,
 	IBaseHalfGenerationInfoRead,
@@ -50,6 +52,7 @@ import {
 } from '../common/basehalfGenerationInfo.js';
 import { baseHalfVideoInputKindOfPath, findBaseHalfVideoModel } from '../common/basehalfVideoCatalog.js';
 import {
+	IBaseHalfGenerationCardEntry,
 	IBaseHalfGenerationCardSnapshot,
 	IBaseHalfGenerationCardStore,
 	IBaseHalfGenerationDraft,
@@ -136,23 +139,36 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 	}
 
 	async listDrafts(folder: URI): Promise<readonly IBaseHalfGenerationDraft[]> {
+		const cards = await this.listCards(folder);
+		return Object.freeze(cards.filter(card => !card.hasFile).map(({ resource, name, kind }) => Object.freeze({ resource, name, kind })));
+	}
+
+	async listCards(folder: URI): Promise<readonly IBaseHalfGenerationCardEntry[]> {
 		const location = this.locateFolder(folder);
 		if (!location) {
 			return [];
 		}
-		const items = await this.childNames(folder);
+		const items = await this.childItems(folder);
 		if (!items) {
 			// A draft in a folder that does not exist on this computer is not shown.
 			return [];
 		}
-		const drafts: IBaseHalfGenerationDraft[] = [];
+		const cards: IBaseHalfGenerationCardEntry[] = [];
 		for (const candidate of await this.generationDirectories(location)) {
+			const item = items.get(this.nameKey(folder, candidate.name));
+			if (item) {
+				// The item's own spelling names its card; a folder is no generation card.
+				if (!item.isDirectory && (candidate.holdsInfo || candidate.holdsMade) && baseHalfGenerationKindOfPath(item.name) === candidate.kind) {
+					cards.push(Object.freeze({ resource: item.resource, name: item.name, kind: candidate.kind, hasFile: true }));
+				}
+				continue;
+			}
 			const path = location.relativePath ? `${location.relativePath}/${candidate.name}` : candidate.name;
-			if (baseHalfIsDraft({ path, hasGenerationInfo: candidate.holdsInfo, hasMade: candidate.holdsMade, itemExists: items.has(this.nameKey(folder, candidate.name)) })) {
-				drafts.push(Object.freeze({ resource: URI.joinPath(folder, candidate.name), name: candidate.name, kind: candidate.kind }));
+			if (baseHalfIsDraft({ path, hasGenerationInfo: candidate.holdsInfo, hasMade: candidate.holdsMade, itemExists: false })) {
+				cards.push(Object.freeze({ resource: URI.joinPath(folder, candidate.name), name: candidate.name, kind: candidate.kind, hasFile: false }));
 			}
 		}
-		return Object.freeze(drafts.sort((a, b) => a.name.localeCompare(b.name)));
+		return Object.freeze(cards.sort((a, b) => a.name.localeCompare(b.name)));
 	}
 
 	async resolveInputs(snapshot: IBaseHalfGenerationCardSnapshot): Promise<readonly IBaseHalfVideoResolvedInput[]> {
@@ -319,6 +335,54 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			throw error;
 		}
 		this._onDidChange.fire(resource);
+	}
+
+	async writeCopy(source: URI, target: URI, newId: string): Promise<boolean> {
+		const from = this.locate(source);
+		const to = this.locateQuietly(target);
+		if (!to || to.kind !== from.kind) {
+			return false;
+		}
+		const [info, made, sourceStat, targetStat] = await Promise.all([
+			this.readMirror(from, BASEHALF_GENERATION_INFO_FILE),
+			this.readMirror(from, BASEHALF_GENERATION_MADE_FILE),
+			this.statQuietly(source),
+			this.statQuietly(target)
+		]);
+		const record = made.kind === 'bytes' ? parseBaseHalfGenerationMade(made.bytes.toString()) : undefined;
+		if (info.kind === 'absent' && made.kind === 'absent') {
+			return false;
+		}
+		if (targetStat?.isDirectory || sourceStat?.isDirectory) {
+			return false;
+		}
+		if (!sourceStat) {
+			// A copy of a draft is a draft where no item is, in a folder that exists;
+			// a generated file that is gone is no draft and is not copied.
+			if (made.kind !== 'absent' || info.kind !== 'bytes' || targetStat || !(await this.childItems(dirname(target)))) {
+				return false;
+			}
+		} else if (!targetStat) {
+			return false;
+		}
+		if (!record && info.kind !== 'bytes') {
+			// Neither can be copied: a record that cannot be read is left as it is.
+			return false;
+		}
+		await this.assertNotMarked(to);
+		if (await this.holdsCardInformation(to)) {
+			return false;
+		}
+		// The record of the copy first: a copied file is a generation card once either is there.
+		if (record) {
+			const copy = baseHalfGenerationMadeCopy(record, newId);
+			await this.commit(to, baseHalfMirrorResource(to.workspaceFolder, to.relativePath, BASEHALF_GENERATION_MADE_FILE), VSBuffer.fromString(serializeBaseHalfGenerationMade(copy)), null);
+		}
+		if (info.kind === 'bytes') {
+			await this.commit(to, baseHalfMirrorResource(to.workspaceFolder, to.relativePath, BASEHALF_GENERATION_INFO_FILE), info.bytes, null);
+		}
+		this._onDidChange.fire(target);
+		return true;
 	}
 
 	// --- events ----------------------------------------------------------------------------------
@@ -545,13 +609,13 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		return taken;
 	}
 
-	/** The comparison keys of the names in a folder, or `undefined` when it is not there. */
-	private async childNames(folder: URI): Promise<Set<string> | undefined> {
+	/** The items of a folder by the comparison keys of their names, or `undefined` when it is not there. */
+	private async childItems(folder: URI): Promise<Map<string, IFileStat> | undefined> {
 		const stat = await this.fileService.resolve(folder).catch(() => undefined);
 		if (!stat?.isDirectory) {
 			return undefined;
 		}
-		return new Set((stat.children ?? []).map(child => this.nameKey(folder, child.name)));
+		return new Map((stat.children ?? []).map(child => [this.nameKey(folder, child.name), child]));
 	}
 
 	/** The mirror directories of a folder whose names have a generation extension, with what they hold. */

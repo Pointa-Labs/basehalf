@@ -4,13 +4,39 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { Schemas } from '../../../../../base/common/network.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IFileStatWithPartialMetadata } from '../../../../../platform/files/common/files.js';
-import { IBaseHalfCanvasResourceSnapshot, sameBaseHalfCanvasResourceSnapshot } from '../../common/basehalfCanvasActionContext.js';
+import { FileService } from '../../../../../platform/files/common/fileService.js';
+import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
+import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { BaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
+import { BaseHalfCanvasActionContextService, IBaseHalfCanvasResourceSnapshot, sameBaseHalfCanvasResourceSnapshot } from '../../common/basehalfCanvasActionContext.js';
 
 suite('BaseHalfCanvasActionContext', () => {
-	ensureNoDisposablesAreLeakedInTestSuite();
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('an action on a draft knows it is one, holds while it stays one, and refuses once it is gone or got its file', async () => {
+		const fileService = disposables.add(new FileService(new NullLogService()));
+		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
+		const workspace = URI.file('/workspace');
+		const draft = URI.file('/workspace/shots/video.mp4');
+		const info = URI.file('/workspace/.bh/mirror/shots/video.mp4/generation.yaml');
+		await fileService.createFolder(URI.file('/workspace/shots'));
+		await fileService.writeFile(info, VSBuffer.fromString('prompt: ""\n'));
+		const service = new BaseHalfCanvasActionContextService(fileService, new BaseHalfWorkspaceMutationCoordinator());
+		const context = await service.capture(draft, workspace, 'shots/video.mp4');
+		const current = await service.assertCurrent(context);
+		await fileService.writeFile(draft, VSBuffer.fromString('the file arrived'));
+		await assert.rejects(service.assertCurrent(context), /changed while the canvas action was open/);
+		await fileService.del(draft);
+		await fileService.del(info);
+		await assert.rejects(service.assertCurrent(context), /changed while the canvas action was open/);
+		await assert.rejects(service.capture(draft, workspace, 'shots/video.mp4'));
+		assert.deepStrictEqual({ draft: context.snapshot.draft, isFile: current.isFile, isDirectory: current.isDirectory }, { draft: true, isFile: false, isDirectory: false });
+	});
 
 	test('accepts the same resource identity', () => {
 		assert.strictEqual(sameBaseHalfCanvasResourceSnapshot(snapshot(), stat()), true);

@@ -20,7 +20,7 @@ import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVide
 import { BaseHalfVideoProvidersPage } from '../../browser/basehalfVideoProvidersPage.js';
 import { BaseHalfVideoCatalogState, IBaseHalfVideoCatalog, IBaseHalfVideoCheckResult } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoCatalogService } from '../../common/basehalfVideoGeneration.js';
-import { TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import { FakeProviderCommands, InMemoryCredentialStore } from './basehalfVideoTestFixtures.js';
 
 /** A credential store whose writes wait until the test lets them end, to change the page while one is saved. */
@@ -171,6 +171,23 @@ suite('BaseHalfVideoProvidersPage', () => {
 		});
 	});
 
+	test('lists each provider\'s models under Images and Videos, so that the user can tell where to get credentials', () => {
+		const { page, container } = createPage({ kind: 'ready', catalog: TEST_GENERATION_CATALOG });
+		page.setInput('corvid');
+		const groups = descendants(container).filter(element => element.classList.contains('basehalf-video-provider-models')).map(group => ({
+			kind: group.dataset.kind,
+			text: group.textContent,
+			models: descendants(group).filter(element => element.dataset.model).map(element => element.dataset.model)
+		}));
+		assert.deepStrictEqual({ title: descendants(container).find(element => element.tagName === 'H1')?.textContent, groups }, {
+			title: 'Providers',
+			groups: [
+				{ kind: 'image', text: 'ImagesCorvid Paint · Corvid Print', models: ['corvid-paint', 'corvid-print'] },
+				{ kind: 'video', text: 'VideosCorvid Reel', models: ['corvid-reel'] }
+			]
+		});
+	});
+
 	test('a provider with two credentials is set up once both are set', async () => {
 		const { page, providers, container } = createPage();
 		page.setInput('borealis');
@@ -255,8 +272,8 @@ suite('BaseHalfVideoProvidersPage', () => {
 		const retry = descendants(failed.container).find(element => element.dataset.focus === 'retry');
 		retry?.click();
 		assert.deepStrictEqual({
-			loading: [loading.container.textContent?.includes('Loading the video providers…'), loading.catalog.loads, descendants(loading.container).some(element => element.dataset.focus === 'retry')],
-			failed: [failed.container.textContent?.includes('BaseHalf could not load the video providers: AI Video is not running.'), retry?.textContent, failed.catalog.loads]
+			loading: [loading.container.textContent?.includes('Loading the providers…'), loading.catalog.loads, descendants(loading.container).some(element => element.dataset.focus === 'retry')],
+			failed: [failed.container.textContent?.includes('BaseHalf could not load the providers: AI Video is not running.'), retry?.textContent, failed.catalog.loads]
 		}, { loading: [true, 1, false], failed: [true, 'Try Again', 2] });
 		loading.catalog.state = { kind: 'ready', catalog: TEST_VIDEO_CATALOG };
 		loading.catalog.changed.fire();
@@ -426,7 +443,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 		await settle();
 		const active = mainWindow.document.activeElement;
 		assert.deepStrictEqual({
-			loading: failed.container.textContent?.includes('Loading the video providers…'),
+			loading: failed.container.textContent?.includes('Loading the providers…'),
 			inPage: active instanceof mainWindow.HTMLElement && failed.container.contains(active),
 			page: active instanceof mainWindow.HTMLElement && active.classList.contains('basehalf-video-providers')
 		}, { loading: true, inPage: true, page: true });

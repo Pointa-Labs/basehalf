@@ -198,8 +198,9 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['basehalf.agent.*', 'basehalf.agents.*']
 				},
 				{
+					// BaseHalf: the Providers page of image and video cards (D64).
 					id: 'basehalf/models',
-					label: localize('basehalfVideoProviders', "Video Providers"),
+					label: localize('basehalfProviders', "Providers"),
 					custom: true
 				},
 				{

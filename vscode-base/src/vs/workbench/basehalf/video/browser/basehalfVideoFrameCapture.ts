@@ -5,30 +5,33 @@
 
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { FileAccess } from '../../../../base/common/network.js';
-import { dirname, joinPath } from '../../../../base/common/resources.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
 import type { BaseHalfCanvasSceneVideoFrame } from '../../canvas/common/basehalfCanvasScene.js';
 
 /**
- * Capture Frame of a Video card (D58, video node specification, "The card"):
- * the first, the current, or the last frame of the node's video, written as a
- * PNG into the node's folder and named after the node and the frame. The
+ * Capture Frame of a video generation card (generation cards, "The
+ * toolbar"): the first, the current, or the last frame of the card's video,
+ * written as a PNG into the card's folder and named after the card and the
+ * frame (`shot first frame.png`), with a number when the name is taken. The
  * workbench puts its card to the right of the video card; it is an ordinary
- * image that can be connected to another node.
+ * image that can be connected to another card.
  */
 
 export interface IBaseHalfVideoFrameCaptureRequest {
 	/** The video file. */
 	readonly video: URI;
-	/** The Video node's `.bhnode`: the frame is written beside it. */
-	readonly node: URI;
-	/** The node's title, which names the frame's file. */
+	/** The folder the frame is written into: the card's. */
+	readonly folder: URI;
+	/** The card's name without its extension, which names the frame's file. */
 	readonly title: string;
 	readonly frame: BaseHalfCanvasSceneVideoFrame;
 	/** The current frame: the time the card's player shows, in seconds. */
 	readonly currentTime?: number;
+	/** Whether a name no file or folder has is taken all the same: by a draft (generation cards, "Creating a generation card"). */
+	readonly isNameTaken?: (resource: URI) => Promise<boolean>;
 }
 
 export interface IBaseHalfVideoFrameImage {
@@ -53,10 +56,9 @@ export async function captureBaseHalfVideoFrame(
 	reader: IBaseHalfVideoFrameReader
 ): Promise<URI> {
 	const image = await reader.read(request.video, duration => baseHalfVideoFrameTime(request.frame, duration, request.currentTime));
-	const folder = dirname(request.node);
 	for (let ordinal = 1; ordinal < 1000; ordinal++) {
-		const target = joinPath(folder, baseHalfVideoFrameFileName(request.title, request.frame, image.time, ordinal));
-		if (await fileService.exists(target)) {
+		const target = joinPath(request.folder, baseHalfVideoFrameFileName(request.title, request.frame, image.time, ordinal));
+		if (await fileService.exists(target) || await request.isNameTaken?.(target)) {
 			continue;
 		}
 		try {
@@ -115,7 +117,7 @@ export function baseHalfVideoFrameFileName(title: string, frame: BaseHalfCanvasS
 	return ordinal > 1 ? `${base} ${ordinal}.png` : `${base}.png`;
 }
 
-/** The node's title as it can stand in a file name on every system. */
+/** The card's name as it can stand in a file name on every system. */
 function baseHalfVideoFrameFileTitle(title: string): string {
 	const cleaned = title.replace(/[\\/:*?"<>|\u0000-\u001F]+/g, '-').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '');
 	const clipped = cleaned.length > MAX_TITLE_LENGTH ? cleaned.slice(0, MAX_TITLE_LENGTH).trim() : cleaned;

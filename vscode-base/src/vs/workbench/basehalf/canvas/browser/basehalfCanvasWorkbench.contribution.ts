@@ -10,18 +10,19 @@ import { $, append, isHTMLElement, isSVGElement } from '../../../../base/browser
 import { onUnexpectedError } from '../../../../base/common/errors.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
-import { isEqualOrParent, joinPath } from '../../../../base/common/resources.js';
+import { dirname, isEqualOrParent, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { localize } from '../../../../nls.js';
-import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IDialogService, IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IContextMenuService, IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
@@ -50,14 +51,15 @@ import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMoved
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNoteFocusLeaseOwner, BaseHalfCanvasNoteFormatSelectionBarrier, IBaseHalfCanvasNoteFocusLease } from '../common/basehalfCanvasNoteFormatLifecycle.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
-import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
+import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } from '../common/basehalfCanvasActionContext.js';
 import { BaseHalfCanvasViewportPersister, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../../video/common/basehalfVideoGeneration.js';
-import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue } from '../common/basehalfCanvasPreviewHydration.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
+import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
+import { BaseHalfCanvasPreviewHydrationQueue } from '../common/basehalfCanvasPreviewHydration.js';
 import { IBaseHalfCardDetailSurfaceRegistryService } from '../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { BaseHalfCanvasReactScene } from './basehalfCanvasReactScene.js';
 import { BaseHalfCanvasInteractionRenderGate } from './basehalfCanvasConnectionTransaction.js';
@@ -70,10 +72,9 @@ import {
 	IBaseHalfCanvasSceneCardPresentation,
 	IBaseHalfCanvasSceneEdge
 } from '../common/basehalfCanvasScene.js';
-import { BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID } from './basehalfCanvasContextMenu.js';
 import { layoutBaseHalfCanvasCardVideoPlayers } from './basehalfCanvasCardVideoPlayer.js';
 import { playBaseHalfCanvasMediaOneAtATime } from './basehalfCanvasCardMedia.js';
-import { BaseHalfCanvasCardPreview, BaseHalfCanvasNodePreview } from '../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
 import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import { baseHalfStructuralResourceOutcome, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationStamp, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
@@ -213,7 +214,6 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly cardPresentationUpdaters = new WeakMap<HTMLElement, (presentation: IBaseHalfCanvasSceneCardPresentation) => void>();
 	readonly cardPreviewHydrationQueue = new BaseHalfCanvasPreviewHydrationQueue();
 	cardPreviewHydrationTimer: number | undefined;
-	readonly cardPreviewVerificationQueue = new BaseHalfCanvasPreviewVerificationQueue();
 	renderedSceneStructuralEpoch = 0;
 	activeDetailProjection: BaseHalfCardDetailProjection | undefined;
 	readonly viewportPersister: BaseHalfCanvasViewportPersister;
@@ -238,10 +238,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	canvasInteractionEpoch = 0;
 	canvasNavigationEpoch = 0;
 	pendingCanvasSelection: IBaseHalfPendingCanvasSelection | undefined;
-	/** A node the user just created: its panel takes the focus when it first shows (IBaseHalfCanvasView.takeCreatedNodeFocus). */
+	/** A generation card the user just created: its panel takes the focus when it first shows (IBaseHalfCanvasView.takeCreatedNodeFocus). */
 	createdNodeFocusPath: string | undefined;
-	/** Shows a newer state of its Video node in a card element, which is kept. */
-	readonly videoCardRetainers = new WeakMap<HTMLElement, (item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview) => void>();
 	pendingCanvasFit: IBaseHalfPendingCanvasFit | undefined;
 	/** Cards the user just created that are shown to them once they are drawn (canvas card placement). */
 	pendingCanvasReveal: { readonly sceneKey: string; readonly paths: readonly string[]; readonly owner: IBaseHalfCanvasPostCreateOwner } | undefined;
@@ -311,8 +309,10 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IHoverService public readonly hoverService: IHoverService,
 		@ICommandService public readonly commandService: ICommandService,
 		@IBaseHalfVideoGenerationService public readonly videoGenerationService: IBaseHalfVideoGenerationService,
-		@IBaseHalfVideoProviderSettingsService public readonly videoProviderSettings: IBaseHalfVideoProviderSettingsService,
-		@IBaseHalfVideoCatalogService public readonly videoCatalogService: IBaseHalfVideoCatalogService
+		@IBaseHalfGenerationCardStore public readonly generationCardStore: IBaseHalfGenerationCardStore,
+		@IBaseHalfGenerationTaskStore public readonly generationTaskStore: IBaseHalfGenerationTaskStore,
+		@IBaseHalfGenerationCardActions public readonly generationCardActions: IBaseHalfGenerationCardActions,
+		@IContextKeyService public readonly contextKeyService: IContextKeyService
 	) {
 		super();
 		// An item that was moved outside BaseHalf: the open canvas and the open
@@ -326,12 +326,6 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		// state, so the last gesture before closing is not lost.
 		this.viewportPersister = this._register(this.instantiationService.createInstance(BaseHalfCanvasViewportPersister));
 		this.upstreamActions = this._register(this.instantiationService.createInstance(BaseHalfUpstreamActions));
-		this._register(CommandsRegistry.registerCommand(BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, (_accessor, argument: unknown) => {
-			if (!isBaseHalfCanvasActionContext(argument)) {
-				return;
-			}
-			return this.selectionActions.openResultNodeFromActionContext(argument);
-		}));
 		this.detailBadgeDisposables = this._register(new DisposableStore());
 		this.canvasBadgeFocusRefresh = this._register(new MutableDisposable());
 		this._register(lifecycleService.onBeforeShutdown(event => event.veto(
@@ -510,6 +504,17 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				this.renderer.scheduleBackgroundRender();
 			}
 		}));
+		// The drafts of a folder are drawn with its files, and again when the card
+		// store says that a card's generation information changed (generation
+		// cards, "Drafts and missing files").
+		this._register(this.generationCardStore.onDidChange(card => {
+			const folder = this.getCurrentFolder();
+			if (folder && this.uriIdentityService.extUri.isEqual(dirname(card), folder.resource)) {
+				this.renderer.scheduleBackgroundRender();
+			}
+		}));
+		// A generation that starts or ends changes the toolbar of its cards.
+		this._register(this.videoGenerationService.onDidChangeProgress(card => this.cardRenderer.refreshGenerationControls(card)));
 		this._register(this.workingCopyService.onDidChangeDirty(workingCopy => {
 			const folder = this.getCurrentFolder();
 			if (folder && isEqualOrParent(workingCopy.resource, folder.workspaceFolder)) {
@@ -915,8 +920,16 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		const live = new Map<string, IBaseHalfBadgeNode>();
 		for (const node of nodes) {
 			const resource = joinPath(workspaceFolder, ...node.path.split('/'));
-			const stat = await this.fileService.stat(resource);
-			if (node.kind === 'folder' ? !stat.isDirectory : !stat.isFile) {
+			let stat: IFileStatWithPartialMetadata | undefined;
+			try {
+				stat = await this.fileService.stat(resource);
+			} catch (error) {
+				// A draft is a node without a file (generation cards, "Drafts and missing files").
+				if (node.kind !== 'file' || !await baseHalfPathHoldsDraft(this.fileService, workspaceFolder, node.path)) {
+					throw error;
+				}
+			}
+			if (stat && (node.kind === 'folder' ? !stat.isDirectory : !stat.isFile)) {
 				throw new Error(`Canvas node kind changed before the interaction completed: ${node.path}`);
 			}
 			live.set(node.path, {

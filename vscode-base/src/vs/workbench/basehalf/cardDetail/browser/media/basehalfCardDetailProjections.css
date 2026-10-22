@@ -198,3 +198,80 @@
 	min-height: 0;
 	overflow: hidden;
 }
+
+/* --- What made the file of a generation card ---------------------------------------------- */
+
+.monaco-workbench .basehalf-card-detail-media.has-generation-provenance {
+	display: flex;
+	flex-direction: column;
+}
+
+.monaco-workbench .basehalf-card-detail-media.has-generation-provenance > .basehalf-card-detail-media-webview {
+	position: relative;
+	height: auto;
+	min-height: 200px;
+	flex: 1 1 0;
+}
+
+.monaco-workbench .bh-generation-provenance {
+	max-height: 42%;
+	flex: none;
+	box-sizing: border-box;
+	padding: 14px 24px 18px;
+	overflow-y: auto;
+	color: var(--vscode-foreground);
+	border-top: 1px solid var(--vscode-widget-border, transparent);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.monaco-workbench .bh-generation-provenance-title {
+	margin: 0 0 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+
+.monaco-workbench .bh-generation-provenance-note {
+	margin: 0 0 8px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .bh-generation-provenance-rows {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: 4px 16px;
+	margin: 0;
+}
+
+.monaco-workbench .bh-generation-provenance-rows > dt {
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .bh-generation-provenance-rows > dd {
+	min-width: 0;
+	margin: 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+.monaco-workbench .bh-generation-provenance-inputs {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.monaco-workbench .bh-generation-provenance-input-name {
+	margin-right: 8px;
+	font-weight: 600;
+}
+
+.monaco-workbench .bh-generation-provenance-input-path {
+	color: var(--vscode-descriptionForeground);
+}

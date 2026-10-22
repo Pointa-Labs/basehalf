@@ -6,10 +6,13 @@
 import { $, append } from '../../../../../base/browser/dom.js';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
-import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { basename, joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
-import { IFileStat } from '../../../../../platform/files/common/files.js';
+import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
+import { IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
+import { findValidPasteFileTargetForResource, incrementFileName } from '../../../../contrib/files/browser/fileActions.js';
+import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeNode } from '../../../references/common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasDamage, IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
@@ -19,11 +22,10 @@ import { BaseHalfCanvasCreateKind } from '../../common/basehalfCanvasEditing.js'
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { baseHalfItemDisplayName } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfItemKindIcon, baseHalfItemIcon } from '../../../agentArea/common/basehalfAgentSelection.js';
-import { BaseHalfNodeKind } from '../../../video/common/basehalfNodeDocument.js';
 import { BaseHalfCanvasMarkdownInlineEditor, IBaseHalfCanvasMarkdownInlineSelection } from '../basehalfCanvasMarkdownInlineEditor.js';
 import { IBaseHalfCanvasNoteEditPoint } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../../markdown/common/basehalfMarkdownFormatting.js';
-import { BaseHalfCanvasCardPreview, BaseHalfCanvasNodePreview } from '../../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 
 /**
@@ -143,23 +145,6 @@ export interface IBaseHalfCanvasCardRenderCacheEntry {
 	readonly element: HTMLElement;
 }
 
-export function canvasResultNodeKindLabel(kind: BaseHalfNodeKind): string {
-	switch (kind) {
-		case 'file':
-			return localize('basehalf.canvas.resultKind.file', "File");
-		case 'image':
-			return localize('basehalf.canvas.resultKind.image', "Image");
-		case 'video':
-			return localize('basehalf.canvas.resultKind.video', "Video");
-		case 'audio':
-			return localize('basehalf.canvas.resultKind.audio', "Audio");
-		case 'pdf':
-			return localize('basehalf.canvas.resultKind.pdf', "PDF");
-		case 'presentation':
-			return localize('basehalf.canvas.resultKind.presentation', "Presentation");
-	}
-}
-
 export interface IBaseHalfBadgeDescriptionDraft {
 	readonly node: IBaseHalfBadgeNode;
 	readonly guard: IBaseHalfCanvasMutationGuard;
@@ -189,12 +174,6 @@ export interface IBaseHalfCanvasUndoNode {
 	readonly kind: IBaseHalfCanvasItem['kind'];
 }
 
-export interface IBaseHalfCanvasNodeDocumentTransition {
-	readonly resource: URI;
-	readonly expected: VSBuffer;
-	readonly next: VSBuffer;
-}
-
 export type BaseHalfCanvasInlineEdit =
 	| {
 		readonly kind: 'rename';
@@ -207,6 +186,8 @@ export type BaseHalfCanvasInlineEdit =
 		 * name without it. Empty for an item that is renamed by its file name.
 		 */
 		readonly extension: string;
+		/** The item is a draft of this kind: renaming it moves its card information, and its name keeps an extension of its kind. */
+		readonly draft?: 'image' | 'video';
 		readonly initialValue: string;
 		value: string;
 		selectionPending: boolean;
@@ -217,7 +198,7 @@ export type BaseHalfCanvasInlineEdit =
 		readonly kind: 'create';
 		readonly context: IBaseHalfCanvasActionContext;
 		readonly parent: URI;
-		readonly createKind: Exclude<BaseHalfCanvasCreateKind, 'note' | 'resultNode'>;
+		readonly createKind: Extract<BaseHalfCanvasCreateKind, 'file' | 'folder'>;
 		readonly initialValue: string;
 		readonly anchor: { readonly x: number; readonly y: number };
 		readonly canvasPosition: { readonly x: number; readonly y: number };
@@ -231,13 +212,6 @@ export const CANVAS_MARKDOWN_FULL_EDITOR_LABEL = localize(
 	'basehalf.canvas.note.fullEditorRequired',
 	"This Markdown file is too large for quick edit. Double-click to open the full editor."
 );
-
-// Video is the authored object on this canvas, not a thumbnail inside a generic
-// result card. Its title is external chrome, so the node itself is a true 16:9
-// stage rather than a media frame plus an internal header.
-export const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH = 720;
-
-export const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT = 405;
 
 /** The key of the scene the canvas shows when no folder is open. */
 export const BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY = 'no-folder';
@@ -277,17 +251,14 @@ export function baseHalfReferenceLabel(relativePath: string): string {
 	return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
-export function isVideoNodePreview(preview: BaseHalfCanvasCardPreview | undefined): preview is BaseHalfCanvasNodePreview {
-	return preview?.kind === 'node' && preview.document.kind === 'video';
-}
-
 /** The preview of a video file's card: its player stays while the card is selected or deselected. */
 export function isVideoMediaPreview(preview: BaseHalfCanvasCardPreview | undefined): boolean {
 	return preview?.kind === 'media' && preview.mediaKind === 'video';
 }
 
-export function cardDisplayName(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): string {
-	return preview?.kind === 'node' ? preview.document.title : baseHalfItemDisplayName(item.name, item.kind === 'folder');
+/** The name a card's caption shows: a note's name without its extension, and every other file's and folder's name, a draft's the name its file will have. */
+export function cardDisplayName(item: IBaseHalfCanvasItem): string {
+	return baseHalfItemDisplayName(item.name, item.kind === 'folder');
 }
 
 export function baseHalfBadgeResourceIdentity(stat: Pick<IFileStat, 'ctime' | 'isFile' | 'isDirectory' | 'isSymbolicLink'>): string {
@@ -301,4 +272,70 @@ export function baseHalfBadgeResourceIdentity(stat: Pick<IFileStat, 'ctime' | 'i
 
 export function badgeType(label: string, isFolder: boolean): BaseHalfItemKindIcon {
 	return baseHalfItemIcon(label, isFolder);
+}
+
+/**
+ * Why a draft cannot take a name: a draft keeps its kind, so its name ends
+ * with an extension of that kind (canvas card name, "The editor in place").
+ */
+export function baseHalfCanvasDraftNameProblem(name: string, kind: 'image' | 'video'): string | undefined {
+	if (baseHalfGenerationKindOfPath(name) === kind) {
+		return undefined;
+	}
+	return kind === 'image'
+		? localize('basehalf.canvas.name.imageDraft', "An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.")
+		: localize('basehalf.canvas.name.videoDraft', "A video card needs a name that ends in .mp4, .mov, .m4v, or .webm.");
+}
+
+/**
+ * The path the copy of a generation card takes in `folder` (generation
+ * cards, "Moving, renaming, copying, and undo"): its own name where that is
+ * free, and the next free number after its own otherwise, as `nextFreeName`
+ * numbers from an ordinal on, never a path that `isReserved` reports, such as
+ * the one another copy of the same paste took.
+ */
+export async function baseHalfCanvasGenerationCopyTarget(
+	folder: URI,
+	name: string,
+	nextFreeName: (base: string, extension: string, startOrdinal: number) => Promise<string>,
+	isReserved: (candidate: URI) => boolean
+): Promise<URI> {
+	const { base, extension } = baseHalfGenerationNameParts(name);
+	for (let ordinal = baseHalfGenerationNameOrdinal(name); ;) {
+		const free = await nextFreeName(base, extension, ordinal);
+		const target = joinPath(folder, free);
+		if (!isReserved(target)) {
+			return target;
+		}
+		ordinal = baseHalfGenerationNameOrdinal(free) + 1;
+	}
+}
+
+/**
+ * The path a file or folder takes in `folder`, named as the Explorer names an
+ * item pasted there, where a name that `isTaken` reports, such as a draft's
+ * (generation cards, "Creating a generation card"), is taken as a file's is:
+ * the next name the Explorer would give is tried until one is free.
+ * `undefined` when the user declined to overwrite.
+ */
+export async function baseHalfCanvasFreeTransferTarget(
+	fileService: IFileService,
+	dialogService: IDialogService,
+	folder: URI,
+	source: URI,
+	isDirectory: boolean,
+	allowOverwrite: boolean,
+	incrementalNaming: 'simple' | 'smart' | 'disabled',
+	isTaken: (candidate: URI) => Promise<boolean>
+): Promise<URI | undefined> {
+	let target = await findValidPasteFileTargetForResource(fileService, dialogService, folder, { resource: source, isDirectory, allowOverwrite }, incrementalNaming);
+	const naming = incrementalNaming === 'disabled' ? 'smart' : incrementalNaming;
+	for (let attempt = 0; target && attempt < 1000 && await isTaken(target); attempt++) {
+		let name = basename(target);
+		do {
+			name = incrementFileName(name, isDirectory, naming);
+		} while (await fileService.exists(joinPath(folder, name)));
+		target = joinPath(folder, name);
+	}
+	return target;
 }

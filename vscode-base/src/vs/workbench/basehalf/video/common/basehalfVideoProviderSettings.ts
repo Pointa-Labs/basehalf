@@ -11,15 +11,15 @@ import { BASEHALF_VIDEO_PROVIDER_ID_PATTERN } from './basehalfVideoCatalog.js';
  * providers, "Credentials, regions, and endpoints"): how the region, the
  * endpoint, and the ids of the credentials that are set are stored, where
  * the credential values are kept, and the rules for endpoints and values.
- * Pure: the provider settings service and the Video Providers page share it.
+ * Pure: the provider settings service and the Providers page share it.
  * A credential value is never part of the stored record; it lives in the
  * encrypted credential store under {@link baseHalfVideoProviderSecretAddress}.
  */
 
-/** Opens Settings on the Video Providers page; with a provider id, on that provider. */
+/** Opens Settings on the Providers page; with a provider id, on that provider. */
 export const BASEHALF_VIDEO_PROVIDERS_COMMAND_ID = 'basehalf.video.providers';
 
-/** The Settings section that holds the Video Providers page. It keeps the place of the former Models & Providers page. */
+/** The Settings section that holds the Providers page. It keeps the place of the former Models & Providers page. */
 export const BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID = 'basehalf/models';
 
 /** The region, the endpoint, and the ids of the credentials that are set, per provider. */

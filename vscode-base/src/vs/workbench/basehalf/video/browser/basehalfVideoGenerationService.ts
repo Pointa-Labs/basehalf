@@ -23,10 +23,9 @@ import { SyncDescriptor } from '../../../../platform/instantiation/common/descri
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
+import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
@@ -41,7 +40,6 @@ import {
 	baseHalfGenerationExtensionMatchesFormat,
 	baseHalfGenerationFileFormat,
 	baseHalfGenerationFormatExtension,
-	baseHalfGenerationInfoChangedFields,
 	BaseHalfGenerationKind,
 	baseHalfGenerationMadeOfTask,
 	baseHalfGenerationNameOrdinal,
@@ -112,7 +110,6 @@ import {
 	BaseHalfVideoGenerationError,
 	BaseHalfVideoGenerationPhase,
 	IBaseHalfDraftOperations,
-	IBaseHalfDraftSnapshot,
 	IBaseHalfGenerateOptions,
 	IBaseHalfGenerationCardSnapshot,
 	IBaseHalfGenerationCardStore,
@@ -123,6 +120,7 @@ import {
 	IBaseHalfVideoProviderSettingsService,
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
+import { BaseHalfDraftUndoElement } from './basehalfDraftUndo.js';
 import { BASEHALF_GENERATION_CARD_SIZE, baseHalfParentCanvasFolder, placeBaseHalfCardsBeside } from './basehalfGenerationPlacement.js';
 
 /** The first question to the provider comes this long after it accepted the task. */
@@ -1844,13 +1842,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	private pushDraftsUndo(resource: URI, drafts: readonly URI[], info: IBaseHalfGenerationInfo): void {
 		const folder = this.workspaceFolderOf(resource);
 		const canvas = this.canvasMirrorService.canvasResource(baseHalfParentCanvasFolder({ resource, workspaceFolder: folder, relativePath: this.relativePath(folder, resource) }));
-		this.undoRedoService.pushElement(new BaseHalfGeneratedDraftsUndoElement([canvas, ...drafts], drafts, info, {
+		// Pushed at once, with what the generation wrote into its drafts: a later change of them is told field by field.
+		BaseHalfDraftUndoElement.push(localize('basehalf.video.generation.undoDrafts', "Generate"), 'basehalf.generation.drafts', [canvas, ...drafts], { kind: 'made', drafts }, {
 			isGenerating: draft => this.isGenerating(draft),
 			read: draft => this.cardStore.read(draft),
 			draftOperations: this.draftOperations,
 			notificationService: this.notificationService,
 			undoRedoService: this.undoRedoService
-		}), UndoRedoGroup.None, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		}, new Map(drafts.map(draft => [draft.toString(), info]))).catch(error => this.logService.warn(`[BaseHalf generation] The step of the drafts ${drafts.map(draft => draft.toString()).join(', ')} was not kept: ${getErrorMessage(error)}`));
 	}
 
 	// --- helpers -------------------------------------------------------------------------------
@@ -2007,70 +2006,6 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	private relativePath(folder: URI, resource: URI): string {
 		return this.uriIdentityService.extUri.relativePath(folder, resource) ?? basename(resource);
-	}
-}
-
-/** What the drafts a generation made need to be undone and done again. */
-interface IDraftsUndoServices {
-	isGenerating(draft: URI): boolean;
-	read(draft: URI): Promise<IBaseHalfGenerationCardSnapshot>;
-	readonly draftOperations: IBaseHalfDraftOperations;
-	readonly notificationService: INotificationService;
-	readonly undoRedoService: IUndoRedoService;
-}
-
-/**
- * Undo removes the drafts a generation made and redo brings them back, as
- * one step (generation cards, "Moving, renaming, copying, and undo"). While a
- * draft generates, undo refuses and keeps the step, which can be undone once
- * the generation ended. Once a draft has its file, or its card information
- * changed since, the step is done with: a generation is not undone, so undo
- * changes nothing and the next undo goes to the step before.
- */
-class BaseHalfGeneratedDraftsUndoElement implements IWorkspaceUndoRedoElement {
-	readonly type = UndoRedoElementType.Workspace;
-	readonly label = localize('basehalf.video.generation.undoDrafts', "Generate");
-	readonly code = 'basehalf.generation.drafts';
-	private snapshots: readonly IBaseHalfDraftSnapshot[] | undefined;
-
-	constructor(
-		readonly resources: readonly URI[],
-		private readonly drafts: readonly URI[],
-		private readonly info: IBaseHalfGenerationInfo,
-		private readonly services: IDraftsUndoServices
-	) { }
-
-	async undo(): Promise<void> {
-		const generating = this.drafts.find(draft => this.services.isGenerating(draft));
-		if (generating) {
-			this.services.notificationService.info(localize('basehalf.video.generation.undoGenerating', "{0} is generating. Stop it first.", basename(generating)));
-			const copy = new BaseHalfGeneratedDraftsUndoElement(this.resources, this.drafts, this.info, this.services);
-			this.services.undoRedoService.pushElement(copy, UndoRedoGroup.None, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
-			return;
-		}
-		for (const draft of this.drafts) {
-			const snapshot = await this.services.read(draft).catch(() => undefined);
-			if (!snapshot || snapshot.hasFile || snapshot.made || snapshot.madeUnreadable || baseHalfGenerationInfoChangedFields(this.info, snapshot.info).length) {
-				// Generated, or changed since: nothing is undone, and the step is done with.
-				this.snapshots = undefined;
-				return;
-			}
-		}
-		const snapshots: IBaseHalfDraftSnapshot[] = [];
-		for (const draft of this.drafts) {
-			snapshots.push(await this.services.draftOperations.delete(draft));
-		}
-		this.snapshots = snapshots;
-	}
-
-	async redo(): Promise<void> {
-		for (const snapshot of this.snapshots ?? []) {
-			try {
-				await this.services.draftOperations.restore(snapshot);
-			} catch (error) {
-				this.services.notificationService.info(getErrorMessage(error));
-			}
-		}
 	}
 }
 

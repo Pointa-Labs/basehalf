@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import './basehalfGenerationCardActions.js';
 import './basehalfGenerationCardStore.js';
 import './basehalfGenerationTaskStore.js';
 import './basehalfVideoCatalogService.js';
@@ -17,7 +18,7 @@ import { BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, BASEHALF_VIDEO_PROVIDERS_SETTINGS_
 import { BaseHalfVideoProvidersPage } from './basehalfVideoProvidersPage.js';
 
 /**
- * The Video Providers page (D59), in the place of the former Models &
+ * The Providers page (D59, D64), in the place of the former Models &
  * Providers page of Settings, and the command that opens it. The card store,
  * the task record store, and the catalog, provider settings, and generation
  * services register themselves in the modules imported above.
@@ -31,7 +32,7 @@ registerAction2(class OpenBaseHalfVideoProvidersAction extends Action2 {
 	constructor() {
 		super({
 			id: BASEHALF_VIDEO_PROVIDERS_COMMAND_ID,
-			title: localize2('basehalf.video.providers.open', "Video Providers"),
+			title: localize2('basehalf.video.providers.open', "Providers"),
 			category: localize2('basehalf.category', "BaseHalf"),
 			f1: true,
 			menu: {

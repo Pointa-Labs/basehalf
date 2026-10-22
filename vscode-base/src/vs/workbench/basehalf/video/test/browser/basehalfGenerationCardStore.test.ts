@@ -355,6 +355,80 @@ suite('BaseHalfGenerationCardStore', () => {
 		});
 	});
 
+	test('lists the generation cards of a folder: its drafts, and its files that have generation information, but no generated file that is gone', async () => {
+		const harness = await createHarness(disposables, {
+			'shots/note.md': 'x',
+			'shots/plain.png': 'png',
+			'.bh/mirror/shots/plain.png/badge.yaml': 'path: "shots/plain.png"\n',
+			'.bh/mirror/shots/a.png/generation.yaml': 'prompt: ""\n',
+			'shots/b.mp4': 'video',
+			'.bh/mirror/shots/b.mp4/made.yaml': serializeBaseHalfGenerationMade(made),
+			'shots/c.png': 'png',
+			'.bh/mirror/shots/c.png/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/gone.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/gone.mp4/made.yaml': serializeBaseHalfGenerationMade(made),
+			'shots/folder.mp4/inner.txt': 'a folder of that name',
+			'.bh/mirror/shots/folder.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/note.md/generation.yaml': 'prompt: ""\n'
+		});
+		const cards = await harness.store.listCards(harness.resource('shots'));
+		assert.deepStrictEqual({
+			cards: cards.map(card => `${card.name}:${card.kind}:${card.hasFile ? 'file' : 'draft'}:${card.resource.path}`),
+			drafts: (await harness.store.listDrafts(harness.resource('shots'))).map(draft => draft.name),
+			missing: await harness.store.listCards(harness.resource('missing'))
+		}, {
+			cards: ['a.png:image:draft:/work/shots/a.png', 'b.mp4:video:file:/work/shots/b.mp4', 'c.png:image:file:/work/shots/c.png'],
+			drafts: ['a.png'],
+			missing: []
+		});
+	});
+
+	test('writes the card information of a copy: the same generation.yaml and a record with a new id that names the one it copies, and nothing where card information is', async () => {
+		const harness = await createHarness(disposables, {
+			'shots/shot.mp4': 'video',
+			'.bh/mirror/shots/shot.mp4/generation.yaml': '# kept\nprompt: "A pier at dawn."\n',
+			'.bh/mirror/shots/shot.mp4/made.yaml': serializeBaseHalfGenerationMade(made),
+			'.bh/mirror/shots/shot.mp4/upstream.yaml': 'upstream:\n  - frames/start.png\n',
+			'shots/shot copy.mp4': 'video',
+			'shots/taken.mp4': 'video',
+			'.bh/mirror/shots/taken.mp4/badge.yaml': 'path: "shots/taken.mp4"\n',
+			'.bh/mirror/shots/draft.png/generation.yaml': 'prompt: "A heron."\n',
+			'shots/away.png': 'png',
+			'shots/elsewhere/.keep': ''
+		});
+		const copied = await harness.store.writeCopy(harness.resource('shots/shot.mp4'), harness.resource('shots/shot copy.mp4'), '20261022T090000-feedbeef');
+		const copy = await harness.store.read(harness.resource('shots/shot copy.mp4'));
+		const draft = await harness.store.writeCopy(harness.resource('shots/draft.png'), harness.resource('shots/elsewhere/draft.png'), 'unused');
+		assert.deepStrictEqual({
+			copied,
+			info: await harness.read('.bh/mirror/shots/shot copy.mp4/generation.yaml'),
+			made: { id: copy.made?.id, copyOf: copy.made?.copyOf, prompt: copy.made?.prompt },
+			upstream: copy.upstream,
+			draft,
+			draftInfo: (await harness.store.read(harness.resource('shots/elsewhere/draft.png'))).info,
+			refused: [
+				// Card information is there already.
+				await harness.store.writeCopy(harness.resource('shots/shot.mp4'), harness.resource('shots/taken.mp4'), 'x'),
+				// Another kind.
+				await harness.store.writeCopy(harness.resource('shots/shot.mp4'), harness.resource('shots/away.png'), 'x'),
+				// A copy of a draft only where no item is.
+				await harness.store.writeCopy(harness.resource('shots/draft.png'), harness.resource('shots/away.png'), 'x'),
+				// A copy of a card with its file only onto the copied file.
+				await harness.store.writeCopy(harness.resource('shots/shot.mp4'), harness.resource('shots/nothing.mp4'), 'x')
+			],
+			takenBadge: await harness.read('.bh/mirror/shots/taken.mp4/generation.yaml')
+		}, {
+			copied: true,
+			info: '# kept\nprompt: "A pier at dawn."\n',
+			made: { id: '20261022T090000-feedbeef', copyOf: made.id, prompt: made.prompt },
+			upstream: [],
+			draft: true,
+			draftInfo: { prompt: 'A heron.' },
+			refused: [false, false, false, false],
+			takenBadge: undefined
+		});
+	});
+
 	test('resolves its inputs: a file, a folder, a draft of its kind without a file, and entries that name nothing, a draft whose folder is not there included', async () => {
 		const harness = await createHarness(disposables, {
 			'refs/a.png': 'png',

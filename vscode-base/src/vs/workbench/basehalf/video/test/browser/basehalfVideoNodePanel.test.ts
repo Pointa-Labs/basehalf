@@ -42,6 +42,7 @@ import {
 	BaseHalfVideoGenerationError,
 	IBaseHalfDraftOperations,
 	IBaseHalfDraftSnapshot,
+	IBaseHalfGenerationCardEntry,
 	IBaseHalfGenerationCardSnapshot,
 	IBaseHalfGenerationCardStore,
 	IBaseHalfGenerationDraft,
@@ -104,6 +105,14 @@ class FakeCardStore extends Disposable implements IBaseHalfGenerationCardStore {
 
 	async listDrafts(): Promise<readonly IBaseHalfGenerationDraft[]> {
 		return [];
+	}
+
+	async listCards(): Promise<readonly IBaseHalfGenerationCardEntry[]> {
+		return [];
+	}
+
+	async writeCopy(): Promise<boolean> {
+		throw new Error('Not used by the panel.');
 	}
 
 	async update(_resource: URI, mutate: (info: IBaseHalfGenerationInfo) => IBaseHalfGenerationInfo): Promise<IBaseHalfGenerationCardSnapshot> {

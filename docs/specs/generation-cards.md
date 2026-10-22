@@ -200,6 +200,9 @@ inputs:
 - `id` is unique to this file: the task id, with `-<n>` for the n-th image of
   a generation that made several. `output` and `outputs` then say which one
   of how many it is.
+- `copyOf` is in the record of a copy only: the `id` of the record of the
+  file it copies, the first one for a copy of a copy. The rest of the record
+  is the original's.
 - `prompt` is the card's own prompt as it was sent. The text of the text
   inputs that joined it is not recorded; `inputs` names those notes, as it
   names every input, in the order they were listed. So a note's text is never
@@ -599,7 +602,9 @@ deselected with the pointer elsewhere, which pauses it.
 
 The card's caption is its name, as for every file
 ([canvas card name](canvas-card-name.md)); a draft's caption is the name its
-file will have, and renaming it renames the draft.
+file will have, and renaming it renames the draft. A draft has no file to
+open: a double click on it, Enter, and **Open** in its menu select it, and its
+panel shows. Its card has no badge face until it has its file.
 
 ### The player
 
@@ -664,6 +669,13 @@ and Last Frame.
   over the canvas the card is on, and closing it shows that canvas again.
   Every way of opening the card does this: the toolbar's **Open**, the
   player's **Open**, a double click, and **Open** in the card's menu.
+  - This section is below the image or the video of every generation card
+    with its file, however Card Detail was opened, and is drawn again when
+    its card information changes. An image or a video that is no generation
+    card has none.
+  - A `made.yaml` that cannot be read is not shown: the section says
+    "BaseHalf could not read what made this file." A copy's section says
+    that the file is a copy and that what it shows made the original.
 
 ## A generation
 
@@ -867,12 +879,15 @@ is a file does:
   `made.yaml` included; outside BaseHalf, it is
   [followed](following-moved-items.md) by its content.
 - **A draft** is moved or renamed only through BaseHalf, since it has no file:
-  renaming its card, dragging it onto a folder, or moving its folder. Its card
-  information and card row move, and the entries that name it are rewritten,
-  as for a file. A draft below a folder that is moved outside BaseHalf follows
-  the folder ([following moved items](following-moved-items.md#recognition),
-  rule 4). Renaming keeps the kind: a draft's name keeps an extension of its
-  kind.
+  renaming its card, cutting its card and pasting it on the canvas of another
+  folder, as a file is moved on the canvas, or moving its folder. A draft that
+  is pasted keeps its name where it is free, and takes the next free number
+  otherwise. Its card information and card row move, and the entries that
+  name it are rewritten, as for a file. The menu of a draft's card has no
+  **Reveal in Files**: a draft is not in Files. A draft below a folder that is
+  moved outside BaseHalf follows the folder
+  ([following moved items](following-moved-items.md#recognition), rule 4).
+  Renaming keeps the kind: a draft's name keeps an extension of its kind.
   - A draft moves only to a name that no file, folder, or draft has, in a
     folder that exists, within its workspace folder. The card information of
     a generated file that is in the trash or missing, a `generation.yaml` or
@@ -898,19 +913,36 @@ is a file does:
     old path, and its record keeps naming it
     ([following moved items](following-moved-items.md#relocation)).
 - **Copying** a generation card makes a new card in the folder where it is
-  pasted, named with the next free number: of a draft, a draft with the same
-  prompt and settings; of a card with its file, a copy of the file with the
-  same `generation.yaml` and a `made.yaml` whose `id` is new and which says it
-  is a copy of the original's. Neither has upstream entries or a task.
-- **Undo.** Creating, renaming, moving, and deleting a draft are each one step
-  of the canvas undo stack, which keeps all of the draft's card information.
-  Undo and redo refuse while the draft generates, and when its card
-  information changed since. A generation itself is not undone. The drafts a
-  generation made are one step, named Generate: while one of them generates,
-  undo refuses and keeps the step for later; once one has its file, or its
-  prompt or settings changed (compared field by field, in whatever order an
-  agent wrote them), the step is done with, so undo changes nothing and the
-  next undo goes to the step before.
+  pasted: of a draft, a draft with the same prompt and settings; of a card
+  with its file, a copy of the file with the same `generation.yaml` and a
+  `made.yaml` whose `id` is new and which says it is a copy of the original's.
+  Neither has upstream entries or a task. On the canvas, Copy and Paste and
+  Duplicate copy a draft as they copy a file, and name the copy of either
+  kind as a pasted draft is named: its own name where that is free, and the
+  next free number after its own otherwise (`shot-2.mp4` duplicated beside
+  itself is `shot-3.mp4`).
+  - A copy of a card with its file is made by any copy of its file through
+    the workbench, in Files too, under the name the copy takes there. A copy
+    of a folder copies the cards below it, the drafts among them; the record
+    of a generated file that is gone is not copied.
+  - Card information that is already at the path a copy takes stays, as it
+    is for a file that appears at a draft's path. A copy from outside the
+    open folders, or into a folder BaseHalf is set to leave alone, gets none.
+  - When the card information of a copy cannot be written, the copy is a
+    plain file, and BaseHalf says "BaseHalf could not copy the prompt and
+    settings of <name>."
+- **Undo.** Creating, renaming, moving, deleting, and copying a draft are each
+  one step of the canvas undo stack, which keeps all of the draft's card
+  information; so are the drafts a generation made, together, as one step
+  named Generate. A generation itself is not undone, and **Upload** is not a
+  step of undo: the file it copied is the card's file from then on.
+  - While a draft of a step generates, undo refuses, says why, and keeps the
+    step for later.
+  - Once a draft of a step has its file, or its prompt or settings changed
+    since the step (compared field by field, in whatever order an agent
+    wrote them), as when a prompt was typed into a new draft, or its path is
+    taken, the step is done with: undo and redo change nothing and say why,
+    and the next undo goes to the step before.
 
 ## Deleting
 
@@ -1246,6 +1278,17 @@ The player
   and the catalog that `--list-capabilities` gives agents; the player's
   gestures, controls, and sound
   (`basehalfCanvasCardVideoPlayer.test.ts`).
+- Unit tests of the canvas and its interface: the folder's model with its
+  drafts (`basehalfCanvasModel.test.ts`), the card's face
+  (`basehalfVideoCard.test.ts`), the panel host
+  (`basehalfCanvasVideoPanel.contribution.test.ts`), New Image, New Video,
+  and the draft operations as steps of undo
+  (`basehalfGenerationCardActions.test.ts`), the names a paste, a duplicate,
+  and a copy take (`basehalfCanvasFileOperations.test.ts`), copies through
+  the workbench (`basehalfGenerationCardCopy.test.ts`), the action context
+  of a draft (`basehalfCanvasActionContext.test.ts`), a selected draft for
+  agents (`basehalfAgentSelection.test.ts`), and what Card Detail says made
+  a file (`basehalfGenerationProvenance.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, and 32
   to 38, against the local test provider through the ByteDance module, with a

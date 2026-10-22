@@ -11,13 +11,13 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
-import { renderBaseHalfVideoCard } from '../../browser/basehalfVideoCard.js';
+import { renderBaseHalfGenerationCardFace } from '../../browser/basehalfVideoCard.js';
+import { createBaseHalfGenerationTask, failBaseHalfGenerationTask, IBaseHalfGenerationTask, stopBaseHalfGenerationTask } from '../../common/basehalfGenerationInfo.js';
 import { IBaseHalfVideoPlannedMedia } from '../../common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoGenerationProgress, IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
-import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
+import { IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationProgress, IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
 
-const NODE = URI.file('/workspace/shots/Shot 1.bhnode');
-const VIDEO = URI.file('/workspace/outputs/node-1/task-1.mp4');
+const CARD = URI.file('/workspace/shots/shot.mp4');
+const PATH = 'shots/shot.mp4';
 
 class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerationService {
 	declare readonly _serviceBrand: undefined;
@@ -41,39 +41,35 @@ class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerati
 	}
 	report(progress: IBaseHalfVideoGenerationProgress): void {
 		this.progress = progress;
-		this.changed.fire(NODE);
+		this.changed.fire(CARD);
 	}
 }
 
-suite('BaseHalfVideoCard', () => {
+/** The task records of a test: one record that names the card, or none. */
+class FakeTaskStore extends Disposable {
+	private readonly changed = this._register(new Emitter<void>());
+	task: IBaseHalfGenerationTask | undefined;
+
+	asService(): IBaseHalfGenerationTaskStore {
+		const service: Partial<IBaseHalfGenerationTaskStore> = {
+			onDidChange: this.changed.event,
+			forCard: () => this.task
+		};
+		return service as IBaseHalfGenerationTaskStore;
+	}
+
+	write(task: IBaseHalfGenerationTask | undefined): void {
+		this.task = task;
+		this.changed.fire();
+	}
+}
+
+suite('BaseHalfGenerationCardFace', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
 	let container: HTMLElement;
 	let hovers: Map<HTMLElement, () => string>;
 	let hoverService: IHoverService;
-
-	const request: IBaseHalfVideoGenerationRecord = {
-		provider: 'acme',
-		region: 'east',
-		model: 'acme-motion-2',
-		providerModel: 'acme-motion-2-e-260101',
-		mode: 'frames',
-		params: { resolution: '720p', duration: 5, sound: true },
-		prompt: 'Rain on the window.',
-		inputs: []
-	};
-	const startedAt = '2026-10-15T08:00:00.000Z';
-	/** A generation that started 42 seconds ago. */
-	const running = (): IBaseHalfVideoNodeFields => ({
-		task: { id: 'task-1', state: 'running', startedAt: new Date(Date.now() - 42_000).toISOString(), remoteId: 'cgt-1', request }
-	});
-	const withVideo: IBaseHalfVideoNodeFields = {
-		result: {
-			source: 'generated',
-			artifact: { kind: 'video', path: 'outputs/node-1/task-1.mp4', size: 10 },
-			generation: { taskId: 'task-1', remoteId: 'cgt-1', startedAt, completedAt: startedAt, request }
-		}
-	};
 
 	setup(() => {
 		container = mainWindow.document.createElement('div');
@@ -97,94 +93,89 @@ suite('BaseHalfVideoCard', () => {
 		return container.querySelector(selector)?.textContent ?? undefined;
 	}
 
-	test('shows the phase, the time since the start, and an exact bar while the node generates', () => {
+	/** A generation of the card that started 42 seconds ago. */
+	function running(): IBaseHalfGenerationTask {
+		return { ...createBaseHalfGenerationTask({ id: '20261022T080000-1a2b3c4d', kind: 'video', cards: [PATH], follower: 'window-1', now: new Date(Date.now() - 42_000).toISOString() }), state: 'running' };
+	}
+
+	function render(generation: FakeGenerationService, tasks: FakeTaskStore, input: { readonly kind?: 'image' | 'video'; readonly hasFile?: boolean; readonly name?: string } = {}) {
+		return disposables.add(renderBaseHalfGenerationCardFace(container, {
+			resource: CARD,
+			path: PATH,
+			name: input.name ?? 'shot.mp4',
+			kind: input.kind ?? 'video',
+			hasFile: input.hasFile ?? false
+		}, { hoverService, generationService: generation, taskStore: tasks.asService() }));
+	}
+
+	test('a draft shows the glyph of its kind alone, and says it is a draft', () => {
 		const generation = disposables.add(new FakeGenerationService());
-		const fields = running();
-		const card = disposables.add(renderBaseHalfVideoCard(container, { resource: NODE, title: 'Shot 1', fields, interactive: false }, { hoverService, generationService: generation }));
-		const beforeProgress = {
-			state: card.element.dataset.state,
-			phase: text('.bh-video-card-phase'),
-			elapsed: text('.bh-video-card-elapsed'),
-			indeterminate: container.querySelector('.bh-video-card-progress')?.classList.contains('indeterminate')
-		};
-		generation.report({ phase: 'generating', startedAt: Date.parse(fields.task!.startedAt), fraction: 0.42 });
-		const bar = container.querySelector<HTMLElement>('.bh-video-card-progress');
+		const tasks = disposables.add(new FakeTaskStore());
+		const video = render(generation, tasks);
+		const videoFace = { state: video.element.dataset.state, kind: video.element.dataset.kind, glyph: !!video.element.querySelector('.bh-generation-card-glyph svg'), text: video.element.textContent, label: video.element.getAttribute('aria-label') };
+		video.dispose();
+		const image = render(generation, tasks, { kind: 'image', name: 'image.png' });
 		assert.deepStrictEqual({
-			beforeProgress,
-			generating: {
-				phase: text('.bh-video-card-phase'),
-				now: bar?.getAttribute('aria-valuenow'),
-				width: container.querySelector<HTMLElement>('.bh-video-card-progress-value')?.style.width,
-				label: card.element.getAttribute('aria-label')
-			}
+			videoFace,
+			imageFace: { state: image.element.dataset.state, kind: image.element.dataset.kind, label: image.element.getAttribute('aria-label') }
 		}, {
+			videoFace: { state: 'draft', kind: 'video', glyph: true, text: '', label: 'shot.mp4, Video, draft' },
+			imageFace: { state: 'draft', kind: 'image', label: 'image.png, Image, draft' }
+		});
+	});
+
+	test('follows the task record: the phase, the time since the start, and a bar that is exact when the provider reports progress', () => {
+		const generation = disposables.add(new FakeGenerationService());
+		const tasks = disposables.add(new FakeTaskStore());
+		const face = render(generation, tasks);
+		tasks.write(running());
+		const beforeProgress = {
+			state: face.element.dataset.state,
+			phase: text('.bh-generation-card-phase'),
+			elapsed: text('.bh-generation-card-elapsed'),
+			indeterminate: container.querySelector('.bh-generation-card-progress')?.classList.contains('indeterminate')
+		};
+		generation.report({ phase: 'generating', startedAt: Date.parse(tasks.task!.startedAt), fraction: 0.42 });
+		const bar = container.querySelector<HTMLElement>('.bh-generation-card-progress');
+		const exact = {
+			now: bar?.getAttribute('aria-valuenow'),
+			width: container.querySelector<HTMLElement>('.bh-generation-card-progress-value')?.style.width,
+			label: face.element.getAttribute('aria-label')
+		};
+		generation.progress = undefined;
+		tasks.write(undefined);
+		assert.deepStrictEqual({ beforeProgress, exact, ended: face.element.dataset.state }, {
 			beforeProgress: { state: 'generating', phase: 'Generating', elapsed: '0:42', indeterminate: true },
-			generating: { phase: 'Generating', now: '42', width: '42%', label: 'Shot 1, Video, Generating, 42 percent' }
+			exact: { now: '42', width: '42%', label: 'shot.mp4, Video, Generating, 42 percent' },
+			ended: 'draft'
 		});
 	});
 
 	test('shows the error in at most two lines with the whole text in its tooltip, and Stopped', () => {
+		const generation = disposables.add(new FakeGenerationService());
+		const tasks = disposables.add(new FakeTaskStore());
 		const error = 'The provider refused the request because the prompt broke its content rules. '.repeat(6).trim();
-		const card = disposables.add(renderBaseHalfVideoCard(container, {
-			resource: NODE,
-			title: 'Shot 1',
-			fields: { task: { ...running().task!, state: 'failed', endedAt: startedAt, error } },
-			interactive: false
-		}, { hoverService }));
-		const face = container.querySelector<HTMLElement>('.bh-video-card-face')!;
-		const failed = { state: card.element.dataset.state, message: text('.bh-video-card-message'), tooltip: hovers.get(face)?.() };
-		card.update({ resource: NODE, title: 'Shot 1', fields: { task: { ...running().task!, state: 'stopped', endedAt: startedAt } }, interactive: false });
-		assert.deepStrictEqual({ failed, stopped: { state: card.element.dataset.state, message: text('.bh-video-card-message'), tooltip: hovers.has(face) } }, {
-			failed: { state: 'failed', message: error, tooltip: error },
+		const face = render(generation, tasks);
+		tasks.write(failBaseHalfGenerationTask(running(), error, new Date().toISOString()));
+		const failed = { state: face.element.dataset.state, message: text('.bh-generation-card-message'), tooltip: hovers.get(face.element)?.() };
+		tasks.write(stopBaseHalfGenerationTask(running(), new Date().toISOString()));
+		assert.deepStrictEqual({ failed, stopped: { state: face.element.dataset.state, message: text('.bh-generation-card-message'), tooltip: hovers.has(face.element) } }, {
+			failed: { state: 'failed', message: `${error.slice(0, 299)}…`, tooltip: error },
 			stopped: { state: 'stopped', message: 'Stopped', tooltip: false }
 		});
 	});
 
-	test('shows the video in its player, with the player\'s controls while selected, keeps the player across updates, pauses it when deselected, and says when the file is missing', () => {
-		container.style.width = '320px';
-		const card = disposables.add(renderBaseHalfVideoCard(container, { resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: true, interactive: false }, { hoverService }));
-		const player = container.querySelector<HTMLVideoElement>('video')!;
-		const playerControls = () => container.querySelector<HTMLElement>('.basehalf-canvas-video-player')?.dataset.controls;
-		const resting = { controls: player.controls, playerControls: playerControls(), hidden: player.getAttribute('aria-hidden'), pointer: player.style.pointerEvents, face: container.querySelector<HTMLElement>('.bh-video-card-face')?.hidden };
-		card.update({ resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: true, interactive: true });
-		const selected = { same: container.querySelector('video') === player, controls: player.controls, playerControls: playerControls(), time: card.currentTime };
-		// The video plays; the node changes while the card stays selected, and then the card is deselected.
-		let playing = true;
-		let pauses = 0;
-		Object.defineProperty(player, 'paused', { configurable: true, get: () => !playing });
-		player.pause = () => {
-			playing = false;
-			pauses++;
-		};
-		card.update({ resource: NODE, title: 'Shot 1', fields: { ...withVideo, prompt: 'Rain at dusk' }, video: VIDEO, videoExists: true, interactive: true });
-		const edited = { same: container.querySelector('video') === player, playing };
-		card.update({ resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: true, interactive: false });
-		const deselected = { same: container.querySelector('video') === player, controls: player.controls, playerControls: playerControls(), pauses };
-		card.update({ resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: false, interactive: true });
-		const face = container.querySelector<HTMLElement>('.bh-video-card-face')!;
-		assert.deepStrictEqual({
-			resting,
-			selected,
-			edited,
-			deselected,
-			missing: { state: card.element.dataset.state, player: container.querySelector('video'), message: text('.bh-video-card-message'), tooltip: hovers.get(face)?.() }
-		}, {
-			// The system's controls never show; the picture takes no pointer, so it is the card's.
-			resting: { controls: false, playerControls: 'hidden', hidden: 'true', pointer: 'none', face: true },
-			selected: { same: true, controls: false, playerControls: 'shown', time: 0 },
-			edited: { same: true, playing: true },
-			deselected: { same: true, controls: false, playerControls: 'hidden', pauses: 1 },
-			missing: { state: 'missing', player: null, message: 'The video file is missing', tooltip: 'outputs/node-1/task-1.mp4' }
+	test('a file that cannot be shown says so, with its path in the tooltip', () => {
+		const generation = disposables.add(new FakeGenerationService());
+		const tasks = disposables.add(new FakeTaskStore());
+		const video = render(generation, tasks, { hasFile: true });
+		const videoFace = { state: video.element.dataset.state, message: text('.bh-generation-card-message'), tooltip: hovers.get(video.element)?.() };
+		video.dispose();
+		const image = render(generation, tasks, { kind: 'image', hasFile: true, name: 'still.png' });
+		assert.deepStrictEqual({ videoFace, image: text('.bh-generation-card-message') }, {
+			videoFace: { state: 'unshowable', message: 'This video cannot be played here', tooltip: PATH },
+			image: 'This image cannot be shown here'
 		});
-	});
-
-	test('an empty node shows the glyph alone', () => {
-		const card = disposables.add(renderBaseHalfVideoCard(container, { resource: NODE, title: 'Shot 1', fields: { prompt: 'Rain' }, interactive: false }, { hoverService }));
-		assert.deepStrictEqual({
-			state: card.element.dataset.state,
-			glyph: !!container.querySelector('.bh-video-card-glyph svg'),
-			text: container.querySelector('.bh-video-card-face')?.textContent,
-			label: card.element.getAttribute('aria-label')
-		}, { state: 'empty', glyph: true, text: '', label: 'Shot 1, Video' });
+		image.dispose();
 	});
 });

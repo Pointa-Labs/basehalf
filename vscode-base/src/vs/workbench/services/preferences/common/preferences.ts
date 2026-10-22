@@ -228,7 +228,7 @@ export interface ISettingsEditorOptions extends IEditorOptions {
 /**
  * BaseHalf: a page of Settings by the id of its entry in the table of
  * contents (`settingsCustomSections.ts`), and what the page should show, such
- * as a provider of Video Providers.
+ * as a provider of the Providers page.
  */
 export interface ISettingsEditorCustomSection {
 	readonly id: string;

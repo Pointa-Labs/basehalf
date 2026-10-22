@@ -7,37 +7,23 @@ import '../media/basehalfCanvasCard.css';
 import '../media/basehalfCanvasCardPreview.css';
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
-import { VSBuffer } from '../../../../../base/common/buffer.js';
-import { basename, dirname, joinPath } from '../../../../../base/common/resources.js';
+import { dirname, isEqual } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { FileAccess } from '../../../../../base/common/network.js';
 import { localize } from '../../../../../nls.js';
-import { Parts } from '../../../../services/layout/browser/layoutService.js';
-import { findValidPasteFileTargetForResource } from '../../../../contrib/files/browser/fileActions.js';
-import { IFilesConfiguration } from '../../../../contrib/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasItemBounds, IBaseHalfCanvasBounds, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from '../../../shell/browser/basehalfItemGlyph.js';
-import {
-	BASEHALF_NODE_DOCUMENT_EXTENSION,
-	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	getBaseHalfNodeResultArtifact,
-	IBaseHalfNodeDocument,
-	importBaseHalfNodeResult,
-	parseBaseHalfNodeDocumentBytes,
-	serializeBaseHalfNodeDocument
-} from '../../../video/common/basehalfNodeDocument.js';
-import { baseHalfCanvasContentKindForPath, baseHalfNodeAcceptsContentKind } from '../../common/basehalfCanvasContentKind.js';
-import { baseHalfVideoNodePhase, IBaseHalfNodeArtifact } from '../../../video/common/basehalfVideoNode.js';
-import { IBaseHalfVideoCard, IBaseHalfVideoCardInput, renderBaseHalfVideoCard } from '../../../video/browser/basehalfVideoCard.js';
+import { BASEHALF_GENERATION_EXTENSIONS } from '../../../video/common/basehalfGenerationInfo.js';
+import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
+import { renderBaseHalfGenerationCardFace } from '../../../video/browser/basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from '../../../video/browser/basehalfVideoFrameCapture.js';
-import { baseHalfVideoCardToolbarActions } from '../../../video/common/basehalfVideoCardPresentation.js';
+import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase } from '../../../video/common/basehalfVideoCardPresentation.js';
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
-import { rememberBaseHalfVideoDetailNode } from '../../../cardDetail/browser/basehalfMediaCardDetail.js';
 import { releaseBaseHalfCanvasCardMedia } from '../basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
 import {
@@ -48,32 +34,11 @@ import {
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	IBaseHalfCanvasSceneCardPresentation
 } from '../../common/basehalfCanvasScene.js';
-import { BaseHalfCanvasCardPreview, BaseHalfCanvasNodePreview } from '../../common/basehalfCanvasCardPreview.js';
+import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT, BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, appendCanvasNoteFullEditorLabel, badgeType, baseHalfReferenceLabel, canvasResultNodeKindLabel, cardDisplayName, isVideoMediaPreview, isVideoNodePreview } from './basehalfCanvasViewShared.js';
+import { appendCanvasNoteFullEditorLabel, badgeType, cardDisplayName, isVideoMediaPreview } from './basehalfCanvasViewShared.js';
 
 type BaseHalfCanvasGlyphType = BaseHalfItemGlyph;
-
-function nodeResultLabel(document: IBaseHalfNodeDocument, outputText?: string): string {
-	const text = outputText?.trim().replace(/\s+/g, ' ');
-	if (text) {
-		return text.length > 240 ? `${text.slice(0, 237)}...` : text;
-	}
-	const artifact = getBaseHalfNodeResultArtifact(document);
-	if (artifact) {
-		return baseHalfReferenceLabel(artifact.path);
-	}
-	return localize('basehalf.canvas.node.empty', "Empty");
-}
-
-function nodePreviewResultLabel(preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>): string {
-	if (preview.document.result && preview.resultMissing) {
-		return localize('basehalf.canvas.node.missing', "The file is missing");
-	}
-	return preview.verificationPending && !!preview.document.result
-		? localize('basehalf.canvas.node.checking', "Checking the file…")
-		: nodeResultLabel(preview.document, preview.resultOutputText);
-}
 
 function glyphTone(type: BaseHalfCanvasGlyphType, orphan: boolean): string {
 	if (orphan) {
@@ -87,17 +52,13 @@ function glyphTone(type: BaseHalfCanvasGlyphType, orphan: boolean): string {
 
 /**
  * Builds the element of each card: its caption and glyph, and the body for a
- * note, a file, media, a folder, or a node, including Video cards and their
- * actions.
+ * note, a file, media, a folder, or a generation card, and runs the actions
+ * of a generation card's toolbar.
  *
  * A part of the canvas view (README.md in this folder): it keeps its own state,
  * and reaches the state the view shares and the other parts through `view`.
  */
 export class BaseHalfCanvasCardRenderer {
-	/** The drawn Video cards, for the time their players show. */
-	private readonly videoCards = new Map<string, IBaseHalfVideoCard>();
-	/** The Video card drawn in each card element. */
-	private readonly videoCardBodies = new WeakMap<HTMLElement, IBaseHalfVideoCard>();
 	/** The player of the video file drawn in each card element. */
 	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfCanvasCardVideoPlayer>();
 
@@ -116,35 +77,28 @@ export class BaseHalfCanvasCardRenderer {
 		const preview = this.view.renderedCardPreviewsByPath.get(path)?.preview;
 		const controls = this.sceneCardControls(item, preview);
 		if (controls?.kind !== 'video' || !controls.actions.includes(action)) {
-			throw new Error(localize('basehalf.canvas.video.actionUnavailable', "That video action is no longer available."));
+			throw new Error(localize('basehalf.canvas.video.actionUnavailable', "That action is no longer available."));
 		}
 		this.view.markCanvasUserInteraction();
 		switch (action) {
 			case 'importResult':
-				await this.importCanvasNodeResult(item);
+				await this.uploadToDraft(folder, item);
 				return;
-			case 'openFullPreview': {
-				const video = this.videoFileOf(item, preview);
-				if (video) {
-					rememberBaseHalfVideoDetailNode(video, item.stat.resource);
-				}
-				await this.view.selectionActions.openResultNodeContent(folder, item);
+			case 'openFullPreview':
+				// Open shows the card large, as a double click does; its video pauses.
+				this.playerOf(path)?.video.pause();
+				await this.view.selectionActions.openSceneCard(sceneKey, structuralEpoch, path);
 				return;
-			}
-			case 'revealVideo': {
-				const video = this.videoFileOf(item, preview);
-				if (video) {
-					await this.view.commandService.executeCommand('revealFileInOS', video);
-				}
+			case 'revealVideo':
+				await this.view.commandService.executeCommand('revealFileInOS', item.stat.resource);
 				return;
-			}
 			case 'captureFrame':
-				await this.captureVideoFrame(folder, item, preview, frame ?? 'first');
+				await this.captureVideoFrame(folder, item, frame ?? 'first');
 				return;
 		}
 	}
 
-	sceneCardControls(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): BaseHalfCanvasSceneCardControls | undefined {
+	sceneCardControls(item: IBaseHalfCanvasItem, _preview: BaseHalfCanvasCardPreview | undefined): BaseHalfCanvasSceneCardControls | undefined {
 		if (isBaseHalfMarkdownResource(item.stat.resource)) {
 			return {
 				kind: 'note',
@@ -152,22 +106,41 @@ export class BaseHalfCanvasCardRenderer {
 				background: this.view.renderedNoteBackgrounds.get(item.path) ?? 'default'
 			};
 		}
-		if (preview?.kind === 'nodeLoading') {
-			return { kind: 'pending' };
-		}
-		if (preview?.kind !== 'node' || preview.document.kind !== 'video') {
+		const generation = item.generation;
+		if (!generation) {
 			return undefined;
 		}
-		if (preview.dirty || (preview.document.result && preview.verificationPending)) {
-			return { kind: 'video', actions: Object.freeze([]) };
+		// The toolbar of a generation card follows its phase, which the task record of this computer decides.
+		const phase = baseHalfGenerationPhase({ path: item.path, hasFile: !generation.draft, task: this.view.generationTaskStore.forCard(item.stat.resource) });
+		return { kind: 'video', media: generation.kind, actions: baseHalfGenerationCardToolbarActions(generation.kind, phase) };
+	}
+
+	/**
+	 * A generation of a card on the canvas changed (generation cards, "The
+	 * card"): the card's face follows by itself, and its toolbar is given the
+	 * actions of its phase now, without drawing the canvas again.
+	 */
+	refreshGenerationControls(resource: URI): void {
+		const folder = this.view.getCurrentFolder();
+		const item = folder && isEqual(dirname(resource), folder.resource)
+			? [...this.view.renderedItemsByPath.values()].find(candidate => isEqual(candidate.stat.resource, resource))
+			: undefined;
+		const card = item?.generation ? this.view.renderedSceneCards.find(candidate => candidate.path === item.path) : undefined;
+		if (!folder || !item || !card) {
+			return;
 		}
-		return {
-			kind: 'video',
-			actions: baseHalfVideoCardToolbarActions(preview.document, {
-				generating: this.view.videoGenerationService.isGenerating(item.stat.resource),
-				videoExists: preview.resultMissing ? false : undefined
-			})
-		};
+		const controls = this.sceneCardControls(item, this.view.renderedCardPreviewsByPath.get(item.path)?.preview);
+		if (JSON.stringify(controls) === JSON.stringify(card.controls)) {
+			return;
+		}
+		this.view.renderedSceneCards = Object.freeze(this.view.renderedSceneCards.map(candidate => candidate === card ? { ...card, controls } : candidate));
+		this.view.canvasScene.update({
+			key: this.view.sceneKey(folder),
+			structuralEpoch: this.view.renderedSceneStructuralEpoch,
+			revision: this.view.renderSeq,
+			cards: this.view.renderedSceneCards,
+			edges: this.view.renderedSceneEdges
+		});
 	}
 
 	/** The scene has put a card's element into the document in place of the previous one. */
@@ -196,9 +169,9 @@ export class BaseHalfCanvasCardRenderer {
 		const listeners = this.view.cardListenerStores.replace(item.path, card);
 		const presentationListeners = new MutableDisposable<DisposableStore>();
 		listeners.add(presentationListeners);
-		const displayName = cardDisplayName(item, preview);
-		const resultNode = item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION);
+		const displayName = cardDisplayName(item);
 		const markdownNote = isBaseHalfMarkdownResource(item.stat.resource);
+		const draft = item.generation?.draft === true;
 		card.tabIndex = 0;
 		card.setAttribute('role', 'group');
 		card.dataset.basehalfCardPath = item.path;
@@ -208,20 +181,21 @@ export class BaseHalfCanvasCardRenderer {
 		card.dataset.projection = badgeOpen ? 'badge' : 'preview';
 		card.classList.add(item.kind);
 		card.classList.toggle('badge-open', badgeOpen);
-		card.setAttribute('aria-label', `${displayName} card`);
-		card.title = resultNode
-			? `${item.path} - click to select; double-click to open the file it shows`
-			: item.kind === 'folder'
-			? `${item.path} - click to select; double-click to enter this folder`
-			: markdownNote
-				? `${item.path} - click to select; double-click the content to edit`
-				: `${item.path} - click to select; double-click to open the editor`;
-
-		const type = preview?.kind === 'node' ? preview.document.kind : preview?.kind === 'nodeLoading' ? 'generic' : badgeType(item.name, item.kind === 'folder');
-		if (preview?.kind === 'node') {
-			card.dataset.nodeKind = preview.document.kind;
-			card.classList.add(`node-kind-${preview.document.kind}`);
+		if (item.generation) {
+			// A generation card, of an image or a video: a draft has no file yet.
+			card.dataset.generation = draft ? 'draft' : 'file';
+			card.dataset.generationKind = item.generation.kind;
 		}
+		card.setAttribute('aria-label', `${displayName} card`);
+		card.title = draft
+			? localize('basehalf.canvas.card.draftTitle', "{0} - click to select; it has no file yet", item.path)
+			: item.kind === 'folder'
+				? `${item.path} - click to select; double-click to enter this folder`
+				: markdownNote
+					? `${item.path} - click to select; double-click the content to edit`
+					: `${item.path} - click to select; double-click to open the editor`;
+
+		const type = badgeType(item.name, item.kind === 'folder');
 		const orphan = item.badge?.orphan === true;
 		const badgeIssueCount = (item.relationships?.issueCount ?? 0) + (this.view.renderedBadgeProblems.has(item.path) ? 1 : 0);
 		card.classList.toggle('has-reference-issues', badgeIssueCount > 0);
@@ -232,7 +206,8 @@ export class BaseHalfCanvasCardRenderer {
 				? localize('basehalf.canvas.card.oneIssue', "1 issue")
 				: localize('basehalf.canvas.card.issues', "{0} issues", badgeIssueCount);
 		card.setAttribute('aria-label', `${displayName} card${orphan ? ', missing' : ''}${issueText ? `, ${issueText}` : ''}`);
-		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
+		// A draft has no file whose description its badge would edit.
+		const canShowBadgeFace = !(item.kind === 'folder' && orphan) && !draft;
 		const caption = append(card, $('.basehalf-canvas-card-caption'));
 		const captionIdentity = append(caption, $('.basehalf-canvas-card-caption-identity'));
 		const icon = append(captionIdentity, $('.basehalf-canvas-card-caption-icon'));
@@ -242,10 +217,10 @@ export class BaseHalfCanvasCardRenderer {
 		label.textContent = displayName;
 		label.title = displayName;
 		label.classList.toggle('danger', orphan);
-		// The name is the file name of a file that is there: a double click on
-		// it renames in place. A video card shows the title of its document.
-		label.classList.toggle('renamable', !orphan && !resultNode);
-		if (!orphan && !resultNode) {
+		// The name is the file name of a file that is there, or the name a
+		// draft's file will have: a double click on it renames in place.
+		label.classList.toggle('renamable', !orphan);
+		if (!orphan) {
 			// The name is text. A click on it selects no card: the first click of
 			// the double click that edits it would bring the card's toolbar up
 			// over the name. A drag from it still moves the card.
@@ -259,9 +234,6 @@ export class BaseHalfCanvasCardRenderer {
 		this.view.creation.renderInlineRenameEditor(card, item);
 		this.view.renderedCardElementsByPath.set(item.path, card);
 
-		// What the card shows. The card of a Video node takes the new state of its
-		// node in place (retainVideoNodeCard).
-		const shown = { item, preview };
 		let renderedPresentation: BaseHalfCanvasCardPresentation | undefined;
 		let renderedHeight: number | undefined;
 		// The Open of a card's video player does what a double click on the card
@@ -291,21 +263,14 @@ export class BaseHalfCanvasCardRenderer {
 				}
 				return;
 			}
-			// A Video card, and the card of a video file, that is selected or
-			// deselected keeps its player: only the player's controls come and go.
-			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell'
-				&& !badgeOpen && isVideoNodePreview(shown.preview) && this.videoCardBodies.has(card)) {
-				renderedPresentation = presentationLevel;
-				card.dataset.previewLevel = presentationLevel;
-				this.updateVideoNodePreview(card, shown.item, shown.preview, presentationLevel === 'interactive', openCard);
-				return;
-			}
+			// The card of a video file, and the face of a draft, that is selected or
+			// deselected keeps what it shows: only the player's controls come and go.
 			const mediaPlayer = this.mediaVideoPlayers.get(card);
-			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell'
-				&& !badgeOpen && isVideoMediaPreview(shown.preview) && mediaPlayer) {
+			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell' && !badgeOpen
+				&& ((isVideoMediaPreview(preview) && mediaPlayer) || preview?.kind === 'draft')) {
 				renderedPresentation = presentationLevel;
 				card.dataset.previewLevel = presentationLevel;
-				mediaPlayer.setSelected(presentationLevel === 'interactive');
+				mediaPlayer?.setSelected(presentationLevel === 'interactive');
 				return;
 			}
 			renderedPresentation = presentationLevel;
@@ -322,24 +287,12 @@ export class BaseHalfCanvasCardRenderer {
 			if (badgeOpen && canShowBadgeFace) {
 				this.view.badgeEditor.renderCardBadgeFace(body, item, nextListeners);
 			} else {
-				this.renderCardPreview(body, shown.item, shown.preview, orphan, presentationLevel === 'interactive', nextListeners, card, openCard);
+				this.renderCardPreview(body, item, preview, orphan, presentationLevel === 'interactive', nextListeners, card, openCard);
 			}
-			this.renderFolderCoverage(active, shown.item, shown.preview);
+			this.renderFolderCoverage(active, item, preview);
 			this.view.badgeEditor.restorePendingCanvasBadgeFocus(card, item.path);
 		};
 		this.view.cardPresentationUpdaters.set(card, updatePresentation);
-		if (isVideoNodePreview(preview)) {
-			this.view.videoCardRetainers.set(card, (nextItem, nextPreview) => {
-				shown.item = nextItem;
-				shown.preview = nextPreview;
-				const name = cardDisplayName(nextItem, nextPreview);
-				label.textContent = name;
-				label.title = name;
-				if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && !badgeOpen) {
-					this.updateVideoNodePreview(card, nextItem, nextPreview, renderedPresentation === 'interactive', openCard);
-				}
-			});
-		}
 		updatePresentation({
 			level: 'shell',
 			height: bounds.height
@@ -355,13 +308,9 @@ export class BaseHalfCanvasCardRenderer {
 				void this.view.creation.requestInlineRename(item);
 			} else if (event.key === 'Enter') {
 				event.preventDefault();
-				if (resultNode) {
+				if (draft) {
+					// A draft has no file to open: Enter selects it, and its panel shows.
 					this.view.selectionActions.selectCard(item.path);
-					const folder = this.view.getCurrentFolder();
-					if (folder) {
-						this.view.selectionActions.cancelPendingNodeActivation();
-						void this.view.selectionActions.openResultNodeContent(folder, item);
-					}
 				} else if (markdownNote) {
 					this.view.selectionActions.selectCard(item.path);
 					const structuralEpoch = this.view.canvasScene.structuralEpochOf(sceneKey);
@@ -383,17 +332,9 @@ export class BaseHalfCanvasCardRenderer {
 		item: IBaseHalfCanvasItem,
 		index: number,
 		total: number,
-		preview: BaseHalfCanvasCardPreview | undefined
+		_preview: BaseHalfCanvasCardPreview | undefined
 	): IBaseHalfCanvasBounds {
-		const bounds = baseHalfCanvasItemBounds(item, index, total);
-		if (!item.card && preview?.kind === 'node' && preview.document.kind === 'video') {
-			return {
-				...bounds,
-				width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH,
-				height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT
-			};
-		}
-		return bounds;
+		return baseHalfCanvasItemBounds(item, index, total);
 	}
 
 	renderGlyph(container: Element, type: BaseHalfCanvasGlyphType, tone: string, size: number | string): void {
@@ -428,6 +369,10 @@ export class BaseHalfCanvasCardRenderer {
 			previewNode.textContent = 'Preview unavailable';
 			return;
 		}
+		if (preview.kind === 'draft') {
+			this.renderGenerationFace(previewNode, item, listeners);
+			return;
+		}
 		if (preview.kind === 'folder') {
 			this.renderFolderPreview(previewNode, preview, item.badge?.description);
 			return;
@@ -437,157 +382,101 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		if (preview.kind === 'media') {
-			this.renderMediaPreview(previewNode, preview, interactive, listeners, open, card);
-			return;
-		}
-		if (preview.kind === 'node') {
-			this.renderNodePreview(previewNode, item, preview, interactive, listeners, card, open);
-			return;
-		}
-		if (preview.kind === 'invalidNode') {
-			this.renderInvalidNodePreview(previewNode, item, preview.text, listeners);
+			// A generation card with its file shows its image or its video as the
+			// card of any such file does; one that cannot be shown says so.
+			const unshowable = item.generation ? () => this.renderGenerationFace(previewNode, item, listeners) : undefined;
+			this.renderMediaPreview(previewNode, preview, interactive, listeners, open, card, unshowable);
 			return;
 		}
 		previewNode.textContent = preview.text;
 	}
 
-	private renderInvalidNodePreview(container: HTMLElement, item: IBaseHalfCanvasItem, message: string, listeners: DisposableStore): void {
-		const title = append(container, $('.basehalf-canvas-invalid-node-title'));
-		title.textContent = localize('basehalf.canvas.node.unreadable', "Unreadable node");
-		const detail = append(container, $('.basehalf-canvas-invalid-node-message'));
-		detail.textContent = message;
-		const action = append(container, $('button.basehalf-canvas-invalid-node-action')) as HTMLButtonElement;
-		action.classList.add('nodrag', 'nopan', 'nowheel');
-		action.type = 'button';
-		action.textContent = 'Open source';
-		action.title = 'Open the local JSON source without changing it';
-		listeners.add(this.view.addDisposableListener(action, 'pointerdown', event => event.stopPropagation()));
-		listeners.add(this.view.addDisposableListener(action, 'dblclick', event => {
-			event.preventDefault();
-			event.stopPropagation();
-		}));
-		listeners.add(this.view.addDisposableListener(action, 'click', event => {
-			event.preventDefault();
-			event.stopPropagation();
-			void this.view.canvasNavigationService.openResource(item.stat.resource, {
-				source: 'api',
-				pinned: true,
-				projection: 'source'
-			});
+	/**
+	 * The face of a generation card without a file that can be shown: a draft,
+	 * a generation, its end, or a file that cannot be shown (generation cards,
+	 * "The card"). It follows the generation by itself.
+	 */
+	private renderGenerationFace(container: HTMLElement, item: IBaseHalfCanvasItem, listeners: DisposableStore): void {
+		if (!item.generation) {
+			return;
+		}
+		clearNode(container);
+		container.classList.add('kind-generation');
+		listeners.add(renderBaseHalfGenerationCardFace(container, {
+			resource: item.stat.resource,
+			path: item.path,
+			name: item.name,
+			kind: item.generation.kind,
+			hasFile: !item.generation.draft
+		}, {
+			hoverService: this.view.hoverService,
+			generationService: this.view.videoGenerationService,
+			taskStore: this.view.generationTaskStore
 		}));
 	}
 
-	private renderNodePreview(
-		container: HTMLElement,
-		item: IBaseHalfCanvasItem,
-		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
-		interactive: boolean,
-		listeners: DisposableStore,
-		card: HTMLElement,
-		open: () => void
-	): void {
-		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.task ? 'task' : 'empty';
-		if (preview.document.kind === 'video') {
-			this.renderVideoNodePreview(container, item, preview, interactive, listeners, card, open);
-			return;
-		}
-		const result = append(container, $('.basehalf-canvas-node-result'));
-		const resultLabel = append(result, $('.basehalf-canvas-node-result-label'));
-		resultLabel.textContent = localize('basehalf.canvas.node.result', "Result");
-		if (preview.resultMedia) {
-			const media = append(result, $('.basehalf-canvas-node-result-media'));
-			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners, open);
-		} else {
-			const resultValue = append(result, $('.basehalf-canvas-node-result-value'));
-			resultValue.textContent = nodePreviewResultLabel(preview);
-			resultValue.title = resultValue.textContent;
-		}
-		this.renderNodeActions(container, item, preview, listeners);
+	/** The player of the video that the card of `path` shows, while it shows one. */
+	private playerOf(path: string): IBaseHalfCanvasCardVideoPlayer | undefined {
+		const element = this.view.renderedCardElementsByPath.get(path);
+		return element ? this.mediaVideoPlayers.get(element) : undefined;
 	}
 
 	/**
-	 * The card of a Video node, drawn by the Video card module in every phase
-	 * (video node, "The card"). The card follows a generation in this window by
-	 * itself, and continues one that the node's file records and no window
-	 * follows.
+	 * Upload Image or Upload Video (generation cards, "The toolbar"): the user
+	 * chooses a file of the draft's kind, which is copied to the draft's path.
+	 * A file of another kind is refused with the reason.
 	 */
-	private renderVideoNodePreview(
-		container: HTMLElement,
-		item: IBaseHalfCanvasItem,
-		preview: BaseHalfCanvasNodePreview,
-		interactive: boolean,
-		listeners: DisposableStore,
-		card: HTMLElement,
-		open: () => void
-	): void {
-		const handle = renderBaseHalfVideoCard(container, this.videoCardInput(item, preview, interactive, open), { hoverService: this.view.hoverService, generationService: this.view.videoGenerationService });
-		listeners.add(handle);
-		this.videoCards.set(item.path, handle);
-		this.videoCardBodies.set(card, handle);
-		listeners.add(toDisposable(() => {
-			if (this.videoCards.get(item.path) === handle) {
-				this.videoCards.delete(item.path);
-			}
-			if (this.videoCardBodies.get(card) === handle) {
-				this.videoCardBodies.delete(card);
-			}
-		}));
-		this.applyVideoNodeCardState(card, preview);
-	}
-
-	/** Shows a newer state of a Video node, or the card selected or not, in the Video card drawn in `card`. */
-	private updateVideoNodePreview(card: HTMLElement, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean, open: () => void): void {
-		const handle = this.videoCardBodies.get(card);
-		if (!handle) {
+	private async uploadToDraft(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem): Promise<void> {
+		const generation = item.generation;
+		if (!generation?.draft || this.view.canvasNavigationService.state.cardDetail) {
 			return;
 		}
-		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.task ? 'task' : 'empty';
-		handle.update(this.videoCardInput(item, preview, interactive, open));
-		this.applyVideoNodeCardState(card, preview);
-	}
-
-	private videoCardInput(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean, open: () => void): IBaseHalfVideoCardInput {
-		const video = this.videoFileOf(item, preview);
-		return {
-			resource: item.stat.resource,
-			title: preview.document.title,
-			fields: preview.document,
-			...(video ? { video } : {}),
-			...(preview.resultMissing ? { videoExists: false } : {}),
-			interactive,
-			open
-		};
-	}
-
-	private applyVideoNodeCardState(card: HTMLElement, preview: BaseHalfCanvasNodePreview): void {
-		card.dataset.videoPhase = baseHalfVideoNodePhase(preview.document);
-		card.classList.toggle('empty-video-draft', card.dataset.videoPhase === 'empty');
-		card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.label', "{0}, Video", preview.document.title));
-	}
-
-	/** The video file a Video node shows, in its workspace folder. */
-	private videoFileOf(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): URI | undefined {
-		if (preview?.kind !== 'node' || !preview.document.result) {
-			return undefined;
-		}
-		const workspaceFolder = this.view.workspaceContextService.getWorkspaceFolder(item.stat.resource)?.uri;
-		return workspaceFolder ? joinPath(workspaceFolder, ...preview.document.result.artifact.path.split('/')) : undefined;
-	}
-
-	/** Capture Frame: writes the frame as a PNG beside the node; its card appears to the right of the video card. */
-	private async captureVideoFrame(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined, frame: BaseHalfCanvasSceneVideoFrame): Promise<void> {
-		const video = this.videoFileOf(item, preview);
-		if (!video || preview?.kind !== 'node') {
+		const title = generation.kind === 'image'
+			? localize('basehalf.canvas.upload.imageTitle', "Upload Image")
+			: localize('basehalf.canvas.upload.videoTitle', "Upload Video");
+		const picked = await this.view.fileDialogService.showOpenDialog({
+			title,
+			openLabel: localize('basehalf.canvas.upload.openLabel', "Upload"),
+			defaultUri: folder.resource,
+			canSelectFiles: true,
+			canSelectFolders: false,
+			canSelectMany: false,
+			filters: [{
+				name: generation.kind === 'image'
+					? localize('basehalf.canvas.upload.images', "Images")
+					: localize('basehalf.canvas.upload.videos', "Videos"),
+				extensions: [...BASEHALF_GENERATION_EXTENSIONS[generation.kind]]
+			}]
+		});
+		const source = picked?.[0];
+		if (!source) {
 			return;
 		}
+		try {
+			await this.view.generationCardActions.upload(item.stat.resource, source);
+		} catch (error) {
+			this.view.reportCanvasMutationError(error);
+			return;
+		}
+		this.view.requestRender();
+	}
+
+	/**
+	 * Capture Frame: writes the frame as a PNG into the card's folder, named
+	 * after the card and the frame; its card appears to the right of the video
+	 * card (generation cards, "The toolbar").
+	 */
+	private async captureVideoFrame(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem, frame: BaseHalfCanvasSceneVideoFrame): Promise<void> {
 		let image: URI;
 		try {
 			image = await captureBaseHalfVideoFrame(this.view.fileService, {
-				video,
-				node: item.stat.resource,
-				title: preview.document.title,
+				video: item.stat.resource,
+				folder: folder.resource,
+				title: baseHalfCanvasCardBaseName(item.name),
 				frame,
-				currentTime: this.videoCards.get(item.path)?.currentTime
+				currentTime: this.playerOf(item.path)?.currentTime,
+				// A draft's path is taken, as for every name the canvas chooses.
+				isNameTaken: target => this.isDraftPath(folder, target)
 			}, createBaseHalfVideoFrameReader(mainWindow));
 		} catch (error) {
 			this.view.logService.warn(error);
@@ -598,172 +487,18 @@ export class BaseHalfCanvasCardRenderer {
 		await this.view.creation.placeNewCardBeside(folder, item.path, image);
 	}
 
-	/**
-	 * The one action of an image, audio, file, PDF, or presentation node: an
-	 * empty node takes a file the user brings in, and a node with a file opens it.
-	 */
-	private renderNodeActions(
-		container: HTMLElement,
-		item: IBaseHalfCanvasItem,
-		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
-		listeners: DisposableStore
-	): void {
-		const document = preview.document;
-		const actions = append(container, $('.basehalf-canvas-node-actions'));
-		const action = append(actions, $('button.basehalf-canvas-node-action')) as HTMLButtonElement;
-		action.classList.add('nodrag', 'nopan', 'nowheel');
-		action.type = 'button';
-		const opens = !!document.result;
-		action.textContent = opens
-			? localize('basehalf.canvas.node.open', "Open")
-			: localize('basehalf.canvas.node.import', "Import {0}", canvasResultNodeKindLabel(document.kind));
-		const unavailable = opens ? preview.resultMissing === true : preview.dirty;
-		action.setAttribute('aria-disabled', String(unavailable));
-		action.title = opens && preview.resultMissing
-			? localize('basehalf.canvas.node.fileMissing', "The file this node shows is missing: {0}", document.result?.artifact.path ?? '')
-			: action.textContent;
-		action.setAttribute('aria-label', action.title);
-		listeners.add(this.view.addDisposableListener(action, 'pointerdown', event => event.stopPropagation()));
-		listeners.add(this.view.addDisposableListener(action, 'dblclick', event => {
-			event.preventDefault();
-			event.stopPropagation();
-		}));
-		listeners.add(this.view.addDisposableListener(action, 'click', event => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (action.getAttribute('aria-disabled') === 'true') {
-				return;
-			}
-			this.view.selectionActions.selectCard(item.path);
-			const folder = this.view.getCurrentFolder();
-			if (opens && folder) {
-				void this.view.selectionActions.openResultNodeContent(folder, item);
-			} else if (!opens) {
-				void this.importCanvasNodeResult(item);
-			}
-		}));
-	}
-
-	/**
-	 * Brings a file the user chooses into an empty node as its result (Upload
-	 * Video for a Video node): the file is copied to `assets/<node id>/` in the
-	 * workspace folder and the node records it. Only a node with no result and,
-	 * for a Video node, no generation takes one.
-	 */
-	private async importCanvasNodeResult(item: IBaseHalfCanvasItem): Promise<void> {
-		const folder = this.view.getCurrentFolder();
-		if (!folder || this.view.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-		try {
-			if (this.view.workingCopyService.isDirty(item.stat.resource)) {
-				throw new Error(localize('basehalf.canvas.import.dirty', "Save {0} before importing a file into it.", item.name));
-			}
-			const content = await this.view.fileService.readFile(item.stat.resource, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			if (document.result || document.task) {
-				throw new Error(localize('basehalf.canvas.import.notEmpty', "{0} already shows a file or has a generation. Import into a new empty node.", document.title));
-			}
-			await this.importNodeResult(folder, item, content.value, document);
-		} catch (error) {
-			this.view.logService.warn(error);
-			this.view.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.view.requestRender();
-		}
-	}
-
-	private async importNodeResult(
-		folder: IBaseHalfCanvasFolderState,
-		item: IBaseHalfCanvasItem,
-		expectedContents: VSBuffer,
-		document: IBaseHalfNodeDocument
-	): Promise<void> {
-		const importLabel = localize('basehalf.canvas.node.import', "Import {0}", canvasResultNodeKindLabel(document.kind));
-		const resources = await this.view.fileDialogService.showOpenDialog({
-			title: importLabel,
-			openLabel: importLabel,
-			defaultUri: folder.resource,
-			canSelectFiles: true,
-			canSelectFolders: false,
-			canSelectMany: false
-		});
-		const source = resources?.[0];
-		if (!source) {
-			return;
-		}
-		try {
-			if (this.view.workingCopyService.isDirty(item.stat.resource)) {
-				throw new Error(localize('basehalf.canvas.import.dirty', "Save {0} before importing a file into it.", item.name));
-			}
-			const stat = await this.view.fileService.resolve(source, { resolveMetadata: true });
-			if (!stat.isFile || stat.isSymbolicLink) {
-				throw new Error(localize('basehalf.canvas.import.notFile', "Choose a regular file."));
-			}
-			const importedKind = baseHalfCanvasContentKindForPath(basename(source), false);
-			if (!baseHalfNodeAcceptsContentKind(document.kind, importedKind)) {
-				throw new Error(localize('basehalf.canvas.import.wrongKind', "Choose a file of the node's kind. {0} is not one.", basename(source)));
-			}
-			const incrementalNaming = this.view.configurationService.getValue<IFilesConfiguration>().explorer.incrementalNaming;
-			const target = await findValidPasteFileTargetForResource(
-				this.view.fileService,
-				this.view.dialogService,
-				joinPath(folder.workspaceFolder, 'assets', document.id),
-				{ resource: source, isDirectory: false, allowOverwrite: false },
-				incrementalNaming === 'disabled' ? 'smart' : incrementalNaming
-			);
-			if (!target) {
-				return;
-			}
-			const targetPath = this.view.uriIdentityService.extUri.relativePath(folder.workspaceFolder, target);
-			if (!targetPath || await this.view.fileService.exists(target)) {
-				throw new Error(localize('basehalf.canvas.import.targetTaken', "The file could not be copied into this folder."));
-			}
-			const copied = await this.view.fileService.copy(source, target, false);
-			const artifact: IBaseHalfNodeArtifact = { kind: document.kind, path: targetPath, size: copied.size };
-			try {
-				await this.view.fileService.writeFileWithExpectedContents(
-					item.stat.resource,
-					VSBuffer.fromString(serializeBaseHalfNodeDocument(importBaseHalfNodeResult(document, artifact))),
-					expectedContents,
-					{ atomic: { postfix: '.basehalf-node-import-tmp' } }
-				);
-			} catch (error) {
-				throw new Error(localize('basehalf.canvas.import.changed', "{0} changed before the import could be saved. The copied file {1} was kept.", item.name, targetPath), { cause: error });
-			}
-			this.view.contextViewService.hideContextView();
-			this.view.requestRender();
-		} catch (error) {
-			this.view.logService.warn(error);
-			this.view.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.view.requestRender();
-		}
-	}
-
-	/**
-	 * Opens a node's result in Card Detail: over the node's canvas, which closing
-	 * Card Detail shows again, when `overNodeCanvas`; over the result's own folder otherwise.
-	 */
-	async openNodeArtifactPath(folder: IBaseHalfCanvasFolderState, path: string, overNodeCanvas: boolean): Promise<void> {
-		const resource = joinPath(folder.workspaceFolder, ...path.split('/'));
-		this.view.contextViewService.hideContextView();
-		try {
-			await this.view.fileService.resolve(resource);
-			await this.view.canvasNavigationService.openResource(resource, { source: 'api', pinned: true, ...(overNodeCanvas ? { canvasFolder: folder.resource } : {}) });
-		} catch {
-			this.view.layoutService.setPartHidden(false, Parts.SIDEBAR_PART);
-			await this.view.explorerService.select(dirname(resource), 'force');
-			this.view.queueCanvasWarning(`The recorded output '${path}' is missing.`);
-			this.view.requestRender();
-		}
+	/** Whether a path of the canvas's folder holds a draft, which takes its name. */
+	private isDraftPath(folder: IBaseHalfCanvasFolderState, resource: URI): Promise<boolean> {
+		const relativePath = this.view.uriIdentityService.extUri.relativePath(folder.workspaceFolder, resource);
+		return relativePath ? baseHalfPathHoldsDraft(this.view.fileService, folder.workspaceFolder, relativePath) : Promise.resolve(false);
 	}
 
 	/**
 	 * What the card of a media file shows. `card` is given for the card whose
 	 * preview this is, so that its video player stays while the card is
-	 * selected or deselected.
+	 * selected or deselected. `unshowable` draws the card instead when the file
+	 * cannot be shown, for a generation card; otherwise the card says so and
+	 * offers to try again.
 	 */
 	private renderMediaPreview(
 		container: HTMLElement,
@@ -771,7 +506,8 @@ export class BaseHalfCanvasCardRenderer {
 		interactive: boolean,
 		listeners: DisposableStore,
 		open: () => void,
-		card?: HTMLElement
+		card?: HTMLElement,
+		unshowable?: () => void
 	): void {
 		container.classList.add(`media-${preview.mediaKind}`);
 		if (preview.mediaKind === 'image') {
@@ -782,6 +518,10 @@ export class BaseHalfCanvasCardRenderer {
 			image.loading = 'lazy';
 			image.addEventListener('error', () => {
 				image.remove();
+				if (unshowable) {
+					unshowable();
+					return;
+				}
 				this.renderMediaFallback(container, preview.text, 'image', () => {
 					clearNode(container);
 					this.renderMediaPreview(container, preview, interactive, listeners, open, card);
@@ -790,7 +530,7 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		if (preview.mediaKind === 'video') {
-			// The video plays as a Video card's does (video node, "The player").
+			// The video plays as the player of every card that shows a video does (generation cards, "The player").
 			const player = createBaseHalfCanvasCardVideoPlayer(container, null, {
 				source: preview.resource,
 				videoClasses: ['basehalf-canvas-card-media-visual'],
@@ -800,6 +540,10 @@ export class BaseHalfCanvasCardRenderer {
 					// No player stays: selecting the card draws its preview again, which tries the video again.
 					if (card && this.mediaVideoPlayers.get(card) === player) {
 						this.mediaVideoPlayers.delete(card);
+					}
+					if (unshowable) {
+						unshowable();
+						return;
 					}
 					this.renderMediaFallback(container, preview.text, 'video', () => {
 						clearNode(container);
@@ -979,7 +723,12 @@ export class BaseHalfCanvasCardRenderer {
 	 *  (a cross-folder reference target is still one click away). */
 	openWorkspaceRelative(workspaceFolder: URI, relativePath: string): void {
 		const rendered = this.view.renderedItemsByPath.get(relativePath);
-		const resource = rendered?.stat.resource ?? (relativePath ? joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder);
+		if (rendered?.generation?.draft) {
+			// A draft has no file to open: its card is selected, where its panel is.
+			this.view.selectionActions.selectCard(relativePath);
+			return;
+		}
+		const resource = rendered?.stat.resource ?? (relativePath ? URI.joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder);
 		void this.view.canvasNavigationService.openResource(resource, { source: 'api', pinned: true });
 	}
 
@@ -1009,4 +758,10 @@ export class BaseHalfCanvasCardRenderer {
 		const fill = append(coverage, $('.basehalf-canvas-card-coverage-fill'));
 		fill.style.width = `${Math.max(6, Math.round(share * 100))}%`;
 	}
+}
+
+/** The name of a card without its extension, which names what is made from it: `shot.mp4` is `shot`. */
+export function baseHalfCanvasCardBaseName(name: string): string {
+	const dot = name.lastIndexOf('.');
+	return dot > 0 ? name.slice(0, dot) : name;
 }

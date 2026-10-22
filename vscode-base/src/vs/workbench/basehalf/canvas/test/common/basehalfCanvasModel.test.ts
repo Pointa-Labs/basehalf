@@ -12,7 +12,9 @@ import {
 	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasEdgePath,
+	baseHalfCanvasDraftStat,
 	baseHalfCanvasEndPlace,
+	baseHalfCanvasFolderWithDrafts,
 	baseHalfCanvasItemsFromStat,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
@@ -385,12 +387,48 @@ suite('BaseHalfCanvasModel', () => {
 		});
 	});
 
+	test('a draft is an item of its folder with a stat made from its path, marked as a draft, and drawn at the size of its kind', () => {
+		const shots = folder('/workspace/shots', [file('/workspace/shots/brief.md'), file('/workspace/shots/hero.png')]);
+		const withDrafts = baseHalfCanvasFolderWithDrafts(shots, [
+			{ resource: URI.file('/workspace/shots/video.mp4'), name: 'video.mp4' },
+			{ resource: URI.file('/workspace/shots/image.png'), name: 'image.png' },
+			// An item that has the name is no draft.
+			{ resource: URI.file('/workspace/shots/HERO.png'), name: 'HERO.png' }
+		]);
+		const model = baseHalfCanvasModelFromStat(withDrafts, {
+			rootLevel: false,
+			folderRelativePath: 'shots',
+			generationCards: new Map([
+				['shots/video.mp4', { kind: 'video', draft: true }],
+				['shots/image.png', { kind: 'image', draft: true }],
+				['shots/hero.png', { kind: 'image', draft: false }]
+			])
+		});
+		assert.deepStrictEqual(model.items.map(item => [item.path, item.stat.isFile, item.generation, item.card?.width, item.card?.height]), [
+			['shots/brief.md', true, undefined, 300, 220],
+			['shots/hero.png', true, { kind: 'image', draft: false }, 300, 220],
+			['shots/image.png', true, { kind: 'image', draft: true }, 300, 220],
+			['shots/video.mp4', true, { kind: 'video', draft: true }, 720, 405]
+		]);
+	});
+
+	test('a draft keeps its preview until it gets its file, which is read anew', () => {
+		const draft = { path: 'video.mp4', name: 'video.mp4', kind: 'file' as const, stat: baseHalfCanvasDraftStat(URI.file('/workspace/video.mp4'), 'video.mp4'), generation: { kind: 'video' as const, draft: true } };
+		const drawnAgain = { ...draft, stat: baseHalfCanvasDraftStat(URI.file('/workspace/video.mp4'), 'video.mp4') };
+		const withFile = { ...draft, stat: file('/workspace/video.mp4'), generation: { kind: 'video' as const, draft: false } };
+		assert.deepStrictEqual([
+			baseHalfCanvasItemsSharePreviewVersion(draft, drawnAgain),
+			baseHalfCanvasItemsSharePreviewVersion(draft, withFile)
+		], [true, false]);
+	});
+
 	test('a card that is larger than a cell keeps the next cards clear of it', () => {
-		const root = folder('/workspace', ['a.bhnode', 'b.md', 'c.md', 'd.md'].map(name => file(`/workspace/${name}`)));
-		const model = baseHalfCanvasModelFromStat(root, { rootLevel: true, newCardSizes: new Map([['a.bhnode', { width: 720, height: 405 }]]) });
+		const root = folder('/workspace', ['a.mp4', 'b.md', 'c.md', 'd.md'].map(name => file(`/workspace/${name}`)));
+		// A video generation card is drawn at 720 × 405.
+		const model = baseHalfCanvasModelFromStat(root, { rootLevel: true, generationCards: new Map([['a.mp4', { kind: 'video', draft: false }]]) });
 
 		assert.deepStrictEqual(model.appeared.map(card => [card.path, card.x, card.y, card.width, card.height]), [
-			['a.bhnode', 540, 690, 720, 405],
+			['a.mp4', 540, 690, 720, 405],
 			// Beside it, 40 beyond its right edge.
 			['b.md', 1300, 690, 300, 220],
 			// The row of four cells is full: a new row, 60 below the lowest edge.

@@ -279,7 +279,9 @@ lists the providers of the catalog. For each:
   private gateway that mirrors the provider's own API is used.
 - A link to the provider's console for the region.
 - The provider's models, by name, under Images and Videos, so that the user
-  can tell which provider to get credentials from.
+  can tell which provider to get credentials from. A kind the provider has
+  no model of has no line; a model the region does not offer is dimmed and
+  says so.
 
 A provider is set up when every credential value is set. Nothing is checked
 with the provider when values are saved; the first generation tells the user

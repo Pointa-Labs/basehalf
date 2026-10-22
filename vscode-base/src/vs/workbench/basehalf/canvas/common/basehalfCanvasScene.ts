@@ -42,9 +42,10 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 }
 
 /**
- * The actions of the toolbar above a selected Video card (D58): Upload Video
- * for an empty node, and Capture Frame, Reveal, and Open for a node with a
- * video.
+ * The actions of the toolbar above a selected generation card (generation
+ * cards, "The toolbar"): Upload Image or Upload Video for a draft that does
+ * not generate, and Reveal and Open, and Capture Frame for a video, for a card
+ * with its file.
  */
 export type BaseHalfCanvasSceneVideoAction = 'importResult' | 'captureFrame' | 'revealVideo' | 'openFullPreview';
 
@@ -58,9 +59,9 @@ const BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER: readonly BaseHalfCanvasSceneVid
 ]);
 
 /**
- * Keeps the selected-video toolbar state-specific. Upload belongs only to an
- * empty node; a malformed projection must never mix it with the actions of a
- * node that has a video.
+ * Keeps the toolbar of a selected generation card state-specific. Upload
+ * belongs only to a draft; a malformed projection must never mix it with the
+ * actions of a card that has its file.
  */
 export function baseHalfCanvasSceneVideoSelectionActions(
 	actions: readonly BaseHalfCanvasSceneVideoAction[]
@@ -82,8 +83,11 @@ export type BaseHalfCanvasSceneCardControls =
 		readonly background?: BaseHalfCanvasNoteBackground;
 	}
 	| {
+		/** A generation card, of an image or a video: the panel goes beside it. */
 		readonly kind: 'video';
 		readonly actions: readonly BaseHalfCanvasSceneVideoAction[];
+		/** What the card makes, so that Upload says Image or Video. A video when absent. */
+		readonly media?: 'image' | 'video';
 	};
 
 export type BaseHalfCanvasSceneSelectionSurface = 'none' | 'pending' | 'structural' | 'note' | 'video';

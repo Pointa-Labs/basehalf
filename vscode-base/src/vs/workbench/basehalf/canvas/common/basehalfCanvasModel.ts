@@ -12,6 +12,9 @@ export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH = 300;
 export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT = 220;
 export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH = 248;
 export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT = 188;
+/** A video generation card, a draft or one with its file, is drawn at 16:9 when it is new (generation cards, "Creating a generation card"). */
+export const BASEHALF_CANVAS_VIDEO_CARD_WIDTH = 720;
+export const BASEHALF_CANVAS_VIDEO_CARD_HEIGHT = 405;
 export const BASEHALF_CANVAS_MIN_CARD_WIDTH = 140;
 export const BASEHALF_CANVAS_MIN_CARD_HEIGHT = 48;
 export const BASEHALF_CANVAS_DEFAULT_WIDTH = 2400;
@@ -118,11 +121,20 @@ export function baseHalfCanvasChildPath(parent: string, name: string): string {
 	return parent ? `${parent}/${name}` : name;
 }
 
+/** What the canvas knows of a generation card (generation cards): what it makes, and whether it has its file yet. */
+export interface IBaseHalfCanvasGenerationCard {
+	readonly kind: 'image' | 'video';
+	/** A draft has no file: the item's stat is made from its path ({@link baseHalfCanvasDraftStat}). */
+	readonly draft: boolean;
+}
+
 export interface IBaseHalfCanvasItem {
 	readonly path: string;
 	readonly name: string;
 	readonly kind: BaseHalfCanvasItemKind;
 	readonly stat: IFileStat;
+	/** Present when the item is a generation card: a draft, or a file with generation information. */
+	readonly generation?: IBaseHalfCanvasGenerationCard;
 	/**
 	 * The card's row. Every item of a folder model has one: the row of the
 	 * layout, or the place BaseHalf chose for a card that appeared (canvas card
@@ -149,6 +161,7 @@ export function baseHalfCanvasItemsSharePreviewVersion(
 	if (previous.path !== current.path
 		|| previous.name !== current.name
 		|| previous.kind !== current.kind
+		|| !!previous.generation?.draft !== !!current.generation?.draft
 		|| previous.stat.resource.toString() !== current.stat.resource.toString()
 		|| previous.stat.isFile !== current.stat.isFile
 		|| previous.stat.isDirectory !== current.stat.isDirectory
@@ -220,8 +233,12 @@ export interface IBaseHalfCanvasModelOptions {
 	readonly relationships?: ReadonlyMap<string, IBaseHalfCanvasItemRelationships>;
 	/** The places BaseHalf chose for this folder and could not save yet, by path. */
 	readonly waiting?: ReadonlyMap<string, IBaseHalfCanvasCard>;
-	/** The size of a new card whose kind is not drawn at the default size, by path. */
-	readonly newCardSizes?: ReadonlyMap<string, IBaseHalfCanvasSize>;
+	/**
+	 * The generation cards of the folder by path, from the card store. A draft
+	 * is among the folder's children with a stat made from its path
+	 * ({@link baseHalfCanvasFolderWithDrafts}).
+	 */
+	readonly generationCards?: ReadonlyMap<string, IBaseHalfCanvasGenerationCard>;
 	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
 	readonly pathKey?: (path: string) => string;
 	/**
@@ -321,11 +338,13 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		const card = row ? (row.path === path ? row : { ...row, path }) : options.waiting?.get(path);
 		const badge = options.badges?.get(path);
 		const relationships = options.relationships?.get(path);
+		const generation = kind === 'file' ? options.generationCards?.get(path) : undefined;
 		return {
 			path,
 			name,
 			kind,
 			stat,
+			...(generation ? { generation } : {}),
 			...(card ? { card } : {}),
 			...(badge ? { badge } : {}),
 			...(relationships && baseHalfCanvasRelationshipsArePresent(relationships) ? { relationships } : {})
@@ -358,7 +377,7 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 	const inLayout = new Set(rows.map(card => pathKey(card.path)));
 	const isWaiting = (item: IBaseHalfCanvasItem) => item.card !== undefined && !inLayout.has(pathKey(item.path));
 	const chosen = new Map(baseHalfCanvasPlaceAppearing(
-		items.filter(item => !item.card).map(item => ({ path: item.path, kind: item.kind, ...(options.newCardSizes?.get(item.path) ?? baseHalfCanvasDefaultCardSize(item.kind)) })),
+		items.filter(item => !item.card).map(item => ({ path: item.path, kind: item.kind, ...baseHalfCanvasNewCardSize(item) })),
 		[...rows, ...items.flatMap(item => isWaiting(item) ? [item.card!] : [])]
 	).map(card => [card.path, card]));
 	items = items.map(item => item.card ? item : { ...item, card: chosen.get(item.path) });
@@ -612,6 +631,44 @@ export function baseHalfCanvasIsOpen(bounds: IBaseHalfCanvasBounds, taken: reado
 /** The size at which a card of a kind is drawn when it is new. */
 export function baseHalfCanvasDefaultCardSize(kind: BaseHalfCanvasItemKind): IBaseHalfCanvasSize {
 	return { width: defaultCardWidth(kind), height: defaultCardHeight(kind) };
+}
+
+/**
+ * The size at which a generation card is drawn when it is new: 720 × 405 for
+ * a video, and the size of a file card for an image (canvas card placement,
+ * "When a card appears").
+ */
+export function baseHalfCanvasGenerationCardSize(kind: 'image' | 'video'): IBaseHalfCanvasSize {
+	return kind === 'video'
+		? { width: BASEHALF_CANVAS_VIDEO_CARD_WIDTH, height: BASEHALF_CANVAS_VIDEO_CARD_HEIGHT }
+		: baseHalfCanvasDefaultCardSize('file');
+}
+
+/** The size at which the card of an item is drawn when it appears. */
+export function baseHalfCanvasNewCardSize(item: Pick<IBaseHalfCanvasItem, 'kind' | 'generation'>): IBaseHalfCanvasSize {
+	return item.generation ? baseHalfCanvasGenerationCardSize(item.generation.kind) : baseHalfCanvasDefaultCardSize(item.kind);
+}
+
+/** The version every draft's made-up stat has: a draft has no file whose content could change. */
+const DRAFT_STAT_ETAG = 'basehalf-draft';
+
+/**
+ * The stat of a draft, made from its path: a file that is not there yet
+ * (generation cards, "Drafts and missing files"). Its version never changes,
+ * so the card of a draft keeps its element while the folder is drawn again.
+ */
+export function baseHalfCanvasDraftStat(resource: URI, name: string): IFileStat {
+	return { resource, name, isFile: true, isDirectory: false, isSymbolicLink: false, children: undefined, etag: DRAFT_STAT_ETAG };
+}
+
+/** The folder's stat with its drafts among its children, after its items; a name an item has is not a draft. */
+export function baseHalfCanvasFolderWithDrafts(folder: IFileStat, drafts: readonly { readonly resource: URI; readonly name: string }[]): IFileStat {
+	if (!drafts.length) {
+		return folder;
+	}
+	const names = new Set((folder.children ?? []).map(child => basename(child.resource).toLowerCase()));
+	const added = drafts.filter(draft => !names.has(draft.name.toLowerCase())).map(draft => baseHalfCanvasDraftStat(draft.resource, draft.name));
+	return added.length ? { ...folder, children: [...(folder.children ?? []), ...added] } : folder;
 }
 
 function canvasBoundsContain(container: IBaseHalfCanvasBounds, child: IBaseHalfCanvasBounds): boolean {

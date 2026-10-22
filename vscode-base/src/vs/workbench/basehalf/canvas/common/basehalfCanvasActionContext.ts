@@ -3,11 +3,17 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { basename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
+
+/** Set in the menu of a card that is a draft, which has no file: what works on a file is not offered there. */
+export const BASEHALF_CANVAS_CARD_IS_DRAFT = new RawContextKey<boolean>('basehalfCanvasCardIsDraft', false);
 
 export interface IBaseHalfCanvasResourceSnapshot {
 	readonly isFile: boolean;
@@ -17,6 +23,12 @@ export interface IBaseHalfCanvasResourceSnapshot {
 	readonly ctime: number | undefined;
 	readonly size: number | undefined;
 	readonly etag: string | undefined;
+	/**
+	 * The resource is a draft: a generation card whose file does not exist yet
+	 * (generation cards, "Drafts and missing files"). It is neither a file nor a
+	 * folder.
+	 */
+	readonly draft?: true;
 }
 
 export interface IBaseHalfCanvasActionContext {
@@ -64,7 +76,7 @@ export function sameBaseHalfCanvasResourceSnapshot(snapshot: IBaseHalfCanvasReso
 		&& optionalMetadataMatches(snapshot.etag, stat.etag);
 }
 
-class BaseHalfCanvasActionContextService implements IBaseHalfCanvasActionContextService {
+export class BaseHalfCanvasActionContextService implements IBaseHalfCanvasActionContextService {
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
@@ -77,16 +89,33 @@ class BaseHalfCanvasActionContextService implements IBaseHalfCanvasActionContext
 		if (!this.workspaceMutationCoordinator.isResourceStampCurrent(workspaceFolder, stamp)) {
 			throw new Error('The resource identity changed before the canvas action started.');
 		}
-		const stat = await this.fileService.stat(resource);
+		let snapshot: IBaseHalfCanvasResourceSnapshot;
+		try {
+			snapshot = snapshotFromStat(await this.fileService.stat(resource));
+		} catch (error) {
+			// A draft has no file: its card is acted on all the same.
+			if (!await baseHalfPathHoldsDraft(this.fileService, workspaceFolder, relativePath)) {
+				throw error;
+			}
+			snapshot = DRAFT_SNAPSHOT;
+		}
 		if (!this.workspaceMutationCoordinator.isResourceStampCurrent(workspaceFolder, stamp)) {
 			throw new Error('The resource identity changed before the canvas action started.');
 		}
-		return { resource, workspaceFolder, relativePath, stamp, snapshot: snapshotFromStat(stat) };
+		return { resource, workspaceFolder, relativePath, stamp, snapshot };
 	}
 
 	async assertCurrent(context: IBaseHalfCanvasActionContext): Promise<IFileStatWithPartialMetadata> {
 		if (!this.workspaceMutationCoordinator.isResourceStampCurrent(context.workspaceFolder, context.stamp)) {
 			throw new Error('The resource identity changed while the canvas action was open. Try the action again.');
+		}
+		if (context.snapshot.draft) {
+			// Still a draft, and no file came: its stat is made up, neither a file nor a folder.
+			if (!await baseHalfPathHoldsDraft(this.fileService, context.workspaceFolder, context.relativePath)
+				|| !this.workspaceMutationCoordinator.isResourceStampCurrent(context.workspaceFolder, context.stamp)) {
+				throw new Error('The resource changed while the canvas action was open. Try the action again.');
+			}
+			return draftStat(context.resource);
 		}
 		const stat = await this.fileService.stat(context.resource);
 		if (!this.workspaceMutationCoordinator.isResourceStampCurrent(context.workspaceFolder, context.stamp)
@@ -95,6 +124,22 @@ class BaseHalfCanvasActionContextService implements IBaseHalfCanvasActionContext
 		}
 		return stat;
 	}
+}
+
+/** What a canvas action knows of a draft: it is no file or folder, and nothing about it can be compared. */
+const DRAFT_SNAPSHOT: IBaseHalfCanvasResourceSnapshot = Object.freeze({
+	isFile: false,
+	isDirectory: false,
+	isSymbolicLink: false,
+	mtime: undefined,
+	ctime: undefined,
+	size: undefined,
+	etag: undefined,
+	draft: true
+});
+
+function draftStat(resource: URI): IFileStatWithPartialMetadata {
+	return { resource, name: basename(resource), isFile: false, isDirectory: false, isSymbolicLink: false, mtime: 0, ctime: 0, etag: '', size: 0, readonly: false, locked: false, executable: false };
 }
 
 function snapshotFromStat(stat: IFileStatWithPartialMetadata): IBaseHalfCanvasResourceSnapshot {

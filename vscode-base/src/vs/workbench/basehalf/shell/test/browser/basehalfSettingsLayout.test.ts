@@ -22,14 +22,14 @@ suite('BaseHalf settings in Settings', () => {
 	const basehalf = tocData.children?.find(child => child.id === 'basehalf');
 	const areas = basehalf?.children?.filter(child => !child.custom) ?? [];
 
-	test('the BaseHalf group lists each area that has settings, then the pages Video Providers and About', () => {
+	test('the BaseHalf group lists each area that has settings, then the pages Providers and About', () => {
 		assert.strictEqual(basehalf?.label, 'BaseHalf');
-		assert.deepStrictEqual(basehalf?.children?.map(child => ({ id: child.id, settings: child.settings, page: child.custom === true })), [
-			{ id: 'basehalf/editor', settings: ['basehalf.editor.*'], page: false },
-			{ id: 'basehalf/canvas', settings: ['basehalf.canvas.*'], page: false },
-			{ id: 'basehalf/agentArea', settings: ['basehalf.agent.*', 'basehalf.agents.*'], page: false },
-			{ id: 'basehalf/models', settings: undefined, page: true },
-			{ id: 'basehalf/about', settings: undefined, page: true }
+		assert.deepStrictEqual(basehalf?.children?.map(child => ({ id: child.id, label: child.label, settings: child.settings, page: child.custom === true })), [
+			{ id: 'basehalf/editor', label: 'Editor', settings: ['basehalf.editor.*'], page: false },
+			{ id: 'basehalf/canvas', label: 'Canvas', settings: ['basehalf.canvas.*'], page: false },
+			{ id: 'basehalf/agentArea', label: 'Agent Area', settings: ['basehalf.agent.*', 'basehalf.agents.*'], page: false },
+			{ id: 'basehalf/models', label: 'Providers', settings: undefined, page: true },
+			{ id: 'basehalf/about', label: 'About', settings: undefined, page: true }
 		]);
 	});
 

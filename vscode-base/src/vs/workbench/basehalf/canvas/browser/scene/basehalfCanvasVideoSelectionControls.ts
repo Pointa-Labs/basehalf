@@ -80,9 +80,10 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 	}
 
 	/**
-	 * The toolbar above a selected Video card: Upload Video for an empty node;
-	 * Capture Frame (with its menu of frames), Reveal, and Open for a node with
-	 * a video. The workbench runs the actions.
+	 * The toolbar above a selected generation card: Upload Image or Upload
+	 * Video for a draft; Reveal and Open for a card with its file, and Capture
+	 * Frame (with its menu of frames) for a video. The workbench runs the
+	 * actions.
 	 */
 	function VideoSelectionControls({ node, suppressed }: {
 		readonly node: BaseHalfCanvasFlowNode;
@@ -157,8 +158,11 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			return h(vendor.Fragment);
 		}
 
+		const image = controls.media === 'image';
 		const labels: Readonly<Record<BaseHalfCanvasSceneVideoAction, string>> = {
-			importResult: localize('basehalf.canvas.video.uploadVideo', "Upload Video"),
+			importResult: image
+				? localize('basehalf.canvas.video.uploadImage', "Upload Image")
+				: localize('basehalf.canvas.video.uploadVideo', "Upload Video"),
 			captureFrame: localize('basehalf.canvas.video.captureFrame', "Capture Frame"),
 			revealVideo: baseHalfCanvasRevealVideoLabel(),
 			openFullPreview: localize('basehalf.canvas.video.open', "Open")
@@ -331,8 +335,11 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 				ref: toolbarRef,
 				className: `basehalf-video-context-toolbar ${importOnly ? 'basehalf-video-draft-toolbar' : 'basehalf-video-result-toolbar'}${frameMenu ? ' menu-open' : ''} basehalf-canvas-note-toolbar basehalf-canvas-note-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel`,
 				role: 'toolbar',
-				'aria-label': localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
+				'aria-label': image
+					? localize('basehalf.canvas.image.actions', "Image actions for {0}", node.id)
+					: localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
 				'data-node-path': node.id,
+				'data-media': image ? 'image' : 'video',
 				'data-video-surface': importOnly ? 'empty' : 'video',
 				'data-placement': placement.side,
 				'data-chrome-state': suppressed ? 'suppressed' : 'present',
