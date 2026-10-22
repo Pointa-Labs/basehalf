@@ -923,3 +923,24 @@ test('check adds the rules of the image models to the declarations\' own, and a 
 		await server.close();
 	}
 });
+
+test('an image address AI Video does not download from is refused on its own, and the task\'s other images land', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, {
+		code: 0,
+		message: 'SUCCEED',
+		data: {
+			task_id: 'i-8',
+			task_status: 'succeed',
+			task_result: { images: [{ index: 0, url: 'http://p1-kling.klingai.com/kcdn/i-8-0.png' }, { index: 1, url: 'https://p1-kling.klingai.com/kcdn/i-8-1.png' }] }
+		}
+	}));
+	try {
+		const polled = value(await commands().poll(imageTaskRef(server.url, 'kling-image-o1', 'i-8')));
+		assert.deepEqual(polled, {
+			state: 'succeeded',
+			outputs: [{ refused: 'The provider gave an image address that does not start with https://.' }, { url: 'https://p1-kling.klingai.com/kcdn/i-8-1.png' }]
+		});
+	} finally {
+		await server.close();
+	}
+});
