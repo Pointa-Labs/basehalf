@@ -45,6 +45,7 @@ import {
 	runBaseHalfGenerationTask,
 	serializeBaseHalfGenerationInfo,
 	serializeBaseHalfGenerationTask,
+	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../../common/basehalfGenerationInfo.js';
 import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoDownloadRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
@@ -1080,6 +1081,65 @@ suite('BaseHalfVideoGenerationService', () => {
 		await until(() => service.getProgress(video)?.phase === 'generating');
 		await service.releaseCard(video);
 		assert.deepStrictEqual({ records: (await harness.records()).length, cancelled: commands.count(CANCEL), generating: service.isGenerating(video) }, { records: 0, cancelled: 1, generating: false });
+		harness.dispose();
+	}));
+
+	test('a card deleted after its generation ended without its file takes the record with it, once no other card of the record is left to say why', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const ended = new Date(START - 60_000).toISOString();
+		// Ended on this computer before: a video that failed, one the user stopped, and two images of one generation that both failed.
+		const failed = failBaseHalfGenerationTask(staleTask('running', { id: '20261022T075800-dead0011', cards: ['shots/failed.mp4'] }), 'The provider refused the credentials.', ended);
+		const stopped = stopBaseHalfGenerationTask(staleTask('running', { id: '20261022T075800-dead0012', cards: ['shots/stopped.mp4'] }), ended);
+		const images = failBaseHalfGenerationTask(staleTask('running', { id: '20261022T075800-dead0013', kind: 'image', cards: ['shots/heron.png', 'shots/heron-2.png'] }), 'The provider refused the request.', ended);
+		const harness = await createHarness({
+			records: [failed, stopped, images],
+			files: {
+				'.bh/mirror/shots/failed.mp4/generation.yaml': serializeBaseHalfGenerationInfo(VIDEO),
+				'.bh/mirror/shots/stopped.mp4/generation.yaml': serializeBaseHalfGenerationInfo(VIDEO),
+				'.bh/mirror/shots/heron.png/generation.yaml': serializeBaseHalfGenerationInfo(IMAGE),
+				'.bh/mirror/shots/heron-2.png/generation.yaml': serializeBaseHalfGenerationInfo(IMAGE)
+			}
+		});
+		const { service, tasks } = harness.first;
+		await tasks.whenReady();
+		const ids = async () => (await harness.records()).map(task => task.id).sort();
+		const before = await ids();
+		// The canvas releases a draft before the draft operations delete its card information.
+		await service.releaseCard(harness.resource('shots/failed.mp4'));
+		await service.releaseCard(harness.resource('shots/stopped.mp4'));
+		// Undoing the delete brings the draft back without the old error.
+		const shown = ['shots/failed.mp4', 'shots/stopped.mp4'].map(path => tasks.forCard(harness.resource(path))?.state ?? 'draft');
+		// One image of two goes: the other still says why its generation ended.
+		await service.releaseCard(harness.resource('shots/heron.png'));
+		const oneImage = await ids();
+		await harness.fileService.del(harness.resource('.bh/mirror/shots/heron.png'), { recursive: true });
+		await service.releaseCard(harness.resource('shots/heron-2.png'));
+		assert.deepStrictEqual({ before, shown, oneImage, after: await ids() }, {
+			before: [failed.id, stopped.id, images.id],
+			shown: ['draft', 'draft'],
+			oneImage: [images.id],
+			after: []
+		});
+		harness.dispose();
+	}));
+
+	test('deleting every card of a generation of several images while it runs leaves no record behind', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const image = await harness.card('shots/image.png', { ...IMAGE, model: 'corvid-print', params: { count: 2 } });
+		const { service, commands } = harness.first;
+		let polls = 0;
+		commands.poll = () => {
+			polls++;
+			return { ok: true, value: { state: 'running' } };
+		};
+		const [first, second] = await service.generate(image);
+		await until(() => polls >= 1);
+		// The canvas deletes the two drafts one after the other, each released before its card information goes.
+		await service.releaseCard(first);
+		await harness.fileService.del(harness.resource('.bh/mirror/shots/image.png'), { recursive: true });
+		await service.releaseCard(second);
+		const records = await harness.records();
+		await harness.fileService.del(harness.resource('.bh/mirror/shots/image-2.png'), { recursive: true });
+		assert.deepStrictEqual({ records: records.length, generating: [service.isGenerating(first), service.isGenerating(second)] }, { records: 0, generating: [false, false] });
 		harness.dispose();
 	}));
 

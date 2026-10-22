@@ -491,7 +491,6 @@ import './basehalf/plugins/browser/basehalfBuiltInCapabilities.contribution.js';
 import './basehalf/plugins/browser/basehalfPluginStructuralCleanupExtensionPoint.contribution.js';
 import './basehalf/plugins/browser/basehalfCanvasTemplateExtensionPoint.contribution.js';
 import './basehalf/plugins/browser/basehalfAgentCapabilityExtensionPoint.contribution.js';
-import './basehalf/video/browser/basehalfVideoNodeStore.js';
 import './basehalf/canvas/basehalfCanvas.all.js';
 import './basehalf/workspace/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/video/browser/basehalfGenerationCardCopy.contribution.js';

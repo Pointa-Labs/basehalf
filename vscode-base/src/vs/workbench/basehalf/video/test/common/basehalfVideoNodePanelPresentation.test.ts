@@ -437,11 +437,11 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		assert.deepStrictEqual({
 			swapped: swapBaseHalfVideoUpstreamEntries(['a.png', 'note.md', 'b.png'], 0, 2),
 			unchanged: swapBaseHalfVideoUpstreamEntries(['a.png'], 0, 3),
-			names: ['notes/Scene.md', 'shots/Shot 1.bhnode', 'frames/a.png', 'docs/brief.pdf'].map(baseHalfVideoPanelInputFileName)
+			names: ['notes/Scene.md', 'shots/Shot 1.mp4', 'frames/a.png', 'docs/brief.pdf'].map(baseHalfVideoPanelInputFileName)
 		}, {
 			swapped: ['b.png', 'note.md', 'a.png'],
 			unchanged: ['a.png'],
-			names: ['Scene', 'Shot 1', 'a.png', 'brief.pdf']
+			names: ['Scene', 'Shot 1.mp4', 'a.png', 'brief.pdf']
 		});
 	});
 

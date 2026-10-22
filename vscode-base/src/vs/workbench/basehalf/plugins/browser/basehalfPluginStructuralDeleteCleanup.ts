@@ -5,16 +5,14 @@
 
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { CancellationError } from '../../../../base/common/errors.js';
-import { extUri, relativePath as getRelativePath } from '../../../../base/common/resources.js';
+import { extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService, IFileStatWithMetadata } from '../../../../platform/files/common/files.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
-import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ActivationKind, IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { SourceTargetPair } from '../../../services/workingCopy/common/workingCopyFileService.js';
-import { baseHalfIsReservedOutputTreePath } from '../../video/common/basehalfNodeDocument.js';
 import { IBaseHalfPluginStructuralCleanupService } from '../common/basehalfPluginStructuralCleanup.js';
 import { IBaseHalfProjectFileTransitionService, IBaseHalfStagedProjectFileTransition } from '../common/basehalfProjectFileTransitions.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
@@ -98,8 +96,7 @@ export class BaseHalfPluginStructuralDeleteCleanupService implements IBaseHalfPl
 		@IFileService private readonly fileService: IFileService,
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IBaseHalfPluginStructuralCleanupService private readonly pluginStructuralCleanupService: IBaseHalfPluginStructuralCleanupService,
-		@IBaseHalfProjectFileTransitionService private readonly projectFileTransitionService: IBaseHalfProjectFileTransitionService,
-		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService
+		@IBaseHalfProjectFileTransitionService private readonly projectFileTransitionService: IBaseHalfProjectFileTransitionService
 	) { }
 
 	async stageDelete(files: readonly SourceTargetPair[], token: CancellationToken, lease: IBaseHalfWorkspaceMutationLease): Promise<readonly IBaseHalfOwnedStagedDeleteCleanup[]> {
@@ -165,13 +162,8 @@ export class BaseHalfPluginStructuralDeleteCleanupService implements IBaseHalfPl
 				throw new Error(`A single file delete can inspect at most ${BASEHALF_STRUCTURAL_CLEANUP_MAX_SCAN_ENTRIES} entries for structural cleanup. Delete smaller folders separately.`);
 			}
 		};
-		const isReservedOutput = (resource: URI): boolean => {
-			const workspace = this.workspaceContextService.getWorkspaceFolder(resource);
-			const relativePath = workspace ? getRelativePath(workspace.uri, resource) : undefined;
-			return relativePath !== undefined && baseHalfIsReservedOutputTreePath(relativePath);
-		};
 		const add = (resource: URI, ownerIndex: number): void => {
-			if (isReservedOutput(resource) || this.pluginStructuralCleanupService.activationEvents(resource).length === 0) {
+			if (this.pluginStructuralCleanupService.activationEvents(resource).length === 0) {
 				return;
 			}
 			const key = resource.toString();
@@ -186,9 +178,6 @@ export class BaseHalfPluginStructuralDeleteCleanupService implements IBaseHalfPl
 		};
 		const visit = async (resource: URI, ownerIndex: number, knownStat?: IFileStatWithMetadata): Promise<void> => {
 			this.throwIfCancelled(token);
-			if (isReservedOutput(resource)) {
-				return;
-			}
 			countScannedEntry();
 			const stat = knownStat ?? await this.fileService.resolve(resource, { resolveMetadata: true });
 			if (stat.isSymbolicLink) {

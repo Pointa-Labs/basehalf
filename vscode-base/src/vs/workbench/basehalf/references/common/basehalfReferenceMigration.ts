@@ -94,7 +94,6 @@ export type BaseHalfLegacyDeferReason =
 	| 'notWritable'
 	| 'saveFailed'
 	| 'missingDownstream'
-	| 'limit'
 	| 'beingMoved'
 	| 'failed';
 
@@ -226,8 +225,6 @@ export interface IBaseHalfLegacyPromptCounts {
 	readonly connections: number;
 	/** Markdown notes that receive entries in their frontmatter. */
 	readonly notes: number;
-	/** `.bhnode` documents that receive entries. */
-	readonly nodeDocuments: number;
 	/** `upstream.yaml` files in `.bh/` that receive entries. */
 	readonly metadataItems: number;
 }
@@ -235,7 +232,7 @@ export interface IBaseHalfLegacyPromptCounts {
 /** The numbers of the migration prompt, over every folder. */
 export function baseHalfLegacyPromptCounts(plans: readonly IBaseHalfLegacyFolderPlan[]): IBaseHalfLegacyPromptCounts {
 	let connections = 0;
-	const stores: Record<BaseHalfUpstreamStoreKind, Set<string>> = { markdown: new Set(), node: new Set(), sidecar: new Set() };
+	const stores: Record<BaseHalfUpstreamStoreKind, Set<string>> = { markdown: new Set(), sidecar: new Set() };
 	for (const plan of plans) {
 		for (const pair of plan.pairs) {
 			if (pair.status.kind === 'write') {
@@ -244,7 +241,7 @@ export function baseHalfLegacyPromptCounts(plans: readonly IBaseHalfLegacyFolder
 			}
 		}
 	}
-	return { connections, notes: stores.markdown.size, nodeDocuments: stores.node.size, metadataItems: stores.sidecar.size };
+	return { connections, notes: stores.markdown.size, metadataItems: stores.sidecar.size };
 }
 
 export type BaseHalfLegacyReportSection = 'add' | 'present' | 'cannot';
@@ -332,7 +329,6 @@ export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | Bas
 		case 'notWritable': return localize('basehalf.migration.reason.notWritable', "BaseHalf can't save connections into it because of how the file begins");
 		case 'saveFailed': return localize('basehalf.migration.reason.saveFailed', "The change could not be saved");
 		case 'missingDownstream': return localize('basehalf.migration.reason.missingDownstream', "The file no longer exists");
-		case 'limit': return localize('basehalf.migration.reason.limit', "The node already has 64 upstream entries");
 		case 'beingMoved': return localize('basehalf.migration.reason.beingMoved', "It was being moved");
 		// The recorded error text names files and system error codes; it stays in the record.
 		case 'failed': return localize('basehalf.migration.reason.failed', "It could not be written");
@@ -1150,7 +1146,6 @@ function refusalDeferral(reason: BaseHalfReferenceRefusalReason): BaseHalfLegacy
 		case 'orphaned':
 		case 'missingNode':
 			return 'missingDownstream';
-		case 'limit': return 'limit';
 		case 'beingMoved': return 'beingMoved';
 		case 'symbolicLink': return 'symbolicLink';
 		case 'error': return 'saveFailed';

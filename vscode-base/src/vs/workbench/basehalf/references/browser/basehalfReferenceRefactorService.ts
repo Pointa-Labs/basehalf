@@ -22,7 +22,6 @@ import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanv
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
-import { BASEHALF_NODE_DOCUMENT_MAX_BYTES, extractBaseHalfNodeUpstreamLenient } from '../../video/common/basehalfNodeDocument.js';
 import {
 	BaseHalfReferenceEditFailure,
 	BaseHalfReferenceEditRefusal,
@@ -33,7 +32,7 @@ import {
 	IBaseHalfReferenceUndoStore
 } from '../common/basehalfReferenceEdit.js';
 import { baseHalfUpstreamIdentity, baseHalfUpstreamResourceKey, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
-import { BaseHalfReferenceIndexState, baseHalfNodeUpstreamStoreRead, IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
+import { BaseHalfReferenceIndexState, IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
 import { BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES, baseHalfUpstreamSidecarResource, baseHalfUpstreamStoreKind, IBaseHalfUpstreamStoreRead, readBaseHalfMarkdownUpstream, readBaseHalfSidecarUpstream } from '../common/basehalfReferenceStore.js';
 import {
 	baseHalfPathIsCovered,
@@ -509,9 +508,6 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 					? model.textEditorModel.getValue()
 					: utf8Decoder.decode((await this.fileService.readFile(node.resource, { length: BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES })).value.buffer);
 				read = readBaseHalfMarkdownUpstream(text, options);
-			} else if (storeKind === 'node') {
-				const text = utf8Decoder.decode((await this.fileService.readFile(node.resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } })).value.buffer);
-				read = baseHalfNodeUpstreamStoreRead(extractBaseHalfNodeUpstreamLenient(text), store.nodePath, identity);
 			} else {
 				const sidecar = baseHalfUpstreamSidecarResource(workspaceFolder, store.nodePath);
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, sidecar);

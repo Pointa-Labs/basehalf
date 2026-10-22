@@ -119,9 +119,6 @@ export class BaseHalfCanvasConnections {
 
 	/** Why a card can never receive a connection right now, if it cannot. */
 	private canvasUpstreamRefusal(node: IBaseHalfUpstreamActionNode, name: string, marked: boolean): string | undefined {
-		if (this.view.referenceIndexService.getUpstreamOnlyReason(node)) {
-			return localize('basehalf.canvas.connect.upstreamOnly', "{0} can't receive upstream context.", name);
-		}
 		if (marked && baseHalfUpstreamStoreKind(node.relativePath, node.kind === 'folder') === 'sidecar') {
 			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", name);
 		}
@@ -400,8 +397,8 @@ export class BaseHalfCanvasConnections {
 		const previousTarget = this.view.workspaceNode(folder.workspaceFolder, previous.to, previous.toKind);
 		const nextTarget = this.view.workspaceNode(folder.workspaceFolder, connection.to, connection.toKind);
 		const label = localize('basehalf.canvas.reconnect.undo', "Reconnect canvas nodes");
-		// A source-end reconnect replaces the entry in place, so a Video node's
-		// input keeps its place in the order; a target-end reconnect moves it.
+		// A source-end reconnect replaces the entry in place, so a generation
+		// card's input keeps its place in the order; a target-end reconnect moves it.
 		const operation: () => Promise<IBaseHalfReferenceEditResult> = previous.to === next.to
 			? () => this.view.referenceEditService.replace(previousTarget, previous.from, next.from, { label })
 			: previous.from === next.from

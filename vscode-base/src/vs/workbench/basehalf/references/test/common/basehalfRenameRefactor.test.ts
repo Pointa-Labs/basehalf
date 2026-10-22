@@ -104,7 +104,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		const moves: IBaseHalfPathMove[] = [{ from: 'topic', to: 'subject' }];
 		const snapshot = baseHalfSnapshotRenameStores([
 			indexed('topic/b.md', 'markdown', ['topic/a.md', 'root.md']),
-			indexed('topic/clip.bhnode', 'node', ['topic/b.md'])
+			indexed('topic/clip.mp4', 'sidecar', ['topic/b.md'])
 		], moves, BASEHALF_EXACT_UPSTREAM_IDENTITY);
 		const stores = baseHalfRelocateRenameStores(snapshot, moves, BASEHALF_EXACT_UPSTREAM_IDENTITY);
 		const plan = baseHalfPlanRenameUpdate({
@@ -113,13 +113,13 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 			exists: () => false,
 			stores: [
 				state('subject/b.md', 'markdown', ['topic/a.md', 'root.md'], stores[0].entries),
-				state('subject/clip.bhnode', 'node', ['topic/b.md'], stores[1].entries)
+				state('subject/clip.mp4', 'sidecar', ['topic/b.md'], stores[1].entries)
 			]
 		});
 		assert.deepStrictEqual({ stores: stores.map(store => store.nodePath), plan: summary(plan) }, {
-			stores: ['subject/b.md', 'subject/clip.bhnode'],
+			stores: ['subject/b.md', 'subject/clip.mp4'],
 			plan: {
-				edits: ['subject/b.md: topic/a.md→subject/a.md', 'subject/clip.bhnode: topic/b.md→subject/b.md'],
+				edits: ['subject/b.md: topic/a.md→subject/a.md', 'subject/clip.mp4: topic/b.md→subject/b.md'],
 				skipped: [],
 				leftAlone: []
 			}
@@ -160,7 +160,7 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 			identity: BASEHALF_EXACT_UPSTREAM_IDENTITY,
 			exists: () => false,
 			stores: [
-				state('clip.bhnode', 'node', ['a.md'], ['a.md'], { blocking: { reason: 'beingMoved', message: 'clip.bhnode is being moved.' } }),
+				state('clip.mp4', 'sidecar', ['a.md'], ['a.md'], { blocking: { reason: 'beingMoved', message: 'clip.mp4 is being moved.' } }),
 				// A generated file holds its own inputs (D63), and a draft's list is its upstream.yaml.
 				state('renders/final.mp4', 'sidecar', ['a.md'], ['a.md']),
 				state('shots/next.mp4', 'sidecar', ['a.md'], ['a.md']),
@@ -172,28 +172,10 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		assert.deepStrictEqual({ plan: summary(plan), messages: plan.skipped.map(skip => skip.message ?? null) }, {
 			plan: {
 				edits: ['notes.md: a.md→b.md', 'renders/final.mp4: a.md→b.md', 'shots/next.mp4: a.md→b.md'],
-				skipped: ['broken.md: unreadable', 'clip.bhnode: beingMoved', 'dirty.md: unsaved'],
+				skipped: ['broken.md: unreadable', 'clip.mp4: beingMoved', 'dirty.md: unsaved'],
 				leftAlone: []
 			},
-			messages: [null, 'clip.bhnode is being moved.', 'Save or revert dirty.md first.']
-		});
-	});
-
-	test('a node is updated in every phase: while it generates and after it has a video', () => {
-		const moves: IBaseHalfPathMove[] = [{ from: 'docs', to: 'archive' }];
-		const plan = baseHalfPlanRenameUpdate({
-			moves,
-			identity: BASEHALF_EXACT_UPSTREAM_IDENTITY,
-			exists: () => false,
-			stores: [
-				state('shown.bhnode', 'node', ['docs/brief.md', 'docs/notes.md'], ['docs/brief.md', 'docs/notes.md']),
-				state('generating.bhnode', 'node', ['docs/brief.md'], ['docs/brief.md'])
-			]
-		});
-		assert.deepStrictEqual(summary(plan), {
-			edits: ['generating.bhnode: docs/brief.md→archive/brief.md', 'shown.bhnode: docs/brief.md→archive/brief.md, docs/notes.md→archive/notes.md'],
-			skipped: [],
-			leftAlone: []
+			messages: [null, 'clip.mp4 is being moved.', 'Save or revert dirty.md first.']
 		});
 	});
 

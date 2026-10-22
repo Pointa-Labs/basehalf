@@ -160,7 +160,6 @@ export function baseHalfUpstreamEntryProblemMessage(problem: BaseHalfUpstreamEnt
 	switch (problem) {
 		case 'empty': return localize('basehalf.upstream.problem.empty', "This entry is empty.");
 		case 'notScalar': return localize('basehalf.upstream.problem.notScalar', "This entry is not a path.");
-		case 'notString': return localize('basehalf.upstream.problem.notString', "This entry is not a path.");
 		case 'absolute': return localize('basehalf.upstream.problem.absolute', "Paths start at the workspace folder, without a leading /.");
 		case 'backslash': return localize('basehalf.upstream.problem.backslash', "Paths use / between folders, not \\.");
 		case 'controlCharacter': return localize('basehalf.upstream.problem.controlCharacter', "This path contains a character that can't be used.");
@@ -168,7 +167,6 @@ export function baseHalfUpstreamEntryProblemMessage(problem: BaseHalfUpstreamEnt
 		case 'metadata': return localize('basehalf.upstream.problem.metadata', "This path points into BaseHalf's own files.");
 		case 'self': return localize('basehalf.upstream.problem.self', "This entry names the card itself.");
 		case 'duplicate': return localize('basehalf.upstream.problem.duplicate', "This path is already listed above.");
-		case 'overLimit': return localize('basehalf.upstream.problem.overLimit', "A node lists at most 64 upstream entries.");
 		default: return localize('basehalf.upstream.problem.invalid', "This entry is not a valid path.");
 	}
 }
@@ -181,9 +179,6 @@ export function baseHalfUpstreamEntryProblemMessage(problem: BaseHalfUpstreamEnt
 export function baseHalfUpstreamStoreProblemMessage(storeKind: BaseHalfUpstreamStoreKind, problem: BaseHalfUpstreamStoreProblem | undefined, readError?: string): string {
 	if (readError !== undefined) {
 		return localize('basehalf.upstream.store.readError', "The upstream list could not be read: {0}", readError);
-	}
-	if (problem === 'invalidDocument' && storeKind === 'node') {
-		return localize('basehalf.upstream.store.invalidDocument', "This node can't be read.");
 	}
 	if (baseHalfUpstreamRebuildCarriesOver(storeKind, problem)) {
 		return localize('basehalf.upstream.store.blockEntries', "The connections written at the top of this note are not in use.");
@@ -223,8 +218,8 @@ export function baseHalfUpstreamRebuildCarriesOver(storeKind: BaseHalfUpstreamSt
 /**
  * Whether **Rebuild List** can write a store's list again (reference graph,
  * "Rebuilding a list"): a Markdown list whose value BaseHalf cannot use, or a
- * sidecar it cannot read. A document BaseHalf cannot edit safely, a node
- * document, and a store the file system refuses to read cannot be rebuilt.
+ * sidecar it cannot read. A document BaseHalf cannot edit safely and a store
+ * the file system refuses to read cannot be rebuilt.
  */
 export function baseHalfUpstreamStoreCanRebuild(storeKind: BaseHalfUpstreamStoreKind, problem: BaseHalfUpstreamStoreProblem | undefined, readError?: string): boolean {
 	if (readError !== undefined || problem === undefined) {
@@ -236,8 +231,6 @@ export function baseHalfUpstreamStoreCanRebuild(storeKind: BaseHalfUpstreamStore
 				|| problem === 'blockScalar' || problem === 'foreignValue' || problem === 'multilineItem';
 		case 'sidecar':
 			return true;
-		case 'node':
-			return false;
 	}
 }
 

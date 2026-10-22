@@ -298,7 +298,7 @@ export class BaseHalfReferenceMigrationController extends Disposable implements 
 	}
 
 	private promptMessage(counts: IBaseHalfLegacyPromptCounts): string {
-		const { connections, notes, metadataItems, nodeDocuments } = counts;
+		const { connections, notes, metadataItems } = counts;
 		let message: string;
 		if (notes > 0 && metadataItems > 0) {
 			message = localize('basehalf.migration.prompt', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will save them inside {1} notes and in the lists it keeps for {2} other items.", connections, notes, metadataItems);
@@ -308,9 +308,6 @@ export class BaseHalfReferenceMigrationController extends Disposable implements 
 			message = localize('basehalf.migration.prompt.metadata', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will save them in the lists it keeps for {1} items.", connections, metadataItems);
 		} else {
 			message = localize('basehalf.migration.prompt.plain', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections?", connections);
-		}
-		if (nodeDocuments > 0) {
-			message = localize('basehalf.migration.prompt.nodeDocuments', "{0} It will also update {1} nodes.", message, nodeDocuments);
 		}
 		return message;
 	}

@@ -61,7 +61,7 @@ suite('BaseHalfReferenceEntries', () => {
 		assert.strictEqual(baseHalfUpstreamEntryProblem('docs/', 'docs', sensitive), 'self');
 	});
 
-	test('keeps valid entries valid next to invalid, duplicate, and over-limit items', () => {
+	test('keeps valid entries valid next to invalid and duplicate items', () => {
 		const items = baseHalfAnalyzeUpstreamItems([
 			{ text: 'a.md', scalar: true },
 			{ text: '~', scalar: false },
@@ -70,7 +70,7 @@ suite('BaseHalfReferenceEntries', () => {
 			{ text: 'docs', scalar: true },
 			{ text: '{a: b}', scalar: false },
 			{ text: 'b.md', scalar: true }
-		], 'self.md', baseHalfUpstreamIdentity(URI.file('/work'), extUriIgnorePathCase), { maxEntries: 6 });
+		], 'self.md', baseHalfUpstreamIdentity(URI.file('/work'), extUriIgnorePathCase));
 		assert.deepStrictEqual(items.map(item => [item.text, item.path ?? null, item.problem ?? null]), [
 			['a.md', 'a.md', null],
 			['~', null, 'empty'],
@@ -78,7 +78,7 @@ suite('BaseHalfReferenceEntries', () => {
 			['docs/', 'docs', null],
 			['docs', null, 'duplicate'],
 			['{a: b}', null, 'notScalar'],
-			['b.md', null, 'overLimit']
+			['b.md', 'b.md', null]
 		]);
 	});
 

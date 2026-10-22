@@ -22,7 +22,7 @@ import { BASEHALF_VIDEO_MODE_IDS, IBaseHalfVideoGenerationChoice } from './baseh
  * agents are shown cannot drift from what BaseHalf reads.
  */
 
-/** Changes when what an agent may write changes. Version 4 was the `.bhnode` contract it replaces. */
+/** Changes when what an agent may write changes; version 5 is the first of generation cards (D63). */
 export const BASEHALF_GENERATION_AGENT_CONTRACT_VERSION = 5;
 
 /** A JSON value of the contract. */

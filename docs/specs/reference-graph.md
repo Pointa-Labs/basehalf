@@ -1107,10 +1107,10 @@ A template is one JSON document of version 1 with four lists:
 - `references`: connections `{ from, to, fromAnchor, toAnchor }` between the
   files and drafts it creates.
 
-Paths are relative to the template and portable. No path ends in `.bhnode`,
-and a template with a `nodes` list is refused (D63). Every folder that holds
-a draft also holds a file of the template, so that the folder exists on every
-computer the project reaches through git
+Paths are relative to the template and portable. A template holds no other
+list: one with the `nodes` list of earlier builds is refused (D63). Every
+folder that holds a draft also holds a file of the template, so that the
+folder exists on every computer the project reaches through git
 ([generation cards](generation-cards.md#drafts-and-missing-files)).
 
 - Instantiation creates the project folder, its folders, and its files, and
