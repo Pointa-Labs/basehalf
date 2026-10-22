@@ -1,14 +1,16 @@
 # Vidu
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; image models, 2026-10-22)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
 Owner: [Providers and the model catalog](../providers.md), which
 this page details for the provider `vidu`
 Module: `vscode-base/extensions/basehalf-ai-video/src/providers/vidu.ts`
 
 This page records what the Vidu module of AI Video declares and sends: its
 regions and credentials, its models with their modes, inputs, parameters, and
-rules, how a request is built, and how a task is followed and cancelled.
+rules, how a request is built, and how a task is followed and cancelled. The
+sections up to [Image models](#image-models) are about the video models.
 Everything not said here follows
 [Providers and the model catalog](../providers.md) and
 [generation cards](../generation-cards.md).
@@ -327,8 +329,115 @@ create it answers has an unknown outcome. The same meanings describe the
    [Rules between parameters and inputs](#rules-between-parameters-and-inputs)
    and sends nothing when one applies.
 
+## Image models
+
+### Image sources
+
+Read on 2026-10-22; no page shows a date. The pages are the same under
+`https://platform.vidu.com/docs/` and `https://platform.vidu.cn/docs/`.
+
+| Page | What it settles |
+| --- | --- |
+| `api-reference/image-generation` | the create `POST /ent/v2/reference2image`, its body and answer, and the query of its creations |
+| `overview/model-map` | the image models: what each does, its resolutions, how many images it takes, its ratios |
+| `api-reference/updates` | 2025-09-08: reference to image, 1–7 images, 1080p; 2025-09-17: prompts of up to 2,000 characters; 2025-12-01: `viduq2` adds text to image and editing |
+| `api-reference/task-management/task-detail`, `…/cancel-task` | the query and the cancellation, the same as for videos |
+| `api-reference/other-documentation/error-codes` | the codes, the same as for videos, with `ImageDownloadFailure` |
+
+### Image catalog
+
+| Catalog id | Label | Vidu model (`cn`, `intl`) | References | Ratios | Resolutions |
+| --- | --- | --- | --- | --- | --- |
+| `q2-image` | Vidu Q2 | `viduq2` | 0–7 | `16:9` (default), `9:16`, `1:1`, `4:3`, `3:4`, `21:9`, `2:3`, `3:2`, `adaptive` | `1080p` (default), `2k`, `4k` |
+| `q1-image` | Vidu Q1 | `viduq1` | 1–7 | `16:9` (default), `9:16`, `1:1`, `4:3`, `3:4` | `1080p` |
+
+- Both have the kind `image` and run as tasks, with the one mode References
+  (`reference`): Vidu Q2 makes an image from the prompt alone, edits one, or
+  keeps the subjects of up to 7 references; Vidu Q1 keeps the subjects of 1
+  to 7. Their `outputFormat` is `png`: the format is not documented, and an
+  image in another format lands under its own extension.
+- The prompt is always required, at most 2,000 characters.
+- They follow the video models, Vidu Q2 first: it also works from the prompt
+  alone.
+- A task makes one image: the call has no count, and its example answers
+  one creation, so the models declare no `count`.
+
+### Image inputs
+
+- `images`: data URLs of their own format (`image/png`, `image/jpeg`,
+  `image/webp`), read from the bytes, in order. The window draws any other
+  image to PNG.
+- Each at least 128 × 128 px (`imageMinSide: 128`), width to height within
+  1:4 to 4:1 (`imageAspect: [0.25, 4]`), at most 50 MB (`imageMaxBytes:
+  52428800`).
+- The request with its data URLs is at most 20 MiB, as for videos; `check`
+  reports a larger one.
+
+### Image parameters
+
+| Parameter | Label | Kind | Values and default | Sent as |
+| --- | --- | --- | --- | --- |
+| `ratio` | Ratio | choice, ratio shapes | by model, above; default `16:9`; `adaptive` labeled **Adaptive** | `aspect_ratio`, Adaptive as `auto` |
+| `resolution` | Resolution | choice | by model, above, labeled 1080p, 2K, 4K; default `1080p` | `resolution`, as Vidu writes it: `1080p`, `2K`, `4K` |
+| `seed` | Seed | whole number 0–2147483647, optional, under More | sent only when set; empty or 0 is random | `seed` |
+
+- Adaptive is Vidu's `auto`, "the same aspect ratio as the first input
+  image"; its tooltip says so. Vidu defines it only from an image, so `check`
+  refuses Adaptive without a reference.
+- The resolutions keep the values the video models use (`1080p`, `2k`, `4k`),
+  so that choosing another Vidu model keeps them.
+- Nothing else is offered: the call has no count, watermark switch, prompt
+  rewriting, or negative prompt. The image downloaded is the creation's `url`,
+  which has no watermark; `watermarked_url` has one.
+
+### Image requests
+
+- **Create**, once (`http.create`): `POST /ent/v2/reference2image` with
+  `Authorization: Token <key>` and
+
+  ```json
+  { "model": "viduq2", "images": ["data:image/png;base64,…"], "prompt": "<prompt>", "aspect_ratio": "auto", "resolution": "2K", "seed": 7 }
+  ```
+
+  `images` only when there are references, `seed` only when set; no
+  `payload` or `callback_url`. The task id is read as for videos.
+- **Asking about a task**: `GET /ent/v2/tasks/<id>/creations`, with the states
+  of the video models. `success` answers the `url` of every creation, in
+  order, never its `watermarked_url`; without one, the answer cannot be read.
+  A failure names an image: "Vidu could not make the image (code)." or what
+  the code means, such as "Vidu's content review refused the image it made
+  (CreationPolicyViolation)."; it does not say what a failure costs, which no
+  image page states.
+- The image's `url` is downloaded without the key, as a video's.
+- **Cancel** and **errors**: as for the video models; `ImageDownloadFailure`
+  (an image of the request could not be read) is refused by its status.
+
+### Image open questions
+
+1. How many images a task makes: one, by the example; a second creation
+   would be dropped, since a generation names one file.
+2. The format of the images: not documented; PNG is declared.
+3. What Adaptive does without a reference: not defined; refused.
+
+### Image acceptance criteria
+
+1. The catalog lists `q2-image` and `q1-image` after the video models, with
+   the kind `image`, PNG, as tasks, in both regions, with exactly their mode,
+   limits, parameters, and prompt rule above.
+2. Each model's create goes once to `/ent/v2/reference2image` with
+   `Authorization: Token` and the fields above, its references as data URLs.
+3. A poll answers every state, and `success` the `url` of each creation; an
+   image downloads without the key.
+4. A refused key answers `auth`, too many tasks `rateLimited`, too few credits
+   `balance`, refused content `rejected`, and a create whose connection drops
+   `unknownOutcome`, each after one request.
+5. `check` refuses Adaptive without a reference and a request over 20 MiB, and
+   a refused request sends nothing.
+
 ## Verification
 
 `extensions/basehalf-ai-video/test/vidu.test.ts` runs the module through the
-provider commands against a local server that answers like Vidu. No test calls
+provider commands against a local server that answers like Vidu, for the
+video models and the image models
+([Image acceptance criteria](#image-acceptance-criteria)). No test calls
 Vidu.

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Vidu module (docs/specs/video-providers/vidu.md) through the provider
+ * The Vidu module (docs/specs/providers/vidu.md) through the provider
  * commands, against local servers that answer like Vidu. Nothing here talks to
  * Vidu.
  */
@@ -19,7 +19,7 @@ import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import type { CatalogParameter, CatalogProvider } from '../src/providers/types.ts';
 import { VIDU } from '../src/providers/vidu.ts';
-import { error, gifHeader, isoMedia, mp3, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav } from './providerTestKit.ts';
+import { error, gifHeader, isoMedia, mp3, partTargets, plannedFiles, png, recordingSleep, routed, sendJson, serveFiles, startServer, tinyPng, value, wav, webpHeader } from './providerTestKit.ts';
 
 const KEY = 'vda-test-secret-42';
 const MIB = 1024 * 1024;
@@ -116,7 +116,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 		],
 		credentials: [{ id: 'apiKey', label: 'API Key' }]
 	});
-	const models = provider.models.map(model => ({
+	const models = provider.models.filter(model => model.kind === 'video').map(model => ({
 		id: model.id,
 		label: model.label,
 		providerModels: model.providerModels,
@@ -211,7 +211,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 		}
 	]);
 	// The names and values every provider shares, with the labels Vidu writes.
-	const names = new Set(provider.models.flatMap(model => model.parameters.map(parameter => parameter.name)));
+	const names = new Set(provider.models.filter(model => model.kind === 'video').flatMap(model => model.parameters.map(parameter => parameter.name)));
 	assert.deepEqual({
 		names: [...names].sort(),
 		q4Resolutions: optionLabels(provider, 'q4-preview', 'resolution'),
@@ -563,7 +563,7 @@ test('a refused key, too many tasks, and too few credits answer the contract\'s 
 		const polled = error(await providers.poll(taskRef(server.url, 't-1')));
 		assert.deepEqual({ submitted, creates, polled, polls: server.received.length - creates, waits: sleep.waits }, {
 			submitted: {
-				key: { code: 'auth', message: 'Vidu did not accept the API key (Unauthorized). Check it in Video Providers.', status: 401 },
+				key: { code: 'auth', message: 'Vidu did not accept the API key (Unauthorized). Check it in Providers.', status: 401 },
 				busy: { code: 'rateLimited', message: 'Too many tasks of this Vidu account run at once (QuotaExceeded). Vidu runs up to 5 tasks at a time for an organization.', status: 429 },
 				credits: { code: 'balance', message: 'The Vidu account has too few credits for this generation (CreditInsufficient).', status: 400 },
 				field: { code: 'rejected', message: 'Vidu refused the request: invalid field: duration (FieldInvalid).', status: 400 },
@@ -646,6 +646,303 @@ test('check adds Vidu\'s own rules to the declarations\' checks, and submit then
 	try {
 		const refused = error(await providers.submit(generation(server.url, { inputs: { ...NO_MEDIA, startFrame: image(START), endFrame: image(TALL) } })));
 		assert.deepEqual({ refused, sent: server.received.length }, { refused: { code: 'rejected', message: shapes }, sent: 0 });
+	} finally {
+		await server.close();
+	}
+});
+
+// --- image models -------------------------------------------------------------------------------
+
+const FRAME = file('frame.webp', webpHeader('VP8X', 640, 360));
+
+/** A request of `submit` for an image model in References mode: Vidu Q2 in China from the prompt, unless `overrides` say otherwise. */
+function imageGeneration(endpoint: string, overrides: Record<string, unknown> = {}) {
+	return generation(endpoint, { model: 'q2-image', mode: 'reference', prompt: 'A lighthouse at dusk.', ...overrides });
+}
+
+function imageTaskRef(endpoint: string, remoteId: string, model = 'q2-image') {
+	return { ...taskRef(endpoint, remoteId), model };
+}
+
+test('the image models follow the video models: PNG, as tasks of reference to image, with their references, limits, and settings', () => {
+	const provider = buildCatalog([VIDU]).providers[0];
+	assert.deepEqual(provider.models.map(model => model.kind), [...Array(9).fill('video'), 'image', 'image']);
+	const references = (min: number) => ({ startFrame: 'none', endFrame: 'none', images: { min, max: 7 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' });
+	const limits = { imageMinSide: 128, imageAspect: [0.25, 4], imageMaxBytes: 50 * MIB };
+	const images = provider.models.filter(model => model.kind === 'image');
+	assert.deepEqual(images.map(model => ({
+		id: model.id,
+		label: model.label,
+		providerModels: model.providerModels,
+		prompt: model.prompt,
+		outputFormat: model.outputFormat,
+		answersAtOnce: model.answersAtOnce,
+		modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits })),
+		parameters: model.parameters.map(describeParameter)
+	})), [
+		{
+			id: 'q2-image',
+			label: 'Vidu Q2',
+			providerModels: { cn: 'viduq2', intl: 'viduq2' },
+			prompt: { required: 'always', maxLength: 2000 },
+			outputFormat: 'png',
+			answersAtOnce: undefined,
+			modes: [{ id: 'reference', label: 'References', inputs: references(0), limits }],
+			parameters: [`ratio: ${RATIOS}|21:9|2:3|3:2|adaptive = 16:9`, 'resolution: 1080p|2k|4k = 1080p', SEED]
+		},
+		{
+			id: 'q1-image',
+			label: 'Vidu Q1',
+			providerModels: { cn: 'viduq1', intl: 'viduq1' },
+			prompt: { required: 'always', maxLength: 2000 },
+			outputFormat: 'png',
+			answersAtOnce: undefined,
+			modes: [{ id: 'reference', label: 'References', inputs: references(1), limits }],
+			parameters: [`ratio: ${RATIOS} = 16:9`, 'resolution: 1080p = 1080p', SEED]
+		}
+	]);
+	const parameter = (model: string, name: string) => images.find(entry => entry.id === model)?.parameters.find(entry => entry.name === name);
+	assert.deepEqual({
+		q2Resolutions: optionLabels(provider, 'q2-image', 'resolution'),
+		q2Adaptive: optionLabels(provider, 'q2-image', 'ratio')?.at(-1),
+		q2RatioTooltip: parameter('q2-image', 'ratio')?.tooltip,
+		q1RatioTooltip: parameter('q1-image', 'ratio')?.tooltip,
+		seedTooltip: parameter('q1-image', 'seed')?.tooltip
+	}, {
+		q2Resolutions: ['1080p 1080p', '2k 2K', '4k 4K'],
+		q2Adaptive: 'adaptive Adaptive',
+		q2RatioTooltip: 'Adaptive takes the shape of the first reference image, and needs one.',
+		q1RatioTooltip: undefined,
+		seedTooltip: 'The same seed and settings make a similar image. Empty or 0 makes a new one each time.'
+	});
+});
+
+test('each image model creates its task once at reference to image, with the Token header and the exact body', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { task_id: `image-${server.received.length}`, state: 'created', credits: 0 }));
+	try {
+		const prompt = 'A lighthouse at dusk.';
+		const cases: { readonly name: string; readonly request: Record<string, unknown>; readonly body: Record<string, unknown> }[] = [
+			{
+				name: 'Q2 from the prompt alone, with the defaults',
+				request: {},
+				body: { model: 'viduq2', prompt, aspect_ratio: '16:9', resolution: '1080p' }
+			},
+			{
+				name: 'Q2 from references of three formats, Adaptive sent as auto, at 4K with a seed',
+				request: { region: 'intl', params: { ratio: 'adaptive', resolution: '4k', seed: 7 }, inputs: { ...NO_MEDIA, images: [image(SQUARE), image(START), { fsPath: FRAME, mimeType: 'image/webp' }] } },
+				body: { model: 'viduq2', images: [dataUrl(SQUARE), dataUrl(START), dataUrl(FRAME, 'image/webp')], prompt, aspect_ratio: 'auto', resolution: '4K', seed: 7 }
+			},
+			{
+				name: 'Q2 at 2K and 21:9',
+				request: { params: { ratio: '21:9', resolution: '2k' } },
+				body: { model: 'viduq2', prompt, aspect_ratio: '21:9', resolution: '2K' }
+			},
+			{
+				name: 'Q1 from one reference',
+				request: { model: 'q1-image', params: { ratio: '3:4', seed: 0 }, inputs: { ...NO_MEDIA, images: [image(TALL)] } },
+				body: { model: 'viduq1', images: [dataUrl(TALL)], prompt, aspect_ratio: '3:4', resolution: '1080p', seed: 0 }
+			}
+		];
+		const providers = commands();
+		const results = [];
+		for (const entry of cases) {
+			const answered = await providers.submit(imageGeneration(server.url, entry.request));
+			const received = server.received.at(-1);
+			results.push({
+				name: entry.name,
+				answered,
+				method: received?.method,
+				path: received?.path,
+				authorization: received?.headers.authorization,
+				contentType: received?.headers['content-type'],
+				body: JSON.parse(received?.body.toString('utf8') ?? 'null')
+			});
+		}
+		assert.deepEqual(results, cases.map((entry, index) => ({
+			name: entry.name,
+			answered: { ok: true, value: { remoteId: `image-${index + 1}` } },
+			method: 'POST',
+			path: '/ent/v2/reference2image',
+			authorization: `Token ${KEY}`,
+			contentType: 'application/json',
+			body: entry.body
+		})));
+		assert.equal(server.received.length, cases.length);
+	} finally {
+		await server.close();
+	}
+});
+
+test('a poll of an image task answers every creation\'s address without its watermark, and failures that name an image', async () => {
+	const answers: Record<string, unknown> = {
+		'queued': { state: 'queueing', progress: 10 },
+		'running': { state: 'processing' },
+		'done': {
+			state: 'success',
+			credits: 40,
+			creations: [
+				{ id: 'c-1', url: 'https://cdn.example.com/c-1.png', cover_url: 'https://cdn.example.com/c-1-cover.png', watermarked_url: 'https://cdn.example.com/c-1-wm.png' },
+				{ id: 'c-2', url: 'https://cdn.example.com/c-2.png', watermarked_url: 'https://cdn.example.com/c-2-wm.png' },
+				{ id: 'c-3', url: '' }
+			]
+		},
+		'refused': { state: 'failed', err_code: 'CreationPolicyViolation' },
+		'new-code': { state: 'failed', err_code: 'SomethingNew' },
+		'quiet': { state: 'failed', err_code: '' },
+		'cancelled': { state: 'failed', err_code: 'UserCancelled' },
+		'done-without-address': { state: 'success', creations: [{ id: 'c-4', watermarked_url: 'https://cdn.example.com/c-4-wm.png' }] }
+	};
+	const server = await startServer((request, response) => {
+		const id = /^\/ent\/v2\/tasks\/([^/]+)\/creations$/.exec(request.path)?.[1] ?? '';
+		sendJson(response, 200, { id, ...(answers[id] as object) });
+	});
+	try {
+		const providers = commands();
+		const poll = (id: string, model?: string) => providers.poll(imageTaskRef(server.url, id, model));
+		assert.deepEqual({
+			queued: value(await poll('queued')),
+			running: value(await poll('running', 'q1-image')),
+			done: value(await poll('done')),
+			refused: value(await poll('refused')),
+			newCode: value(await poll('new-code', 'q1-image')),
+			quiet: value(await poll('quiet')),
+			cancelled: value(await poll('cancelled')),
+			withoutAddress: error(await poll('done-without-address')),
+			asked: server.received.map(request => `${request.method} ${request.path} ${request.headers.authorization}`).at(0)
+		}, {
+			queued: { state: 'pending', fraction: 0.1 },
+			running: { state: 'running' },
+			done: { state: 'succeeded', outputs: [{ url: 'https://cdn.example.com/c-1.png' }, { url: 'https://cdn.example.com/c-2.png' }] },
+			refused: { state: 'failed', message: 'Vidu\'s content review refused the image it made (CreationPolicyViolation).' },
+			newCode: { state: 'failed', message: 'Vidu could not make the image (SomethingNew).' },
+			quiet: { state: 'failed', message: 'Vidu could not make the image.' },
+			cancelled: { state: 'cancelled', message: 'The task was cancelled at Vidu (UserCancelled).' },
+			withoutAddress: { code: 'invalidResponse', message: 'Vidu reports the task as done but gives no image address.' },
+			asked: `GET /ent/v2/tasks/queued/creations Token ${KEY}`
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+test('an image downloads from its creation\'s address without the key, and an image task is cancelled as a video task is', async () => {
+	const storage = await startServer(routed(serveFiles({ '/creations/c-9.png': tinyPng() })));
+	const api = await startServer((request, response) => {
+		if (request.method === 'POST') {
+			sendJson(response, 200, {});
+			return;
+		}
+		sendJson(response, 200, { id: 't-9', state: 'success', creations: [{ id: 'c-9', url: `${storage.url}/creations/c-9.png`, watermarked_url: `${storage.url}/creations/c-9-wm.png` }] });
+	});
+	try {
+		const providers = commands();
+		const ref = imageTaskRef(api.url, 't-9');
+		const polled = value(await providers.poll(ref)) as { outputs: { url: string }[] };
+		const target = partTargets(1)[0];
+		const downloaded = value(await providers.download({ ...ref, kind: 'image', url: polled.outputs[0].url, targetFsPath: target }));
+		const cancelled = value(await providers.cancel(ref));
+		assert.deepEqual({
+			downloaded,
+			same: readFileSync(target).equals(tinyPng()),
+			storage: storage.received.map(request => [request.path, request.headers.authorization]),
+			cancelled,
+			api: api.received.map(request => `${request.method} ${request.path} ${request.headers.authorization}`)
+		}, {
+			downloaded: { size: tinyPng().byteLength, format: 'png' },
+			same: true,
+			storage: [['/creations/c-9.png', undefined]],
+			cancelled: { cancelled: true },
+			api: [`GET /ent/v2/tasks/t-9/creations Token ${KEY}`, `POST /ent/v2/tasks/t-9/cancel Token ${KEY}`]
+		});
+	} finally {
+		await api.close();
+		await storage.close();
+	}
+});
+
+test('image creates: a refused key, too many tasks, too few credits, refused content, and lost answers, each sent once', async () => {
+	const answers: Record<string, [number, unknown]> = {
+		key: [401, { code: 401, reason: 'Unauthorized', message: 'unauthorized' }],
+		busy: [429, { code: 429, reason: 'QuotaExceeded', message: 'quota exceeded' }],
+		credits: [400, { code: 400, reason: 'CreditInsufficient', message: 'insufficient credits' }],
+		prompt: [200, { code: 400, reason: 'TaskPromptPolicyViolation', message: 'prompt policy violation' }],
+		download: [400, { code: 400, reason: 'ImageDownloadFailure', message: 'image download failure' }],
+		server: [500, { code: 500, reason: 'InternalServiceFailure', message: 'internal service failure' }]
+	};
+	const server = await startServer((request, response, socket) => {
+		const reply = answers[JSON.parse(request.body.toString('utf8')).prompt];
+		if (!reply) {
+			socket.destroy();
+			return;
+		}
+		sendJson(response, reply[0], reply[1]);
+	});
+	try {
+		const sleep = recordingSleep();
+		const providers = commands({ http: { sleep: sleep.sleep } });
+		const submit = async (prompt: string) => error(await providers.submit(imageGeneration(server.url, { prompt, inputs: { ...NO_MEDIA, images: [image(SQUARE)] } })));
+		const submitted: Record<string, unknown> = {};
+		for (const prompt of Object.keys(answers)) {
+			submitted[prompt] = await submit(prompt);
+		}
+		const dropped = await submit('dropped');
+		assert.equal(dropped.code, 'unknownOutcome');
+		assert.match(dropped.message, /^The connection ended after the request was sent/);
+		assert.deepEqual({ submitted, sent: server.received.length, waits: sleep.waits }, {
+			submitted: {
+				key: { code: 'auth', message: 'Vidu did not accept the API key (Unauthorized). Check it in Providers.', status: 401 },
+				busy: { code: 'rateLimited', message: 'Too many tasks of this Vidu account run at once (QuotaExceeded). Vidu runs up to 5 tasks at a time for an organization.', status: 429 },
+				credits: { code: 'balance', message: 'The Vidu account has too few credits for this generation (CreditInsufficient).', status: 400 },
+				prompt: { code: 'rejected', message: 'Vidu\'s content review refused the prompt (TaskPromptPolicyViolation).' },
+				download: { code: 'rejected', message: 'Vidu could not read an image of the request (ImageDownloadFailure).', status: 400 },
+				server: { code: 'unknownOutcome', message: 'Vidu had an internal error (InternalServiceFailure).', status: 500 }
+			},
+			sent: 7,
+			waits: []
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+test('check adds the rules of the image models to the declarations\' own, and submit then sends nothing', async () => {
+	const providers = commands();
+	const problems = async (overrides: Record<string, unknown>, checker = providers) =>
+		value(await checker.check(planned({ model: 'q2-image', mode: 'reference', ...overrides }))).problems;
+	const large: MediaInspector = { inspect: async () => ({ bytes: 9 * MIB, format: 'png', width: 1920, height: 1080 }) };
+	const results = {
+		adaptiveFromPrompt: await problems({ params: { ratio: 'adaptive' } }),
+		adaptiveWithReference: await problems({ params: { ratio: 'adaptive' }, inputs: { ...NO_MEDIA, images: [image(SQUARE)] } }),
+		q1WithoutReference: await problems({ model: 'q1-image' }),
+		q1Adaptive: await problems({ model: 'q1-image', params: { ratio: 'adaptive' }, inputs: { ...NO_MEDIA, images: [image(SQUARE)] } }),
+		q1At2k: await problems({ model: 'q1-image', params: { resolution: '2k' }, inputs: { ...NO_MEDIA, images: [image(SQUARE)] } }),
+		eightReferences: await problems({ inputs: { ...NO_MEDIA, images: Array.from({ length: 8 }, () => image(SQUARE)) } }),
+		smallReference: await problems({ inputs: { ...NO_MEDIA, images: [image(SMALL)] } }),
+		withoutPrompt: await problems({ prompt: ' ' }),
+		longPrompt: await problems({ prompt: 'x'.repeat(2001) }),
+		count: await problems({ params: { count: 2 } }),
+		tooLarge: await problems({ inputs: { ...NO_MEDIA, images: ['a.png', 'b.png', 'c.png'].map(name => image(join(folder, name))) } }, commands({ inspector: () => large }))
+	};
+	assert.deepEqual(results, {
+		adaptiveFromPrompt: ['Adaptive gives Vidu Q2 the shape of the first reference image; choose a ratio, or connect an image.'],
+		adaptiveWithReference: [],
+		q1WithoutReference: ['Vidu Q1 in References mode needs at least 1 reference image.'],
+		q1Adaptive: ['Ratio cannot be adaptive for Vidu Q1; choose 16:9, 9:16, 1:1, 4:3, 3:4.'],
+		q1At2k: ['Resolution cannot be 2k for Vidu Q1; choose 1080p.'],
+		eightReferences: ['Vidu Q2 in References mode takes at most 7 reference images; 8 are planned.'],
+		smallReference: ['Reference image 1 small.png is 100 × 100 px; each side must be at least 128 px.'],
+		withoutPrompt: ['Write a prompt: Vidu Q2 needs one.'],
+		longPrompt: ['The prompt is 2001 characters long; Vidu Q2 takes at most 2000.'],
+		count: ['Vidu Q2 has no setting named "count".'],
+		tooLarge: ['The request with its inputs would be 36.0 MiB; Vidu takes at most 20 MiB. Use fewer or smaller inputs.']
+	});
+	const server = await startServer((request, response) => sendJson(response, 200, { task_id: 'never', state: 'created' }));
+	try {
+		const refused = error(await providers.submit(imageGeneration(server.url, { params: { ratio: 'adaptive' } })));
+		assert.deepEqual({ refused, sent: server.received.length }, {
+			refused: { code: 'rejected', message: 'Adaptive gives Vidu Q2 the shape of the first reference image; choose a ratio, or connect an image.' },
+			sent: 0
+		});
 	} finally {
 		await server.close();
 	}

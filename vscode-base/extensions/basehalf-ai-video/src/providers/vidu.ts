@@ -7,7 +7,7 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
+import type { ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
 import type {
 	CatalogMode,
 	CatalogModel,
@@ -19,24 +19,28 @@ import type {
 	Media,
 	ModeId,
 	ModeLimits,
-	PollState,
+	ModelKind,
 	ProviderErrorCode,
 	SubmitRequest,
 	TaskRef
 } from './types.ts';
 
 /**
- * Vidu on its own API (docs/specs/video-providers/vidu.md): two regions, one
- * API key sent as `Authorization: Token <key>`, inputs inside the JSON request
- * as data URLs, and nine catalog models over four create requests. Frames
- * mode picks the request from its inputs: none is text to video, a start
- * frame image to video, and a start and an end frame start–end to video.
+ * Vidu on its own API (D59, D64; docs/specs/providers/vidu.md): two regions,
+ * one API key sent as `Authorization: Token <key>`, inputs inside the JSON
+ * request as data URLs, nine video models over four create requests, and two
+ * image models on its reference-to-image request. Frames mode picks the
+ * request from its inputs: none is text to video, a start frame image to
+ * video, and a start and an end frame start–end to video. Every task is asked
+ * about and cancelled the same way.
  */
 
 type RegionId = 'cn' | 'intl';
 
 /** The create requests, by their path under `/ent/v2/`. */
 type Route = 'text2video' | 'img2video' | 'start-end2video' | 'reference2video';
+
+type ViduImageModelId = 'q2-image' | 'q1-image';
 
 const MIB = 1024 * 1024;
 
@@ -75,6 +79,18 @@ const TEXT = Object.freeze({
 	promptExtendTooltip: 'Vidu writes a fuller prompt from yours and the start frame before it generates.',
 	seed: 'Seed',
 	seedTooltip: 'The same seed and settings make a similar video. Empty or 0 makes a new one each time.',
+	imageSeedTooltip: 'The same seed and settings make a similar image. Empty or 0 makes a new one each time.',
+	imageRatioAdaptive: 'Adaptive takes the shape of the first reference image, and needs one.',
+	imageModels: Object.freeze<Record<ViduImageModelId, { readonly label: string; readonly description: string }>>({
+		'q2-image': {
+			label: 'Vidu Q2',
+			description: 'An image from the prompt alone, an edit of one, or one that keeps the subjects of up to 7 reference images, at 1080p, 2K, or 4K.'
+		},
+		'q1-image': {
+			label: 'Vidu Q1',
+			description: 'An image that keeps the subjects of 1 to 7 reference images, at 1080p.'
+		}
+	}),
 	models: Object.freeze<Record<string, { readonly label: string; readonly description: string }>>({
 		'q4-preview': {
 			label: 'Vidu Q4 Preview',
@@ -337,8 +353,13 @@ function catalogParameters(model: ViduModel): CatalogParameter[] {
 	if (model.promptExtend) {
 		parameters.push({ name: 'prompt_extend', label: TEXT.promptExtend, kind: 'boolean', default: false, modes: ['frames'], tooltip: TEXT.promptExtendTooltip });
 	}
-	parameters.push({ name: 'seed', label: TEXT.seed, kind: 'integer', min: 0, max: SEED_MAX, step: 1, optional: true, advanced: true, tooltip: TEXT.seedTooltip });
+	parameters.push(seedParameter(TEXT.seedTooltip));
 	return parameters;
+}
+
+/** The seed, which Vidu takes as any whole number; empty or 0 is random. */
+function seedParameter(tooltip: string): CatalogParameter {
+	return { name: 'seed', label: TEXT.seed, kind: 'integer', min: 0, max: SEED_MAX, step: 1, optional: true, advanced: true, tooltip };
 }
 
 function catalogModel(model: ViduModel): CatalogModel {
@@ -360,6 +381,63 @@ function catalogModel(model: ViduModel): CatalogModel {
 	};
 }
 
+// --- the image models ---------------------------------------------------------------------------
+
+interface ViduImageModel {
+	/** The catalog id. */
+	readonly id: ViduImageModelId;
+	/** Vidu's id of the model, the same in both regions. */
+	readonly providerModel: string;
+	readonly references: CountSlot;
+	readonly ratios: readonly string[];
+	/** Whether `adaptive` (Vidu's `auto`, the shape of the first reference) is a choice. */
+	readonly adaptive: boolean;
+	readonly resolutions: readonly Resolution[];
+}
+
+/** The image models, after the video models (vidu.md, "Image catalog"). */
+const IMAGE_MODELS: readonly ViduImageModel[] = Object.freeze<ViduImageModel[]>([
+	{ id: 'q2-image', providerModel: 'viduq2', references: { min: 0, max: 7 }, ratios: [...RATIOS, '21:9', '2:3', '3:2'], adaptive: true, resolutions: ['1080p', '2k', '4k'] },
+	{ id: 'q1-image', providerModel: 'viduq1', references: { min: 1, max: 7 }, ratios: RATIOS, adaptive: false, resolutions: ['1080p'] }
+]);
+
+const IMAGE_MODELS_BY_ID: ReadonlyMap<string, ViduImageModel> = new Map(IMAGE_MODELS.map(model => [model.id, model]));
+const IMAGE_REFERENCE_LIMITS: ModeLimits = Object.freeze({ imageMinSide: 128, imageAspect: [0.25, 4] as const, imageMaxBytes: 50 * MIB });
+const IMAGE_PROMPT_MAX_LENGTH = 2000;
+
+function catalogImageModel(model: ViduImageModel): CatalogModel {
+	const text = TEXT.imageModels[model.id];
+	const ratios = model.ratios.map(value => ({ value, label: value }));
+	return {
+		id: model.id,
+		kind: 'image',
+		label: text.label,
+		description: text.description,
+		providerModels: { cn: model.providerModel, intl: model.providerModel },
+		prompt: { required: 'always', maxLength: IMAGE_PROMPT_MAX_LENGTH },
+		modes: [{
+			id: 'reference',
+			label: TEXT.references,
+			inputs: { startFrame: 'none', endFrame: 'none', images: model.references, videos: NO_INPUTS, audios: NO_INPUTS, source: 'none' },
+			limits: IMAGE_REFERENCE_LIMITS
+		}],
+		parameters: [
+			{
+				name: 'ratio',
+				label: TEXT.ratio,
+				kind: 'choice',
+				display: 'ratio',
+				options: model.adaptive ? [...ratios, { value: 'adaptive', label: TEXT.ratioAdaptive }] : ratios,
+				default: '16:9',
+				...(model.adaptive ? { tooltip: TEXT.imageRatioAdaptive } : {})
+			},
+			{ name: 'resolution', label: TEXT.resolution, kind: 'choice', options: model.resolutions.map(value => ({ value, label: VIDU_RESOLUTIONS[value] })), default: '1080p' },
+			seedParameter(TEXT.imageSeedTooltip)
+		],
+		outputFormat: 'png'
+	};
+}
+
 const PROVIDER = Object.freeze<CatalogProvider>({
 	id: 'vidu',
 	label: TEXT.provider,
@@ -368,7 +446,7 @@ const PROVIDER = Object.freeze<CatalogProvider>({
 		{ id: 'intl', label: TEXT.regions.intl, baseUrl: 'https://api.vidu.com', console: 'https://platform.vidu.com' }
 	],
 	credentials: [{ id: 'apiKey', label: TEXT.apiKey }],
-	models: MODELS.map(catalogModel)
+	models: [...MODELS.map(catalogModel), ...IMAGE_MODELS.map(catalogImageModel)]
 });
 
 // --- requests -----------------------------------------------------------------------------------
@@ -536,11 +614,52 @@ async function createBody(model: ViduModel, providerModel: string, route: Route,
 	return body;
 }
 
+// --- image requests -----------------------------------------------------------------------------
+
+/** The rules of an image model that its declarations cannot express, and a request too large to send (vidu.md, "Image parameters"). */
+async function imageProblems(model: ViduImageModel, request: CheckRequest, media: MediaInspector): Promise<string[]> {
+	const problems: string[] = [];
+	if (request.params.ratio === 'adaptive' && countsOf(request.inputs).images === 0) {
+		problems.push(`${TEXT.ratioAdaptive} gives ${TEXT.imageModels[model.id].label} the shape of the first reference image; choose a ratio, or connect an image.`);
+	}
+	problems.push(...fileProblems(await measureItems(request.inputs, media), request.prompt));
+	return problems;
+}
+
+/** Creates an image task once: the references as data URLs in order, the prompt, and the settings under Vidu's names (vidu.md, "Image requests"). */
+async function submitImage(model: ViduImageModel, request: SubmitRequest, http: ProviderHttp): Promise<string> {
+	const providerModel = PROVIDER.models.find(entry => entry.id === model.id)?.providerModels[regionOf(request.region)];
+	if (!providerModel) {
+		throw rejected(`Vidu does not offer ${TEXT.imageModels[model.id].label} in this region.`);
+	}
+	const images: string[] = [];
+	for (const item of plannedItems(request.inputs)) {
+		if (item.slot !== 'image') {
+			throw rejected(`${TEXT.imageModels[model.id].label} takes reference images only.`);
+		}
+		images.push(await imageDataUrl(item.media, item.label));
+	}
+	const params = request.params;
+	const body: Record<string, unknown> = { model: providerModel };
+	if (images.length) {
+		body.images = images;
+	}
+	body.prompt = request.prompt;
+	body.aspect_ratio = params.ratio === 'adaptive' ? 'auto' : params.ratio;
+	body.resolution = RESOLUTIONS_SENT.get(String(params.resolution)) ?? params.resolution;
+	if (params.seed !== undefined) {
+		body.seed = params.seed;
+	}
+	return taskIdOf(await http.create({ method: 'POST', path: '/ent/v2/reference2image', body: { kind: 'json', value: body } }));
+}
+
 // --- answers ------------------------------------------------------------------------------------
 
 interface Reason {
 	/** What the code means, as a sentence without its full stop. */
 	readonly text: string;
+	/** What the code means for a task that makes an image, where it differs. */
+	readonly imageText?: string;
 	/** The contract's code, where it says more than the HTTP status. */
 	readonly code?: ProviderErrorCode;
 	/** What the user can do, a sentence after the code. */
@@ -549,8 +668,8 @@ interface Reason {
 
 /** How each documented error code reads (vidu.md, "Errors"). */
 const REASONS = Object.freeze<Record<string, Reason>>({
-	Unauthorized: { code: 'auth', text: 'Vidu did not accept the API key', advice: 'Check it in Video Providers.' },
-	Forbidden: { code: 'auth', text: 'Vidu refused the request for this API key', advice: 'Check it in Video Providers.' },
+	Unauthorized: { code: 'auth', text: 'Vidu did not accept the API key', advice: 'Check it in Providers.' },
+	Forbidden: { code: 'auth', text: 'Vidu refused the request for this API key', advice: 'Check it in Providers.' },
 	CreditInsufficient: { code: 'balance', text: 'The Vidu account has too few credits for this generation' },
 	QuotaExceeded: { code: 'rateLimited', text: 'Too many tasks of this Vidu account run at once', advice: 'Vidu runs up to 5 tasks at a time for an organization.' },
 	TooManyRequests: { code: 'rateLimited', text: 'Vidu received too many requests in a short time' },
@@ -561,7 +680,8 @@ const REASONS = Object.freeze<Record<string, Reason>>({
 	AuditSubmitIllegal: { text: 'Vidu\'s content review refused the inputs' },
 	AuditFailed: { text: 'Vidu\'s content review refused the inputs' },
 	PhotoAuditNotPass: { text: 'Vidu\'s content review refused an image' },
-	CreationPolicyViolation: { text: 'Vidu\'s content review refused the video it made' },
+	CreationPolicyViolation: { text: 'Vidu\'s content review refused the video it made', imageText: 'Vidu\'s content review refused the image it made' },
+	ImageDownloadFailure: { text: 'Vidu could not read an image of the request' },
 	ImageFormatInvalid: { text: 'Vidu cannot read the format of an image' },
 	ImageSizeInvalid: { text: 'An image is too large or too small for Vidu' },
 	PageSizeOutOfRange: { text: 'An image is outside Vidu\'s limits of size, format, or aspect ratio' },
@@ -640,17 +760,20 @@ function stateOf(answer: Record<string, unknown>): string {
 	return typeof answer.state === 'string' ? answer.state.trim().toLowerCase() : '';
 }
 
-/** The address of the first creation, the video without a watermark. */
-function creationUrlOf(answer: Record<string, unknown>): string | undefined {
-	if (!Array.isArray(answer.creations)) {
-		return undefined;
-	}
-	for (const creation of answer.creations) {
+/** The addresses of the creations, in order, each without a watermark. */
+function creationUrlsOf(answer: Record<string, unknown>): string[] {
+	const urls: string[] = [];
+	for (const creation of Array.isArray(answer.creations) ? answer.creations : []) {
 		if (isRecord(creation) && typeof creation.url === 'string' && creation.url.trim()) {
-			return creation.url.trim();
+			urls.push(creation.url.trim());
 		}
 	}
-	return undefined;
+	return urls;
+}
+
+/** The address of the first creation, the video without a watermark. */
+function creationUrlOf(answer: Record<string, unknown>): string | undefined {
+	return creationUrlsOf(answer)[0];
 }
 
 /** `progress` from 0 to 100 as a fraction, when the answer has it (vidu.md, "Not confirmed"). */
@@ -659,13 +782,16 @@ function progressOf(answer: Record<string, unknown>): { readonly fraction?: numb
 	return typeof progress === 'number' && Number.isFinite(progress) && progress >= 0 && progress <= 100 ? { fraction: progress / 100 } : {};
 }
 
-function failureMessage(errCode: string): string {
+/** Why a task failed. A video's message adds that Vidu charges nothing for it (vidu.md, "Requests"); no image page says so of an image. */
+function failureMessage(errCode: string, kind: ModelKind): string {
 	const known = reasonOf(errCode);
-	const what = known ? `${known.text} (${errCode}).` : errCode ? `Vidu could not make the video (${errCode}).` : 'Vidu could not make the video.';
-	return `${what} Vidu charges nothing for a video that fails.`;
+	const text = kind === 'image' ? known?.imageText ?? known?.text : known?.text;
+	const what = text ? `${text} (${errCode}).` : errCode ? `Vidu could not make the ${kind} (${errCode}).` : `Vidu could not make the ${kind}.`;
+	return kind === 'image' ? what : `${what} Vidu charges nothing for a video that fails.`;
 }
 
-function pollStateOf(answer: Record<string, unknown>): PollState {
+/** A task's state; a task of an image model that succeeded answers the address of every creation. */
+function pollStateOf(answer: Record<string, unknown>, kind: ModelKind = 'video'): ModulePollState {
 	const state = stateOf(answer);
 	switch (state) {
 		case '':
@@ -674,6 +800,13 @@ function pollStateOf(answer: Record<string, unknown>): PollState {
 		case 'queueing':
 			return { state: 'pending', ...progressOf(answer) };
 		case 'success': {
+			if (kind === 'image') {
+				const outputs: OutputLocation[] = creationUrlsOf(answer).map(url => ({ url }));
+				if (!outputs.length) {
+					throw unreadable('Vidu reports the task as done but gives no image address.');
+				}
+				return { state: 'succeeded', outputs };
+			}
 			const videoUrl = creationUrlOf(answer);
 			return videoUrl ? { state: 'succeeded', videoUrl } : { state: 'succeeded' };
 		}
@@ -681,7 +814,7 @@ function pollStateOf(answer: Record<string, unknown>): PollState {
 			const errCode = typeof answer.err_code === 'string' ? answer.err_code.trim() : '';
 			return errCode === 'UserCancelled'
 				? { state: 'cancelled', message: 'The task was cancelled at Vidu (UserCancelled).' }
-				: { state: 'failed', message: failureMessage(errCode) };
+				: { state: 'failed', message: failureMessage(errCode, kind) };
 		}
 		default:
 			// `processing`, and any state the pages do not list, such as `scheduled`.
@@ -705,6 +838,10 @@ export const VIDU = Object.freeze<ProviderModule>({
 	},
 
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+		const image = IMAGE_MODELS_BY_ID.get(request.model);
+		if (image) {
+			return { problems: await imageProblems(image, request, media) };
+		}
 		const model = viduModel(request.model);
 		const region = regionOf(request.region);
 		const label = TEXT.models[model.id].label;
@@ -733,6 +870,10 @@ export const VIDU = Object.freeze<ProviderModule>({
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
+		const image = IMAGE_MODELS_BY_ID.get(request.model);
+		if (image) {
+			return submitImage(image, request, http);
+		}
 		const model = viduModel(request.model);
 		const region = regionOf(request.region);
 		const providerModel = model.providerModels[region];
@@ -744,8 +885,9 @@ export const VIDU = Object.freeze<ProviderModule>({
 		return taskIdOf(await http.create({ method: 'POST', path: `/ent/v2/${route}`, body: { kind: 'json', value: body } }));
 	},
 
-	async poll(ref: TaskRef, http: ProviderHttp): Promise<PollState> {
-		return pollStateOf((await http.request({ method: 'GET', path: creationsPath(ref.remoteId) })).object());
+	async poll(ref: TaskRef, http: ProviderHttp): Promise<ModulePollState> {
+		const kind = IMAGE_MODELS_BY_ID.has(ref.model) ? 'image' : 'video';
+		return pollStateOf((await http.request({ method: 'GET', path: creationsPath(ref.remoteId) })).object(), kind);
 	},
 
 	async videoLocation(ref: TaskRef, http: ProviderHttp): Promise<VideoLocation> {
