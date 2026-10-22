@@ -33,6 +33,7 @@ import {
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
 import {
 	createBaseHalfGenerationTask,
+	failBaseHalfGenerationTask,
 	heartbeatBaseHalfGenerationTask,
 	IBaseHalfGenerationInfo,
 	IBaseHalfGenerationRequest,
@@ -55,6 +56,7 @@ import {
 	FAKE_MP4,
 	FAKE_PNG,
 	FakeDraftOperations,
+	FakeMovedItemsService,
 	FakeProviderCommands,
 	FakeReferenceEditService,
 	InMemoryCredentialStore,
@@ -88,8 +90,10 @@ interface IWindow {
 interface IHarness {
 	readonly root: URI;
 	readonly fileService: FileService;
+	readonly provider: BaseHalfTestFileSystemProvider;
 	readonly providers: BaseHalfVideoProviderSettingsService;
 	readonly canvas: RecordingCanvasMirror;
+	readonly moves: FakeMovedItemsService;
 	readonly undo: RecordingUndoRedoService;
 	readonly rasterized: string[];
 	readonly first: IWindow;
@@ -112,10 +116,11 @@ suite('BaseHalfVideoGenerationService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 	const root = URI.file('/workspace');
 
-	async function createHarness(options: { readonly records?: readonly IBaseHalfGenerationTask[]; readonly files?: Readonly<Record<string, string | VSBuffer>> } = {}): Promise<IHarness> {
+	async function createHarness(options: { readonly records?: readonly IBaseHalfGenerationTask[]; readonly files?: Readonly<Record<string, string | VSBuffer>>; readonly caseInsensitive?: boolean } = {}): Promise<IHarness> {
 		const owner = disposables.add(new DisposableStore());
 		const fileService = owner.add(new FileService(new NullLogService()));
-		owner.add(fileService.registerProvider(Schemas.file, owner.add(new BaseHalfTestFileSystemProvider())));
+		const provider = owner.add(new BaseHalfTestFileSystemProvider({ caseInsensitive: options.caseInsensitive }));
+		owner.add(fileService.registerProvider(Schemas.file, provider));
 		await fileService.createFolder(root);
 		for (const [path, content] of Object.entries(options.files ?? {})) {
 			await fileService.writeFile(joinPath(root, ...path.split('/')), typeof content === 'string' ? VSBuffer.fromString(content) : content);
@@ -129,6 +134,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		const uriIdentity = owner.add(new UriIdentityService(fileService));
 		const canvas = new RecordingCanvasMirror(root);
 		const references = new FakeReferenceEditService(fileService);
+		const moves = new FakeMovedItemsService();
 		const undo = new RecordingUndoRedoService();
 		const rasterized: string[] = [];
 		const settingsCommands = new FakeProviderCommands(fileService);
@@ -164,6 +170,7 @@ suite('BaseHalfVideoGenerationService', () => {
 				catalogService,
 				providers,
 				new BaseHalfWorkspaceMutationCoordinator(),
+				moves.asService(),
 				canvas.asService(),
 				new TestChecksumService(fileService),
 				undo.asService(),
@@ -189,8 +196,10 @@ suite('BaseHalfVideoGenerationService', () => {
 		return {
 			root,
 			fileService,
+			provider,
 			providers,
 			canvas,
+			moves,
 			undo,
 			rasterized,
 			first: window(),
@@ -768,6 +777,342 @@ suite('BaseHalfVideoGenerationService', () => {
 			information: await harness.exists('.bh/mirror/shots/video.mp4'),
 			cache: await harness.cache()
 		}, { file: false, information: false, cache: [] });
+		harness.dispose();
+	}));
+
+	test('a generation that finished while no window asked lands, however long after its start it is asked', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		// The laptop slept, or BaseHalf was closed, for three hours; the provider finished long ago.
+		const running = staleTask('running', { startedAt: START - 3 * 60 * 60_000 });
+		const harness = await createHarness({ records: [running], files: { '.bh/mirror/shots/video.mp4/generation.yaml': serializeBaseHalfGenerationInfo(VIDEO) } });
+		const { commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/late.mp4' } });
+		await until(async () => !(await harness.records()).length, 500, 60_000);
+		assert.deepStrictEqual({
+			file: (await harness.read('shots/video.mp4')) === FAKE_MP4.toString(),
+			made: parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/video.mp4/made.yaml'))!)?.id,
+			polls: commands.count(POLL)
+		}, { file: true, made: running.id, polls: 1 });
+		harness.dispose();
+	}));
+
+	test('a request that AI Video was running when it stopped has an unknown outcome; nothing was sent only when the command was never there', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const lost = await harness.card('shots/lost.mp4', VIDEO);
+		const missing = await harness.card('shots/missing.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		// The extension host stopped while the request was on its way: the call is refused, and the command is gone with it.
+		commands.submit = () => { throw new Error('Canceled'); };
+		await service.generate(lost);
+		commands.submit = () => { throw new Error(`command '${SUBMIT}' not found`); };
+		await service.generate(missing);
+		await until(async () => (await harness.records()).filter(task => task.state === 'failed').length === 2, 500, 60_000);
+		const errors = new Map((await harness.records()).map(task => [task.cards[0].path, task.error]));
+		assert.deepStrictEqual([errors.get('shots/lost.mp4'), errors.get('shots/missing.mp4')], [
+			`${unknownOutcomeMessage()} (Canceled)`,
+			'Nothing was sent to the provider: AI Video, which sends the request, is not running.'
+		]);
+		harness.dispose();
+	}));
+
+	test('files a provider answers after another window ended the record as failed land all the same', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const image = await harness.card('shots/image.png', IMAGE);
+		const { service, commands, tasks } = harness.first;
+		const answer = new DeferredPromise<void>();
+		commands.submit = async request => {
+			await answer.p;
+			return { ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_PNG)] } };
+		};
+		await service.generate(image);
+		// Another window took this one for gone, as after a sleep, and ended the record while the provider made the image.
+		const record = (await harness.records())[0];
+		await harness.fileService.writeFile(joinPath(baseHalfGenerationTaskFolder(root), `${record.id}.json`), VSBuffer.fromString(serializeBaseHalfGenerationTask(failBaseHalfGenerationTask(record, closedWhileAnsweringMessage(), new Date(Date.now()).toISOString()))));
+		await until(() => tasks.get(record.id)?.state === 'failed');
+		answer.complete();
+		await until(async () => !(await harness.records()).length, 500, 60_000);
+		assert.deepStrictEqual({
+			file: (await harness.read('shots/image.png')) === FAKE_PNG.toString(),
+			made: parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/image.png/made.yaml'))!)?.id,
+			cache: await harness.cache()
+		}, { file: true, made: record.id, cache: [] });
+		harness.dispose();
+	}));
+
+	test('a file whose draft information is not where its record says lands beside its card with what it was made with', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO, ['refs/a.png']);
+		const { service, commands } = harness.first;
+		let release: () => void = () => { };
+		const held = new Promise<void>(resolve => release = resolve);
+		commands.poll = async request => {
+			await held;
+			return { ok: true, value: { state: 'succeeded', videoUrl: `https://cdn.example.com/${request.remoteId}.mp4` } };
+		};
+		await service.generate(video);
+		// A move that went half way: the draft's generation.yaml went to its new name, its connections stayed, and the record still names the old one.
+		await harness.fileService.move(harness.resource('.bh/mirror/shots/video.mp4/generation.yaml'), harness.resource('.bh/mirror/shots/moved.mp4/generation.yaml'));
+		release();
+		await until(async () => !(await harness.records()).length, 500, 120_000);
+		assert.deepStrictEqual({
+			beside: (await harness.read('shots/video-2.mp4')) === FAKE_MP4.toString(),
+			info: await harness.read('.bh/mirror/shots/video-2.mp4/generation.yaml'),
+			made: !!(await harness.read('.bh/mirror/shots/video-2.mp4/made.yaml')),
+			old: await harness.exists('shots/video.mp4')
+		}, { beside: true, info: serializeBaseHalfGenerationInfo(VIDEO), made: true, old: false });
+		harness.dispose();
+	}));
+
+	test('a file whose card information is gone while a move is followed is kept on its card\'s path, with what it was made with', () => runWithFakedTimers({ startTime: START, maxTaskCount: 20_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		let release: () => void = () => { };
+		const held = new Promise<void>(resolve => release = resolve);
+		commands.poll = async request => {
+			await held;
+			return { ok: true, value: { state: 'succeeded', videoUrl: `https://cdn.example.com/${request.remoteId}.mp4` } };
+		};
+		await service.generate(video);
+		// Following a move outside BaseHalf has taken the card information away and not finished.
+		harness.moves.settled = false;
+		harness.moves.moving.add('shots/video.mp4');
+		await harness.fileService.del(harness.resource('.bh/mirror/shots/video.mp4'), { recursive: true });
+		release();
+		await until(async () => !(await harness.records()).length, 500, 300_000);
+		assert.deepStrictEqual({
+			file: (await harness.read('shots/video.mp4')) === FAKE_MP4.toString(),
+			info: await harness.read('.bh/mirror/shots/video.mp4/generation.yaml'),
+			made: !!(await harness.read('.bh/mirror/shots/video.mp4/made.yaml'))
+		}, { file: true, info: serializeBaseHalfGenerationInfo(VIDEO), made: true });
+		harness.dispose();
+	}));
+
+	test('undoing Generate after its drafts got their files changes nothing, and the next undo goes to the step before', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const shot = await harness.card('shots/shot.mp4', VIDEO);
+		await harness.write('shots/shot.mp4', FAKE_MP4);
+		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', 'id: "earlier"\n');
+		const { service, drafts } = harness.first;
+		await service.generate(shot);
+		await until(async () => !(await harness.records()).length);
+		const [step] = harness.undo.elements;
+		await step.undo();
+		assert.deepStrictEqual({
+			steps: harness.undo.elements.length,
+			deleted: drafts.deleted,
+			file: await harness.exists('shots/shot-2.mp4'),
+			made: await harness.exists('.bh/mirror/shots/shot-2.mp4/made.yaml')
+		}, { steps: 1, deleted: [], file: true, made: true });
+		harness.dispose();
+	}));
+
+	test('undoing Generate removes its drafts when they are as the generation made them, in whatever order the card\'s settings were written', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const shot = harness.resource('shots/shot.mp4');
+		await harness.write('shots/shot.mp4', FAKE_MP4);
+		// As an agent may write them: the values of params in an order of its own.
+		await harness.write('.bh/mirror/shots/shot.mp4/generation.yaml', 'prompt: "Rain."\nprovider: "acme"\nmodel: "acme-motion-2"\nmode: "frames"\nparams:\n  sound: true\n  duration: 5\n  resolution: "720p"\n');
+		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', 'id: "earlier"\n');
+		const { service, commands, drafts } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const [draft] = await service.generate(shot);
+		await service.stop(draft);
+		await harness.undo.elements[0].undo();
+		assert.deepStrictEqual({ deleted: drafts.deleted, steps: harness.undo.elements.length }, { deleted: ['shots/shot-2.mp4'], steps: 1 });
+		harness.dispose();
+	}));
+
+	test('a card whose file is gone does not generate: a missing file is not a draft', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		await harness.write('.bh/mirror/shots/video.mp4/made.yaml', 'id: "earlier"\n');
+		const { service, commands } = harness.first;
+		const refusal = await service.generate(video).then(() => 'started', (error: Error) => `${error instanceof BaseHalfVideoGenerationError}: ${error.message}`);
+		assert.deepStrictEqual({ refusal, sent: commands.count(SUBMIT), records: (await harness.records()).length }, {
+			refusal: 'true: video.mp4 is not there any more: it was moved or deleted. Restore it to generate from it.',
+			sent: 0,
+			records: 0
+		});
+		harness.dispose();
+	}));
+
+	test('a window says it follows its generation from the moment it writes the record, so a long preparation is not taken for a window that is gone', () => runWithFakedTimers({ startTime: START, maxTaskCount: 20_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		const other = harness.window();
+		// The provider module takes long to check, as a keychain prompt or a slow check can.
+		commands.check = async () => {
+			await timeout(150_000);
+			return { ok: true, value: { problems: [] } };
+		};
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const started = await service.generate(video).then(() => 'started', (error: Error) => error.message);
+		assert.deepStrictEqual({ started, sent: commands.count(SUBMIT), records: (await harness.records()).length, otherPolled: other.commands.count(POLL) }, {
+			started: 'started',
+			sent: 1,
+			records: 1,
+			otherPolled: 0
+		});
+		await service.stop(video);
+		harness.dispose();
+	}));
+
+	test('a problem before the file is moved keeps the file and tries again', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const clip = await harness.card('scenes/new/clip.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		let release: () => void = () => { };
+		const held = new Promise<void>(resolve => release = resolve);
+		commands.poll = async request => {
+			await held;
+			return { ok: true, value: { state: 'succeeded', videoUrl: `https://cdn.example.com/${request.remoteId}.mp4` } };
+		};
+		await service.generate(clip);
+		await harness.fileService.del(harness.resource('scenes/new'), { recursive: true });
+		// Making the folder again is refused once.
+		harness.provider.failures.set('mkdir:/workspace/scenes/new', 1);
+		release();
+		await until(async () => !(await harness.records()).length, 500, 120_000);
+		assert.deepStrictEqual({
+			file: (await harness.read('scenes/new/clip.mp4')) === FAKE_MP4.toString(),
+			made: !!(await harness.read('.bh/mirror/scenes/new/clip.mp4/made.yaml'))
+		}, { file: true, made: true });
+		harness.dispose();
+	}));
+
+	test('a file that is in place without the record of how it was made says so, and stays', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service } = harness.first;
+		harness.provider.failures.set('exclusive:/workspace/.bh/mirror/shots/video.mp4/made.yaml', 10);
+		await service.generate(video);
+		await until(async () => (await harness.records())[0]?.state === 'failed', 500, 120_000);
+		const error = (await harness.records())[0].cards[0].error ?? '';
+		assert.deepStrictEqual({
+			file: (await harness.read('shots/video.mp4')) === FAKE_MP4.toString(),
+			error: error.startsWith('The video is in its folder, but BaseHalf could not record how it was made: ')
+		}, { file: true, error: true });
+		harness.dispose();
+	}));
+
+	test('the sizes and SHA-256 of every file a provider answered with at once are in the record before the first of them lands', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const image = await harness.card('shots/image.png', { ...IMAGE, params: { count: 3 } });
+		const { service, commands, tasks } = harness.first;
+		commands.submit = async request => {
+			const outputs = [];
+			for (const target of request.targets!) {
+				outputs.push(await commands.write(target, FAKE_PNG));
+			}
+			return { ok: true, value: { outputs } };
+		};
+		let firstMarked: number[] | undefined;
+		disposables.add(tasks.onDidChange(() => {
+			const task = tasks.list()[0];
+			if (!firstMarked && task?.cards.some(card => card.landing)) {
+				firstMarked = task.cards.flatMap((card, index) => card.landing ? [index] : []);
+			}
+		}));
+		await service.generate(image);
+		await until(async () => !(await harness.records()).length);
+		assert.deepStrictEqual(firstMarked, [0, 1, 2]);
+		harness.dispose();
+	}));
+
+	test('landing lets a move that is being followed finish before it makes a folder again', () => runWithFakedTimers({ startTime: START, maxTaskCount: 20_000 }, async () => {
+		const harness = await createHarness();
+		const clip = await harness.card('scenes/new/clip.mp4', VIDEO);
+		const { service, commands, tasks } = harness.first;
+		let release: () => void = () => { };
+		const held = new Promise<void>(resolve => release = resolve);
+		commands.poll = async request => {
+			await held;
+			return { ok: true, value: { state: 'succeeded', videoUrl: `https://cdn.example.com/${request.remoteId}.mp4` } };
+		};
+		await service.generate(clip);
+		// The folder is renamed outside BaseHalf, and following it has not finished.
+		harness.moves.settled = false;
+		harness.moves.moving.add('scenes/new');
+		await harness.fileService.move(harness.resource('scenes/new'), harness.resource('scenes/old'));
+		release();
+		await until(() => commands.count(DOWNLOAD) === 1);
+		await timeout(2_000);
+		// Following the move takes the card information along and writes the card's new path into its record.
+		await harness.fileService.move(harness.resource('.bh/mirror/scenes/new'), harness.resource('.bh/mirror/scenes/old'));
+		await tasks.retarget(harness.resource('scenes/new'), harness.resource('scenes/old'));
+		harness.moves.settle();
+		await until(async () => !(await harness.records()).length, 500, 120_000);
+		assert.deepStrictEqual({
+			landed: (await harness.read('scenes/old/clip.mp4')) === FAKE_MP4.toString(),
+			oldFolder: await harness.exists('scenes/new')
+		}, { landed: true, oldFolder: false });
+		harness.dispose();
+	}));
+
+	test('an image that lands beside a card whose path a file took has its own format\'s extension, and leaves no other draft', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const image = await harness.card('shots/image.png', IMAGE);
+		const { service, commands } = harness.first;
+		commands.submit = async request => {
+			// A file is dropped at the draft's path while the provider makes the image.
+			await harness.write('shots/image.png', FAKE_PNG);
+			return { ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_JPEG)] } };
+		};
+		await service.generate(image);
+		await until(async () => !(await harness.records()).length);
+		assert.deepStrictEqual({
+			dropped: (await harness.read('shots/image.png')) === FAKE_PNG.toString(),
+			beside: (await harness.read('shots/image.jpg')) === FAKE_JPEG.toString(),
+			info: await harness.read('.bh/mirror/shots/image.jpg/generation.yaml'),
+			made: !!(await harness.read('.bh/mirror/shots/image.jpg/made.yaml')),
+			strays: [await harness.exists('shots/image-2.png'), await harness.exists('.bh/mirror/shots/image-2.png')]
+		}, { dropped: true, beside: true, info: serializeBaseHalfGenerationInfo(IMAGE), made: true, strays: [false, false] });
+		harness.dispose();
+	}));
+
+	test('releasing the only card of a generation stops it and removes its record with the card', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		await service.generate(video);
+		await until(() => service.getProgress(video)?.phase === 'generating');
+		await service.releaseCard(video);
+		assert.deepStrictEqual({ records: (await harness.records()).length, cancelled: commands.count(CANCEL), generating: service.isGenerating(video) }, { records: 0, cancelled: 1, generating: false });
+		harness.dispose();
+	}));
+
+	test('a received file never replaces a file that took its name at the last moment', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service } = harness.first;
+		let dropped = false;
+		harness.provider.lastMoment = async target => {
+			if (!dropped && target.path === '/workspace/shots/video.mp4') {
+				dropped = true;
+				// Another program writes the file, outside the workbench.
+				await harness.provider.writeFile(target, VSBuffer.fromString('dropped at the last moment').buffer, { create: true, overwrite: true, unlock: false, atomic: false });
+			}
+		};
+		await service.generate(video);
+		await until(async () => !(await harness.records()).length);
+		assert.deepStrictEqual({
+			dropped: await harness.read('shots/video.mp4'),
+			beside: (await harness.read('shots/video-2.mp4')) === FAKE_MP4.toString()
+		}, { dropped: 'dropped at the last moment', beside: true });
+		harness.dispose();
+	}));
+
+	test('on a volume that ignores letter case, a card is the same card whatever case names it', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness({ caseInsensitive: true });
+		const video = await harness.card('shots/video.mp4', VIDEO);
+		const { service, commands, tasks } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		await service.generate(video);
+		const other = harness.resource('shots/Video.mp4');
+		assert.deepStrictEqual({ generating: service.isGenerating(other), record: !!tasks.forCard(other) }, { generating: true, record: true });
+		await service.stop(video);
 		harness.dispose();
 	}));
 

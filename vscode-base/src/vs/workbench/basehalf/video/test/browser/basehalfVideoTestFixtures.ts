@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { timeout } from '../../../../../base/common/async.js';
 import { encodeBase64, VSBuffer } from '../../../../../base/common/buffer.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
@@ -10,13 +11,14 @@ import { dirname, isEqual, isEqualOrParent, joinPath, relativePath } from '../..
 import { URI } from '../../../../../base/common/uri.js';
 import { ICommandEvent, ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IChecksumService } from '../../../../../platform/checksum/common/checksumService.js';
-import { FileSystemProviderCapabilities, IFileChange, IFileService, IWatchOptions } from '../../../../../platform/files/common/files.js';
+import { createFileSystemProviderError, FileSystemProviderCapabilities, FileSystemProviderErrorCode, IFileChange, IFileOverwriteOptions, IFileService, IStat, IWatchOptions } from '../../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { IUndoRedoElement, IUndoRedoService } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfMirrorRoot } from '../../../workspace/common/basehalfMirrorTree.js';
+import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
 import {
 	BASEHALF_VIDEO_PROVIDER_COMMANDS,
@@ -61,14 +63,23 @@ export class InMemoryCredentialStore implements IBaseHalfModelCredentialStore {
  * under a watch request with a correlation id is reported once more with
  * that id, to that watcher alone. Every window of a test that shares it sees
  * the changes the others make.
+ *
+ * A rename without overwriting checks the target and then renames, with a
+ * moment between, as the disk does; {@link lastMoment} runs in that moment,
+ * and before an exclusive create. {@link failures} makes the next folder
+ * creations or exclusive creates of a path fail, as often as it says.
  */
 export class BaseHalfTestFileSystemProvider extends InMemoryFileSystemProvider {
 	private readonly providerChanges: Event<readonly IFileChange[]> = this.onDidChangeFile;
 	private readonly changes = this._register(new Emitter<readonly IFileChange[]>());
 	override readonly onDidChangeFile: Event<readonly IFileChange[]> = this.changes.event;
 	private readonly watches = new Set<{ readonly resource: URI; readonly recursive: boolean; readonly correlationId: number }>();
+	/** `mkdir:<path>` or `exclusive:<path>`, and how many more times it fails. */
+	readonly failures = new Map<string, number>();
+	/** Runs between a rename's check of its target and the rename, and before an exclusive create. */
+	lastMoment: ((target: URI) => Promise<void>) | undefined;
 
-	constructor() {
+	constructor(private readonly options: { readonly caseInsensitive?: boolean } = {}) {
 		super();
 		this._register(this.providerChanges(changes => {
 			this.changes.fire(changes);
@@ -84,7 +95,38 @@ export class BaseHalfTestFileSystemProvider extends InMemoryFileSystemProvider {
 	}
 
 	override get capabilities(): FileSystemProviderCapabilities {
-		return super.capabilities & ~FileSystemProviderCapabilities.FileOpenReadWriteClose;
+		const capabilities = super.capabilities & ~FileSystemProviderCapabilities.FileOpenReadWriteClose;
+		return this.options.caseInsensitive ? capabilities & ~FileSystemProviderCapabilities.PathCaseSensitive : capabilities;
+	}
+
+	override async mkdir(resource: URI): Promise<void> {
+		this.failIfAsked(`mkdir:${resource.path}`);
+		return super.mkdir(resource);
+	}
+
+	override async rename(from: URI, to: URI, opts: IFileOverwriteOptions): Promise<void> {
+		if (!opts.overwrite && this.lastMoment) {
+			if (await this.stat(to).then(() => true, () => false)) {
+				throw createFileSystemProviderError('file exists already', FileSystemProviderErrorCode.FileExists);
+			}
+			await this.lastMoment(to);
+			return super.rename(from, to, { overwrite: true });
+		}
+		return super.rename(from, to, opts);
+	}
+
+	override async writeFileExclusiveAtomic(resource: URI, content: Uint8Array): Promise<IStat> {
+		await this.lastMoment?.(resource);
+		this.failIfAsked(`exclusive:${resource.path}`);
+		return super.writeFileExclusiveAtomic(resource, content);
+	}
+
+	private failIfAsked(key: string): void {
+		const left = this.failures.get(key) ?? 0;
+		if (left > 0) {
+			this.failures.set(key, left - 1);
+			throw createFileSystemProviderError('permission denied', FileSystemProviderErrorCode.NoPermissions);
+		}
 	}
 
 	override watch(resource: URI, options: IWatchOptions): IDisposable {
@@ -215,6 +257,36 @@ export class FakeDraftOperations implements IBaseHalfDraftOperations {
 
 	private path(resource: URI): string {
 		return relativePath(this.root, resource)!;
+	}
+}
+
+/**
+ * Following moved items as landing asks about it: settled unless a test says
+ * that a move is being followed, of the paths in {@link moving}.
+ */
+export class FakeMovedItemsService {
+	settled = true;
+	readonly moving = new Set<string>();
+
+	asService(): IBaseHalfMovedItemsService {
+		const covers = (root: string, path: string) => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`);
+		const service: Partial<IBaseHalfMovedItemsService> = {
+			isSettled: () => this.settled,
+			isMoving: (_folder: URI, path: string) => [...this.moving].some(root => covers(root, path)),
+			getPendingMoves: () => [],
+			whenSettled: async (_folder: URI, timeoutMs: number) => {
+				for (let waited = 0; !this.settled && waited < timeoutMs; waited += 100) {
+					await timeout(100);
+				}
+			}
+		};
+		return service as IBaseHalfMovedItemsService;
+	}
+
+	/** The move is followed to its end. */
+	settle(): void {
+		this.settled = true;
+		this.moving.clear();
 	}
 }
 
