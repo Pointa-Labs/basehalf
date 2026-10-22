@@ -22,7 +22,7 @@ import { IBaseHalfCanvasTemplateRegistryService } from '../../../canvas/common/b
 import { readBaseHalfSidecarUpstream } from '../../../references/common/basehalfReferenceStore.js';
 import { BASEHALF_GENERATION_EXTENSIONS, baseHalfGenerationKindOfPath, parseBaseHalfGenerationInfo } from '../../common/basehalfGenerationInfo.js';
 import { IBaseHalfVideoCatalogProvider } from '../../common/basehalfVideoCatalog.js';
-import { BaseHalfVideoGenerationError, IBaseHalfGenerateOptions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../../common/basehalfVideoGeneration.js';
+import { baseHalfGenerationMissingFileMessage, BaseHalfVideoGenerationError, IBaseHalfGenerateOptions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../../common/basehalfVideoGeneration.js';
 import { TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfNodeCommandBridge', () => {
@@ -142,6 +142,41 @@ suite('BaseHalfNodeCommandBridge', () => {
 			'scenes/link.mp4: rejected 0',
 			'scenes/folder.mp4: rejected 0'
 		]);
+	});
+
+	test('refuses a card whose generated file is gone as Generate does, before generating: a missing file is not a draft', async () => {
+		const answers: unknown[] = [];
+		for (const [path, options] of [
+			// Its made.yaml stays where its file was. Only that the record is there counts, not what it says,
+			// so a record that cannot be read is refused alike: the harness gives no file a content to read.
+			['scenes/gone.mp4', { missing: ['scenes/gone.mp4'], made: ['scenes/gone.mp4'] }],
+			// Also when its folder is gone with it.
+			['lost/frame.png', { missing: ['lost'], made: ['lost/frame.png'] }]
+		] as const) {
+			const harness = createHarness(options);
+			answers.push([await harness.handler.handle(requestEvent('/work', path)), harness.generateCalls.length]);
+		}
+		assert.deepStrictEqual(answers, [
+			[{
+				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+				type: 'generate',
+				ok: false,
+				outcome: 'rejected',
+				path: 'scenes/gone.mp4',
+				error: 'gone.mp4 is not there any more: it was moved or deleted. Restore it to generate from it.'
+			}, 0],
+			[{
+				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+				type: 'generate',
+				ok: false,
+				outcome: 'rejected',
+				path: 'lost/frame.png',
+				error: baseHalfGenerationMissingFileMessage('frame.png')
+			}, 0]
+		]);
+		// A path that holds a file is no missing file, whatever its record says.
+		const present = createHarness({ made: ['scenes/shot.mp4'] });
+		assert.deepStrictEqual([(await present.handler.handle(requestEvent('/work', 'scenes/shot.mp4')))?.ok, present.generateCalls.length], [true, 1]);
 	});
 
 	test('reports a generation the card cannot start as rejected, with its plain reason', async () => {
@@ -445,6 +480,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly missing?: readonly string[];
 		/** Workspace-relative paths of folders, whatever their name. */
 		readonly folders?: readonly string[];
+		/** Workspace-relative card paths whose `made.yaml` is there. */
+		readonly made?: readonly string[];
 		/** The cards the generation lands on, by path; the requested card by default. */
 		readonly generated?: readonly string[];
 		readonly generationError?: Error;
@@ -483,7 +520,11 @@ suite('BaseHalfNodeCommandBridge', () => {
 		const missing = absolute([...(options.drafts ?? []), ...(options.missing ?? [])]);
 		const folders = absolute(options.folders);
 		const plainFiles = absolute(options.plainFiles);
+		const madeRecords = new Set((options.made ?? []).map(path => URI.joinPath(workspaceFolder, '.bh', 'mirror', ...path.split('/'), 'made.yaml').path));
 		const stat = async (resource: URI) => {
+			if (madeRecords.has(resource.path)) {
+				return { isFile: true, isDirectory: false, isSymbolicLink: false };
+			}
 			if (files) {
 				const isFile = files.includes(resource.path);
 				const isDirectory = resource.path === workspaceFolder.path || files.some(path => path.startsWith(`${resource.path}/`));

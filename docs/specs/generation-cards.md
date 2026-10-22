@@ -990,7 +990,10 @@ is a file does:
     a draft, or an image or video file with generation information. A path
     that names anything else, lies outside the workspace folder or under
     `.bh/`, or passes through a symbolic link is refused, and nothing is
-    written.
+    written. A card whose file is gone, which has its `made.yaml`, readable
+    or not, and no file, also with its folder gone, is a missing file: it is
+    refused with the sentence Generate gives, "<name> is not there any more:
+    it was moved or deleted. Restore it to generate from it."
   - It prints one line of JSON and exits with 0 once the generation is
     `submitting`:
     `{"version":5,"type":"generate","ok":true,"outcome":"succeeded","path":"<path>","cards":["<card>",…]}`,
