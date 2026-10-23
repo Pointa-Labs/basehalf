@@ -1103,8 +1103,10 @@ export class BaseHalfCanvasRenderer {
 		if (duplicate) {
 			return;
 		}
+		// Below the warning before it, however many lines that one takes.
+		const last = warnings.at(-1);
 		const warning = append(this.view.canvasOverlay, $('.basehalf-canvas-warning'));
-		warning.style.top = `${58 + warnings.length * 30}px`;
+		warning.style.top = `${last ? last.offsetTop + last.offsetHeight + 4 : 58}px`;
 		warning.textContent = message;
 	}
 

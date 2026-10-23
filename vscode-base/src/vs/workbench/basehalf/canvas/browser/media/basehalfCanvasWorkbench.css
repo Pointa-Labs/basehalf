@@ -389,15 +389,16 @@
 	font-size: 12px;
 }
 
+/* As many lines as its words take: a warning that says why is read to its end. */
 .monaco-workbench .basehalf-canvas-warning {
 	position: absolute;
 	top: 58px;
 	right: 18px;
 	max-width: min(360px, calc(100% - 36px));
+	box-sizing: border-box;
 	padding: 5px 8px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
+	line-height: 16px;
 	color: var(--vscode-inputValidation-warningForeground);
 	background-color: var(--vscode-inputValidation-warningBackground);
 	border: 1px solid var(--vscode-inputValidation-warningBorder);
