@@ -1471,7 +1471,7 @@ job, so that a name in history still finds its file.
   (`browser/basehalfGenerationPromptEditor.ts`: the text with its chips, its
   own undo, and the caret), and a draft's panel opens the reference menu
   (`browser/basehalfGenerationReferenceMenu.ts`). The name follower
-  (`browser/basehalfGenerationNameFollower.ts`) takes part in the reference
+  (`browser/basehalfGenerationNameFollower.contribution.ts`) takes part in the reference
   edits of drafts and writes the names of their prompts, as a participant of
   the reference edit service ([reference graph](reference-graph.md#undo)). The canvas
   lists drafts through the card store; the reference graph, the mirror
@@ -1771,7 +1771,7 @@ References and names (D68)
   refuses.
 - Unit tests for D68: names that follow a change of the list
   (`basehalfGenerationInputNames.test.ts`); a participant of the reference
-  edit service and its undo and redo (`basehalfReferenceEditService.test.ts`);
+  edit service and its undo and redo (`basehalfReferenceServices.test.ts`);
   the follower that writes a draft's prompt
   (`basehalfGenerationNameFollower.test.ts`); the prompt with chips, an input
   method, paste, and its own undo (`basehalfGenerationPromptEditor.test.ts`);

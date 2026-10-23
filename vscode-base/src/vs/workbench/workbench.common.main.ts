@@ -495,6 +495,7 @@ import './basehalf/plugins/browser/basehalfAgentCapabilityExtensionPoint.contrib
 import './basehalf/canvas/basehalfCanvas.all.js';
 import './basehalf/workspace/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/video/browser/basehalfGenerationCardCopy.contribution.js';
+import './basehalf/video/browser/basehalfGenerationNameFollower.contribution.js';
 import './basehalf/references/browser/basehalfBadgeQuickAccess.contribution.js';
 import './basehalf/references/browser/basehalfReferences.contribution.js';
 import './basehalf/references/browser/basehalfReferenceMigration.contribution.js';
