@@ -105,3 +105,10 @@
 	text-decoration-skip-ink: none;
 	text-underline-offset: 3px;
 }
+
+@media (forced-colors: active) {
+	.monaco-workbench .bh-prompt-chip {
+		background: none;
+		outline: 1px solid Highlight;
+	}
+}
