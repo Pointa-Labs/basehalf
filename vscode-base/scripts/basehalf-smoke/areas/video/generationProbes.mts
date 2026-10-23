@@ -555,14 +555,19 @@ export async function sampleCardPhases(page, cardPath) {
 export function readGenerationPanel(panel) {
 	return panel.evaluate(element => {
 		const text = selector => element.querySelector(selector)?.textContent?.trim() ?? null;
-		const prompt = element.querySelector('textarea.bh-video-panel-prompt-input');
+		// The prompt's text, its chips as their names (D68).
+		const prompt = element.querySelector('.bh-prompt-editor');
 		const generate = element.querySelector('button.bh-video-panel-generate');
-		const frame = use => {
-			const slot = element.querySelector(`.bh-video-panel-slot[data-use="${use}"]`);
-			return slot ? {
-				name: slot.querySelector('.bh-video-panel-input-name')?.textContent ?? null,
-				path: slot.querySelector('.bh-video-panel-remove')?.getAttribute('data-key')?.replace(/^remove:/, '') ?? null
-			} : null;
+		const tile = input => ({
+			kind: input.getAttribute('data-kind'),
+			name: input.getAttribute('data-label'),
+			path: input.getAttribute('data-path'),
+			number: input.querySelector('.bh-input-tile-number')?.textContent ?? null,
+			dimmed: input.classList.contains('dimmed')
+		});
+		const frame = role => {
+			const slot = element.querySelector(`.bh-input-tile[data-frame="${role}"][data-path]`);
+			return slot ? tile(slot) : null;
 		};
 		const reason = element.querySelector('.bh-video-panel-reason');
 		const action = element.querySelector('.bh-video-panel-reason-action');
@@ -573,7 +578,7 @@ export function readGenerationPanel(panel) {
 			catalog: element.getAttribute('data-catalog'),
 			notice: notice && !notice.hidden ? notice.textContent : null,
 			reason: reason && !reason.hidden ? { text: reason.querySelector('.bh-video-panel-reason-text')?.textContent ?? null, action: action && !action.hidden ? action.textContent : null } : null,
-			prompt: prompt?.value ?? null,
+			prompt: prompt ? (prompt.textContent ?? '').replaceAll('\u200b', '') : null,
 			promptFocused: !!prompt && element.ownerDocument.activeElement === prompt,
 			model: text('.bh-video-panel-model-label'),
 			modelOutlined: element.querySelector('.bh-video-panel-model')?.classList.contains('outlined') ?? false,
@@ -583,19 +588,14 @@ export function readGenerationPanel(panel) {
 				label: generate.getAttribute('aria-label'),
 				stop: generate.classList.contains('stop')
 			} : null,
-			emptySlots: Array.from(element.querySelectorAll('.bh-video-panel-slot.empty')).map(slot => slot.getAttribute('data-role')),
-			start: frame('start-frame'),
-			end: frame('end-frame'),
-			inputs: Array.from(element.querySelectorAll('.bh-video-panel-inputs-list [data-use]')).map(input => ({
-				use: input.getAttribute('data-use'),
-				kind: input.getAttribute('data-kind'),
-				name: input.querySelector('.bh-video-panel-input-name')?.textContent ?? null,
-				path: input.querySelector('.bh-video-panel-remove')?.getAttribute('data-key')?.replace(/^remove:/, '') ?? null,
-				unused: input.classList.contains('unused')
-			})),
-			names: Array.from(element.querySelectorAll('.bh-video-panel-prompt-overlay .bh-video-panel-name')).map(name => ({
-				text: name.textContent,
-				known: !name.classList.contains('unknown'),
+			emptySlots: Array.from(element.querySelectorAll('.bh-input-tile.empty')).map(slot => slot.getAttribute('data-frame')),
+			start: frame('start'),
+			end: frame('end'),
+			// Every tile, the frames among them, in the order the row shows them.
+			inputs: Array.from(element.querySelectorAll('.bh-input-tile[data-path]')).map(tile),
+			names: Array.from(element.querySelectorAll('.bh-prompt-chip, .bh-prompt-name')).map(name => ({
+				text: name.classList.contains('bh-prompt-chip') ? name.getAttribute('data-name') : name.textContent,
+				known: name.classList.contains('bh-prompt-chip'),
 				underlined: getComputedStyle(name).textDecorationLine.includes('underline')
 			}))
 		};
@@ -687,21 +687,24 @@ export async function chooseSetting(panel, cardPath, key, parameter, value) {
 	return waitForReading(() => readGenerationInfo(cardPath), info => String(info?.params?.[parameter]) === String(value), `${cardPath} to store ${key}`, 10_000);
 }
 
+// The reference menu that @ opened (D68): its rows, and whether its search field has the keyboard.
 export function readMentionMenu(panel) {
 	return panel.evaluate(element => {
-		const menu = element.querySelector('.bh-video-panel-menu.mention');
+		const menu = element.querySelector('.bh-reference-menu:not(.flyout)');
 		return menu ? {
-			options: Array.from(menu.querySelectorAll('.bh-video-panel-mention')).map(option => ({
-				label: option.querySelector('.bh-video-panel-mention-label')?.textContent ?? null,
-				file: option.querySelector('.bh-video-panel-mention-file')?.textContent ?? '',
-				active: option.getAttribute('aria-selected') === 'true'
+			searchFocused: element.ownerDocument.activeElement === menu.querySelector('.bh-reference-menu-search input'),
+			options: Array.from(menu.querySelectorAll('.bh-reference-menu-option')).map(option => ({
+				label: option.querySelector('.bh-reference-menu-label')?.textContent ?? null,
+				file: option.querySelector('.bh-reference-menu-title')?.textContent ?? '',
+				active: option.classList.contains('active'),
+				dimmed: option.classList.contains('disabled')
 			}))
 		} : null;
 	}, undefined, { timeout: 2_000 });
 }
 
 export async function replacePrompt(page, panel, text) {
-	await panel.locator('textarea.bh-video-panel-prompt-input').click();
+	await panel.locator('.bh-prompt-editor').click();
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
 	await page.keyboard.type(text);
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === text, `the prompt to read ${text}`);
@@ -773,15 +776,15 @@ export async function drawCanvasConnectionInto(page, sourcePath, targetPath) {
 }
 
 /** Connects `sourcePath` to the card of the panel with Pick on Canvas, from a plus of its input row. */
-export async function pickInputOnCanvas(page, panel, sourcePath, plus = 'button.bh-video-panel-add') {
+export async function pickInputOnCanvas(page, panel, sourcePath, plus = 'button.bh-input-row-add') {
 	await panel.locator(plus).click();
 	const addMenu = panel.locator('.bh-video-panel-menu.add');
 	await addMenu.waitFor({ state: 'visible', timeout: 10_000 });
 	await addMenu.locator('.bh-video-panel-menu-item[data-key="pick"]').click();
 	// The panel says what the next click does.
-	await panel.locator('.bh-video-panel-inputs.picking .bh-video-panel-inputs-hint[role="status"]').waitFor({ state: 'visible', timeout: 10_000 });
+	await panel.locator('.bh-input-row.picking .bh-input-row-hint[role="status"]').waitFor({ state: 'visible', timeout: 10_000 });
 	await clickCanvasCardOnTop(page, sourcePath);
-	await panel.locator('.bh-video-panel-inputs.picking').waitFor({ state: 'detached', timeout: 10_000 });
+	await panel.locator('.bh-input-row.picking').waitFor({ state: 'detached', timeout: 10_000 });
 }
 
 // --- the player -----------------------------------------------------------------------------------

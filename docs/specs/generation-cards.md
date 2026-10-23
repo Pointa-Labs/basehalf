@@ -1782,7 +1782,7 @@ References and names (D68)
   panel (`basehalfVideoNodePanel.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
-  42 to 46, 49, 50, 52, and 54, against the local test provider through the ByteDance module, with a
+  42 to 46, 49, 50, 52, 54, and 56, against the local test provider through the ByteDance module, with a
   test key; no paid provider is called. The test provider answers every task
   and image with a file of its own, as a real provider does, so that a file
   moved outside BaseHalf is told from another by its content. After a

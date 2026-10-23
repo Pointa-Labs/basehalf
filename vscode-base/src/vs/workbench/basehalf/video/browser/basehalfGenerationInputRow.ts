@@ -232,6 +232,9 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		element.dataset.key = `tile:${tile.path}`;
 		element.dataset.path = tile.path;
 		element.dataset.kind = tile.kind;
+		if (tile.label) {
+			element.dataset.label = tile.label;
+		}
 		element.tabIndex = -1;
 		element.setAttribute('role', 'button');
 		element.setAttribute('aria-label', tileLabel(tile));
