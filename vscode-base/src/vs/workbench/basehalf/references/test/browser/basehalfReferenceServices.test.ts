@@ -1187,6 +1187,57 @@ suite('BaseHalfReferenceEditService', () => {
 		});
 	});
 
+	test('a participant sees the lists an operation changed, and undo and redo put back what it wrote without asking it again (D68)', async () => {
+		const harness = await createHarness(disposables, {
+			'shots/a.png': 'a',
+			'shots/b.png': 'b',
+			'shots/c.png': 'c',
+			'.bh/mirror/shots/next.mp4/generation.yaml': 'prompt: ""\n',
+			'.bh/mirror/shots/next.mp4/upstream.yaml': 'upstream:\n  - shots/a.png\n  - shots/b.png\n'
+		});
+		const seen: unknown[] = [];
+		const log: string[] = [];
+		disposables.add(harness.edit.registerParticipant({
+			participate: async changes => {
+				seen.push(changes.map(change => ({
+					node: change.node.relativePath,
+					before: change.before.map(entry => entry.path),
+					after: change.after.map(entry => entry.path),
+					// Keys are only compared: read them through the entries they name.
+					replacements: change.replacements.map(replacement => ({
+						from: change.before.find(entry => entry.key === replacement.from)?.path,
+						to: change.after.find(entry => entry.key === replacement.to)?.path
+					}))
+				})));
+				return [{
+					undo: async () => { log.push(`undo with ${await harness.read('.bh/mirror/shots/next.mp4/upstream.yaml')}`); },
+					redo: async () => { log.push(`redo with ${await harness.read('.bh/mirror/shots/next.mp4/upstream.yaml')}`); }
+				}];
+			}
+		}));
+		const source = new UndoRedoSource();
+		const canvas = joinPath(folder, '.bh', 'mirror', 'shots', 'canvas.yaml');
+		const removed = await harness.edit.remove(harness.node('shots/next.mp4'), 'shots/a.png', options);
+		harness.edit.pushUndoElement(removed, { label: 'Disconnect', resources: [canvas], source });
+		await harness.undoRedo.undo(source);
+		await harness.undoRedo.redo(source);
+		await harness.edit.replace(harness.node('shots/next.mp4'), 'shots/b.png', 'shots/c.png', options);
+		// An operation that changes nothing reaches no participant.
+		await harness.edit.add(harness.node('shots/next.mp4'), 'shots/c.png', options);
+
+		assert.deepStrictEqual({ seen, log, dependents: removed.dependents?.length }, {
+			seen: [
+				[{ node: 'shots/next.mp4', before: ['shots/a.png', 'shots/b.png'], after: ['shots/b.png'], replacements: [] }],
+				[{ node: 'shots/next.mp4', before: ['shots/b.png'], after: ['shots/c.png'], replacements: [{ from: 'shots/b.png', to: 'shots/c.png' }] }]
+			],
+			log: [
+				'undo with upstream:\n  - shots/a.png\n  - shots/b.png\n',
+				'redo with upstream:\n  - shots/b.png\n'
+			],
+			dependents: 1
+		});
+	});
+
 	test('a target-end reconnect whose add is not saved never removes the old entry', async () => {
 		const old = '---\nupstream:\n  - a.md\n---\n';
 		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': old, 'c.md': '# C\n' });

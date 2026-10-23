@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../../base/common/event.js';
+import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -126,6 +127,52 @@ export interface IBaseHalfReferenceEditOptions {
 	 * the caller keeps the entry owed and tries again.
 	 */
 	readonly automatic?: boolean;
+	/**
+	 * The operation puts lists back: undo, redo, or a rollback. Participants
+	 * do not take part; the step that made the lists puts back what they
+	 * wrote (reference graph, "Undo").
+	 */
+	readonly restoring?: boolean;
+}
+
+/** One entry of a list as a participant sees it. */
+export interface IBaseHalfReferenceListEntry {
+	/** The workspace-relative path. */
+	readonly path: string;
+	/** The path's comparison key, which ignores case where the volume does. */
+	readonly key: string;
+}
+
+/** How one node's list changed in an operation that wrote it. */
+export interface IBaseHalfReferenceListChange {
+	readonly node: IBaseHalfWorkspaceResource;
+	/** The valid entries of the list before and after, in order. */
+	readonly before: readonly IBaseHalfReferenceListEntry[];
+	readonly after: readonly IBaseHalfReferenceListEntry[];
+	/** The entries a replace put in place of others, by their keys. */
+	readonly replacements: readonly IBaseHalfUpstreamEntryReplacement[];
+}
+
+/** What a participant wrote with an operation, which its undo and redo put back. */
+export interface IBaseHalfReferenceDependentEdit {
+	/** Called after undo put the lists back; puts back what was written. */
+	undo(): Promise<void>;
+	/** Called after redo wrote the lists again; writes it again. */
+	redo(): Promise<void>;
+}
+
+/**
+ * A feature that writes what depends on a list it owns, as generation cards
+ * write the names of a draft's prompt (reference graph, "Undo";
+ * generation cards, "Names follow their inputs").
+ */
+export interface IBaseHalfReferenceEditParticipant {
+	/**
+	 * Called once every store of an operation was written, with the lists it
+	 * changed. Returns what it wrote. It reports its own failures: a list
+	 * stays written when the participant cannot write.
+	 */
+	participate(changes: readonly IBaseHalfReferenceListChange[]): Promise<readonly IBaseHalfReferenceDependentEdit[]>;
 }
 
 export type BaseHalfReferenceStoreOutcome = 'changed' | 'unchanged' | 'failed' | 'notAttempted';
@@ -148,6 +195,8 @@ export interface IBaseHalfReferenceEditResult {
 	readonly stores: readonly IBaseHalfReferenceStoreResult[];
 	/** True when at least one store changed. */
 	readonly changed: boolean;
+	/** What participants wrote with the lists, which undo and redo put back. */
+	readonly dependents?: readonly IBaseHalfReferenceDependentEdit[];
 }
 
 /**
@@ -252,6 +301,8 @@ export interface IBaseHalfReferenceUndoElementOptions {
 	 */
 	readonly resources: readonly URI[];
 	readonly stores: readonly IBaseHalfReferenceUndoStore[];
+	/** What participants wrote with the lists: put back after them on undo, written again after them on redo. */
+	readonly dependents?: readonly IBaseHalfReferenceDependentEdit[];
 	/** The canvas undo source (`BASEHALF_CANVAS_UNDO_REDO_SOURCE`). */
 	readonly source: UndoRedoSource;
 	readonly code?: string;
@@ -264,6 +315,12 @@ export interface IBaseHalfReferenceEditService {
 
 	/** Fires after BaseHalf added a frontmatter block to a Markdown file that had none. */
 	readonly onDidCreateFrontmatter: Event<IBaseHalfWorkspaceResource>;
+
+	/**
+	 * Lets a feature take part in every operation that writes a list, apart
+	 * from undo, redo, and rollbacks (reference graph, "Undo").
+	 */
+	registerParticipant(participant: IBaseHalfReferenceEditParticipant): IDisposable;
 
 	/** Adds `entry` to `node`'s upstream list. */
 	add(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult>;
@@ -373,8 +430,9 @@ export class BaseHalfReferenceUndoElement implements IWorkspaceUndoRedoElement {
 		}));
 		let outcome: BaseHalfReferenceUndoOutcome;
 		try {
-			const result = await this.editService.apply(edits, { label: this.label });
+			const result = await this.editService.apply(edits, { label: this.label, restoring: true });
 			outcome = result.changed ? 'applied' : 'alreadyApplied';
+			await this.runDependents(direction);
 		} catch (error) {
 			outcome = 'refused';
 			if (error instanceof BaseHalfReferenceEditFailure) {
@@ -393,5 +451,20 @@ export class BaseHalfReferenceUndoElement implements IWorkspaceUndoRedoElement {
 			}
 		}
 		this.options.onDidRun?.(direction, outcome);
+	}
+
+	/**
+	 * Puts back, newest first, or writes again, oldest first, what the
+	 * participants wrote. Each says itself what it could not write.
+	 */
+	private async runDependents(direction: 'undo' | 'redo'): Promise<void> {
+		const dependents = this.options.dependents ?? [];
+		for (const dependent of direction === 'undo' ? [...dependents].reverse() : dependents) {
+			try {
+				await (direction === 'undo' ? dependent.undo() : dependent.redo());
+			} catch {
+				// A participant reports its own failures; the lists stay as undo wrote them.
+			}
+		}
 	}
 }

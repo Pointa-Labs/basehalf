@@ -558,7 +558,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 			await this.referenceEditService.apply(outcome.changedStores.map(store => ({
 				node: store.node,
 				operation: { kind: 'transition', from: store.next, to: store.expected, store: store.storeKind }
-			})), { label: outcome.label });
+			})), { label: outcome.label, restoring: true });
 		} catch (error) {
 			if (error instanceof BaseHalfReferenceEditFailure) {
 				// The edit service told the user which files changed.

@@ -549,7 +549,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 	/** Takes back the upstream list of a draft whose `generation.yaml` could not be made, when nothing changed it since. */
 	private async disconnectNewDraft(card: ICardLocation, connected: IBaseHalfReferenceStoreResult): Promise<void> {
 		try {
-			await this.referenceEditService.apply([{ node: card, operation: { kind: 'transition', from: connected.next, to: connected.expected } }], { label: connectLabel(), newDraft: true });
+			await this.referenceEditService.apply([{ node: card, operation: { kind: 'transition', from: connected.next, to: connected.expected } }], { label: connectLabel(), newDraft: true, restoring: true });
 		} catch (error) {
 			this.logService.warn(`[BaseHalf generation] The upstream list of ${card.relativePath} could not be taken back: ${getErrorMessage(error)}`);
 		}
