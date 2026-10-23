@@ -212,17 +212,18 @@ The first two points are owned by
   generated image or video is an ordinary file in the user's folder.
 - A generation card's file is the card: an ordinary image or video file in
   the card's folder, under the card's name. Its inputs are its connections,
-  in the order of its `upstream` list; no role is stored beside them. What
-  the next generation uses is its `generation.yaml` and what made its file is
-  its `made.yaml`, card information that follows the file. A draft is a card
-  before its file exists; a card whose generated file is gone is a missing
-  file, never a draft. A card with its file never generates again:
-  generating from it makes a new draft. A generation is recorded on this
+  in the order of its `upstream` list; no role is stored beside them, and
+  every input of a draft is sent. What a draft's generation uses is its
+  `generation.yaml` and what made a file is its `made.yaml`, card information
+  that follows the file. A draft is a card before its file exists; a card
+  whose generated file is gone is a missing file, never a draft. A card with
+  its file never changes, keeps the inputs that made it, and never generates
+  again: New Version makes a new draft from what made it (D67). A generation is recorded on this
   computer only, under `.bh/cache/`, and followed by one window; it never
   sends a request again by itself and continues after a restart
   ([generation cards](../specs/generation-cards.md)).
 
-See public decisions D26–D28, D33, D45, D58, D63, and D64.
+See public decisions D26–D28, D33, D45, D58, D63, D64, and D67.
 [plugin-architecture.md](../plugin-architecture.md) and
 [plugin-development.md](../plugin-development.md) describe the frozen platform
 (D25, D29–D32) and the contribution points that AI Video still uses.

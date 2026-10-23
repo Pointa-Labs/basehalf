@@ -1,8 +1,9 @@
 # Agent launch context
 
-Status: Active (2026-09-27; canvas workflows revised 2026-10-22 for D63)
+Status: Active (2026-09-27; canvas workflows revised 2026-10-22 for D63 and 2026-10-23 for D67)
 Decisions: [D36](../decisions.md#d36--basehalf-stops-writing-agent-guides-into-workspaces-new-2026-09-27),
-[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
+[D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23)
 Related: [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [generation cards](generation-cards.md#agents)
@@ -95,8 +96,8 @@ The instruction covers the following, in this order.
    - reading aids;
    - each card's one-line `description`, in `.bh/mirror/<path>/badge.yaml`;
    - upstream lists BaseHalf keeps, in `.bh/mirror/<path>/upstream.yaml`;
-   - each generation card's prompt and settings, in
-     `.bh/mirror/<path>/generation.yaml`, and what made its file, in
+   - each draft's prompt and settings, in
+     `.bh/mirror/<path>/generation.yaml`, and what made a generated file, in
      `made.yaml`.
 
    Read a node's `description` when you need to know what the user says it is
@@ -149,10 +150,13 @@ The instruction covers the following, in this order.
      is the only authority for the model catalog, templates, and operations.
    - A generation card is an image or a video file; a draft is one whose file
      does not exist yet. Write `prompt`, `provider`, `model`, `mode`, and
-     `params` in its `generation.yaml` to make a draft or change its next
-     generation; never write `made.yaml`. Its inputs are the entries of its
-     `upstream.yaml`, in order. The user renames, moves, or deletes a draft on
-     the canvas
+     `params` in a draft's `generation.yaml` to make a draft or change what
+     it generates; never write `made.yaml`. A generated file never changes
+     and keeps the inputs that made it: leave its `generation.yaml` and
+     `upstream.yaml` alone. A draft's inputs are the entries of its
+     `upstream.yaml`, in order, and every one is sent: when its mode cannot
+     use them all, the first of the model's modes that can is used. The user
+     renames, moves, or deletes a draft on the canvas
      ([generation cards](generation-cards.md#what-an-agent-may-write)).
    - Choose `provider`, `model`, `mode`, and `params` from
      `host.modelCatalog` of `basehalf --list-capabilities`: a model of the
@@ -160,10 +164,11 @@ The instruction covers the following, in this order.
      parameter left out takes its default. A provider that is not set up
      there runs once the user sets it up in Providers
      ([generation cards, Agents](generation-cards.md#agents)).
-   - Use `basehalf --generate <workspace-relative path>` to generate a card,
-     a draft or one with its file. It prints the path of every card that
-     generates, refuses values the model does not accept, and does not wait
-     for the files.
+   - Use `basehalf --generate <workspace-relative path>` to generate a
+     draft. For a generated file it makes a new draft beside it from what
+     made it, and generates that. It prints the path of every card that
+     generates, refuses values the model does not accept and inputs it
+     cannot use, and does not wait for the files.
    - Use `basehalf --run-operation '<json>'` only for operations that
      discovery returned.
    - A generation continues after the session closes.

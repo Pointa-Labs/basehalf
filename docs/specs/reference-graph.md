@@ -90,8 +90,11 @@ listed A in `referenced_by`. That design had three problems:
    - Relink, Relink Everywhere, Remove, Use Workspace Path, and Move into File
      on an issue;
    - creating a connected node (PDF branch, Create from Connection, the
-     draft that generating again from a generation card with its file makes,
-     and the drafts a generation of several images makes);
+     draft that New Version makes from a generation card with its file, the
+     drafts a generation of several images makes, and the image that Capture
+     Frame takes from a video);
+   - Upload into a draft, which removes the draft's entries with its
+     `generation.yaml`, since the uploaded file was not made from them;
    - renaming a draft whose model delivers another format, or whose image
      arrived in another format;
    - a new order of a generation card's inputs in its panel;
@@ -724,7 +727,17 @@ A connection's target can be any node, a draft included (see
 - into a note whose own `upstream` key BaseHalf cannot read or edit in place
   (the message names Rebuild List when it applies);
 - into a node whose store needs a `.bh/` write in a marked folder (see
-  [Source-tree guard](#source-tree-guard)).
+  [Source-tree guard](#source-tree-guard));
+- into a generation card with its file, whose entries are the inputs that
+  made it, and into a draft while it generates
+  ([generation cards](generation-cards.md#what-is-connected-is-sent));
+- into a draft whose model can use the source in none of its modes
+  ([generation cards](generation-cards.md#what-is-connected-is-sent)).
+
+Disconnecting an entry of a generation card with its file, or of a draft
+while it generates, and reconnecting one, are refused the same way, on the
+canvas and in the badge editor. The rename refactor still rewrites their
+entries after a move, so that they keep naming the inputs that were moved.
 
 ### Creating connected nodes
 
@@ -764,7 +777,8 @@ A connection's target can be any node, a draft included (see
     ([generation cards](generation-cards.md#creating-a-generation-card)).
     The draft is selected, and its panel shows. Both are offered from every
     source, a note included: the source becomes the draft's first input, and
-    the panel says how a generation uses it
+    the panel says how a generation uses it, or that its model cannot use it
+    and Generate does not run
     ([generation cards](generation-cards.md#inputs)).
   - **Cancel.** Escape or a click outside closes the menu and writes nothing.
   - **Undo.** For a draft, one canvas undo step removes the draft with its
@@ -783,7 +797,8 @@ The delete confirmation says: "<name> is upstream of K items. They will show a
 broken upstream entry that you can fix later." It has a checkbox, "Also remove
 <name> from their upstream lists", which is unchecked by default. When it is
 checked, the removals are one bulk edit applied after the delete, as a separate
-undo step.
+undo step. A generation card with its file keeps its entry: it names an input
+that made the card, and its panel shows it as gone.
 
 ### Copying and importing
 
@@ -791,7 +806,7 @@ undo step.
 | --- | --- |
 | Markdown file | keeps its bytes and entries. Entries that do not resolve show as dangling. A note whose list is kept in its sidecar starts with no upstream list, like a sidecar node. |
 | Folder | entries inside it that name other items in the original folder still name the originals. The copy confirmation states this. |
-| Generation card, a draft or one with its file | a new card with the same prompt and settings; a copy of a card with its file gets a `made.yaml` with a new `id` that says it is a copy. It starts with no upstream list and no task ([generation cards](generation-cards.md#moving-renaming-copying-and-undo)) |
+| Generation card, a draft or one with its file | a draft's copy is a draft with the same prompt and settings; a copy of a card with its file gets a `made.yaml` with a new `id` that says it is a copy. It starts with no upstream list and no task ([generation cards](generation-cards.md#moving-renaming-copying-and-undo)) |
 | Sidecar node | starts with no upstream list |
 
 ### First frontmatter notice

@@ -3,13 +3,16 @@
 Status: Active (2026-10-11; version 6 of the text, 2026-10-22: generation
 cards, drafts, `generation.yaml`, `made.yaml`, and `basehalf --generate`
 replace the Video node, and an image an agent makes itself goes into the
-canvas's folder)
+canvas's folder; version 7, 2026-10-23, D67: only a draft has a
+`generation.yaml`, a generated file keeps its inputs, every input of a draft
+is sent, and `--generate` on a generated file makes a new draft first)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
-[D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23)
 Related: [agent launch context](agent-launch-context.md),
 [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -106,10 +109,12 @@ text is part of the application bundle, so no local process can change it.
    keeps its metadata, relationships, preserving relationships, and canvas
    workflows ([content contract](agent-launch-context.md#content-contract)).
    They are written once in the source and used by both texts. Canvas
-   workflows describe generation cards and drafts, what an agent writes in
-   `generation.yaml`, that it never writes `made.yaml`, how it deletes a
-   draft, the inputs in the order of `upstream.yaml`, `host.modelCatalog`,
-   and `basehalf --generate`
+   workflows describe generation cards and drafts, what an agent writes in a
+   draft's `generation.yaml`, that it never writes `made.yaml` and leaves a
+   generated file's `generation.yaml` and `upstream.yaml` alone, how it
+   deletes a draft, the inputs in the order of `upstream.yaml`, that every
+   one is sent and the mode that is used, `host.modelCatalog`, and
+   `basehalf --generate`, which makes a new draft from a generated file
    ([generation cards](generation-cards.md#what-an-agent-may-write)).
 5. **An image the agent makes itself.** An image that an agent makes with a
    tool of its own, such as its own image generation, is put in the folder
@@ -246,7 +251,7 @@ still work there, because they write only to the user's home folder.
    moved with ordinary tools, says where an image the agent made itself goes,
    contains every line of the launch instruction's shared sections, and has
    fewer than 500 lines. It names no `.bhnode` and no `--run-node`. Its
-   version is `6`. Unit test.
+   version is `7`. Unit test.
 2. Installing writes both files with exactly the bundled bytes and creates
    missing folders. The states are missing before, current after, and
    outdated after the file is changed. Removing deletes both files and the

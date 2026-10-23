@@ -2306,3 +2306,78 @@ of a card takes the room at its place into account.
   the cards around them move.
 - The image of a card is fitted, not cropped.
 - New Video draws a 16:9 draft at 533 × 300 instead of 720 × 405.
+
+## D67 — A draft is what will be made; a generated file shows what made it (NEW, 2026-10-23)
+
+**Decision.** Only a draft of a generation card can be changed and generated.
+A card with its generated file never changes: its panel shows the inputs,
+prompt, model, and settings of its `made.yaml`, nothing in it can be edited,
+and its one action is **New Version**, which makes a new draft beside it with
+the same prompt, model, mode, values (without the seed), and inputs, selected
+and with its prompt focused, and generates nothing until the user does. A
+draft's `generation.yaml` is removed when its file lands; a file without a
+`made.yaml`, such as one uploaded into a draft, is an ordinary file with no
+panel. Every input connected to a draft is sent: a connection the draft's
+model cannot use is refused when it is made, the mode that is used follows
+the inputs, and an input that becomes unusable stops Generate with the
+reason. The connections of a card with its file, and of a draft while it
+generates, are not added, removed, or changed. See [generation
+cards](specs/generation-cards.md#the-panel-of-a-card-with-its-file),
+["What is connected is sent"](specs/generation-cards.md#what-is-connected-is-sent),
+and ["New Version"](specs/generation-cards.md#new-version).
+
+**Why.** On 2026-10-23 the user found the panel confusing: after a video was
+generated, its prompt could still be changed and sent, and with one video
+connected into another, both prompts could be changed. D63 had made the file
+the card and decided that a generated file never changes, but the panel was
+still the draft's: what was typed under a generated video went into a
+`generation.yaml` that only the next card beside it would use, and the
+prompt under the video no longer said what had made it. In the cards the
+user made that day, three of six showed a prompt that was not their
+`made.yaml`'s, and three video cards connected from a video, all in Frames,
+had never sent it.
+
+The canvas products for media work keep a generated node's prompt editable
+because sending there changes that same node: one of them replaces its
+result and keeps earlier ones in a history, and the other adds a version
+inside the node. A card that is a file cannot change that way. Their way of
+keeping several versions side by side is to copy a node with its
+connections and generate the copy, which is New Version. A node-graph tool
+keeps its recipe apart from its results, which are files it never
+overwrites, each holding the recipe that made it; a canvas app that sends
+from a node with a result derives a new connected node, but for a video it
+drew a connection without sending the video. What the canvas products agree
+on beside that, and what BaseHalf takes: media that was uploaded has no
+generation panel; one of them disables a mode that cannot use the connected
+media; the other chooses the generation type from what is connected.
+
+**What was set aside.**
+- Generating a card again in place, with the earlier file kept as a version:
+  the card would no longer be one file, and the earlier file would be
+  renamed or hidden under `.bh/`.
+- Keeping the editable prompt under a generated file with a label that says
+  it is for the next card: the prompt under the file would still not be the
+  one that made it.
+- Typing under a generated image to make a changed copy of it, connected
+  from it: the same box would mean three things for an empty card, an image,
+  and a video. Connecting from the card does that, for every kind.
+- Removing at landing the connections that a generation did not use: no
+  background change of an upstream value (reference graph, invariant 4).
+  Refusing what the model cannot use, and stopping Generate, keep every
+  connection true without it.
+- Recording the text of connected notes in `made.yaml`: still left out, as
+  D63 decided, so that git shares no note the user did not commit.
+
+**Consequences.**
+- Revises D63: a card with its file has no `generation.yaml`, and its
+  connections are the inputs that made it. Generating from a card with its
+  file is New Version, then Generate on the draft; `basehalf --generate` on a
+  card with its file does both. The authoring contract agents read is
+  version 6, and the agent skill text version 7.
+- The mode in a draft's `generation.yaml` is the one the user or an agent
+  chose; the panel shows, sends, and records the mode that is used.
+- Upload into a draft removes the draft's prompt, settings, and connections,
+  since the uploaded file was not made from them.
+- Capture Frame connects the image it makes from its video.
+- The product has not launched: a `generation.yaml` that an earlier build
+  left beside a generated file is not read, and nothing converts it.
