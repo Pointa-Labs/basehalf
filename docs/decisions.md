@@ -2441,9 +2441,10 @@ keeps its order").
   the products has: left for later.
 
 **Consequences.**
-- The prompt is BaseHalf's own text field with chips and its own undo.
-  VS Code takes only `input` and `textarea` for text fields, so its Undo
-  would otherwise undo a step of the canvas while the prompt has the keyboard.
+- The prompt is BaseHalf's own text field with chips and its own undo and
+  Select All. VS Code takes only `input` and `textarea` for text fields, so
+  its Undo would otherwise undo a step of the canvas while the prompt has the
+  keyboard, and its Select All would select nothing.
 - The reference edit service has participants (reference graph, Undo).
 - The panel is at most 268 px tall instead of 260, for 48 px tiles.
 - What agents read and write does not change: `generation.yaml` holds the

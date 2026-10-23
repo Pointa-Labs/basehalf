@@ -7,6 +7,11 @@ import * as assert from 'assert';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { SelectAllCommand } from '../../../../../editor/browser/editorExtensions.js';
+import { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
+import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
+import { MockContextKeyService } from '../../../../../platform/keybinding/test/common/mockKeybindingService.js';
+import { ILogService, NullLogService } from '../../../../../platform/log/common/log.js';
 import { BaseHalfGenerationPromptEditor, IBaseHalfPromptEditorOptions } from '../../browser/basehalfGenerationPromptEditor.js';
 
 /** Two images and a video are connected: 图片1 has a picture, 图片2 has none yet. */
@@ -186,6 +191,39 @@ suite('BaseHalfGenerationPromptEditor (D68)', () => {
 		assert.deepStrictEqual({ inside, around: editor.selection() }, { inside: { start: 4, end: 4 }, around: { start: 1, end: 4 } });
 	});
 
+	test('text typed after a chip at the end takes the place of the caret holder, and the caret goes to each place of the text', () => {
+		const editor = create();
+		editor.setValue('ride 图片1');
+		editor.focus();
+		type(editor, ' @');
+		const typed = drawn(editor);
+		const places: number[] = [];
+		for (let offset = 0; offset <= editor.value.length; offset++) {
+			editor.focus(offset);
+			places.push(editor.selection()!.start);
+		}
+		assert.deepStrictEqual({ typed, places }, {
+			typed: ['text ride ', 'chip 图片1 with picture', 'text  @'],
+			places: [0, 1, 2, 3, 4, 5, 8, 8, 8, 9, 10]
+		});
+	});
+
+	test('a caret holder the browser takes out is drawn again, and the text has not changed', () => {
+		const editor = create();
+		editor.setValue('ride 图片1');
+		editor.focus();
+		let changes = 0;
+		disposables.add(editor.onDidChange(() => changes++));
+		editor.element.lastChild!.remove();
+		editor.element.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentForward', bubbles: true }));
+		assert.deepStrictEqual({ drawn: drawn(editor), value: editor.value, changes, undone: editor.undo() }, {
+			drawn: ['text ride ', 'chip 图片1 with picture', 'caret holder'],
+			value: 'ride 图片1',
+			changes: 0,
+			undone: false
+		});
+	});
+
 	test('undo and redo go back through its own edits, typing in a run is one step, and new text from the file starts again', () => {
 		const editor = create();
 		editor.setValue('骑车');
@@ -220,6 +258,17 @@ suite('BaseHalfGenerationPromptEditor (D68)', () => {
 		assert.deepStrictEqual({ prevented: undo.defaultPrevented, value: editor.value }, { prevented: true, value: '' });
 	});
 
+	test('Select All selects the whole prompt, not the text of another editor', () => {
+		const editor = create();
+		editor.setValue('ride 图片1\nnext');
+		editor.focus(2);
+		const services = disposables.add(new TestInstantiationService());
+		services.set(ILogService, new NullLogService());
+		services.set(IContextKeyService, new MockContextKeyService());
+		services.invokeFunction(accessor => SelectAllCommand.runCommand(accessor, undefined));
+		assert.deepStrictEqual(editor.selection(), { start: 0, end: 13 });
+	});
+
 	test('a prompt that is read only can be selected but not changed, and its names are still chips', () => {
 		const editor = create();
 		editor.setValue('图片1 at dawn');
@@ -233,6 +282,69 @@ suite('BaseHalfGenerationPromptEditor (D68)', () => {
 			value: '图片1 at dawn',
 			drawn: ['chip 图片1 with picture', 'text  at dawn']
 		});
+	});
+
+	test('Backspace after a chip and Delete before one take out the whole name, also at the end of the text', () => {
+		const editor = create();
+		editor.setValue('骑着图片1');
+		editor.focus();
+		const backspace = new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true });
+		editor.element.dispatchEvent(backspace);
+		const afterBackspace = { value: editor.value, caret: editor.selection(), prevented: backspace.defaultPrevented };
+		editor.setValue('图片1和视频1');
+		editor.focus(0);
+		editor.element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteContentForward', bubbles: true, cancelable: true }));
+		const afterDelete = editor.value;
+		editor.undo();
+		assert.deepStrictEqual({ afterBackspace, afterDelete, undone: editor.value }, {
+			afterBackspace: { value: '骑着', caret: { start: 2, end: 2 }, prevented: true },
+			afterDelete: '和视频1',
+			undone: '图片1和视频1'
+		});
+	});
+
+	test('Delete with the caret before the holder after a chip at the end of a line joins the next line in one press', () => {
+		const editor = create();
+		editor.setValue('ride 图片1\nnext');
+		editor.focus();
+		const holder = [...editor.element.childNodes].find(node => node.textContent === '\u200b')!;
+		mainWindow.getSelection()!.collapse(holder, 0);
+		const press = new InputEvent('beforeinput', { inputType: 'deleteContentForward', bubbles: true, cancelable: true, targetRanges: [new StaticRange({ startContainer: holder, startOffset: 0, endContainer: holder, endOffset: 1 })] });
+		editor.element.dispatchEvent(press);
+		assert.deepStrictEqual({ prevented: press.defaultPrevented, value: editor.value, caret: editor.selection(), drawn: drawn(editor) }, {
+			prevented: true,
+			value: 'ride 图片1next',
+			caret: { start: 8, end: 8 },
+			drawn: ['text ride ', 'chip 图片1 with picture', 'text next']
+		});
+	});
+
+	test('a delete of a word that reaches into a chip takes out the whole chip; one that does not is left to the browser', () => {
+		const editor = create();
+		editor.setValue('ride 图片1 now');
+		editor.focus();
+		const first = editor.element.firstChild!;
+		const plain = new InputEvent('beforeinput', { inputType: 'deleteWordBackward', bubbles: true, cancelable: true, targetRanges: [new StaticRange({ startContainer: first, startOffset: 0, endContainer: first, endOffset: 4 })] });
+		editor.element.dispatchEvent(plain);
+		const plainValue = editor.value;
+		const last = editor.element.lastChild!;
+		const reaching = new InputEvent('beforeinput', { inputType: 'deleteWordBackward', bubbles: true, cancelable: true, targetRanges: [new StaticRange({ startContainer: editor.element, startOffset: 1, endContainer: last, endOffset: 1 })] });
+		editor.element.dispatchEvent(reaching);
+		assert.deepStrictEqual({ plain: plain.defaultPrevented, plainValue, reaching: reaching.defaultPrevented, value: editor.value }, {
+			plain: false,
+			plainValue: 'ride 图片1 now',
+			reaching: true,
+			value: 'ride now'
+		});
+	});
+
+	test('a line break the browser leaves as a placeholder holds no text', () => {
+		const editor = create();
+		editor.setValue('图片1 at dawn');
+		editor.focus();
+		editor.element.append(mainWindow.document.createElement('br'));
+		editor.element.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true }));
+		assert.deepStrictEqual({ value: editor.value, drawn: drawn(editor) }, { value: '图片1 at dawn', drawn: ['chip 图片1 with picture', 'text  at dawn'] });
 	});
 
 	test('replace puts a name in place of what was typed and the caret after it', () => {

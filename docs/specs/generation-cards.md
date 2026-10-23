@@ -681,7 +681,7 @@ From top to bottom:
      prompt's 64 KiB.
    - **Undo** in the prompt undoes its own typing, in runs as a text field
      does, and redo redoes it; neither undoes a step of the canvas while the
-     prompt has the keyboard.
+     prompt has the keyboard. **Select All** selects the whole prompt.
    - **`@`** opens the reference menu at the caret, typed after the start of
      the prompt, a space, or anything that is not a Latin letter or digit, so
      that an e-mail address does not; a full-width `＠` opens it too. The
@@ -1469,7 +1469,7 @@ job, so that a name in history still finds its file.
   draw their inputs with the input row (`browser/basehalfGenerationInputRow.ts`)
   and their prompt with the prompt field
   (`browser/basehalfGenerationPromptEditor.ts`: the text with its chips, its
-  own undo, and the caret), and a draft's panel opens the reference menu
+  own undo and Select All, and the caret), and a draft's panel opens the reference menu
   (`browser/basehalfGenerationReferenceMenu.ts`). The name follower
   (`browser/basehalfGenerationNameFollower.contribution.ts`) takes part in the reference
   edits of drafts and writes the names of their prompts, as a participant of
@@ -1723,6 +1723,8 @@ References and names (D68)
     opens no menu before the composition ends.
 56. `Cmd/Ctrl+Z` in the prompt undoes its typing and not a step of the
     canvas; with the canvas focused, it undoes the canvas's step.
+    `Cmd/Ctrl+A` in the prompt selects the whole prompt, and what is typed
+    next takes its place.
 57. The `@` of a tile puts its name at the caret; on a focused tile,
     Alt+Right moves it one place and Delete removes its connection.
 58. While a draft generates, its tiles have no cross, `@`, or dragging, and

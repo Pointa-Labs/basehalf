@@ -9,7 +9,7 @@ import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js'
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
+import { RedoCommand, SelectAllCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { findBaseHalfVideoLabelTokens, IBaseHalfVideoLabelToken } from '../common/basehalfVideoCatalog.js';
 
 /** What the chip of a name shows. */
@@ -45,8 +45,8 @@ interface IPromptState extends IBaseHalfPromptSelection {
 /** What an edit did, for joining typing and deleting into steps of undo. */
 type EditKind = 'type' | 'delete' | 'other';
 
-/** Above the canvas's own undo (115), as the note editor on a card is. */
-const UNDO_REDO_PRIORITY = 10_100;
+/** Ahead of the canvas's own undo (115) and of VS Code's handlers, which know only `input` and `textarea` as text fields. */
+const COMMAND_PRIORITY = 10_100;
 /** Stands in after a chip at the end of a line, so that the caret can be put there. It is never part of the text. */
 const CARET_HOLDER = '​';
 const UNDO_LIMIT = 200;
@@ -62,9 +62,10 @@ const DEFAULT_UNDO_RUN_TIME = 1000;
  * The browser does the typing, the deleting, the moving, and the input
  * method; after each edit the editor reads the text back, and draws it again
  * when its names no longer match its chips. It handles Enter, paste, copy,
- * and cut as text, and keeps its own undo: VS Code takes only `input` and
- * `textarea` for text fields, so its Undo would otherwise undo a step of the
- * canvas while the prompt has the keyboard.
+ * and cut as text, and keeps its own undo and Select All: VS Code takes only
+ * `input` and `textarea` for text fields, so its Undo would otherwise undo a
+ * step of the canvas while the prompt has the keyboard, and its Select All
+ * would select nothing.
  */
 export class BaseHalfGenerationPromptEditor extends Disposable {
 
@@ -126,18 +127,25 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		this._register(addDisposableListener(this.element, 'drop', event => event.preventDefault()));
 		this._register(addDisposableListener(this.element, 'dragover', event => event.preventDefault()));
 
-		this._register(UndoCommand.addImplementation(UNDO_REDO_PRIORITY, 'basehalfPromptEditor', () => {
+		this._register(UndoCommand.addImplementation(COMMAND_PRIORITY, 'basehalfPromptEditor', () => {
 			if (!this.hasFocus()) {
 				return false;
 			}
 			this.undo();
 			return true;
 		}));
-		this._register(RedoCommand.addImplementation(UNDO_REDO_PRIORITY, 'basehalfPromptEditor', () => {
+		this._register(RedoCommand.addImplementation(COMMAND_PRIORITY, 'basehalfPromptEditor', () => {
 			if (!this.hasFocus()) {
 				return false;
 			}
 			this.redo();
+			return true;
+		}));
+		this._register(SelectAllCommand.addImplementation(COMMAND_PRIORITY, 'basehalfPromptEditor', () => {
+			if (!this.hasFocus()) {
+				return false;
+			}
+			this.setSelection({ start: 0, end: this.text.length });
 			return true;
 		}));
 	}
@@ -340,6 +348,16 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		if (this.composingNow || event.inputType === 'insertCompositionText') {
 			return;
 		}
+		if (event.inputType.startsWith('delete')) {
+			// A chip is deleted whole, by the text: the browser deletes an element that
+			// cannot be edited badly, as at the end of the text, where it leaves a line break.
+			const range = this.deletion(event);
+			if (range) {
+				event.preventDefault();
+				this.deleteRange(range.start, range.end);
+				return;
+			}
+		}
 		const kind: EditKind = event.inputType === 'insertText'
 			? 'type'
 			: event.inputType.startsWith('delete') ? 'delete' : 'other';
@@ -358,7 +376,11 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		const before = pending?.before ?? this.state();
 		const read = this.read();
 		const text = clampLength(read, this.options.maxLength);
-		if (text === this.text && this.matchesRendering(text)) {
+		if (text === this.text) {
+			if (!this.matchesRendering(text)) {
+				// The browser changed only how the text is drawn, as when it took out a caret holder.
+				this.render(text, this.selection());
+			}
 			return;
 		}
 		const selection = this.selection();
@@ -368,6 +390,79 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		} else {
 			this.text = text;
 		}
+		this._onDidChange.fire();
+	}
+
+	/**
+	 * What a delete takes out when it touches a chip, or a selection: the
+	 * whole chips it touches; and before a caret holder, the line break after
+	 * it. `undefined` when the browser can do it alone.
+	 */
+	private deletion(event: InputEvent): IBaseHalfPromptSelection | undefined {
+		const selection = this.selection();
+		if (!selection) {
+			return undefined;
+		}
+		if (selection.start !== selection.end) {
+			return this.overChips(selection);
+		}
+		const caret = selection.start;
+		const chips = this.chipRanges();
+		if (event.inputType === 'deleteContentBackward') {
+			return chips.find(chip => chip.end === caret || (chip.start < caret && caret < chip.end));
+		}
+		if (event.inputType === 'deleteContentForward') {
+			const chip = chips.find(candidate => candidate.start === caret || (candidate.start < caret && caret < candidate.end));
+			if (chip) {
+				return chip;
+			}
+			// The browser would take out only the holder, which is drawn again: the press would do nothing.
+			return this.targetsNoText(event) && this.text.charAt(caret) === '\n' ? { start: caret, end: caret + 1 } : undefined;
+		}
+		const target = event.getTargetRanges()[0];
+		if (!target || !this.element.contains(target.startContainer) || !this.element.contains(target.endContainer)) {
+			return undefined;
+		}
+		const start = this.offsetOf(target.startContainer, target.startOffset);
+		const end = this.offsetOf(target.endContainer, target.endOffset);
+		const range = { start: Math.min(start, end), end: Math.max(start, end) };
+		return chips.some(chip => chip.start < range.end && chip.end > range.start) ? this.overChips(range) : undefined;
+	}
+
+	/** Whether the browser's delete would take out only what is no part of the text, as a caret holder. */
+	private targetsNoText(event: InputEvent): boolean {
+		const target = event.getTargetRanges()[0];
+		if (!target || target.collapsed || !this.element.contains(target.startContainer) || !this.element.contains(target.endContainer)) {
+			return false;
+		}
+		return this.offsetOf(target.startContainer, target.startOffset) === this.offsetOf(target.endContainer, target.endOffset);
+	}
+
+	/** The range grown over every chip it touches. */
+	private overChips(range: IBaseHalfPromptSelection): IBaseHalfPromptSelection {
+		let { start, end } = range;
+		for (const chip of this.chipRanges()) {
+			if (chip.start < end && chip.end > start) {
+				start = Math.min(start, chip.start);
+				end = Math.max(end, chip.end);
+			}
+		}
+		return { start, end };
+	}
+
+	/** Where the names drawn as chips are in the text. */
+	private chipRanges(): IBaseHalfPromptSelection[] {
+		return findBaseHalfVideoLabelTokens(this.text)
+			.filter(token => this.options.chipOf(token))
+			.map(token => ({ start: token.start, end: token.end }));
+	}
+
+	private deleteRange(start: number, end: number): void {
+		if (end <= start) {
+			return;
+		}
+		this.record(this.state(), 'delete');
+		this.render(this.text.slice(0, start) + this.text.slice(end), { start, end: start });
 		this._onDidChange.fire();
 	}
 
@@ -456,7 +551,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		}
 	}
 
-	/** Whether the elements are what `render(text)` draws: the same names as chips or unknown names, and text between them. */
+	/** Whether the elements are what `render(text)` draws: the same names as chips or unknown names, text between them, and the caret holders. */
 	private matchesRendering(text: string): boolean {
 		const expected: string[] = [];
 		let offset = 0;
@@ -465,7 +560,15 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 				expected.push(`t${text.slice(offset, token.start)}`);
 			}
 			const name = text.slice(token.start, token.end);
-			expected.push(this.options.chipOf(token) ? `c${name}` : `u${name}`);
+			if (this.options.chipOf(token)) {
+				expected.push(`c${name}`);
+				const next = text.charAt(token.end);
+				if (next === '' || next === '\n') {
+					expected.push('h');
+				}
+			} else {
+				expected.push(`u${name}`);
+			}
 			offset = token.end;
 		}
 		if (offset < text.length) {
@@ -481,7 +584,16 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		};
 		for (const child of this.element.childNodes) {
 			if (child.nodeType === child.TEXT_NODE) {
-				run += (child.textContent ?? '').replaceAll(CARET_HOLDER, '');
+				const data = child.textContent ?? '';
+				if (data === CARET_HOLDER) {
+					flush();
+					actual.push('h');
+				} else if (data.includes(CARET_HOLDER)) {
+					// Typed into a caret holder: drawn again as text alone.
+					return false;
+				} else {
+					run += data;
+				}
 			} else if (isHTMLElement(child) && child.classList.contains('bh-prompt-chip')) {
 				flush();
 				actual.push(`c${child.dataset.name ?? ''}`);
@@ -522,7 +634,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		return normalizeText(readNode(holder)).length;
 	}
 
-	/** The place of the elements at an offset of the text; never inside a chip. */
+	/** The place of the elements at an offset of the text; never inside a chip, and after a caret holder, which is no part of the text. */
 	private positionAt(offset: number): { readonly node: Node; readonly offset: number } {
 		let remaining = Math.max(0, offset);
 		const children = [...this.element.childNodes];
@@ -530,29 +642,20 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 			const child = children[index];
 			if (child.nodeType === child.TEXT_NODE) {
 				const data = child.textContent ?? '';
-				if (data === CARET_HOLDER) {
-					if (remaining === 0) {
-						return { node: child, offset: 1 };
-					}
-					continue;
+				const length = data.replaceAll(CARET_HOLDER, '').length;
+				if (remaining <= length) {
+					return { node: child, offset: dataOffset(data, remaining) };
 				}
-				if (remaining <= data.length) {
-					return { node: child, offset: remaining };
-				}
-				remaining -= data.length;
+				remaining -= length;
 				continue;
 			}
 			if (!isHTMLElement(child)) {
 				continue;
 			}
 			if (child.tagName === 'BR') {
-				if (child.dataset.holder === 'true') {
+				if (child.dataset.holder === 'true' || remaining === 0) {
 					return { node: this.element, offset: index };
 				}
-				if (remaining === 0) {
-					return { node: this.element, offset: index };
-				}
-				remaining -= 1;
 				continue;
 			}
 			const length = child.classList.contains('bh-prompt-chip') ? (child.dataset.name ?? '').length : (child.textContent ?? '').length;
@@ -604,7 +707,9 @@ function chipGlyph(kind: IBaseHalfPromptChip['kind']): HTMLElement {
 
 /**
  * The text that elements hold, as the prompt reads itself: text, a chip as
- * its name, and a line break or a line of the browser's as a new line.
+ * its name, and a line of the browser's as a new line. The prompt writes its
+ * new lines as text, so a line break element is only ever the browser's
+ * placeholder for an empty line, and holds no text.
  */
 function readNode(node: Node): string {
 	let text = '';
@@ -616,9 +721,7 @@ function readNode(node: Node): string {
 				if (child.classList.contains('bh-prompt-chip')) {
 					text += child.dataset.name ?? '';
 				} else if (child.tagName === 'BR') {
-					if (child.dataset.holder !== 'true') {
-						text += '\n';
-					}
+					continue;
 				} else if (child.tagName === 'DIV' || child.tagName === 'P') {
 					if (text && !text.endsWith('\n')) {
 						text += '\n';
@@ -632,6 +735,20 @@ function readNode(node: Node): string {
 	};
 	visit(node);
 	return text;
+}
+
+/** The place in a text node's data after `offset` characters of the text, after any caret holder there. */
+function dataOffset(data: string, offset: number): number {
+	let seen = 0;
+	for (let index = 0; index < data.length; index++) {
+		if (data.charAt(index) !== CARET_HOLDER) {
+			if (seen === offset) {
+				return index;
+			}
+			seen++;
+		}
+	}
+	return data.length;
 }
 
 function normalizeText(text: string): string {
