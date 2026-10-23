@@ -38,7 +38,7 @@ import { BaseHalfInMemoryFileSearchService } from '../../../references/test/brow
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfGenerationCardActions } from '../../browser/basehalfGenerationCardActions.js';
 import { BaseHalfGenerationCardStore } from '../../browser/basehalfGenerationCardStore.js';
-import { BaseHalfGenerationKind } from '../../common/basehalfGenerationInfo.js';
+import { BaseHalfGenerationKind, serializeBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
 import { BaseHalfVideoCatalogState, findBaseHalfVideoRegion, IBaseHalfVideoCatalog, IBaseHalfVideoCatalogProvider, IBaseHalfVideoCheckResult, IBaseHalfVideoGenerationChoice } from '../../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfDraftOperations,
@@ -95,6 +95,7 @@ class FakeGenerationService {
 
 interface IHarness {
 	readonly actions: BaseHalfGenerationCardActions;
+	readonly store: IBaseHalfGenerationCardStore;
 	readonly generation: FakeGenerationService;
 	readonly notifications: RecordingNotificationService;
 	readonly undoRedo: IUndoRedoService;
@@ -145,6 +146,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	const actions = instantiationService.createInstance(BaseHalfGenerationCardActions);
 	return {
 		actions,
+		store,
 		generation,
 		notifications,
 		undoRedo: instantiationService.get(IUndoRedoService),
@@ -297,10 +299,12 @@ suite('BaseHalfGenerationCardActions', () => {
 		});
 	});
 
-	test('Upload copies a file of the draft\'s kind to its path, renamed to the file\'s extension first, and refuses another kind', async () => {
+	test('Upload copies a file of the draft\'s kind to its path, renamed to the file\'s extension first, leaves an ordinary file, and refuses another kind', async () => {
 		const harness = await createHarness(disposables, {
 			'shots/.keep': '',
+			'brief.md': '# Brief',
 			'.bh/mirror/shots/image.png/generation.yaml': 'prompt: "A heron."\n',
+			'.bh/mirror/shots/image.png/upstream.yaml': 'upstream:\n  - brief.md\n',
 			'.bh/mirror/shots/clip.mp4/generation.yaml': 'prompt: ""\n',
 			'.bh/mirror/shots/image.jpeg/badge.yaml': 'path: "shots/image.jpeg"\n',
 			'picked/photo.jpeg': 'jpeg',
@@ -315,13 +319,115 @@ suite('BaseHalfGenerationCardActions', () => {
 			uploaded: uploaded.path,
 			file: await harness.read('shots/image-2.jpeg'),
 			info: await harness.read('.bh/mirror/shots/image-2.jpeg/generation.yaml'),
+			upstream: (await harness.read('.bh/mirror/shots/image-2.jpeg/upstream.yaml'))?.includes('brief.md') ?? false,
+			card: await harness.store.isGenerationCard(uploaded),
 			old: await harness.exists('.bh/mirror/shots/image.png/generation.yaml')
 		}, {
 			// image.jpeg holds the description of an item that is gone: the next free number.
 			uploaded: '/work/shots/image-2.jpeg',
 			file: 'jpeg',
-			info: 'prompt: "A heron."\n',
+			// BaseHalf did not make the file (D67): no prompt, settings, or connections, and no generation card.
+			info: undefined,
+			upstream: false,
+			card: false,
 			old: false
+		});
+	});
+
+	test('New Version makes a draft beside a generated file from what made it, without the seed, with its inputs, as one step of undo, and generates nothing (D67)', async () => {
+		const made = {
+			id: '20261023T080000-k3f9',
+			startedAt: '2026-10-23T08:00:00.000Z',
+			finishedAt: '2026-10-23T08:01:00.000Z',
+			provider: 'acme',
+			region: 'east',
+			model: 'acme-motion-2',
+			providerModel: 'acme-motion-2-e-260101',
+			mode: 'reference' as const,
+			params: { resolution: '1080p', duration: 8, sound: true, seed: 7 },
+			prompt: 'A pier at dawn.',
+			inputs: ['frames/a.png']
+		};
+		const harness = await createHarness(disposables, {
+			'frames/a.png': 'png',
+			'shots/shot.mp4': 'video',
+			'shots/shot-2.mp4': 'another video',
+			'.bh/mirror/shots/shot.mp4/made.yaml': serializeBaseHalfGenerationMade(made),
+			'.bh/mirror/shots/shot.mp4/upstream.yaml': 'upstream:\n  - frames/a.png\n',
+			'.bh/mirror/shots/draft.mp4/generation.yaml': 'prompt: ""\n',
+			'shots/plain.mp4': 'video'
+		});
+		const version = await harness.actions.newVersion(harness.resource('shots/shot.mp4'));
+		const made3 = {
+			path: version.path,
+			info: await harness.read('.bh/mirror/shots/shot-3.mp4/generation.yaml'),
+			upstream: await harness.read('.bh/mirror/shots/shot-3.mp4/upstream.yaml'),
+			original: [await harness.exists('.bh/mirror/shots/shot.mp4/generation.yaml'), await harness.read('.bh/mirror/shots/shot.mp4/made.yaml') === serializeBaseHalfGenerationMade(made)],
+			generated: harness.generation.generating.size
+		};
+		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		assert.deepStrictEqual({
+			made: made3,
+			undone: await harness.exists('.bh/mirror/shots/shot-3.mp4/generation.yaml'),
+			refused: await Promise.all([
+				harness.actions.newVersion(harness.resource('shots/draft.mp4')).then(() => 'made', (error: Error) => error.message),
+				harness.actions.newVersion(harness.resource('shots/plain.mp4')).then(() => 'made', (error: Error) => error.message)
+			])
+		}, {
+			made: {
+				// shot-2.mp4 is taken by another file: the next free number.
+				path: '/work/shots/shot-3.mp4',
+				info: 'prompt: "A pier at dawn."\nprovider: "acme"\nmodel: "acme-motion-2"\nmode: "reference"\nparams:\n  duration: 8\n  resolution: "1080p"\n  sound: true\n',
+				upstream: 'upstream:\n  - frames/a.png\n',
+				original: [false, true],
+				generated: 0
+			},
+			undone: false,
+			refused: [
+				'draft.mp4 has no file yet: it is a draft, and its own panel makes it.',
+				'plain.mp4 is not an image or video card.'
+			]
+		});
+	});
+
+	test('a draft refuses a connection its model cannot use; a generated file and a draft that generates refuse every change of their inputs (D67)', async () => {
+		const made = {
+			id: 'm1', startedAt: '2026-10-23T08:00:00.000Z', finishedAt: '2026-10-23T08:01:00.000Z', provider: 'acme', region: 'east',
+			model: 'acme-still', providerModel: 'acme-still-260101', mode: 'frames' as const, params: {}, prompt: '', inputs: []
+		};
+		const harness = await createHarness(disposables, {
+			'shots/notes.md': 'notes',
+			'shots/a.png': 'png',
+			'shots/shot.mp4': 'video',
+			'.bh/mirror/shots/shot.mp4/made.yaml': serializeBaseHalfGenerationMade(made),
+			'.bh/mirror/shots/still.mp4/generation.yaml': 'prompt: ""\nprovider: "acme"\nmodel: "acme-still"\n',
+			'.bh/mirror/shots/still.mp4/upstream.yaml': 'upstream:\n  - shots/a.png\n',
+			'.bh/mirror/shots/blank.mp4/generation.yaml': 'prompt: ""\n'
+		});
+		const refusal = (path: string, change: { add?: string; remove?: string }) => harness.actions.inputRefusal(harness.resource(path), change);
+		const beforeGenerating = {
+			secondImage: await refusal('shots/still.mp4', { add: 'shots/b.png' }),
+			video: await refusal('shots/still.mp4', { add: 'shots/clip.mp4' }),
+			replaced: await refusal('shots/still.mp4', { add: 'shots/b.png', remove: 'shots/a.png' }),
+			disconnected: await refusal('shots/still.mp4', { remove: 'shots/a.png' }),
+			noModelPdf: await refusal('shots/blank.mp4', { add: 'docs/brief.pdf' }),
+			noModelVideo: await refusal('shots/blank.mp4', { add: 'shots/clip.mp4' }),
+			generated: await refusal('shots/shot.mp4', { add: 'shots/a.png' }),
+			generatedDisconnect: await refusal('shots/shot.mp4', { remove: 'shots/a.png' }),
+			note: await refusal('shots/notes.md', { add: 'shots/a.png' })
+		};
+		harness.generation.generating.add('/work/shots/blank.mp4');
+		assert.deepStrictEqual({ ...beforeGenerating, generating: await refusal('shots/blank.mp4', { add: 'shots/a.png' }) }, {
+			secondImage: 'Acme Still takes one image at most.',
+			video: 'Acme Still takes no videos.',
+			replaced: undefined,
+			disconnected: undefined,
+			noModelPdf: 'An image or video card cannot use brief.pdf.',
+			noModelVideo: undefined,
+			generated: 'shot.mp4 was made from these inputs. To change them, make a new version.',
+			generatedDisconnect: 'shot.mp4 was made from these inputs. To change them, make a new version.',
+			note: undefined,
+			generating: 'blank.mp4 is generating. Its inputs can be changed once it is done.'
 		});
 	});
 });

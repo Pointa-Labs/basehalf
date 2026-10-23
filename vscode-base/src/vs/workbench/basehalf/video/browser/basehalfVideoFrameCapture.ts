@@ -16,8 +16,8 @@ import type { BaseHalfCanvasSceneVideoFrame } from '../../canvas/common/basehalf
  * toolbar"): the first, the current, or the last frame of the card's video,
  * written as a PNG into the card's folder and named after the card and the
  * frame (`shot first frame.png`), with a number when the name is taken. The
- * workbench puts its card to the right of the video card; it is an ordinary
- * image that can be connected to another card.
+ * workbench puts its card to the right of the video card, connected from it;
+ * it is an ordinary image that can be connected to another card.
  */
 
 export interface IBaseHalfVideoFrameCaptureRequest {

@@ -14,6 +14,7 @@ import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
+import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import {
 	BaseHalfGenerationKind,
 	baseHalfGenerationDefaultBaseName,
@@ -24,17 +25,28 @@ import {
 	IBaseHalfGenerationInfo,
 	setBaseHalfGenerationChoice
 } from '../common/basehalfGenerationInfo.js';
-import { baseHalfModelFileExtension, baseHalfVideoChoiceRatio, baseHalfVideoInitialGeneration, findBaseHalfVideoModel, IBaseHalfVideoCatalog } from '../common/basehalfVideoCatalog.js';
+import {
+	baseHalfModelFileExtension,
+	baseHalfVideoChoiceRatio,
+	baseHalfVideoInitialGeneration,
+	baseHalfVideoInputKindOfPath,
+	baseHalfVideoInputProblem,
+	baseHalfVideoUnusableKindReason,
+	findBaseHalfVideoModel,
+	IBaseHalfVideoCatalog
+} from '../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfDraftOperations,
 	IBaseHalfDraftSnapshot,
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardStore,
+	IBaseHalfGenerationInputChange,
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationService,
 	IBaseHalfVideoProviderSettingsService
 } from '../common/basehalfVideoGeneration.js';
 import { BaseHalfDraftUndoChange, BaseHalfDraftUndoElement, IBaseHalfDraftUndoServices } from './basehalfDraftUndo.js';
+import { createBaseHalfNewVersion } from './basehalfGenerationNewVersion.js';
 import { baseHalfParentCanvasFolder } from './basehalfGenerationPlacement.js';
 
 /** How long a new draft waits for a catalog that is still on its way, to know its model's format. */
@@ -59,6 +71,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
 		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
+		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IFileService private readonly fileService: IFileService,
@@ -160,7 +173,88 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		}
 		await this.fileService.copy(file, target, false);
 		this.logService.info(`[BaseHalf generation] uploaded ${file.toString()} to ${target.toString()}`);
+		// BaseHalf did not make the file: the card is an ordinary file's, without a prompt, settings, or inputs (D67).
+		await this.cardStore.removeInfo(target);
+		await this.disconnectInputs(target);
 		return target;
+	}
+
+	async newVersion(card: URI): Promise<URI> {
+		const snapshot = await this.cardStore.read(card);
+		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(card)?.uri;
+		if (!workspaceFolder) {
+			throw new Error(localize('basehalf.generation.actions.outsideWorkspace', "{0} is not in an open folder.", basename(card)));
+		}
+		const draft = await createBaseHalfNewVersion({
+			cardStore: this.cardStore,
+			fileService: this.fileService,
+			canvasMirrorService: this.canvasMirrorService,
+			logService: this.logService
+		}, snapshot, workspaceFolder, await this.catalog());
+		await this.pushUndo(localize('basehalf.generation.actions.newVersion', "New Version"), 'basehalf.generation.newVersion', [draft], { kind: 'made', drafts: [draft] });
+		return draft;
+	}
+
+	async inputRefusal(card: URI, change: IBaseHalfGenerationInputChange): Promise<string | undefined> {
+		if (!await this.cardStore.isGenerationCard(card)) {
+			return undefined;
+		}
+		const snapshot = await this.cardStore.read(card);
+		const name = basename(card);
+		if (snapshot.hasFile) {
+			return localize('basehalf.generation.actions.inputsOfFile', "{0} was made from these inputs. To change them, make a new version.", name);
+		}
+		if (this.generationService.isGenerating(card)) {
+			return localize('basehalf.generation.actions.inputsWhileGenerating', "{0} is generating. Its inputs can be changed once it is done.", name);
+		}
+		const added = change.add;
+		if (added === undefined) {
+			// Fewer inputs are always sent: disconnecting leaves no input that cannot be.
+			return undefined;
+		}
+		const inputs = change.remove !== undefined && snapshot.upstream.includes(change.remove)
+			? snapshot.upstream.map(entry => entry === change.remove ? added : entry)
+			: [...snapshot.upstream.filter(entry => entry !== added), added];
+		const sources = inputs.map(path => ({ path, kind: baseHalfVideoInputKindOfPath(path), available: true }));
+		const catalog = this.catalogService.state.kind === 'ready' ? this.catalogService.state.catalog : undefined;
+		const model = findBaseHalfVideoModel(catalog, snapshot.info.provider, snapshot.info.model)?.model;
+		if (!model) {
+			// Without a model, any image, video, audio, or text: the panel says what the model chosen later cannot use.
+			return baseHalfVideoInputKindOfPath(added) === 'other' ? baseHalfVideoUnusableKindReason(added) : undefined;
+		}
+		const problem = baseHalfVideoInputProblem(model, sources);
+		// Only what this change brings in is refused: an input that a later model cannot use already says so in the panel.
+		return problem && problem.path === added ? problem.reason : undefined;
+	}
+
+	/** Removes every entry of a card's upstream list, as part of an action the user started. */
+	private async disconnectInputs(card: URI): Promise<void> {
+		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(card)?.uri;
+		const relativePath = workspaceFolder ? this.uriIdentityService.extUri.relativePath(workspaceFolder, card) : undefined;
+		if (!workspaceFolder || !relativePath) {
+			return;
+		}
+		const node = { resource: card, workspaceFolder, relativePath };
+		try {
+			const snapshot = await this.referenceEditService.readSnapshot(node);
+			if (!snapshot || snapshot.items.length === 0) {
+				return;
+			}
+			await this.referenceEditService.apply([{ node, operation: { kind: 'transition', from: snapshot, to: { items: [] } } }], {
+				label: localize('basehalf.generation.actions.uploadDisconnect', "Upload")
+			});
+		} catch (error) {
+			// The file is in place; a connection that stays shows on the canvas and can be removed there.
+			this.logService.warn(`[BaseHalf generation] the connections of ${relativePath} were not removed after the upload`, error);
+		}
+	}
+
+	/** The catalog, waiting a moment while it loads. */
+	private async catalog(): Promise<IBaseHalfVideoCatalog | undefined> {
+		const state = this.catalogService.state;
+		return state.kind === 'ready'
+			? state.catalog
+			: state.kind === 'loading' ? await this.catalogService.whenReady(CATALOG_WAIT_MS).catch(() => undefined) : undefined;
 	}
 
 	newDraftRatio(kind: BaseHalfGenerationKind): number | undefined {

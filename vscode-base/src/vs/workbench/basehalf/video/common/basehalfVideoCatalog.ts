@@ -1061,11 +1061,16 @@ function modeTakes(inputs: IBaseHalfVideoModeInputs, kind: 'image' | 'video' | '
 	}
 }
 
+/** Why no image or video card can take the file at `path` as an input: it is neither an image, a video, a sound, nor text. */
+export function baseHalfVideoUnusableKindReason(path: string): string {
+	return localize('basehalf.video.catalog.input.kind', "An image or video card cannot use {0}.", path.slice(path.lastIndexOf('/') + 1) || path);
+}
+
 function inputProblemReason(model: IBaseHalfVideoCatalogModel, inputs: readonly IBaseHalfVideoInputSource[], source: IBaseHalfVideoInputSource): string {
 	const name = source.path.slice(source.path.lastIndexOf('/') + 1) || source.path;
 	const kind = source.kind;
 	if (kind !== 'image' && kind !== 'video' && kind !== 'audio') {
-		return localize('basehalf.video.catalog.input.kind', "An image or video card cannot use {0}.", name);
+		return baseHalfVideoUnusableKindReason(source.path);
 	}
 	const most = Math.max(0, ...model.modes.map(mode => modeTakes(mode.inputs, kind)));
 	if (most === 0) {

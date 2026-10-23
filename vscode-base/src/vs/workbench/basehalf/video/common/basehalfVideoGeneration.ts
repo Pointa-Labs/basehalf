@@ -472,10 +472,41 @@ export interface IBaseHalfGenerationCardActions {
 	/**
 	 * Upload: copies `file` to the path of a draft that does not generate,
 	 * after renaming the draft to the file's extension when it has another one.
-	 * Refuses a file without a generation extension of the draft's kind.
-	 * Resolves with the card's path. Not a step of undo.
+	 * Refuses a file without a generation extension of the draft's kind. The
+	 * card is then an ordinary file, which BaseHalf did not make: the draft's
+	 * `generation.yaml` and its connections are removed (D67). Resolves with
+	 * the card's path. Not a step of undo.
 	 */
 	upload(draft: URI, file: URI): Promise<URI>;
+
+	/**
+	 * New Version (generation cards, "New Version"): a new draft beside a card
+	 * with its file, from what its `made.yaml` says made it, without the seed,
+	 * and with the card's inputs, placed to its right. It generates nothing.
+	 * One step of the canvas undo stack, named New Version. Refuses a card
+	 * without its file or whose record cannot be read. Resolves with the draft.
+	 */
+	newVersion(card: URI): Promise<URI>;
+
+	/**
+	 * Why the connections of the generation card at `card` cannot change so,
+	 * in plain words, or `undefined` when they can (generation cards, "What is
+	 * connected is sent"): `add` connects an entry, at the end or, with
+	 * `remove`, in its place; `remove` alone disconnects one. A card with its
+	 * file, and a draft while it generates, take no change. A draft takes an
+	 * input that its model can use with the others, and while it has no model,
+	 * or the catalog does not have it, any image, video, audio, or text.
+	 * `undefined` for an item that is no generation card.
+	 */
+	inputRefusal(card: URI, change: IBaseHalfGenerationInputChange): Promise<string | undefined>;
+}
+
+/** A change of a generation card's connections, as {@link IBaseHalfGenerationCardActions.inputRefusal} weighs it. */
+export interface IBaseHalfGenerationInputChange {
+	/** The entry that is connected. */
+	readonly add?: string;
+	/** The entry that is disconnected, or that `add` takes the place of. */
+	readonly remove?: string;
 }
 
 /** What undoing a draft operation needs: every piece of the draft's card information. */

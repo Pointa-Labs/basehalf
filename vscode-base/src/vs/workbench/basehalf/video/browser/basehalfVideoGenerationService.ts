@@ -40,6 +40,7 @@ import {
 	baseHalfGenerationExtensionMatchesFormat,
 	baseHalfGenerationFileFormat,
 	baseHalfGenerationFormatExtension,
+	baseHalfGenerationInfoOfMade,
 	BaseHalfGenerationKind,
 	baseHalfGenerationMadeOfTask,
 	baseHalfGenerationNameOrdinal,
@@ -73,8 +74,9 @@ import {
 	BaseHalfVideoGenerateBlocker,
 	baseHalfVideoGenerateBlockerText,
 	BaseHalfVideoImageFormat,
+	baseHalfVideoInputProblem,
 	BaseHalfVideoMedia,
-	baseHalfVideoModeOf,
+	baseHalfVideoModeThatIsUsed,
 	BaseHalfVideoModeId,
 	BaseHalfVideoOutput,
 	BaseHalfVideoOutputFormat,
@@ -101,7 +103,6 @@ import {
 	IBaseHalfVideoSubmitRequest,
 	IBaseHalfVideoSubmitResult,
 	IBaseHalfVideoTaskRef,
-	baseHalfModelFileExtension,
 	baseHalfModelOutputCount,
 	normalizeBaseHalfVideoParams,
 	parseBaseHalfVideoCheckResult,
@@ -124,6 +125,7 @@ import {
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
 import { BaseHalfDraftUndoElement } from './basehalfDraftUndo.js';
+import { createBaseHalfNewVersion } from './basehalfGenerationNewVersion.js';
 import { BASEHALF_GENERATION_CARD_SIZE, baseHalfParentCanvasFolder, placeBaseHalfCardsBeside } from './basehalfGenerationPlacement.js';
 
 /** The first question to the provider comes this long after it accepted the task. */
@@ -206,7 +208,7 @@ type ILandingOutcome = { readonly kind: 'done' | 'dropped' } | { readonly kind: 
 /** Where a received file goes ({@link BaseHalfVideoGenerationService.placeOf}). */
 type IPlace =
 	| { readonly kind: 'card'; readonly target: URI }
-	| { readonly kind: 'beside'; readonly target: URI; readonly info: IBaseHalfGenerationInfo }
+	| { readonly kind: 'beside'; readonly target: URI }
 	| { readonly kind: 'deleted' }
 	| { readonly kind: 'wait' };
 
@@ -374,6 +376,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			// A missing file is not a draft: it never generates.
 			throw new BaseHalfVideoGenerationError(baseHalfGenerationMissingFileMessage(basename(resource)));
 		}
+		if (snapshot.hasFile) {
+			// A generated file never changes (D67): a new version of it is a draft beside it, which generates.
+			return this.generateNewVersion(snapshot, options);
+		}
 		const folder = this.workspaceFolderOf(resource);
 		// 2. A card that generates does not generate twice.
 		await this.taskStore.refresh(folder);
@@ -401,7 +407,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 				throw new BaseHalfVideoGenerationError(refused);
 			}
 		}
-		const mode = baseHalfVideoModeOf(ref.model, info.mode);
+		// The mode that is used follows the inputs (generation cards, "What is connected is sent"); the card keeps its own.
+		const mode = baseHalfVideoModeThatIsUsed(ref.model, info.mode, await this.cardStore.resolveInputs(snapshot));
 		const params = normalizeBaseHalfVideoParams(ref.model, mode.id, info.params);
 		// 4. The cards it lands on.
 		const planned = await this.planCards(snapshot, ref, mode.id, params);
@@ -469,26 +476,18 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	/**
-	 * Step 4: the card itself when it is a draft, or a new draft beside it when
-	 * it has its file, named like it with the next free number; and for an
-	 * image `count` above 1, that many cards in all, the further ones named
-	 * like the first with the next free numbers.
+	 * Step 4: the draft itself, and for an image `count` above 1, that many
+	 * cards in all, the further ones named like it with the next free numbers.
 	 */
 	private async planCards(snapshot: IBaseHalfGenerationCardSnapshot, ref: IBaseHalfVideoModelRef, modeId: BaseHalfVideoModeId, params: BaseHalfVideoParams): Promise<IPlannedCards> {
 		const parent = dirname(snapshot.resource);
 		const parentPath = snapshot.path.includes('/') ? snapshot.path.slice(0, snapshot.path.lastIndexOf('/')) : '';
-		const name = basename(snapshot.resource);
-		const parts = baseHalfGenerationNameParts(name);
-		const modelExtension = baseHalfModelFileExtension(ref.model);
-		const extension = snapshot.hasFile && !baseHalfGenerationExtensionMatchesFormat(name, modelExtension === 'jpg' ? 'jpeg' : modelExtension as BaseHalfVideoOutputFormat)
-			? modelExtension
-			: parts.extension;
+		const parts = baseHalfGenerationNameParts(basename(snapshot.resource));
 		const count = baseHalfModelOutputCount(ref.model, modeId, params);
 		const drafts: string[] = [];
 		let ordinal = 1;
-		const wanted = snapshot.hasFile ? count : count - 1;
-		for (let index = 0; index < wanted; index++) {
-			const next = await this.cardStore.nextFreeName(parent, parts.base, extension, ordinal);
+		for (let index = 0; index < count - 1; index++) {
+			const next = await this.cardStore.nextFreeName(parent, parts.base, parts.extension, ordinal);
 			if (drafts.includes(next)) {
 				throw new Error('The same name was chosen twice.');
 			}
@@ -496,8 +495,50 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			ordinal = baseHalfGenerationNameOrdinal(next) + 1;
 		}
 		const childPath = (child: string) => parentPath ? `${parentPath}/${child}` : child;
-		const paths = snapshot.hasFile ? drafts.map(childPath) : [snapshot.path, ...drafts.map(childPath)];
-		return { paths: Object.freeze(paths), drafts: Object.freeze(drafts) };
+		return { paths: Object.freeze([snapshot.path, ...drafts.map(childPath)]), drafts: Object.freeze(drafts) };
+	}
+
+	/**
+	 * `basehalf --generate` on a card with its file (generation cards,
+	 * "Agents"): makes a new version of it, as New Version does, and
+	 * generates that draft. What would stop the generation before it reads the
+	 * inputs stops it before the draft is made; a draft whose generation does
+	 * not start is removed again, and one that starts is a step of undo, named
+	 * New Version.
+	 */
+	private async generateNewVersion(snapshot: IBaseHalfGenerationCardSnapshot, options: IBaseHalfGenerateOptions): Promise<readonly URI[]> {
+		const folder = this.workspaceFolderOf(snapshot.resource);
+		const catalog = await this.catalog();
+		if (snapshot.made) {
+			const info = baseHalfGenerationInfoOfMade(snapshot.made);
+			const blocker = getBaseHalfVideoGenerateBlocker({
+				generating: false,
+				catalog: { kind: 'ready', catalog },
+				generation: baseHalfGenerationChoice(info),
+				kind: snapshot.kind,
+				setup: provider => this.providerSettings.getStatus(provider),
+				prompt: info.prompt
+			});
+			if (blocker) {
+				throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText(blocker));
+			}
+		}
+		let draft: URI;
+		try {
+			draft = await createBaseHalfNewVersion({ cardStore: this.cardStore, ...this.placementServices() }, snapshot, folder, catalog);
+		} catch (error) {
+			throw toGenerationError(error);
+		}
+		let cards: readonly URI[];
+		try {
+			cards = await this.generate(draft, options);
+		} catch (error) {
+			await this.deleteDraftQuietly(draft);
+			throw error;
+		}
+		BaseHalfDraftUndoElement.push(localize('basehalf.video.generation.undoNewVersion', "New Version"), 'basehalf.generation.newVersion', [this.canvasResourceOf(draft), draft], { kind: 'made', drafts: [draft] }, this.draftUndoServices())
+			.catch(error => this.logService.warn(`[BaseHalf generation] The step of the new version ${draft.toString()} was not kept: ${getErrorMessage(error)}`));
+		return cards;
 	}
 
 	/**
@@ -561,6 +602,12 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const draft = plan.find(item => item.reason === 'draft');
 		if (draft) {
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'draftInput', path: draft.path }));
+		}
+		// Every input is sent (generation cards, "What is connected is sent"): one that no mode can use stops the generation.
+		const unusable = baseHalfVideoInputProblem(ref.model, resolved);
+		if (unusable) {
+			const name = plan[unusable.index]?.label ?? (unusable.path.slice(unusable.path.lastIndexOf('/') + 1) || unusable.path);
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'unusableInput', path: unusable.path, name, reason: unusable.reason }));
 		}
 		const params = normalizeBaseHalfVideoParams(ref.model, mode.id, info.params);
 		// What is sent and recorded: without the values a start frame sets.
@@ -1249,7 +1296,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 						// Put in place by an earlier try that did not finish: only its record is left to write.
 						const placed = this.resourceOf(follow.folder, landing.path);
 						if (await this.matches(placed, landing.size, landing.sha256)) {
-							await this.finishLanding(follow, index, placed, landing.path !== card.path ? this.infoOfRecord(follow) : undefined);
+							await this.finishLanding(follow, index, placed);
 							return { kind: 'done' };
 						}
 						await this.failCard(follow, index, lostFileMessage());
@@ -1280,7 +1327,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 						// The name was taken at the last moment, outside BaseHalf: the file goes beside it.
 						continue;
 					}
-					await this.finishLanding(follow, index, place.target, place.kind === 'beside' ? place.info : undefined);
+					await this.finishLanding(follow, index, place.target);
 					if (place.kind === 'beside') {
 						await placeBaseHalfCardsBeside(this.placementServices(), baseHalfParentCanvasFolder({ resource: this.resourceOf(follow.folder, card.path), workspaceFolder: follow.folder, relativePath: card.path }), card.path,
 							[{ path: targetPath, size: BASEHALF_GENERATION_CARD_SIZE[follow.kind] }], { lease });
@@ -1297,12 +1344,11 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	/**
 	 * Where a received file goes (generation cards, "Landing"): on its card,
 	 * the draft at the record's path; beside it, at the next free name with
-	 * the extension of the file's format and with the generation information
-	 * it was made with, when a file took the path, or when the draft's card
-	 * information is not at the path and BaseHalf cannot tell that it was
-	 * deleted; or nowhere, when the card was deleted: its card information is
-	 * gone and no move is being followed. While a move is being followed, it
-	 * waits, except on the last try.
+	 * the extension of the file's format, with its own record, when a file
+	 * took the path, or when the draft's card information is not at the path
+	 * and BaseHalf cannot tell that it was deleted; or nowhere, when the card
+	 * was deleted: its card information is gone and no move is being followed.
+	 * While a move is being followed, it waits, except on the last try.
 	 */
 	private async placeOf(follow: FollowedGeneration, path: string, format: BaseHalfVideoOutputFormat, final: boolean): Promise<IPlace> {
 		const folder = follow.folder;
@@ -1322,10 +1368,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		if (!facts.itemExists && settled && await this.mirrorDirectoryGone(folder, path)) {
 			return { kind: 'deleted' };
 		}
-		const own = facts.hasGenerationInfo ? await this.cardStore.read(resource).then(snapshot => snapshot.info, () => undefined) : undefined;
 		const parts = baseHalfGenerationNameParts(basename(resource));
 		const free = await this.cardStore.nextFreeName(dirname(resource), parts.base, baseHalfGenerationFormatExtension(format), baseHalfGenerationNameOrdinal(basename(resource)));
-		return { kind: 'beside', target: URI.joinPath(dirname(resource), free), info: own ?? this.infoOfRecord(follow) ?? { prompt: '' } };
+		return { kind: 'beside', target: URI.joinPath(dirname(resource), free) };
 	}
 
 	/** Whether nothing of a card's card information is left: its directory under `.bh/mirror/` is not there. */
@@ -1383,19 +1428,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
-	/** What the generation used, as generation information: for a card that lands beside one whose information is not there. */
-	private infoOfRecord(follow: FollowedGeneration): IBaseHalfGenerationInfo | undefined {
-		const request = this.taskStore.get(follow.taskId)?.request;
-		return request ? { prompt: request.prompt, provider: request.provider, model: request.model, mode: request.mode, params: request.params } : undefined;
-	}
-
 	/**
-	 * Landing, step 6: `made.yaml`, then, for a file that landed beside its
-	 * card, the generation information it was made with; and the card is
+	 * Landing, step 6: `made.yaml`, then the removal of the card's
+	 * `generation.yaml`, since what made the file is its record now (D67); a
+	 * file that landed beside its card has none to remove; and the card is
 	 * landed. A `made.yaml` that cannot be written leaves the file in place,
 	 * and the card says so.
 	 */
-	private async finishLanding(follow: FollowedGeneration, index: number, target: URI, info?: IBaseHalfGenerationInfo): Promise<void> {
+	private async finishLanding(follow: FollowedGeneration, index: number, target: URI): Promise<void> {
 		const task = this.taskStore.get(follow.taskId);
 		if (!task) {
 			return;
@@ -1422,11 +1462,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			await this.failCard(follow, index, recordFailedMessage(follow.kind, failure));
 			return;
 		}
-		const targetPath = this.relativePath(follow.folder, target);
-		// A card whose information cannot be read is left as it is: its file has landed, and nothing is written over what may be there.
-		if (info && !(await baseHalfReadDraftFacts(this.fileService, follow.folder, targetPath).catch(() => ({ hasGenerationInfo: true }))).hasGenerationInfo) {
-			await this.cardStore.update(target, () => info).catch(error => this.logService.warn(`[BaseHalf generation] ${targetPath} did not get its prompt and settings: ${getErrorMessage(error)}`));
-		}
+		// The draft's prompt and settings were for this generation; the file's record says what made it now. One that stays, as after a crash here, is not read beside a file.
+		await this.cardStore.removeInfo(target).catch(error => this.logService.warn(`[BaseHalf generation] The generation.yaml of ${this.relativePath(follow.folder, target)} stays beside its file: ${getErrorMessage(error)}`));
 		await this.taskStore.update(follow.taskId, current => current.cards[index]?.state === 'waiting' && current.state === 'landing' ? recordBaseHalfGenerationLanded(current, index) : current);
 		this.fireCards(follow);
 	}
@@ -1447,8 +1484,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const target = this.resourceOf(follow.folder, landing.path);
 		const part = this.taskStore.partFile(task, index);
 		if (await this.matches(target, landing.size, landing.sha256)) {
-			const info = landing.path !== card.path ? this.infoOfRecord(follow) : undefined;
-			await this.mutationCoordinator.runExclusive(follow.folder, () => this.finishLanding(follow, index, target, info));
+			await this.mutationCoordinator.runExclusive(follow.folder, () => this.finishLanding(follow, index, target));
 			return;
 		}
 		if (await this.matches(part, landing.size, landing.sha256)) {
@@ -1870,16 +1906,25 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	/** The drafts a generation made are one step of the canvas undo stack (generation cards, "Starting", step 5). */
 	private pushDraftsUndo(resource: URI, drafts: readonly URI[], info: IBaseHalfGenerationInfo): void {
-		const folder = this.workspaceFolderOf(resource);
-		const canvas = this.canvasMirrorService.canvasResource(baseHalfParentCanvasFolder({ resource, workspaceFolder: folder, relativePath: this.relativePath(folder, resource) }));
 		// Pushed at once, with what the generation wrote into its drafts: a later change of them is told field by field.
-		BaseHalfDraftUndoElement.push(localize('basehalf.video.generation.undoDrafts', "Generate"), 'basehalf.generation.drafts', [canvas, ...drafts], { kind: 'made', drafts }, {
-			isGenerating: draft => this.isGenerating(draft),
-			read: draft => this.cardStore.read(draft),
+		BaseHalfDraftUndoElement.push(localize('basehalf.video.generation.undoDrafts', "Generate"), 'basehalf.generation.drafts', [this.canvasResourceOf(resource), ...drafts], { kind: 'made', drafts }, this.draftUndoServices(),
+			new Map(drafts.map(draft => [draft.toString(), info]))).catch(error => this.logService.warn(`[BaseHalf generation] The step of the drafts ${drafts.map(draft => draft.toString()).join(', ')} was not kept: ${getErrorMessage(error)}`));
+	}
+
+	/** The layout of the canvas a card is on, the resource its undo step goes with. */
+	private canvasResourceOf(resource: URI): URI {
+		const folder = this.workspaceFolderOf(resource);
+		return this.canvasMirrorService.canvasResource(baseHalfParentCanvasFolder({ resource, workspaceFolder: folder, relativePath: this.relativePath(folder, resource) }));
+	}
+
+	private draftUndoServices() {
+		return {
+			isGenerating: (draft: URI) => this.isGenerating(draft),
+			read: (draft: URI) => this.cardStore.read(draft),
 			draftOperations: this.draftOperations,
 			notificationService: this.notificationService,
 			undoRedoService: this.undoRedoService
-		}, new Map(drafts.map(draft => [draft.toString(), info]))).catch(error => this.logService.warn(`[BaseHalf generation] The step of the drafts ${drafts.map(draft => draft.toString()).join(', ')} was not kept: ${getErrorMessage(error)}`));
+		};
 	}
 
 	// --- helpers -------------------------------------------------------------------------------

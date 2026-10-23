@@ -31,11 +31,14 @@ import {
 	unknownOutcomeMessage
 } from '../../browser/basehalfVideoGenerationService.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
+import { baseHalfCanvasGenerationCardSize } from '../../../canvas/common/basehalfCanvasModel.js';
 import {
+	baseHalfGenerationInfoOfMade,
 	createBaseHalfGenerationTask,
 	failBaseHalfGenerationTask,
 	heartbeatBaseHalfGenerationTask,
 	IBaseHalfGenerationInfo,
+	IBaseHalfGenerationMade,
 	IBaseHalfGenerationRequest,
 	IBaseHalfGenerationTask,
 	landBaseHalfGenerationTask,
@@ -44,6 +47,7 @@ import {
 	recordBaseHalfGenerationLanding,
 	runBaseHalfGenerationTask,
 	serializeBaseHalfGenerationInfo,
+	serializeBaseHalfGenerationMade,
 	serializeBaseHalfGenerationTask,
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
@@ -242,6 +246,11 @@ suite('BaseHalfVideoGenerationService', () => {
 		}
 	}
 
+	/** What made a file: its `made.yaml`. */
+	function madeRecord(request: IBaseHalfGenerationRequest, id = '20261022T075000-made0001'): IBaseHalfGenerationMade {
+		return { ...request, id, startedAt: new Date(START - 600_000).toISOString(), finishedAt: new Date(START - 540_000).toISOString() };
+	}
+
 	/** A record that a window which is gone left behind: said alive two minutes ago. */
 	function staleTask(state: 'preparing' | 'submitting' | 'running' | 'landing', options: { readonly id?: string; readonly cards?: readonly string[]; readonly answersAtOnce?: boolean; readonly kind?: 'image' | 'video'; readonly startedAt?: number } = {}): IBaseHalfGenerationTask {
 		const started = new Date(options.startedAt ?? START - 120_000).toISOString();
@@ -408,7 +417,8 @@ suite('BaseHalfVideoGenerationService', () => {
 		}, {
 			cards: ['shots/image.png', 'shots/image-2.png', 'shots/image-3.png', 'shots/image-4.png'],
 			draftsWhenSent: [true, true, true],
-			copies: [serializeBaseHalfGenerationInfo({ ...IMAGE, params: { count: 4 } }), 'upstream:\n  - refs/look.png\n'],
+			// Each card that landed is a card with its file: its record says what made it, and its generation.yaml is gone (D67).
+			copies: [undefined, 'upstream:\n  - refs/look.png\n'],
 			files: [true, true, false, true],
 			made: ['-1 1/4', '-2 2/4', undefined, '-4 4/4'],
 			record: ['failed', [
@@ -458,7 +468,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		harness.dispose();
 	}));
 
-	test('a folder that is gone is made again for the file, and a path taken by then gets the next free name with a copy of the card\'s settings', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('a folder that is gone is made again for the file, and a path taken by then gets the next free name with its own record', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
 		harness.canvas.place('scenes/new', { path: 'scenes/new/clip.mp4', kind: 'file', x: 0, y: 0, width: 720, height: 405 });
 		const clip = await harness.card('scenes/new/clip.mp4', VIDEO);
@@ -489,7 +499,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			made: true,
 			dropped: 'dropped by the user',
 			beside: true,
-			besideInfo: serializeBaseHalfGenerationInfo(VIDEO),
+			besideInfo: undefined,
 			besideMade: true,
 			takenMade: false
 		});
@@ -647,39 +657,74 @@ suite('BaseHalfVideoGenerationService', () => {
 		harness.dispose();
 	}));
 
-	test('generating from a card with its file makes a draft to its right with the same prompt, settings, and inputs; a blocker stops before any draft', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('generating a card with its file, as an agent does, makes a new version to its right from its record without the seed, and generates that; a blocker stops before any draft (D67)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
 		harness.canvas.place('shots', { path: 'shots/shot.mp4', kind: 'file', x: 100, y: 50, width: 720, height: 405 });
-		const shot = await harness.card('shots/shot.mp4', VIDEO, ['refs/a.png']);
+		const shot = harness.resource('shots/shot.mp4');
 		await harness.write('shots/shot.mp4', FAKE_MP4);
 		await harness.write('shots/shot-2.mp4', FAKE_MP4);
-		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', 'id: "earlier"\n');
+		// What an earlier build left beside the file is not read: its record says what made it.
+		await harness.write('.bh/mirror/shots/shot.mp4/generation.yaml', serializeBaseHalfGenerationInfo({ ...VIDEO, prompt: 'Changed since.' }));
+		const record = madeRecord({ ...REQUEST, params: { ...REQUEST.params, seed: 7 }, prompt: VIDEO.prompt, inputs: ['refs/a.png'] });
+		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', serializeBaseHalfGenerationMade(record));
+		await harness.write('.bh/mirror/shots/shot.mp4/upstream.yaml', 'upstream:\n  - refs/a.png\n');
 		const { service, commands } = harness.first;
 		commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		const cards = await service.generate(shot);
-		const blocked = await harness.card('shots/other.mp4', { ...VIDEO, provider: 'borealis', model: 'borealis-one', mode: undefined, params: undefined });
+		const cards = await service.generate(shot, { agent: true });
+		await until(async () => harness.undo.elements.length > 0);
+		const other = harness.resource('shots/other.mp4');
 		await harness.write('shots/other.mp4', FAKE_MP4);
-		const refusal = await service.generate(blocked).then(() => 'started', (error: Error) => `${error instanceof BaseHalfVideoGenerationError}: ${error.message}`);
+		await harness.write('.bh/mirror/shots/other.mp4/made.yaml', serializeBaseHalfGenerationMade(madeRecord({ ...REQUEST, provider: 'borealis', region: 'main', model: 'borealis-one', providerModel: 'b1' }, 'other')));
+		const refusal = await service.generate(other, { agent: true }).then(() => 'started', (error: Error) => `${error instanceof BaseHalfVideoGenerationError}: ${error.message}`);
 		assert.deepStrictEqual({
 			cards: cards.map(card => card.path),
 			info: await harness.read('.bh/mirror/shots/shot-3.mp4/generation.yaml'),
 			upstream: await harness.read('.bh/mirror/shots/shot-3.mp4/upstream.yaml'),
-			original: [await harness.read('.bh/mirror/shots/shot.mp4/made.yaml'), service.isGenerating(shot)],
+			original: [await harness.read('.bh/mirror/shots/shot.mp4/made.yaml') === serializeBaseHalfGenerationMade(record), service.isGenerating(shot)],
 			row: harness.canvas.layouts.get('shots')?.find(card => card.path === 'shots/shot-3.mp4'),
+			undoSteps: harness.undo.elements.map(element => element.label),
 			refusal,
 			noDraft: await harness.exists('.bh/mirror/shots/other-2.mp4'),
 			records: (await harness.records()).map(task => task.cards.map(card => card.path).join())
 		}, {
 			cards: ['/workspace/shots/shot-3.mp4'],
-			info: serializeBaseHalfGenerationInfo(VIDEO),
+			info: serializeBaseHalfGenerationInfo(baseHalfGenerationInfoOfMade(record)),
 			upstream: 'upstream:\n  - refs/a.png\n',
-			original: ['id: "earlier"\n', false],
-			row: { path: 'shots/shot-3.mp4', kind: 'file', x: 860, y: 50, width: 720, height: 405 },
+			original: [true, false],
+			row: { path: 'shots/shot-3.mp4', kind: 'file', x: 860, y: 50, ...baseHalfCanvasGenerationCardSize('video') },
+			undoSteps: ['New Version'],
 			refusal: 'true: Borealis Media is not set up. Set it up in Providers.',
 			noDraft: false,
 			records: ['shots/shot-3.mp4']
 		});
 		await service.stop(cards[0]);
+		harness.dispose();
+	}));
+
+	test('a draft whose input no mode of its model can use does not generate, and the mode that is used follows the inputs (D67)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		await harness.write('refs/a.png', FAKE_PNG);
+		await harness.write('refs/clip.mp4', FAKE_MP4);
+		await harness.write('refs/second.mp4', FAKE_MP4);
+		const twoVideos = await harness.card('shots/two.mp4', VIDEO, ['refs/clip.mp4', 'refs/second.mp4']);
+		const withVideo = await harness.card('shots/with.mp4', VIDEO, ['refs/a.png', 'refs/clip.mp4']);
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const refusal = await service.generate(twoVideos).then(() => 'started', (error: Error) => error.message);
+		const [card] = await service.generate(withVideo);
+		const record = (await harness.records()).find(task => task.cards.some(candidate => candidate.path === 'shots/with.mp4'));
+		assert.deepStrictEqual({
+			refusal,
+			sentMode: commands.calls.filter(call => call.id === SUBMIT).map(call => (call.argument as IBaseHalfVideoSubmitRequest).mode),
+			recordedMode: record?.request?.mode,
+			ownMode: (await harness.read('.bh/mirror/shots/with.mp4/generation.yaml'))?.includes('mode: "frames"')
+		}, {
+			refusal: 'Video 2 cannot be sent: Acme Motion 2 takes one video at most.',
+			sentMode: ['reference'],
+			recordedMode: 'reference',
+			ownMode: true
+		});
+		await service.stop(card);
 		harness.dispose();
 	}));
 
@@ -843,7 +888,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		harness.dispose();
 	}));
 
-	test('a file whose draft information is not where its record says lands beside its card with what it was made with', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('a file whose draft information is not where its record says lands beside its card with its own record', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
 		const video = await harness.card('shots/video.mp4', VIDEO, ['refs/a.png']);
 		const { service, commands } = harness.first;
@@ -863,11 +908,11 @@ suite('BaseHalfVideoGenerationService', () => {
 			info: await harness.read('.bh/mirror/shots/video-2.mp4/generation.yaml'),
 			made: !!(await harness.read('.bh/mirror/shots/video-2.mp4/made.yaml')),
 			old: await harness.exists('shots/video.mp4')
-		}, { beside: true, info: serializeBaseHalfGenerationInfo(VIDEO), made: true, old: false });
+		}, { beside: true, info: undefined, made: true, old: false });
 		harness.dispose();
 	}));
 
-	test('a file whose card information is gone while a move is followed is kept on its card\'s path, with what it was made with', () => runWithFakedTimers({ startTime: START, maxTaskCount: 20_000 }, async () => {
+	test('a file whose card information is gone while a move is followed is kept on its card\'s path, with its record', () => runWithFakedTimers({ startTime: START, maxTaskCount: 20_000 }, async () => {
 		const harness = await createHarness();
 		const video = await harness.card('shots/video.mp4', VIDEO);
 		const { service, commands } = harness.first;
@@ -888,42 +933,41 @@ suite('BaseHalfVideoGenerationService', () => {
 			file: (await harness.read('shots/video.mp4')) === FAKE_MP4.toString(),
 			info: await harness.read('.bh/mirror/shots/video.mp4/generation.yaml'),
 			made: !!(await harness.read('.bh/mirror/shots/video.mp4/made.yaml'))
-		}, { file: true, info: serializeBaseHalfGenerationInfo(VIDEO), made: true });
+		}, { file: true, info: undefined, made: true });
 		harness.dispose();
 	}));
 
-	test('undoing Generate after its drafts got their files changes nothing, and the next undo goes to the step before', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('undoing the new version that generating a card with its file made, once it got its file, changes nothing, and the next undo goes to the step before', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
-		const shot = await harness.card('shots/shot.mp4', VIDEO);
+		const shot = harness.resource('shots/shot.mp4');
 		await harness.write('shots/shot.mp4', FAKE_MP4);
-		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', 'id: "earlier"\n');
+		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', serializeBaseHalfGenerationMade(madeRecord(REQUEST)));
 		const { service, drafts } = harness.first;
-		await service.generate(shot);
-		await until(async () => !(await harness.records()).length);
+		await service.generate(shot, { agent: true });
+		await until(async () => !(await harness.records()).length && harness.undo.elements.length > 0);
 		const [step] = harness.undo.elements;
 		await step.undo();
 		assert.deepStrictEqual({
+			label: step.label,
 			steps: harness.undo.elements.length,
 			deleted: drafts.deleted,
 			file: await harness.exists('shots/shot-2.mp4'),
 			made: await harness.exists('.bh/mirror/shots/shot-2.mp4/made.yaml')
-		}, { steps: 1, deleted: [], file: true, made: true });
+		}, { label: 'New Version', steps: 1, deleted: [], file: true, made: true });
 		harness.dispose();
 	}));
 
-	test('undoing Generate removes its drafts when they are as the generation made them, in whatever order the card\'s settings were written', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('undoing Generate removes the further drafts of several images when they are as the generation made them, in whatever order the card\'s settings were written', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
-		const shot = harness.resource('shots/shot.mp4');
-		await harness.write('shots/shot.mp4', FAKE_MP4);
+		const print = await harness.card('shots/print.jpg', IMAGE);
 		// As an agent may write them: the values of params in an order of its own.
-		await harness.write('.bh/mirror/shots/shot.mp4/generation.yaml', 'prompt: "Rain."\nprovider: "acme"\nmodel: "acme-motion-2"\nmode: "frames"\nparams:\n  sound: true\n  duration: 5\n  resolution: "720p"\n');
-		await harness.write('.bh/mirror/shots/shot.mp4/made.yaml', 'id: "earlier"\n');
+		await harness.write('.bh/mirror/shots/print.jpg/generation.yaml', 'prompt: "Rain."\nprovider: "corvid"\nmodel: "corvid-print"\nmode: "reference"\nparams:\n  count: 2\n  resolution: "2k"\n');
 		const { service, commands, drafts } = harness.first;
 		commands.poll = () => ({ ok: true, value: { state: 'running' } });
-		const [draft] = await service.generate(shot);
+		const [draft] = await service.generate(print);
 		await service.stop(draft);
 		await harness.undo.elements[0].undo();
-		assert.deepStrictEqual({ deleted: drafts.deleted, steps: harness.undo.elements.length }, { deleted: ['shots/shot-2.mp4'], steps: 1 });
+		assert.deepStrictEqual({ deleted: drafts.deleted, steps: harness.undo.elements.length }, { deleted: ['shots/print-2.jpg'], steps: 1 });
 		harness.dispose();
 	}));
 
@@ -1072,7 +1116,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			info: await harness.read('.bh/mirror/shots/image.jpg/generation.yaml'),
 			made: !!(await harness.read('.bh/mirror/shots/image.jpg/made.yaml')),
 			strays: [await harness.exists('shots/image-2.png'), await harness.exists('.bh/mirror/shots/image-2.png')]
-		}, { dropped: true, beside: true, info: serializeBaseHalfGenerationInfo(IMAGE), made: true, strays: [false, false] });
+		}, { dropped: true, beside: true, info: undefined, made: true, strays: [false, false] });
 		harness.dispose();
 	}));
 

@@ -7,12 +7,12 @@ import '../media/basehalfCanvasCard.css';
 import '../media/basehalfCanvasCardPreview.css';
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
-import { dirname, isEqual } from '../../../../../base/common/resources.js';
+import { basename, dirname, isEqual } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { FileAccess } from '../../../../../base/common/network.js';
 import { localize } from '../../../../../nls.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
-import { baseHalfCanvasItemBounds, IBaseHalfCanvasBounds, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
+import { baseHalfCanvasChildPath, baseHalfCanvasItemBounds, IBaseHalfCanvasBounds, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from '../../../shell/browser/basehalfItemGlyph.js';
@@ -519,7 +519,7 @@ export class BaseHalfCanvasCardRenderer {
 	/**
 	 * Capture Frame: writes the frame as a PNG into the card's folder, named
 	 * after the card and the frame; its card appears to the right of the video
-	 * card (generation cards, "The toolbar").
+	 * card, connected from it (generation cards, "The toolbar").
 	 */
 	private async captureVideoFrame(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem, frame: BaseHalfCanvasSceneVideoFrame): Promise<void> {
 		let image: URI;
@@ -540,6 +540,16 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		await this.view.creation.placeNewCardBeside(folder, item.path, image);
+		// The frame comes from the video: its upstream list names the video (D67).
+		const framePath = baseHalfCanvasChildPath(folder.relativePath, basename(image));
+		try {
+			await this.view.referenceEditService.add(this.view.workspaceNode(folder.workspaceFolder, framePath, 'file'), item.path, {
+				label: localize('basehalf.canvas.video.captureConnect', "Capture Frame")
+			});
+		} catch (error) {
+			this.view.logService.warn(`[BaseHalf] the frame ${framePath} was not connected from ${item.path}`, error);
+		}
+		this.view.requestRender();
 	}
 
 	/** Whether a path of the canvas's folder holds a draft, which takes its name. */
