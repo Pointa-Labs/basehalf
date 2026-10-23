@@ -6,9 +6,10 @@
 import './media/basehalfCardDetailProjections.css';
 import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { safeIntl } from '../../../../base/common/date.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
-import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { language } from '../../../../base/common/platform.js';
 import { basename, dirname, isEqual } from '../../../../base/common/resources.js';
@@ -16,11 +17,14 @@ import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { FileChangeType, IFileService } from '../../../../platform/files/common/files.js';
+import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
+import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, whenBaseHalfCanvasMediaDrawn } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
 import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
@@ -41,6 +45,8 @@ const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
 const pdfiumWasm = URI.joinPath(contentViewerMediaRoot, 'pdfium.wasm');
 const simplifiedChinesePdfFont = URI.joinPath(contentViewerMediaRoot, 'NotoSansHans-Regular.otf');
 const PDF_VIEW_STATE_STORAGE_PREFIX = 'basehalf.pdfViewState.';
+/** What the page of an image or a sound says once it can be drawn. */
+const BASEHALF_MEDIA_DRAWN_MESSAGE = 'basehalf.media.drawn';
 
 export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind | undefined {
 	return baseHalfRenderableContentKind(resource);
@@ -148,12 +154,22 @@ export function baseHalfGenerationProvenance(
 	});
 }
 
-/** Read-only local content projection built on VS Code's isolated webview. */
+/**
+ * Read-only local content projection built on VS Code's isolated webview. A
+ * video plays in BaseHalf's player instead, the one its card plays in
+ * (generation cards, "The player"), so that its sound never stops at once.
+ */
 export class BaseHalfMediaCardDetail extends Disposable {
 	private readonly root: HTMLElement;
 	private readonly webviewHost: HTMLElement;
 	private state: IBaseHalfCardDetailState | undefined;
 	private webview: IWebviewElement | undefined;
+	private readonly playerStore = this._register(new MutableDisposable<DisposableStore>());
+	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
+	private playerVersion = 0;
+	/** The image or the sound of the webview can be drawn: its page says so (opening and closing Card Detail). */
+	private drawn: (() => void) | undefined;
+	private kind: BaseHalfRenderableContentKind | undefined;
 	/** What made the file, below an image or a video of a generation card. */
 	private provenance: HTMLElement | undefined;
 	private provenanceVersion = 0;
@@ -173,16 +189,22 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		@INotificationService private readonly notificationService: INotificationService,
 		@ILogService private readonly logService: ILogService,
 		@IBaseHalfGenerationCardStore private readonly generationCardStore: IBaseHalfGenerationCardStore,
-		@IBaseHalfVideoCatalogService private readonly videoCatalogService: IBaseHalfVideoCatalogService
+		@IBaseHalfVideoCatalogService private readonly videoCatalogService: IBaseHalfVideoCatalogService,
+		@IHoverService private readonly hoverService: IHoverService
 	) {
 		super();
 		this.root = append(container, $('.basehalf-card-detail-media'));
 		this.webviewHost = append(this.root, $('.basehalf-card-detail-media-webview'));
 	}
 
+	/** An image, a video, or a sound is drawn when `open` resolves; a PDF's viewer draws itself later. */
+	get drawsInTransitions(): boolean {
+		return this.kind !== 'pdf';
+	}
+
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
-		const kind = baseHalfMediaKind(state.resource);
+		const kind = this.kind = baseHalfMediaKind(state.resource);
 		if (!kind) {
 			this.renderNotice('No media projection is available for this file type.');
 			return;
@@ -194,6 +216,21 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				return;
 			}
 
+			if (kind === 'video') {
+				this.followGenerationProvenance(state);
+				this._register(this.fileService.onDidFilesChange(event => {
+					if (event.contains(state.resource, FileChangeType.DELETED)) {
+						this.renderNotice('This media file no longer exists.');
+						return;
+					}
+					if (event.contains(state.resource, FileChangeType.UPDATED, FileChangeType.ADDED)) {
+						void this.renderPlayer(state.resource);
+					}
+				}));
+				// Card Detail is drawn once the video has the frame it starts at.
+				await this.renderPlayer(state.resource);
+				return;
+			}
 			this.pdfViewState = kind === 'pdf' ? this.readPdfViewState(state.resource) : undefined;
 			this.webview = this._register(this.webviewService.createWebviewElement({
 				providedViewType: 'basehalf.media',
@@ -212,7 +249,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			this.webview.mountTo(this.webviewHost, mainWindow);
 			this._register(this.webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
 			this.renderWebview(kind);
-			if (kind === 'image' || kind === 'video') {
+			if (kind === 'image') {
 				this.followGenerationProvenance(state);
 			}
 			this._register(this.webview.onFatalError(error => {
@@ -227,7 +264,15 @@ export class BaseHalfMediaCardDetail extends Disposable {
 					this.renderWebview(kind);
 				}
 			}));
-			await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => resolve()));
+			if (kind === 'pdf') {
+				// The PDF viewer draws its own loading page at once.
+				await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => resolve()));
+			} else {
+				await new Promise<void>(resolve => {
+					this.drawn = resolve;
+					this._register(disposableTimeout(resolve, BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS));
+				});
+			}
 		} catch (error) {
 			if (!this.disposed) {
 				this.logService.error('[BaseHalf] media projection failed to open', error);
@@ -252,7 +297,33 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	setVisible(_visible: boolean): void { }
 
 	focus(): void {
+		if (this.player) {
+			this.player.focus();
+			return;
+		}
 		this.webview?.focus();
+	}
+
+	/** The video in the player of Card Detail; resolves when it has the frame it starts at. */
+	private renderPlayer(resource: URI): Promise<void> {
+		const store = new DisposableStore();
+		this.playerStore.value = store;
+		clearNode(this.webviewHost);
+		this.webviewHost.classList.add('holds-player');
+		// A file that changed is asked for anew, not from the cache: a version in the query, as the webview's.
+		const version = ++this.playerVersion;
+		const player = this.player = store.add(createBaseHalfCanvasCardVideoPlayer(this.webviewHost, null, {
+			source: resource.with({ query: [resource.query, `basehalfMediaVersion=${version}`].filter(Boolean).join('&') }),
+			videoClasses: [],
+			detail: true,
+			open: () => { /* Card Detail is open already. */ },
+			onError: () => this.renderNotice('The media file could not be decoded by this system.'),
+			hoverService: this.hoverService
+		}));
+		return new Promise<void>(resolve => {
+			store.add(toDisposable(resolve));
+			whenBaseHalfCanvasMediaDrawn(player.video, store, resolve);
+		});
 	}
 
 	private renderWebview(kind: BaseHalfRenderableContentKind): void {
@@ -281,6 +352,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 
 	private handleWebviewMessage(kind: BaseHalfRenderableContentKind, resource: URI, message: unknown): void {
 		if (kind !== 'pdf') {
+			if ((message as { type?: unknown } | undefined)?.type === BASEHALF_MEDIA_DRAWN_MESSAGE) {
+				this.drawn?.();
+				this.drawn = undefined;
+			}
 			return;
 		}
 		if (isBaseHalfPdfUserInteractionMessage(message)) {
@@ -321,6 +396,9 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private renderNotice(message: string): void {
 		this.webview?.dispose();
 		this.webview = undefined;
+		this.playerStore.clear();
+		this.player = undefined;
+		this.webviewHost.classList.remove('holds-player');
 		clearNode(this.webviewHost);
 		const notice = append(this.webviewHost, $('.basehalf-card-detail-source-notice'));
 		notice.textContent = message;
@@ -415,9 +493,7 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 				<button type="button" data-action="actual">100%</button>
 				<button type="button" data-action="in" aria-label="Zoom in">+</button>
 			</div>`
-		: kind === 'video'
-			? `<video id="media" src="${source}" controls></video>`
-			: `<audio id="media" src="${source}" controls></audio>`;
+		: `<audio id="media" src="${source}" controls></audio>`;
 	const imageScript = kind === 'image' ? `
 		const image = media;
 		const stage = document.getElementById('stage');
@@ -443,11 +519,19 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 	const script = `<script nonce="${nonce}">
 		const media = document.getElementById('media');
 		const error = document.getElementById('error');
+		const host = acquireVsCodeApi();
+		const drawn = () => host.postMessage({ type: '${BASEHALF_MEDIA_DRAWN_MESSAGE}' });
 		media.addEventListener('error', () => {
 			error.hidden = false;
 			media.hidden = true;
 			document.querySelector('.toolbar')?.setAttribute('hidden', '');
+			drawn();
 		});
+		if (media.tagName === 'IMG' && media.complete) {
+			drawn();
+		} else {
+			media.addEventListener(media.tagName === 'IMG' ? 'load' : 'loadedmetadata', drawn, { once: true });
+		}
 		${imageScript}
 	</script>`;
 
@@ -460,7 +544,6 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 	<style>
 		html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
 		body { display: flex; align-items: center; justify-content: center; font-family: var(--vscode-font-family); }
-		video { width: min(100%, 1280px); height: min(100%, 900px); object-fit: contain; background: #000; }
 		audio { width: min(680px, calc(100% - 48px)); }
 		.image-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: auto; }
 		.image-stage.scaled { align-items: flex-start; justify-content: flex-start; padding: 48px; }

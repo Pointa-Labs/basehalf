@@ -1594,7 +1594,6 @@ export function createCanvasMarkdownInlineEditor(
 				dom.classList.add('basehalf-canvas-markdown-inline-unit', 'unsupported');
 				dom.dataset.basehalfMarkdownUnit = unitId;
 				dom.contentEditable = 'false';
-				dom.title = 'Use Expand to edit this Markdown block.';
 				return { dom };
 			},
 		},

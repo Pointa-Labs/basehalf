@@ -6,6 +6,7 @@
 import './media/basehalfCanvasAdjacentChrome.css';
 import './media/basehalfCanvasSelectionToolbar.css';
 import { localize } from '../../../../../nls.js';
+import { BASEHALF_HOVER_ATTRIBUTE } from '../../../shell/common/basehalfHover.js';
 import { BaseHalfCanvasArrangement, IBaseHalfCanvasArrangeCard, baseHalfCanvasBoundingRect } from '../../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasSceneSelectionAction, baseHalfCanvasSceneSelectionActions, BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
@@ -196,7 +197,6 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 						type: 'button',
 						className: 'basehalf-canvas-selection-action labeled',
 						'data-toolbar-item': 'arrange',
-						title: arrangeLabel,
 						'aria-label': arrangeLabel,
 						'aria-haspopup': 'menu',
 						'aria-expanded': arrangeOpen,
@@ -252,7 +252,8 @@ export function createBaseHalfCanvasSelectionToolbar(environment: IBaseHalfCanva
 							? `basehalf-canvas-selection-action labeled${action === 'delete' ? ' danger' : ''}`
 							: `basehalf-canvas-selection-action codicon codicon-${metadata[action].icon}${action === 'delete' ? ' danger' : ''}`,
 						'data-toolbar-item': action,
-						title: metadata[action].label,
+						// An icon names itself in the hover; a button with its words needs none.
+						...(arranges ? {} : { [BASEHALF_HOVER_ATTRIBUTE]: metadata[action].label }),
 						'aria-label': metadata[action].label,
 						tabIndex: !suppressed && index === focusIndex ? 0 : -1,
 						onFocus: () => setFocusIndex(index),

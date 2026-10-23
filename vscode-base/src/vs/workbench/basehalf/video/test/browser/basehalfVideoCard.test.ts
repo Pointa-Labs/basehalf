@@ -158,17 +158,21 @@ suite('BaseHalfGenerationCardFace', () => {
 		});
 	});
 
-	test('shows the error in at most two lines with the whole text in its tooltip, and Stopped', () => {
+	test('shows the error in at most two lines, the whole of a cut error in the hover of its text and none on the card, and Stopped', () => {
 		const generation = disposables.add(new FakeGenerationService());
 		const tasks = disposables.add(new FakeTaskStore());
 		const error = 'The provider refused the request because the prompt broke its content rules. '.repeat(6).trim();
 		const face = render(generation, tasks);
+		const message = () => container.querySelector<HTMLElement>('.bh-generation-card-message')!;
 		tasks.write(failBaseHalfGenerationTask(running(), error, new Date().toISOString()));
-		const failed = { state: face.element.dataset.state, message: text('.bh-generation-card-message'), tooltip: hovers.get(face.element)?.() };
+		const failed = { state: face.element.dataset.state, message: message().textContent, hover: hovers.get(message())?.(), cardHover: hovers.has(face.element) };
+		tasks.write(failBaseHalfGenerationTask(running(), 'The key was refused.', new Date().toISOString()));
+		const short = { message: message().textContent, hover: hovers.get(message())?.() };
 		tasks.write(stopBaseHalfGenerationTask(running(), new Date().toISOString()));
-		assert.deepStrictEqual({ failed, stopped: { state: face.element.dataset.state, message: text('.bh-generation-card-message'), tooltip: hovers.has(face.element) } }, {
-			failed: { state: 'failed', message: `${error.slice(0, 299)}…`, tooltip: error },
-			stopped: { state: 'stopped', message: 'Stopped', tooltip: false }
+		assert.deepStrictEqual({ failed, short, stopped: { state: face.element.dataset.state, message: message().textContent, hovers: hovers.size } }, {
+			failed: { state: 'failed', message: `${error.slice(0, 299)}…`, hover: error, cardHover: false },
+			short: { message: 'The key was refused.', hover: '' },
+			stopped: { state: 'stopped', message: 'Stopped', hovers: 0 }
 		});
 	});
 
@@ -200,15 +204,15 @@ suite('BaseHalfGenerationCardFace', () => {
 		});
 	});
 
-	test('a file that cannot be shown says so, with its path in the tooltip', () => {
+	test('a file that cannot be shown says so, and shows nothing more under the pointer', () => {
 		const generation = disposables.add(new FakeGenerationService());
 		const tasks = disposables.add(new FakeTaskStore());
 		const video = render(generation, tasks, { hasFile: true });
-		const videoFace = { state: video.element.dataset.state, message: text('.bh-generation-card-message'), tooltip: hovers.get(video.element)?.() };
+		const videoFace = { state: video.element.dataset.state, message: text('.bh-generation-card-message'), hovers: hovers.size };
 		video.dispose();
 		const image = render(generation, tasks, { kind: 'image', hasFile: true, name: 'still.png' });
 		assert.deepStrictEqual({ videoFace, image: text('.bh-generation-card-message') }, {
-			videoFace: { state: 'unshowable', message: 'This video cannot be played here', tooltip: PATH },
+			videoFace: { state: 'unshowable', message: 'This video cannot be played here', hovers: 0 },
 			image: 'This image cannot be shown here'
 		});
 		image.dispose();

@@ -22,6 +22,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IContextMenuService, IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
@@ -55,6 +56,7 @@ import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } fro
 import { BaseHalfCanvasViewportPersister, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
@@ -312,7 +314,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IBaseHalfGenerationCardStore public readonly generationCardStore: IBaseHalfGenerationCardStore,
 		@IBaseHalfGenerationTaskStore public readonly generationTaskStore: IBaseHalfGenerationTaskStore,
 		@IBaseHalfGenerationCardActions public readonly generationCardActions: IBaseHalfGenerationCardActions,
-		@IContextKeyService public readonly contextKeyService: IContextKeyService
+		@IContextKeyService public readonly contextKeyService: IContextKeyService,
+		@IAccessibilityService public readonly accessibilityService: IAccessibilityService
 	) {
 		super();
 		// An item that was moved outside BaseHalf: the open canvas and the open
@@ -365,7 +368,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.addDisposableListener(mainWindow, DOM.EventType.BLUR, () => this.markCanvasUserInteraction()));
 		this.createButton = append(this.root, $('button.basehalf-canvas-create-button')) as HTMLButtonElement;
 		this.createButton.type = 'button';
-		this.createButton.title = localize('basehalf.canvas.createMenu', "Create...");
+		setBaseHalfHover(this.createButton, localize('basehalf.canvas.createMenu', "Create..."));
 		this.createButton.setAttribute('aria-label', localize('basehalf.canvas.createMenu', "Create..."));
 		const createButtonIcon = append(this.createButton, $('span.codicon.codicon-add'));
 		createButtonIcon.setAttribute('aria-hidden', 'true');
@@ -449,7 +452,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		// control is in the title bar (docs/specs/layout-controls.md).
 		const close = append(detailActions, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
-		close.title = 'Close';
+		setBaseHalfHover(close, 'Close');
 		close.setAttribute('aria-label', 'Close');
 		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));

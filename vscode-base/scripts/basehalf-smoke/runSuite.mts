@@ -19,6 +19,7 @@ import {
 	getDevElectronPath,
 	getPackagedElectronPath,
 	observePage,
+	waitForViewTransitionsBeforePointerInput,
 	writeFailureArtifacts
 } from './app.mts';
 import { stopVideoSmokeProvider } from './areas/video/generationCards.mts';
@@ -139,6 +140,7 @@ try {
 	setApp(await _electron.launch({ executablePath: electronPath, args, timeout: 60_000, env }));
 	const page = await app.firstWindow();
 	observePage(page);
+	waitForViewTransitionsBeforePointerInput(page);
 
 	await assertNativeWindowResizeResponsive(app, page);
 	await page.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });

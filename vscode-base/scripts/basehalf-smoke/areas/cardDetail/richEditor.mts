@@ -619,7 +619,7 @@ export async function assertMarkdownRichPassthroughEditInSource(page) {
 
 	// Projection changes are view state, not location history. Return through
 	// the in-card projection control so Back remains reserved for visited places.
-	await page.locator('.basehalf-card-detail-projection[title="Rich"]').click();
+	await page.locator('.basehalf-card-detail-projection[aria-label="Rich"]').click();
 	await activeMarkdownRichFrame(page);
 }
 

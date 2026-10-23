@@ -330,19 +330,19 @@ function sequenceDocument(webview: vscode.Webview, items: readonly SequenceProje
 				<span class="index">${index + 1}</span><span class="copy"><strong>${escapeHtml(item.inspection.item.title)}</strong><small>${escapeHtml(state)}</small></span>
 			</button>
 			<div class="actions" aria-label="Actions for ${escapeAttribute(item.inspection.item.title)}">
-				<button title="Open video" data-action="navigate">Open</button>
-				<button title="Move earlier" data-action="move-up" ${index === 0 ? 'disabled' : ''}>↑</button>
-				<button title="Move later" data-action="move-down" ${index === totalItems - 1 ? 'disabled' : ''}>↓</button>
+				<button aria-label="Open video" data-action="navigate">Open</button>
+				<button aria-label="Move earlier" data-action="move-up" ${index === 0 ? 'disabled' : ''}>↑</button>
+				<button aria-label="Move later" data-action="move-down" ${index === totalItems - 1 ? 'disabled' : ''}>↓</button>
 				${item.inspection.repairCandidatePath ? '<button data-action="repair">Repair</button>' : ''}
-				<button class="quiet" title="Remove from playback order" data-action="remove">Remove</button>
+				<button class="quiet" aria-label="Remove from playback order" data-action="remove">Remove</button>
 			</div>
 		</li>`;
 	}).join('');
 	const content = `<main>
-		<header><div><h1>Sequence</h1><p>${totalItems} ${totalItems === 1 ? 'clip' : 'clips'}</p></div><div class="header-actions"><button data-add>Add clip</button><button class="primary" data-play-all title="${escapeAttribute(playAllLabel)}" aria-label="${escapeAttribute(playAllLabel)}" ${canPlayAll ? '' : 'disabled'}>Play all</button></div></header>
+		<header><div><h1>Sequence</h1><p>${totalItems} ${totalItems === 1 ? 'clip' : 'clips'}</p></div><div class="header-actions"><button data-add>Add clip</button><button class="primary" data-play-all aria-label="${escapeAttribute(playAllLabel)}" ${canPlayAll ? '' : 'disabled'}>Play all</button></div></header>
 		${truncated ? `<p class="limit-note">Showing the first ${items.length} clips. Open the local Sequence file to manage the remaining ${totalItems - items.length}.</p>` : ''}
 		<section class="player" aria-label="Active clip">
-			${first ? `<video controls preload="metadata" src="${escapeAttribute(first.src)}"></video><div class="now"><div class="now-copy" aria-live="polite"><span>Now playing</span><strong>${escapeHtml(first.title)}</strong></div><button data-reload-preview hidden title="Load this clip's video again">Reload preview</button></div>` : '<div class="empty-player">No clip is ready to play.</div>'}
+			${first ? `<video controls preload="metadata" src="${escapeAttribute(first.src)}"></video><div class="now"><div class="now-copy" aria-live="polite"><span>Now playing</span><strong>${escapeHtml(first.title)}</strong></div><button data-reload-preview hidden aria-label="Load this clip's video again">Reload preview</button></div>` : '<div class="empty-player">No clip is ready to play.</div>'}
 		</section>
 		<section class="order"><h2>Playback order</h2>${totalItems > 0 ? `<ol>${rows}</ol>` : '<div class="empty-list">Add a video to define playback order.</div>'}</section>
 	</main>`;

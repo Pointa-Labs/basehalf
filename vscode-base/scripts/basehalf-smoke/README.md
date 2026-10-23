@@ -27,6 +27,12 @@ covered window, and every step that waits for a frame or takes a screenshot
 times out while someone works in front of it. A pointer moved over the
 window, or a click that takes its focus, still disturbs a run.
 
+A raw `page.mouse` action waits for a view transition of the window to end
+(`waitForViewTransitionsBeforePointerInput` in `app.mts`). While Card Detail
+grows out of its card or goes back into it, at most 260 ms, the window's root
+takes every click, so a click sent then reaches nothing. A locator's click
+waits by itself, since it hits nothing else until the end.
+
 | Suite | What it covers |
 | --- | --- |
 | `workbench` | The window at startup, the surfaces BaseHalf hides, the Agent Area, Source Control, and Settings. |

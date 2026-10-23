@@ -12,6 +12,7 @@ import { localize } from '../../../../../nls.js';
 import { IContextViewDelegate, IContextViewService } from '../../../../../platform/contextview/browser/contextView.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, normalizeBaseHalfCanvasZoom } from '../../../shell/common/basehalfConfiguration.js';
+import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
 
 /**
  * The zoom of the canvas among its view controls: a button that shows the
@@ -160,7 +161,7 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 				const markInputValid = (): void => {
 					input.removeAttribute('aria-invalid');
 					inputShell.classList.remove('invalid');
-					input.title = '';
+					setBaseHalfHover(input, undefined);
 				};
 				const commitInput = (): void => {
 					const zoom = baseHalfCanvasZoomFromPercentInput(input.value);
@@ -173,7 +174,7 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 						);
 						input.setAttribute('aria-invalid', 'true');
 						inputShell.classList.add('invalid');
-						input.title = message;
+						setBaseHalfHover(input, message);
 						input.select();
 						return;
 					}
@@ -293,7 +294,6 @@ export class BaseHalfCanvasZoomControls extends Disposable implements IBaseHalfC
 		const percentage = Math.round(this.canvas.zoom * 100);
 		this.trigger.textContent = `${percentage}%`;
 		const zoomLabel = localize('basehalf.canvas.zoomMenuAtPercentage', "Zoom options, {0}%", percentage);
-		this.trigger.title = zoomLabel;
 		this.trigger.setAttribute('aria-label', zoomLabel);
 		this.updateMenu();
 	}

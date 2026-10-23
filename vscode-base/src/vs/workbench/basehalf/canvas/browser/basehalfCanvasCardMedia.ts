@@ -13,6 +13,29 @@ export function releaseBaseHalfCanvasCardMedia(media: HTMLMediaElement): void {
 	media.load();
 }
 
+/** The media that pause in a way of their own, such as a video whose sound goes down first. */
+const ownPauses = new WeakMap<HTMLMediaElement, () => void>();
+
+/** Gives `media` a pause of its own, which {@link pauseBaseHalfCanvasMedia} uses, until disposed. */
+export function registerBaseHalfCanvasMediaPause(media: HTMLMediaElement, pause: () => void): IDisposable {
+	ownPauses.set(media, pause);
+	return toDisposable(() => {
+		if (ownPauses.get(media) === pause) {
+			ownPauses.delete(media);
+		}
+	});
+}
+
+/** Pauses `media` in its own way, or at once. */
+export function pauseBaseHalfCanvasMedia(media: HTMLMediaElement): void {
+	const pause = ownPauses.get(media);
+	if (pause) {
+		pause();
+	} else {
+		media.pause();
+	}
+}
+
 /**
  * One video or sound in `root` plays at a time (video node, "The player"):
  * one that starts pauses the others, on cards and in notes alike. Media
@@ -33,7 +56,7 @@ export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposabl
 		for (const other of [...playing]) {
 			if (other !== media) {
 				playing.delete(other);
-				other.pause();
+				pauseBaseHalfCanvasMedia(other);
 			}
 		}
 		playing.add(media);

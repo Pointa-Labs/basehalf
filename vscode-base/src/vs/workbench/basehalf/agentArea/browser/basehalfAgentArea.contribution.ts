@@ -133,6 +133,7 @@ import {
 	toggleAgentPaneZoom,
 	undoAgentClose
 } from '../common/basehalfAgentTabsModel.js';
+import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { BaseHalfSetting, normalizeBaseHalfAgentDefaultSession } from '../../shell/common/basehalfConfiguration.js';
 
 export const BASEHALF_AGENT_AREA_FOCUSED_CONTEXT_KEY = new RawContextKey<boolean>('basehalfAgentAreaFocused', false);
@@ -502,13 +503,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 		this.zoomResetButton = append(tabsBar, $('button.basehalf-agent-area-icon.basehalf-agent-zoom-reset.codicon.codicon-screen-normal')) as HTMLButtonElement;
 		this.zoomResetButton.type = 'button';
-		this.zoomResetButton.title = 'Reset Zoom (⌘⇧↵)';
+		setBaseHalfHover(this.zoomResetButton, 'Reset Zoom (⌘⇧↵)');
 		this.zoomResetButton.setAttribute('aria-label', 'Reset Zoom');
 		this.zoomResetButton.addEventListener('click', () => this.togglePaneZoom());
 
 		const plus = append(tabsBar, $('button.basehalf-agent-area-icon.basehalf-agent-new-tab.codicon.codicon-add')) as HTMLButtonElement;
 		plus.type = 'button';
-		plus.title = 'New Agent Session';
+		setBaseHalfHover(plus, 'New Agent Session');
 		plus.setAttribute('aria-label', 'New Agent Session');
 		plus.addEventListener('click', () => this.showNewSessionMenu(plus));
 
@@ -1382,7 +1383,6 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private wirePaneDrag(session: IBaseHalfRuntimeAgentSession): void {
 		const handle = session.grabHandle;
-		handle.title = 'Drag to move this pane';
 		handle.setAttribute('aria-label', 'Move pane');
 		handle.draggable = true;
 		append(handle, $('span.basehalf-agent-pane-handle-dots')).textContent = '⋯';
@@ -1559,7 +1559,6 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		el.setAttribute('role', 'tab');
 		el.setAttribute('aria-selected', String(active));
 		el.setAttribute('aria-label', title ? `Tab ${index + 1}: ${title}` : `Tab ${index + 1}`);
-		el.title = activePane?.detail ? `${title || activePane.label} - ${activePane.detail}` : title;
 
 		// Concave feet flaring the active tab into the content below (shown by
 		// CSS only while this tab is active).
@@ -1670,7 +1669,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		const indicator = append(el, $('span.basehalf-agent-tab-indicator'));
 		const close = append(indicator, $('button.basehalf-agent-tab-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
-		close.title = 'Close Tab';
+		setBaseHalfHover(close, 'Close Tab');
 		close.setAttribute('aria-label', `Close ${title || 'tab'}`);
 		close.addEventListener('mousedown', e => {
 			e.preventDefault();
@@ -1955,7 +1954,6 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		for (const choice of BASEHALF_VISIBLE_AGENT_SESSION_CHOICES) {
 			const button = append(choices, $('button.basehalf-agent-empty-choice')) as HTMLButtonElement;
 			button.type = 'button';
-			button.title = choice.description;
 			button.setAttribute('aria-label', choice.label);
 			const icon = append(button, $(`span.codicon.${this.choiceIconClass(choice.kind)}`));
 			icon.setAttribute('aria-hidden', 'true');

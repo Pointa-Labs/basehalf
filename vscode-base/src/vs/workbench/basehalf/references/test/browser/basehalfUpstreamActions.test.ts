@@ -175,7 +175,10 @@ suite('BaseHalfUpstreamActions', () => {
 				role: row.querySelector('.basehalf-canvas-card-badge-role')?.textContent,
 				remove: row.querySelector<HTMLButtonElement>('.basehalf-canvas-card-badge-remove') ? {
 					disabled: row.querySelector<HTMLButtonElement>('.basehalf-canvas-card-badge-remove')!.disabled,
-					title: row.querySelector<HTMLButtonElement>('.basehalf-canvas-card-badge-remove')!.title
+					// The workbench's hover names the button, never the system's tooltip.
+					hover: row.querySelector<HTMLButtonElement>('.basehalf-canvas-card-badge-remove')!.hasAttribute('title')
+						? 'the system\'s tooltip'
+						: row.querySelector<HTMLButtonElement>('.basehalf-canvas-card-badge-remove')!.getAttribute('data-basehalf-hover')
 				} : undefined,
 				actions: [...row.querySelectorAll<HTMLButtonElement>('.basehalf-canvas-card-badge-issue-action')].map(button => button.textContent)
 			})),
@@ -196,7 +199,7 @@ suite('BaseHalfUpstreamActions', () => {
 				title: 'Upstream',
 				text: ['Context that flows into this card. Saved inside this file, so agents reading it see it too.'],
 				rows: [
-					{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] },
+					{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, hover: 'Remove a/overview.md from upstream' }, actions: [] },
 					{ status: 'dangling', label: 'gone.md', role: undefined, remove: undefined, actions: ['Relink…', 'Relink Everywhere…', 'Remove'] },
 					{ status: 'invalid', label: '../overview.md', role: undefined, remove: undefined, actions: ['Use a/overview.md', 'Remove'] }
 				],
@@ -205,7 +208,7 @@ suite('BaseHalfUpstreamActions', () => {
 			{
 				title: 'Downstream',
 				text: [],
-				rows: [{ status: 'downstream', label: 'summary', role: undefined, remove: { disabled: false, title: 'Remove from the upstream of a/b/summary.md' }, actions: [] }],
+				rows: [{ status: 'downstream', label: 'summary', role: undefined, remove: { disabled: false, hover: 'Remove from the upstream of a/b/summary.md' }, actions: [] }],
 				add: '+ Add Downstream'
 			}
 		]);
@@ -234,7 +237,7 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual((describe(render(output, view(output, [entry(0, 'a/overview.md', 'valid')], { storeKind: 'sidecar' }))) as unknown[])[0], {
 			title: 'Upstream',
 			text: ['Context that flows into this card. BaseHalf keeps this list for this file.'],
-			rows: [{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] }],
+			rows: [{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, hover: 'Remove a/overview.md from upstream' }, actions: [] }],
 			add: '+ Add Upstream'
 		});
 
@@ -245,8 +248,8 @@ suite('BaseHalfUpstreamActions', () => {
 			entry(2, 'old.png', 'dangling')
 		], { storeKind: 'sidecar' }))) as { rows: unknown[] }[])[0].rows;
 		assert.deepStrictEqual(rows, [
-			{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] },
-			{ status: 'valid', label: 'book.pdf', role: undefined, remove: { disabled: false, title: 'Remove sources/book.pdf from upstream' }, actions: [] },
+			{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, hover: 'Remove a/overview.md from upstream' }, actions: [] },
+			{ status: 'valid', label: 'book.pdf', role: undefined, remove: { disabled: false, hover: 'Remove sources/book.pdf from upstream' }, actions: [] },
 			{ status: 'dangling', label: 'old.png', role: undefined, remove: undefined, actions: ['Relink…', 'Relink Everywhere…', 'Remove'] }
 		]);
 

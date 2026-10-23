@@ -77,8 +77,7 @@ suite('BaseHalfCanvasZoomControls', () => {
 		assert.strictEqual(trigger.getAttribute('aria-label'), 'Zoom options, 100%');
 
 		canvas.reportZoom(0.5);
-		assert.strictEqual(trigger.textContent, '50%');
-		assert.strictEqual(trigger.title, 'Zoom options, 50%');
+		assert.deepStrictEqual({ text: trigger.textContent, label: trigger.getAttribute('aria-label'), tooltip: trigger.hasAttribute('title') }, { text: '50%', label: 'Zoom options, 50%', tooltip: false });
 	});
 
 	test('opens a menu whose actions step the zoom, fit the canvas, and choose a preset', () => {

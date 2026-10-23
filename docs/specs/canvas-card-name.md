@@ -141,8 +141,8 @@ The name is shown, and not the file name:
 
 The file name or the path is shown as it is:
 
-- wherever a path is shown: the tooltip of a card, the tooltip of a row of a
-  list, the second line of a picker row, a copied reference;
+- wherever a path is shown: the second line of a picker row, a copied
+  reference;
 - in a sentence that BaseHalf says about a file: a question before a
   delete, the name of a step of undo, a notification;
 - in the Files view, Search, and Quick Open.
@@ -389,8 +389,8 @@ The name that is shown
     breadcrumb show the name without the extension, and the rename input of
     the title holds it.
 19. A row of a folder card and a row of an Upstream or Downstream list name
-    a note without its extension, and the row's tooltip is the path with
-    it.
+    a note without its extension, and the pointer over the row shows
+    nothing more.
 
 The editor in place
 

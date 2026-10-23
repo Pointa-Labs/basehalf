@@ -8,6 +8,7 @@ import { $, addDisposableListener, append } from '../../../../../base/browser/do
 import { Disposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
+import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
 
 /**
  * The button among the canvas view controls that turns snapping on and off:
@@ -30,7 +31,7 @@ export class BaseHalfCanvasSnapToggle extends Disposable implements IBaseHalfCan
 		const icon = append(this.button, $('span.codicon.codicon-magnet'));
 		icon.setAttribute('aria-hidden', 'true');
 		const label = localize('basehalf.canvas.snapToCards', "Snap to cards");
-		this.button.title = label;
+		setBaseHalfHover(this.button, label);
 		this.button.setAttribute('aria-label', label);
 		this._register(addDisposableListener(this.button, 'click', () => this.toggle()));
 		this._register(toDisposable(() => this.button.remove()));

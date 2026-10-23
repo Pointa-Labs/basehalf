@@ -59,9 +59,9 @@ export interface IBaseHalfGenerationCardFace extends IDisposable {
  * Draws the face of a generation card into `container` (D63, D64, generation
  * cards, "The card"): the glyph of its kind for a draft; the glyph, the phase
  * in words, the time since the start, and a progress bar while it generates;
- * the error in at most two lines, with the whole text in its tooltip, when the
- * generation failed; "Stopped"; and, for a file this computer cannot show,
- * that it cannot, with its path in the tooltip. The face follows the task
+ * the error in at most two lines, with the whole text in the hover of the
+ * error when the lines cut it, when the generation failed; "Stopped"; and,
+ * for a file this computer cannot show, that it cannot. The face follows the task
  * records of this computer and the progress of a generation in this window by
  * itself, so the card around it stays as it is. A card with its file that can
  * be shown draws its image or its video as the card of any such file does.
@@ -79,7 +79,6 @@ class BaseHalfGenerationCardFace extends Disposable implements IBaseHalfGenerati
 	private readonly hover = this._register(new MutableDisposable());
 	private readonly ticker = this._register(new MutableDisposable());
 	private elapsed: HTMLElement | undefined;
-	private tooltip: string | undefined;
 	private renderedKey: string | undefined;
 	private current: IBaseHalfGenerationCardPresentation | undefined;
 	private savingShown: IBaseHalfGenerationCardPresentation | undefined;
@@ -181,14 +180,16 @@ class BaseHalfGenerationCardFace extends Disposable implements IBaseHalfGenerati
 				bar.setAttribute('aria-valuenow', String(percent));
 			}
 		} else if (presentation.message !== undefined) {
-			append(this.element, $('.bh-generation-card-message')).textContent = presentation.message;
+			const message = append(this.element, $('.bh-generation-card-message'));
+			message.textContent = presentation.message;
+			// Only an error that the message cuts has a hover, on its text: the card itself has none (D65).
+			const whole = presentation.tooltip;
+			this.hover.value = whole !== undefined
+				? this.services.hoverService.setupDelayedHover(message, () => ({ content: message.scrollHeight > message.clientHeight + 1 || message.textContent !== whole ? whole : '' }))
+				: undefined;
+			return;
 		}
-		this.tooltip = presentation.tooltip;
-		if (this.tooltip !== undefined && !this.hover.value) {
-			this.hover.value = this.services.hoverService.setupDelayedHover(this.element, () => ({ content: this.tooltip ?? '' }));
-		} else if (this.tooltip === undefined) {
-			this.hover.clear();
-		}
+		this.hover.clear();
 	}
 
 	/** While the card generates, the time since it started counts up each second. */

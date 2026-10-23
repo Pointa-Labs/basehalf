@@ -63,6 +63,8 @@ export class BaseHalfCanvasCardRenderer {
 	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfCanvasCardVideoPlayer>();
 	/** The face drawn last for each generation card, while it is drawn. */
 	private readonly generationFaces = new Map<string, IBaseHalfGenerationCardFace>();
+	/** The name above each card element's box. */
+	private readonly captions = new WeakMap<HTMLElement, HTMLElement>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -88,7 +90,7 @@ export class BaseHalfCanvasCardRenderer {
 				return;
 			case 'openFullPreview':
 				// Open shows the card large, as a double click does; its video pauses.
-				this.playerOf(path)?.video.pause();
+				this.playerOf(path)?.pause();
 				await this.view.selectionActions.openSceneCard(sceneKey, structuralEpoch, path);
 				return;
 			case 'revealVideo':
@@ -145,6 +147,11 @@ export class BaseHalfCanvasCardRenderer {
 		});
 	}
 
+	/** The name above the box of a card element. */
+	captionOf(card: HTMLElement): HTMLElement | undefined {
+		return this.captions.get(card);
+	}
+
 	/** The scene has put a card's element into the document in place of the previous one. */
 	didMountCardElement(path: string, element: HTMLElement): void {
 		this.view.cardListenerStores.didMount(path, element);
@@ -189,13 +196,6 @@ export class BaseHalfCanvasCardRenderer {
 			card.dataset.generationKind = item.generation.kind;
 		}
 		card.setAttribute('aria-label', `${displayName} card`);
-		card.title = draft
-			? localize('basehalf.canvas.card.draftTitle', "{0} - click to select; it has no file yet", item.path)
-			: item.kind === 'folder'
-				? `${item.path} - click to select; double-click to enter this folder`
-				: markdownNote
-					? `${item.path} - click to select; double-click the content to edit`
-					: `${item.path} - click to select; double-click to open the editor`;
 
 		const type = badgeType(item.name, item.kind === 'folder');
 		const orphan = item.badge?.orphan === true;
@@ -211,13 +211,13 @@ export class BaseHalfCanvasCardRenderer {
 		// A draft has no file whose description its badge would edit.
 		const canShowBadgeFace = !(item.kind === 'folder' && orphan) && !draft;
 		const caption = append(card, $('.basehalf-canvas-card-caption'));
+		this.captions.set(card, caption);
 		const captionIdentity = append(caption, $('.basehalf-canvas-card-caption-identity'));
 		const icon = append(captionIdentity, $('.basehalf-canvas-card-caption-icon'));
 		icon.setAttribute('aria-hidden', 'true');
 		this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
 		const label = append(captionIdentity, $('.basehalf-canvas-card-label'));
 		label.textContent = displayName;
-		label.title = displayName;
 		label.classList.toggle('danger', orphan);
 		// The name is the file name of a file that is there, or the name a
 		// draft's file will have: a double click on it renames in place.
@@ -691,11 +691,10 @@ export class BaseHalfCanvasCardRenderer {
 		const text = append(fallback, $('span.basehalf-canvas-card-media-fallback-label'));
 		text.textContent = reload ? 'Preview unavailable' : label;
 		if (reload) {
-			text.title = label;
 			const button = append(fallback, $('button.basehalf-canvas-card-media-reload')) as HTMLButtonElement;
 			button.type = 'button';
 			button.textContent = 'Reload preview';
-			button.title = `Reload preview for ${label}`;
+			button.setAttribute('aria-label', `Reload preview for ${label}`);
 			button.addEventListener('pointerdown', event => event.stopPropagation());
 			button.addEventListener('click', event => {
 				event.preventDefault();
@@ -826,7 +825,8 @@ export class BaseHalfCanvasCardRenderer {
 
 		const share = Math.min(1, noted / preview.total);
 		const coverage = append(container, $('.basehalf-canvas-card-coverage'));
-		coverage.title = `${noted} of ${preview.total} annotated`;
+		coverage.setAttribute('role', 'img');
+		coverage.setAttribute('aria-label', `${noted} of ${preview.total} annotated`);
 		const fill = append(coverage, $('.basehalf-canvas-card-coverage-fill'));
 		fill.style.width = `${Math.max(6, Math.round(share * 100))}%`;
 	}

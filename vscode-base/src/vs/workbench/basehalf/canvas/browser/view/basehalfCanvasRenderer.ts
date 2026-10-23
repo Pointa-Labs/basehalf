@@ -1025,7 +1025,6 @@ export class BaseHalfCanvasRenderer {
 		noteIcon.setAttribute('aria-hidden', 'true');
 		const noteLabel = append(note, $('span.basehalf-canvas-empty-note-label'));
 		noteLabel.textContent = localize('basehalf.canvas.empty.createNote', "Create a note");
-		note.title = localize('basehalf.canvas.empty.createNoteTitle', "Create a Markdown note and start writing");
 		this.cardListeners.add(this.view.addDisposableListener(note, 'click', () => void this.view.canvasEditingService.requestCreate(undefined, 'note').catch(error => this.view.reportCanvasMutationError(error))));
 
 		const importButton = append(actions, $('button.basehalf-canvas-empty-import')) as HTMLButtonElement;

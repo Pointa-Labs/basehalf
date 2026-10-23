@@ -8,7 +8,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, playBaseHalfCanvasMediaOneAtATime, releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../../browser/basehalfCanvasCardMedia.js';
+import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, playBaseHalfCanvasMediaOneAtATime, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../../browser/basehalfCanvasCardMedia.js';
 
 suite('BaseHalfCanvasCardMedia', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
@@ -93,6 +93,17 @@ suite('BaseHalfCanvasCardMedia', () => {
 			assert.deepStrictEqual({ paused, playing: [card, sound, note].map(media => !media.paused) }, {
 				paused: ['card video', 'sound card', 'video in a note'],
 				playing: [true, false, false]
+			});
+			// A player whose sound goes down before it pauses pauses its own way when another starts.
+			const own: string[] = [];
+			const registration = registerBaseHalfCanvasMediaPause(card, () => own.push('card video, its sound down first'));
+			note.play();
+			registration.dispose();
+			card.play();
+			sound.play();
+			assert.deepStrictEqual({ own, paused: paused.slice(3) }, {
+				own: ['card video, its sound down first'],
+				paused: ['video in a note', 'card video']
 			});
 		} finally {
 			root.remove();

@@ -397,7 +397,6 @@ function button(parent: HTMLElement, label: string, icon: string, primary = fals
 	const element = append(parent, $('button.basehalf-plugin-library-button')) as HTMLButtonElement;
 	element.type = 'button';
 	element.classList.toggle('primary', primary);
-	element.title = label;
 	const iconElement = append(element, $(`span.codicon.${icon}`));
 	iconElement.setAttribute('aria-hidden', 'true');
 	const copy = append(element, $('span'));

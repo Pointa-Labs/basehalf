@@ -14,6 +14,7 @@ import { baseHalfCanvasTidy } from '../../../canvas/common/basehalfCanvasArrange
 import { IBaseHalfCanvasCard } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
 
 /** The question after a tidy, and what it needs to put the cards back. */
 interface IBaseHalfCanvasTidyQuestion {
@@ -53,7 +54,7 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 		const icon = append(this.button, $('span.codicon.codicon-type-hierarchy'));
 		icon.setAttribute('aria-hidden', 'true');
 		const label = localize('basehalf.canvas.tidy', "Tidy Canvas ({0})", isMacintosh ? '⇧⌥F' : localize('basehalf.canvas.tidyKey', "Shift+Alt+F"));
-		this.button.title = label;
+		setBaseHalfHover(this.button, label);
 		this.button.setAttribute('aria-label', label);
 		this._register(addDisposableListener(this.button, 'click', () => void this.tidy()));
 		this._register(this.canvas.onKeyDown(event => this.onKeyDown(event)));

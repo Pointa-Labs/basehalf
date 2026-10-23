@@ -263,7 +263,6 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 
 							const path = document.createElement('div');
 							path.className = 'basehalf-command-center-breadcrumbs';
-							path.title = entries[entries.length - 1].path;
 							disposables.add(addDisposableListener(path, EventType.MOUSE_DOWN, event => event.stopPropagation()));
 							disposables.add(addDisposableListener(path, EventType.CLICK, event => {
 								event.preventDefault();
@@ -295,9 +294,16 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 								const search = document.createElement('button');
 								search.type = 'button';
 								search.className = 'basehalf-command-center-search codicon codicon-search';
-								search.title = this.getTooltip() ?? localize('basehalf.searchWorkspace', "Search workspace");
-								search.setAttribute('aria-label', search.title);
+								// BaseHalf: the workbench's hover names a button that shows only an icon, never the system's tooltip (D65).
+								const searchLabel = this.getTooltip() ?? localize('basehalf.searchWorkspace', "Search workspace");
+								search.setAttribute('aria-label', searchLabel);
+								disposables.add(that._hoverService.setupDelayedHover(search, { content: searchLabel }));
 								disposables.add(addDisposableListener(search, EventType.MOUSE_DOWN, event => event.stopPropagation()));
+								// BaseHalf: the path shows nothing more under the pointer, and the search button only its name:
+								// the hover of the whole location, which names its search, does not show over them (D65).
+								for (const element of [path, search]) {
+									disposables.add(addDisposableListener(element, EventType.MOUSE_OVER, event => event.stopPropagation()));
+								}
 								disposables.add(addDisposableListener(search, EventType.CLICK, event => {
 									event.preventDefault();
 									event.stopPropagation();
@@ -312,7 +318,6 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 								element.classList.toggle('root', root);
 								element.classList.toggle('current', entry.current);
 								element.textContent = entry.label;
-								element.title = entry.path;
 								if (entry.current) {
 									element.setAttribute('aria-current', 'page');
 									return element;
@@ -335,8 +340,10 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 								button.type = 'button';
 								button.className = 'basehalf-command-center-breadcrumb-overflow';
 								button.textContent = '\u2026';
-								button.title = localize('basehalf.showParentFolders', "Show parent folders");
-								button.setAttribute('aria-label', button.title);
+								// BaseHalf: the ellipsis says nothing by itself; the workbench's hover names it (D65).
+								const overflowLabel = localize('basehalf.showParentFolders', "Show parent folders");
+								button.setAttribute('aria-label', overflowLabel);
+								disposables.add(that._hoverService.setupDelayedHover(button, { content: overflowLabel }));
 								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => event.stopPropagation()));
 								disposables.add(addDisposableListener(button, EventType.CLICK, event => {
 									event.preventDefault();

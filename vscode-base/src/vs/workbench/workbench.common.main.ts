@@ -484,6 +484,7 @@ import './basehalf/shell/browser/basehalfConfiguration.contribution.js';
 import './basehalf/video/browser/basehalfVideoProviders.contribution.js';
 import './basehalf/shell/browser/basehalfReleaseNotes.contribution.js';
 import './basehalf/shell/browser/basehalfAbout.contribution.js';
+import './basehalf/shell/browser/basehalfHover.contribution.js';
 import './basehalf/shell/browser/basehalfWorkbenchProfile.contribution.js';
 import './basehalf/navigation/browser/basehalfNavigation.contribution.js';
 import './basehalf/plugins/browser/basehalfCardProjectionExtensionPoint.contribution.js';

@@ -9,10 +9,12 @@ import { mainWindow } from '../../../../base/browser/window.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ResourceMap } from '../../../../base/common/map.js';
 import { FileAccess } from '../../../../base/common/network.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
+import { registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
+import { BaseHalfCanvasVideoSound, BaseHalfVideoSoundGraph } from './basehalfCanvasVideoSound.js';
 
 /** The narrowest picture, in screen pixels, that shows the player's controls (video node, "The player"). */
 export const BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH = 160;
@@ -31,6 +33,15 @@ export interface IBaseHalfCanvasCardVideoPlayerOptions {
 	readonly onError: () => void;
 	/** Draws the tooltips of the controls. */
 	readonly hoverService?: IHoverService;
+	/**
+	 * The player of Card Detail, not of a card (generation cards, "The
+	 * player"): its controls always show, a click on the picture plays and
+	 * pauses it, the pointer plays nothing, its sound is on, Full Screen stands
+	 * where Open is, and it starts at the frame its card shows.
+	 */
+	readonly detail?: boolean;
+	/** The audio graph the sound plays through, for a test; the window's by default. */
+	readonly soundGraph?: () => BaseHalfVideoSoundGraph | undefined;
 }
 
 /** A video on a card (video node, "The player"). Dispose it with the card's body. */
@@ -41,6 +52,10 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
 	readonly currentTime: number | undefined;
 	/** The card is the only selected card: its controls show while it is. */
 	setSelected(selected: boolean): void;
+	/** Pauses the video, once its sound has gone down. */
+	pause(): void;
+	/** Puts the keyboard on the play button, as Card Detail does when it opens. */
+	focus(): void;
 }
 
 /**
@@ -50,6 +65,8 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
  * on the card plays the video without sound and pauses it when it leaves; and
  * controls drawn here, not the system's, show while the pointer is on the card
  * or the card is selected. A press on the controls never reaches the card.
+ * Its sound never starts or stops at once. With `detail`, it is the player of
+ * Card Detail.
  */
 export function createBaseHalfCanvasCardVideoPlayer(container: HTMLElement, before: Node | null, options: IBaseHalfCanvasCardVideoPlayerOptions): IBaseHalfCanvasCardVideoPlayer {
 	return new BaseHalfCanvasCardVideoPlayer(container, before, options);
@@ -65,8 +82,23 @@ export function formatBaseHalfCanvasVideoTime(seconds: number): string {
 	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
-/** The players on cards. */
+/** The players on cards and in Card Detail. */
 const livePlayers = new Set<BaseHalfCanvasCardVideoPlayer>();
+
+/** The player of a card that shows the file of `source`, the one Card Detail starts from. */
+function cardPlayerOf(source: URI): BaseHalfCanvasCardVideoPlayer | undefined {
+	for (const player of livePlayers) {
+		if (!player.detail && isSameVideoFile(player.source, source)) {
+			return player;
+		}
+	}
+	return undefined;
+}
+
+/** The canvas asks for a video with its version in the query, Card Detail without: the file is the same. */
+function isSameVideoFile(first: URI, second: URI): boolean {
+	return isEqual(first.with({ query: '' }), second.with({ query: '' }));
+}
 let layoutFrame: number | undefined;
 
 /**
@@ -107,6 +139,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	private readonly slider: HTMLElement;
 	private readonly length: HTMLElement;
 	private readonly openButton: HTMLButtonElement;
+	private readonly sound: BaseHalfCanvasVideoSound;
 	private hovered = false;
 	private selected = false;
 	private muted = true;
@@ -127,12 +160,20 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		this.video.muted = true;
 		this.video.tabIndex = -1;
 		this.video.setAttribute('aria-hidden', 'true');
-		// The picture is the card's: a press on it selects, moves, and opens the card.
-		this.video.style.pointerEvents = 'none';
+		const detail = options.detail === true;
+		this.element.classList.toggle('detail', detail);
+		// On a card the picture is the card's: a press on it selects, moves, and opens the card.
+		if (!detail) {
+			this.video.style.pointerEvents = 'none';
+		}
 		// The frame where the video last stopped stands for it, at first its first frame.
+		// Card Detail starts at the frame its card shows, with the sound on.
 		const last = lastPlayed.get(options.source);
-		this.muted = last?.muted ?? true;
-		this.video.src = `${FileAccess.uriToBrowserUri(options.source).toString(true)}#t=${last && last.time > 0 ? last.time : 0.001}`;
+		const time = detail ? cardPlayerOf(options.source)?.currentTime ?? last?.time : last?.time;
+		this.muted = detail ? false : last?.muted ?? true;
+		this.video.src = `${FileAccess.uriToBrowserUri(options.source).toString(true)}#t=${time !== undefined && time > 0 ? time : 0.001}`;
+		this.sound = this._register(new BaseHalfCanvasVideoSound(this.video, options.soundGraph));
+		this._register(registerBaseHalfCanvasMediaPause(this.video, () => this.pause()));
 
 		this.top = append(this.element, $('.basehalf-canvas-video-player-top.nodrag.nopan'));
 		this.soundButton = append(this.top, $<HTMLButtonElement>('button.basehalf-canvas-video-player-button.sound'));
@@ -148,8 +189,13 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		for (const button of [this.soundButton, this.playButton, this.openButton]) {
 			button.type = 'button';
 		}
-		this.openButton.append(playerIcon(OPEN_PATH));
-		this.openButton.setAttribute('aria-label', localize('basehalf.canvas.videoPlayer.open', "Open"));
+		if (detail) {
+			this.openButton.classList.add('full-screen');
+			this.updateFullScreenButton();
+		} else {
+			this.openButton.append(playerIcon(OPEN_PATH));
+			this.openButton.setAttribute('aria-label', localize('basehalf.canvas.videoPlayer.open', "Open"));
+		}
 		this.slider.setAttribute('role', 'slider');
 		this.slider.setAttribute('aria-label', localize('basehalf.canvas.videoPlayer.position', "Position"));
 		this.slider.setAttribute('aria-valuemin', '0');
@@ -185,6 +231,23 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		return Number.isFinite(this.video.currentTime) ? this.video.currentTime : undefined;
 	}
 
+	get source(): URI {
+		return this.options.source;
+	}
+
+	get detail(): boolean {
+		return this.options.detail === true;
+	}
+
+	pause(): void {
+		this.sound.pause();
+		this.updatePlayButton();
+	}
+
+	focus(): void {
+		this.playButton.focus({ preventScroll: true });
+	}
+
 	setSelected(selected: boolean): void {
 		if (this.selected === selected) {
 			return;
@@ -192,25 +255,35 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		this.selected = selected;
 		// A card that is neither selected nor under the pointer has no controls to stop its video with.
 		if (!selected && !this.hovered) {
-			this.video.pause();
+			this.pause();
 		}
 		this.updateControls();
 	}
 
 	/** The controls follow the size of the picture on screen, which the canvas zoom and a resize change. */
 	layout(): void {
-		if (this.hovered || this.selected) {
+		if (this.hovered || this.selected || this.detail) {
 			this.updateControls();
 		}
 	}
 
 	private rememberWhereItStands(): void {
 		const time = this.video.currentTime;
+		// The sound of Card Detail is its own: the card keeps whether it has sound.
+		const muted = this.detail ? lastPlayed.get(this.options.source)?.muted ?? true : this.muted;
 		lastPlayed.delete(this.options.source);
-		if (!(Number.isFinite(time) && time > 0.01) && this.muted) {
+		if (this.detail && Number.isFinite(time)) {
+			// Closing Card Detail leaves its card at the frame where it stopped.
+			for (const player of livePlayers) {
+				if (!player.detail && player.video.paused && isSameVideoFile(player.source, this.options.source) && Math.abs(player.video.currentTime - time) > 0.01) {
+					player.video.currentTime = time;
+				}
+			}
+		}
+		if (!(Number.isFinite(time) && time > 0.01) && muted) {
 			return;
 		}
-		lastPlayed.set(this.options.source, { time: Number.isFinite(time) ? time : 0, muted: this.muted });
+		lastPlayed.set(this.options.source, { time: Number.isFinite(time) ? time : 0, muted });
 		for (const source of lastPlayed.keys()) {
 			if (lastPlayed.size <= MAX_LAST_PLAYED) {
 				break;
@@ -221,25 +294,40 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 
 	private registerListeners(): void {
 		const { element, video } = this;
-		// The pointer plays the video, also on a selected card.
-		this._register(addDisposableListener(element, 'pointerenter', event => {
-			if (event.pointerType === 'touch') {
-				return;
-			}
-			this.hovered = true;
-			this.updateControls();
-			this.play();
-		}));
-		this._register(addDisposableListener(element, 'pointerleave', event => {
-			if (event.pointerType === 'touch') {
-				return;
-			}
-			this.hovered = false;
-			this.updateControls();
-			video.pause();
-		}));
-		// A double click on the picture opens the card, which shows the video large: this one pauses.
-		this._register(addDisposableListener(element, 'dblclick', () => video.pause()));
+		if (this.detail) {
+			// In Card Detail the picture is the player's: a click plays or pauses it, a double click fills the screen.
+			this._register(addDisposableListener(video, 'click', () => {
+				this.togglePlay();
+				this.focus();
+			}));
+			this._register(addDisposableListener(video, 'dblclick', () => this.toggleFullScreen()));
+			this._register(addDisposableListener(element.ownerDocument, 'fullscreenchange', () => this.updateFullScreenButton()));
+			this._register(addDisposableListener(video, 'loadedmetadata', () => {
+				if (video.videoWidth > 0 && video.videoHeight > 0) {
+					element.style.setProperty('--basehalf-video-aspect', String(video.videoWidth / video.videoHeight));
+				}
+			}));
+		} else {
+			// The pointer plays the video, also on a selected card.
+			this._register(addDisposableListener(element, 'pointerenter', event => {
+				if (event.pointerType === 'touch') {
+					return;
+				}
+				this.hovered = true;
+				this.updateControls();
+				this.play();
+			}));
+			this._register(addDisposableListener(element, 'pointerleave', event => {
+				if (event.pointerType === 'touch') {
+					return;
+				}
+				this.hovered = false;
+				this.updateControls();
+				this.pause();
+			}));
+			// A double click on the picture opens the card, which shows the video large: this one pauses.
+			this._register(addDisposableListener(element, 'dblclick', () => this.pause()));
+		}
 
 		for (const type of ['play', 'pause'] as const) {
 			this._register(addDisposableListener(video, type, () => this.updatePlayButton()));
@@ -262,20 +350,18 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 				}
 			}));
 		}
-		this._register(addDisposableListener(this.playButton, 'click', () => {
-			if (video.paused || video.ended) {
-				this.play();
-			} else {
-				video.pause();
-			}
-		}));
+		this._register(addDisposableListener(this.playButton, 'click', () => this.togglePlay()));
 		this._register(addDisposableListener(this.soundButton, 'click', () => {
 			this.muted = !this.muted;
-			video.muted = this.muted;
+			this.sound.setMuted(this.muted);
 			this.updateSoundButton();
 		}));
 		this._register(addDisposableListener(this.openButton, 'click', () => {
-			video.pause();
+			if (this.detail) {
+				this.toggleFullScreen();
+				return;
+			}
+			this.pause();
 			this.options.open();
 		}));
 
@@ -337,10 +423,43 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	}
 
 	private play(): void {
-		this.video.muted = this.muted;
-		this.video.play().catch(() => {
-			// Paused again before it began, or there is nothing to play: the picture stays.
+		this.sound.play(this.muted).catch((error: unknown) => {
+			// A video drawn again with its sound on may not start with sound by
+			// itself, before a click: it plays without, and its button says so.
+			if (!this.muted && (error as Error | undefined)?.name === 'NotAllowedError') {
+				this.muted = true;
+				this.updateSoundButton();
+				this.sound.play(true).catch(() => undefined);
+			}
+			// Otherwise it was paused again before it began, or there is nothing to play: the picture stays.
 		});
+		this.updatePlayButton();
+	}
+
+	private togglePlay(): void {
+		if (this.video.paused || this.video.ended || this.sound.pausing) {
+			this.play();
+		} else {
+			this.pause();
+		}
+	}
+
+	private toggleFullScreen(): void {
+		const document = this.element.ownerDocument;
+		if (document.fullscreenElement === this.element) {
+			void document.exitFullscreen().catch(() => undefined);
+		} else {
+			void this.element.requestFullscreen().catch(() => undefined);
+		}
+	}
+
+	private updateFullScreenButton(): void {
+		const full = this.element.ownerDocument.fullscreenElement === this.element;
+		clearNode(this.openButton);
+		this.openButton.append(playerIcon(full ? EXIT_FULL_SCREEN_PATH : OPEN_PATH));
+		this.openButton.setAttribute('aria-label', full
+			? localize('basehalf.canvas.videoPlayer.exitFullScreen', "Exit Full Screen")
+			: localize('basehalf.canvas.videoPlayer.fullScreen', "Full Screen"));
 	}
 
 	private duration(): number | undefined {
@@ -374,7 +493,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	}
 
 	private updatePlayButton(): void {
-		const playing = !this.video.paused && !this.video.ended;
+		// A video whose sound goes down to pause shows Play at once.
+		const playing = !this.video.paused && !this.video.ended && !this.sound.pausing;
 		clearNode(this.playButton);
 		this.playButton.append(playerIcon(playing ? PAUSE_PATH : PLAY_PATH));
 		this.playButton.dataset.state = playing ? 'playing' : 'paused';
@@ -392,9 +512,9 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 			: localize('basehalf.canvas.videoPlayer.mute', "Mute"));
 	}
 
-	/** The controls show while the pointer is on the card or the card is selected, on a picture wide enough on screen. */
+	/** The controls show while the pointer is on the card or the card is selected, and always in Card Detail, on a picture wide enough on screen. */
 	private updateControls(): void {
-		const shown = (this.hovered || this.selected)
+		const shown = (this.hovered || this.selected || this.detail)
 			&& this.element.getBoundingClientRect().width >= BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH;
 		this.element.dataset.controls = shown ? 'shown' : 'hidden';
 		for (const control of [this.top, this.bar]) {
@@ -422,6 +542,7 @@ const PAUSE_PATH = 'M6 5H8V19H6V5ZM16 5H18V19H16V5Z';
 const MUTED_PATH = 'M5.88889 16.0001H2C1.44772 16.0001 1 15.5524 1 15.0001V9.00007C1 8.44778 1.44772 8.00007 2 8.00007H5.88889L11.1834 3.66821C11.3971 3.49335 11.7121 3.52485 11.887 3.73857C11.9601 3.8279 12 3.93977 12 4.05519V19.9449C12 20.2211 11.7761 20.4449 11.5 20.4449C11.3846 20.4449 11.2727 20.405 11.1834 20.3319L5.88889 16.0001ZM20.4142 12.0001L23.9497 15.5356L22.5355 16.9498L19 13.4143L15.4645 16.9498L14.0503 15.5356L17.5858 12.0001L14.0503 8.46454L15.4645 7.05032L19 10.5859L22.5355 7.05032L23.9497 8.46454L20.4142 12.0001Z';
 const SOUND_PATH = 'M2 16.0001H5.88889L11.1834 20.3319C11.2727 20.405 11.3846 20.4449 11.5 20.4449C11.7761 20.4449 12 20.2211 12 19.9449V4.05519C12 3.93977 11.9601 3.8279 11.887 3.73857C11.7121 3.52485 11.3971 3.49335 11.1834 3.66821L5.88889 8.00007H2C1.44772 8.00007 1 8.44778 1 9.00007V15.0001C1 15.5524 1.44772 16.0001 2 16.0001ZM23 12C23 15.292 21.5539 18.2463 19.2622 20.2622L17.8445 18.8444C19.7758 17.1937 21 14.7398 21 12C21 9.26016 19.7758 6.80629 17.8445 5.15557L19.2622 3.73779C21.5539 5.75368 23 8.70795 23 12ZM18 12C18 10.0883 17.106 8.38548 15.7133 7.28673L14.2842 8.71584C15.3213 9.43855 16 10.64 16 12C16 13.36 15.3213 14.5614 14.2842 15.2841L15.7133 16.7132C17.106 15.6145 18 13.9116 18 12Z';
 const OPEN_PATH = 'M8 3V5H4V9H2V3H8ZM2 21V15H4V19H8V21H2ZM22 21H16V19H20V15H22V21ZM22 9H20V5H16V3H22V9Z';
+const EXIT_FULL_SCREEN_PATH = 'M18 7H22V9H16V3H18V7ZM8 9H2V7H6V3H8V9ZM18 17V21H16V15H22V17H18ZM8 15V21H6V17H2V15H8Z';
 
 function playerIcon(path: string): SVGElement {
 	const svg = $.SVG('svg');

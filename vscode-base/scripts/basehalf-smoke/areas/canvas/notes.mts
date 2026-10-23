@@ -406,8 +406,8 @@ export async function assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page) {
 	const readmeUpstreamRow = noteCard.locator('[data-testid="badge-upstream-row"][data-upstream-status="valid"]', { hasText: 'README' });
 	await readmeUpstreamRow.waitFor({ state: 'visible', timeout: 10_000 });
 	const readmeUpstreamLink = readmeUpstreamRow.locator('.basehalf-canvas-card-badge-link');
-	if (await readmeUpstreamLink.textContent() !== 'README' || await readmeUpstreamLink.getAttribute('title') !== 'README.md') {
-		throw new Error(`An Upstream row does not name a note without its extension and keep the path in its tooltip: ${JSON.stringify({ text: await readmeUpstreamLink.textContent(), title: await readmeUpstreamLink.getAttribute('title') })}`);
+	if (await readmeUpstreamLink.textContent() !== 'README' || await readmeUpstreamRow.getAttribute('data-upstream-path') !== 'README.md' || await readmeUpstreamLink.getAttribute('title') !== null) {
+		throw new Error(`An Upstream row does not name a note without its extension, stand for its path, and show nothing more under the pointer: ${JSON.stringify({ text: await readmeUpstreamLink.textContent(), path: await readmeUpstreamRow.getAttribute('data-upstream-path'), title: await readmeUpstreamLink.getAttribute('title') })}`);
 	}
 	await closeCanvasBadgeFace(noteCard);
 	await assertCanvasEdgeVisible(page, 'README.md', note);

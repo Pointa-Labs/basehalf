@@ -85,12 +85,12 @@ export interface IBaseHalfGenerationCardPresentation {
 	readonly fraction?: number;
 	/** Failed: the error. Stopped: `Stopped`. A file that cannot be shown: that it cannot. */
 	readonly message?: string;
-	/** The full text behind the card: the whole error, or the path of a file that cannot be shown. */
+	/** Failed: the whole error, which the hover of the message shows when its two lines or its length cut it (D65). */
 	readonly tooltip?: string;
 	readonly ariaLabel: string;
 }
 
-/** The longest error a card shows; the whole text is in its tooltip. */
+/** The longest error a card shows; the whole text is in the hover of its message. */
 const CARD_ERROR_MAX_LENGTH = 300;
 
 export function baseHalfGenerationCardPresentation(input: IBaseHalfGenerationCardInput): IBaseHalfGenerationCardPresentation {
@@ -109,7 +109,6 @@ export function baseHalfGenerationCardPresentation(input: IBaseHalfGenerationCar
 					phase,
 					state: 'unshowable',
 					message,
-					tooltip: input.path,
 					ariaLabel: localize('basehalf.generation.card.aria.unshowable', "{0}, {1}, {2}: {3}", name, kindLabel, message, input.path)
 				});
 			}

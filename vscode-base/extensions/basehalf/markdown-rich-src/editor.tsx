@@ -225,11 +225,6 @@ const rawPassthroughSpec = createBlockSpec(
 			edit.type = 'button';
 			edit.className = 'basehalf-raw-passthrough-edit';
 			edit.textContent = baseHalfEditorLabel('Edit in source', '在源码中编辑', '在原始碼中編輯');
-			edit.title = baseHalfEditorLabel(
-				'This content can only be edited as raw Markdown',
-				'这段内容只能作为原始 Markdown 编辑',
-				'這段內容只能作為原始 Markdown 編輯'
-			);
 			dom.appendChild(edit);
 			return { dom };
 		},

@@ -7,6 +7,7 @@
 
 import path from 'path';
 import process from 'process';
+import { waitForViewTransitions } from '../app.mts';
 import { root, workspacePath } from '../context.mts';
 
 export function readCanvasCardGeometry(raw, cardPath) {
@@ -138,6 +139,7 @@ export async function zoomCanvas(page, action, options = {}) {
 
 export async function assertCanvasFolder(page, folderPath) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
+	await waitForViewTransitions(page);
 	await page.locator('.basehalf-canvas-react-island').waitFor({ state: 'visible', timeout: 20_000 });
 	const currentFolder = page.locator(folderPath
 		? '.basehalf-command-center-breadcrumb-segment.current'
@@ -147,7 +149,8 @@ export async function assertCanvasFolder(page, folderPath) {
 	let actualPath;
 	do {
 		if (await currentFolder.isVisible().catch(() => false)) {
-			actualPath = await currentFolder.getAttribute('title');
+			// The breadcrumb's names, as the title bar shows them; it shows no tooltip (D65).
+			actualPath = await page.locator('.basehalf-command-center-breadcrumbs .basehalf-command-center-breadcrumb-segment').evaluateAll(segments => segments.map(segment => segment.textContent?.trim()).join(' / '));
 			if (actualPath === expectedPath) {
 				return;
 			}
@@ -270,6 +273,7 @@ export async function readCanvasView(page) {
 
 /** A point of the empty canvas, where a wheel or a click meets no card. */
 export async function emptyCanvasPoint(page) {
+	await waitForViewTransitions(page);
 	const point = await page.evaluate(() => {
 		const pane = document.querySelector('.basehalf-canvas-cards .react-flow__pane');
 		if (!(pane instanceof HTMLElement)) {

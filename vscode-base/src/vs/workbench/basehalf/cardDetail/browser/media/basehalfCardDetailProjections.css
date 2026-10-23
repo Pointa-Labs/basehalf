@@ -199,6 +199,13 @@
 	overflow: hidden;
 }
 
+/* A video plays in BaseHalf's player, centered, which fits itself into this space. */
+.monaco-workbench .basehalf-card-detail-media-webview.holds-player {
+	display: grid;
+	place-items: center;
+	container-type: size;
+}
+
 /* --- What made the file of a generation card ---------------------------------------------- */
 
 .monaco-workbench .basehalf-card-detail-media.has-generation-provenance {

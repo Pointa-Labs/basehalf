@@ -76,11 +76,11 @@ suite('BaseHalfVideoCardPresentation', () => {
 				refused: { phase: 'failed', state: 'failed', message: 'The provider refused this one: unsafe content.', tooltip: 'The provider refused this one: unsafe content.', ariaLabel: 'heron-2.png, Image, failed: The provider refused this one: unsafe content.' },
 				stopped: { phase: 'stopped', state: 'stopped', message: 'Stopped', ariaLabel: 'heron-2.png, Image, stopped' },
 				file: { phase: 'file', state: 'file', ariaLabel: 'heron-2.png, Image' },
-				unshowable: { phase: 'file', state: 'unshowable', message: 'This image cannot be shown here', tooltip: 'shots/heron-2.png', ariaLabel: 'heron-2.png, Image, This image cannot be shown here: shots/heron-2.png' }
+				unshowable: { phase: 'file', state: 'unshowable', message: 'This image cannot be shown here', ariaLabel: 'heron-2.png, Image, This image cannot be shown here: shots/heron-2.png' }
 			});
 		});
 
-		test('a long error shows in two lines at most, and whole in its tooltip; a landed card whose generation ended shows its file', () => {
+		test('a long error shows in two lines at most, and whole in the hover of its text; a landed card whose generation ended shows its file', () => {
 			const long = `The provider refused the request: ${'content policy '.repeat(40)}`.trim();
 			const failed = card(failBaseHalfGenerationTask(running, long, startedAt));
 			assert.deepStrictEqual({

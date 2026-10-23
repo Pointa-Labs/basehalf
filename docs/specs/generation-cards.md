@@ -602,10 +602,10 @@ What a generation card shows follows its phase (`baseHalfGenerationPhase`):
 | --- | --- |
 | draft | the kind's glyph |
 | generating | the glyph, the phase in words (Preparing, Waiting, Generating, Saving), the time since it started, and a progress bar, exact when the provider reports progress |
-| failed | the glyph and the error in at most two lines; the full text in the tooltip |
+| failed | the glyph and the error in at most two lines; when two lines cut it, the whole error in the hover of its text |
 | stopped | the glyph and "Stopped" |
 | file | the image, or the video in [the player](#the-player) |
-| file that cannot be shown | the glyph and "This image cannot be shown here" or "This video cannot be played here", with its path in the tooltip |
+| file that cannot be shown | the glyph and "This image cannot be shown here" or "This video cannot be played here" |
 
 The phases generating, failed, and stopped come from the task record and are
 shown only on the computer that has it. The card keeps its size when the file
@@ -652,6 +652,24 @@ of a node. The card of any video file plays its video the same way.
 - **Sound starts off.** The sound button turns it on for that card while the
   card shows its video, also when the canvas draws the card again; the video
   then plays with sound while the pointer is on it.
+- **Sound fades.** A sound that starts or stops at once is a click in the
+  speakers, loud where the sound is loud: a generated video often is in its
+  last seconds, and often ends at full sound. So the sound comes up over
+  40 ms when the video starts or the sound is turned on, and goes down over
+  60 ms before the video pauses or the sound is turned off, whatever pauses
+  it: the play button, the pointer leaving, opening the card, or another
+  video starting. It also goes down over the last 100 ms of the video, and
+  for each jump of the position. The play button shows Play at once. A video
+  without sound starts and stops at once, as before. The window's sound
+  output runs while a video with sound plays, and stops 5 s after the last
+  one stopped.
+- **Card Detail plays it the same way.** Card Detail shows the video in this
+  player, not the system's, with what a card that is opened needs: the
+  controls always show, a click on the picture plays and pauses it, Space
+  does too, the pointer on it plays nothing, the sound is on, and **Full
+  Screen** stands where **Open** is. The video starts at the frame its card
+  showed; when Card Detail closes, the card shows the frame where it stopped
+  ([opening and closing Card Detail](card-detail-opening.md)).
 - **The keyboard.** The buttons are buttons; the position slider moves a
   second with Left and Right, and goes to the start and the end with Home
   and End. The arrow keys on a control move no card.
@@ -1296,6 +1314,15 @@ The player
 38. **Open** on the player and a double click on the picture open the card
     and pause its video; closing Card Detail shows the canvas the card is on
     again.
+39. Pausing a video with sound, by any of the ways that pause it, takes its
+    sound to silence over 60 ms before it stops; starting it and turning the
+    sound on bring the sound up over 40 ms; the sound reaches silence before
+    the video's end; recorded at the window's output, no sample after the
+    pause differs from silence.
+40. Card Detail plays a video in the player with its controls shown, the
+    sound on, and Full Screen; a click on the picture plays and pauses it.
+    It starts at the frame the card showed, and the card shows the frame
+    where Card Detail stopped.
 
 ## Verification
 
@@ -1314,7 +1341,8 @@ The player
   31, what the panel's footer holds, the labels of the regions on Providers,
   and the catalog that `--list-capabilities` gives agents; the player's
   gestures, controls, and sound
-  (`basehalfCanvasCardVideoPlayer.test.ts`).
+  (`basehalfCanvasCardVideoPlayer.test.ts`), and its fades with a test
+  audio graph and clock (`basehalfCanvasVideoSound.test.ts`).
 - Unit tests of the canvas and its interface: the folder's model with its
   drafts (`basehalfCanvasModel.test.ts`), the card's face
   (`basehalfVideoCard.test.ts`), the panel host

@@ -423,8 +423,7 @@ export async function closeCanvasBadgeFace(card) {
 // `status:path` (a valid row names its target, an issue row its entry text).
 export async function canvasBadgeUpstreamRows(card) {
 	return card.locator('[data-testid="badge-upstream-row"]').evaluateAll(rows => rows.map(row => {
-		const name = row.querySelector('.basehalf-canvas-card-badge-link, .basehalf-canvas-card-badge-entry-text')?.getAttribute('title');
-		return `${row.getAttribute('data-upstream-status')}:${name}`;
+		return `${row.getAttribute('data-upstream-status')}:${row.getAttribute('data-upstream-path')}`;
 	}));
 }
 
@@ -475,8 +474,8 @@ export async function assertBadgeEditorUpstreamDownstream(page) {
 	const readmeDownstream = readme.locator(`[data-testid="badge-downstream-row"][data-downstream-path="${note}"]`);
 	await readmeDownstream.waitFor({ state: 'visible', timeout: 10_000 });
 	const downstreamRemove = readmeDownstream.locator('.basehalf-canvas-card-badge-remove');
-	if (await downstreamRemove.getAttribute('title') !== `Remove from the upstream of ${note}`) {
-		throw new Error(`The Downstream × tooltip does not name the file it writes: ${await downstreamRemove.getAttribute('title')}`);
+	if (await downstreamRemove.getAttribute('data-basehalf-hover') !== `Remove from the upstream of ${note}` || await downstreamRemove.getAttribute('title') !== null) {
+		throw new Error(`The Downstream × hover does not name the file it writes, or the system's tooltip shows: ${JSON.stringify({ hover: await downstreamRemove.getAttribute('data-basehalf-hover'), title: await downstreamRemove.getAttribute('title') })}`);
 	}
 	await downstreamRemove.click();
 	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs']), 'Downstream × to remove README.md from the note\'s upstream list');

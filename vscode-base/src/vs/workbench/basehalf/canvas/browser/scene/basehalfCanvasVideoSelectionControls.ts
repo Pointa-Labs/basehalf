@@ -9,6 +9,7 @@ import './media/basehalfCanvasVideoSelectionControls.css';
 import { isMacintosh, isWindows } from '../../../../../base/common/platform.js';
 import { localize } from '../../../../../nls.js';
 import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { BASEHALF_HOVER_ATTRIBUTE } from '../../../shell/common/basehalfHover.js';
 import {
 	baseHalfCanvasSceneVideoSelectionActions,
 	IBaseHalfCanvasSceneVideoPanelLayout,
@@ -272,7 +273,8 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			ref: (element: HTMLButtonElement | null) => { buttonRefs.current[index] = element; },
 			type: 'button',
 			className: `basehalf-video-result-toolbar-action basehalf-canvas-note-toolbar-action${action === 'importResult' ? ' basehalf-video-upload-action' : ' icon'}${action === 'captureFrame' ? ' basehalf-video-capture-action' : ''}`,
-			title: labels[action],
+			// Upload shows its words; the other actions are icons that name themselves in the hover.
+			...(action === 'importResult' ? {} : { [BASEHALF_HOVER_ATTRIBUTE]: labels[action] }),
 			'aria-label': labels[action],
 			...(action === 'captureFrame' ? { 'aria-haspopup': 'menu', 'aria-expanded': captureOpen } : {}),
 			'data-video-action': action,

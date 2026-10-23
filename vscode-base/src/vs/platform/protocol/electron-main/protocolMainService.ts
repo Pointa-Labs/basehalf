@@ -24,7 +24,9 @@ export class ProtocolMainService extends Disposable implements IProtocolMainServ
 	declare readonly _serviceBrand: undefined;
 
 	private readonly validRoots = TernarySearchTree.forPaths<boolean>(!isLinux);
-	private readonly validExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.mp4', '.otf', '.ttf']); // https://github.com/microsoft/vscode/issues/119384
+	// BaseHalf: the window plays every video kind that Card Detail shows, M4V and WebM as well as MP4,
+	// in BaseHalf's player, which loads it through this protocol (D65).
+	private readonly validExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.mp4', '.m4v', '.webm', '.otf', '.ttf']); // https://github.com/microsoft/vscode/issues/119384
 
 	constructor(
 		@INativeEnvironmentService private readonly environmentService: INativeEnvironmentService,

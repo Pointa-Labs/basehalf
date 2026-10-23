@@ -72,11 +72,26 @@ See [code organization](code-organization.md) and public decision D60.
   when a click opened it, until an arrow key chooses one, as the
   workbench's context menus do, and it starts at its first item when the
   keyboard opened it. Card Detail keeps the look of the editors it hosts.
+- BaseHalf never shows the system's tooltip, the box that an HTML `title`
+  draws (D65). A hover is drawn by the workbench's hover service, as VS
+  Code's own buttons draw theirs, and only where it tells what is not in
+  view: the name and the key of a button that shows only an icon, why a
+  control is disabled or refuses what was typed, the whole of a message that
+  is cut short, and what the panel of a generation card says of its model,
+  its settings, and its inputs ([generation cards](../specs/generation-cards.md#the-panel)).
+  A card, a name, a path, a row, a tab, and a button that shows its words
+  show nothing more under the pointer. Where a
+  specification speaks of a tooltip, it means this hover. An element gets
+  it from the `data-basehalf-hover` attribute
+  (`shell/browser/basehalfHover.ts`) or from the hover service directly.
+- Card Detail grows out of its card and goes back into it, and no frame
+  shows it empty
+  ([opening and closing Card Detail](../specs/card-detail-opening.md)).
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 
-See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, and D45 in
-[decisions.md](../decisions.md).
+See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, D45, and D65
+in [decisions.md](../decisions.md).
 
 ## Content and graph truth
 

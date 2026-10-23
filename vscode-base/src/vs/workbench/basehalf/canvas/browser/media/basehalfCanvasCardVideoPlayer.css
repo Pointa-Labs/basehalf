@@ -151,3 +151,31 @@
 	box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
 	pointer-events: none;
 }
+
+/*
+ * The player of Card Detail (generation cards, "The player"): the picture is
+ * the player's and is fitted into the space Card Detail gives it, which is
+ * its container (`.holds-player`).
+ */
+.monaco-workbench .basehalf-canvas-video-player.detail {
+	width: min(calc(100cqw - 48px), calc((100cqh - 48px) * var(--basehalf-video-aspect, 1.7778)), calc(900px * var(--basehalf-video-aspect, 1.7778)), 1280px);
+	height: auto;
+	flex: none;
+	aspect-ratio: var(--basehalf-video-aspect, 16 / 9);
+	border-radius: 6px;
+	background: #000;
+}
+
+.monaco-workbench .basehalf-canvas-video-player.detail .basehalf-canvas-video-player-video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-video-player.detail:fullscreen {
+	width: 100%;
+	height: 100%;
+	border-radius: 0;
+}

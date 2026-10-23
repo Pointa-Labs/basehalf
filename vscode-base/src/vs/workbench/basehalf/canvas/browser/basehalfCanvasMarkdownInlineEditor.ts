@@ -29,6 +29,7 @@ import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgen
 import { baseHalfSelectionLines } from '../../agentArea/common/basehalfSelectionLines.js';
 import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMarkdownBlockLines.js';
 import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteShowsOtherHtmlAsWritten } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
+import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { restoreBaseHalfSidewaysScroll } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 
 const CANVAS_MARKDOWN_INLINE_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-markdown-inline-out';
@@ -427,7 +428,6 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.saveFailed = false;
 		this.compositionConflict = false;
 		delete this.root.dataset.compositionConflict;
-		this.root.removeAttribute('title');
 		this.pendingFlush = undefined;
 		this.pendingPrepareToClose = undefined;
 		this.root.setAttribute('aria-label', `Quick edit ${state.relativePath}`);
@@ -727,7 +727,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			units.push(unit);
 			if (!supported) {
 				element.classList.add('unsupported');
-				element.title = 'Use Expand to edit this Markdown block.';
+				setBaseHalfHover(element, 'Use Expand to edit this Markdown block.');
 			}
 			this.renderStaticUnit(element, segment.source, state, seedRendering, referenceDefinitions);
 		}
@@ -907,7 +907,6 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.pendingModelRefresh = false;
 		const message = 'This document changed elsewhere while you were typing. Your draft is preserved below.';
 		this.root.dataset.compositionConflict = 'true';
-		this.root.title = message;
 		const banner = $('.basehalf-canvas-markdown-conflict');
 		const label = append(banner, $('span.basehalf-canvas-markdown-conflict-label'));
 		label.textContent = message;
@@ -946,7 +945,6 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.compositionConflict = false;
 		this.pendingModelRefresh = false;
 		delete this.root.dataset.compositionConflict;
-		this.root.removeAttribute('title');
 		this.renderDocument({ focus: true });
 		this.updateRuntimeReadOnly();
 		this.updateStatus();

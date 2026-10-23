@@ -10,6 +10,8 @@ import { InputBox, MessageType } from '../../../../../base/browser/ui/inputbox/i
 import { IKeyboardEvent } from '../../../../../base/browser/keyboardEvent.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname, extname, joinPath } from '../../../../../base/common/resources.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { raceTimeout } from '../../../../../base/common/async.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
 import { IFileStat } from '../../../../../platform/files/common/files.js';
@@ -17,15 +19,17 @@ import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/def
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction } from '../../common/basehalfCanvasEditing.js';
-import { BaseHalfCardDetailProjection, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension } from '../../../cardDetail/common/basehalfCardDetail.js';
+import { BaseHalfCardDetailProjection, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfMarkdownPreviewCardDetail } from '../../../cardDetail/browser/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from '../../../cardDetail/browser/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from '../../../cardDetail/browser/basehalfSourceCardDetail.js';
 import { IBaseHalfCardDetailSurfaceInstance } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { BaseHalfMediaCardDetail } from '../../../cardDetail/browser/basehalfMediaCardDetail.js';
+import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
 import { BaseHalfStructuralResourceOutcome } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
+import { BASEHALF_CARD_DETAIL_CARDS_WAIT_MS, BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS, BaseHalfCardDetailTransition, IBaseHalfCardDetailTransitionCard } from './basehalfCanvasCardDetailTransition.js';
 
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 
@@ -55,6 +59,15 @@ export class BaseHalfCanvasCardDetailHost {
 	private detailIdentityPendingResourceKey: string | undefined;
 	private pendingDetailNameEditResourceKey: string | undefined;
 	private pendingDetailEditorFocusResourceKey: string | undefined;
+	/** Card Detail grows out of its card and goes back into it (opening and closing Card Detail). */
+	private readonly transition = new BaseHalfCardDetailTransition();
+	/** The file Card Detail shows, while it is shown. */
+	private shownResource: URI | undefined;
+	/** The cards of notes that closing Card Detail draws again, until the transition has waited for them. */
+	private redrawnNotePaths: readonly string[] = [];
+	/** A projection that was not drawn when Card Detail grew in: it stays out of the transition. */
+	private surfaceOutOfTransition: HTMLElement | undefined;
+	private drewOnce = false;
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -149,8 +162,117 @@ export class BaseHalfCanvasCardDetailHost {
 		await this.view.canvasNavigationService.closeCardDetail({ history: 'replace', expectedCardDetail: openedDetail });
 	}
 
+	/**
+	 * Draws Card Detail as navigation has it. When it opens or closes, it grows
+	 * out of its card or goes back into it, and the window shows the canvas
+	 * until Card Detail is drawn (opening and closing Card Detail).
+	 */
 	renderDetail(): void {
+		if (this.transition.drawing) {
+			// The transition that started draws Card Detail as it is then.
+			return;
+		}
 		const cardDetail = this.view.canvasNavigationService.state.cardDetail;
+		const shown = this.view.detail.classList.contains('visible');
+		const resource = cardDetail?.resource ?? this.shownResource;
+		if (this.drewOnce && !!cardDetail !== shown && resource && this.transition.run({
+			direction: cardDetail ? 'open' : 'close',
+			detail: this.view.detail,
+			card: () => this.cardOnScreen(resource),
+			draw: () => this.drawDetail(true),
+			ready: () => cardDetail ? this.whenDetailDrawn() : this.whenNoteCardsDrawn(),
+			// Waiting for Card Detail decides itself what to do when it is late, a little sooner.
+			wait: cardDetail ? BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS + 50 : BASEHALF_CARD_DETAIL_CARDS_WAIT_MS,
+			reducedMotion: this.view.accessibilityService.isMotionReduced(),
+			finished: () => {
+				this.surfaceOutOfTransition?.style.removeProperty('visibility');
+				this.surfaceOutOfTransition = undefined;
+			},
+			onError: error => this.view.logService.error(error instanceof Error ? error : new Error(String(error)))
+		})) {
+			return;
+		}
+		this.drawDetail(false);
+	}
+
+	/** The card of `resource` on the canvas under Card Detail, when it is on screen. */
+	private cardOnScreen(resource: URI): IBaseHalfCardDetailTransitionCard | undefined {
+		for (const [path, item] of this.view.renderedItemsByPath) {
+			if (!this.view.uriIdentityService.extUri.isEqual(item.stat.resource, resource)) {
+				continue;
+			}
+			const card = this.view.renderedCardElementsByPath.get(path);
+			const box = card?.isConnected ? card.getBoundingClientRect() : undefined;
+			const area = this.view.root.getBoundingClientRect();
+			const onScreen = !!box && box.width > 0 && box.right > area.left && box.left < area.right && box.bottom > area.top && box.top < area.bottom;
+			return card && onScreen
+				? { box: card, caption: this.view.cardRenderer.captionOf(card) }
+				: undefined;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Card Detail shows its file: the projection that is shown has drawn it.
+	 * One that does not draw in transitions, or is not drawn in time, stays
+	 * out of the transition and shows itself once it is over
+	 * (`drawsInTransitions`).
+	 */
+	private async whenDetailDrawn(): Promise<void> {
+		const projection = this.view.activeDetailProjection;
+		const surface = projection ? this.detailSurfaces.get(projection) : undefined;
+		if (!surface) {
+			return;
+		}
+		const drawn = surface.instance.drawsInTransitions === true
+			&& await raceTimeout(surface.whenRendered.then(() => true), BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS);
+		if (!drawn) {
+			surface.host.style.visibility = 'hidden';
+			this.surfaceOutOfTransition = surface.host;
+		}
+	}
+
+	/** The canvas has drawn again the cards of notes that closing Card Detail let go. */
+	private whenNoteCardsDrawn(): Promise<void> {
+		const paths = this.redrawnNotePaths;
+		this.redrawnNotePaths = [];
+		// A drawing may have drawn them already: they are back, and in the window.
+		if (paths.every(path => this.view.renderedCardsByPath.has(path) && this.view.renderedCardElementsByPath.get(path)?.isConnected)) {
+			return Promise.resolve();
+		}
+		return new Promise<void>(resolve => {
+			const done = () => {
+				listener.dispose();
+				clearTimeout(timer);
+				clearTimeout(poll);
+				resolve();
+			};
+			// The scene mounts the new cards after the drawing, and the transition
+			// names a card that is in the window. The window draws no frame while
+			// it waits, so it looks again on a timer, not on a frame.
+			const mounted = () => {
+				if (paths.every(path => this.view.renderedCardElementsByPath.get(path)?.isConnected)) {
+					done();
+				} else {
+					poll = setTimeout(mounted, 8);
+				}
+			};
+			let poll: ReturnType<typeof setTimeout> | undefined;
+			const listener = this.view.onDidChangeSceneEmitter.event(change => {
+				if (change.drawn && paths.every(path => this.view.renderedCardsByPath.has(path))) {
+					listener.dispose();
+					mounted();
+				}
+			});
+			const timer = setTimeout(done, BASEHALF_CARD_DETAIL_CARDS_WAIT_MS);
+		});
+	}
+
+	/** `fromTransition`: drawn by a transition, after the drawing of the canvas that asked for it. */
+	private drawDetail(fromTransition: boolean): void {
+		this.drewOnce = true;
+		const cardDetail = this.view.canvasNavigationService.state.cardDetail;
+		this.shownResource = cardDetail?.resource;
 		const chromeHidden = !!cardDetail || !this.view.getCurrentFolder();
 		if (chromeHidden) {
 			this.view.onDidHideViewControlsEmitter.fire();
@@ -189,9 +311,22 @@ export class BaseHalfCanvasCardDetailHost {
 			this.view.detailMeta.textContent = '';
 			if (wasOpen) {
 				// Selected Notes were rendered as static previews underneath the detail
-				// surface. Recreate the retained cards once so the static selected Note
-				// and its controls are current when detail closes.
-				this.view.renderedCardsByPath = new Map();
+				// surface. Recreate the retained cards of notes once so the static
+				// selected Note and its controls are current when detail closes. The
+				// pictures of images and videos stay as they are: drawn anew, a video
+				// shows no picture until it loads again (opening and closing Card Detail).
+				const redrawn: string[] = [];
+				for (const [path, card] of this.view.renderedCardsByPath) {
+					if (isBaseHalfMarkdownResource(card.item.stat.resource)) {
+						this.view.renderedCardsByPath.delete(path);
+						redrawn.push(path);
+					}
+				}
+				this.redrawnNotePaths = redrawn;
+				if (fromTransition && redrawn.length > 0) {
+					// The drawing that closed Card Detail has drawn the canvas already.
+					this.view.requestRender();
+				}
 			}
 			return;
 		}
@@ -263,7 +398,6 @@ export class BaseHalfCanvasCardDetailHost {
 			const button = append(this.view.detailTitle, $('button.basehalf-card-detail-title-button')) as HTMLButtonElement;
 			button.type = 'button';
 			button.textContent = baseHalfItemDisplayName(basename(cardDetail.resource), false);
-			button.title = localize('basehalf.cardDetail.rename', "Rename...");
 			button.setAttribute('aria-label', localize('basehalf.cardDetail.renameFile', "Rename {0}", baseHalfItemDisplayName(basename(cardDetail.resource), false)));
 			this.detailTitleDisposables.add(this.view.addDisposableListener(button, 'click', () => {
 				this.pendingDetailNameEditResourceKey = resourceKey;
@@ -608,8 +742,7 @@ export class BaseHalfCanvasCardDetailHost {
 			this.view.detailSaveStatusIcon.className = 'basehalf-card-detail-save-status-icon codicon codicon-warning';
 			this.view.detailSaveStatusLabel.textContent = label;
 			this.view.detailSaveStatus.setAttribute('data-save-state', 'error');
-			this.view.detailSaveStatus.title = 'Changes could not be saved to disk. Click to retry saving.';
-			this.view.detailSaveStatus.setAttribute('aria-label', this.view.detailSaveStatus.title);
+			this.view.detailSaveStatus.setAttribute('aria-label', 'Changes could not be saved to disk. Click to retry saving.');
 			this.view.detailSaveStatus.removeAttribute('aria-hidden');
 			return;
 		}
@@ -619,7 +752,6 @@ export class BaseHalfCanvasCardDetailHost {
 		this.view.detailSaveStatusIcon.className = 'basehalf-card-detail-save-status-icon codicon';
 		this.view.detailSaveStatusLabel.textContent = '';
 		this.view.detailSaveStatus.removeAttribute('data-save-state');
-		this.view.detailSaveStatus.removeAttribute('title');
 		this.view.detailSaveStatus.removeAttribute('aria-label');
 		this.view.detailSaveStatus.setAttribute('aria-hidden', 'true');
 	}
@@ -645,7 +777,7 @@ export class BaseHalfCanvasCardDetailHost {
 	private renderProjectionButton(cardDetail: IBaseHalfCardDetailState, projection: BaseHalfCardDetailProjection, title: string, icon: string): void {
 		const button = append(this.view.detailProjectionActions, $(`button.basehalf-card-detail-projection.codicon.${icon}`)) as HTMLButtonElement;
 		button.type = 'button';
-		button.title = title;
+		setBaseHalfHover(button, title);
 		button.setAttribute('aria-label', title);
 		button.setAttribute('aria-pressed', String(cardDetail.projection === projection));
 		button.classList.toggle('checked', cardDetail.projection === projection);

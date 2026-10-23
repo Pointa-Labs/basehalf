@@ -35,8 +35,8 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		}
 	});
 
-	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked. */
-	function createPlayer(width = 320, source = `/workspace/clip-${++players}.mp4`): IPlayerFixture {
+	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail. */
+	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false): IPlayerFixture {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';
 		mainWindow.document.body.appendChild(frame);
@@ -50,10 +50,13 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		}
 		const opened: number[] = [];
 		const player = store.add(createBaseHalfCanvasCardVideoPlayer(container, null, {
-			source: URI.file(source),
+			source: typeof source === 'string' ? URI.file(source) : source,
 			videoClasses: ['card-video'],
 			open: () => opened.push(opened.length + 1),
-			onError: () => { /* the test video is never loaded */ }
+			onError: () => { /* the test video is never loaded */ },
+			detail,
+			// No audio graph: the sound starts and stops at once (basehalfCanvasVideoSound.test.ts has the fades).
+			soundGraph: () => undefined
 		}));
 		const media: string[] = [];
 		const video = player.video;
@@ -87,6 +90,8 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 
 	test('the picture is the card\'s: it takes no pointer, a click on it reaches the card and plays nothing, and a double click, which opens the card, pauses it', () => {
 		const { player, reachedCard, media } = createPlayer();
+		// The pointer that clicks plays the video.
+		point(player.element, 'pointerenter');
 		player.element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		player.element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
 		assert.deepStrictEqual({
@@ -102,7 +107,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			pictureIsDraggable: true,
 			controls: ['basehalf-canvas-video-player-top nodrag nopan', 'basehalf-canvas-video-player-bar nodrag nopan'],
 			reachedCard: ['click:basehalf-canvas-video-player', 'dblclick:basehalf-canvas-video-player'],
-			media: ['pause']
+			media: ['play muted', 'pause']
 		});
 	});
 
@@ -260,5 +265,35 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		const { player, container } = createPlayer();
 		player.dispose();
 		assert.deepStrictEqual({ inCard: container.contains(player.element), source: player.video.getAttribute('src') }, { inCard: false, source: null });
+	});
+	test('in Card Detail the picture is the player\'s: the controls always show, a click plays and pauses the video with its sound, the pointer plays nothing, and Full Screen stands where Open is', () => {
+		const { player, media, control } = createPlayer(640, undefined, true);
+		const seen = {
+			controls: player.element.dataset.controls,
+			picturePointer: player.video.style.pointerEvents,
+			open: control('open').getAttribute('aria-label'),
+			sound: control('sound').getAttribute('aria-label')
+		};
+		point(player.element, 'pointerenter');
+		player.video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		const playing = control('play').getAttribute('aria-label');
+		player.video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		point(player.element, 'pointerleave');
+		assert.deepStrictEqual({ seen, playing, media, focused: mainWindow.document.activeElement === control('play') }, {
+			seen: { controls: 'shown', picturePointer: '', open: 'Full Screen', sound: 'Mute' },
+			playing: 'Pause',
+			media: ['play', 'pause'],
+			focused: true
+		});
+	});
+
+	test('Card Detail starts at the frame its card shows, also when the canvas asks for the file with its version, and leaves the card at the frame where it stopped', () => {
+		const card = createPlayer(320, URI.file('/workspace/shot.mp4').with({ query: 'basehalfCanvasVersion=1792728899792-2709245' }));
+		card.time.value = 3.2;
+		const detail = createPlayer(640, '/workspace/shot.mp4', true);
+		const startsAt = new URL(detail.player.video.src).hash;
+		detail.time.value = 4.5;
+		detail.player.dispose();
+		assert.deepStrictEqual({ startsAt, card: card.time.value }, { startsAt: '#t=3.2', card: 4.5 });
 	});
 });

@@ -23,6 +23,7 @@ import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvas
 import { BASEHALF_CANVAS_SKIP_NAMES, isBaseHalfCanvasPathEligible } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import {
 	baseHalfCanvasConnectionSummary,
 	baseHalfOrderUpstreamPickerCandidates,
@@ -577,7 +578,6 @@ export class BaseHalfUpstreamActions extends Disposable {
 					// named as a file: a note that keeps its list with BaseHalf is far
 					// more common than a folder that is named like a note.
 					link.textContent = baseHalfItemDisplayName(basename(downstream.node.resource), false);
-					link.title = downstream.node.relativePath;
 					listen(link, EventType.CLICK, event => {
 						event.preventDefault();
 						event.stopPropagation();
@@ -585,8 +585,9 @@ export class BaseHalfUpstreamActions extends Disposable {
 					});
 					const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
 					remove.type = 'button';
-					remove.title = localize('basehalf.upstream.removeDownstream', "Remove from the upstream of {0}", downstream.node.relativePath);
-					remove.setAttribute('aria-label', remove.title);
+					const removeLabel = localize('basehalf.upstream.removeDownstream', "Remove from the upstream of {0}", downstream.node.relativePath);
+					setBaseHalfHover(remove, removeLabel);
+					remove.setAttribute('aria-label', removeLabel);
 					listen(remove, EventType.CLICK, event => {
 						event.preventDefault();
 						event.stopPropagation();
@@ -638,6 +639,8 @@ export class BaseHalfUpstreamActions extends Disposable {
 		row.setAttribute('data-testid', 'badge-upstream-row');
 		row.setAttribute('data-upstream-status', entry.status);
 		row.setAttribute('data-upstream-index', String(entry.index));
+		// What the row stands for, as a Downstream row says its path: the target, or the entry as written.
+		row.setAttribute('data-upstream-path', entry.status === 'valid' && entry.target ? entry.target.relativePath : entry.text);
 		const direction = append(row, $('span.basehalf-canvas-card-badge-direction.upstream'));
 		direction.textContent = '↑';
 		direction.setAttribute('aria-hidden', 'true');
@@ -646,7 +649,6 @@ export class BaseHalfUpstreamActions extends Disposable {
 			const link = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
 			link.type = 'button';
 			link.textContent = baseHalfItemDisplayName(basename(target.resource), target.kind === 'folder');
-			link.title = target.relativePath;
 			listen(link, EventType.CLICK, event => {
 				event.preventDefault();
 				event.stopPropagation();
@@ -656,13 +658,13 @@ export class BaseHalfUpstreamActions extends Disposable {
 			row.classList.add('upstream-issue');
 			const text = append(row, $('span.basehalf-canvas-card-badge-entry-text'));
 			text.textContent = entry.text || localize('basehalf.upstream.entry.emptyText', "(empty)");
-			text.title = entry.text;
 		}
 		if (entry.status === 'valid') {
 			const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
 			remove.type = 'button';
-			remove.title = localize('basehalf.upstream.removeUpstream', "Remove {0} from upstream", entry.target?.relativePath ?? entry.text);
-			remove.setAttribute('aria-label', remove.title);
+			const removeLabel = localize('basehalf.upstream.removeUpstream', "Remove {0} from upstream", entry.target?.relativePath ?? entry.text);
+			setBaseHalfHover(remove, removeLabel);
+			remove.setAttribute('aria-label', removeLabel);
 			listen(remove, EventType.CLICK, event => {
 				event.preventDefault();
 				event.stopPropagation();

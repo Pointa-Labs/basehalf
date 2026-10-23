@@ -23,6 +23,7 @@ import {
 	baseHalfShouldVetoForBadgeDrafts,
 	baseHalfTransitionBadgeDraftIdentity
 } from '../basehalfCanvasConnectionTransaction.js';
+import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
 import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../../../shell/common/basehalfWorkbenchProfile.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { IBaseHalfBadgeDescriptionDraft, IBaseHalfBadgeDescriptionPending, IBaseHalfCanvasMutationGuard, baseHalfBadgeResourceIdentity } from './basehalfCanvasViewShared.js';
@@ -180,7 +181,7 @@ export class BaseHalfCanvasBadgeEditor {
 		const action = badgeOpen
 			? localize('basehalf.canvas.badge.hide', "Hide the badge - back to the preview")
 			: item.badge?.description ? localize('basehalf.canvas.badge.edit', "Has a badge - edit it") : localize('basehalf.canvas.badge.show', "Edit Badge");
-		badgeToggle.title = summary ? `${summary} - ${action}` : action;
+		setBaseHalfHover(badgeToggle, summary ? `${summary} - ${action}` : action);
 		badgeToggle.setAttribute('aria-label', summary
 			? localize('basehalf.canvas.badge.ariaSummary', "{0} badge for {1}, {2}", badgeOpen ? localize('basehalf.canvas.badge.hideVerb', "Hide") : localize('basehalf.canvas.badge.showVerb', "Show"), item.path, summary)
 			: localize('basehalf.canvas.badge.aria', "{0} badge for {1}", badgeOpen ? localize('basehalf.canvas.badge.hideVerb', "Hide") : localize('basehalf.canvas.badge.showVerb', "Show"), item.path));
@@ -968,7 +969,7 @@ export class BaseHalfCanvasBadgeEditor {
 				this.view.detailBadgeZone.classList.remove('open');
 				const retry = append(this.view.detailBadgeZone, $('button.basehalf-card-detail-badge-toggle.issue')) as HTMLButtonElement;
 				retry.type = 'button';
-				retry.title = localize('basehalf.cardDetail.badge.unavailable', "Badge unavailable - retry");
+				setBaseHalfHover(retry, localize('basehalf.cardDetail.badge.unavailable', "Badge unavailable - retry"));
 				retry.setAttribute('aria-label', localize('basehalf.cardDetail.badge.unavailableAria', "Badge unavailable. Retry"));
 				retry.setAttribute('aria-expanded', 'false');
 				retry.setAttribute('data-testid', 'card-detail-badge-toggle');
@@ -1015,7 +1016,6 @@ export class BaseHalfCanvasBadgeEditor {
 
 		const toggle = append(this.view.detailBadgeZone, $('button.basehalf-card-detail-badge-toggle')) as HTMLButtonElement;
 		toggle.type = 'button';
-		toggle.title = open ? 'Hide Badge' : 'Show Badge';
 		toggle.setAttribute('aria-label', open ? 'Hide Badge' : 'Show Badge');
 		toggle.setAttribute('aria-expanded', String(open));
 		toggle.setAttribute('aria-haspopup', 'dialog');
@@ -1038,7 +1038,7 @@ export class BaseHalfCanvasBadgeEditor {
 		toggle.classList.toggle('issue', badgeIssueCount > 0);
 		toggle.setAttribute('data-reference-issue-count', String(badgeIssueCount));
 		const toggleAction = open ? localize('basehalf.cardDetail.badge.hide', "Hide Badge") : localize('basehalf.cardDetail.badge.show', "Show Badge");
-		toggle.title = connectionSummary ? `${connectionSummary} - ${toggleAction}` : toggleAction;
+		setBaseHalfHover(toggle, connectionSummary ? `${connectionSummary} - ${toggleAction}` : toggleAction);
 		toggle.setAttribute('aria-label', connectionSummary ? `${toggleAction}, ${connectionSummary}` : toggleAction);
 		this.view.cardRenderer.renderGlyph(toggle, 'badge', badgeIssueCount > 0 ? 'var(--vscode-editorWarning-foreground)' : hasContent ? 'var(--vscode-textLink-foreground)' : 'var(--basehalf-detail-badge-ghost)', 15);
 		if (badgeIssueCount > 0) {
@@ -1194,7 +1194,7 @@ export class BaseHalfCanvasBadgeEditor {
 			return;
 		}
 
-		toggle.title = 'Show Badge';
+		setBaseHalfHover(toggle, 'Show Badge');
 		toggle.setAttribute('aria-label', 'Show Badge');
 		toggle.setAttribute('aria-expanded', 'false');
 		toggle.removeAttribute('aria-controls');

@@ -2178,3 +2178,65 @@ the user's Codex out. No reference product reads the login.
   file is a card, and each image is a file.
 - The agent skill says how an agent puts an image it made itself, with its own
   image generation, onto the canvas.
+
+## D65 — No system tooltips, sound that fades, and Card Detail that grows out of its card (NEW, 2026-10-23)
+
+**Decision.** Three things about how BaseHalf feels under the pointer and in
+the speakers.
+
+- BaseHalf never shows the system's tooltip, the box of an HTML `title`. A
+  hover is the workbench's own, and only where it tells what is not in view:
+  the name and the key of a button that shows only an icon, why a control is
+  disabled or refuses what was typed, the whole of a message that is cut
+  short, and what the panel of a generation card says of its model, settings,
+  and inputs. A card, a name, a path, a row, a tab, and a button that shows
+  its words show nothing more.
+- The sound of a video never starts or stops at once. It comes up over 40 ms
+  and goes down over 60 ms before a pause, over the last 100 ms of the video,
+  and for each jump of the position. Card Detail plays a video in the same
+  player as the canvas.
+- Card Detail grows out of its card and goes back into it, and no frame shows
+  it empty: the canvas stays until Card Detail is drawn, at most 250 ms.
+  Closing it draws no picture of a card anew.
+
+See [architecture invariants, "Product shell"](harness/architecture-invariants.md#product-shell),
+[generation cards, "The player"](specs/generation-cards.md#the-player), and
+[opening and closing Card Detail](specs/card-detail-opening.md).
+
+**Why.** On 2026-10-23 the user pointed at the box "video.mp4 - click to
+select; double-click to open the editor" that the system drew over a video
+card, said that BaseHalf had many such boxes, and that none of them were
+needed. BaseHalf set one in 51 places: on every card, on names, rows, paths,
+tabs, and buttons, most of them repeating what was in view or telling how to
+click. VS Code's own
+buttons draw the workbench's hover instead, in the workbench's colors, and
+only for what an icon cannot say.
+
+The user also heard a pop when a video paused, as if a microphone clipped,
+and asked whether that was normal. Chromium stops a sound in the middle of
+its wave, and the speakers play the jump to silence as a click. The video
+the user had made was loud in its second half, about 0.4 of full scale, and
+its last sample stood at 0.59: every pause there, and every end, was a jump
+of that size. Players that sound smooth fade; BaseHalf's paused at once.
+Card Detail played the video with the system's controls, whose pause cannot
+be faded, so it now uses BaseHalf's player.
+
+Last, opening a card with a double click and closing Card Detail flashed and
+felt abrupt. Recorded frame by frame: an empty Card Detail for 140 ms before
+the video, and on closing every card drawn anew, the video card's picture
+empty for a frame. A view transition of the window keeps the old frame until
+Card Detail is drawn and moves the card into it; an editor in a webview is
+left out of it, which the browser would otherwise hold up for 2 s.
+
+**Consequences.**
+- Buttons that show only an icon, in the canvas, Card Detail, the Agent Area,
+  and the title bar's location, show their names in the workbench's hover.
+  Hovering a failed generation card's error shows the whole error only when
+  two lines cut it; the path of a card that cannot be shown is not shown.
+- A video's sound goes through the window's audio graph once its sound is on;
+  the graph runs only while such a video plays. A video without sound plays
+  as before.
+- Card Detail of a video starts at the frame its card showed, has the
+  player's controls with Full Screen, and leaves its card at the frame where
+  it stopped.
+

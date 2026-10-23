@@ -8,6 +8,7 @@ import './media/basehalfCanvasNoteToolbar.css';
 import './media/basehalfCanvasNoteSelectionControls.css';
 import { localize } from '../../../../../nls.js';
 import { BASEHALF_CANVAS_MIN_ZOOM } from '../../../shell/common/basehalfConfiguration.js';
+import { BASEHALF_HOVER_ATTRIBUTE } from '../../../shell/common/basehalfHover.js';
 import {
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
@@ -148,7 +149,7 @@ export function createBaseHalfCanvasNoteSelectionControls(environment: IBaseHalf
 			key,
 			type: 'button',
 			className: `basehalf-canvas-note-toolbar-action ${className}${active === true ? ' active' : active === 'mixed' ? ' mixed' : ''}`,
-			title: label,
+			[BASEHALF_HOVER_ATTRIBUTE]: label,
 			'aria-label': label,
 			...(active !== undefined ? { 'aria-pressed': active } : {}),
 			tabIndex: !suppressed && index === focusIndex ? 0 : -1,
@@ -252,7 +253,7 @@ export function createBaseHalfCanvasNoteSelectionControls(environment: IBaseHalf
 				key: value,
 				type: 'button',
 				className: `basehalf-canvas-note-background-option ${value}${value === background ? ' active' : ''}`,
-				title: backgroundLabels[value],
+				[BASEHALF_HOVER_ATTRIBUTE]: backgroundLabels[value],
 				'aria-label': backgroundLabels[value],
 				'aria-checked': value === background,
 				role: 'menuitemradio',

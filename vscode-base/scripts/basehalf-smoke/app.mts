@@ -81,6 +81,33 @@ function shouldLogConsoleMessage(message) {
 		&& !text.includes('[Extension Host (stderr)] For help, see: https://nodejs.org/learn/getting-started/debugging');
 }
 
+/**
+ * Waits for a view transition of the window to end, as when Card Detail grows
+ * out of its card or goes back into it: while one runs, every point of the
+ * window hits its root.
+ */
+export async function waitForViewTransitions(page) {
+	await page.waitForFunction(() => !document.activeViewTransition, undefined, { polling: 16, timeout: 5_000 }).catch(() => undefined);
+}
+
+/**
+ * Raw pointer input waits for a view transition of the window to end. While
+ * one runs, as when Card Detail grows out of its card or goes back into it,
+ * the window's root takes every click, as it does for a user who clicks
+ * during it (opening and closing Card Detail); a locator's click waits by
+ * itself, since it hits nothing else until the end.
+ */
+export function waitForViewTransitionsBeforePointerInput(page) {
+	const mouse = page.mouse;
+	for (const name of ['click', 'dblclick', 'down', 'up', 'move', 'wheel']) {
+		const original = mouse[name].bind(mouse);
+		mouse[name] = async (...args) => {
+			await waitForViewTransitions(page);
+			return original(...args);
+		};
+	}
+}
+
 export function observePage(page, label) {
 	const sourceLabel = label ? `${label} ` : '';
 	page.on('pageerror', error => {
