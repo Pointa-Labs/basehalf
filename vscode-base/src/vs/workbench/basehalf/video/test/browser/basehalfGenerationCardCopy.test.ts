@@ -166,7 +166,7 @@ suite('BaseHalfGenerationCardCopy', () => {
 	teardown(() => disposables.clear());
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('a copy of a card with its file gets its prompt and settings and a record with a new id that names the original, without its connections', async () => {
+	test('a copy of a card with its file gets a record with a new id that names the original, without its connections, and a file BaseHalf did not make gets none (D67)', async () => {
 		const harness = await createHarness(disposables, {
 			'shots/shot.mp4': 'video',
 			'.bh/mirror/shots/shot.mp4/generation.yaml': 'prompt: "A pier at dawn."\nprovider: "acme"\n',
@@ -188,11 +188,13 @@ suite('BaseHalfGenerationCardCopy', () => {
 			still: await harness.read('.bh/mirror/shots/still-2.png/generation.yaml'),
 			stillRecord: await harness.exists('.bh/mirror/shots/still-2.png/made.yaml')
 		}, {
-			result: { copied: ['other/shot.mp4', 'shots/still-2.png'], failed: [] },
-			info: 'prompt: "A pier at dawn."\nprovider: "acme"\n',
+			result: { copied: ['other/shot.mp4'], failed: [] },
+			// Only a draft has a generation.yaml: the copy of a generated file is its record alone.
+			info: undefined,
 			record: baseHalfGenerationMadeCopy(made, '20261022T090000-feedbeef'),
 			upstream: false,
-			still: 'prompt: "A heron."\n',
+			// A file without a record is an ordinary file: its copy is one too.
+			still: undefined,
 			stillRecord: false
 		});
 	});
@@ -224,7 +226,7 @@ suite('BaseHalfGenerationCardCopy', () => {
 			result: { copied: ['shots copy/deep/shot.mp4', 'shots copy/draft.png'], failed: [] },
 			draft: 'prompt: "A heron."\n',
 			draftUpstream: false,
-			shot: 'prompt: "A pier."\n',
+			shot: undefined,
 			record: made.id,
 			gone: false,
 			badge: false,
@@ -279,9 +281,9 @@ suite('BaseHalfGenerationCardCopy', () => {
 		})())));
 		await harness.workingCopyFileService.copy([{ file: { source: harness.resource('shots/shot.mp4'), target: harness.resource('shots/shot copy.mp4') } }], CancellationToken.None);
 		const copy = await harness.store.read(harness.resource('shots/shot copy.mp4'));
-		assert.deepStrictEqual({ heard, prompt: copy.info.prompt, copyOf: copy.made?.copyOf, newId: copy.made?.id !== made.id, notifications: harness.notifications.shown }, {
+		assert.deepStrictEqual({ heard, prompt: copy.made?.prompt, copyOf: copy.made?.copyOf, newId: copy.made?.id !== made.id, notifications: harness.notifications.shown }, {
 			heard: [true],
-			prompt: 'A pier.',
+			prompt: made.prompt,
 			copyOf: made.id,
 			newId: true,
 			notifications: []

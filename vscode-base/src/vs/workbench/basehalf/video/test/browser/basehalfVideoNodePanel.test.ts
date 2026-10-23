@@ -156,6 +156,10 @@ class FakeCardStore extends Disposable implements IBaseHalfGenerationCardStore {
 		throw new Error('Not used by the panel.');
 	}
 
+	removeInfo(): Promise<void> {
+		throw new Error('Not used by the panel.');
+	}
+
 	/** Another window or an agent changed the card's generation information. */
 	writeFromElsewhere(info: IBaseHalfGenerationInfo): void {
 		this.info = info;

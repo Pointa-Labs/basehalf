@@ -20,8 +20,9 @@ import {
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoListedModels,
 	baseHalfVideoModelAbilities,
-	baseHalfVideoModeOf,
 	baseHalfVideoModeParameters,
+	baseHalfVideoModeThatIsUsed,
+	baseHalfVideoModeUsesEveryInput,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
 	baseHalfVideoParameterDefault,
@@ -65,12 +66,10 @@ import { baseHalfGenerationChoice, IBaseHalfGenerationInfo } from './basehalfGen
  */
 
 export interface IBaseHalfVideoPanelState {
-	/** What the card's next generation uses. */
+	/** What the draft's generation uses. Only a draft has this panel (D67). */
 	readonly info: IBaseHalfGenerationInfo;
 	/** What the card makes: its model menu lists the models of this kind. */
 	readonly kind: BaseHalfModelKind;
-	/** The card has its file: Generate makes a new card beside it. */
-	readonly hasFile: boolean;
 	/** The card's upstream entries, resolved, in order. */
 	readonly inputs: readonly IBaseHalfVideoInputSource[];
 	/** The text of the text inputs that were read, by upstream entry, without front matter. */
@@ -190,6 +189,8 @@ export interface IBaseHalfVideoPanelChoice<T> {
 	readonly shape?: { readonly width: number; readonly height: number };
 	/** Why the choice cannot generate here, such as a mode the region does not offer; it is dimmed and can still be chosen. */
 	readonly unavailable?: string;
+	/** Why the choice cannot be chosen, such as a mode that cannot use every input of the card; it is dimmed and cannot be chosen. */
+	readonly disabled?: string;
 }
 
 interface IBaseHalfVideoPanelControlBase {
@@ -303,7 +304,8 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const generation = baseHalfGenerationChoice(state.info);
 	const catalog = state.catalog.kind === 'ready' ? state.catalog.catalog : undefined;
 	const ref = findBaseHalfVideoModel(catalog, generation?.provider, generation?.model);
-	const mode = ref ? baseHalfVideoModeOf(ref.model, generation?.mode) : undefined;
+	// The mode that is used follows the inputs (generation cards, "What is connected is sent").
+	const mode = ref ? baseHalfVideoModeThatIsUsed(ref.model, generation?.mode, state.inputs) : undefined;
 	const region = ref ? state.setup(ref.provider).region : undefined;
 	const params = ref && mode ? normalizeBaseHalfVideoParams(ref.model, mode.id, generation?.params) : Object.freeze({ ...generation?.params });
 	// Without a model, an image card takes references, as every image model does, and a video card frames.
@@ -329,7 +331,8 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 		setup: state.setup,
 		problems: checkRequest ? state.check?.problems : undefined,
 		prompt: state.prompt,
-		plan
+		plan,
+		...(mode ? { mode } : {})
 	});
 	const blockerText = blocker ? baseHalfVideoGenerateBlockerText(blocker) : undefined;
 	const modelLabel = ref?.model.label ?? localize('basehalf.video.panel.thisModel', "This model");
@@ -348,7 +351,7 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 			: [])),
 		model: modelButton(state, ref, region, blocker, blockerText),
 		modelMenu: modelMenu(state),
-		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region) } : {}),
+		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, displayLanguage) } : {}),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
 		...(blocker && blockerText ? reasonOf(blocker, blockerText, ref?.provider.id) : {}),
@@ -632,7 +635,15 @@ const BUTTON_CHOICES = 5;
 /** Up to this many steps of a number are a slider; more are a number field. */
 const SLIDER_STEPS = 1000;
 
-function settingsView(ref: IBaseHalfVideoModelRef, mode: IBaseHalfVideoCatalogMode, params: BaseHalfVideoParams, startFrame: boolean, region: IBaseHalfVideoCatalogRegion | undefined): IBaseHalfVideoPanelSettingsView {
+function settingsView(
+	ref: IBaseHalfVideoModelRef,
+	mode: IBaseHalfVideoCatalogMode,
+	params: BaseHalfVideoParams,
+	startFrame: boolean,
+	region: IBaseHalfVideoCatalogRegion | undefined,
+	inputs: readonly IBaseHalfVideoInputSource[],
+	displayLanguage: string
+): IBaseHalfVideoPanelSettingsView {
 	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, params, startFrame);
 	const parameters = baseHalfVideoModeParameters(ref.model, mode.id);
 	const shown = (parameter: BaseHalfVideoCatalogParameter) => startFrame && parameter.setByStartFrame
@@ -646,12 +657,29 @@ function settingsView(ref: IBaseHalfVideoModelRef, mode: IBaseHalfVideoCatalogMo
 				const unavailable = region && !baseHalfVideoRegionOffersMode(candidate, region.id)
 					? localize('basehalf.video.panel.modeNotInRegion', "Not offered in {0}", region.label)
 					: undefined;
-				return Object.freeze({ key: `mode:${candidate.id}`, value: candidate.id, label: candidate.label, selected: candidate.id === mode.id, ...(unavailable ? { unavailable } : {}) });
+				// A mode that cannot use every input is not chosen: what is connected is sent.
+				const disabled = baseHalfVideoModeUsesEveryInput(candidate.inputs, inputs) ? undefined : modeCannotUse(candidate, inputs, displayLanguage);
+				return Object.freeze({
+					key: `mode:${candidate.id}`,
+					value: candidate.id,
+					label: candidate.label,
+					selected: candidate.id === mode.id,
+					...(unavailable ? { unavailable } : {}),
+					...(disabled ? { disabled } : {})
+				});
 			}))
 		} : {}),
 		controls: Object.freeze(parameters.filter(parameter => !parameter.advanced).map(shown)),
 		advanced: Object.freeze(parameters.filter(parameter => parameter.advanced).map(shown))
 	});
+}
+
+/** Why a mode cannot be chosen for the card's inputs: the first input it cannot use, as "Frames cannot use Video 1." */
+function modeCannotUse(mode: IBaseHalfVideoCatalogMode, inputs: readonly IBaseHalfVideoInputSource[], displayLanguage: string): string {
+	const plan = planBaseHalfVideoInputs(mode.inputs, inputs.map(input => input.available ? input : { path: input.path, kind: input.kind, available: true }), displayLanguage);
+	const item = plan.find(candidate => candidate.use === 'unused');
+	const name = item ? item.label ?? baseHalfVideoPanelInputFileName(item.path) : '';
+	return localize('basehalf.video.panel.modeCannotUse', "{0} cannot use {1}.", mode.label, name);
 }
 
 function control(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue | undefined): BaseHalfVideoPanelControl {
@@ -794,10 +822,6 @@ function generateButton(
 		kind: 'generate',
 		enabled: true,
 		label: localize('basehalf.video.panel.generate', "Generate"),
-		title: state.hasFile
-			? state.kind === 'image'
-				? localize('basehalf.video.panel.generateNewImage', "Generate a new image in a new card beside this one ({0})", key)
-				: localize('basehalf.video.panel.generateNewVideo', "Generate a new video in a new card beside this one ({0})", key)
-			: localize('basehalf.video.panel.generateWithKey', "Generate ({0})", key)
+		title: localize('basehalf.video.panel.generateWithKey', "Generate ({0})", key)
 	});
 }

@@ -13,6 +13,7 @@ import {
 	baseHalfGenerationFileFormat,
 	baseHalfGenerationFormatExtension,
 	baseHalfGenerationInfoChangedFields,
+	baseHalfGenerationInfoOfMade,
 	baseHalfGenerationKindOfPath,
 	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationMadeCopy,
@@ -217,6 +218,17 @@ suite('BaseHalfGenerationInfo', () => {
 			const made = { ...request, id: 't1', startedAt: '2026-10-22T08:00:00.000Z', finishedAt: '2026-10-22T08:00:40.000Z' };
 			const copy = baseHalfGenerationMadeCopy(made, 't2');
 			assert.deepStrictEqual([copy.id, copy.copyOf, baseHalfGenerationMadeCopy(copy, 't3').copyOf], ['t2', 't1', 't1']);
+		});
+
+		test('a new version generates what made the file, without the seed (D67)', () => {
+			const made = { ...request, params: { ...request.params, seed: 42 }, id: 't1', startedAt: '2026-10-22T08:00:00.000Z', finishedAt: '2026-10-22T08:00:40.000Z', output: 2, outputs: 2 };
+			assert.deepStrictEqual(baseHalfGenerationInfoOfMade(made), {
+				prompt: '图片1里的人站在海边',
+				provider: 'acme',
+				model: 'acme-image-2',
+				mode: 'reference',
+				params: { resolution: '2k', count: 2, transparent: false }
+			});
 		});
 	});
 

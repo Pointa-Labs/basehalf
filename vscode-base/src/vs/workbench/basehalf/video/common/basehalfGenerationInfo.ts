@@ -623,6 +623,22 @@ export function baseHalfGenerationMadeCopy(original: IBaseHalfGenerationMade, ne
 	return normalizeBaseHalfGenerationMade({ ...original, id: newId, copyOf: original.copyOf ?? original.id });
 }
 
+/** The parameter a new version leaves out, so that it makes another result (D59's shared name of the seed). */
+export const BASEHALF_GENERATION_SEED_PARAM = 'seed';
+
+/**
+ * What a new version of a generated file generates (generation cards, "New
+ * Version"): the prompt, provider, model, mode, and values that made it,
+ * without the seed. The text of its notes is not part of the prompt: the new
+ * draft is connected to the same notes, and their text joins its prompt when
+ * it generates.
+ */
+export function baseHalfGenerationInfoOfMade(made: IBaseHalfGenerationMade): IBaseHalfGenerationInfo {
+	const params: Record<string, BaseHalfVideoParamValue> = { ...made.params };
+	delete params[BASEHALF_GENERATION_SEED_PARAM];
+	return normalizeBaseHalfGenerationInfo({ prompt: made.prompt, provider: made.provider, model: made.model, mode: made.mode, params });
+}
+
 // --- the task record -------------------------------------------------------------------------
 
 /**

@@ -56,7 +56,6 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		return createBaseHalfVideoPanelPresentation({
 			info: { prompt: 'A slow push in.', ...generation },
 			kind: options.kind ?? 'video',
-			hasFile: options.hasFile ?? false,
 			inputs: options.inputs ?? sources,
 			texts: options.texts ?? new Map([['notes/scene.md', 'The sea at dusk.']]),
 			catalog: options.catalog ?? ready,
@@ -146,7 +145,41 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				'brief.pdf:unused (Not used: this kind of file cannot be sent to a video model.)'
 			],
 			startTooltip: 'Start frame · Image 1\nframes/a.png',
-			blocker: undefined
+			// No mode uses a PDF: the card keeps its own mode, and the PDF stops Generate (D67).
+			blocker: { kind: 'unusableInput', path: 'docs/brief.pdf', name: 'brief.pdf', reason: 'An image or video card cannot use brief.pdf.' }
+		});
+	});
+
+	test('the mode that is used follows the inputs, and a mode that cannot use them all is dimmed and cannot be chosen (D67)', () => {
+		const modes = (presentation: IBaseHalfVideoPanelPresentation) => presentation.settingsView?.modes?.map(mode => `${mode.label}${mode.selected ? '*' : ''}${mode.disabled ? ` (${mode.disabled})` : ''}`);
+		const secondVideo: IBaseHalfVideoInputSource = { path: 'clips/second.mp4', kind: 'video', available: true };
+		const withVideo = present({ inputs: [sources[0], sources[3]] });
+		const imagesOnly = present({ inputs: sources.slice(0, 2) });
+		const threeImagesVideoAndNote = present({ inputs: sources.slice(0, 5) });
+		const twoVideos = present({ inputs: [sources[3], secondVideo] });
+		assert.deepStrictEqual({
+			withVideo: { mode: withVideo.mode?.id, modes: modes(withVideo), items: withVideo.inputRow?.items.map(describe), blocker: withVideo.blocker?.kind },
+			imagesOnly: { mode: imagesOnly.mode?.id, modes: modes(imagesOnly) },
+			criterion9: { mode: threeImagesVideoAndNote.mode?.id, items: threeImagesVideoAndNote.inputRow?.items.map(describe), blocker: threeImagesVideoAndNote.blocker?.kind },
+			twoVideos: { mode: twoVideos.mode?.id, modes: modes(twoVideos), reason: twoVideos.reason?.text }
+		}, {
+			withVideo: {
+				mode: 'reference',
+				modes: ['Frames (Frames cannot use Video 1.)', 'References*'],
+				items: ['Image 1:reference', 'Video 1:reference'],
+				blocker: undefined
+			},
+			imagesOnly: { mode: 'frames', modes: ['Frames*', 'References'] },
+			criterion9: {
+				mode: 'reference',
+				items: ['Image 1:reference', 'Image 2:reference', 'Image 3:reference', 'Video 1:reference', 'scene:text'],
+				blocker: undefined
+			},
+			twoVideos: {
+				mode: 'frames',
+				modes: ['Frames* (Frames cannot use Video 1.)', 'References (References cannot use Video 2.)'],
+				reason: 'Video 2 cannot be sent: Acme Motion 2 takes one video at most.'
+			}
 		});
 	});
 
@@ -307,9 +340,10 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			notSetUp: present({ generation: { provider: 'borealis', model: 'borealis-one' } }),
 			region: present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' } }),
 			modeRegion: present({ catalog: westOnly, generation: { ...frames, mode: 'reference' } }),
-			check: present({ check: { problems: ['frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.'] } }),
+			check: present({ inputs: sources.slice(0, 2), check: { problems: ['frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.'] } }),
+			unusableInput: present(),
 			nothingToSend: present({ prompt: '  ', inputs: [] }),
-			ready: present()
+			ready: present({ inputs: sources.slice(0, 2) })
 		};
 		assert.deepStrictEqual(Object.fromEntries(Object.entries(states).map(([name, presentation]) => [name, presentation.reason
 			? `${presentation.reason.text}${presentation.reason.action ? ` [${presentation.reason.action.label} → ${presentation.reason.action.provider}]` : ''}`
@@ -323,6 +357,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			region: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers. [Providers… → acme]',
 			modeRegion: 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Providers. [Providers… → acme]',
 			check: 'frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.',
+			unusableInput: 'brief.pdf cannot be sent: An image or video card cannot use brief.pdf.',
 			nothingToSend: null,
 			ready: null
 		});
@@ -341,10 +376,10 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			unknownModel: present({ generation: { provider: 'acme', model: 'acme-motion-9' } }),
 			notSetUp: present({ generation: { provider: 'borealis', model: 'borealis-one' } }),
 			region: present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' } }),
-			check: present({ check: { problems: ['The prompt is longer than 2,000 characters.'] } }),
+			unusableInput: present(),
+			check: present({ inputs: sources.slice(0, 2), check: { problems: ['The prompt is longer than 2,000 characters.'] } }),
 			nothingToSend: present({ prompt: '  ', inputs: [] }),
-			ready: present(),
-			video: present({ hasFile: true })
+			ready: present({ inputs: sources.slice(0, 2) })
 		};
 		const key = isMacintosh ? '⌘Enter' : 'Ctrl+Enter';
 		const onEast = 'Acme Motion 2 on Acme Video, East · Acme Cloud';
@@ -371,16 +406,17 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				generate: 'generate disabled: Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.',
 				model: { label: 'Acme Still', outlined: true, title: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.' }
 			},
+			unusableInput: {
+				blocker: 'unusableInput',
+				generate: 'generate disabled: brief.pdf cannot be sent: An image or video card cannot use brief.pdf.',
+				model: { label: 'Acme Motion 2', outlined: false, title: onEast }
+			},
 			check: { blocker: 'check', generate: 'generate disabled: The prompt is longer than 2,000 characters.', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
 			nothingToSend: { blocker: 'nothingToSend', generate: 'generate disabled: Write a prompt or connect an input to generate.', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
-			ready: { blocker: undefined, generate: 'generate enabled: Generate', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },
-			video: { blocker: undefined, generate: 'generate enabled: Generate', model: { label: 'Acme Motion 2', outlined: false, title: onEast } }
+			ready: { blocker: undefined, generate: 'generate enabled: Generate', model: { label: 'Acme Motion 2', outlined: false, title: onEast } }
 		});
-		assert.deepStrictEqual([states.ready.generate.title, states.video.generate.title, present({ kind: 'image', hasFile: true, generation: { provider: 'corvid', model: 'corvid-paint' }, catalog: { kind: 'ready', catalog: TEST_GENERATION_CATALOG }, inputs: [] }).generate.title], [
-			`Generate (${key})`,
-			`Generate a new video in a new card beside this one (${key})`,
-			`Generate a new image in a new card beside this one (${key})`
-		]);
+		// Only a draft has this panel (D67): Generate always generates the card itself.
+		assert.strictEqual(states.ready.generate.title, `Generate (${key})`);
 	});
 
 	test('an image card offers the image models, says why a video model cannot generate there, and dims an input that is a draft', () => {

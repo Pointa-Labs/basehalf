@@ -355,7 +355,7 @@ suite('BaseHalfGenerationCardStore', () => {
 		});
 	});
 
-	test('lists the generation cards of a folder: its drafts, and its files that have generation information, but no generated file that is gone', async () => {
+	test('lists the generation cards of a folder: its drafts, and its files that have their record, but no generated file that is gone and no file BaseHalf did not make (D67)', async () => {
 		const harness = await createHarness(disposables, {
 			'shots/note.md': 'x',
 			'shots/plain.png': 'png',
@@ -377,13 +377,14 @@ suite('BaseHalfGenerationCardStore', () => {
 			drafts: (await harness.store.listDrafts(harness.resource('shots'))).map(draft => draft.name),
 			missing: await harness.store.listCards(harness.resource('missing'))
 		}, {
-			cards: ['a.png:image:draft:/work/shots/a.png', 'b.mp4:video:file:/work/shots/b.mp4', 'c.png:image:file:/work/shots/c.png'],
+			// c.png has a generation.yaml and no record: a file that appeared at a draft's path is an ordinary file.
+			cards: ['a.png:image:draft:/work/shots/a.png', 'b.mp4:video:file:/work/shots/b.mp4'],
 			drafts: ['a.png'],
 			missing: []
 		});
 	});
 
-	test('writes the card information of a copy: the same generation.yaml and a record with a new id that names the one it copies, and nothing where card information is', async () => {
+	test('writes the card information of a copy: a draft\'s generation.yaml, a generated file\'s record with a new id that names the one it copies, and nothing where card information is', async () => {
 		const harness = await createHarness(disposables, {
 			'shots/shot.mp4': 'video',
 			'.bh/mirror/shots/shot.mp4/generation.yaml': '# kept\nprompt: "A pier at dawn."\n',
@@ -419,7 +420,8 @@ suite('BaseHalfGenerationCardStore', () => {
 			takenBadge: await harness.read('.bh/mirror/shots/taken.mp4/generation.yaml')
 		}, {
 			copied: true,
-			info: '# kept\nprompt: "A pier at dawn."\n',
+			// Only a draft has a generation.yaml (D67): the one an earlier build left beside the file is not copied.
+			info: undefined,
 			made: { id: '20261022T090000-feedbeef', copyOf: made.id, prompt: made.prompt },
 			upstream: [],
 			draft: true,

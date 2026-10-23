@@ -278,7 +278,7 @@ export interface IBaseHalfGenerationCardStore {
 	/** Fires when the generation information of a card changed, written by BaseHalf, an agent, or git, with the card's resource. */
 	readonly onDidChange: Event<URI>;
 
-	/** Whether the item at `resource` is a generation card: a draft, or a file with a generation extension that has generation information. */
+	/** Whether the item at `resource` is a generation card: a draft, or a file with a generation extension that has its `made.yaml` (D67). */
 	isGenerationCard(resource: URI): Promise<boolean>;
 
 	/** Reads a generation card. Rejects when `resource` is not one. */
@@ -289,9 +289,9 @@ export interface IBaseHalfGenerationCardStore {
 
 	/**
 	 * The generation cards of a folder, in the order of their names: its drafts,
-	 * and its files with a generation extension that have generation
-	 * information. A generated file that is gone is neither: it is a missing
-	 * file. None of a folder that is not there.
+	 * and its files with a generation extension that have their `made.yaml`. A
+	 * generated file that is gone is neither: it is a missing file. None of a
+	 * folder that is not there.
 	 */
 	listCards(folder: URI): Promise<readonly IBaseHalfGenerationCardEntry[]>;
 
@@ -325,6 +325,13 @@ export interface IBaseHalfGenerationCardStore {
 
 	/** Writes the card's `made.yaml` once. Rejects when the card has one. */
 	writeMade(resource: URI, made: IBaseHalfGenerationMade): Promise<void>;
+
+	/**
+	 * Removes a card's `generation.yaml` and nothing else of its card
+	 * information (D67): its file landed and its `made.yaml` says what made it,
+	 * or a file was uploaded into the draft. Resolves when it is gone already.
+	 */
+	removeInfo(resource: URI): Promise<void>;
 
 	/**
 	 * Gives `target` the card information of a copy of the generation card at

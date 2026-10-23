@@ -791,7 +791,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.presentation = createBaseHalfVideoPanelPresentation({
 			info,
 			kind: snapshot.kind,
-			hasFile: snapshot.hasFile,
 			inputs: this.inputs,
 			texts: this.texts,
 			catalog,
@@ -1661,11 +1660,12 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	/** Saves one value of the card's model: the panel shows the change at once. */
+	/** Saves one value of the card's model, for the mode that is used: the panel shows the change at once. */
 	private changeParam(name: string, value: BaseHalfVideoParamValue | undefined): void {
 		const ref = this.presentation?.ref;
+		const usedMode = this.presentation?.mode?.id;
 		if (ref) {
-			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChangeParam(this.generationOf(info, ref), ref.model, name, value)));
+			void this.writeSettings(info => setBaseHalfGenerationChoice(info, baseHalfVideoChangeParam(this.generationOf(info, ref), ref.model, name, value, usedMode)));
 		}
 	}
 
@@ -1899,15 +1899,18 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				}
 			}
 			append(button, $('span.bh-video-panel-choice-label')).textContent = choice.label;
-			if (choice.unavailable) {
-				// Dimmed with the reason, as a model the region does not offer; it can still be chosen.
+			const reason = choice.disabled ?? choice.unavailable;
+			if (reason) {
+				// Dimmed with the reason. A mode the region does not offer can still be chosen; one that cannot use every input cannot.
 				button.classList.add('unavailable');
-				button.setAttribute('aria-description', choice.unavailable);
-				const reason = choice.unavailable;
+				button.setAttribute('aria-description', reason);
 				this.openMenu?.content.add(this.hoverService.setupDelayedHover(button, () => ({ content: reason }), { groupId: HOVER_GROUP }));
 			}
+			if (choice.disabled) {
+				button.setAttribute('aria-disabled', 'true');
+			}
 			button.addEventListener('click', () => {
-				if (!choice.selected) {
+				if (!choice.selected && !choice.disabled) {
 					choose(choice.value);
 				}
 			});
@@ -1936,7 +1939,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			buttons[next].focus({ preventScroll: true });
 			buttons[next].scrollIntoView({ block: 'nearest' });
 			const choice = choices[next];
-			if (!choice.selected) {
+			if (!choice.selected && !choice.disabled) {
 				choose(choice.value);
 			}
 		});

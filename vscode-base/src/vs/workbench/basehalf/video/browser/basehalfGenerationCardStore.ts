@@ -119,7 +119,8 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			// A draft, by the one rule; a draft whose folder is not on this computer is not shown.
 			return baseHalfPathHoldsDraft(this.fileService, card.workspaceFolder, card.relativePath);
 		}
-		if (!facts.hasGenerationInfo && !facts.hasMade) {
+		// A file is a generation card when BaseHalf made it: its record says so (D67).
+		if (!facts.hasMade) {
 			return false;
 		}
 		return !(await this.statQuietly(resource))?.isDirectory;
@@ -157,8 +158,8 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		for (const candidate of await this.generationDirectories(location)) {
 			const item = items.get(this.nameKey(folder, candidate.name));
 			if (item) {
-				// The item's own spelling names its card; a folder is no generation card.
-				if (!item.isDirectory && (candidate.holdsInfo || candidate.holdsMade) && baseHalfGenerationKindOfPath(item.name) === candidate.kind) {
+				// The item's own spelling names its card; a folder is no generation card, and a file is one only with its record (D67).
+				if (!item.isDirectory && candidate.holdsMade && baseHalfGenerationKindOfPath(item.name) === candidate.kind) {
 					cards.push(Object.freeze({ resource: item.resource, name: item.name, kind: candidate.kind, hasFile: true }));
 				}
 				continue;
@@ -362,11 +363,11 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			if (made.kind !== 'absent' || info.kind !== 'bytes' || targetStat || !(await this.childItems(dirname(target)))) {
 				return false;
 			}
-		} else if (!targetStat) {
+		} else if (!targetStat || !record) {
+			// A file is a generation card only with a record that can be copied: one without it, or whose record cannot be read, is an ordinary file.
 			return false;
 		}
 		if (!record && info.kind !== 'bytes') {
-			// Neither can be copied: a record that cannot be read is left as it is.
 			return false;
 		}
 		await this.assertNotMarked(to);
@@ -378,11 +379,28 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			const copy = baseHalfGenerationMadeCopy(record, newId);
 			await this.commit(to, baseHalfMirrorResource(to.workspaceFolder, to.relativePath, BASEHALF_GENERATION_MADE_FILE), VSBuffer.fromString(serializeBaseHalfGenerationMade(copy)), null);
 		}
-		if (info.kind === 'bytes') {
+		// Only a draft has a generation.yaml: a copy of a generated file is its record alone.
+		if (!sourceStat && info.kind === 'bytes') {
 			await this.commit(to, baseHalfMirrorResource(to.workspaceFolder, to.relativePath, BASEHALF_GENERATION_INFO_FILE), info.bytes, null);
 		}
 		this._onDidChange.fire(target);
 		return true;
+	}
+
+	async removeInfo(resource: URI): Promise<void> {
+		const card = this.locate(resource);
+		const infoResource = baseHalfMirrorResource(card.workspaceFolder, card.relativePath, BASEHALF_GENERATION_INFO_FILE);
+		try {
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, card.workspaceFolder, infoResource);
+			await this.fileService.del(infoResource, { useTrash: false });
+		} catch (error) {
+			// Gone already, as after a landing that a crash cut short and that was finished again.
+			if (toFileOperationResult(error as Error) !== FileOperationResult.FILE_NOT_FOUND) {
+				throw error;
+			}
+			return;
+		}
+		this._onDidChange.fire(resource);
 	}
 
 	// --- events ----------------------------------------------------------------------------------

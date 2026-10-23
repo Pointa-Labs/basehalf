@@ -19,9 +19,12 @@ import {
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoInitialGeneration,
 	baseHalfVideoInputKindOfPath,
+	baseHalfVideoInputProblem,
 	baseHalfVideoListedModels,
 	baseHalfVideoModelAbilities,
 	baseHalfVideoModeOf,
+	baseHalfVideoModeThatIsUsed,
+	baseHalfVideoModeUsesEveryInput,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
 	baseHalfVideoRefusedParam,
@@ -371,6 +374,8 @@ suite('BaseHalfVideoCatalog', () => {
 			notSetUp: { setup: setup({ setUp: false, region: 'west' }) },
 			region: { setup: setup({ region: 'west' }), problems: ['Too long.'] },
 			draftInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, [{ path: 'shots/start.png', kind: 'image', available: false, draft: true }], 'en'), problems: ['Too long.'] },
+			// Every input is sent (D67): a second image for a model that takes one stops Generate before what check said.
+			unusableInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 2), 'en'), problems: ['Too long.'] },
 			check: { problems: ['', 'The start frame is smaller than 300 pixels.'] },
 			// A new card: nothing written and nothing connected says that before what the model needs.
 			nothingConnected: { plan: [], problems: ['Write a prompt: Acme Still needs one.'] },
@@ -389,6 +394,7 @@ suite('BaseHalfVideoCatalog', () => {
 			notSetUp: ['notSetUp', 'Acme Video is not set up. Set it up in Providers.', true],
 			region: ['region', 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.', true],
 			draftInput: ['draftInput', 'start.png has no file yet. Generate it first, or remove its connection.', false],
+			unusableInput: ['unusableInput', 'Image 2 cannot be sent: Acme Still takes one image at most.', false],
 			check: ['check', 'The start frame is smaller than 300 pixels.', false],
 			nothingConnected: ['nothingToSend', 'Write a prompt or connect an input to generate.', false],
 			nothingToSend: ['nothingToSend', 'Write a prompt or connect an input to generate.', false],
@@ -396,6 +402,82 @@ suite('BaseHalfVideoCatalog', () => {
 			ready: undefined
 		});
 	});
+
+	suite('what is connected is sent (D67)', () => {
+		const image = (name: string): IBaseHalfVideoInputSource => ({ path: `shots/${name}.png`, kind: 'image', available: true });
+		const video = (name: string, available = true): IBaseHalfVideoInputSource => available
+			? { path: `shots/${name}.mp4`, kind: 'video', available }
+			: { path: `shots/${name}.mp4`, kind: 'video', available, draft: true };
+		const note: IBaseHalfVideoInputSource = { path: 'notes/scene.md', kind: 'text', available: true };
+		const pdf: IBaseHalfVideoInputSource = { path: 'docs/brief.pdf', kind: 'other', available: true };
+
+		test('the mode that is used is the card\'s own when it uses every input, and else the first of the model\'s that does', () => {
+			const used = (modeId: string | undefined, inputs: readonly IBaseHalfVideoInputSource[]) => baseHalfVideoModeThatIsUsed(motion, modeId, inputs).id;
+			assert.deepStrictEqual({
+				framesWithTwoImages: used('frames', [image('a'), image('b')]),
+				framesWithAVideo: used('frames', [image('a'), video('v')]),
+				framesWithThreeImages: used('frames', [image('a'), image('b'), image('c')]),
+				referencesWithAnImage: used('reference', [image('a')]),
+				// A draft without its file is of its kind: it is missing, not unusable.
+				framesWithADraftVideo: used('frames', [video('v', false)]),
+				// Notes join the prompt in every mode.
+				framesWithANote: used('frames', [note, image('a')]),
+				// No mode takes two videos: the card's own mode stays, and its inputs stop Generate.
+				framesWithTwoVideos: used('frames', [video('v'), video('w')]),
+				noModeStored: used(undefined, [video('v')]),
+				clipWithImages: baseHalfVideoModeThatIsUsed(clip, 'extend', [video('v'), image('a')]).id,
+				fits: [baseHalfVideoModeUsesEveryInput(motion.modes[0].inputs, [image('a'), image('b')]), baseHalfVideoModeUsesEveryInput(motion.modes[0].inputs, [video('v')])]
+			}, {
+				framesWithTwoImages: 'frames',
+				framesWithAVideo: 'reference',
+				framesWithThreeImages: 'reference',
+				referencesWithAnImage: 'reference',
+				framesWithADraftVideo: 'reference',
+				framesWithANote: 'frames',
+				framesWithTwoVideos: 'frames',
+				noModeStored: 'reference',
+				clipWithImages: 'edit',
+				fits: [true, false]
+			});
+		});
+
+		test('names the first input no mode can use with the ones before it, and why', () => {
+			const split = { ...motion, id: 'acme-split', label: 'Acme Split', modes: [motion.modes[0], clip.modes[0]] };
+			const problem = (model: typeof motion, inputs: readonly IBaseHalfVideoInputSource[]) => {
+				const found = baseHalfVideoInputProblem(model, inputs);
+				return found && [found.index, found.path, found.reason];
+			};
+			assert.deepStrictEqual({
+				fits: problem(motion, [note, image('a'), image('b'), image('c'), video('v')]),
+				fifthImage: problem(motion, [image('a'), image('b'), image('c'), image('d'), image('e'), video('v')]),
+				secondVideo: problem(motion, [video('v'), video('w')]),
+				noVideos: problem(still, [video('v')]),
+				noImages: problem(borealisOne, [image('a')]),
+				pdf: problem(motion, [image('a'), pdf]),
+				clipImages: problem(clip, [video('v'), image('a'), image('b'), image('c')]),
+				together: problem(split, [image('a'), video('v')])
+			}, {
+				fits: undefined,
+				fifthImage: [4, 'shots/e.png', 'Acme Motion 2 takes at most 4 images.'],
+				secondVideo: [1, 'shots/w.mp4', 'Acme Motion 2 takes one video at most.'],
+				noVideos: [0, 'shots/v.mp4', 'Acme Still takes no videos.'],
+				noImages: [0, 'shots/a.png', 'Borealis One takes no images.'],
+				pdf: [1, 'docs/brief.pdf', 'An image or video card cannot use brief.pdf.'],
+				clipImages: [3, 'shots/c.png', 'Acme Clip takes at most 2 images.'],
+				together: [1, 'shots/v.mp4', 'Acme Split cannot use v.mp4 together with the inputs before it.']
+			});
+		});
+
+		test('a value changed for the mode that is used is legal there, and the card keeps its own mode', () => {
+			const changed = baseHalfVideoChangeParam({ provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { duration: 8 } }, motion, 'ratio', '1:1', 'reference');
+			const own = baseHalfVideoChangeParam({ provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: {} }, motion, 'ratio', '1:1');
+			assert.deepStrictEqual({ changed, own: own.params }, {
+				changed: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', ratio: '1:1', duration: 8, sound: true } },
+				own: { resolution: '720p', duration: 5, sound: true }
+			});
+		});
+	});
+
 	suite('models of two kinds', () => {
 		const corvid = TEST_GENERATION_CATALOG.providers[2];
 		const paint = corvid.models[0];

@@ -661,15 +661,17 @@ export function baseHalfVideoChooseMode(generation: IBaseHalfVideoGenerationChoi
 }
 
 /** The generation after one value changed; `undefined` leaves an optional parameter unset. */
-export function baseHalfVideoChangeParam(generation: IBaseHalfVideoGenerationChoice, model: IBaseHalfVideoCatalogModel, name: string, value: BaseHalfVideoParamValue | undefined): IBaseHalfVideoGenerationChoice {
-	const mode = baseHalfVideoModeOf(model, generation.mode);
+export function baseHalfVideoChangeParam(generation: IBaseHalfVideoGenerationChoice, model: IBaseHalfVideoCatalogModel, name: string, value: BaseHalfVideoParamValue | undefined, usedModeId?: BaseHalfVideoModeId): IBaseHalfVideoGenerationChoice {
+	// The value is made legal for the mode that is used, which the settings show; the card keeps its own mode.
+	const mode = baseHalfVideoModeOf(model, usedModeId ?? generation.mode);
 	const current = { ...normalizeBaseHalfVideoParams(model, mode.id, generation.params) };
 	if (value === undefined) {
 		delete current[name];
 	} else {
 		current[name] = value;
 	}
-	return Object.freeze({ ...generation, mode: mode.id, params: normalizeBaseHalfVideoParams(model, mode.id, current) });
+	const own = model.modes.some(candidate => candidate.id === generation.mode) ? generation.mode! : mode.id;
+	return Object.freeze({ ...generation, mode: own, params: normalizeBaseHalfVideoParams(model, mode.id, current) });
 }
 
 /**
@@ -991,6 +993,106 @@ export function planBaseHalfVideoInputs(
 	}));
 }
 
+/**
+ * Whether a mode uses every input (generation cards, "What is connected is
+ * sent"): none is left over because of its kind or because the mode takes no
+ * more of its kind. An input that names nothing, or a draft, counts as of its
+ * kind here: it is missing, which says why on its own, not unusable.
+ */
+export function baseHalfVideoModeUsesEveryInput(inputs: IBaseHalfVideoModeInputs, sources: readonly IBaseHalfVideoInputSource[]): boolean {
+	return planBaseHalfVideoInputs(inputs, sources.map(asAvailable)).every(item => item.use !== 'unused');
+}
+
+/**
+ * The mode a draft's generation uses (generation cards, "What is connected is
+ * sent"): the card's own mode when that mode uses every input, and otherwise
+ * the first of the model's modes, in the catalog's order, that does. When
+ * none does, the card's own mode, whose inputs then keep Generate from
+ * running. The model is never changed for the inputs.
+ */
+export function baseHalfVideoModeThatIsUsed(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | string | undefined, sources: readonly IBaseHalfVideoInputSource[]): IBaseHalfVideoCatalogMode {
+	const own = baseHalfVideoModeOf(model, modeId);
+	if (baseHalfVideoModeUsesEveryInput(own.inputs, sources)) {
+		return own;
+	}
+	return model.modes.find(mode => baseHalfVideoModeUsesEveryInput(mode.inputs, sources)) ?? own;
+}
+
+/** An input that no mode of a model can use together with the inputs before it. */
+export interface IBaseHalfVideoInputProblem {
+	/** Its place among the inputs. */
+	readonly index: number;
+	readonly path: string;
+	/** Why, as a refused connection says it: "Seedance 2.5 takes no videos." */
+	readonly reason: string;
+}
+
+/**
+ * The first input that no mode of the model can use together with the inputs
+ * before it, and why (generation cards, "What is connected is sent"), or
+ * `undefined` when one of the model's modes uses every input. A connection
+ * whose source would be such an input is refused with the reason, and a draft
+ * whose inputs hold one does not generate.
+ */
+export function baseHalfVideoInputProblem(model: IBaseHalfVideoCatalogModel, sources: readonly IBaseHalfVideoInputSource[]): IBaseHalfVideoInputProblem | undefined {
+	const fits = (count: number) => model.modes.some(mode => baseHalfVideoModeUsesEveryInput(mode.inputs, sources.slice(0, count)));
+	if (fits(sources.length)) {
+		return undefined;
+	}
+	for (let index = 0; index < sources.length; index++) {
+		if (!fits(index + 1)) {
+			const source = sources[index];
+			return Object.freeze({ index, path: source.path, reason: inputProblemReason(model, sources.slice(0, index + 1), source) });
+		}
+	}
+	return undefined;
+}
+
+function asAvailable(source: IBaseHalfVideoInputSource): IBaseHalfVideoInputSource {
+	return source.available ? source : { path: source.path, kind: source.kind, available: true };
+}
+
+/** How many inputs of a kind a mode takes, frames and the clip included. */
+function modeTakes(inputs: IBaseHalfVideoModeInputs, kind: 'image' | 'video' | 'audio'): number {
+	switch (kind) {
+		case 'image': return (inputs.startFrame !== 'none' ? 1 : 0) + (inputs.endFrame !== 'none' ? 1 : 0) + inputs.images.max;
+		case 'video': return (inputs.source !== 'none' ? 1 : 0) + inputs.videos.max;
+		case 'audio': return inputs.audios.max;
+	}
+}
+
+function inputProblemReason(model: IBaseHalfVideoCatalogModel, inputs: readonly IBaseHalfVideoInputSource[], source: IBaseHalfVideoInputSource): string {
+	const name = source.path.slice(source.path.lastIndexOf('/') + 1) || source.path;
+	const kind = source.kind;
+	if (kind !== 'image' && kind !== 'video' && kind !== 'audio') {
+		return localize('basehalf.video.catalog.input.kind', "An image or video card cannot use {0}.", name);
+	}
+	const most = Math.max(0, ...model.modes.map(mode => modeTakes(mode.inputs, kind)));
+	if (most === 0) {
+		return kind === 'image'
+			? localize('basehalf.video.catalog.input.noImages', "{0} takes no images.", model.label)
+			: kind === 'video'
+				? localize('basehalf.video.catalog.input.noVideos', "{0} takes no videos.", model.label)
+				: localize('basehalf.video.catalog.input.noAudio', "{0} takes no audio.", model.label);
+	}
+	if (inputs.filter(input => input.kind === kind).length > most) {
+		if (kind === 'image') {
+			return most === 1
+				? localize('basehalf.video.catalog.input.oneImage', "{0} takes one image at most.", model.label)
+				: localize('basehalf.video.catalog.input.images', "{0} takes at most {1} images.", model.label, most);
+		}
+		if (kind === 'video') {
+			return most === 1
+				? localize('basehalf.video.catalog.input.oneVideo', "{0} takes one video at most.", model.label)
+				: localize('basehalf.video.catalog.input.videos', "{0} takes at most {1} videos.", model.label, most);
+		}
+		return most === 1
+			? localize('basehalf.video.catalog.input.oneAudio', "{0} takes one audio file at most.", model.label)
+			: localize('basehalf.video.catalog.input.audios', "{0} takes at most {1} audio files.", model.label, most);
+	}
+	return localize('basehalf.video.catalog.input.together', "{0} cannot use {1} together with the inputs before it.", model.label, name);
+}
+
 /** `图片1`, `视频2`, `音频1` in a Chinese display language; `Image 1`, `Video 2`, `Audio 1` otherwise. */
 export function baseHalfVideoInputLabel(kind: 'image' | 'video' | 'audio', ordinal: number, displayLanguage: string = language): string {
 	const chinese = displayLanguage.toLowerCase().startsWith('zh');
@@ -1061,6 +1163,8 @@ export type BaseHalfVideoGenerateBlocker =
 	| { readonly kind: 'modeRegion'; readonly model: IBaseHalfVideoCatalogModel; readonly mode: IBaseHalfVideoCatalogMode; readonly where: string }
 	/** An input names a draft, which has no file yet. */
 	| { readonly kind: 'draftInput'; readonly path: string }
+	/** No mode of the model can use this input with the ones before it ({@link baseHalfVideoInputProblem}); `name` is how the panel names it. */
+	| { readonly kind: 'unusableInput'; readonly path: string; readonly name: string; readonly reason: string }
 	/** The first problem the provider module reported for the planned generation. */
 	| { readonly kind: 'check'; readonly message: string }
 	| { readonly kind: 'nothingToSend' };
@@ -1079,6 +1183,8 @@ export interface IBaseHalfVideoGenerateBlockerInput {
 	readonly prompt: string;
 	/** The planned inputs; without them, the blockers that need the inputs are not checked. */
 	readonly plan?: readonly IBaseHalfVideoInputPlanItem[];
+	/** The mode that is used, which the inputs were planned with ({@link baseHalfVideoModeThatIsUsed}); the card's own mode when absent. */
+	readonly mode?: IBaseHalfVideoCatalogMode;
 }
 
 export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlockerInput): BaseHalfVideoGenerateBlocker | undefined {
@@ -1109,7 +1215,7 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 	if (!baseHalfVideoRegionOffersModel(ref.model, setup.region.id)) {
 		return { kind: 'region', model: ref.model, region: setup.region };
 	}
-	const mode = baseHalfVideoModeOf(ref.model, input.generation?.mode);
+	const mode = input.mode ?? baseHalfVideoModeOf(ref.model, input.generation?.mode);
 	if (!baseHalfVideoRegionOffersMode(mode, setup.region.id)) {
 		const where = ref.provider.regions.filter(region => baseHalfVideoRegionOffersMode(mode, region.id) && baseHalfVideoRegionOffersModel(ref.model, region.id)).map(region => region.label).join(', ');
 		return { kind: 'modeRegion', model: ref.model, mode, where };
@@ -1121,6 +1227,12 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 	const draft = input.plan?.find(item => item.reason === 'draft');
 	if (draft) {
 		return { kind: 'draftInput', path: draft.path };
+	}
+	// Every input is sent: one that no mode of the model can use stops Generate (generation cards, "What is connected is sent").
+	const unusable = input.plan ? baseHalfVideoInputProblem(ref.model, input.plan.map(item => ({ path: item.path, kind: item.kind, available: true }))) : undefined;
+	if (unusable && input.plan) {
+		const item = input.plan[unusable.index];
+		return { kind: 'unusableInput', path: unusable.path, name: item.label ?? (unusable.path.slice(unusable.path.lastIndexOf('/') + 1) || unusable.path), reason: unusable.reason };
 	}
 	const problem = input.problems?.find(message => message.trim().length > 0);
 	if (problem) {
@@ -1162,6 +1274,8 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
 			return localize('basehalf.video.catalog.blocker.modeRegion', "{0} offers {1} mode only in {2}. Choose another mode, or another region in Providers.", blocker.model.label, blocker.mode.label, blocker.where);
 		case 'draftInput':
 			return baseHalfVideoDraftInputText(blocker.path);
+		case 'unusableInput':
+			return localize('basehalf.video.catalog.blocker.unusableInput', "{0} cannot be sent: {1}", blocker.name, blocker.reason);
 		case 'check':
 			return blocker.message;
 		case 'nothingToSend':
