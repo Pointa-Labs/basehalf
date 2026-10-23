@@ -36,6 +36,8 @@ import {
 	IBaseHalfVideoCatalog
 } from '../common/basehalfVideoCatalog.js';
 import {
+	baseHalfGenerationGeneratingInputsRefusal,
+	baseHalfGenerationMadeInputsRefusal,
 	IBaseHalfDraftOperations,
 	IBaseHalfDraftSnapshot,
 	IBaseHalfGenerationCardActions,
@@ -200,12 +202,11 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 			return undefined;
 		}
 		const snapshot = await this.cardStore.read(card);
-		const name = basename(card);
-		if (snapshot.hasFile) {
-			return localize('basehalf.generation.actions.inputsOfFile', "{0} was made from these inputs. To change them, make a new version.", name);
+		if (snapshot.hasFile || snapshot.made || snapshot.madeUnreadable) {
+			return baseHalfGenerationMadeInputsRefusal(basename(card));
 		}
 		if (this.generationService.isGenerating(card)) {
-			return localize('basehalf.generation.actions.inputsWhileGenerating', "{0} is generating. Its inputs can be changed once it is done.", name);
+			return baseHalfGenerationGeneratingInputsRefusal(basename(card));
 		}
 		const added = change.add;
 		if (added === undefined) {

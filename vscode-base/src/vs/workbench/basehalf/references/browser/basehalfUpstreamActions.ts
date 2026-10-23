@@ -49,6 +49,7 @@ import {
 	IBaseHalfUpstreamIssue,
 	IBaseHalfUpstreamView
 } from '../common/basehalfReferenceIndex.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
 
 /** A node an upstream action works on. */
@@ -120,6 +121,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 		@IFileService private readonly fileService: IFileService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IDialogService private readonly dialogService: IDialogService,
+		@IBaseHalfGenerationCardActions private readonly generationCardActions: IBaseHalfGenerationCardActions,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -171,6 +173,29 @@ export class BaseHalfUpstreamActions extends Disposable {
 		});
 	}
 
+	/**
+	 * Whether the inputs of a generation card cannot change so (D67,
+	 * generation cards, "What is connected is sent"): a card with its file and
+	 * a draft that generates take no change, and a draft takes no input its
+	 * model cannot use. When they cannot, the user is told why and nothing is
+	 * written. Any other node takes every change.
+	 */
+	private async refused(node: IBaseHalfWorkspaceResource, change: IBaseHalfGenerationInputChange, context: IBaseHalfUpstreamActionContext): Promise<boolean> {
+		let refusal: string | undefined;
+		try {
+			refusal = await this.generationCardActions.inputRefusal(node.resource, change);
+		} catch (error) {
+			// The card could not be read: the reference operation says what is wrong with it, if anything is.
+			this.logService.warn(`[BaseHalf] could not tell whether the inputs of ${node.relativePath} can change`, error);
+		}
+		if (!refusal) {
+			return false;
+		}
+		this.notificationService.prompt(Severity.Warning, refusal, []);
+		context.onDidChange?.();
+		return true;
+	}
+
 	/** Tells the user why a reference operation did not run. It never offers to
 	 * open a file: users are not expected to read a file's source (D41). */
 	reportError(error: unknown): void {
@@ -202,13 +227,16 @@ export class BaseHalfUpstreamActions extends Disposable {
 
 	/** **Add Upstream**: picks any node of the workspace folder and lists it in this node's store. */
 	async addUpstream(node: IBaseHalfUpstreamActionNode, view: IBaseHalfUpstreamView | undefined, context: IBaseHalfUpstreamActionContext): Promise<boolean> {
+		if (await this.refused(node, {}, context)) {
+			return false;
+		}
 		const excluded = this.keys(node, [node.relativePath, ...(view?.entries ?? []).flatMap(entry => entry.path !== undefined ? [entry.path] : [])]);
 		const picked = await this.pickNode(node, {
 			title: localize('basehalf.upstream.addUpstream.title', "Add upstream to {0}", basename(node.resource)),
 			placeholder: localize('basehalf.upstream.addUpstream.placeholder', "Choose what flows into this card"),
 			include: candidate => !excluded.has(this.key(node, candidate.path))
 		}, context);
-		if (!picked) {
+		if (!picked || await this.refused(node, { add: picked.path }, context)) {
 			return false;
 		}
 		const label = localize('basehalf.upstream.addUpstream.undo', "Add upstream");
@@ -223,7 +251,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 			placeholder: localize('basehalf.upstream.addDownstream.placeholder', "Choose a card this one flows into"),
 			include: candidate => !excluded.has(this.key(node, candidate.path))
 		}, context);
-		if (!picked) {
+		if (!picked || await this.refused(picked, { add: node.relativePath }, context)) {
 			return false;
 		}
 		const label = localize('basehalf.upstream.addDownstream.undo', "Add downstream");
@@ -232,12 +260,18 @@ export class BaseHalfUpstreamActions extends Disposable {
 
 	/** × on a Downstream row: removes this node from the other node's store. */
 	async removeDownstream(node: IBaseHalfWorkspaceResource, downstream: IBaseHalfWorkspaceResource, context: IBaseHalfUpstreamActionContext): Promise<boolean> {
+		if (await this.refused(downstream, { remove: node.relativePath }, context)) {
+			return false;
+		}
 		const label = localize('basehalf.upstream.removeDownstream.undo', "Remove downstream");
 		return !!await this.run(label, downstream, context, () => this.referenceEditService.remove(downstream, node.relativePath, { label }));
 	}
 
 	/** × on an Upstream row and **Remove** on an issue row: removes the item at its position. */
 	async removeEntry(node: IBaseHalfWorkspaceResource, entry: Pick<IBaseHalfUpstreamEntryView, 'index' | 'text'>, context: IBaseHalfUpstreamActionContext): Promise<boolean> {
+		if (await this.refused(node, { remove: entry.text }, context)) {
+			return false;
+		}
 		const label = localize('basehalf.upstream.remove.undo', "Remove upstream");
 		return !!await this.run(label, node, context, () => this.referenceEditService.apply([{
 			node,
@@ -253,6 +287,9 @@ export class BaseHalfUpstreamActions extends Disposable {
 		context: IBaseHalfUpstreamActionContext,
 		to?: string
 	): Promise<boolean> {
+		if (await this.refused(node, {}, context)) {
+			return false;
+		}
 		let target = to;
 		if (target === undefined) {
 			const excluded = this.keys(node, [node.relativePath, ...(view?.entries ?? []).flatMap(candidate => candidate.path !== undefined ? [candidate.path] : [])]);
@@ -265,6 +302,9 @@ export class BaseHalfUpstreamActions extends Disposable {
 				return false;
 			}
 			target = picked.path;
+		}
+		if (await this.refused(node, { add: target, remove: entry.text }, context)) {
+			return false;
 		}
 		const label = localize('basehalf.upstream.relink.undo', "Relink upstream");
 		const next = target;

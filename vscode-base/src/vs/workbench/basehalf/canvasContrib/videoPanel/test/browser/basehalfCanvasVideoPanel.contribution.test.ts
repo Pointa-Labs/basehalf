@@ -19,6 +19,7 @@ import { ILifecycleService, WillShutdownEvent } from '../../../../../services/li
 import { IBaseHalfCanvasGenerationCard, IBaseHalfCanvasItem } from '../../../../canvas/common/basehalfCanvasModel.js';
 import { baseHalfTestCanvasItem, createBaseHalfTestCanvasView, IBaseHalfTestCanvasView } from '../../../../canvas/test/browser/basehalfCanvasViewFixture.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../navigation/common/basehalfCanvasNavigation.js';
+import { IBaseHalfGenerationRecordPanelHost } from '../../../../video/browser/basehalfGenerationRecordPanel.js';
 import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../../video/browser/basehalfVideoNodePanel.js';
 import { BaseHalfCanvasVideoPanel, IBaseHalfCanvasVideoPanelWidget } from '../../browser/basehalfCanvasVideoPanel.contribution.js';
 
@@ -48,11 +49,24 @@ class TestVideoPanel implements IBaseHalfCanvasVideoPanelWidget {
 	}
 }
 
+/** The panel of a card with its file, which shows what made it. */
+class TestRecordPanel extends TestVideoPanel {
+	constructor(resource: URI, readonly recordHost: IBaseHalfGenerationRecordPanelHost) {
+		super(resource, undefined!, {});
+	}
+}
+
 class TestCanvasVideoPanel extends BaseHalfCanvasVideoPanel {
 	readonly panels: TestVideoPanel[] = [];
 
 	protected override createPanel(resource: URI, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
 		const panel = new TestVideoPanel(resource, host, options);
+		this.panels.push(panel);
+		return panel;
+	}
+
+	protected override createRecordPanel(resource: URI, host: IBaseHalfGenerationRecordPanelHost): IBaseHalfCanvasVideoPanelWidget {
+		const panel = new TestRecordPanel(resource, host);
 		this.panels.push(panel);
 		return panel;
 	}
@@ -132,6 +146,47 @@ suite('BaseHalfCanvasVideoPanel', () => {
 
 		canvas.changeSelection([STILL]);
 		assert.strictEqual(feature.panels.at(-1)?.resource.path, '/workspace/folder/still.png');
+		assert.ok(feature.panels.at(-1) instanceof TestRecordPanel, 'a card with its file gets the panel that shows what made it (D67)');
+		assert.ok(!(feature.panels[0] instanceof TestRecordPanel), 'a draft gets the panel that makes its file');
+	});
+
+	test('a draft whose file lands gets the panel of a card with its file in place of its own, on the same card (D67)', async () => {
+		const { canvas, feature } = createPanel();
+		canvas.changeSelection([CLIP]);
+		const draftPanel = feature.panels[0];
+		canvas.setItem(generationItem(CLIP, { kind: 'video', draft: false }));
+		canvas.showScene(canvas.scene);
+		await timeout(0);
+		assert.strictEqual(feature.panels.length, 2);
+		assert.ok(feature.panels[1] instanceof TestRecordPanel);
+		assert.strictEqual(draftPanel.flushed, 1, 'the draft\'s prompt is saved before its panel goes');
+		assert.strictEqual(draftPanel.disposed, true);
+		assert.strictEqual(canvas.cardPanels.get(CLIP), feature.panels[1].element);
+
+		canvas.showScene(canvas.scene);
+		assert.strictEqual(feature.panels.length, 2, 'drawn again, the card keeps its panel');
+	});
+
+	test('New Version selects the draft it made once its card is drawn, and focuses its prompt, once (D67)', async () => {
+		const { canvas, feature } = createPanel();
+		canvas.changeSelection([STILL]);
+		const record = feature.panels[0] as TestRecordPanel;
+		record.recordHost.didMakeNewVersion(URI.file('/workspace/folder/still-2.png'));
+		assert.strictEqual(canvas.calls.at(-1), 'requestRender');
+		canvas.setItem(generationItem('folder/still-2.png', { kind: 'image', draft: true }), { kind: 'draft' });
+		canvas.showScene(canvas.scene);
+		assert.ok(canvas.calls.includes('select folder/still-2.png'));
+		const draftPanel = feature.panels.at(-1)!;
+		assert.strictEqual(draftPanel.resource.path, '/workspace/folder/still-2.png');
+		assert.strictEqual(draftPanel.options.focusPromptWhenShown, true);
+
+		canvas.changeSelection([]);
+		await timeout(0);
+		canvas.changeSelection(['folder/still-2.png']);
+		assert.strictEqual(feature.panels.at(-1)!.options.focusPromptWhenShown, false);
+
+		record.recordHost.focusCard();
+		assert.strictEqual(canvas.calls.at(-1), `focusCard ${STILL}`);
 	});
 
 	test('a selected file that becomes a generation card, as when an agent writes its generation information, gets its panel once it is drawn so', () => {

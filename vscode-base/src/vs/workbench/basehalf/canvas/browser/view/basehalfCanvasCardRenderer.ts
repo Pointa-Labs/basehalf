@@ -120,7 +120,8 @@ export class BaseHalfCanvasCardRenderer {
 	/**
 	 * A generation of a card on the canvas changed (generation cards, "The
 	 * card"): the card's face follows by itself, and its toolbar is given the
-	 * actions of its phase now, without drawing the canvas again.
+	 * actions of its phase now, and the card whether it takes a connection,
+	 * without drawing the canvas again.
 	 */
 	refreshGenerationControls(resource: URI): void {
 		const folder = this.view.getCurrentFolder();
@@ -132,10 +133,14 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		const controls = this.sceneCardControls(item, this.view.renderedCardPreviewsByPath.get(item.path)?.preview);
-		if (JSON.stringify(controls) === JSON.stringify(card.controls)) {
+		// A draft that starts generating takes no connection until it is done (D67).
+		const upstreamRefusal = this.view.connections.sceneUpstreamRefusal(item, this.view.renderedUpstreamRefusals);
+		if (JSON.stringify(controls) === JSON.stringify(card.controls) && upstreamRefusal === card.upstreamRefusal) {
 			return;
 		}
-		this.view.renderedSceneCards = Object.freeze(this.view.renderedSceneCards.map(candidate => candidate === card ? { ...card, controls } : candidate));
+		const { upstreamRefusal: _previous, ...rest } = card;
+		const next = { ...rest, controls, ...(upstreamRefusal ? { upstreamRefusal } : {}) };
+		this.view.renderedSceneCards = Object.freeze(this.view.renderedSceneCards.map(candidate => candidate === card ? next : candidate));
 		this.view.canvasScene.update({
 			key: this.view.sceneKey(folder),
 			structuralEpoch: this.view.renderedSceneStructuralEpoch,

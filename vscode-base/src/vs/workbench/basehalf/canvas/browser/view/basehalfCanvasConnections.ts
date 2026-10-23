@@ -15,9 +15,11 @@ import {
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 	baseHalfCanvasGenerationCardSize,
 	IBaseHalfCanvasEdge,
+	IBaseHalfCanvasItem,
 	IBaseHalfCanvasItemRelationships,
 	isBaseHalfCanvasEntry
 } from '../../common/basehalfCanvasModel.js';
+import { baseHalfGenerationGeneratingInputsRefusal, baseHalfGenerationMadeInputsRefusal, IBaseHalfGenerationInputChange } from '../../../video/common/basehalfVideoGeneration.js';
 import { baseHalfCanvasResolveSiblingUpstream } from '../../../references/common/basehalfCanvasUpstream.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
 import { IBaseHalfReferenceEditResult } from '../../../references/common/basehalfReferenceEdit.js';
@@ -123,6 +125,49 @@ export class BaseHalfCanvasConnections {
 			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", name);
 		}
 		return undefined;
+	}
+
+	/**
+	 * Why the scene refuses every connection into a card before it draws an
+	 * edge: the refusal of its folder (`refusals`), or a generation card whose
+	 * inputs do not change now (D67, generation cards, "What is connected is
+	 * sent"): one with its file, which was made from them, and a draft while it
+	 * generates.
+	 */
+	sceneUpstreamRefusal(item: IBaseHalfCanvasItem, refusals: ReadonlyMap<string, string>): string | undefined {
+		const refusal = refusals.get(item.path);
+		if (refusal || !item.generation) {
+			return refusal;
+		}
+		if (!item.generation.draft) {
+			return baseHalfGenerationMadeInputsRefusal(item.name);
+		}
+		return this.view.videoGenerationService.isGenerating(item.stat.resource) ? baseHalfGenerationGeneratingInputsRefusal(item.name) : undefined;
+	}
+
+	/**
+	 * Why the inputs of the card at `path` cannot change so, for a generation
+	 * card (D67): a card with its file and a draft that generates take no
+	 * change, and a draft takes no input its model cannot use. Any other card
+	 * takes every change.
+	 */
+	private async inputRefusal(node: IBaseHalfUpstreamActionNode, change: IBaseHalfGenerationInputChange): Promise<string | undefined> {
+		if (node.kind === 'folder') {
+			return undefined;
+		}
+		try {
+			return await this.view.generationCardActions.inputRefusal(node.resource, change);
+		} catch (error) {
+			// The card could not be read: the reference operation says what is wrong with it, if anything is.
+			this.view.logService.warn(`[BaseHalf] could not tell whether the inputs of ${node.relativePath} can change`, error);
+			return undefined;
+		}
+	}
+
+	/** Says why a connection did not change, and draws the canvas again without the edge the gesture showed. */
+	private refuseConnection(refusal: string): void {
+		this.view.queueCanvasWarning(refusal);
+		this.view.requestRender();
 	}
 
 	/** The index state as the canvas shows it: loading, or partial with unscanned files. */
@@ -350,6 +395,11 @@ export class BaseHalfCanvasConnections {
 			{ path: connection.to, kind: connection.toKind }
 		]);
 		const target = this.view.workspaceNode(folder.workspaceFolder, connection.to, connection.toKind);
+		const refusal = await this.inputRefusal(target, { add: connection.from });
+		if (refusal) {
+			this.refuseConnection(refusal);
+			return;
+		}
 		this.view.folderForSceneMutation(sceneKey);
 		const label = localize('basehalf.canvas.connect.undo', "Connect canvas nodes");
 		const result = await this.runCanvasReferenceOperation(folder, target, label, () => this.view.referenceEditService.add(target, connection.from, { label }));
@@ -397,6 +447,14 @@ export class BaseHalfCanvasConnections {
 		]);
 		const previousTarget = this.view.workspaceNode(folder.workspaceFolder, previous.to, previous.toKind);
 		const nextTarget = this.view.workspaceNode(folder.workspaceFolder, connection.to, connection.toKind);
+		// The input changes in place for a source-end reconnect; otherwise one card loses it and another gains it.
+		const refusal = previous.to === next.to
+			? await this.inputRefusal(nextTarget, { add: next.from, remove: previous.from })
+			: await this.inputRefusal(previousTarget, { remove: previous.from }) ?? await this.inputRefusal(nextTarget, { add: next.from });
+		if (refusal) {
+			this.refuseConnection(refusal);
+			return;
+		}
 		const label = localize('basehalf.canvas.reconnect.undo', "Reconnect canvas nodes");
 		// A source-end reconnect replaces the entry in place, so a generation
 		// card's input keeps its place in the order; a target-end reconnect moves it.
@@ -424,6 +482,11 @@ export class BaseHalfCanvasConnections {
 			{ path: edge.to, kind: edge.toKind }
 		]);
 		const target = this.view.workspaceNode(folder.workspaceFolder, edge.to, edge.toKind);
+		const refusal = await this.inputRefusal(target, { remove: edge.from });
+		if (refusal) {
+			this.refuseConnection(refusal);
+			return;
+		}
 		const label = localize('basehalf.canvas.disconnect.undo', "Disconnect canvas nodes");
 		await this.runCanvasReferenceOperation(folder, target, label, () => this.view.referenceEditService.remove(target, edge.from, { label }));
 		this.view.requestRender();

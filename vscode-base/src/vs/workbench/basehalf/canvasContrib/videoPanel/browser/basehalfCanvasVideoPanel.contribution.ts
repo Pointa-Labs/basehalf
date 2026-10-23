@@ -19,6 +19,7 @@ import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseH
 import { baseHalfCanvasChildPath } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
+import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../../video/browser/basehalfGenerationRecordPanel.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../video/browser/basehalfVideoNodePanel.js';
 
 /** What the canvas needs of the panel under a generation card. */
@@ -35,17 +36,21 @@ export interface IBaseHalfCanvasVideoPanelWidget extends IDisposable {
 interface IBaseHalfCanvasVideoPanelMount {
 	readonly sceneKey: string;
 	readonly path: string;
+	/** The panel of a draft, which makes the file; otherwise the panel of a card with its file, which shows what made it. */
+	readonly draft: boolean;
 	readonly panel: IBaseHalfCanvasVideoPanelWidget;
 	readonly store: DisposableStore;
 }
 
 /**
  * The panel under the only selected generation card (generation cards, "The
- * panel"): a draft or a file with generation information, of an image or a
- * video, as the canvas knows it from the card store. It follows the
- * selection, stays on its card while the canvas is drawn again, saves its
+ * panel" and "The panel of a card with its file"): for a draft, the panel
+ * that makes its file; for a card with its file, the panel that shows what
+ * made it, of an image or a video, as the canvas knows it from the card
+ * store. It follows the selection, stays on its card while the canvas is
+ * drawn again, becomes the other panel when a draft's file lands, saves the
  * prompt when it goes, and lets the user pick a card or import a file as an
- * input of the card.
+ * input of a draft.
  */
 export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCanvasContribution {
 	static readonly ID = 'basehalf.canvas.videoPanel';
@@ -55,6 +60,8 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 	private mount: IBaseHalfCanvasVideoPanelMount | undefined;
 	/** A card that Generate made, or a draft its model renamed: it is selected once it is drawn. */
 	private pendingCardSelection: { readonly sceneKey: string; readonly path: string } | undefined;
+	/** A draft that New Version made: its prompt takes the focus when its panel shows. */
+	private promptFocus: { readonly sceneKey: string; readonly path: string } | undefined;
 	/** Counts selections, so a panel that waits for a drag to end shows only for the latest one. */
 	private selectionToken = 0;
 	/** The only selected card, while it is no generation card: its panel shows once a drawing says it is one. */
@@ -87,14 +94,24 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		}));
 	}
 
-	/** Creates the panel of the card at `resource`. */
+	/** Creates the panel of the draft at `resource`. */
 	protected createPanel(resource: URI, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
 		return this.instantiationService.createInstance(BaseHalfVideoNodePanel, resource, host, options);
+	}
+
+	/** Creates the panel of the card with its file at `resource`. */
+	protected createRecordPanel(resource: URI, host: IBaseHalfGenerationRecordPanelHost): IBaseHalfCanvasVideoPanelWidget {
+		return this.instantiationService.createInstance(BaseHalfGenerationRecordPanel, resource, host);
 	}
 
 	/** Whether the card is a generation card, as the card store told the canvas when it drew it. */
 	private isGenerationCard(path: string): boolean {
 		return this.canvas.getItem(path)?.generation !== undefined;
+	}
+
+	/** Whether the generation card is a draft, as the canvas drew it. */
+	private isDraft(path: string): boolean {
+		return this.canvas.getItem(path)?.generation?.draft === true;
 	}
 
 	/** Shows the panel for a single selected generation card and closes it for any other selection. */
@@ -156,12 +173,18 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			void this.closePanel();
 			return;
 		}
+		if (mount.draft !== this.isDraft(mount.path)) {
+			// The draft's file landed, or the file is gone: the card gets the panel of what it is now.
+			this.showPanel(sceneKey, mount.path);
+			return;
+		}
 		this.publish(mount);
 	}
 
 	private showPanel(sceneKey: string, path: string): void {
+		const draft = this.isDraft(path);
 		const current = this.mount;
-		if (current && current.sceneKey === sceneKey && current.path === path) {
+		if (current && current.sceneKey === sceneKey && current.path === path && current.draft === draft) {
 			this.publish(current);
 			return;
 		}
@@ -170,10 +193,13 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		if (!item) {
 			return;
 		}
-		const focusPrompt = this.canvas.takeCreatedNodeFocus(path);
+		const created = this.canvas.takeCreatedNodeFocus(path);
+		const asked = this.takePromptFocus(sceneKey, path);
 		const store = new DisposableStore();
-		const panel = store.add(this.createPanel(item.stat.resource, this.panelHost(sceneKey, path), { focusPromptWhenShown: focusPrompt }));
-		const mount: IBaseHalfCanvasVideoPanelMount = { sceneKey, path, panel, store };
+		const panel = store.add(draft
+			? this.createPanel(item.stat.resource, this.panelHost(sceneKey, path), { focusPromptWhenShown: created || asked })
+			: this.createRecordPanel(item.stat.resource, this.recordPanelHost(sceneKey, path)));
+		const mount: IBaseHalfCanvasVideoPanelMount = { sceneKey, path, draft, panel, store };
 		this.mount = mount;
 		store.add(panel.onDidChangeHeight(() => this.publish(mount)));
 		this.publish(mount);
@@ -213,6 +239,30 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			// The draft a model of another format renamed keeps the selection and its panel at its new name.
 			didRenameCard: resource => this.selectCardWhenDrawn(sceneKey, resource)
 		};
+	}
+
+	private recordPanelHost(sceneKey: string, path: string): IBaseHalfGenerationRecordPanelHost {
+		return {
+			focusCard: () => this.canvas.focusCard(path),
+			didMakeNewVersion: draft => {
+				// The new version is selected with its prompt focused: Cmd/Ctrl+Enter makes another result at once.
+				const folder = this.canvas.getFolder();
+				if (folder) {
+					this.promptFocus = { sceneKey, path: baseHalfCanvasChildPath(folder.relativePath, basename(draft)) };
+				}
+				this.selectCardWhenDrawn(sceneKey, draft);
+			}
+		};
+	}
+
+	/** Whether the prompt of the draft at `path` takes the focus when its panel shows, once. */
+	private takePromptFocus(sceneKey: string, path: string): boolean {
+		const wanted = this.promptFocus;
+		if (wanted?.sceneKey !== sceneKey || wanted.path !== path) {
+			return false;
+		}
+		this.promptFocus = undefined;
+		return true;
 	}
 
 	/** Selects a card of this canvas that Generate made, or that was renamed, once its card is drawn. */

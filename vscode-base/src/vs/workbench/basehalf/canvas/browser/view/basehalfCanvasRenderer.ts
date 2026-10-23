@@ -627,6 +627,7 @@ export class BaseHalfCanvasRenderer {
 		this.view.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
 		this.renderedRelationships = connections.relationships;
 		this.view.renderedUpstreamViews = connections.views;
+		this.view.renderedUpstreamRefusals = connections.refusals;
 		this.view.renderedIndexState = connections.state;
 		this.view.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
 		this.view.renderedCardPreviewsByPath = new Map(items.map(item => [
@@ -646,6 +647,7 @@ export class BaseHalfCanvasRenderer {
 		this.cardListeners.clear();
 		const sceneCards = items.map((item, index) => {
 			const preview = previews.get(item.path);
+			const upstreamRefusal = this.view.connections.sceneUpstreamRefusal(item, connections.refusals);
 			const bounds = this.view.cardRenderer.cardBoundsForPreview(item, index, items.length, preview);
 			const badge = this.view.badgeEditor.badgeMetadataWithDraft(
 				folder.workspaceFolder,
@@ -681,7 +683,7 @@ export class BaseHalfCanvasRenderer {
 				...(this.view.openBadgeFaces.has(item.path) || this.view.canvasNoteSurfacePath === item.path ? { forceInteractive: true as const } : {}),
 				...(this.view.canvasNoteSurfacePath === item.path ? { noteEditing: true as const } : {}),
 				...(baseHalfCanvasCardResizes(item) ? {} : { keepsShape: true as const }),
-				...(connections.refusals.has(item.path) ? { upstreamRefusal: connections.refusals.get(item.path)! } : {})
+				...(upstreamRefusal ? { upstreamRefusal } : {})
 			};
 		});
 		this.view.cardListenerStores.retain(new Set(items.map(item => item.path)));

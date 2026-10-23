@@ -29,6 +29,7 @@ import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCan
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfReferenceEditOptions, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceUndoElementOptions } from '../../common/basehalfReferenceEdit.js';
 import { IBaseHalfIndexedDownstream, IBaseHalfReferenceIndexService, IBaseHalfUpstreamEntryView, IBaseHalfUpstreamView } from '../../common/basehalfReferenceIndex.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationInputChange } from '../../../video/common/basehalfVideoGeneration.js';
 
 const workspace = URI.file('/work');
 
@@ -76,9 +77,15 @@ suite('BaseHalfUpstreamActions', () => {
 	let rebuilds: string[];
 	let confirmations: { message: string | undefined; detail: string | undefined; primaryButton: string | undefined }[];
 	let confirmRebuild: boolean;
+	let refusals: Map<string, string>;
+	let refusalsAsked: string[];
+	let notified: string[];
 	let actions: BaseHalfUpstreamActions;
 
 	setup(() => {
+		refusals = new Map();
+		refusalsAsked = [];
+		notified = [];
 		adds = [];
 		undoElements = [];
 		picks = [];
@@ -133,7 +140,19 @@ suite('BaseHalfUpstreamActions', () => {
 				return resolved.find(item => item.description === pickPath);
 			}) as unknown as IQuickInputService['pick']
 		});
-		instantiationService.stub(INotificationService, new TestNotificationService());
+		const notificationService = new TestNotificationService();
+		notificationService.prompt = (_severity, message) => {
+			notified.push(message);
+			return undefined!;
+		};
+		instantiationService.stub(INotificationService, notificationService);
+		// A generation card says which changes of its inputs it refuses (D67).
+		instantiationService.stub(IBaseHalfGenerationCardActions, {
+			inputRefusal: async (card: URI, change: IBaseHalfGenerationInputChange) => {
+				refusalsAsked.push(`${card.path} ${change.add ?? ''}/${change.remove ?? ''}`);
+				return refusals.get(card.path);
+			}
+		});
 		instantiationService.stub(ISearchService, {
 			fileSearch: async (_query: IFileQuery): Promise<ISearchComplete> => ({
 				results: ['a/b/note.md', 'a/overview.md', 'sources/book.pdf', 'outputs/run/frame.png', 'node_modules/x/y.md']
@@ -355,6 +374,40 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual({ picks, adds }, {
 			picks: [['sources', 'a', 'outputs', 'shots', 'a/b', 'a/b/note.md', 'a/overview.md', 'outputs/run', 'outputs/run/frame.png', 'shots/next.mp4']],
 			adds: [{ node: 'shots/next.mp4', entry: 'sources/book.pdf' }]
+		});
+	});
+
+	test('a generation card that refuses a change of its inputs says why before anything is picked or written (D67)', async () => {
+		const made = 'video.mp4 was made from these inputs. To change them, make a new version.';
+		refusals.set('/work/shots/video.mp4', made);
+		const video = node('shots/video.mp4');
+		pickPath = 'sources/book.pdf';
+		const results = [
+			await actions.addUpstream(video, view(video, []), {}),
+			await actions.removeEntry(video, { index: 0, text: 'a/overview.md' }, {}),
+			await actions.relinkEntry(video, view(video, []), { index: 0, text: 'old.png' }, {}, 'sources/book.pdf'),
+			// From the other end: this node is listed in the video's store.
+			await actions.removeDownstream(node('a/overview.md'), video, {})
+		];
+		assert.deepStrictEqual({ results, picks, adds, undo: undoElements.length, notified, refusalsAsked }, {
+			results: [false, false, false, false],
+			picks: [],
+			adds: [],
+			undo: 0,
+			notified: [made, made, made, made],
+			refusalsAsked: ['/work/shots/video.mp4 /', '/work/shots/video.mp4 /a/overview.md', '/work/shots/video.mp4 /', '/work/shots/video.mp4 /a/overview.md']
+		});
+
+		// A draft refuses only an input its model cannot use, once it is picked.
+		refusals.set('/work/shots/next.mp4', 'An image or video card cannot use book.pdf.');
+		pickPath = 'shots/next.mp4';
+		const added = await actions.addDownstream(node('sources/book.pdf'), [], {});
+		assert.deepStrictEqual({ added, picks: picks.length, adds, last: notified.at(-1), asked: refusalsAsked.at(-1) }, {
+			added: false,
+			picks: 1,
+			adds: [],
+			last: 'An image or video card cannot use book.pdf.',
+			asked: '/work/shots/next.mp4 sources/book.pdf/'
 		});
 	});
 });

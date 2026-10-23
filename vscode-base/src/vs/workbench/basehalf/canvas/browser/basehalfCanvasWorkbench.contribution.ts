@@ -199,6 +199,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	renderedBadgeProblems: ReadonlyMap<string, IBaseHalfBadgeReadProblem> = new Map();
 	/** Upstream lists of the rendered cards that have one (open badge faces read theirs from disk). */
 	renderedUpstreamViews: ReadonlyMap<string, IBaseHalfUpstreamView> = new Map();
+	/** Why a rendered card's folder lets no connection into it, by path, from the last render. */
+	renderedUpstreamRefusals: ReadonlyMap<string, string> = new Map();
 	renderedIndexState: BaseHalfReferenceIndexState | undefined;
 	readonly upstreamActions: BaseHalfUpstreamActions;
 	readonly detailBadgeDisposables: DisposableStore;

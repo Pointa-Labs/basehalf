@@ -818,6 +818,33 @@ export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, 
 	return Object.freeze(parts);
 }
 
+/**
+ * The settings a generation was made with, from its record (generation cards,
+ * "The panel of a card with its file"): the mode, then the values as they
+ * were sent, never made legal again, in the model's order with the catalog's
+ * names, then the values the catalog does not know by their recorded names.
+ * The advanced ones only with `advanced`.
+ */
+export function baseHalfVideoRecordedSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: string, params: BaseHalfVideoParams, advanced = false): readonly string[] {
+	const parts = [model.modes.find(mode => mode.id === modeId)?.label ?? modeId];
+	for (const parameter of model.parameters) {
+		const value = params[parameter.name];
+		if (value === undefined || (parameter.advanced && !advanced)) {
+			continue;
+		}
+		const part = summaryPart(parameter, value);
+		if (part) {
+			parts.push(part);
+		}
+	}
+	for (const [name, value] of Object.entries(params)) {
+		if (!model.parameters.some(parameter => parameter.name === name)) {
+			parts.push(`${name} ${String(value)}`);
+		}
+	}
+	return Object.freeze(parts);
+}
+
 function summaryPart(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue): string {
 	switch (parameter.kind) {
 		case 'choice':

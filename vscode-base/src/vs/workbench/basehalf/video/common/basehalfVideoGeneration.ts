@@ -164,6 +164,20 @@ export function baseHalfGenerationMissingFileMessage(name: string): string {
 	return localize('basehalf.video.generation.missingFile', "{0} is not there any more: it was moved or deleted. Restore it to generate from it.", name);
 }
 
+/**
+ * Why no connection into a card with its file is made, removed, or changed
+ * (generation cards, "What is connected is sent"): it was made from its
+ * inputs. A card whose file is gone keeps them too.
+ */
+export function baseHalfGenerationMadeInputsRefusal(name: string): string {
+	return localize('basehalf.video.generation.inputsOfFile', "{0} was made from these inputs. To change them, make a new version.", name);
+}
+
+/** Why the connections into a draft do not change while it generates (generation cards, "What is connected is sent"). */
+export function baseHalfGenerationGeneratingInputsRefusal(name: string): string {
+	return localize('basehalf.video.generation.inputsWhileGenerating', "{0} is generating. Its inputs can be changed once it is done.", name);
+}
+
 /** How a generation was asked for. */
 export interface IBaseHalfGenerateOptions {
 	/**

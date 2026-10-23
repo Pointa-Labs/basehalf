@@ -475,7 +475,9 @@ export class BaseHalfCanvasSelectionActions {
 
 	/**
 	 * "Also remove <name> from their upstream lists": one bulk edit after the
-	 * delete, as a separate canvas undo step.
+	 * delete, as a separate canvas undo step. A generation card with its file
+	 * keeps the inputs that made it, and a draft that generates keeps its
+	 * inputs until it is done (D67): their entries then name nothing.
 	 */
 	private async removeDeletedUpstreamEntries(
 		folder: IBaseHalfCanvasFolderState,
@@ -488,6 +490,9 @@ export class BaseHalfCanvasSelectionActions {
 		const identity = this.view.upstreamIdentity(folder.workspaceFolder);
 		const edits: IBaseHalfReferenceStoreEdit[] = [];
 		for (const store of stores) {
+			if (await this.view.generationCardActions.inputRefusal(store.node.resource, { remove: store.entries[0].path }).catch(() => undefined)) {
+				continue;
+			}
 			if (store.entries.length === 1) {
 				edits.push({ node: store.node, operation: { kind: 'remove', entry: store.entries[0].path } });
 				continue;
