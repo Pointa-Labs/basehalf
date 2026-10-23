@@ -207,7 +207,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 	private panelHost(sceneKey: string, path: string): IBaseHalfVideoNodePanelHost {
 		return {
 			pickCard: () => this.canvas.pickCard(path),
-			importFile: () => this.importFile(path),
+			importFile: accept => this.importFile(path, accept),
 			focusCard: () => this.canvas.focusCard(path),
 			didGenerateInNode: resource => this.selectCardWhenDrawn(sceneKey, resource),
 			// The draft a model of another format renamed keeps the selection and its panel at its new name.
@@ -234,8 +234,10 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 	/**
 	 * Import File… of the panel: copies the chosen file into the card's folder,
 	 * under a name that no file, folder, or draft has, and returns its path.
+	 * `accept` is asked first, with the path the file would have, and nothing
+	 * is copied when it refuses (generation cards, "What is connected is sent").
 	 */
-	private async importFile(targetPath: string): Promise<string | undefined> {
+	private async importFile(targetPath: string, accept: (path: string) => Promise<boolean>): Promise<string | undefined> {
 		const item = this.canvas.getItem(targetPath);
 		const folder = this.canvas.getFolder();
 		if (!item || !folder) {
@@ -259,7 +261,8 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		const cardFolder = dirname(item.stat.resource);
 		const name = basename(source);
 		if (this.uriIdentityService.extUri.isEqual(dirname(source), cardFolder)) {
-			return baseHalfCanvasChildPath(folder.relativePath, name);
+			const path = baseHalfCanvasChildPath(folder.relativePath, name);
+			return await accept(path) ? path : undefined;
 		}
 		const dot = name.lastIndexOf('.');
 		const stem = dot > 0 ? name.slice(0, dot) : name;
@@ -271,6 +274,9 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			// A draft's path is taken, as for every name the canvas chooses.
 			if (await this.fileService.exists(target) || await baseHalfPathHoldsDraft(this.fileService, folder.workspaceFolder, path)) {
 				continue;
+			}
+			if (!await accept(path)) {
+				return undefined;
 			}
 			await this.fileService.copy(source, target, false);
 			return path;

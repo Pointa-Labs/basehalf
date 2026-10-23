@@ -505,7 +505,10 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		return normalizeText(readNode(this.element));
 	}
 
-	/** The length of the text before a place of the elements. */
+	/**
+	 * The length of the text before a place of the elements. It is read from
+	 * the elements, which hold the new text while an edit is read back.
+	 */
 	private offsetOf(container: Node, offset: number): number {
 		const range = this.element.ownerDocument.createRange();
 		range.setStart(this.element, 0);
@@ -516,7 +519,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		}
 		const holder = this.element.ownerDocument.createElement('div');
 		holder.append(range.cloneContents());
-		return Math.min(this.text.length, readNode(holder).length);
+		return normalizeText(readNode(holder)).length;
 	}
 
 	/** The place of the elements at an offset of the text; never inside a chip. */

@@ -206,6 +206,15 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		this.updateOverflow();
 	}
 
+	/** Fits the row to its width again: the fades at its edges and the look's place. */
+	layout(): void {
+		this.updateOverflow();
+		const tile = this.lookFor ? this.findByKey(`tile:${this.lookFor}`) : undefined;
+		if (tile) {
+			this.placeLook(tile);
+		}
+	}
+
 	/** The button of the plus, for the menu to open from. */
 	addButton(): HTMLElement | undefined {
 		return this.findByKey('add');

@@ -101,11 +101,13 @@ suite('BaseHalfGenerationPromptEditor (D68)', () => {
 		let changes = 0;
 		disposables.add(editor.onDidChange(() => changes++));
 		type(editor, '图片1');
-		const typed = drawn(editor);
+		// Drawn again with the chip, the caret stays at the end of what was typed.
+		const typed = { drawn: drawn(editor), caret: editor.selection() };
 		type(editor, '0');
-		assert.deepStrictEqual({ typed, then: drawn(editor), value: editor.value, changes }, {
-			typed: ['text 骑车', 'chip 图片1 with picture', 'caret holder'],
+		assert.deepStrictEqual({ typed, then: drawn(editor), caret: editor.selection(), value: editor.value, changes }, {
+			typed: { drawn: ['text 骑车', 'chip 图片1 with picture', 'caret holder'], caret: { start: 5, end: 5 } },
 			then: ['text 骑车', 'unknown 图片10'],
+			caret: { start: 6, end: 6 },
 			value: '骑车图片10',
 			changes: 2
 		});

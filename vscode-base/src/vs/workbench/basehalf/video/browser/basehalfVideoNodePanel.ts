@@ -8,6 +8,7 @@ import { $, addDisposableListener, append, clearNode, getWindow, isHTMLButtonEle
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
 import { RunOnceScheduler, TimeoutTimer } from '../../../../base/common/async.js';
 import { Codicon } from '../../../../base/common/codicons.js';
+import { compareFileNames } from '../../../../base/common/comparers.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
@@ -15,7 +16,6 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { basename, dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
-import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
@@ -37,17 +37,21 @@ import {
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
 	baseHalfVideoChooseModel,
+	baseHalfVideoInputKindOfPath,
+	baseHalfVideoInputLabel,
 	findBaseHalfVideoModel,
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoInputPlanItem,
+	IBaseHalfVideoLabelToken,
 	IBaseHalfVideoModelRef
 } from '../common/basehalfVideoCatalog.js';
 import {
 	BaseHalfVideoGenerationError,
 	IBaseHalfDraftOperations,
+	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
 	IBaseHalfGenerationCardStore,
 	IBaseHalfVideoCatalogService,
@@ -68,16 +72,18 @@ import {
 import { baseHalfUpstreamSidecarResource } from '../../references/common/basehalfReferenceStore.js';
 import {
 	BaseHalfVideoPanelControl,
-	baseHalfVideoPanelMentionQuery,
-	baseHalfVideoPanelPromptMarks,
+	baseHalfVideoPanelInputFileName,
 	createBaseHalfVideoPanelPresentation,
-	filterBaseHalfVideoPanelNames,
 	IBaseHalfVideoPanelAuto,
 	IBaseHalfVideoPanelChoice,
 	IBaseHalfVideoPanelInputItem,
-	IBaseHalfVideoPanelName,
 	IBaseHalfVideoPanelPresentation
 } from '../common/basehalfVideoNodePanelPresentation.js';
+import { baseHalfInputNameOrdinals, BaseHalfNamedInputKind, isBaseHalfNamedInputKind } from '../common/basehalfGenerationInputNames.js';
+import { IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
+import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
+import { BaseHalfGenerationPromptEditor, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
+import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
 import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
 import {
 	BASEHALF_VIDEO_PANEL_MAX_HEIGHT,
@@ -99,9 +105,10 @@ export interface IBaseHalfVideoNodePanelHost {
 	/**
 	 * Asks the user for a file, copies it into the card's folder, and resolves
 	 * with the copy's workspace-relative path, or with `undefined` when they
-	 * chose none. The panel connects it as an input.
+	 * chose none. `accept` is asked first with the path the file would have,
+	 * and nothing is copied when it refuses. The panel connects it as an input.
 	 */
-	importFile(): Promise<string | undefined>;
+	importFile(accept: (path: string) => Promise<boolean>): Promise<string | undefined>;
 	/** Moves the focus to the card: Escape with no menu open. */
 	focusCard(): void;
 	/**
@@ -135,7 +142,7 @@ export const BASEHALF_VIDEO_PANEL_CHECK_DELAY = 250;
 
 const PANEL_PADDING = 12;
 const SECTION_GAP = 8;
-const INPUT_ROW_HEIGHT = 40;
+const INPUT_ROW_HEIGHT = 48;
 const FOOTER_HEIGHT = 32;
 /** The reason line: one line beside its action, or two lines of text. */
 const REASON_MIN_HEIGHT = 20;
@@ -144,7 +151,7 @@ const PROMPT_LINE_HEIGHT = 20;
 const PROMPT_PADDING = 4;
 const PROMPT_MIN_LINES = 3;
 const PROMPT_MAX_LINES = 5;
-const MENU_WIDTHS = { add: 200, model: 300, settings: 300, mention: 240 } as const;
+const MENU_WIDTHS = { add: 200, model: 300, settings: 300 } as const;
 const HOVER_GROUP = 'basehalf-video-panel';
 
 type BaseHalfVideoPanelMenuKind = keyof typeof MENU_WIDTHS;
@@ -197,13 +204,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	/** Fires when the panel's height changes; the workbench publishes the scene surface again. */
 	readonly onDidChangeHeight: Event<number> = this._onDidChangeHeight.event;
 
-	private readonly inputRowElement: HTMLElement;
-	/** The inputs of the row, which scroll sideways when they do not fit; the plus follows them. */
-	private inputList: HTMLElement | undefined;
+	/** The card's connections as tiles (D68). */
+	private readonly inputRow: BaseHalfGenerationInputRow;
 	private readonly promptBox: HTMLElement;
-	private readonly overlay: HTMLElement;
-	private readonly measure: HTMLElement;
-	private readonly textarea: HTMLTextAreaElement;
+	/** The prompt, whose names of inputs are chips (D68). */
+	private readonly editor: BaseHalfGenerationPromptEditor;
 	private readonly promptState: HTMLElement;
 	private readonly notice: HTMLElement;
 	private readonly reason: HTMLElement;
@@ -217,8 +222,14 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private readonly generateIcon: HTMLElement;
 	private readonly layer: HTMLElement;
 
-	private readonly rowStore = this._register(new DisposableStore());
 	private readonly menu = this._register(new MutableDisposable<DisposableStore>());
+	/** The reference menu that `@` opened, and where its `@` is in the prompt. */
+	private readonly referenceMenu = this._register(new MutableDisposable<BaseHalfGenerationReferenceMenu>());
+	private mentionAt: number | undefined;
+	/** The cards of the canvas of the card's folder, as the reference menu last read them. */
+	private canvasCards: readonly IBaseHalfReferenceMenuKindList[] | undefined;
+	/** The inputs the chips of the prompt were drawn for. */
+	private chipInputsKey: string | undefined;
 	private readonly saveTimer = this._register(new TimeoutTimer());
 	private saveScheduled = false;
 	private openMenu: IOpenMenu | undefined;
@@ -247,8 +258,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private writeQueue: Promise<unknown> = Promise.resolve();
 	private savedPrompt: string | undefined;
 	private promptDirty = false;
-	private composing = false;
-	private promptBeforeComposition = '';
 	private notSaved: string | undefined;
 	private promptLines = PROMPT_MIN_LINES;
 	private currentHeight: number;
@@ -258,14 +267,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	/** What the Generate button was drawn as last: Generate or Stop. */
 	private generateKind: 'generate' | 'stop' | undefined;
 	private picking = false;
-	private mention: { readonly start: number; readonly query: string; readonly active: number } | undefined;
-	/** The control of the input row that takes the row's one tab stop. */
-	private rowFocusKey: string | undefined;
-	/** What the input row shows, so it is drawn again only when that changes (thumbnails keep loaded). */
-	private renderedRowKey: string | undefined;
 	/** The panel's width when the prompt was last measured. */
 	private measuredWidth: number | undefined;
-	private readonly mentionId = `basehalf-video-panel-mention-${generateUuid()}`;
 	private readonly saveDelay: number;
 	private disposed = false;
 
@@ -278,6 +281,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
 		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfVideoGenerationService private readonly generationService: IBaseHalfVideoGenerationService,
+		@IBaseHalfGenerationCardActions private readonly cardActions: IBaseHalfGenerationCardActions,
 		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
@@ -297,22 +301,39 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.element.setAttribute('role', 'group');
 		this.element.dataset.state = 'loading';
 
-		this.inputRowElement = append(this.element, $('.bh-video-panel-inputs'));
-		this.inputRowElement.setAttribute('role', 'group');
-		this.inputRowElement.setAttribute('aria-label', localize('basehalf.video.panel.inputs', "Inputs"));
+		// Menus and the look at an input lie over everything else of the panel; the layer is added last.
+		this.layer = $('.bh-video-panel-layer');
+		this.inputRow = this._register(new BaseHalfGenerationInputRow({
+			remove: path => { void this.disconnect(path); },
+			insertName: label => this.insertName(label),
+			move: (path, before) => { void this.moveInput(path, before); },
+			swap: () => {
+				const order = this.presentation?.inputRow?.swappedUpstream;
+				if (order) {
+					void this.reorder(order);
+				}
+			},
+			openAddMenu: (trigger, byPointer) => this.toggleMenu('add', trigger, byPointer),
+			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
+		}, this.layer));
+		this.inputRow.element.hidden = true;
+		append(this.element, this.inputRow.element);
 
 		this.promptBox = append(this.element, $('.bh-video-panel-prompt'));
-		this.overlay = append(this.promptBox, $('.bh-video-panel-prompt-overlay'));
-		this.overlay.setAttribute('aria-hidden', 'true');
-		this.measure = append(this.promptBox, $('.bh-video-panel-prompt-measure'));
-		this.measure.setAttribute('aria-hidden', 'true');
-		this.textarea = append(this.promptBox, $<HTMLTextAreaElement>('textarea.bh-video-panel-prompt-input'));
-		this.textarea.rows = PROMPT_MIN_LINES;
-		this.textarea.maxLength = BASEHALF_GENERATION_PROMPT_MAX_LENGTH;
-		this.textarea.spellcheck = false;
-		this.textarea.placeholder = placeholderOf(options?.snapshot?.kind ?? 'video');
-		this.textarea.setAttribute('aria-label', localize('basehalf.video.panel.prompt', "Prompt"));
-		this.textarea.setAttribute('aria-keyshortcuts', isMacintosh ? 'Meta+Enter' : 'Control+Enter');
+		this.editor = this._register(new BaseHalfGenerationPromptEditor({
+			ariaLabel: localize('basehalf.video.panel.prompt', "Prompt"),
+			placeholder: placeholderOf(options?.snapshot?.kind ?? 'video'),
+			maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
+			chipOf: name => this.chipOf(name)
+		}));
+		// The field grows with its text from three lines to five, and scrolls beyond.
+		Object.assign(this.editor.element.style, {
+			height: 'auto',
+			minHeight: `${PROMPT_MIN_LINES * PROMPT_LINE_HEIGHT + PROMPT_PADDING * 2}px`,
+			maxHeight: `${PROMPT_MAX_LINES * PROMPT_LINE_HEIGHT + PROMPT_PADDING * 2}px`
+		});
+		this.editor.element.setAttribute('aria-keyshortcuts', isMacintosh ? 'Meta+Enter' : 'Control+Enter');
+		this.promptBox.append(this.editor.element);
 		this.promptState = append(this.promptBox, $('.bh-video-panel-prompt-state'));
 		this.promptState.append(renderCodicon(Codicon.warning));
 		this.promptState.hidden = true;
@@ -354,7 +375,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this._register(this.hoverService.setupDelayedHover(this.settingsButton, () => ({ content: this.settingsTitle() }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.generateButton, () => ({ content: this.generateTitle() }), { groupId: HOVER_GROUP }));
 
-		this.layer = append(this.element, $('.bh-video-panel-layer'));
+		append(this.element, this.layer);
 
 		this.currentHeight = this.computeHeight(true);
 		this.element.style.height = `${this.currentHeight}px`;
@@ -366,7 +387,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		void this.refresh();
 	}
 
-	/** The panel's height in screen pixels, from 132 without an input row to 260 with one and a reason line of two lines. */
+	/** The panel's height in screen pixels, from 132 without an input row to 268 with one and a reason line of two lines. */
 	get height(): number {
 		return this.currentHeight;
 	}
@@ -387,9 +408,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	/** Moves the focus into the prompt, with the caret at the end. */
 	focus(): void {
-		this.textarea.focus({ preventScroll: true });
-		const end = this.textarea.value.length;
-		this.textarea.setSelectionRange(end, end);
+		this.editor.focus();
 	}
 
 	/** Reads the card, its inputs, and the text of its text inputs again. */
@@ -450,6 +469,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.saveTextParam();
 		this.disposed = true;
 		this.closeMenu(false);
+		this.referenceMenu.clear();
 		super.dispose();
 	}
 
@@ -462,19 +482,25 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (inputs) {
 			this.inputs = inputs;
 		}
-		this.textarea.placeholder = placeholderOf(snapshot.kind);
+		this.editor.element.dataset.placeholder = placeholderOf(snapshot.kind);
 		const prompt = snapshot.info.prompt;
 		if (firstRead) {
 			this.savedPrompt = prompt;
 		}
 		// While the field has the focus it keeps what is in it; at rest it shows the prompt of the file.
-		if (!this.promptDirty && !this.composing && this.textarea.value !== prompt && (firstRead || !this.promptFocused())) {
-			this.replacePromptText(prompt);
+		if (!this.promptDirty && !this.editor.composing && this.editor.value !== prompt && (firstRead || (!this.promptFocused() && !this.referenceMenu.value))) {
+			this.chipInputsKey = this.inputsKey();
+			this.editor.setValue(prompt);
 		}
-		if (!this.promptDirty && !this.composing) {
+		if (!this.promptDirty && !this.editor.composing) {
 			this.savedPrompt = prompt;
 		}
-		this.textarea.readOnly = false;
+		// The chips show the inputs: drawn again when the inputs change.
+		const inputsKey = this.inputsKey();
+		if (inputsKey !== this.chipInputsKey) {
+			this.chipInputsKey = inputsKey;
+			this.editor.refreshChips();
+		}
 		this.render();
 		if (firstRead && this.focusWhenShown && this.layout?.visible) {
 			this.focusWhenShown = false;
@@ -540,9 +566,10 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (!this.snapshot) {
 			return;
 		}
-		const value = this.composing ? this.promptBeforeComposition : this.textarea.value;
+		// While an input method composes, the text from before the composition.
+		const value = this.editor.value;
 		if (value === this.savedPrompt) {
-			if (!this.composing && this.textarea.value === value) {
+			if (!this.editor.composing) {
 				this.promptDirty = false;
 			}
 			return;
@@ -554,7 +581,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			}
 			this.snapshot = snapshot;
 			this.savedPrompt = value;
-			if (!this.composing && this.textarea.value === value) {
+			if (!this.editor.composing && this.editor.value === value) {
 				this.promptDirty = false;
 			}
 			this.setNotSaved(undefined);
@@ -616,34 +643,20 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			}
 		}));
 
-		this._register(addDisposableListener(this.textarea, 'input', () => this.didEditPrompt()));
-		this._register(addDisposableListener(this.textarea, 'compositionstart', () => {
-			this.composing = true;
-			this.cancelPromptSave();
-			// What was typed before the composition; the composition is not saved until it ends.
-			this.promptBeforeComposition = this.promptDirty ? this.textarea.value : (this.savedPrompt ?? this.textarea.value);
-		}));
-		this._register(addDisposableListener(this.textarea, 'compositionend', () => {
-			this.composing = false;
-			this.didEditPrompt();
-		}));
-		this._register(addDisposableListener(this.textarea, 'blur', () => {
+		this._register(this.editor.onDidChange(() => this.didEditPrompt()));
+		// The composition is not saved until it ends.
+		this._register(addDisposableListener(this.editor.element, 'compositionstart', () => this.cancelPromptSave()));
+		this._register(this.editor.onDidEndComposition(() => this.didEditPrompt()));
+		this._register(addDisposableListener(this.editor.element, 'focusout', () => {
 			if (this.promptDirty) {
 				void this.savePrompt();
-			} else if (!this.composing && this.snapshot && this.textarea.value !== this.snapshot.info.prompt) {
+			} else if (!this.editor.composing && !this.referenceMenu.value && this.snapshot && this.editor.value !== this.snapshot.info.prompt) {
 				// The prompt changed underneath while the field had the focus: at rest the field shows it.
-				this.replacePromptText(this.snapshot.info.prompt);
+				this.editor.setValue(this.snapshot.info.prompt);
 				this.render();
 			}
 		}));
-		this._register(addDisposableListener(this.textarea, 'scroll', () => this.syncOverlayScroll()));
-		this._register(addDisposableListener(this.textarea, 'keydown', event => this.onPromptKeyDown(event)));
-		this._register(addDisposableListener(this.textarea, 'click', () => this.updateMention()));
-		this._register(addDisposableListener(this.textarea, 'keyup', event => {
-			if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
-				this.updateMention();
-			}
-		}));
+		this._register(addDisposableListener(this.editor.element, 'keydown', event => this.onPromptKeyDown(event)));
 
 		this._register(addDisposableListener(this.modelButton, 'click', event => this.toggleMenu('model', this.modelButton, clickedByPointer(event))));
 		this._register(addDisposableListener(this.settingsButton, 'click', event => this.toggleMenu('settings', this.settingsButton, clickedByPointer(event))));
@@ -655,22 +668,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			}
 		}));
 		this._register(addDisposableListener(this.element, 'keydown', event => this.onPanelKeyDown(event)));
-		this._register(addDisposableListener(this.inputRowElement, 'keydown', event => this.onRowKeyDown(event)));
-		this._register(addDisposableListener(this.inputRowElement, 'focusin', event => {
-			const target = event.target;
-			if (isHTMLButtonElement(target) && target.dataset.key) {
-				this.rowFocusKey = target.dataset.key;
-				this.updateRowTabStop();
-			}
-		}));
-		this._register(addDisposableListener(this.inputRowElement, 'wheel', event => {
-			// A vertical wheel scrolls the inputs sideways.
-			const list = this.inputList;
-			if (list && Math.abs(event.deltaY) > Math.abs(event.deltaX) && list.scrollWidth > list.clientWidth) {
-				list.scrollLeft += event.deltaY;
-				event.preventDefault();
-			}
-		}, { passive: false }));
 	}
 
 	private didLayout(layout: IBaseHalfCanvasSceneVideoPanelLayout): void {
@@ -678,8 +675,12 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.element.dataset.placement = layout.placement;
 		if (!layout.visible || layout.following) {
 			this.closeMenu(false);
-		} else if (this.openMenu) {
-			this.placeMenu(this.openMenu);
+			this.closeReferenceMenu(false);
+		} else {
+			if (this.openMenu) {
+				this.placeMenu(this.openMenu);
+			}
+			this.referenceMenu.value?.layout();
 		}
 		if (!layout.visible && this.promptDirty) {
 			void this.savePrompt();
@@ -693,57 +694,28 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (layout.width !== this.measuredWidth) {
 			this.measuredWidth = layout.width;
 			this.updatePromptLines();
-			this.updateInputOverflow();
+			this.inputRow.layout();
 		}
 	}
 
 	private didEditPrompt(): void {
-		if (this.composing) {
-			this.renderOverlay();
+		if (this.editor.composing) {
 			return;
 		}
-		this.promptDirty = this.textarea.value !== this.savedPrompt;
+		this.promptDirty = this.editor.value !== this.savedPrompt;
 		if (this.promptDirty) {
 			this.schedulePromptSave();
 		} else {
 			this.cancelPromptSave();
 		}
 		this.render();
-		this.updateMention();
+		this.updatePromptLines();
+		this.openReferenceMenuAtCaret();
 	}
 
 	private onPromptKeyDown(event: KeyboardEvent): void {
 		if (event.isComposing || event.keyCode === 229) {
 			return;
-		}
-		const mention = this.mention;
-		if (mention && this.openMenu?.kind === 'mention') {
-			const names = this.mentionNames();
-			if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-				event.preventDefault();
-				event.stopPropagation();
-				if (names.length) {
-					const step = event.key === 'ArrowDown' ? 1 : -1;
-					this.mention = { ...mention, active: (mention.active + step + names.length) % names.length };
-					this.renderMentionMenu();
-				}
-				return;
-			}
-			if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && !event.metaKey && !event.ctrlKey && names.length) {
-				event.preventDefault();
-				event.stopPropagation();
-				this.insertName(names[Math.min(mention.active, names.length - 1)]);
-				return;
-			}
-			if (event.key === 'Home' || event.key === 'End') {
-				if (names.length) {
-					event.preventDefault();
-					event.stopPropagation();
-					this.mention = { ...mention, active: event.key === 'Home' ? 0 : names.length - 1 };
-					this.renderMentionMenu();
-				}
-				return;
-			}
 		}
 		if (event.key === 'Enter' && (isMacintosh ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) && !event.altKey) {
 			event.preventDefault();
@@ -766,6 +738,10 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.closeMenu(true);
 			return;
 		}
+		if (this.referenceMenu.value) {
+			this.closeReferenceMenu(true);
+			return;
+		}
 		this.host.focusCard();
 	}
 
@@ -780,7 +756,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		const snapshot = this.snapshot;
 		if (!snapshot) {
 			this.element.dataset.state = this.readError ? 'unreadable' : 'loading';
-			this.textarea.readOnly = true;
+			this.editor.readOnly = true;
 			this.renderNotice();
 			this.updateHeight();
 			return;
@@ -797,7 +773,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			setup: provider => this.providerSettings.getStatus(provider),
 			...(this.lastCheck && this.lastCheck.model === modelKey ? { check: this.lastCheck.result } : {}),
 			generating: this.generationService.isGenerating(this.resource),
-			prompt: this.textarea.value
+			prompt: this.editor.value
 		});
 		this.scheduleCheck(this.presentation);
 		this.element.dataset.state = 'ready';
@@ -808,12 +784,26 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			? localize('basehalf.video.panel.imageLabel', "Image panel for {0}", name)
 			: localize('basehalf.video.panel.label', "Video panel for {0}", name));
 		this.renderNotice();
+		// While the draft generates, what it generates cannot be changed (D67).
+		const locked = this.isLocked();
+		this.editor.readOnly = locked;
+		this.element.classList.toggle('generating', locked);
+		if (locked) {
+			this.closeReferenceMenu(false);
+			if (this.openMenu) {
+				this.closeMenu(false);
+			}
+		}
 		this.renderInputRow();
-		this.renderOverlay();
 		this.renderReason();
 		this.renderFooter();
 		this.refreshMenu();
 		this.updateHeight();
+	}
+
+	/** The draft generates: its prompt, inputs, model, and settings show what is being generated and cannot be changed (D67). */
+	private isLocked(): boolean {
+		return this.presentation?.generate.kind === 'stop';
 	}
 
 	private renderNotice(): void {
@@ -830,245 +820,67 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private renderInputRow(): void {
+		this.inputRow.update(this.inputRowModel());
+	}
+
+	/** What the input row shows: the frames and the other inputs as tiles (D68), from the presentation. */
+	private inputRowModel(): IBaseHalfInputRowModel | undefined {
 		const presentation = this.presentation;
 		const row = presentation?.inputRow;
-		const key = JSON.stringify({
-			row,
-			files: this.inputs.map(input => input.file?.toString() ?? ''),
+		if (!presentation || !row) {
+			return undefined;
+		}
+		const ordinals = baseHalfInputNameOrdinals(presentation.plan);
+		const tile = (item: IBaseHalfVideoPanelInputItem, frame?: 'start' | 'end'): IBaseHalfInputTile => {
+			const input = this.inputs[item.index];
+			const file = input?.available ? input.file : undefined;
+			const number = ordinals[item.index];
+			return Object.freeze({
+				path: item.path,
+				kind: item.kind,
+				...(item.label !== undefined && number !== undefined ? { label: item.label, number } : {}),
+				fileName: item.fileName,
+				...(file ? { file } : {}),
+				dimmed: !item.used,
+				...(item.reason ? { note: item.reason } : {}),
+				...(frame ? { frame } : {})
+			});
+		};
+		return Object.freeze({
+			...(row.slots.length ? { frames: row.slots.map(slot => Object.freeze({ role: slot.role, addLabel: slot.addLabel, ...(slot.item ? { tile: tile(slot.item, slot.role) } : {}) })) } : {}),
+			canSwap: !!row.swappedUpstream,
+			tiles: row.items.map(item => tile(item)),
+			...(row.emptyHint ? { hint: row.emptyHint } : {}),
+			editable: !this.isLocked(),
 			picking: this.picking
 		});
-		if (key === this.renderedRowKey) {
-			return;
-		}
-		this.renderedRowKey = key;
-		const focusedKey = this.focusedKey(this.inputRowElement);
-		this.rowStore.clear();
-		clearNode(this.inputRowElement);
-		this.inputList = undefined;
-		this.inputRowElement.hidden = !row;
-		if (!row || !presentation) {
-			return;
-		}
-		this.inputRowElement.dataset.mode = row.mode;
-		const list = append(this.inputRowElement, $('.bh-video-panel-inputs-list'));
-		this.inputList = list;
-		this.rowStore.add(addDisposableListener(list, 'scroll', () => this.updateInputOverflow()));
-		row.slots.forEach((slot, index) => {
-			if (index === 1) {
-				const swap = append(list, $<HTMLButtonElement>('button.bh-video-panel-swap'));
-				swap.type = 'button';
-				swap.dataset.key = 'swap';
-				swap.append(renderCodicon(Codicon.arrowSwap));
-				const label = localize('basehalf.video.panel.swap', "Swap Start and End Frames");
-				swap.setAttribute('aria-label', label);
-				swap.disabled = !row.swappedUpstream;
-				this.rowStore.add(this.hoverService.setupDelayedHover(swap, () => ({ content: label }), { groupId: HOVER_GROUP }));
-				this.rowStore.add(addDisposableListener(swap, 'click', () => {
-					const order = this.presentation?.inputRow?.swappedUpstream;
-					if (order) {
-						void this.reorder(order);
-					}
-				}));
-			}
-			if (slot.item) {
-				this.renderInput(list, slot.item, slot.title);
-				return;
-			}
-			const empty = append(list, $<HTMLButtonElement>('button.bh-video-panel-slot.empty'));
-			empty.type = 'button';
-			empty.dataset.key = `slot:${slot.role}`;
-			empty.dataset.role = slot.role;
-			empty.setAttribute('aria-label', slot.addLabel);
-			empty.setAttribute('aria-haspopup', 'menu');
-			empty.append(renderCodicon(Codicon.add));
-			append(empty, $('span.bh-video-panel-slot-title')).textContent = slot.title;
-			this.rowStore.add(this.hoverService.setupDelayedHover(empty, () => ({ content: slot.addLabel }), { groupId: HOVER_GROUP }));
-			this.rowStore.add(addDisposableListener(empty, 'click', event => this.toggleMenu('add', empty, clickedByPointer(event))));
-		});
-		for (const item of row.items) {
-			this.renderInput(list, item, undefined);
-		}
-		const add = append(this.inputRowElement, $<HTMLButtonElement>('button.bh-video-panel-add'));
-		add.type = 'button';
-		add.dataset.key = 'add';
-		add.setAttribute('aria-haspopup', 'menu');
-		add.setAttribute('aria-expanded', String(this.openMenu?.kind === 'add' && this.openMenu.trigger === add));
-		const addLabel = addInputLabel();
-		add.setAttribute('aria-label', addLabel);
-		add.append(renderCodicon(Codicon.add));
-		this.rowStore.add(this.hoverService.setupDelayedHover(add, () => ({ content: addLabel }), { groupId: HOVER_GROUP }));
-		this.rowStore.add(addDisposableListener(add, 'click', event => this.toggleMenu('add', add, clickedByPointer(event))));
-		const hint = this.picking
-			? localize('basehalf.video.panel.picking', "Click a card to connect it. Escape cancels.")
-			: row.emptyHint;
-		if (hint) {
-			const text = append(this.inputRowElement, $('span.bh-video-panel-inputs-hint'));
-			text.textContent = hint;
-			if (this.picking) {
-				text.setAttribute('role', 'status');
-			}
-		}
-		this.inputRowElement.classList.toggle('picking', this.picking);
-		this.updateRowTabStop();
-		this.restoreFocus(this.inputRowElement, focusedKey);
-		this.updateInputOverflow();
 	}
 
-	/** Fades the edge of the inputs where more of them are scrolled out of sight. */
-	private updateInputOverflow(): void {
-		const list = this.inputList;
-		if (!list?.isConnected) {
-			return;
-		}
-		const start = list.scrollLeft > 1;
-		const end = list.scrollLeft + list.clientWidth < list.scrollWidth - 1;
-		list.classList.toggle('overflow-start', start);
-		list.classList.toggle('overflow-end', end);
+	/** Which inputs the card has, and their files: what the chips of the prompt are drawn from. */
+	private inputsKey(): string {
+		return JSON.stringify(this.inputs.length
+			? this.inputs.map(input => [input.path, input.kind, input.available, input.file?.toString() ?? ''])
+			: this.snapshot?.upstream ?? []);
 	}
 
-	/** The buttons of the input row, in order. The row is one tab stop; the arrow keys move between them. */
-	private rowControls(): HTMLButtonElement[] {
-		const controls: HTMLButtonElement[] = [];
-		const visit = (element: Element) => {
-			for (const child of element.children) {
-				if (isHTMLButtonElement(child) && child.dataset.key && !child.disabled) {
-					controls.push(child);
-				}
-				visit(child);
-			}
-		};
-		visit(this.inputRowElement);
-		return controls;
-	}
-
-	private updateRowTabStop(): void {
-		const controls = this.rowControls();
-		const current = controls.find(control => control.dataset.key === this.rowFocusKey) ?? controls[0];
-		for (const control of controls) {
-			control.tabIndex = control === current ? 0 : -1;
-		}
-	}
-
-	private onRowKeyDown(event: KeyboardEvent): void {
-		const controls = this.rowControls();
-		const index = controls.findIndex(control => control === event.target);
+	/**
+	 * The chip of a name in the prompt: the input of that kind and number, with
+	 * its picture (D68). Until the inputs are read, the entries of the list
+	 * stand for them, so a name that has an input is never shown as one that
+	 * has none.
+	 */
+	private chipOf(name: IBaseHalfVideoLabelToken): IBaseHalfPromptChip | undefined {
+		const sources: readonly { readonly kind: IBaseHalfVideoResolvedInput['kind']; readonly available: boolean; readonly file?: URI }[] = this.inputs.length
+			? this.inputs
+			: (this.snapshot?.upstream ?? []).map(path => ({ kind: baseHalfVideoInputKindOfPath(path), available: false }));
+		const ordinals = baseHalfInputNameOrdinals(sources);
+		const index = sources.findIndex((source, position) => source.kind === name.kind && ordinals[position] === name.ordinal);
 		if (index < 0) {
-			return;
+			return undefined;
 		}
-		if ((event.key === 'Delete' || event.key === 'Backspace') && controls[index].classList.contains('bh-video-panel-remove')) {
-			event.preventDefault();
-			event.stopPropagation();
-			controls[index].click();
-			return;
-		}
-		let next: number | undefined;
-		if (event.key === 'ArrowRight') {
-			next = Math.min(controls.length - 1, index + 1);
-		} else if (event.key === 'ArrowLeft') {
-			next = Math.max(0, index - 1);
-		} else if (event.key === 'Home') {
-			next = 0;
-		} else if (event.key === 'End') {
-			next = controls.length - 1;
-		}
-		if (next === undefined) {
-			return;
-		}
-		event.preventDefault();
-		event.stopPropagation();
-		controls[next].focus({ preventScroll: false });
-	}
-
-	private renderInput(parent: HTMLElement, item: IBaseHalfVideoPanelInputItem, slotTitle: string | undefined): void {
-		const element = append(parent, $(slotTitle !== undefined ? '.bh-video-panel-slot' : '.bh-video-panel-input'));
-		element.dataset.kind = item.kind;
-		element.dataset.use = item.use;
-		element.classList.toggle('unused', !item.used);
-		element.classList.toggle('chip', item.kind === 'text' || item.kind === 'other');
-		const media = item.kind === 'image' || item.kind === 'video' || item.kind === 'audio';
-		if (media) {
-			const thumb = append(element, $('.bh-video-panel-thumb'));
-			this.renderThumbnail(thumb, item.kind, this.inputs[item.index]);
-		} else {
-			element.append(renderCodicon(item.kind === 'text' ? Codicon.fileText : Codicon.file, 'bh-video-panel-input-icon'));
-		}
-		const text = append(element, $('.bh-video-panel-input-text'));
-		if (slotTitle !== undefined) {
-			append(text, $('span.bh-video-panel-slot-title')).textContent = slotTitle;
-		}
-		append(text, $('span.bh-video-panel-input-name')).textContent = item.name;
-		this.rowStore.add(this.hoverService.setupDelayedHover(element, () => ({ content: item.tooltip }), { groupId: HOVER_GROUP }));
-
-		const remove = append(element, $<HTMLButtonElement>('button.bh-video-panel-remove'));
-		remove.type = 'button';
-		remove.dataset.key = `remove:${item.path}`;
-		remove.setAttribute('aria-label', localize('basehalf.video.panel.removeInput', "Remove {0}", item.name));
-		remove.setAttribute('aria-description', item.tooltip);
-		remove.append(renderCodicon(Codicon.close));
-		this.rowStore.add(addDisposableListener(remove, 'click', event => {
-			event.stopPropagation();
-			void this.disconnect(item.path);
-		}));
-	}
-
-	private renderThumbnail(container: HTMLElement, kind: 'image' | 'video' | 'audio', input: IBaseHalfVideoResolvedInput | undefined): void {
-		const file = input?.file;
-		const glyph = () => {
-			clearNode(container);
-			container.append(renderCodicon(kind === 'audio' ? Codicon.unmute : kind === 'video' ? Codicon.play : Codicon.fileMedia, 'bh-video-panel-thumb-glyph'));
-		};
-		if (!file || kind === 'audio' || input?.available === false) {
-			glyph();
-			return;
-		}
-		const source = FileAccess.uriToBrowserUri(file).toString(true);
-		if (kind === 'image') {
-			const image = append(container, $<HTMLImageElement>('img'));
-			image.alt = '';
-			image.draggable = false;
-			image.decoding = 'async';
-			image.loading = 'lazy';
-			image.addEventListener('error', glyph, { once: true });
-			image.src = source;
-			return;
-		}
-		const video = append(container, $<HTMLVideoElement>('video'));
-		video.muted = true;
-		video.preload = 'metadata';
-		video.playsInline = true;
-		video.tabIndex = -1;
-		video.setAttribute('aria-hidden', 'true');
-		video.addEventListener('error', glyph, { once: true });
-		// The first frame stands for the video.
-		video.src = `${source}#t=0.1`;
-		this.rowStore.add(toDisposable(() => {
-			video.removeAttribute('src');
-			video.load();
-		}));
-	}
-
-	private renderOverlay(): void {
-		const text = this.textarea.value;
-		const marks = this.presentation ? baseHalfVideoPanelPromptMarks(text, this.presentation.plan) : [];
-		clearNode(this.overlay);
-		let offset = 0;
-		for (const mark of marks) {
-			if (mark.start > offset) {
-				this.overlay.append(text.slice(offset, mark.start));
-			}
-			const span = append(this.overlay, $(mark.known ? 'span.bh-video-panel-name' : 'span.bh-video-panel-name.unknown'));
-			span.textContent = text.slice(mark.start, mark.end);
-			offset = mark.end;
-		}
-		// A last empty line still takes its height.
-		this.overlay.append(`${text.slice(offset)}\u200b`);
-		this.syncOverlayScroll();
-		this.updatePromptLines();
-	}
-
-	private syncOverlayScroll(): void {
-		this.overlay.scrollTop = this.textarea.scrollTop;
-		this.overlay.scrollLeft = this.textarea.scrollLeft;
+		const source = sources[index];
+		const picture = name.kind === 'image' && source.available && source.file ? FileAccess.uriToBrowserUri(source.file).toString(true) : undefined;
+		return Object.freeze({ kind: name.kind, ...(picture ? { picture } : {}) });
 	}
 
 	private renderFooter(): void {
@@ -1082,6 +894,16 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.modelButton.setAttribute('aria-label', presentation.model.outlined
 			? localize('basehalf.video.panel.modelProblem', "Model: {0}. {1}", presentation.model.label, presentation.model.title)
 			: localize('basehalf.video.panel.modelLabel', "Model: {0}", presentation.model.label));
+		// While the draft generates, the model and the settings show their values and open nothing (D67).
+		const locked = this.isLocked();
+		for (const button of [this.modelButton, this.settingsButton]) {
+			button.classList.toggle('locked', locked);
+			if (locked) {
+				button.setAttribute('aria-disabled', 'true');
+			} else {
+				button.removeAttribute('aria-disabled');
+			}
+		}
 		// Settings exist once the catalog has the node's model.
 		this.settingsButton.hidden = !presentation.settingsView;
 		this.settingsLabel.textContent = presentation.settingsView?.summary ?? '';
@@ -1246,11 +1068,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	/** The lines the prompt takes, from three to five; beyond five it scrolls. */
 	private measurePromptLines(): number {
-		if (!this.textarea.isConnected || this.measure.clientWidth === 0) {
+		const element = this.editor.element;
+		if (!element.isConnected || element.clientWidth === 0) {
 			return this.promptLines;
 		}
-		this.measure.textContent = `${this.textarea.value}\u200b`;
-		const height = this.measure.offsetHeight - PROMPT_PADDING * 2;
+		const height = this.editor.contentHeight() - PROMPT_PADDING * 2;
 		const lines = Math.round(height / PROMPT_LINE_HEIGHT);
 		return Math.min(PROMPT_MAX_LINES, Math.max(PROMPT_MIN_LINES, lines));
 	}
@@ -1270,7 +1092,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private updateHeight(): void {
-		const height = this.computeHeight(this.snapshot ? !this.inputRowElement.hidden : true);
+		const height = this.computeHeight(this.snapshot ? !this.inputRow.element.hidden : true);
 		if (height === this.currentHeight) {
 			return;
 		}
@@ -1283,11 +1105,16 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	//#region Menus
 
-	private toggleMenu(kind: Exclude<BaseHalfVideoPanelMenuKind, 'mention'>, trigger: HTMLElement, byPointer: boolean): void {
+	private toggleMenu(kind: BaseHalfVideoPanelMenuKind, trigger: HTMLElement, byPointer: boolean): void {
 		if (this.openMenu?.kind === kind && this.openMenu.trigger === trigger) {
 			this.closeMenu(true);
 			return;
 		}
+		// While the draft generates, the model and the settings show their values and open nothing (D67).
+		if (this.isLocked()) {
+			return;
+		}
+		this.closeReferenceMenu(false);
 		this.showMenu(kind, trigger, byPointer);
 	}
 
@@ -1306,22 +1133,20 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			trigger,
 			store,
 			content: store.add(new DisposableStore()),
-			anchor: kind === 'mention' ? () => this.caretRect() : () => this.menuAnchor(kind, trigger),
+			anchor: () => this.menuAnchor(kind, trigger),
 			align: 'start',
 			byPointer
 		};
 		this.openMenu = menu;
 		this.menu.value = store;
-		if (kind !== 'mention') {
-			trigger.setAttribute('aria-expanded', 'true');
-			store.add(toDisposable(() => trigger.setAttribute('aria-expanded', 'false')));
-			store.add(addDisposableListener(element, 'focusout', event => {
-				const next = event.relatedTarget;
-				if (isHTMLElement(next) && !element.contains(next) && next !== trigger) {
-					this.closeMenu(false);
-				}
-			}));
-		}
+		trigger.setAttribute('aria-expanded', 'true');
+		store.add(toDisposable(() => trigger.setAttribute('aria-expanded', 'false')));
+		store.add(addDisposableListener(element, 'focusout', event => {
+			const next = event.relatedTarget;
+			if (isHTMLElement(next) && !element.contains(next) && next !== trigger) {
+				this.closeMenu(false);
+			}
+		}));
 		store.add(addDisposableListener(getWindow(this.element), 'pointerdown', event => {
 			// A type check of this element's own window: the panel can live in an auxiliary window.
 			const target = event.target;
@@ -1333,9 +1158,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		store.add(addDisposableListener(element, 'keydown', event => this.onMenuKeyDown(event, menu)));
 		this.fillMenu(menu);
 		this.placeMenu(menu);
-		if (kind !== 'mention') {
-			this.focusFirstMenuItem(menu);
-		}
+		this.focusFirstMenuItem(menu);
 	}
 
 	private closeMenu(restoreFocus: boolean): void {
@@ -1347,26 +1170,21 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (menu.kind === 'settings') {
 			this.saveTextParam();
 		}
-		if (menu.kind === 'mention') {
-			this.mention = undefined;
-			this.textarea.removeAttribute('aria-activedescendant');
-			this.textarea.removeAttribute('aria-controls');
-		}
 		this.menu.clear();
 		if (restoreFocus) {
-			(menu.kind === 'mention' ? this.textarea : menu.trigger).focus({ preventScroll: true });
+			menu.trigger.focus({ preventScroll: true });
 		}
 	}
 
 	private refreshMenu(): void {
 		const menu = this.openMenu;
-		if (!menu || menu.kind === 'mention') {
+		if (!menu) {
 			return;
 		}
 		if (!menu.trigger.isConnected) {
 			// The control it opened from was drawn again: open from the new one.
 			const key = menu.trigger.dataset.key;
-			const replacement = key ? this.findByKey(this.inputRowElement, key) : undefined;
+			const replacement = key ? this.findByKey(this.inputRow.element, key) : undefined;
 			if (!replacement) {
 				this.closeMenu(false);
 				return;
@@ -1400,7 +1218,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			case 'add': return this.fillAddMenu(menu.element);
 			case 'model': return this.fillModelMenu(menu.element);
 			case 'settings': return this.fillSettings(menu.element);
-			case 'mention': return this.fillMentionMenu(menu.element);
 		}
 	}
 
@@ -1456,7 +1273,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private onMenuKeyDown(event: KeyboardEvent, menu: IOpenMenu): void {
-		if (menu.kind === 'settings' || menu.kind === 'mention') {
+		if (menu.kind === 'settings') {
 			return;
 		}
 		const items = this.menuItems(menu.element);
@@ -1963,144 +1780,201 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	//#endregion
 
-	//#region Names
+	//#region Names and the reference menu
 
-	/** Opens, updates, or closes the `@` menu for the text before the caret. */
-	private updateMention(): void {
-		if (this.composing || !this.presentation) {
+	/**
+	 * Opens the reference menu when the user typed `@` at the caret (generation
+	 * cards, "The panel", D68): after the start of the prompt, a space, or
+	 * anything that is not a Latin letter or digit, so that an e-mail address
+	 * does not; a full-width `＠` too.
+	 */
+	private openReferenceMenuAtCaret(): void {
+		if (this.isLocked() || this.referenceMenu.value || !this.editor.hasFocus()) {
 			return;
 		}
-		const caret = this.textarea.selectionStart === this.textarea.selectionEnd ? this.textarea.selectionStart : -1;
-		const query = caret < 0 ? undefined : baseHalfVideoPanelMentionQuery(this.textarea.value, caret);
-		if (!query) {
-			if (this.openMenu?.kind === 'mention') {
-				this.closeMenu(false);
+		const selection = this.editor.selection();
+		if (!selection || selection.start !== selection.end || selection.start === 0) {
+			return;
+		}
+		const text = this.editor.value;
+		const at = selection.start - 1;
+		const mark = text.charAt(at);
+		if (mark !== '@' && mark !== '\uff20') {
+			return;
+		}
+		if (at > 0 && /[A-Za-z0-9._%+-]/.test(text.charAt(at - 1))) {
+			return;
+		}
+		this.openReferenceMenu(at);
+	}
+
+	private openReferenceMenu(at: number): void {
+		this.closeMenu(false);
+		// Where the menu opens, kept relative to the panel, so that it follows the panel when the canvas moves.
+		const caret = this.editor.caretRect();
+		const panel = this.element.getBoundingClientRect();
+		const offset = caret ? { left: caret.left - panel.left, top: caret.top - panel.top, width: caret.width, height: caret.height } : undefined;
+		const anchor = (): DOMRect | undefined => {
+			if (!offset) {
+				return undefined;
 			}
-			return;
-		}
-		const sameQuery = this.mention?.start === query.start && this.mention.query === query.query;
-		this.mention = { start: query.start, query: query.query, active: sameQuery ? this.mention?.active ?? 0 : 0 };
-		if (this.openMenu?.kind !== 'mention') {
-			this.showMenu('mention', this.textarea);
-		} else {
-			this.renderMentionMenu();
-		}
-	}
-
-	private mentionNames(): readonly IBaseHalfVideoPanelName[] {
-		return this.presentation && this.mention ? filterBaseHalfVideoPanelNames(this.presentation.names, this.mention.query) : [];
-	}
-
-	private renderMentionMenu(): void {
-		const menu = this.openMenu;
-		if (menu?.kind !== 'mention') {
-			return;
-		}
-		this.fillMenu(menu);
-		this.placeMenu(menu);
-	}
-
-	private fillMentionMenu(element: HTMLElement): void {
-		element.id = this.mentionId;
-		element.setAttribute('role', 'listbox');
-		element.setAttribute('aria-label', localize('basehalf.video.panel.names', "Inputs to Name"));
-		this.textarea.setAttribute('aria-controls', this.mentionId);
-		const names = this.mentionNames();
-		if (!names.length) {
-			this.textarea.removeAttribute('aria-activedescendant');
-			const empty = append(element, $('.bh-video-panel-menu-empty'));
-			empty.textContent = this.presentation?.names.length
-				? localize('basehalf.video.panel.namesNoMatch', "No input has that name.")
-				: localize('basehalf.video.panel.namesNone', "Connect an image, a video, or audio to name it here.");
-			return;
-		}
-		const active = Math.min(this.mention?.active ?? 0, names.length - 1);
-		names.forEach((name, index) => {
-			const option = append(element, $('.bh-video-panel-mention'));
-			option.id = `${this.mentionId}-${index}`;
-			option.setAttribute('role', 'option');
-			option.setAttribute('aria-selected', String(index === active));
-			option.classList.toggle('active', index === active);
-			option.classList.toggle('unused', !name.used);
-			const thumb = append(option, $('.bh-video-panel-thumb'));
-			this.renderMentionThumbnail(thumb, name);
-			append(option, $('span.bh-video-panel-mention-label')).textContent = name.label;
-			append(option, $('span.bh-video-panel-mention-file')).textContent = name.fileName;
-			option.addEventListener('pointerdown', event => {
-				// The prompt keeps the focus and the caret.
-				event.preventDefault();
-			});
-			option.addEventListener('click', () => this.insertName(name));
-			if (index === active) {
-				this.textarea.setAttribute('aria-activedescendant', option.id);
-				option.scrollIntoView({ block: 'nearest' });
+			const now = this.element.getBoundingClientRect();
+			const DOMRectConstructor = getWindow(this.element).DOMRect;
+			return new DOMRectConstructor(now.left + offset.left, now.top + offset.top, Math.max(1, offset.width), offset.height || PROMPT_LINE_HEIGHT);
+		};
+		this.mentionAt = at;
+		const menu = new BaseHalfGenerationReferenceMenu(this.referenceMenuModel(), {
+			choose: item => { void this.chooseReference(item); },
+			dismiss: () => this.closeReferenceMenu(true),
+			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
+		}, this.layer, anchor);
+		this.referenceMenu.value = menu;
+		menu.focus();
+		void this.readCanvasCards().then(cards => {
+			if (cards && this.referenceMenu.value === menu) {
+				this.canvasCards = cards;
+				menu.update(this.referenceMenuModel());
 			}
 		});
 	}
 
-	private renderMentionThumbnail(container: HTMLElement, name: IBaseHalfVideoPanelName): void {
-		const input = this.inputs[name.index];
-		const file = input?.file;
-		if (name.kind === 'image' && file) {
-			const image = append(container, $<HTMLImageElement>('img'));
-			image.alt = '';
-			image.draggable = false;
-			image.decoding = 'async';
-			image.addEventListener('error', () => {
-				clearNode(container);
-				container.append(renderCodicon(Codicon.fileMedia, 'bh-video-panel-thumb-glyph'));
-			}, { once: true });
-			image.src = FileAccess.uriToBrowserUri(file).toString(true);
+	/** Closes the reference menu; with `restoreFocus`, the caret goes back after the `@`, which stays as typed. */
+	private closeReferenceMenu(restoreFocus: boolean): void {
+		if (!this.referenceMenu.value) {
 			return;
 		}
-		container.append(renderCodicon(name.kind === 'audio' ? Codicon.unmute : name.kind === 'video' ? Codicon.play : Codicon.fileMedia, 'bh-video-panel-thumb-glyph'));
-	}
-
-	/** Types the input's name in place of `@` and what was typed after it. */
-	private insertName(name: IBaseHalfVideoPanelName): void {
-		const mention = this.mention;
-		if (!mention) {
-			return;
-		}
-		const end = mention.start + 1 + mention.query.length;
-		this.closeMenu(false);
-		this.textarea.focus({ preventScroll: true });
-		this.textarea.setSelectionRange(mention.start, end);
-		const targetWindow = getWindow(this.textarea);
-		// `insertText` keeps the edit in the text field's own undo history.
-		const inserted = targetWindow.document.execCommand('insertText', false, name.label);
-		if (!inserted || this.textarea.value.slice(mention.start, mention.start + name.label.length) !== name.label) {
-			this.textarea.setRangeText(name.label, mention.start, end, 'end');
-			this.didEditPrompt();
+		const at = this.mentionAt;
+		this.referenceMenu.clear();
+		this.mentionAt = undefined;
+		if (restoreFocus && !this.disposed) {
+			this.editor.focus(at !== undefined ? at + 1 : undefined);
 		}
 	}
 
-	/** The caret's place in window coordinates, for the `@` menu. */
-	private caretRect(): DOMRect | undefined {
-		if (!this.textarea.isConnected) {
+	/** The card's named inputs, then the canvas's cards by kind, as the menu lists them. */
+	private referenceMenuModel(): IBaseHalfReferenceMenuModel {
+		const labels = new Map<string, string>();
+		const connected = (this.presentation?.names ?? []).map(name => {
+			labels.set(name.path, name.label);
+			const input = this.inputs[name.index];
+			return Object.freeze<IBaseHalfReferenceMenuItem>({
+				path: name.path,
+				kind: name.kind,
+				title: name.fileName,
+				label: name.label,
+				...pictureOf(name.kind, input?.available ? input.file : undefined)
+			});
+		});
+		const canvas = (this.canvasCards ?? EMPTY_CANVAS_CARDS).map(list => Object.freeze({
+			...list,
+			items: list.items.map(item => {
+				const label = labels.get(item.path);
+				return label ? Object.freeze({ ...item, label }) : item;
+			})
+		}));
+		return Object.freeze({ connected, canvas });
+	}
+
+	/**
+	 * Reads the images, videos, and audio of the card's folder, drafts too,
+	 * apart from the card itself, and asks for each kind whether the draft's
+	 * model takes one more. `undefined` when the folder cannot be read.
+	 */
+	private async readCanvasCards(): Promise<readonly IBaseHalfReferenceMenuKindList[] | undefined> {
+		const snapshot = this.snapshot;
+		if (!snapshot) {
 			return undefined;
 		}
-		const caret = this.textarea.selectionEnd;
-		this.measure.textContent = this.textarea.value.slice(0, caret);
-		const marker = append(this.measure, $('span'));
-		marker.textContent = '\u200b';
-		const box = this.measure.getBoundingClientRect();
-		const textarea = this.textarea.getBoundingClientRect();
-		const left = textarea.left + (marker.offsetLeft) - this.textarea.scrollLeft;
-		const top = textarea.top + marker.offsetTop - this.textarea.scrollTop;
-		marker.remove();
-		const DOMRectConstructor = getWindow(this.textarea).DOMRect;
-		return box.width > 0 ? new DOMRectConstructor(left, top, 1, PROMPT_LINE_HEIGHT) : undefined;
+		const folder = dirname(this.resource);
+		const slash = snapshot.path.lastIndexOf('/');
+		const folderPath = slash < 0 ? '' : snapshot.path.slice(0, slash);
+		const items: IBaseHalfReferenceMenuItem[] = [];
+		try {
+			const [stat, drafts] = await Promise.all([this.fileService.resolve(folder), this.store.listDrafts(folder)]);
+			const entries = [
+				...(stat.children ?? []).filter(child => !child.isDirectory).map(child => ({ name: child.name, file: child.resource as URI | undefined })),
+				...drafts.map(draft => ({ name: draft.name, file: undefined }))
+			];
+			for (const entry of entries) {
+				const path = folderPath ? `${folderPath}/${entry.name}` : entry.name;
+				const kind = baseHalfVideoInputKindOfPath(path);
+				if (path === snapshot.path || entry.name.startsWith('.') || !isBaseHalfNamedInputKind(kind)) {
+					continue;
+				}
+				items.push(Object.freeze({ path, kind, title: baseHalfVideoPanelInputFileName(path), ...pictureOf(kind, entry.file) }));
+			}
+		} catch (error) {
+			this.logService.warn('[BaseHalf] the reference menu could not read the cards of the canvas', error);
+			return undefined;
+		}
+		// In the order of Files.
+		items.sort((left, right) => compareFileNames(left.title, right.title));
+		const connected = new Set(snapshot.upstream);
+		const lists: IBaseHalfReferenceMenuKindList[] = [];
+		for (const kind of ['image', 'video', 'audio'] as const) {
+			const ofKind = items.filter(item => item.kind === kind);
+			// The model takes one more of a kind or none, whichever card it is: asked once, for the first that is not connected.
+			const candidate = ofKind.find(item => !connected.has(item.path));
+			let disabled: string | undefined;
+			try {
+				disabled = candidate ? await this.cardActions.inputRefusal(this.resource, { add: candidate.path }) : undefined;
+			} catch (error) {
+				this.logService.warn('[BaseHalf] the reference menu could not ask whether the model takes an input', error);
+			}
+			lists.push(Object.freeze({ kind, items: ofKind, ...(disabled ? { disabled } : {}) }));
+		}
+		return lists;
 	}
 
-	private replacePromptText(value: string): void {
-		const focused = getWindow(this.textarea).document.activeElement === this.textarea;
-		const start = this.textarea.selectionStart;
-		const end = this.textarea.selectionEnd;
-		this.textarea.value = value;
-		if (focused) {
-			this.textarea.setSelectionRange(Math.min(start, value.length), Math.min(end, value.length));
+	/**
+	 * Puts the chosen input's name in place of the `@`. A card that is not
+	 * connected is connected first, as a connection on the canvas is, or the
+	 * reason it cannot be is shown and the `@` stays.
+	 */
+	private async chooseReference(item: IBaseHalfReferenceMenuItem): Promise<void> {
+		const at = this.mentionAt;
+		this.referenceMenu.clear();
+		this.mentionAt = undefined;
+		let label = item.label;
+		if (!label) {
+			const count = this.presentation?.names.filter(name => name.kind === item.kind).length ?? 0;
+			const connected = await this.acceptInput(item.path) && await this.connect(item.path);
+			if (this.disposed) {
+				return;
+			}
+			if (!connected) {
+				this.editor.focus(at !== undefined ? at + 1 : undefined);
+				return;
+			}
+			// The chip is drawn with the new input once the panel has read it.
+			await this.refresh();
+			// A new input is the last of its kind.
+			label = baseHalfVideoInputLabel(item.kind, count + 1);
 		}
+		this.replaceMention(at, label);
+	}
+
+	/** Puts `label` and a space in place of the `@` at `at`, or at the caret when it is not there any more. */
+	private replaceMention(at: number | undefined, label: string): void {
+		const text = this.editor.value;
+		if (at !== undefined && (text.charAt(at) === '@' || text.charAt(at) === '\uff20')) {
+			this.editor.focus(at + 1);
+			this.editor.replace(at, at + 1, `${label} `);
+			return;
+		}
+		this.insertName(label);
+	}
+
+	/** Puts an input's name into the prompt at its caret, or at the end, with a space after it, and gives the prompt the keyboard. */
+	private insertName(label: string): void {
+		if (this.isLocked()) {
+			return;
+		}
+		const selection = this.editor.hasFocus() ? this.editor.selection() : undefined;
+		const end = this.editor.value.length;
+		const start = selection?.start ?? end;
+		this.editor.focus(start);
+		this.editor.replace(start, selection?.end ?? end, `${label} `);
 	}
 
 	//#endregion
@@ -2109,6 +1983,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	private async reorder(upstream: readonly string[]): Promise<void> {
 		try {
+			// The names of the prompt follow their inputs from what was typed last (D68).
+			await this.flush();
 			const snapshot = await this.store.reorderUpstream(this.resource, upstream);
 			if (!this.disposed) {
 				this.snapshot = snapshot;
@@ -2117,6 +1993,24 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		} catch (error) {
 			this.reportReferenceError(error);
 		}
+	}
+
+	/** Moves an input to the place of `before` in the list, or last, as a dragged tile does. */
+	private async moveInput(path: string, before: string | undefined): Promise<void> {
+		const upstream = this.snapshot?.upstream;
+		if (!upstream?.includes(path)) {
+			return;
+		}
+		const rest = upstream.filter(entry => entry !== path);
+		const index = before === undefined ? rest.length : rest.indexOf(before);
+		if (index < 0) {
+			return;
+		}
+		const order = [...rest.slice(0, index), path, ...rest.slice(index)];
+		if (order.every((entry, position) => entry === upstream[position])) {
+			return;
+		}
+		await this.reorder(order);
 	}
 
 	private async pickOnCanvas(): Promise<void> {
@@ -2134,7 +2028,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				this.render();
 			}
 		}
-		if (path && !this.disposed) {
+		if (path && !this.disposed && await this.acceptInput(path)) {
 			await this.connect(path);
 		}
 	}
@@ -2142,7 +2036,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private async importFile(): Promise<void> {
 		let path: string | undefined;
 		try {
-			path = await this.host.importFile();
+			// Nothing is copied for a file the model cannot use (D67).
+			path = await this.host.importFile(candidate => this.acceptInput(candidate));
 		} catch (error) {
 			this.reportReferenceError(error);
 			return;
@@ -2152,13 +2047,31 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	private async connect(entry: string): Promise<void> {
+	/**
+	 * Whether the draft takes `path` as one more input; when it does not, the
+	 * reason is shown, as for a connection on the canvas (D67).
+	 */
+	private async acceptInput(path: string): Promise<boolean> {
+		let reason: string | undefined;
+		try {
+			reason = await this.cardActions.inputRefusal(this.resource, { add: path });
+		} catch (error) {
+			this.logService.warn('[BaseHalf] the panel could not ask whether the model takes an input', error);
+		}
+		if (reason && !this.disposed) {
+			this.notificationService.notify({ severity: Severity.Warning, message: reason });
+		}
+		return !reason;
+	}
+
+	/** Connects an input; resolves with whether it was connected. */
+	private async connect(entry: string): Promise<boolean> {
 		const node = this.workspaceNode();
 		if (!node || entry === node.relativePath) {
-			return;
+			return false;
 		}
 		const label = localize('basehalf.video.panel.connectUndo', "Connect Input");
-		await this.runReferenceEdit(label, () => this.referenceEditService.add(node, entry, { label }));
+		return this.runReferenceEdit(label, () => this.referenceEditService.add(node, entry, { label }));
 	}
 
 	private async disconnect(entry: string): Promise<void> {
@@ -2166,24 +2079,28 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (!node) {
 			return;
 		}
+		// The names of the prompt follow their inputs from what was typed last (D68).
+		await this.flush();
 		const label = localize('basehalf.video.panel.disconnectUndo', "Remove Input");
 		await this.runReferenceEdit(label, () => this.referenceEditService.remove(node, entry, { label }));
 	}
 
-	/** Runs a connection edit as one step of the canvas undo stack, and says why one did not run. */
-	private async runReferenceEdit(label: string, operation: () => Promise<IBaseHalfReferenceEditResult>): Promise<void> {
+	/** Runs a connection edit as one step of the canvas undo stack, and says why one did not run. Resolves with whether it ran. */
+	private async runReferenceEdit(label: string, operation: () => Promise<IBaseHalfReferenceEditResult>): Promise<boolean> {
 		const node = this.workspaceNode();
 		if (!node) {
-			return;
+			return false;
 		}
 		try {
 			this.pushUndo(await operation(), label, node);
+			return true;
 		} catch (error) {
 			if (error instanceof BaseHalfReferenceEditFailure) {
 				this.pushUndo(error.result, label, node);
 			} else {
 				this.reportReferenceError(error);
 			}
+			return false;
 		} finally {
 			this.scheduleRefresh();
 		}
@@ -2247,7 +2164,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private promptFocused(): boolean {
-		return getWindow(this.textarea).document.activeElement === this.textarea;
+		return this.editor.hasFocus();
 	}
 
 	//#endregion
@@ -2298,6 +2215,18 @@ function addInputLabel(): string {
 }
 
 const EMPTY_INFO: IBaseHalfGenerationInfo = Object.freeze({ prompt: '' });
+
+/** The canvas's cards before the reference menu read them. */
+const EMPTY_CANVAS_CARDS: readonly IBaseHalfReferenceMenuKindList[] = Object.freeze([
+	Object.freeze({ kind: 'image' as const, items: [] }),
+	Object.freeze({ kind: 'video' as const, items: [] }),
+	Object.freeze({ kind: 'audio' as const, items: [] })
+]);
+
+/** The picture of an image the window can show; a video and audio have their glyph. */
+function pictureOf(kind: BaseHalfNamedInputKind, file: URI | undefined): { readonly picture?: string } {
+	return kind === 'image' && file ? { picture: FileAccess.uriToBrowserUri(file).toString(true) } : {};
+}
 
 /** What the empty prompt of a card of a kind says. */
 function placeholderOf(kind: 'image' | 'video'): string {
