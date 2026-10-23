@@ -51,6 +51,29 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 	});
 }
 
+/** The viewer's own menus and dialogs, which close on Escape themselves. */
+let viewerUi: ReturnType<UIPlugin['provides']> | undefined;
+let escapeUsedByViewer = false;
+// Escape that the viewer does not use closes Card Detail (opening and closing
+// Card Detail, "The keyboard"). The viewer closes a menu or a dialog on Escape
+// without saying so, so whether one is open is read before it does, and a
+// field of its own, such as the page number, keeps its Escape.
+window.addEventListener('keydown', event => {
+	if (event.key !== 'Escape') {
+		return;
+	}
+	const target = event.composedPath()[0];
+	const inField = target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+	const scope = viewerUi?.forDocument(DOCUMENT_ID);
+	escapeUsedByViewer = inField || (!!scope && (scope.getOpenMenus().length > 0 || scope.isModalOpen()));
+}, { capture: true });
+window.addEventListener('keydown', event => {
+	if (event.key === 'Escape' && !escapeUsedByViewer && !event.defaultPrevented && !event.isComposing
+		&& !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+		vscode.postMessage({ type: 'basehalf.media.escape' });
+	}
+});
+
 function requiredDatasetValue(name: string): string {
 	const value = root.dataset[name];
 	if (!value) {
@@ -205,6 +228,7 @@ async function initializeViewer(): Promise<void> {
 async function initializeRegistry(registry: PluginRegistry): Promise<void> {
 	installBaseHalfSelectionCommand(registry);
 	await registry.pluginsReady();
+	viewerUi = registry.getPlugin<UIPlugin>(UIPlugin.id)?.provides();
 
 	const documentManager = registry.getPlugin<DocumentManagerPlugin>(DocumentManagerPlugin.id)?.provides();
 	const scroll = registry.getPlugin<ScrollPlugin>(ScrollPlugin.id)?.provides();

@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, DEFAULT_BASEHALF_PDF_VIEW_STATE, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
+import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, DEFAULT_BASEHALF_PDF_VIEW_STATE, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
 
 suite('BaseHalfMediaViewState', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -52,5 +52,12 @@ suite('BaseHalfMediaViewState', () => {
 		assert.strictEqual(isBaseHalfPdfUserInteractionMessage({ type: 'basehalf.pdf.userInteraction' }), true);
 		assert.strictEqual(isBaseHalfPdfUserInteractionMessage({ type: 'basehalf.pdf.viewState' }), false);
 		assert.strictEqual(isBaseHalfPdfUserInteractionMessage(undefined), false);
+	});
+
+	test('recognizes only the Escape that a page of Card Detail did not use', () => {
+		assert.deepStrictEqual(
+			[{ type: 'basehalf.media.escape' }, { type: 'basehalf.media.drawn' }, { type: 'basehalf.pdf.userInteraction' }, 'basehalf.media.escape', undefined].map(isBaseHalfMediaEscapeMessage),
+			[true, false, false, false, false]
+		);
 	});
 });

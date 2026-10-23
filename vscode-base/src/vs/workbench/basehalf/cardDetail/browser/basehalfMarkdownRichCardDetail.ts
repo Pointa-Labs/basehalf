@@ -99,6 +99,8 @@ export interface IBaseHalfMarkdownRichCardDetailOptions {
 	readonly onCanvasToolbarRequest?: () => void;
 	readonly onCanvasAuthoringRequest?: (point?: IBaseHalfMarkdownRichFocusPoint) => void;
 	readonly onCanvasExitRequest?: () => void;
+	/** Escape in the editor of Card Detail, which closes Card Detail (opening and closing Card Detail, "The keyboard"). */
+	readonly onDetailCloseRequest?: () => void;
 	/** The text the user selected, or `undefined` once nothing is (the selection agents can see). */
 	readonly onSelectionChange?: (selected: IBaseHalfAgentSelectionText | undefined) => void;
 }
@@ -457,11 +459,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		this.updateStatus();
 	}
 
+	/** Gives the editor the keyboard: at `point`, or where its caret is. */
 	focus(point?: IBaseHalfMarkdownRichFocusPoint): void {
 		this.webview?.focus();
-		if (point) {
-			void this.bridge?.sendFocusAtPoint(point).catch(error => this.logService.error(error));
-		}
+		void (point ? this.bridge?.sendFocusAtPoint(point) : this.bridge?.sendFocus())?.catch(error => this.logService.error(error));
 	}
 
 	/**
@@ -777,6 +778,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 					} else {
 						this.options.onCanvasExitRequest?.();
 					}
+				} else if (message.command === 'exitEditor') {
+					this.options.onDetailCloseRequest?.();
 				}
 				break;
 			case 'basehalf.markdownRich.fileSearch':

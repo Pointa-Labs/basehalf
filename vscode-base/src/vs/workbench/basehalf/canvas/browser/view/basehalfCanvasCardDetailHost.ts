@@ -10,7 +10,6 @@ import { InputBox, MessageType } from '../../../../../base/browser/ui/inputbox/i
 import { IKeyboardEvent } from '../../../../../base/browser/keyboardEvent.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname, extname, joinPath } from '../../../../../base/common/resources.js';
-import { URI } from '../../../../../base/common/uri.js';
 import { raceTimeout } from '../../../../../base/common/async.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
@@ -29,7 +28,7 @@ import { BaseHalfMediaCardDetail } from '../../../cardDetail/browser/basehalfMed
 import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
 import { BaseHalfStructuralResourceOutcome } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BASEHALF_CARD_DETAIL_CARDS_WAIT_MS, BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS, BaseHalfCardDetailTransition, IBaseHalfCardDetailTransitionCard } from './basehalfCanvasCardDetailTransition.js';
+import { BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS, BaseHalfCardDetailTransition } from './basehalfCanvasCardDetailTransition.js';
 
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 
@@ -59,14 +58,12 @@ export class BaseHalfCanvasCardDetailHost {
 	private detailIdentityPendingResourceKey: string | undefined;
 	private pendingDetailNameEditResourceKey: string | undefined;
 	private pendingDetailEditorFocusResourceKey: string | undefined;
-	/** Card Detail grows out of its card and goes back into it (opening and closing Card Detail). */
+	/** Card Detail fades in and out where it is (opening and closing Card Detail). */
 	private readonly transition = new BaseHalfCardDetailTransition();
-	/** The file Card Detail shows, while it is shown. */
-	private shownResource: URI | undefined;
-	/** The cards of notes that closing Card Detail draws again, until the transition has waited for them. */
-	private redrawnNotePaths: readonly string[] = [];
-	/** A projection that was not drawn when Card Detail grew in: it stays out of the transition. */
+	/** A projection that was not drawn when Card Detail faded in: it stays out of the transition. */
 	private surfaceOutOfTransition: HTMLElement | undefined;
+	/** Card Detail that has opened, and where the keyboard was then, until it takes the keyboard. */
+	private keyboardPending: { readonly cardDetail: IBaseHalfCardDetailState; readonly activeAtOpen: Element | null } | undefined;
 	private drewOnce = false;
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
@@ -163,9 +160,9 @@ export class BaseHalfCanvasCardDetailHost {
 	}
 
 	/**
-	 * Draws Card Detail as navigation has it. When it opens or closes, it grows
-	 * out of its card or goes back into it, and the window shows the canvas
-	 * until Card Detail is drawn (opening and closing Card Detail).
+	 * Draws Card Detail as navigation has it. When it opens or closes, it
+	 * fades in or out where it is, and the window shows the canvas until Card
+	 * Detail is drawn (opening and closing Card Detail).
 	 */
 	renderDetail(): void {
 		if (this.transition.drawing) {
@@ -174,42 +171,25 @@ export class BaseHalfCanvasCardDetailHost {
 		}
 		const cardDetail = this.view.canvasNavigationService.state.cardDetail;
 		const shown = this.view.detail.classList.contains('visible');
-		const resource = cardDetail?.resource ?? this.shownResource;
-		if (this.drewOnce && !!cardDetail !== shown && resource && this.transition.run({
+		if (this.drewOnce && !!cardDetail !== shown && this.transition.run({
 			direction: cardDetail ? 'open' : 'close',
 			detail: this.view.detail,
-			card: () => this.cardOnScreen(resource),
 			draw: () => this.drawDetail(true),
-			ready: () => cardDetail ? this.whenDetailDrawn() : this.whenNoteCardsDrawn(),
+			// Closing shows the canvas under Card Detail as it is.
+			ready: () => cardDetail ? this.whenDetailDrawn() : Promise.resolve(),
 			// Waiting for Card Detail decides itself what to do when it is late, a little sooner.
-			wait: cardDetail ? BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS + 50 : BASEHALF_CARD_DETAIL_CARDS_WAIT_MS,
+			wait: BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS + 50,
 			reducedMotion: this.view.accessibilityService.isMotionReduced(),
 			finished: () => {
 				this.surfaceOutOfTransition?.style.removeProperty('visibility');
 				this.surfaceOutOfTransition = undefined;
+				this.giveKeyboard();
 			},
 			onError: error => this.view.logService.error(error instanceof Error ? error : new Error(String(error)))
 		})) {
 			return;
 		}
 		this.drawDetail(false);
-	}
-
-	/** The card of `resource` on the canvas under Card Detail, when it is on screen. */
-	private cardOnScreen(resource: URI): IBaseHalfCardDetailTransitionCard | undefined {
-		for (const [path, item] of this.view.renderedItemsByPath) {
-			if (!this.view.uriIdentityService.extUri.isEqual(item.stat.resource, resource)) {
-				continue;
-			}
-			const card = this.view.renderedCardElementsByPath.get(path);
-			const box = card?.isConnected ? card.getBoundingClientRect() : undefined;
-			const area = this.view.root.getBoundingClientRect();
-			const onScreen = !!box && box.width > 0 && box.right > area.left && box.left < area.right && box.bottom > area.top && box.top < area.bottom;
-			return card && onScreen
-				? { box: card, caption: this.view.cardRenderer.captionOf(card) }
-				: undefined;
-		}
-		return undefined;
 	}
 
 	/**
@@ -232,39 +212,30 @@ export class BaseHalfCanvasCardDetailHost {
 		}
 	}
 
-	/** The canvas has drawn again the cards of notes that closing Card Detail let go. */
-	private whenNoteCardsDrawn(): Promise<void> {
-		const paths = this.redrawnNotePaths;
-		this.redrawnNotePaths = [];
-		// A drawing may have drawn them already: they are back, and in the window.
-		if (paths.every(path => this.view.renderedCardsByPath.has(path) && this.view.renderedCardElementsByPath.get(path)?.isConnected)) {
-			return Promise.resolve();
+	/**
+	 * Card Detail that has opened takes the keyboard once its projection is
+	 * drawn and its transition is over, unless it was opened to keep the
+	 * keyboard where it was, or the keyboard has gone into Card Detail or out
+	 * of the canvas since (opening and closing Card Detail, "The keyboard").
+	 */
+	private giveKeyboard(): void {
+		const pending = this.keyboardPending;
+		this.keyboardPending = undefined;
+		const surface = pending && this.detailSurfaces.get(pending.cardDetail.projection);
+		if (!pending || !surface) {
+			return;
 		}
-		return new Promise<void>(resolve => {
-			const done = () => {
-				listener.dispose();
-				clearTimeout(timer);
-				clearTimeout(poll);
-				resolve();
-			};
-			// The scene mounts the new cards after the drawing, and the transition
-			// names a card that is in the window. The window draws no frame while
-			// it waits, so it looks again on a timer, not on a frame.
-			const mounted = () => {
-				if (paths.every(path => this.view.renderedCardElementsByPath.get(path)?.isConnected)) {
-					done();
-				} else {
-					poll = setTimeout(mounted, 8);
-				}
-			};
-			let poll: ReturnType<typeof setTimeout> | undefined;
-			const listener = this.view.onDidChangeSceneEmitter.event(change => {
-				if (change.drawn && paths.every(path => this.view.renderedCardsByPath.has(path))) {
-					listener.dispose();
-					mounted();
-				}
-			});
-			const timer = setTimeout(done, BASEHALF_CARD_DETAIL_CARDS_WAIT_MS);
+		void surface.whenRendered.then(() => {
+			const ownerDocument = this.view.detail.ownerDocument;
+			const active = ownerDocument.activeElement;
+			const inDetail = !!active && active !== this.view.detail && this.view.detail.contains(active);
+			const elsewhere = !!active && active !== pending.activeAtOpen && active !== ownerDocument.body && !this.view.root.contains(active);
+			if (this.view.disposed || inDetail || elsewhere
+				|| this.view.canvasNavigationService.state.cardDetail?.resource.toString() !== pending.cardDetail.resource.toString()
+				|| this.detailSurfaces.get(pending.cardDetail.projection) !== surface) {
+				return;
+			}
+			surface.instance.focus?.();
 		});
 	}
 
@@ -272,7 +243,7 @@ export class BaseHalfCanvasCardDetailHost {
 	private drawDetail(fromTransition: boolean): void {
 		this.drewOnce = true;
 		const cardDetail = this.view.canvasNavigationService.state.cardDetail;
-		this.shownResource = cardDetail?.resource;
+		const opening = !!cardDetail && !this.view.detail.classList.contains('visible');
 		const chromeHidden = !!cardDetail || !this.view.getCurrentFolder();
 		if (chromeHidden) {
 			this.view.onDidHideViewControlsEmitter.fire();
@@ -286,6 +257,10 @@ export class BaseHalfCanvasCardDetailHost {
 		}
 		this.syncDetailScrollLock(!!cardDetail);
 		if (!cardDetail) {
+			this.keyboardPending = undefined;
+			// The keyboard that was in Card Detail goes back to the canvas.
+			const active = this.view.detail.ownerDocument.activeElement;
+			const hadKeyboard = !!active && active !== this.view.detail && this.view.detail.contains(active);
 			this.pendingDetailNameEditResourceKey = undefined;
 			this.pendingDetailEditorFocusResourceKey = undefined;
 			this.view.detail.inert = false;
@@ -315,18 +290,20 @@ export class BaseHalfCanvasCardDetailHost {
 				// selected Note and its controls are current when detail closes. The
 				// pictures of images and videos stay as they are: drawn anew, a video
 				// shows no picture until it loads again (opening and closing Card Detail).
-				const redrawn: string[] = [];
+				let redrawn = false;
 				for (const [path, card] of this.view.renderedCardsByPath) {
 					if (isBaseHalfMarkdownResource(card.item.stat.resource)) {
 						this.view.renderedCardsByPath.delete(path);
-						redrawn.push(path);
+						redrawn = true;
 					}
 				}
-				this.redrawnNotePaths = redrawn;
-				if (fromTransition && redrawn.length > 0) {
+				if (fromTransition && redrawn) {
 					// The drawing that closed Card Detail has drawn the canvas already.
 					this.view.requestRender();
 				}
+			}
+			if (hadKeyboard) {
+				this.view.cards.focus({ preventScroll: true });
 			}
 			return;
 		}
@@ -361,6 +338,13 @@ export class BaseHalfCanvasCardDetailHost {
 
 		this.renderDetailSurface(cardDetail);
 		this.focusPendingDetailEditor(cardDetail);
+		if (opening && !cardDetail.preserveFocus) {
+			this.keyboardPending = { cardDetail, activeAtOpen: this.view.detail.ownerDocument.activeElement };
+		}
+		if (!this.transition.running) {
+			// A transition gives it once it is over: a projection shows itself only then.
+			this.giveKeyboard();
+		}
 	}
 
 	reconcileCardProjectionRegistrations(): void {
@@ -647,7 +631,10 @@ export class BaseHalfCanvasCardDetailHost {
 					host,
 					() => this.view.badgeEditor.closeDetailBadgePopover(state, false),
 					status => this.setDetailSaveStatus(status),
-					{ onSelectionChange: selected => this.setAgentSelectionDetailText('rich', selected) }
+					{
+						onSelectionChange: selected => this.setAgentSelectionDetailText('rich', selected),
+						onDetailCloseRequest: () => void this.view.canvasNavigationService.closeCardDetail()
+					}
 				);
 				for (const command of this.view.noteEditing.takeMarkdownRichFormatCommands(state.resource)) {
 					instance.runEditorCommand(command);
@@ -681,7 +668,8 @@ export class BaseHalfCanvasCardDetailHost {
 						BaseHalfMediaCardDetail,
 						host,
 						(resource, selection) => this.view.creation.createPdfBranch(resource, selection),
-						() => this.view.markCanvasUserInteraction()
+						() => this.view.markCanvasUserInteraction(),
+						() => void this.view.canvasNavigationService.closeCardDetail()
 					)
 				};
 			}

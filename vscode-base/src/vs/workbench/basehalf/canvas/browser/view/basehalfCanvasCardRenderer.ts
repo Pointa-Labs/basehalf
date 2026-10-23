@@ -24,7 +24,7 @@ import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase, IBaseHal
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
-import { releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
+import { whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
 import {
 	BaseHalfCanvasSceneCardControls,
@@ -63,8 +63,6 @@ export class BaseHalfCanvasCardRenderer {
 	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfCanvasCardVideoPlayer>();
 	/** The face drawn last for each generation card, while it is drawn. */
 	private readonly generationFaces = new Map<string, IBaseHalfGenerationCardFace>();
-	/** The name above each card element's box. */
-	private readonly captions = new WeakMap<HTMLElement, HTMLElement>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -147,11 +145,6 @@ export class BaseHalfCanvasCardRenderer {
 		});
 	}
 
-	/** The name above the box of a card element. */
-	captionOf(card: HTMLElement): HTMLElement | undefined {
-		return this.captions.get(card);
-	}
-
 	/** The scene has put a card's element into the document in place of the previous one. */
 	didMountCardElement(path: string, element: HTMLElement): void {
 		this.view.cardListenerStores.didMount(path, element);
@@ -211,7 +204,6 @@ export class BaseHalfCanvasCardRenderer {
 		// A draft has no file whose description its badge would edit.
 		const canShowBadgeFace = !(item.kind === 'folder' && orphan) && !draft;
 		const caption = append(card, $('.basehalf-canvas-card-caption'));
-		this.captions.set(card, caption);
 		const captionIdentity = append(caption, $('.basehalf-canvas-card-caption-identity'));
 		const icon = append(captionIdentity, $('.basehalf-canvas-card-caption-icon'));
 		icon.setAttribute('aria-hidden', 'true');
@@ -598,11 +590,13 @@ export class BaseHalfCanvasCardRenderer {
 			}, { once: true });
 			return;
 		}
-		if (preview.mediaKind === 'video') {
-			// The video plays as the player of every card that shows a video does (generation cards, "The player").
+		if (preview.mediaKind === 'video' || preview.mediaKind === 'audio') {
+			// A video or a sound plays as in the player of every card that shows one (generation cards, "The player").
+			const kind = preview.mediaKind;
 			const player = createBaseHalfCanvasCardVideoPlayer(container, container.firstChild, {
 				source: preview.resource,
 				videoClasses: ['basehalf-canvas-card-media-visual'],
+				sound: kind === 'audio',
 				open,
 				onError: () => {
 					player.dispose();
@@ -614,7 +608,7 @@ export class BaseHalfCanvasCardRenderer {
 						unshowable();
 						return;
 					}
-					this.renderMediaFallback(container, preview.text, 'video', () => {
+					this.renderMediaFallback(container, preview.text, kind, () => {
 						clearNode(container);
 						this.renderMediaPreview(container, preview, interactive, listeners, open, card);
 					});
@@ -636,49 +630,7 @@ export class BaseHalfCanvasCardRenderer {
 			}
 			return;
 		}
-		if (preview.mediaKind === 'audio') {
-			if (!interactive) {
-				this.renderMediaFallback(container, preview.text, 'audio');
-				return;
-			}
-			const idle = append(container, $('.basehalf-canvas-card-media-idle'));
-			idle.setAttribute('aria-hidden', 'true');
-			const glyph = append(idle, $('.basehalf-canvas-card-media-idle-glyph'));
-			this.renderGlyph(glyph, 'audio', 'var(--bh-card-text-tertiary)', 24);
-			const label = append(idle, $('.basehalf-canvas-card-media-idle-label'));
-			label.textContent = preview.text;
-			const audio = append(container, $('audio.basehalf-canvas-card-media-transport')) as HTMLAudioElement;
-			audio.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
-			audio.preload = 'metadata';
-			audio.controls = true;
-			audio.tabIndex = 0;
-			audio.classList.add('nodrag', 'nopan', 'nowheel');
-			listeners.add(toDisposable(() => releaseBaseHalfCanvasCardMedia(audio)));
-			this.configureCardMediaTransport(audio);
-			audio.addEventListener('error', () => {
-				audio.remove();
-				this.renderMediaFallback(container, preview.text, 'audio', () => {
-					clearNode(container);
-					this.renderMediaPreview(container, preview, interactive, listeners, open, card);
-				});
-			}, { once: true });
-			return;
-		}
 		this.renderMediaFallback(container, preview.text, preview.mediaKind);
-	}
-
-	private configureCardMediaTransport(media: HTMLMediaElement): void {
-		for (const type of ['pointerdown', 'mousedown', 'click', 'dblclick', 'wheel'] as const) {
-			media.addEventListener(type, event => {
-				// An idle preview behaves like the rest of its card: it can be
-				// selected, dragged, opened, and panned across. The scene enables
-				// controls only for the selected card; only then does the media
-				// transport own these gestures.
-				if (media.controls) {
-					event.stopPropagation();
-				}
-			});
-		}
 	}
 
 	private renderMediaFallback(container: HTMLElement, label: string, kind: 'image' | 'video' | 'audio' | 'pdf', reload?: () => void): void {

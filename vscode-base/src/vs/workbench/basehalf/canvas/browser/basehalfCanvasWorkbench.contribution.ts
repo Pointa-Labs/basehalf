@@ -528,7 +528,10 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229) {
-				void this.canvasNavigationService.closeCardDetail();
+				// Full screen takes Escape first (opening and closing Card Detail, "The keyboard").
+				if (!this.root.ownerDocument.fullscreenElement) {
+					void this.canvasNavigationService.closeCardDetail();
+				}
 				return;
 			}
 			this.onKeyDownEmitter.fire(event);

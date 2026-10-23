@@ -2179,7 +2179,7 @@ the user's Codex out. No reference product reads the login.
 - The agent skill says how an agent puts an image it made itself, with its own
   image generation, onto the canvas.
 
-## D65 — No system tooltips, sound that fades, and Card Detail that grows out of its card (NEW, 2026-10-23)
+## D65 — No system tooltips, sound that fades, and Card Detail that fades in place (NEW, 2026-10-23; the growing out of its card replaced the same day)
 
 **Decision.** Three things about how BaseHalf feels under the pointer and in
 the speakers.
@@ -2191,13 +2191,18 @@ the speakers.
   short, and what the panel of a generation card says of its model, settings,
   and inputs. A card, a name, a path, a row, a tab, and a button that shows
   its words show nothing more.
-- The sound of a video never starts or stops at once. It comes up over 40 ms
-  and goes down over 60 ms before a pause, over the last 100 ms of the video,
-  and for each jump of the position. Card Detail plays a video in the same
-  player as the canvas.
-- Card Detail grows out of its card and goes back into it, and no frame shows
-  it empty: the canvas stays until Card Detail is drawn, at most 250 ms.
-  Closing it draws no picture of a card anew.
+- The sound of a video or a sound file never starts or stops at once. It
+  comes up over 40 ms and goes down over 60 ms before a pause, over the last
+  100 ms, and for each jump of the position. Card Detail plays a video and a
+  sound in the same player as the canvas, and no sound plays in the system's
+  controls.
+- Card Detail fades in and out where it is, over the canvas area, and no
+  frame shows it empty or draws outside the canvas area: the canvas stays
+  until Card Detail is drawn, at most 250 ms. Closing it draws no picture of
+  a card anew. Once open it takes the keyboard, and Escape closes it wherever
+  in it the keyboard is.
+- A card and Card Detail show the same files, by one list, and the window
+  loads every image, sound, and video of it.
 
 See [architecture invariants, "Product shell"](harness/architecture-invariants.md#product-shell),
 [generation cards, "The player"](specs/generation-cards.md#the-player), and
@@ -2225,8 +2230,21 @@ Last, opening a card with a double click and closing Card Detail flashed and
 felt abrupt. Recorded frame by frame: an empty Card Detail for 140 ms before
 the video, and on closing every card drawn anew, the video card's picture
 empty for a frame. A view transition of the window keeps the old frame until
-Card Detail is drawn and moves the card into it; an editor in a webview is
-left out of it, which the browser would otherwise hold up for 2 s.
+Card Detail is drawn; an editor in a webview is left out of it, which the
+browser would otherwise hold up for 2 s.
+
+The first answer moved the card's picture into Card Detail and back. The
+user found that for a frame or two the motion reached past the canvas, which
+felt out of control: the browser draws such a move above the whole window,
+from the card's whole rectangle, and a card partly under the sidebar, or
+larger than the canvas at a high zoom, drew over the sidebar. Card Detail
+now fades in place, from 98% of its size, and nothing of the canvas moves.
+The user also listed, among what the first answer left, video files that
+did not play on their cards (MOV, M4V, MKV) and sounds that did not (WAV):
+the canvas, Card Detail, and the window's file protocol each had a list of
+their own. And opening a note with Expand left the keyboard on the canvas,
+and Escape in it did nothing, because keys typed in a webview do not reach
+the canvas, and the editor took Escape to put its caret away.
 
 **Consequences.**
 - Buttons that show only an icon, in the canvas, Card Detail, the Agent Area,
@@ -2238,5 +2256,8 @@ left out of it, which the browser would otherwise hold up for 2 s.
   as before.
 - Card Detail of a video starts at the frame its card showed, has the
   player's controls with Full Screen, and leaves its card at the frame where
-  it stopped.
+  it stopped. A sound plays on its card and in Card Detail in the same
+  player, with the glyph of a sound for its picture.
+- Pages of Card Detail in webviews, the editor of a note, an image, and a
+  PDF, say when Escape was typed in them and nothing of theirs used it.
 

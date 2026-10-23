@@ -57,6 +57,13 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			point: { x: -1, y: 18 }
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.focus',
+			key: 'workspace\u0000doc.md'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.focus'
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.command',
 			key: 'workspace\u0000doc.md',
 			command: 'undo'

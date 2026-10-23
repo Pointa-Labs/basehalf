@@ -115,6 +115,11 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly point: IBaseHalfMarkdownRichFocusPoint;
 	}
 	| {
+		/** The editor takes the keyboard where its caret is, as when Card Detail has opened (opening and closing Card Detail, "The keyboard"). */
+		readonly type: 'basehalf.markdownRich.focus';
+		readonly key: string;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.command';
 		readonly key: string;
 		readonly command: BaseHalfMarkdownRichEditorCommand;
@@ -302,6 +307,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.focusAtPoint':
 			return isBaseHalfMarkdownRichFocusPoint(candidate.point);
+		case 'basehalf.markdownRich.focus':
+			return true;
 		case 'basehalf.markdownRich.command':
 			return isBaseHalfMarkdownRichEditorCommand(candidate.command);
 		case 'basehalf.markdownRich.fileSearchResult':

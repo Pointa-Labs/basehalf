@@ -540,6 +540,23 @@ function BaseHalfFileLinkMenu({ searchFiles }: {
 	);
 }
 
+/**
+ * The menus, lists, and panels of the page that close on Escape themselves:
+ * BlockNote's suggestion menus (slash, files, emoji), its dropdown menus
+ * (block, table, colors), and its file panel. The handle beside a block and
+ * the toolbar of a selection take no Escape.
+ */
+const ESCAPE_OWNER_SELECTOR = '.bn-suggestion-menu, .bn-grid-suggestion-menu, .bn-menu-dropdown, .bn-panel, .bn-emoji-picker-popover, .bn-table-handle-menu, [role="dialog"], [role="menu"], [role="listbox"]';
+
+function hasOpenEscapeOwner(): boolean {
+	for (const element of document.querySelectorAll<HTMLElement>(ESCAPE_OWNER_SELECTOR)) {
+		if (element.getClientRects().length > 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 // BlockNote's default React side menu anchors to the hovered block DOM node;
 // for nested continuation blocks that places the handle over the indent guide.
 // Use BlockNote core's root-gutter reference and leave a small gap so the drag
@@ -1810,6 +1827,10 @@ function MarkdownRichEditor(): JSX.Element {
 				case 'basehalf.markdownRich.focusAtPoint':
 					focusAtPoint(message.point);
 					break;
+				case 'basehalf.markdownRich.focus':
+					// The caret where it is: at first the end of the note (opening and closing Card Detail, "The keyboard").
+					editor.focus();
+					break;
 				case 'basehalf.markdownRich.command':
 					runEditorCommand(message.command);
 					break;
@@ -2361,12 +2382,14 @@ function MarkdownRichEditor(): JSX.Element {
 	}, [vscode]);
 
 	useEffect(() => {
+		// On its way down, before the editor: BlockNote's own Escape only takes
+		// the caret out of the text, and says that it used the key.
 		const onKeyDown = (event: KeyboardEvent) => {
 			const state = session.current;
-			if (!state.key || state.surface !== 'canvas' || !state.ready || event.isComposing) {
+			if (!state.key || !state.ready || event.isComposing || event.keyCode === 229) {
 				return;
 			}
-			if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === 'F10') {
+			if (state.surface === 'canvas' && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === 'F10') {
 				event.preventDefault();
 				event.stopPropagation();
 				vscode.postMessage({
@@ -2379,20 +2402,28 @@ function MarkdownRichEditor(): JSX.Element {
 			if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
 				return;
 			}
-			if (contextMenu !== undefined || (portalElement?.childElementCount ?? 0) > 0) {
+			// What takes Escape itself takes it first: a menu or a list, and a
+			// field of its own, such as that of a link.
+			const target = event.target as HTMLElement | null;
+			const inField = !!target && !target.closest?.('.bn-editor')
+				&& (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+			if (contextMenu !== undefined || inField || hasOpenEscapeOwner()) {
 				return;
 			}
 			event.preventDefault();
 			event.stopPropagation();
+			// Escape leaves the editor: on a card the editor closes, and in Card
+			// Detail Card Detail does (opening and closing Card Detail, "The keyboard").
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.canvasCommand',
 				key: state.key,
 				command: 'exitEditor',
 			});
 		};
-		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [contextMenu, portalElement, vscode]);
+		window.addEventListener('keydown', onKeyDown, true);
+		return () => window.removeEventListener('keydown', onKeyDown, true);
+	}, [contextMenu, vscode]);
+
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {

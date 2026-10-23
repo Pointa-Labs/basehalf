@@ -35,8 +35,8 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		}
 	});
 
-	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail. */
-	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false): IPlayerFixture {
+	/** A player in a card of the given width on screen, with a video of ten seconds that plays when asked; with `detail`, the player of Card Detail; with `sound`, of a sound. */
+	function createPlayer(width = 320, source: string | URI = `/workspace/clip-${++players}.mp4`, detail = false, sound = false): IPlayerFixture {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';
 		mainWindow.document.body.appendChild(frame);
@@ -55,6 +55,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			open: () => opened.push(opened.length + 1),
 			onError: () => { /* the test video is never loaded */ },
 			detail,
+			sound,
 			// No audio graph: the sound starts and stops at once (basehalfCanvasVideoSound.test.ts has the fades).
 			soundGraph: () => undefined
 		}));
@@ -285,6 +286,46 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			media: ['play', 'pause'],
 			focused: true
 		});
+	});
+
+	test('a sound shows the glyph of a sound, has no sound button, plays only by Play and with its sound, and goes on while its card is selected', () => {
+		const { player, media, control } = createPlayer(320, '/workspace/take.wav', false, true);
+		const seen = {
+			sound: player.element.classList.contains('sound'),
+			glyph: !!player.element.querySelector('.basehalf-canvas-video-player-picture svg'),
+			soundButton: control('sound').parentElement?.hidden,
+			open: control('open').getAttribute('aria-label')
+		};
+		point(player.element, 'pointerenter');
+		const underThePointer = [...media];
+		control('play').click();
+		point(player.element, 'pointerleave');
+		player.setSelected(true);
+		control('play').click();
+		point(player.element, 'pointerleave');
+		const whileSelected = [...media];
+		player.setSelected(false);
+		assert.deepStrictEqual({ seen, underThePointer, whileSelected, media }, {
+			seen: { sound: true, glyph: true, soundButton: true, open: 'Open' },
+			underThePointer: [],
+			// Leaving a card that is not selected pauses it; a selected one plays on.
+			whileSelected: ['play', 'pause', 'play'],
+			media: ['play', 'pause', 'play', 'pause']
+		});
+	});
+
+	test('in Card Detail a sound has no Full Screen, and a click on its glyph plays and pauses it', () => {
+		const { player, media, control } = createPlayer(640, '/workspace/voice.mp3', true, true);
+		const picture = player.element.querySelector<HTMLElement>('.basehalf-canvas-video-player-picture')!;
+		picture.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		picture.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		assert.deepStrictEqual({
+			fullScreen: control('open').hidden,
+			controls: player.element.dataset.controls,
+			tabbable: [control('sound'), control('play'), control('open')].map(button => button.tabIndex),
+			media,
+			focused: mainWindow.document.activeElement === control('play')
+		}, { fullScreen: true, controls: 'shown', tabbable: [-1, 0, -1], media: ['play', 'pause'], focused: true });
 	});
 
 	test('Card Detail starts at the frame its card shows, also when the canvas asks for the file with its version, and leaves the card at the frame where it stopped', () => {

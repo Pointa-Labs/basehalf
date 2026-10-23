@@ -43,6 +43,39 @@
 	pointer-events: auto;
 }
 
+/*
+ * A focus ring is for the keyboard, in Card Detail as on a card (architecture
+ * invariants, "Product shell"): Card Detail that opened puts the keyboard on
+ * Play, and a click on its picture does too.
+ */
+.monaco-workbench .basehalf-canvas-video-player :focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-top[hidden],
+.monaco-workbench .basehalf-canvas-video-player-button[hidden] {
+	display: none;
+}
+
+/*
+ * A sound (generation cards, "The player"): there is nothing to see, so the
+ * glyph of a sound stands where a video shows its frame. On a card it is the
+ * card's, as a video's picture is.
+ */
+.monaco-workbench .basehalf-canvas-video-player.sound .basehalf-canvas-video-player-video {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player-picture {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--bh-card-text-tertiary);
+	pointer-events: none;
+}
+
 .monaco-workbench .basehalf-canvas-video-player[data-controls="shown"] .basehalf-canvas-video-player-top,
 .monaco-workbench .basehalf-canvas-video-player[data-controls="shown"] .basehalf-canvas-video-player-bar {
 	opacity: 1;
@@ -171,6 +204,17 @@
 	width: 100%;
 	height: 100%;
 	object-fit: contain;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-video-player.detail.sound {
+	width: min(calc(100cqw - 48px), 640px);
+	height: 200px;
+	aspect-ratio: auto;
+}
+
+.monaco-workbench .basehalf-canvas-video-player.detail .basehalf-canvas-video-player-picture {
+	color: rgb(245 245 245 / 55%);
 	pointer-events: auto;
 }
 

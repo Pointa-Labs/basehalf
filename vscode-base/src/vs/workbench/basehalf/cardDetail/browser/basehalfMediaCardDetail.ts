@@ -27,7 +27,7 @@ import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, whenBaseHalfCanvasMediaDrawn } 
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
-import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
+import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
 import { formatBaseHalfVideoElapsed } from '../../video/common/basehalfVideoCardPresentation.js';
 import {
 	BaseHalfVideoInputKind,
@@ -45,8 +45,13 @@ const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
 const pdfiumWasm = URI.joinPath(contentViewerMediaRoot, 'pdfium.wasm');
 const simplifiedChinesePdfFont = URI.joinPath(contentViewerMediaRoot, 'NotoSansHans-Regular.otf');
 const PDF_VIEW_STATE_STORAGE_PREFIX = 'basehalf.pdfViewState.';
-/** What the page of an image or a sound says once it can be drawn. */
+/** What the page of an image says once it can be drawn. */
 const BASEHALF_MEDIA_DRAWN_MESSAGE = 'basehalf.media.drawn';
+/** What the page of an image says of an Escape it did not use. */
+const BASEHALF_MEDIA_ESCAPE_MESSAGE: IBaseHalfMediaEscapeMessage['type'] = 'basehalf.media.escape';
+
+/** What Card Detail draws in a page of its own: an image and a PDF. A video and a sound play in BaseHalf's player. */
+type BaseHalfWebviewContentKind = Exclude<BaseHalfRenderableContentKind, 'video' | 'audio'>;
 
 export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind | undefined {
 	return baseHalfRenderableContentKind(resource);
@@ -156,8 +161,9 @@ export function baseHalfGenerationProvenance(
 
 /**
  * Read-only local content projection built on VS Code's isolated webview. A
- * video plays in BaseHalf's player instead, the one its card plays in
- * (generation cards, "The player"), so that its sound never stops at once.
+ * video and a sound play in BaseHalf's player instead, the one their card
+ * plays in (generation cards, "The player"), so that their sound never stops
+ * at once.
  */
 export class BaseHalfMediaCardDetail extends Disposable {
 	private readonly root: HTMLElement;
@@ -167,7 +173,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private readonly playerStore = this._register(new MutableDisposable<DisposableStore>());
 	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
 	private playerVersion = 0;
-	/** The image or the sound of the webview can be drawn: its page says so (opening and closing Card Detail). */
+	/** The image of the webview can be drawn: its page says so (opening and closing Card Detail). */
 	private drawn: (() => void) | undefined;
 	private kind: BaseHalfRenderableContentKind | undefined;
 	/** What made the file, below an image or a video of a generation card. */
@@ -183,6 +189,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		container: HTMLElement,
 		private readonly createPdfBranch: (resource: URI, selection: IBaseHalfPdfSelection) => Promise<void>,
 		private readonly onPdfUserInteraction: () => void,
+		/** Escape in the page of an image, a sound, or a PDF, which closes Card Detail (opening and closing Card Detail, "The keyboard"). */
+		private readonly onEscape: () => void,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
@@ -216,19 +224,21 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				return;
 			}
 
-			if (kind === 'video') {
-				this.followGenerationProvenance(state);
+			if (kind === 'video' || kind === 'audio') {
+				if (kind === 'video') {
+					this.followGenerationProvenance(state);
+				}
 				this._register(this.fileService.onDidFilesChange(event => {
 					if (event.contains(state.resource, FileChangeType.DELETED)) {
 						this.renderNotice('This media file no longer exists.');
 						return;
 					}
 					if (event.contains(state.resource, FileChangeType.UPDATED, FileChangeType.ADDED)) {
-						void this.renderPlayer(state.resource);
+						void this.renderPlayer(state.resource, kind === 'audio');
 					}
 				}));
-				// Card Detail is drawn once the video has the frame it starts at.
-				await this.renderPlayer(state.resource);
+				// Card Detail is drawn once the video has the frame it starts at, or the sound its length.
+				await this.renderPlayer(state.resource, kind === 'audio');
 				return;
 			}
 			this.pdfViewState = kind === 'pdf' ? this.readPdfViewState(state.resource) : undefined;
@@ -304,8 +314,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		this.webview?.focus();
 	}
 
-	/** The video in the player of Card Detail; resolves when it has the frame it starts at. */
-	private renderPlayer(resource: URI): Promise<void> {
+	/** The video or the sound in the player of Card Detail; resolves when it has the frame it starts at. */
+	private renderPlayer(resource: URI, sound: boolean): Promise<void> {
 		const store = new DisposableStore();
 		this.playerStore.value = store;
 		clearNode(this.webviewHost);
@@ -316,6 +326,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			source: resource.with({ query: [resource.query, `basehalfMediaVersion=${version}`].filter(Boolean).join('&') }),
 			videoClasses: [],
 			detail: true,
+			sound,
 			open: () => { /* Card Detail is open already. */ },
 			onError: () => this.renderNotice('The media file could not be decoded by this system.'),
 			hoverService: this.hoverService
@@ -326,7 +337,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		});
 	}
 
-	private renderWebview(kind: BaseHalfRenderableContentKind): void {
+	private renderWebview(kind: BaseHalfWebviewContentKind): void {
 		const webview = this.webview;
 		const state = this.state;
 		if (!webview || !state) {
@@ -350,7 +361,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		));
 	}
 
-	private handleWebviewMessage(kind: BaseHalfRenderableContentKind, resource: URI, message: unknown): void {
+	private handleWebviewMessage(kind: BaseHalfWebviewContentKind, resource: URI, message: unknown): void {
+		if (isBaseHalfMediaEscapeMessage(message)) {
+			this.onEscape();
+			return;
+		}
 		if (kind !== 'pdf') {
 			if ((message as { type?: unknown } | undefined)?.type === BASEHALF_MEDIA_DRAWN_MESSAGE) {
 				this.drawn?.();
@@ -468,7 +483,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	}
 }
 
-export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, resource: URI, viewerScript = pdfViewerScript, wasm = pdfiumWasm, pdfViewState?: IBaseHalfPdfViewState, fontSc = simplifiedChinesePdfFont): string {
+export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resource: URI, viewerScript = pdfViewerScript, wasm = pdfiumWasm, pdfViewState?: IBaseHalfPdfViewState, fontSc = simplifiedChinesePdfFont): string {
 	const nonce = generateUuid();
 	const source = escapeAttribute(asWebviewUri(resource).toString(true));
 	if (kind === 'pdf') {
@@ -485,16 +500,14 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 		);
 	}
 	const resourceName = escapeAttribute(basename(resource));
-	const media = kind === 'image'
-		? `<div class="image-stage" id="stage"><img id="media" src="${source}" alt="${resourceName}"></div>
+	const media = `<div class="image-stage" id="stage"><img id="media" src="${source}" alt="${resourceName}"></div>
 			<div class="toolbar" role="toolbar" aria-label="Image zoom">
 				<button type="button" data-action="out" aria-label="Zoom out">−</button>
 				<button type="button" data-action="fit">Fit</button>
 				<button type="button" data-action="actual">100%</button>
 				<button type="button" data-action="in" aria-label="Zoom in">+</button>
-			</div>`
-		: `<audio id="media" src="${source}" controls></audio>`;
-	const imageScript = kind === 'image' ? `
+			</div>`;
+	const imageScript = `
 		const image = media;
 		const stage = document.getElementById('stage');
 		let scale = 1;
@@ -515,7 +528,7 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 			apply();
 		});
 		image.addEventListener('load', apply);
-		apply();` : '';
+		apply();`;
 	const script = `<script nonce="${nonce}">
 		const media = document.getElementById('media');
 		const error = document.getElementById('error');
@@ -527,11 +540,16 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 			document.querySelector('.toolbar')?.setAttribute('hidden', '');
 			drawn();
 		});
-		if (media.tagName === 'IMG' && media.complete) {
+		if (media.complete) {
 			drawn();
 		} else {
-			media.addEventListener(media.tagName === 'IMG' ? 'load' : 'loadedmetadata', drawn, { once: true });
+			media.addEventListener('load', drawn, { once: true });
 		}
+		window.addEventListener('keydown', event => {
+			if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+				host.postMessage({ type: '${BASEHALF_MEDIA_ESCAPE_MESSAGE}' });
+			}
+		});
 		${imageScript}
 	</script>`;
 
@@ -539,12 +557,11 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource}; media-src ${webviewGenericCspSource}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<style>
 		html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
 		body { display: flex; align-items: center; justify-content: center; font-family: var(--vscode-font-family); }
-		audio { width: min(680px, calc(100% - 48px)); }
 		.image-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: auto; }
 		.image-stage.scaled { align-items: flex-start; justify-content: flex-start; padding: 48px; }
 		.image-stage img { display: block; max-width: none; max-height: none; image-rendering: auto; }

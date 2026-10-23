@@ -1,7 +1,8 @@
 # Opening and closing Card Detail
 
 Status: Active (2026-10-23)
-Related: [architecture invariants](../harness/architecture-invariants.md#product-shell),
+Related: [architecture invariants](../harness/architecture-invariants.md#product-shell)
+(the files a card and Card Detail show),
 [generation cards](generation-cards.md) ("The player" and "The toolbar"),
 public decisions D33, D34, D62, and D65
 
@@ -18,11 +19,26 @@ frame in the window, with the card of a 5 s video:
   drawn anew. The video card showed an empty picture for a frame while its
   video loaded again.
 
+The first answer moved the card's picture into Card Detail and back. The
+browser draws such a move above the whole window, from the card's whole
+rectangle: a card partly outside the canvas, or larger than it at a high
+zoom, drew over the sidebar for the first frames of the move. The user found
+that the motion slipped out of control. Card Detail now fades in and out
+where it is.
+
+The keyboard did not follow either. Opening Card Detail left the keyboard on
+the canvas, so that typing right after Expand on a note went nowhere, and
+Escape typed in a note's editor, an image, or a PDF did not close Card
+Detail: those draw in webviews, whose keys do not reach the canvas.
+
 ## Scope
 
 In scope: what the window shows from the moment Card Detail is asked to open
 until it shows its file, and from the moment it is asked to close until the
 canvas is back; and what becomes of the cards under Card Detail.
+
+Also in scope: where the keyboard is when Card Detail has opened, and
+Escape, which closes it.
 
 Not in scope, and unchanged: what Card Detail shows (its header, badge, and
 projections), navigation and its history, a folder's card (a double click on
@@ -31,8 +47,6 @@ another.
 
 ## Terms
 
-- **Its card**: the card of Card Detail's file on the canvas under Card
-  Detail, when that card is on screen.
 - **Drawn**: Card Detail shows its file: an image has loaded, a video has
   the frame where it starts, a sound knows its length.
 
@@ -42,12 +56,13 @@ another.
 
 - The canvas stays on screen as it is until Card Detail is drawn, and at most
   250 ms. No frame shows Card Detail without its image or its video.
-- Card Detail then grows out of its card over 260 ms, slowing down: it starts
-  at the place and the size of its card and takes the whole canvas area,
-  while the card's picture fades into Card Detail and the canvas stays under
-  it. Without its card on screen, as when the file was opened from Files,
-  Search, or Quick Open, Card Detail fades in over the canvas.
-- Card Detail grows in with what it shows of an image, a video, or a sound.
+- Card Detail then fades in where it is, over the canvas area, growing from
+  98% of its size to its size, in 180 ms, slowing down. The card and the
+  canvas do not move, and no frame draws anything of the transition outside
+  the canvas area, wherever the card is and at any zoom. Card Detail opens
+  the same way whether it was opened from its card, from Files, Search, or
+  Quick Open.
+- Card Detail fades in with what it shows of an image, a video, or a sound.
   An editor, such as that of a note, and a PDF show themselves once the
   transition is over: the browser holds a transition up for the first frame
   of a webview that has just started (2 s for a note's editor, measured
@@ -55,14 +70,32 @@ another.
 
 ### Closing
 
-- Card Detail goes back into its card over 220 ms, speeding up, while the
-  canvas comes back under it. Without its card on screen, it fades out.
+- Card Detail fades out where it is, shrinking to 98% of its size, in
+  150 ms, speeding up, while the canvas shows under it as it is.
 - The cards under Card Detail stay as they were: no picture of an image or a
   video is drawn anew. Only the cards of notes are drawn again, so that they
-  show what was written in Card Detail; their transition waits until they are
-  in the window, at most 150 ms.
+  show what was written in Card Detail.
 - The card of a video shows the frame where Card Detail's video stopped
   ([generation cards, "The player"](generation-cards.md#the-player)).
+
+### The keyboard
+
+- Once Card Detail is drawn and its transition is over, it takes the
+  keyboard: the editor of a note has the caret at the end of the note, so
+  that what is typed goes on from there; the editor of another text has it
+  at its start, or where it was opened, as from a result of Search; the
+  player of a video or a sound has it on Play; an image and a PDF have it in
+  their page. It does not when it was opened to keep the keyboard where it
+  was, as a click in Files does, or when the keyboard went out of the canvas
+  meanwhile.
+- Escape closes Card Detail, wherever in it the keyboard is: in its header,
+  in the player, in a note's editor, in an image, or in a PDF. What uses
+  Escape itself takes it first: a menu or a list of the editor (slash, files,
+  emoji, a block's or a table's menu), a field of its own, such as that of a
+  link or the page number of a PDF, a menu or a dialog of the PDF viewer, the
+  composition of an input method, and full screen.
+- When Card Detail closes with the keyboard in it, the keyboard goes back to
+  the canvas, where the keys of the selected card work again.
 
 ### Motion and the window
 
@@ -75,9 +108,11 @@ another.
 
 ## Limits
 
-- While a transition runs, at most 260 ms, the browser gives every click to
-  the window's root: a click then reaches nothing. Keys go where the keyboard
-  is. The smoke's own pointer input waits for a transition to end.
+- While a transition runs, the browser gives every click to the window's
+  root: a click then reaches nothing. Opening, that is the wait for Card
+  Detail to be drawn, at most 250 ms, and 180 ms; closing, 150 ms. Keys go
+  where the keyboard is. The smoke's own pointer input waits for a
+  transition to end.
 
 ## Failure
 
@@ -90,31 +125,53 @@ navigation, which has already changed when it starts.
 
 1. A double click on the card of a video: no frame between the double click
    and Card Detail drawn shows an empty Card Detail. The frames show the
-   canvas, then Card Detail growing from the card's place, then Card Detail
-   with the video at the frame its card showed.
+   canvas, then Card Detail fading in over it, then Card Detail with the
+   video at the frame its card showed. No frame draws anything outside the
+   canvas area, also for a card that the sidebar half covers and at 200%
+   zoom.
 2. Closing that Card Detail: no frame shows the video card without its
    picture, and the video card is the same element before and after.
 3. The same for the card of an image.
-4. A note opened from its card, a line typed, Card Detail closed with Close:
-   the card shows the line when the transition ends, and its transition did
-   not wait for the note's editor.
-5. A file opened from Files: Card Detail fades in; closing it fades it out.
-6. With `workbench.reduceMotion` on: the frames go from the canvas straight
+4. A note opened from its card with Expand, a line typed at once, Escape:
+   the line is in the note, Card Detail closes, and the card shows the line
+   when the transition ends; the transition did not wait for the note's
+   editor.
+5. Escape closes Card Detail with the keyboard in its header, the player of
+   a video, an image, and a PDF, and the keyboard is on the canvas again;
+   with a menu of the note's editor open, it closes the menu only.
+6. A file opened from Files: Card Detail fades in the same way.
+7. With `workbench.reduceMotion` on: the frames go from the canvas straight
    to Card Detail drawn, and back.
 
 ## Verification
 
 - Unit tests of the transition (`basehalfCanvasCardDetailTransition.test.ts`):
-  which element has the transition's name before and after, the card's name
-  with its own; that the update waits for the drawn signal at most 250 ms;
+  that Card Detail alone has the transition's name, opening and closing, and
+  a transition that a newer one ended leaves the name to it; that the update
+  waits for the drawn signal at most 250 ms; that the transition says it runs
+  until its animation has ended, after which Card Detail takes the keyboard;
   that reduced motion is a type of the transition, which stops its motion;
   and that without the browser's support, in a window that is not shown, and
-  when the browser refuses, Card Detail is drawn at once.
+  when the browser refuses, Card Detail is drawn at once. Unit tests of the
+  pages' messages: the Escape of the pages of an image, a sound, and a PDF
+  (`basehalfMediaViewState.test.ts`), and the request that gives the note's
+  editor the keyboard (`basehalfMarkdownRichWebviewProtocol.test.ts`).
 - In the window, recorded on every frame by the page itself (the screencast
   of the DevTools protocol sends no frames while a view transition runs):
   when each transition starts, when its animation runs, and when it ends, for
   the card of a video, of an image, and of a note, opening and closing; that
-  the video card and its video element are the same before and after; and,
-  with the transition slowed to 4 s, a screenshot every 700 ms. Before this
-  change, the same video card showed nine frames of an empty Card Detail and,
-  closing, one frame without its picture.
+  the video card and its video element are the same before and after; with
+  the transition slowed to 4 s, a screenshot of the whole window every
+  700 ms, also from a card that the sidebar half covers and from a card
+  larger than the canvas at 400% zoom, with nothing drawn outside the canvas
+  area; the animations of each transition on every frame: 180 ms opening,
+  150 ms closing, none with reduced motion (2026-10-23); and where the
+  keyboard is after each opening, and what Escape does there, also with the
+  slash menu of a note and the zoom menu of a PDF open. Before this change, the same video card showed
+  nine frames of an empty Card Detail and, closing, one frame without its
+  picture.
+- Full screen is not tried in the window that the checks drive: on macOS the
+  window's full screen is a space of its own, which a window in the
+  background does not enter, so the request waits. That Escape leaves full
+  screen and not Card Detail rests on the canvas, which closes nothing while
+  an element of the window is full screen.

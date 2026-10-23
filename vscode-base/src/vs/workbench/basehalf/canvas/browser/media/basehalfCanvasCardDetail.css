@@ -250,56 +250,57 @@
 }
 
 /*
- * Card Detail grows out of its card and goes back into it (opening and
- * closing Card Detail): a view transition of the window in which the element
- * named basehalf-card-detail is the card before and Card Detail after, or the
- * other way round. The pictures cover the box that moves between them, and
- * the rest of the window fades across.
+ * Card Detail fades in and out where it is (opening and closing Card
+ * Detail): a view transition of the window in which Card Detail alone has a
+ * picture of its own, on one side only. The picture fades and scales inside
+ * Card Detail's own box, from 98% of its size or to it, and the rest of the
+ * window fades across in place: nothing is drawn outside the canvas area.
  */
-/* A click while it runs reaches what is there, as at the end, instead of the window's root. */
-:root:active-view-transition-type(basehalf-card-detail-open)::view-transition,
-:root:active-view-transition-type(basehalf-card-detail-close)::view-transition {
-	pointer-events: none;
+@keyframes basehalf-card-detail-in {
+	from {
+		opacity: 0;
+		transform: scale(0.98);
+	}
 }
 
-::view-transition-group(basehalf-card-detail) {
-	z-index: 2;
-	animation-duration: 260ms;
-	animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+@keyframes basehalf-card-detail-out {
+	to {
+		opacity: 0;
+		transform: scale(0.98);
+	}
 }
 
-/* The card's name stays on the canvas, under the box that grows over it. */
-::view-transition-group(basehalf-card-detail-caption) {
-	z-index: 1;
+:root:active-view-transition-type(basehalf-card-detail-open)::view-transition-new(basehalf-card-detail) {
+	animation: basehalf-card-detail-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-::view-transition-old(basehalf-card-detail),
-::view-transition-new(basehalf-card-detail) {
-	height: 100%;
-	object-fit: cover;
+:root:active-view-transition-type(basehalf-card-detail-close)::view-transition-old(basehalf-card-detail) {
+	animation: basehalf-card-detail-out 150ms cubic-bezier(0.3, 0, 0.8, 0.15) both;
 }
 
+/* The window's own picture stays where it is; it lasts as long as Card Detail's fade, which ends the transition. */
+:root:active-view-transition-type(basehalf-card-detail-open)::view-transition-group(root),
 :root:active-view-transition-type(basehalf-card-detail-open)::view-transition-old(root),
-:root:active-view-transition-type(basehalf-card-detail-open)::view-transition-new(root),
-:root:active-view-transition-type(basehalf-card-detail-open)::view-transition-old(basehalf-card-detail-caption) {
-	animation-duration: 260ms;
+:root:active-view-transition-type(basehalf-card-detail-open)::view-transition-new(root) {
+	animation-duration: 180ms;
 }
 
-:root:active-view-transition-type(basehalf-card-detail-close)::view-transition-group(basehalf-card-detail) {
-	animation-duration: 220ms;
-	animation-timing-function: cubic-bezier(0.3, 0, 0.8, 0.15);
-}
-
+:root:active-view-transition-type(basehalf-card-detail-close)::view-transition-group(root),
 :root:active-view-transition-type(basehalf-card-detail-close)::view-transition-old(root),
-:root:active-view-transition-type(basehalf-card-detail-close)::view-transition-new(root),
-:root:active-view-transition-type(basehalf-card-detail-close)::view-transition-new(basehalf-card-detail-caption) {
-	animation-duration: 220ms;
+:root:active-view-transition-type(basehalf-card-detail-close)::view-transition-new(root) {
+	animation-duration: 150ms;
 }
 
-/* With reduced motion the window goes from the one state to the other in one frame, once Card Detail is drawn. */
+/*
+ * With reduced motion the window goes from the one state to the other in one
+ * frame, once Card Detail is drawn. A name weighs more than `*`, so Card
+ * Detail's own pictures are named here as well.
+ */
 :root:active-view-transition-type(basehalf-reduced-motion)::view-transition-group(*),
 :root:active-view-transition-type(basehalf-reduced-motion)::view-transition-old(*),
-:root:active-view-transition-type(basehalf-reduced-motion)::view-transition-new(*) {
+:root:active-view-transition-type(basehalf-reduced-motion)::view-transition-new(*),
+:root:active-view-transition-type(basehalf-reduced-motion)::view-transition-old(basehalf-card-detail),
+:root:active-view-transition-type(basehalf-reduced-motion)::view-transition-new(basehalf-card-detail) {
 	animation: none;
 }
 

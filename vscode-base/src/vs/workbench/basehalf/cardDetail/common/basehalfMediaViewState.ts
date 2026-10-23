@@ -29,7 +29,17 @@ export interface IBaseHalfPdfUserInteractionMessage {
 	readonly type: 'basehalf.pdf.userInteraction';
 }
 
-export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage | IBaseHalfPdfUserInteractionMessage;
+/**
+ * Escape typed in the page of an image, a sound, or a PDF that nothing of the
+ * page used: it closes Card Detail, as it does elsewhere in Card Detail
+ * (opening and closing Card Detail, "The keyboard"). Keys typed in a webview
+ * do not reach the window's own elements.
+ */
+export interface IBaseHalfMediaEscapeMessage {
+	readonly type: 'basehalf.media.escape';
+}
+
+export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage | IBaseHalfPdfUserInteractionMessage | IBaseHalfMediaEscapeMessage;
 
 export const DEFAULT_BASEHALF_PDF_VIEW_STATE: IBaseHalfPdfViewState = Object.freeze({
 	page: 1,
@@ -97,4 +107,10 @@ export function isBaseHalfPdfUserInteractionMessage(value: unknown): value is IB
 	return !!value
 		&& typeof value === 'object'
 		&& (value as Partial<IBaseHalfPdfUserInteractionMessage>).type === 'basehalf.pdf.userInteraction';
+}
+
+export function isBaseHalfMediaEscapeMessage(value: unknown): value is IBaseHalfMediaEscapeMessage {
+	return !!value
+		&& typeof value === 'object'
+		&& (value as Partial<IBaseHalfMediaEscapeMessage>).type === 'basehalf.media.escape';
 }

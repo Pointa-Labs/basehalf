@@ -627,7 +627,9 @@ panel shows. Its card has no badge face until it has its file.
 ### The player
 
 A video on a card plays the way canvas products for media work play the video
-of a node. The card of any video file plays its video the same way.
+of a node. The card of any video file plays its video the same way, and the
+card of a sound file its sound: the files the window shows as videos and
+sounds ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
 
 - **The picture is the card's.** A click on it selects the card and never
   starts or stops the video, also while it plays. A drag from it moves the
@@ -670,6 +672,14 @@ of a node. The card of any video file plays its video the same way.
   Screen** stands where **Open** is. The video starts at the frame its card
   showed; when Card Detail closes, the card shows the frame where it stopped
   ([opening and closing Card Detail](card-detail-opening.md)).
+- **A sound plays in the same player.** There is nothing to see, so the card
+  of a sound shows the glyph of a sound where a video shows its frame, and
+  the player has no sound button: the pointer on the card plays
+  nothing, Play plays the sound with its sound on, and the sound comes up
+  and goes down as a video's does. A sound plays while its card is selected
+  or the pointer is on it, and pauses when its card is neither. Card Detail
+  plays it in the same player, as it plays a video, without Full Screen. No
+  sound plays in the system's controls.
 - **The keyboard.** The buttons are buttons; the position slider moves a
   second with Left and Right, and goes to the start and the end with Home
   and End. The arrow keys on a control move no card.
@@ -1323,6 +1333,13 @@ The player
     sound on, and Full Screen; a click on the picture plays and pauses it.
     It starts at the frame the card showed, and the card shows the frame
     where Card Detail stopped.
+41. The card of a WAV file shows the glyph of a sound and no system control;
+    the pointer on it plays nothing; Play plays it with its sound, and
+    pausing it takes the sound down as criterion 39 says (measured
+    2026-10-23: the last 2 ms before silence peak at 0.017, against 0.283
+    for the same sound stopped at once). Card Detail plays it in the same
+    player, without Full Screen. The cards of MOV, M4V, and MKV files play
+    their video.
 
 ## Verification
 

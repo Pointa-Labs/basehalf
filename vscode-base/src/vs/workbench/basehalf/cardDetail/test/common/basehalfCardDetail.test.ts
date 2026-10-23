@@ -26,7 +26,9 @@ suite('BaseHalfCardDetail', () => {
 		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/concept.webp')), 'media');
 		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/textbook.pdf')), 'media');
 		assert.strictEqual(isBaseHalfMediaResource(URI.file('/workspace/voice.ogg')), true);
-		assert.strictEqual(isBaseHalfMediaResource(URI.file('/workspace/edit.mov')), false);
+		// The files a card shows, MOV among them (architecture invariants, "Product shell").
+		assert.strictEqual(isBaseHalfMediaResource(URI.file('/workspace/edit.mov')), true);
+		assert.strictEqual(isBaseHalfMediaResource(URI.file('/workspace/edit.avi')), false);
 	});
 
 	test('does not expose binary media through the source projection', () => {

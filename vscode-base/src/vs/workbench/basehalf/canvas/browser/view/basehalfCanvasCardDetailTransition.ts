@@ -5,31 +5,19 @@
 
 import { raceTimeout } from '../../../../../base/common/async.js';
 
-/** The name of the element that grows or shrinks: the card before, Card Detail after, or the other way round. */
+/** The name of Card Detail while it fades in or out: the one element with a picture of its own. */
 const TRANSITION_NAME = 'basehalf-card-detail';
-/** The card's name, above its box: it stays where it is while the box grows or shrinks. */
-const CAPTION_TRANSITION_NAME = 'basehalf-card-detail-caption';
-
-/** A card on screen: its box, and its name above the box. */
-export interface IBaseHalfCardDetailTransitionCard {
-	readonly box: HTMLElement;
-	readonly caption?: HTMLElement;
-}
 
 /** How long the canvas stays on screen at most while Card Detail is drawn (opening and closing Card Detail). */
 export const BASEHALF_CARD_DETAIL_DRAWN_WAIT_MS = 250;
-/** How long closing waits at most for the canvas to draw the cards of notes again. */
-export const BASEHALF_CARD_DETAIL_CARDS_WAIT_MS = 150;
 
 export interface IBaseHalfCardDetailTransitionStep {
 	readonly direction: 'open' | 'close';
 	/** Card Detail itself. */
 	readonly detail: HTMLElement;
-	/** Its card, when it is on screen: what Card Detail grows out of or goes back into. Asked before `draw` and after. */
-	readonly card: () => IBaseHalfCardDetailTransitionCard | undefined;
 	/** Draws the state navigation is in now: Card Detail shown, or gone. */
 	readonly draw: () => void;
-	/** Resolves once what `draw` drew can be seen: Card Detail drawn, or the cards drawn again. */
+	/** Resolves once what `draw` drew can be seen. */
 	readonly ready: () => Promise<unknown>;
 	/** How long the transition waits at most for `ready`. */
 	readonly wait: number;
@@ -42,16 +30,21 @@ export interface IBaseHalfCardDetailTransitionStep {
 }
 
 /**
- * Card Detail grows out of its card and goes back into it (opening and
+ * Card Detail fades in and out where it is, over the canvas area (opening and
  * closing Card Detail). It is a view transition of the window: the window
- * keeps showing what it showed until the new state is drawn and ready, then
- * the browser moves and grows the element named for the transition from the
- * old place to the new one while the rest fades across. Navigation has
- * already changed when it starts; the transition delays only the frames.
+ * keeps showing what it showed until the new state is drawn and ready. Card
+ * Detail alone has the transition's name, and it is shown on one side only,
+ * so its picture fades and scales inside its own box while the rest of the
+ * window fades across in place. Nothing of the canvas moves: a card's
+ * picture, which may reach past the canvas, is never part of the motion.
+ * Navigation has already changed when it starts; the transition delays only
+ * the frames.
  */
 export class BaseHalfCardDetailTransition {
 
 	private waiting = 0;
+	private active = 0;
+	private runs = 0;
 
 	/**
 	 * A transition has started and not drawn yet. A drawing now would come
@@ -62,38 +55,28 @@ export class BaseHalfCardDetailTransition {
 		return this.waiting > 0;
 	}
 
+	/** A transition runs: from its start until its animation has ended, also once it has drawn. */
+	get running(): boolean {
+		return this.active > 0;
+	}
+
 	/** Runs `step` and returns true, or returns false when the window cannot run it: the caller draws at once. */
 	run(step: IBaseHalfCardDetailTransitionStep): boolean {
 		const targetDocument = step.detail.ownerDocument;
 		if (typeof targetDocument.startViewTransition !== 'function' || targetDocument.visibilityState !== 'visible') {
 			return false;
 		}
-		const named: HTMLElement[] = [];
-		const nameOne = (element: HTMLElement | undefined, transitionName: string) => {
-			if (element) {
-				element.style.setProperty('view-transition-name', transitionName);
-				named.push(element);
-			}
-		};
-		// The card's box; its name keeps a name of its own, so that it is not
-		// part of the box's picture.
-		const nameCard = () => {
-			const card = step.card();
-			nameOne(card?.box, TRANSITION_NAME);
-			nameOne(card?.caption, CAPTION_TRANSITION_NAME);
-		};
-		const nameDetail = () => nameOne(step.detail, TRANSITION_NAME);
+		const run = ++this.runs;
+		// Hidden on the other side of the transition, Card Detail has no picture there.
+		step.detail.style.setProperty('view-transition-name', TRANSITION_NAME);
 		const unname = () => {
-			for (const element of named.splice(0)) {
-				element.style.removeProperty('view-transition-name');
+			// A transition that a newer one ended leaves the name to the newer one.
+			if (run === this.runs) {
+				step.detail.style.removeProperty('view-transition-name');
 			}
 		};
-		if (step.direction === 'open') {
-			nameCard();
-		} else {
-			nameDetail();
-		}
 		this.waiting++;
+		this.active++;
 		let drew = false;
 		const draw = () => {
 			if (drew) {
@@ -101,8 +84,6 @@ export class BaseHalfCardDetailTransition {
 			}
 			drew = true;
 			this.waiting--;
-			// The name moves from what was to what is: one element at a time has it.
-			unname();
 			step.draw();
 		};
 		let transition: ViewTransition;
@@ -111,17 +92,13 @@ export class BaseHalfCardDetailTransition {
 				update: async () => {
 					draw();
 					await raceTimeout(step.ready(), step.wait);
-					if (step.direction === 'open') {
-						nameDetail();
-					} else {
-						nameCard();
-					}
 				},
 				types: [`${TRANSITION_NAME}-${step.direction}`, ...(step.reducedMotion ? ['basehalf-reduced-motion'] : [])]
 			});
 		} catch (error) {
 			draw();
 			unname();
+			this.active--;
 			step.finished?.();
 			step.onError(error);
 			return true;
@@ -134,6 +111,7 @@ export class BaseHalfCardDetailTransition {
 		});
 		void transition.finished.catch(() => undefined).finally(() => {
 			unname();
+			this.active--;
 			step.finished?.();
 		});
 		return true;

@@ -16,6 +16,7 @@ import { INativeEnvironmentService } from '../../environment/common/environment.
 import { ILogService } from '../../log/common/log.js';
 import { IIPCObjectUrl, IProtocolMainService } from './protocol.js';
 import { IUserDataProfilesService } from '../../userDataProfile/common/userDataProfile.js';
+import { BASEHALF_WINDOW_MEDIA_FILE_EXTENSIONS } from '../common/basehalfMediaFiles.js';
 
 type ProtocolCallback = { (result: string | Electron.FilePathWithHeaders | { error: number }): void };
 
@@ -24,9 +25,9 @@ export class ProtocolMainService extends Disposable implements IProtocolMainServ
 	declare readonly _serviceBrand: undefined;
 
 	private readonly validRoots = TernarySearchTree.forPaths<boolean>(!isLinux);
-	// BaseHalf: the window plays every video kind that Card Detail shows, M4V and WebM as well as MP4,
-	// in BaseHalf's player, which loads it through this protocol (D65).
-	private readonly validExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.mp4', '.m4v', '.webm', '.otf', '.ttf']); // https://github.com/microsoft/vscode/issues/119384
+	// BaseHalf: the window draws every image and plays every sound and video that a card and Card
+	// Detail show, from the user's folders, through this protocol (D65).
+	private readonly validExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.mp4', '.otf', '.ttf', ...BASEHALF_WINDOW_MEDIA_FILE_EXTENSIONS]); // https://github.com/microsoft/vscode/issues/119384
 
 	constructor(
 		@INativeEnvironmentService private readonly environmentService: INativeEnvironmentService,

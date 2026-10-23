@@ -65,9 +65,10 @@ See [code organization](code-organization.md) and public decision D60.
 - On the canvas, a focus ring is for the keyboard. The workbench rings every
   focused button, field, and element with a tab index, also after a click;
   on the canvas surface, its own buttons, and the toolbars, menus, and Video
-  panel over its cards, a control shows a ring only when the keyboard moved
-  the focus there. A text field shows its focus by its caret, and a field
-  with a border by its border alone. A menu that BaseHalf draws on the
+  panel over its cards, and in BaseHalf's player, also in Card Detail, a
+  control shows a ring only when the keyboard moved the focus there. A text
+  field shows its focus by its caret, and a field with a border by its
+  border alone. A menu that BaseHalf draws on the
   canvas starts at its checked item. Without one, it has no current item
   when a click opened it, until an arrow key chooses one, as the
   workbench's context menus do, and it starts at its first item when the
@@ -84,9 +85,21 @@ See [code organization](code-organization.md) and public decision D60.
   specification speaks of a tooltip, it means this hover. An element gets
   it from the `data-basehalf-hover` attribute
   (`shell/browser/basehalfHover.ts`) or from the hover service directly.
-- Card Detail grows out of its card and goes back into it, and no frame
-  shows it empty
+- Card Detail fades in and out where it is, over the canvas area: no frame
+  shows it empty, and no frame draws anything of it outside the canvas
+  area. Once open it takes the keyboard, and Escape closes it wherever in it
+  the keyboard is
   ([opening and closing Card Detail](../specs/card-detail-opening.md)).
+- A card and Card Detail show the same files as an image, a PDF, a sound, or
+  a video, by one list (`platform/protocol/common/basehalfMediaFiles.ts`):
+  images `.avif`, `.bmp`, `.gif`, `.ico`, `.jpeg`, `.jpg`, `.png`, `.svg`,
+  and `.webp`; `.pdf`; sounds `.flac`, `.m4a`, `.mp3`, `.oga`, `.ogg`, and
+  `.wav`; videos `.m4v`, `.mkv`, `.mov`, `.mp4`, and `.webm`; without
+  regard to case. The window loads each image, sound, and video of the list
+  itself, from any folder, through its file protocol, and a sound and a
+  video play in BaseHalf's player, never in the system's controls
+  ([generation cards](../specs/generation-cards.md#the-player)). A file that
+  the system cannot decode says so where it would show.
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 

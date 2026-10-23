@@ -487,7 +487,14 @@ export class BaseHalfCanvasCreation {
 		if (!this.view.isCanvasPostCreateOwnerCurrent(createOwner)) {
 			return;
 		}
+		let focusOrigin = createFocusOrigin;
 		if (sourceDetail) {
+			// Card Detail that has opened has the keyboard (opening and closing
+			// Card Detail, "The keyboard"), and what has it goes with Card Detail:
+			// the keyboard that the request left there goes back to the canvas
+			// first, as for a branch grown from a PDF, and the note takes it there.
+			const ownerDocument = this.view.root.ownerDocument;
+			const focusInDetail = focusOrigin !== null && ownerDocument.activeElement === focusOrigin && this.view.detail.contains(focusOrigin);
 			if (!await this.view.canvasNavigationService.closeCardDetail({ expectedCardDetail: sourceDetail })) {
 				if (!this.view.isCanvasPostCreateOwnerCurrent(createOwner)) {
 					return;
@@ -499,6 +506,10 @@ export class BaseHalfCanvasCreation {
 				|| this.view.canvasNavigationService.state.cardDetail) {
 				return;
 			}
+			if (focusInDetail) {
+				this.view.root.focus({ preventScroll: true });
+				focusOrigin = this.view.root;
+			}
 		}
 		const currentFolder = this.view.getCurrentFolder();
 		if (!currentFolder || this.view.sceneKey(currentFolder) !== this.view.sceneKey(folder)) {
@@ -508,7 +519,7 @@ export class BaseHalfCanvasCreation {
 		this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), [path], activationOwner);
 		this.view.noteEditing.queueCreatedCanvasNoteActivation(folder, path, target, activationOwner, {
 			focus: true,
-			origin: createFocusOrigin,
+			origin: focusOrigin,
 			returnPath: createFocusReturnPath
 		});
 		if (reveal) {

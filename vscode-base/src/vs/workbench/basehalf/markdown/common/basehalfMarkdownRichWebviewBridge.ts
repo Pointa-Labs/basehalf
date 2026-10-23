@@ -95,6 +95,13 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
+	sendFocus(): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.focus',
+			key: this.key
+		});
+	}
+
 	sendCommand(command: BaseHalfMarkdownRichEditorCommand): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.command',

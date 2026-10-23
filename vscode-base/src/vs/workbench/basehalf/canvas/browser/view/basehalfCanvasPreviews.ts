@@ -16,6 +16,7 @@ import {
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasMarkdownPreviewSource, BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES } from '../../common/basehalfCanvasPreview.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
+import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../../cardDetail/common/basehalfContentRendering.js';
 import { baseHalfGenerationKindOfPath } from '../../../video/common/basehalfGenerationInfo.js';
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { IBaseHalfCanvasPreviewHydrationBatch } from '../../common/basehalfCanvasPreviewHydration.js';
@@ -28,22 +29,13 @@ import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, badgeType, baseHalfBadgeResourceIden
 /** An excerpt shows the first lines of a file, so only its head is read, whatever its size. */
 const CARD_EXCERPT_READ_BYTES = 8192;
 
-function mediaPreview(name: string): { readonly kind: 'image' | 'video' | 'audio' | 'pdf'; readonly label: string } | undefined {
-	const lower = name.toLowerCase();
-	if (/\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower)) {
-		return { kind: 'image', label: 'Image file' };
-	}
-	if (/\.pdf$/.test(lower)) {
-		return { kind: 'pdf', label: 'PDF document' };
-	}
-	if (/\.(mp4|mov|webm|mkv)$/.test(lower)) {
-		return { kind: 'video', label: 'Video file' };
-	}
-	if (/\.(mp3|wav|m4a|flac|ogg)$/.test(lower)) {
-		return { kind: 'audio', label: 'Audio file' };
-	}
-	return undefined;
-}
+/** What the card of a media file says of it where it shows no picture. */
+const MEDIA_LABELS: Readonly<Record<BaseHalfRenderableContentKind, string>> = {
+	image: 'Image file',
+	pdf: 'PDF document',
+	video: 'Video file',
+	audio: 'Audio file'
+};
 
 function markdownPreviewKind(name: string): 'markdown' | 'text' | 'code' {
 	if (/\.(md|markdown|mdx)$/i.test(name)) {
@@ -160,12 +152,13 @@ export class BaseHalfCanvasPreviews {
 			};
 		}
 
-		const media = mediaPreview(item.name);
-		if (media) {
-			const resource = media.kind === 'pdf' ? item.stat.resource : item.stat.resource.with({
+		// The canvas shows the files that Card Detail shows (architecture invariants, "Product shell").
+		const mediaKind = baseHalfRenderableContentKind(item.stat.resource);
+		if (mediaKind) {
+			const resource = mediaKind === 'pdf' ? item.stat.resource : item.stat.resource.with({
 				query: `basehalfCanvasVersion=${item.stat.mtime ?? 0}-${item.stat.size ?? 0}`
 			});
-			return { kind: 'media', text: media.label, mediaKind: media.kind, resource };
+			return { kind: 'media', text: MEDIA_LABELS[mediaKind], mediaKind, resource };
 		}
 
 		const kind = markdownPreviewKind(item.name);

@@ -20,10 +20,11 @@ export interface IBaseHalfCardDetailSurfaceInstance extends IDisposable {
 	activate(state: IBaseHalfCardDetailState): void;
 	applySelection(selection: ITextEditorSelection | undefined): void;
 	setVisible(visible: boolean): void;
+	/** Takes the keyboard where the projection last had it (opening and closing Card Detail, "The keyboard"). */
 	focus?(): void;
 	setStructuralFrozen?(frozen: boolean): void;
 	/**
-	 * Card Detail grows in with what the projection draws once `open` has
+	 * Card Detail fades in with what the projection draws once `open` has
 	 * resolved (opening and closing Card Detail). A projection that does not
 	 * say so shows itself after the transition: the browser holds a transition
 	 * up for the first frame of a webview that has just started, such as an
