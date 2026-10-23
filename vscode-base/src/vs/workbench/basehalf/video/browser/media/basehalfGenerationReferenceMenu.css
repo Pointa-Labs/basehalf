@@ -1,0 +1,179 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The reference menu of a draft's prompt, and the list of a kind beside it (D68). */
+
+.monaco-workbench .bh-reference-menu {
+	position: absolute;
+	z-index: 7;
+	display: flex;
+	box-sizing: border-box;
+	flex-direction: column;
+	padding: 6px;
+	overflow: hidden;
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	font-size: 13px;
+	pointer-events: auto;
+}
+
+.monaco-workbench .bh-reference-menu-search {
+	display: flex;
+	height: 30px;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	margin-bottom: 4px;
+	padding: 0 8px;
+	color: var(--vscode-descriptionForeground);
+	background: var(--vscode-input-background, transparent);
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--vscode-input-border, var(--vscode-widget-border));
+	border-radius: 8px;
+}
+
+.monaco-workbench .bh-reference-menu-search:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .bh-reference-menu-search > .codicon[class*='codicon-'] {
+	flex: none;
+	font-size: 13px;
+}
+
+/* The field shows the focus by its border alone; the attribute outweighs the workbench's ring on a focused text field. */
+.monaco-workbench .bh-reference-menu-search > input[type="text"],
+.monaco-workbench .bh-reference-menu-search > input[type="text"]:focus {
+	min-width: 0;
+	height: 100%;
+	flex: 1 1 auto;
+	padding: 0;
+	color: var(--vscode-input-foreground, var(--vscode-foreground));
+	background: transparent;
+	border: 0;
+	outline: none;
+	font: inherit;
+}
+
+.monaco-workbench .bh-reference-menu-list {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+}
+
+.monaco-workbench .bh-reference-menu-header {
+	padding: 6px 8px 4px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 16px;
+}
+
+.monaco-workbench .bh-reference-menu-empty {
+	padding: 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	line-height: 17px;
+}
+
+.monaco-workbench .bh-reference-menu-option {
+	display: flex;
+	min-width: 0;
+	min-height: 32px;
+	box-sizing: border-box;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 8px 3px 4px;
+	border-radius: 7px;
+	cursor: pointer;
+}
+
+.monaco-workbench .bh-reference-menu-option.active {
+	color: var(--vscode-menu-selectionForeground, inherit);
+	background: var(--vscode-menu-selectionBackground, var(--bh-video-panel-hover, color-mix(in srgb, var(--vscode-foreground) 10%, transparent)));
+}
+
+.monaco-workbench .bh-reference-menu-option.disabled {
+	cursor: default;
+}
+
+.monaco-workbench .bh-reference-menu-option.disabled > .bh-reference-menu-picture,
+.monaco-workbench .bh-reference-menu-option.disabled .bh-reference-menu-title,
+.monaco-workbench .bh-reference-menu-option.disabled > .bh-reference-menu-count {
+	opacity: 0.45;
+}
+
+.monaco-workbench .bh-reference-menu-picture {
+	display: grid;
+	width: 22px;
+	height: 22px;
+	flex: none;
+	place-items: center;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+	border-radius: 5px;
+}
+
+.monaco-workbench .bh-reference-menu-picture > img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	pointer-events: none;
+}
+
+.monaco-workbench .bh-reference-menu-picture > .codicon[class*='codicon-'] {
+	font-size: 13px;
+}
+
+.monaco-workbench .bh-reference-menu-text {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+}
+
+.monaco-workbench .bh-reference-menu-title {
+	overflow: hidden;
+	line-height: 18px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .bh-reference-menu-reason {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 14px;
+}
+
+.monaco-workbench .bh-reference-menu-label,
+.monaco-workbench .bh-reference-menu-count {
+	flex: none;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+}
+
+.monaco-workbench .bh-reference-menu-option.active .bh-reference-menu-label,
+.monaco-workbench .bh-reference-menu-option.active .bh-reference-menu-count,
+.monaco-workbench .bh-reference-menu-option.active .bh-reference-menu-reason {
+	color: inherit;
+	opacity: 0.8;
+}
+
+.monaco-workbench .bh-reference-menu-option > .codicon-chevron-right {
+	flex: none;
+	font-size: 12px;
+	opacity: 0.7;
+}
