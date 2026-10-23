@@ -510,7 +510,7 @@ The settings of a draft are drawn from its model's
 - **Mode** first, when the model offers more than one. A mode that the
   provider's region does not offer is dimmed with the reason, and can still
   be chosen. A mode that cannot use every input of the card is dimmed with
-  the first input it cannot use, such as "Video 1: Frames takes no videos.",
+  the first input it cannot use, such as "Frames cannot use Video 1.",
   and cannot be chosen. The mode that is used is checked.
 - Then every parameter that is not advanced, in the order the model declares
   them: a choice of up to five values as a row of buttons, of more as a list

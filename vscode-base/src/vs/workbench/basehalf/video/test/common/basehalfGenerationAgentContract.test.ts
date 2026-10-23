@@ -20,7 +20,7 @@ suite('BaseHalfGenerationAgentContract', () => {
 			fields: Object.keys(contract.schema.properties),
 			closed: contract.schema.additionalProperties,
 			modes: contract.schema.properties.mode.enum,
-			missing: ['made.yaml', '.bh/cache/', 'draft', 'upstream.yaml', 'host.modelCatalog', 'basehalf --generate', 'Image 1', 'on the canvas'].filter(phrase => !rules.includes(phrase))
+			missing: ['made.yaml', '.bh/cache/', 'draft', 'upstream.yaml', 'host.modelCatalog', 'basehalf --generate', 'Image 1', 'on the canvas', 'Only a draft has a generation.yaml', 'keeps the inputs that made it', 'Every one is sent', 'The mode that is used', 'without the seed'].filter(phrase => !rules.includes(phrase))
 		}, {
 			version: BASEHALF_GENERATION_AGENT_CONTRACT_VERSION,
 			fields: [...BASEHALF_GENERATION_INFO_FIELDS],
@@ -28,7 +28,7 @@ suite('BaseHalfGenerationAgentContract', () => {
 			modes: ['frames', 'reference', 'extend', 'edit'],
 			missing: []
 		});
-		assert.strictEqual(contract.contractVersion, 5);
+		assert.strictEqual(contract.contractVersion, 6);
 		assert.ok((contract.rules as string[]).every(rule => rule.length <= 500));
 		assert.doesNotMatch(JSON.stringify(contract), /bhnode|--run-node|videoCatalog|outputs\/|recipe|attempt|price|currency/i);
 	});

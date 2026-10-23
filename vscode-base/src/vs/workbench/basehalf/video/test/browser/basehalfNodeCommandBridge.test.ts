@@ -290,13 +290,13 @@ suite('BaseHalfNodeCommandBridge', () => {
 			inputs: readBaseHalfSidecarUpstream(authoring.examples.inputs, { nodePath: authoring.examples.card }).items.map(item => item.path),
 			rules: (authoring.rules as string[]).filter(rule => /made\.yaml|draft|basehalf --generate|host\.modelCatalog|upstream\.yaml/.test(rule)).length
 		}, {
-			contractVersion: 5,
+			contractVersion: 6,
 			schemaFields: ['prompt', 'provider', 'model', 'mode', 'params'],
 			card: ['shots/shot-01/clip.mp4', 'video'],
 			files: ['.bh/mirror/shots/shot-01/clip.mp4/generation.yaml', '.bh/mirror/shots/shot-01/clip.mp4/upstream.yaml'],
 			example: { readable: true, provider: 'borealis', model: 'borealis-one', mode: 'frames', params: { caption: '', strength: 0.5 } },
 			inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
-			rules: 6
+			rules: 8
 		});
 		// The model catalog, from which an agent chooses a generation; the example is of a provider set up here.
 		const providers = response.host?.modelCatalog.providers as readonly Record<string, any>[];

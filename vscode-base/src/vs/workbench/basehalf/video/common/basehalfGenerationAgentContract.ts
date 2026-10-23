@@ -13,17 +13,22 @@ import {
 import { BASEHALF_VIDEO_MODE_IDS, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
 
 /**
- * What an agent may write to a generation card (D63, generation cards, "What
- * an agent may write"): the fields of `generation.yaml`, its inputs in
- * `upstream.yaml`, and the command that generates. `made.yaml` and the task
- * records under `.bh/cache/generation/` are BaseHalf's alone. Discovery gives
- * this contract to agents as `host.generationCards.authoring`. The example is
- * written and read back through BaseHalf's own writer and reader, so what
- * agents are shown cannot drift from what BaseHalf reads.
+ * What an agent may write to a generation card (D63, D67, generation cards,
+ * "What an agent may write"): the fields of a draft's `generation.yaml`, its
+ * inputs in `upstream.yaml`, and the command that generates. `made.yaml`, the
+ * task records under `.bh/cache/generation/`, and the card information of a
+ * generated file are BaseHalf's alone. Discovery gives this contract to
+ * agents as `host.generationCards.authoring`. The example is written and read
+ * back through BaseHalf's own writer and reader, so what agents are shown
+ * cannot drift from what BaseHalf reads.
  */
 
-/** Changes when what an agent may write changes; version 5 is the first of generation cards (D63). */
-export const BASEHALF_GENERATION_AGENT_CONTRACT_VERSION = 5;
+/**
+ * Changes when what an agent may write changes. Version 5 was the first of
+ * generation cards (D63); in version 6 only a draft has a `generation.yaml`,
+ * a generated file keeps its inputs, and every input of a draft is sent (D67).
+ */
+export const BASEHALF_GENERATION_AGENT_CONTRACT_VERSION = 6;
 
 /** A JSON value of the contract. */
 export type BaseHalfGenerationAgentJsonValue = null | boolean | number | string | readonly BaseHalfGenerationAgentJsonValue[] | { readonly [key: string]: BaseHalfGenerationAgentJsonValue };
@@ -84,12 +89,14 @@ export function getBaseHalfGenerationAgentContract(exampleGeneration?: IBaseHalf
 			`A generation card is an image or a video file of the workspace. Its kind follows its extension: image for ${extensions('image')}; video for ${extensions('video')}.`,
 			'A draft is a generation card whose file does not exist yet: a generation.yaml with no made.yaml, at a path that names no file, in a folder that exists. Write its generation.yaml to make one; its file lands at its path when it generates.',
 			'In generation.yaml write only prompt, provider, model, mode, and params. Never write made.yaml or anything under .bh/cache/: BaseHalf writes them.',
+			'Only a draft has a generation.yaml: when its file lands, BaseHalf writes its made.yaml and removes its generation.yaml. A generated file never changes and keeps the inputs that made it: never write its generation.yaml or its upstream.yaml.',
 			'Never move, rename, or delete a card\'s files under .bh/. The user renames, moves, or deletes a draft on the canvas.',
 			'Choose provider, model, mode, and params from host.modelCatalog: a model of the card\'s kind, one of its modes, and values its parameters accept. A parameter left out takes its default.',
-			'The inputs of a generation card are the entries of its upstream.yaml, in order, relative to the workspace folder; the downstream card stores the connection.',
+			'The inputs of a draft are the entries of its upstream.yaml, in order, relative to the workspace folder; the downstream card stores the connection. Every one is sent.',
 			'The mode\'s input slots use the inputs: frames take the first image as the start frame and the second as the end frame; references take images, videos, and audio in order; extend and edit take the first video as the clip; text inputs join the prompt.',
+			'The mode that is used is the draft\'s own when it uses every input, and otherwise the first of the model\'s modes, in the catalog\'s order, that does; the draft keeps its own mode. A draft with an input that no mode of its model can use does not generate.',
 			'A prompt names inputs by kind and upstream order: Image 1, Video 1, Audio 1 (图片1, 视频1, 音频1 in Chinese).',
-			'Generate a card, a draft or one with its file, with basehalf --generate <workspace-relative path>. It refuses values the model does not accept, prints the path of every card that generates (a new draft beside a card that has its file, and one card per image of several), and does not wait for the files.'
+			'Generate a draft with basehalf --generate <workspace-relative path>. For a generated file it makes a new draft beside it from its made.yaml, without the seed and with the same inputs, and generates that. It refuses values the model does not accept and inputs it cannot use, prints the path of every card that generates (the new draft, and one card per image of several), and does not wait for the files.'
 		]
 	});
 }

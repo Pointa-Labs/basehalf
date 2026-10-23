@@ -95,7 +95,7 @@ suite('BaseHalfAgentSkill', () => {
 			last: body.trimEnd().endsWith(section),
 			missing: ['a tool of your own', 'the folder of the canvas the user works on', '`.bh/cache/selection.yaml`', '`folder`', 'ask the user'].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('image you make')
-		}, { version: '6', inBody: true, afterShared: true, last: true, missing: [], inLaunchInstruction: false });
+		}, { version: '7', inBody: true, afterShared: true, last: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('describes the record of what the user selected, and names the request it answers', () => {
@@ -116,7 +116,7 @@ suite('BaseHalfAgentSkill', () => {
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '6', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '7', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('goes to Claude Code\'s folder and the shared one, and is offered while a location lacks the bundled text', () => {

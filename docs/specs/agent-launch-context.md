@@ -150,13 +150,12 @@ The instruction covers the following, in this order.
      is the only authority for the model catalog, templates, and operations.
    - A generation card is an image or a video file; a draft is one whose file
      does not exist yet. Write `prompt`, `provider`, `model`, `mode`, and
-     `params` in a draft's `generation.yaml` to make a draft or change what
-     it generates; never write `made.yaml`. A generated file never changes
-     and keeps the inputs that made it: leave its `generation.yaml` and
-     `upstream.yaml` alone. A draft's inputs are the entries of its
-     `upstream.yaml`, in order, and every one is sent: when its mode cannot
-     use them all, the first of the model's modes that can is used. The user
-     renames, moves, or deletes a draft on the canvas
+     `params` in a draft's `generation.yaml` to make or change a draft;
+     never write `made.yaml`. A generated file keeps the inputs that made
+     it: leave its `upstream.yaml` alone. A draft's inputs are the entries
+     of its `upstream.yaml`, in order, and every one is sent: when its mode
+     cannot use them all, the first mode that can is used. The user renames,
+     moves, or deletes a draft on the canvas
      ([generation cards](generation-cards.md#what-an-agent-may-write)).
    - Choose `provider`, `model`, `mode`, and `params` from
      `host.modelCatalog` of `basehalf --list-capabilities`: a model of the
@@ -165,10 +164,10 @@ The instruction covers the following, in this order.
      there runs once the user sets it up in Providers
      ([generation cards, Agents](generation-cards.md#agents)).
    - Use `basehalf --generate <workspace-relative path>` to generate a
-     draft. For a generated file it makes a new draft beside it from what
-     made it, and generates that. It prints the path of every card that
-     generates, refuses values the model does not accept and inputs it
-     cannot use, and does not wait for the files.
+     draft. For a generated file it makes a new draft from what made it and
+     generates that. It prints the path of every card that generates,
+     refuses values and inputs the model cannot use, and does not wait for
+     the files.
    - Use `basehalf --run-operation '<json>'` only for operations that
      discovery returned.
    - A generation continues after the session closes.

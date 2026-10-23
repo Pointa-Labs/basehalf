@@ -32,6 +32,10 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'Write `prompt`, `provider`, `model`, `mode`, and `params`',
 			'host.modelCatalog',
 			'basehalf --generate',
+			// D67: only a draft changes; a generated file keeps what made it, and every input of a draft is sent.
+			'A generated file keeps the inputs that made it',
+			'every one is sent',
+			'For a generated file it makes a new draft from what made it',
 			'```yaml\n---\nupstream:\n  - courses/linear-algebra/overview.md\n  - sources/strang.pdf\n---\n```'
 		];
 		assert.deepStrictEqual(phrases.filter(phrase => !BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)), []);
@@ -51,11 +55,13 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'basehalf --list-capabilities',
 			'A generation card is an image or a video file; a draft is one whose file does not exist yet.',
 			'never write `made.yaml`',
-			'Its inputs are the entries of its `upstream.yaml`, in order.',
+			'leave its `upstream.yaml` alone',
+			'A draft\'s inputs are the entries of its `upstream.yaml`, in order, and every one is sent',
+			'the first mode that can is used',
 			'The user renames, moves, or deletes a draft on the canvas.',
 			'host.modelCatalog',
 			'basehalf --generate <workspace-relative path>',
-			'prints the path of every card that generates, refuses values the model does not accept, and does not wait for the files',
+			'prints the path of every card that generates, refuses values and inputs the model cannot use, and does not wait for the files',
 			'only for operations that discovery returned',
 			'A generation continues after the session closes',
 			'only inside Agent Area terminals'
