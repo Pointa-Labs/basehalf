@@ -154,6 +154,7 @@ const smoke = { provider: undefined, models: undefined, notOffered: undefined, s
 
 export async function runGenerationCardSteps(page) {
 	await step('video-new-video-makes-draft', () => assertNewVideoMakesDraft(page));
+	await step('video-picture-cards-keep-their-shape', () => assertPictureCardsKeepTheirShape(page));
 	await step('video-prompt-saves-without-dialog', () => assertPromptSavesWithoutDialog(page));
 	await step('video-new-image-makes-draft', () => assertNewImageMakesDraft(page));
 	await step('video-providers-set-up', () => assertProvidersSetUp(page));
@@ -403,7 +404,7 @@ async function dragCanvasCardTo(page, cardPath, corner) {
  * with the Create button is fully in sight once its panel has the keyboard.
  * The view stays when the card's place was in sight in the view as it was,
  * and goes to the card only when it was not, as when the view had no open
- * place for a card of 720 by 405.
+ * place for a card of 533 by 300.
  */
 async function assertCreatedCardInSight(page, row, viewBefore, what) {
 	const viewAfter = await readCanvasView(page);
@@ -431,8 +432,9 @@ async function assertNewVideoMakesDraft(page) {
 	for (const cardPath of [START_IMAGE, END_IMAGE, SCENE_NOTE]) {
 		await canvasCard(page, cardPath).waitFor({ state: 'visible', timeout: 20_000 });
 	}
-	// The view as the folder opened: the new card, 720 by 405, is centered on
-	// its middle, or at the nearest open place in sight, or the view goes to it.
+	// The view as the folder opened: the new card, 533 by 300 for a draft of
+	// 16:9 without a model, is centered on its middle, or at the nearest open
+	// place in sight, or the view goes to it.
 	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
 	const viewBefore = await readCanvasView(page);
 
@@ -446,8 +448,8 @@ async function assertNewVideoMakesDraft(page) {
 		throw new Error(`The card of a new video draft must show the glyph of a video and its name: ${JSON.stringify(card)}`);
 	}
 	const row = await waitForReading(() => readCardRow(VIDEO), seen => seen !== undefined, `the draft ${VIDEO} to get a place`);
-	if (row.width !== 720 || row.height !== 405) {
-		throw new Error(`A new video draft is drawn at 720 by 405: ${JSON.stringify(row)}`);
+	if (row.width !== 533 || row.height !== 300) {
+		throw new Error(`A new video draft without a model is drawn at 16:9, 533 by 300: ${JSON.stringify(row)}`);
 	}
 	const panel = await waitForGenerationPanel(page, VIDEO);
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.promptFocused, 'the prompt of the new draft to have the keyboard focus');
@@ -494,6 +496,63 @@ async function assertNewVideoMakesDraft(page) {
 	await assertNotInFiles(page, GENERATION_FOLDER, ['video.mp4']);
 }
 
+// Canvas card placement, "The card of an image or a video has its picture's
+// shape", and canvas card resize, "Which cards resize": the two images of the
+// folder, 640 by 360, were laid out at 300 by 220. They take their picture's
+// shape where they are, rows and all, as large as the room around them
+// allows: as wide as before at least and 533 by 300 at most, with no card
+// over another, and 3% larger would come closer to a card than the grid's
+// gaps. Where the new video draft is decides the room. The note keeps its
+// size. A selected note has resize targets; a selected image card and the
+// new video draft have none.
+async function assertPictureCardsKeepTheirShape(page) {
+	const sixteenByNine = row => row !== undefined && Math.abs(row.width / row.height - 16 / 9) <= 16 / 9 * 0.02;
+	for (const [cardPath, y] of [[START_IMAGE, 0], [END_IMAGE, 300]]) {
+		const row = await waitForReading(() => readCardRow(cardPath), sixteenByNine, `the card of ${cardPath} to take the shape of its 640 by 360 picture`, 20_000);
+		if (row.x !== 0 || row.y !== y || row.width < 300 || row.width > 533 || row.height > 300) {
+			throw new Error(`The card of ${cardPath} must keep its place and be between its old width and its full shape: ${JSON.stringify(row)}`);
+		}
+	}
+	const rows = [START_IMAGE, END_IMAGE, SCENE_NOTE, VIDEO].map(cardPath => ({ cardPath, ...readCardRow(cardPath) }));
+	const cross = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+	const near = (a, b) => a.x < b.x + b.width + 40 && b.x < a.x + a.width + 40 && a.y < b.y + b.height + 60 && b.y < a.y + a.height + 60;
+	if (rows.some(a => rows.some(b => a !== b && cross(a, b)))) {
+		throw new Error(`No card may lie over another: ${JSON.stringify(rows)}`);
+	}
+	for (const image of rows.slice(0, 2)) {
+		const grown = { ...image, width: image.width * 1.03, height: image.height * 1.03 };
+		if (image.width < 533 && !rows.some(other => other !== image && near(grown, other) && !near(image, other))) {
+			throw new Error(`The card of ${image.cardPath} must be as large as the room around it allows: ${JSON.stringify(rows)}`);
+		}
+	}
+	const note = readCardRow(SCENE_NOTE);
+	if (note?.width !== 300 || note.height !== 220) {
+		throw new Error(`A note keeps its size: ${JSON.stringify(note)}`);
+	}
+	const resizeTargets = cardPath => page.evaluate(path => Array.from(document.querySelectorAll('.basehalf-canvas-card'))
+		.find(card => card.getAttribute('data-basehalf-card-path') === path)?.closest('.react-flow__node')?.querySelectorAll('.basehalf-canvas-node-resizer-handle').length ?? -1, cardPath);
+	const select = async cardPath => {
+		if (await page.locator('.basehalf-canvas-video-panel-surface').count() !== 0) {
+			await clickBlankCanvas(page);
+		}
+		await showCardOnCanvas(page, cardPath);
+		await clickCanvasCardOnTop(page, cardPath);
+		await waitForCanvasCardSelection(page, cardPath, 15_000);
+	};
+	// The note first: its corners are there, so that none on a picture card means it has none.
+	await select(SCENE_NOTE);
+	await waitForReading(() => resizeTargets(SCENE_NOTE), count => count === 4, 'a selected note to show its four resize corners');
+	for (const cardPath of [START_IMAGE, VIDEO]) {
+		await select(cardPath);
+		await page.waitForTimeout(300);
+		const count = await resizeTargets(cardPath);
+		if (count !== 0) {
+			throw new Error(`The selected card of ${cardPath} must have no resize targets: ${count}`);
+		}
+	}
+	await clickBlankCanvas(page);
+}
+
 // Criterion 3 and the first half of 33: the prompt typed with the keyboard,
 // with no ring around it, is saved to the draft's `generation.yaml` when the
 // user clicks the canvas, without a model and without a dialog, the panel goes
@@ -518,7 +577,8 @@ async function assertPromptSavesWithoutDialog(page) {
 }
 
 // Criterion 2 for images: New Image makes a draft named `image.png`, since no
-// image model was used, drawn at the size of a file card, with its panel and
+// image model was used, drawn square, the ratio of an image without a model,
+// with its panel and
 // the toolbar's Upload Image.
 async function assertNewImageMakesDraft(page) {
 	await clickCanvasCreateAction(page, 'New Image');
@@ -530,8 +590,8 @@ async function assertNewImageMakesDraft(page) {
 		throw new Error(`The card of a new image draft must show the glyph of an image and its name: ${JSON.stringify(card)}`);
 	}
 	const row = await waitForReading(() => readCardRow(IMAGE), seen => seen !== undefined, `the draft ${IMAGE} to get a place`);
-	if (row.width !== 300 || row.height !== 220) {
-		throw new Error(`A new image draft is drawn at the size of a file card, 300 by 220: ${JSON.stringify(row)}`);
+	if (row.width !== 300 || row.height !== 300) {
+		throw new Error(`A new image draft without a model is drawn square, 300 by 300: ${JSON.stringify(row)}`);
 	}
 	const panel = await waitForGenerationPanel(page, IMAGE);
 	const shown = await waitForReading(() => readGenerationPanel(panel), seen => seen.promptFocused && seen.catalog === 'ready', 'the prompt of the new image draft to have the keyboard focus');
@@ -935,13 +995,13 @@ async function assertPanelPlacement(page) {
 	if (above.placement !== 'above' || above.panel.bottom > above.card.top - 10 + 1.5 || above.panel.top < 12 - 1.5) {
 		throw new Error(`Without room below its card, the panel must sit above it: ${JSON.stringify(above)}`);
 	}
-	// At full size the card leaves room for neither: the panel is clamped inside the canvas.
+	// At 150% the card, 533 by 300, leaves room for neither: the panel is clamped inside the canvas.
 	await clickBlankCanvas(page);
-	await setCanvasZoomPercent(page, 100);
+	await setCanvasZoomPercent(page, 150);
 	await panCanvasCardTo(page, card, { x: canvasBox.x + 40, y: canvasBox.y + 120 });
 	await clickCanvasCardOnTop(page, VIDEO);
 	await waitForGenerationPanel(page, VIDEO);
-	const clamped = await waitForReading(() => readPanelGeometry(page, VIDEO), seen => seen !== null && !seen.moving && seen.visible === 'true', 'the panel to come to rest at full size');
+	const clamped = await waitForReading(() => readPanelGeometry(page, VIDEO), seen => seen !== null && !seen.moving && seen.visible === 'true', 'the panel to come to rest with its card at 150%');
 	if (clamped.placement !== 'clamped' || clamped.panel.top < 12 - 1.5 || clamped.panel.bottom > clamped.host.height - 52 + 1.5 || clamped.panel.left < 12 - 1.5 || clamped.panel.right > clamped.host.width - 12 + 1.5) {
 		throw new Error(`With room for neither, the panel must be clamped inside the canvas: ${JSON.stringify(clamped)}`);
 	}
@@ -1282,17 +1342,22 @@ async function assertCardPlayerGestures(page) {
 	if (await clip.getAttribute('data-generation') !== null) {
 		throw new Error(`A video file with no generation information is no generation card: ${CLIP}`);
 	}
-	// The card of a file is 300 wide when it appears, and the controls show on a picture 160 screen pixels wide or more.
-	const zoomed = zoom < 0.75;
+	// The card in the middle of the canvas first: the canvas draws only the cards in sight, and the card stays in sight when the zoom changes.
+	const view = await readCanvasView(page);
+	const toMiddle = async () => {
+		const box = await clip.boundingBox();
+		if (!home || !box) {
+			throw new Error(`The cards of ${VIDEO} and ${CLIP} must be on the canvas: ${JSON.stringify({ home, box })}`);
+		}
+		await panCanvasCardTo(page, clip, { x: Math.round((view.canvas.left + view.canvas.right - box.width) / 2), y: Math.round((view.canvas.top + view.canvas.bottom - box.height) / 2) });
+		return box;
+	};
+	// The controls show on a picture 160 screen pixels wide or more: a narrower card is seen at 100%.
+	const zoomed = (await toMiddle()).width < 160;
 	if (zoomed) {
 		await setCanvasZoomPercent(page, 100);
+		await toMiddle();
 	}
-	const view = await readCanvasView(page);
-	const box = await clip.boundingBox();
-	if (!home || !box) {
-		throw new Error(`The cards of ${VIDEO} and ${CLIP} must be on the canvas: ${JSON.stringify({ home, box })}`);
-	}
-	await panCanvasCardTo(page, clip, { x: Math.round((view.canvas.left + view.canvas.right - box.width) / 2), y: Math.round((view.canvas.top + view.canvas.bottom - box.height) / 2) });
 	await waitForReading(() => readCardVideoPlayer(page, CLIP), seen => seen !== null && seen.readyState >= 1, `the card of ${CLIP} to show its video`);
 	await assertCardPlaysForThePointer(page, CLIP);
 	fs.rmSync(workspaceFile(CLIP), { force: true });

@@ -932,6 +932,37 @@ suite('BaseHalfCanvasMirrorService', () => {
 		});
 	});
 
+	test('saves the size of rows whose card took its picture\'s shape: their place and their mark stay, a path without a row is left out, and a card does not grow over one put beside it since', async () => {
+		const files = new Map([['/work/.bh/mirror/canvas.yaml', [
+			'path: ""',
+			'cards:',
+			'  - path: "shot.mp4"', '    kind: file', '    x: 10', '    y: 20', '    width: 300', '    height: 220', '    auto: true',
+			'  - path: "still.png"', '    kind: file', '    x: 600', '    y: 20', '    width: 300', '    height: 220',
+			'  - path: "late.png"', '    kind: file', '    x: 1000', '    y: 20', '    width: 300', '    height: 220',
+			// Moved beside it after the drawing chose its size.
+			'  - path: "arrived.md"', '    kind: file', '    x: 1300', '    y: 20', '    width: 300', '    height: 220',
+			'edges: []',
+			''
+		].join('\n')]]);
+		const service = createService(files);
+
+		const saved = await service.saveAppearedCards(folder(''), [], [], undefined, {
+			reshaped: [
+				{ path: 'shot.mp4', kind: 'file', x: 10, y: 20, width: 533, height: 300, auto: true },
+				{ path: 'still.png', kind: 'file', x: 600, y: 20, width: 300, height: 400 },
+				{ path: 'late.png', kind: 'file', x: 1000, y: 20, width: 533, height: 300 },
+				{ path: 'gone.png', kind: 'file', x: 0, y: 0, width: 300, height: 300 }
+			]
+		});
+
+		assert.deepStrictEqual(saved?.cards, [
+			{ path: 'shot.mp4', kind: 'file', x: 10, y: 20, width: 533, height: 300, auto: true },
+			{ path: 'still.png', kind: 'file', x: 600, y: 20, width: 300, height: 400 },
+			{ path: 'late.png', kind: 'file', x: 1000, y: 20, width: 300, height: 220 },
+			{ path: 'arrived.md', kind: 'file', x: 1300, y: 20, width: 300, height: 220 }
+		]);
+	});
+
 	test('does not save chosen places over a layout it cannot read in full', async () => {
 		const damaged = 'path: ""\ncards:\n  - path: "a.md"\n    kind: file\n    x: 10\n    y: 20\n    width: 300\n    height: 220\n  - path: "broken.md"\n    kind: file\nedges: []\n';
 		const files = new Map([['/work/.bh/mirror/canvas.yaml', damaged]]);

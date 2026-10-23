@@ -438,6 +438,14 @@ export interface IBaseHalfGenerationCardActions {
 	createDraft(folder: URI, kind: BaseHalfGenerationKind, upstream?: readonly string[]): Promise<URI>;
 
 	/**
+	 * The ratio, width to height, that a draft of a kind made now chooses with
+	 * the values {@link createDraft} gives it, when the catalog is there and its
+	 * model has a ratio of its own; its card is placed with that shape (canvas
+	 * card placement, "The card of an image or a video has its picture's shape").
+	 */
+	newDraftRatio(kind: BaseHalfGenerationKind): number | undefined;
+
+	/**
 	 * Renames a draft, or moves it into another folder, to `target`. Refuses,
 	 * with the reason in plain words, a name that is taken or not of the
 	 * draft's kind. Resolves with `target`.

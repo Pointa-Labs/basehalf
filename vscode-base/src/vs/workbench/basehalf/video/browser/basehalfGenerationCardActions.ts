@@ -24,7 +24,7 @@ import {
 	IBaseHalfGenerationInfo,
 	setBaseHalfGenerationChoice
 } from '../common/basehalfGenerationInfo.js';
-import { baseHalfModelFileExtension, baseHalfVideoInitialGeneration, findBaseHalfVideoModel, IBaseHalfVideoCatalog } from '../common/basehalfVideoCatalog.js';
+import { baseHalfModelFileExtension, baseHalfVideoChoiceRatio, baseHalfVideoInitialGeneration, findBaseHalfVideoModel, IBaseHalfVideoCatalog } from '../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfDraftOperations,
 	IBaseHalfDraftSnapshot,
@@ -161,6 +161,15 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		await this.fileService.copy(file, target, false);
 		this.logService.info(`[BaseHalf generation] uploaded ${file.toString()} to ${target.toString()}`);
 		return target;
+	}
+
+	newDraftRatio(kind: BaseHalfGenerationKind): number | undefined {
+		const state = this.catalogService.state;
+		if (state.kind !== 'ready') {
+			return undefined;
+		}
+		const choice = baseHalfVideoInitialGeneration(this.providerSettings.getLastUsed(kind), state.catalog, kind, provider => this.providerSettings.getStatus(provider).region.id);
+		return choice ? baseHalfVideoChoiceRatio(state.catalog, choice) : undefined;
 	}
 
 	/**

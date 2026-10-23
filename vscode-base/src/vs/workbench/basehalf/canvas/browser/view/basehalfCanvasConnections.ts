@@ -323,7 +323,8 @@ export class BaseHalfCanvasConnections {
 		const draft = await this.view.generationCardActions.createDraft(folder.resource, kind, [drop.from]);
 		const path = baseHalfCanvasChildPath(folder.relativePath, basename(draft));
 		const toAnchor = baseHalfCanvasOppositeAnchor(drop.fromAnchor);
-		const size = baseHalfCanvasGenerationCardSize(kind);
+		// The shape of the ratio the new draft's values choose (canvas card placement).
+		const size = baseHalfCanvasGenerationCardSize(kind, this.view.generationCardActions.newDraftRatio(kind));
 		// The user pointed: the side the line enters is centered on the release point.
 		const canvasPosition = baseHalfCanvasConnectionTargetOrigin(drop.position, toAnchor, size);
 		await this.view.creation.placeCreatedCard(folder, path, canvasPosition, size, {

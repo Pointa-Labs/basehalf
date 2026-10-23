@@ -400,6 +400,30 @@ export function findBaseHalfVideoModel(catalog: IBaseHalfVideoCatalog | undefine
 	return provider && model ? Object.freeze({ provider, model }) : undefined;
 }
 
+/** The width and the height that a ratio value such as `16:9` names, or undefined for another value, such as `adaptive`. */
+export function baseHalfVideoRatioParts(value: unknown): { readonly width: number; readonly height: number } | undefined {
+	const match = typeof value === 'string' ? /^(?<width>\d+(?:\.\d+)?):(?<height>\d+(?:\.\d+)?)$/.exec(value.trim()) : null;
+	const width = Number(match?.groups?.width);
+	const height = Number(match?.groups?.height);
+	return match && width > 0 && height > 0 ? Object.freeze({ width, height }) : undefined;
+}
+
+/**
+ * The ratio, width to height, that a generation with `choice` makes, as its
+ * model's ratio setting chooses: the value of the setting drawn as ratios
+ * that applies to its mode, or that setting's default. Undefined when the
+ * model is not in the catalog, has no such setting, or follows an input with
+ * it, such as Adaptive (canvas card placement, "The card of an image or a
+ * video has its picture's shape").
+ */
+export function baseHalfVideoChoiceRatio(catalog: IBaseHalfVideoCatalog | undefined, choice: IBaseHalfVideoGenerationChoice): number | undefined {
+	const model = findBaseHalfVideoModel(catalog, choice.provider, choice.model)?.model;
+	const parameter = model && baseHalfVideoModeParameters(model, baseHalfVideoModeOf(model, choice.mode).id)
+		.find((candidate): candidate is IBaseHalfVideoChoiceParameter => candidate.kind === 'choice' && candidate.display === 'ratio');
+	const parts = parameter ? baseHalfVideoRatioParts(choice.params?.[parameter.name] ?? baseHalfVideoParameterDefault(parameter)) : undefined;
+	return parts ? parts.width / parts.height : undefined;
+}
+
 /** The region with that id, or the provider's first when there is none. */
 export function findBaseHalfVideoRegion(provider: IBaseHalfVideoCatalogProvider, regionId: string | undefined): IBaseHalfVideoCatalogRegion {
 	return provider.regions.find(region => region.id === regionId) ?? provider.regions[0];

@@ -1,6 +1,6 @@
 # Canvas card resize
 
-Status: Active (2026-10-09)
+Status: Active (2026-10-09; which cards resize, 2026-10-23)
 Related: [roadmap](../roadmap.md) tracks 2 and 9,
 [architecture invariants](../harness/architecture-invariants.md)
 
@@ -21,16 +21,12 @@ A press on a card that had keyboard focus also ended the resize session at once.
 
 ## Scope
 
-In scope: the hit geometry, cursor, and visible affordance of the resize
-controls that the canvas scene renders for a selected card, and the sizes and
-placements those controls use at every canvas zoom.
+In scope: which cards resize; the hit geometry, cursor, and visible
+affordance of the resize controls that the canvas scene renders for a
+selected card; and the sizes and placements those controls use at every
+canvas zoom.
 
 Not in scope, and unchanged:
-
-- When resize is available. Resize controls exist only when exactly one card
-  is selected, it is not a Note being edited, and video input picking is not
-  active (`baseHalfCanvasSceneShowsResizeControls`). Hovering a card that is
-  not selected shows no resize affordance.
 - The resize gesture itself: minimum size 140 × 48 flow pixels, the corner
   opposite the dragged one stays fixed, live geometry during the drag, and
   persistence to `canvas.yaml` only after pointer-up.
@@ -55,6 +51,21 @@ is more than twice the radius (44), so the corners are always complete quarter
 circles.
 
 ## Required behavior
+
+### Which cards resize
+
+- Resize controls exist only when exactly one card is selected, it is not a
+  Note being edited, video input picking is not active, and it is a card
+  that shows text or a folder: the card of a note, of another text or code
+  file, of a PDF, of another file, or of a folder
+  (`baseHalfCanvasSceneShowsResizeControls`). Hovering a card that is not
+  selected shows no resize affordance.
+- The card of an image, a video, or a sound has no resize controls, as in
+  the canvas products for media work, whose text nodes resize and whose
+  image, video, and audio nodes do not (checked on 2026-10-23). An image and
+  a video card have the shape of their picture, and a sound card the size of
+  a file card
+  ([canvas card placement](canvas-card-placement.md#the-card-of-an-image-or-a-video-has-its-pictures-shape)).
 
 ### Corner targets
 
@@ -173,15 +184,21 @@ radius, so plugin-contributed cards get the same targets.
    0.2, 0.5, 1, 2, and 4, and stay concentric with the corner arc. The
    indicator covers 20° to 70° of the sector at every zoom.
 10. Each side target starts and ends 22 flow pixels from the card's corners.
+11. A selected image, video, or sound card, a generation card among them,
+    shows no resize targets or indicators. A selected note, PDF, other file,
+    or folder card shows them.
 
 ## Verification
 
 - Unit tests: `basehalfCanvasReactScene.test.ts` covers the corner geometry for
   each corner and zoom (criterion 9), and the availability policy
-  (criterion 8).
+  (criteria 8 and 11).
 - `npm run basehalf:smoke`: the selected Note and docs-card flows probe each
   corner's hit points, cursor, and indicator states, and the extent of each
   side target (criteria 1–5 and 10). The docs-card restore starts with the card
   focused and shrinks it to its minimum size mid-gesture (criterion 5). The
-  docs-card and Video flows resize by pressing on the bottom-right band
-  (criteria 6–7). The existing Note editing frames check criterion 8.
+  docs-card flow resizes by pressing on the bottom-right band (criteria 6–7).
+  The existing Note editing frames check criterion 8.
+  `video-picture-cards-keep-their-shape` selects a note, an image, and a video
+  draft (criterion 11). The other kinds were checked in the real window on
+  2026-10-23 ([canvas card placement](canvas-card-placement.md#verification)).

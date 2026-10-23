@@ -13,6 +13,7 @@ import { FileOperationError, FileOperationResult, IFileService } from '../../../
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import {
+	baseHalfCanvasBoundsCross,
 	baseHalfCanvasEndPlace,
 	baseHalfCanvasIsOpen,
 	baseHalfCanvasRowSpan,
@@ -186,6 +187,15 @@ export interface IBaseHalfCanvasSaveAppearedOptions {
 	 * spellings are the same path. Each takes the new spelling.
 	 */
 	readonly respelled?: readonly { readonly from: string; readonly to: string }[];
+	/**
+	 * Rows whose card took its picture's shape (canvas card placement, "The
+	 * card of an image or a video has its picture's shape"): the row of each
+	 * path takes this width and height, and keeps its place and whether
+	 * BaseHalf chose it. A path without a row is left out, and so is a size
+	 * that would lie over a row it does not lie over now: that row was written
+	 * after the drawing chose the size.
+	 */
+	readonly reshaped?: readonly IBaseHalfCanvasCard[];
 }
 
 export interface IBaseHalfCanvasMirrorService {
@@ -206,10 +216,10 @@ export interface IBaseHalfCanvasMirrorService {
 	updateCardGeometries(folder: IBaseHalfCanvasFolderState, cards: readonly IBaseHalfCanvasCard[], lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile | null>;
 	/**
 	 * Saves the places BaseHalf chose for the cards that appeared in one drawing
-	 * (canvas card placement, "How a place is saved"). It only adds rows: a row
-	 * that is there for a path stays as it is. In the same write it removes the
-	 * rows of `gone` that BaseHalf chose and nobody changed, whose items are no
-	 * longer in the folder.
+	 * (canvas card placement, "How a place is saved"). It adds rows: a row that
+	 * is there for a path keeps its place, and changes only its size when
+	 * `reshaped` gives one. In the same write it removes the rows of `gone` that
+	 * BaseHalf chose and nobody changed, whose items are no longer in the folder.
 	 *
 	 * BaseHalf does not write over content it could not read by itself: for a
 	 * layout that cannot be read in full nothing is written and the result is
@@ -321,7 +331,8 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 
 	async saveAppearedCards(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[], gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease, options: IBaseHalfCanvasSaveAppearedOptions = {}): Promise<IBaseHalfCanvasFile | null | undefined> {
 		const respelled = options.respelled ?? [];
-		if (appeared.length === 0 && gone.length === 0 && respelled.length === 0) {
+		const reshaped = options.reshaped ?? [];
+		if (appeared.length === 0 && gone.length === 0 && respelled.length === 0 && reshaped.length === 0) {
 			return this.readCanvas(folder);
 		}
 		let damaged = false;
@@ -337,9 +348,24 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 				const spelling = new Map(respelled.filter(row => taken.has(row.from) && !taken.has(row.to)).map(row => [row.from, row.to]));
 				const spell = (path: string) => spelling.get(path) ?? path;
 				const goneRows = new Set(gone);
+				const sizes = new Map(reshaped.map(card => [card.path, card]));
+				let resized = 0;
 				const kept = existing.cards
 					.filter(card => !(card.auto && goneRows.has(card.path) && !spelling.has(card.path)))
-					.map(card => spelling.has(card.path) ? { ...card, path: spell(card.path) } : card);
+					.map(card => spelling.has(card.path) ? { ...card, path: spell(card.path) } : card)
+					.map(card => {
+						const size = sizes.get(card.path);
+						if (!size || (size.width === card.width && size.height === card.height)) {
+							return card;
+						}
+						// A card that a move or another window put beside it since the drawing keeps it from growing over that card.
+						const sized = { ...card, width: size.width, height: size.height };
+						if (existing.cards.some(other => other.path !== card.path && baseHalfCanvasBoundsCross(sized, other) && !baseHalfCanvasBoundsCross(card, other))) {
+							return card;
+						}
+						resized++;
+						return sized;
+					});
 				const present = new Set(kept.map(card => card.path));
 				// The places were chosen against the layout as a drawing read it. A row
 				// that another window or a move wrote since can lie on one of them: that
@@ -354,7 +380,7 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 						? card
 						: { ...card, ...baseHalfCanvasEndPlace(cards, { width: card.width, height: card.height }, baseHalfCanvasRowSpan(cards, 1)) });
 				}
-				if (cards.length === kept.length && kept.length === existing.cards.length && spelling.size === 0) {
+				if (cards.length === kept.length && kept.length === existing.cards.length && spelling.size === 0 && resized === 0) {
 					return existing;
 				}
 				return {

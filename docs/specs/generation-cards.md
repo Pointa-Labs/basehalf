@@ -352,8 +352,9 @@ that generates ([Agents](#agents)).
   view goes to it, so that its panel shows and its prompt has the keyboard.
   At a point of the canvas and from a connection it is where the user
   pointed, and the view stays.
-- New cards are drawn at 720 × 405 for a video and at 300 × 220, the size of a
-  file card, for an image.
+- A new card has the shape of its draft's ratio, 533 × 300 for a 16:9 video
+  and 300 × 300 for a square image
+  ([canvas card placement](canvas-card-placement.md#the-card-of-an-image-or-a-video-has-its-pictures-shape)).
 - **Every name BaseHalf chooses treats a draft's path as taken**: a new draft,
   generating again, several images, a paste, a drop, Import File, Capture
   Frame, and the rename editor.
@@ -608,8 +609,11 @@ What a generation card shows follows its phase (`baseHalfGenerationPhase`):
 | file that cannot be shown | the glyph and "This image cannot be shown here" or "This video cannot be played here" |
 
 The phases generating, failed, and stopped come from the task record and are
-shown only on the computer that has it. The card keeps its size when the file
-arrives; the image or the video is fitted inside it. A card whose file was
+shown only on the computer that has it. When the file arrives, the card takes
+its picture's shape where it is, as large as the room there allows, and the
+image or the video fills it
+([canvas card placement](canvas-card-placement.md#the-card-of-an-image-or-a-video-has-its-pictures-shape)).
+The user does not resize it. A card whose file was
 just saved goes from Saving straight to its picture: it says Saving after the
 record is removed, also once it is drawn again with its file, until the image
 has loaded or the video has its first frame, and at most 2 s more. The card
@@ -703,8 +707,8 @@ and Last Frame.
   after the card and the frame (`shot first frame.png`, `shot last
   frame.png`, or `shot frame at 3.2s.png` for the current frame, with a
   number added when the name is taken). Its card appears to the right of the
-  video card. It is an ordinary image that the user can connect to another
-  card.
+  video card, with the frame's shape. It is an ordinary image that the user
+  can connect to another card.
 - **Open** shows the image or the video large in Card Detail, with what made
   it, from `made.yaml`: model and the id sent to the provider, provider and
   region, mode, settings, the prompt, the inputs in order, which image of how

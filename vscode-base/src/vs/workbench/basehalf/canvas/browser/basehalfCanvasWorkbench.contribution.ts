@@ -59,7 +59,8 @@ import { IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
+import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfGenerationTaskStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService } from '../../video/common/basehalfVideoGeneration.js';
+import { BaseHalfCanvasPictureShapes, createBaseHalfCanvasPictureMeasurer } from './basehalfCanvasPictureShapes.js';
 import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfCanvasPreviewHydrationQueue } from '../common/basehalfCanvasPreviewHydration.js';
 import { IBaseHalfCardDetailSurfaceRegistryService } from '../../cardDetail/browser/basehalfCardDetailSurface.js';
@@ -232,6 +233,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	get chosenCanvasPlaces(): BaseHalfCanvasChosenPlaces {
 		return this.chosenCanvasPlacesInstance ??= new BaseHalfCanvasChosenPlaces(this.fileService, this.canvasMirrorService, this.movedItemsService, this.logService);
 	}
+	/** The shapes of the pictures of image and video cards, measured in the window (canvas card placement). */
+	readonly pictureShapes = this._register(new BaseHalfCanvasPictureShapes(createBaseHalfCanvasPictureMeasurer(mainWindow)));
 	/** The rows of the layout that the shown canvas was last drawn from. A row takes its place also when its item is gone. */
 	renderedLayoutRows: readonly IBaseHalfCanvasCard[] = [];
 	canvasLayoutReconcileGeneration = 0;
@@ -314,6 +317,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IBaseHalfGenerationCardStore public readonly generationCardStore: IBaseHalfGenerationCardStore,
 		@IBaseHalfGenerationTaskStore public readonly generationTaskStore: IBaseHalfGenerationTaskStore,
 		@IBaseHalfGenerationCardActions public readonly generationCardActions: IBaseHalfGenerationCardActions,
+		@IBaseHalfVideoCatalogService public readonly videoCatalogService: IBaseHalfVideoCatalogService,
 		@IContextKeyService public readonly contextKeyService: IContextKeyService,
 		@IAccessibilityService public readonly accessibilityService: IAccessibilityService
 	) {
@@ -516,6 +520,11 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 				this.renderer.scheduleBackgroundRender();
 			}
 		}));
+		// A picture measured after its card was drawn, and the catalog that tells
+		// a draft's ratio, change the shape of cards (canvas card placement, "The
+		// card of an image or a video has its picture's shape").
+		this._register(this.pictureShapes.onDidMeasure(() => this.renderer.scheduleBackgroundRender()));
+		this._register(this.videoCatalogService.onDidChange(() => this.renderer.scheduleBackgroundRender()));
 		// A generation that starts or ends changes the toolbar of its cards.
 		this._register(this.videoGenerationService.onDidChangeProgress(card => this.cardRenderer.refreshGenerationControls(card)));
 		this._register(this.workingCopyService.onDidChangeDirty(workingCopy => {

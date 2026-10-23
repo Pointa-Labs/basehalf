@@ -2261,3 +2261,48 @@ the canvas, and the editor took Escape to put its caret away.
 - Pages of Card Detail in webviews, the editor of a note, an image, and a
   PDF, say when Escape was typed in them and nothing of theirs used it.
 
+## D66 — Only text cards resize; an image or a video card has its picture's shape (NEW, 2026-10-23)
+
+**Decision.** The user resizes the card of a note, of another text or code
+file, of a PDF, of another file, and of a folder. The card of an image, a
+video, or a sound has no resize controls. An image or a video card, a
+generation card among them, is shaped as its picture: its full shape has a
+short side of 300 and a long side that follows the picture's ratio, up to
+three times the short side, and a card with less room at its place is as
+large as that room allows. A draft has the ratio its settings choose. A
+sound card keeps the size of a file card.
+
+See [canvas card placement, "The card of an image or a video has its
+picture's shape"](specs/canvas-card-placement.md#the-card-of-an-image-or-a-video-has-its-pictures-shape)
+and [canvas card resize, "Which cards resize"](specs/canvas-card-resize.md#which-cards-resize).
+
+**Why.** On 2026-10-23 the user asked whether image and video nodes should
+resize at all, since only text nodes seemed to need it. The two canvas
+products for media work that BaseHalf follows agree, checked that day in the
+user's own canvases: text nodes have resize handles, and image, video, and
+audio nodes have none, selected or not. Their media nodes are shaped as
+their picture instead, with a short side of 300 in one of them (533 × 300
+for a 16:9 video, 300 × 750 for a tall image).
+
+BaseHalf drew cards of a fixed size by kind: 720 × 405 for a video, and
+300 × 220 for an image, which an image filled and was cropped to. Resizing
+was the one way to see a tall or a wide image whole. Taking resizing away
+alone would have left it cropped for good, so the card takes the picture's
+shape.
+
+A first build gave each card its full shape where it was. In a canvas laid
+out in the earlier grid the cards then covered their neighbours, so the size
+of a card takes the room at its place into account.
+
+**Consequences.**
+- BaseHalf measures each picture in the window, once for each version of the
+  file, and saves the card's row with its size, so that the layout stores
+  what the canvas shows. A card that appears has its full shape and is
+  placed once that is known. A card on the canvas has its shape where it is,
+  as large as the room at its corner allows: it comes no closer to another
+  card than the grid's gaps, grows when room comes free, and keeps its size
+  when a card comes near, so BaseHalf still puts no card on another. In a
+  canvas of the earlier grid, picture cards are smaller than new ones until
+  the cards around them move.
+- The image of a card is fitted, not cropped.
+- New Video draws a 16:9 draft at 533 × 300 instead of 720 × 405.

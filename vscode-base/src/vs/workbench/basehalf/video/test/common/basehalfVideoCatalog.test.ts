@@ -15,6 +15,7 @@ import {
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
 	baseHalfVideoChooseModel,
+	baseHalfVideoChoiceRatio,
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoInitialGeneration,
 	baseHalfVideoInputKindOfPath,
@@ -67,6 +68,20 @@ suite('BaseHalfVideoCatalog', () => {
 	function uses(plan: readonly IBaseHalfVideoInputPlanItem[]): string[] {
 		return plan.map(item => `${item.path}:${item.use}${item.reason ? `(${item.reason})` : ''}${item.label ? `=${item.label}` : ''}`);
 	}
+
+	test('the ratio a choice makes is its model\'s ratio setting for its mode, or that setting\'s default; a value that names no ratio, another mode, and another model have none', () => {
+		const choice = (model: string, mode: 'frames' | 'reference' | undefined, ratio?: string) => ({ provider: 'acme', model, ...(mode ? { mode } : {}), ...(ratio ? { params: { ratio } } : {}) });
+		assert.deepStrictEqual([
+			choice('acme-motion-2', 'reference', '9:16'),
+			choice('acme-motion-2', 'reference'),
+			choice('acme-motion-2', 'reference', 'adaptive'),
+			// The setting applies to References only, and the first mode is Frames.
+			choice('acme-motion-2', 'frames', '9:16'),
+			choice('acme-motion-2', undefined, '9:16'),
+			choice('acme-still', 'frames'),
+			choice('acme-gone', 'reference', '9:16')
+		].map(entry => baseHalfVideoChoiceRatio(TEST_VIDEO_CATALOG, entry)), [9 / 16, 16 / 9, undefined, undefined, undefined, undefined, undefined]);
+	});
 
 	test('reads the catalog AI Video answers, leaves out what is not well formed and says what, and refuses what is no catalog', () => {
 		const broken = parseBaseHalfVideoCatalog({

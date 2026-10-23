@@ -6,15 +6,23 @@
 import { basename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileStat } from '../../../../platform/files/common/files.js';
+import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;
 export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH = 300;
 export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT = 220;
 export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH = 248;
 export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT = 188;
-/** A video generation card, a draft or one with its file, is drawn at 16:9 when it is new (generation cards, "Creating a generation card"). */
-export const BASEHALF_CANVAS_VIDEO_CARD_WIDTH = 720;
-export const BASEHALF_CANVAS_VIDEO_CARD_HEIGHT = 405;
+/**
+ * The short side of the card of an image or a video, whose picture's ratio
+ * gives the long side (canvas card placement, "The card of an image or a
+ * video has its picture's shape").
+ */
+export const BASEHALF_CANVAS_PICTURE_CARD_SHORT_SIDE = 300;
+/** The long side of such a card is at most this many times its short side: a longer picture is fitted inside. */
+export const BASEHALF_CANVAS_PICTURE_CARD_MAX_RATIO = 3;
+/** The ratio, width to height, of a picture that is not known yet, and of a draft whose settings choose none. */
+export const BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO: Readonly<Record<'image' | 'video', number>> = Object.freeze({ image: 1, video: 16 / 9 });
 export const BASEHALF_CANVAS_MIN_CARD_WIDTH = 140;
 export const BASEHALF_CANVAS_MIN_CARD_HEIGHT = 48;
 export const BASEHALF_CANVAS_DEFAULT_WIDTH = 2400;
@@ -220,6 +228,12 @@ export interface IBaseHalfCanvasFolderModel {
 	readonly appeared: readonly IBaseHalfCanvasCard[];
 	/** The rows whose item is spelled differently now, on a volume where both spellings are the same path. */
 	readonly respelled: readonly { readonly from: string; readonly to: string }[];
+	/**
+	 * The rows of the layout whose card changed size in this model to have its
+	 * picture's shape, with the new size and the same place: they are saved
+	 * with the next write, so that the layout stores what the canvas shows.
+	 */
+	readonly reshaped: readonly IBaseHalfCanvasCard[];
 }
 
 export interface IBaseHalfCanvasModelOptions {
@@ -239,6 +253,15 @@ export interface IBaseHalfCanvasModelOptions {
 	 * ({@link baseHalfCanvasFolderWithDrafts}).
 	 */
 	readonly generationCards?: ReadonlyMap<string, IBaseHalfCanvasGenerationCard>;
+	/**
+	 * The ratio, width to height, of the picture of each image or video item
+	 * whose ratio the caller knows, by path: measured for a file, chosen by its
+	 * settings for a draft. A card that appears is placed with its full shape
+	 * ({@link baseHalfCanvasPictureCardSize}); a card that has a place takes
+	 * the shape there as large as the room allows
+	 * ({@link baseHalfCanvasPictureCardSizeAt}).
+	 */
+	readonly pictureRatios?: ReadonlyMap<string, number>;
 	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
 	readonly pathKey?: (path: string) => string;
 	/**
@@ -368,16 +391,60 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 			});
 	}
 
+	// The card of a picture has the picture's shape where it is, as large as
+	// the room at its corner allows up to the full shape (canvas card
+	// placement, "The card of an image or a video has its picture's shape").
+	// A row of the layout that changes size is saved again.
+	const reshaped = new Map<string, IBaseHalfCanvasCard>();
+	const ratios = options.pictureRatios;
+	if (ratios?.size) {
+		const stored = new Set((options.canvas?.cards ?? []).map(card => pathKey(card.path)));
+		const rects = new Map<string, IBaseHalfCanvasBounds>();
+		for (const card of options.canvas?.cards ?? []) {
+			if (!options.released?.has(card.path)) {
+				rects.set(pathKey(card.path), card);
+			}
+		}
+		for (const item of items) {
+			if (item.card) {
+				rects.set(pathKey(item.path), item.card);
+			}
+		}
+		items = items.map(item => {
+			const ratio = ratios.get(item.path);
+			if (!item.card || ratio === undefined) {
+				return item;
+			}
+			const key = pathKey(item.path);
+			const others = [...rects].filter(([other]) => other !== key).map(([, rect]) => rect);
+			const size = baseHalfCanvasPictureCardSizeAt(item.card, ratio, others);
+			if (size.width === item.card.width && size.height === item.card.height) {
+				return item;
+			}
+			const card = { ...item.card, ...size };
+			rects.set(key, card);
+			if (stored.has(key)) {
+				reshaped.set(key, card);
+			}
+			return { ...item, card };
+		});
+	}
+
 	// Every card has a place (canvas card placement). A card without a row
 	// appears: it gets its place now, at the end of the canvas, and keeps it.
 	// What is taken is every row of the layout, also of an item that is gone,
 	// and the places that still wait for a write. A row that is about to be
 	// removed takes nothing.
-	const rows = (options.canvas?.cards ?? []).filter(card => !options.released?.has(card.path));
+	const rows = (options.canvas?.cards ?? [])
+		.filter(card => !options.released?.has(card.path))
+		.map(card => reshaped.get(pathKey(card.path)) ?? card);
 	const inLayout = new Set(rows.map(card => pathKey(card.path)));
 	const isWaiting = (item: IBaseHalfCanvasItem) => item.card !== undefined && !inLayout.has(pathKey(item.path));
 	const chosen = new Map(baseHalfCanvasPlaceAppearing(
-		items.filter(item => !item.card).map(item => ({ path: item.path, kind: item.kind, ...baseHalfCanvasNewCardSize(item) })),
+		items.filter(item => !item.card).map(item => {
+			const ratio = ratios?.get(item.path);
+			return { path: item.path, kind: item.kind, ...(ratio !== undefined ? baseHalfCanvasPictureCardSize(ratio) : baseHalfCanvasNewCardSize(item)) };
+		}),
 		[...rows, ...items.flatMap(item => isWaiting(item) ? [item.card!] : [])]
 	).map(card => [card.path, card]));
 	items = items.map(item => item.card ? item : { ...item, card: chosen.get(item.path) });
@@ -387,7 +454,8 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		truncated: Math.max(0, allItems.length - items.length),
 		size: options.canvas?.size,
 		appeared: items.flatMap(item => isWaiting(item) ? [item.card!] : []),
-		respelled: respelled.filter(row => items.some(item => item.path === row.to))
+		respelled: respelled.filter(row => items.some(item => item.path === row.to)),
+		reshaped: [...reshaped.values()]
 	};
 }
 
@@ -646,6 +714,11 @@ function baseHalfCanvasInside(position: IBaseHalfCanvasPosition, size: { readonl
 	};
 }
 
+/** Whether two cards lie over each other: they share more than an edge. */
+export function baseHalfCanvasBoundsCross(a: IBaseHalfCanvasBounds, b: IBaseHalfCanvasBounds): boolean {
+	return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
 /**
  * Whether a card can be put somewhere: it is at least the column gap away to
  * the side, or the row gap away above or below, from everything that is taken.
@@ -660,19 +733,106 @@ export function baseHalfCanvasDefaultCardSize(kind: BaseHalfCanvasItemKind): IBa
 }
 
 /**
- * The size at which a generation card is drawn when it is new: 720 × 405 for
- * a video, and the size of a file card for an image (canvas card placement,
- * "When a card appears").
+ * The size of the card of a picture `ratio` times as wide as it is high: a
+ * short side of 300, and a long side that follows the ratio up to three times
+ * the short side (canvas card placement, "The card of an image or a video has
+ * its picture's shape"). A ratio that is not a number gives a square.
  */
-export function baseHalfCanvasGenerationCardSize(kind: 'image' | 'video'): IBaseHalfCanvasSize {
-	return kind === 'video'
-		? { width: BASEHALF_CANVAS_VIDEO_CARD_WIDTH, height: BASEHALF_CANVAS_VIDEO_CARD_HEIGHT }
-		: baseHalfCanvasDefaultCardSize('file');
+export function baseHalfCanvasPictureCardSize(ratio: number): IBaseHalfCanvasSize {
+	const short = BASEHALF_CANVAS_PICTURE_CARD_SHORT_SIDE;
+	const bounded = boundedPictureRatio(ratio);
+	return bounded >= 1
+		? { width: Math.round(short * bounded), height: short }
+		: { width: short, height: Math.round(short / bounded) };
 }
 
-/** The size at which the card of an item is drawn when it appears. */
-export function baseHalfCanvasNewCardSize(item: Pick<IBaseHalfCanvasItem, 'kind' | 'generation'>): IBaseHalfCanvasSize {
-	return item.generation ? baseHalfCanvasGenerationCardSize(item.generation.kind) : baseHalfCanvasDefaultCardSize(item.kind);
+/** The ratio of the card of a picture of `ratio`: the picture's, at most three times as long as high either way, and square for a ratio that is no number. */
+function boundedPictureRatio(ratio: number): number {
+	const longest = BASEHALF_CANVAS_PICTURE_CARD_MAX_RATIO;
+	return Number.isFinite(ratio) && ratio > 0 ? Math.min(Math.max(ratio, 1 / longest), longest) : 1;
+}
+
+/**
+ * The size of the card of a picture of `ratio` where the card is (canvas card
+ * placement, "The card of an image or a video has its picture's shape"):
+ * from its top left corner, the shape of `ratio` as large as it can be up to
+ * the full shape, without coming closer to a card of `taken` than the gaps
+ * of the plain grid (40 to the side, 60 above or below), or than it already
+ * is. It is never smaller than that shape fitted into the card as it is, as
+ * far as the full shape goes, which is also its size when it already reaches
+ * into a card of `taken`. So a card grows when room comes free at its corner,
+ * and keeps its size when a card comes near it. Like every card it is at
+ * least 140 × 48: a picture whose shape would be smaller is fitted inside.
+ */
+export function baseHalfCanvasPictureCardSizeAt(card: IBaseHalfCanvasBounds, ratio: number, taken: readonly IBaseHalfCanvasBounds[]): IBaseHalfCanvasSize {
+	const short = BASEHALF_CANVAS_PICTURE_CARD_SHORT_SIDE;
+	const bounded = boundedPictureRatio(ratio);
+	// The full shape before it is rounded, so that each size of it has the ratio.
+	const full = bounded >= 1 ? { width: short * bounded, height: short } : { width: short, height: short / bounded };
+	const right = card.x + card.width;
+	const bottom = card.y + card.height;
+	let scale = 1;
+	for (const other of taken) {
+		// Left of the card or above it, a card stays as far away as it is, however large the card grows.
+		if (other.x + other.width <= card.x || other.y + other.height <= card.y) {
+			continue;
+		}
+		// A card it reaches into already: it grows no further into it.
+		if (other.x < right && other.y < bottom) {
+			scale = 0;
+			break;
+		}
+		// Clear of it to its left or above it, by the grid's gap or by the less it had: as large as one of the two allows.
+		const besideGap = other.x >= right ? Math.min(BASEHALF_CANVAS_GRID_COLUMN_GAP, other.x - right) : BASEHALF_CANVAS_GRID_COLUMN_GAP;
+		const aboveGap = other.y >= bottom ? Math.min(BASEHALF_CANVAS_GRID_ROW_GAP, other.y - bottom) : BASEHALF_CANVAS_GRID_ROW_GAP;
+		scale = Math.min(scale, Math.max((other.x - besideGap - card.x) / full.width, (other.y - aboveGap - card.y) / full.height));
+	}
+	const fitted = Math.min(1, Math.max(scale, Math.min(card.width / full.width, card.height / full.height)));
+	return {
+		width: Math.max(Math.round(full.width * fitted), BASEHALF_CANVAS_MIN_CARD_WIDTH),
+		height: Math.max(Math.round(full.height * fitted), BASEHALF_CANVAS_MIN_CARD_HEIGHT)
+	};
+}
+
+/**
+ * The size of a generation card of a kind: the shape of `ratio`, the ratio of
+ * its picture or, for a draft, the one its settings choose, and the ratio of
+ * its kind while that is not known.
+ */
+export function baseHalfCanvasGenerationCardSize(kind: 'image' | 'video', ratio?: number): IBaseHalfCanvasSize {
+	return baseHalfCanvasPictureCardSize(ratio ?? BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO[kind]);
+}
+
+/** What decides the shape of an item's card: its kind, its file's name, and whether it is a generation card. */
+export type BaseHalfCanvasShapedItem = Pick<IBaseHalfCanvasItem, 'kind' | 'generation'> & { readonly stat: Pick<IFileStat, 'resource'> };
+
+/** The kind of the picture that the card of an item shows: an image or a video file, a generation card among them. */
+export function baseHalfCanvasPictureKind(item: BaseHalfCanvasShapedItem): 'image' | 'video' | undefined {
+	if (item.kind !== 'file') {
+		return undefined;
+	}
+	if (item.generation) {
+		return item.generation.kind;
+	}
+	const kind = baseHalfRenderableContentKind(item.stat.resource);
+	return kind === 'image' || kind === 'video' ? kind : undefined;
+}
+
+/**
+ * Whether the user resizes the card of an item: the card of a note, of
+ * another text or code file, of a PDF, of another file, and of a folder. The
+ * card of an image, a video, or a sound keeps its shape (canvas card resize,
+ * "Which cards resize").
+ */
+export function baseHalfCanvasCardResizes(item: BaseHalfCanvasShapedItem): boolean {
+	return baseHalfCanvasPictureKind(item) === undefined
+		&& !(item.kind === 'file' && baseHalfRenderableContentKind(item.stat.resource) === 'audio');
+}
+
+/** The size at which the card of an item is drawn when it appears and the shape of its picture is not known: the ratio of its kind for a picture. */
+export function baseHalfCanvasNewCardSize(item: BaseHalfCanvasShapedItem): IBaseHalfCanvasSize {
+	const picture = baseHalfCanvasPictureKind(item);
+	return picture ? baseHalfCanvasGenerationCardSize(picture) : baseHalfCanvasDefaultCardSize(item.kind);
 }
 
 /** The version every draft's made-up stat has: a draft has no file whose content could change. */

@@ -11,19 +11,20 @@ import {
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasDefaultCardSize,
 	baseHalfCanvasGenerationCardSize,
+	baseHalfCanvasPictureKind,
 	IBaseHalfCanvasItem
 } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasMarkdownPreviewSource, BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES } from '../../common/basehalfCanvasPreview.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../../cardDetail/common/basehalfContentRendering.js';
-import { baseHalfGenerationKindOfPath } from '../../../video/common/basehalfGenerationInfo.js';
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { IBaseHalfCanvasPreviewHydrationBatch } from '../../common/basehalfCanvasPreviewHydration.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 import { BASEHALF_CANVAS_DRAFT_PREVIEW, BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfWorkspaceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
+import { BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS } from '../basehalfCanvasPictureShapes.js';
 import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, badgeType, baseHalfBadgeResourceIdentity } from './basehalfCanvasViewShared.js';
 
 /** An excerpt shows the first lines of a file, so only its head is read, whatever its size. */
@@ -103,15 +104,21 @@ export class BaseHalfCanvasPreviews {
 	}
 
 	/**
-	 * The size at which the card of a new file is drawn: a video generation card
-	 * is 720 × 405, and every other file has the size of a file card (canvas
-	 * card placement, "When a card appears").
+	 * The size at which the card of a new file is drawn: an image or a video
+	 * has the shape of its picture, which the window measures first, and every
+	 * other file has the size of a file card (canvas card placement, "When a
+	 * card appears").
 	 */
 	async sizeOfNewFileCard(resource: URI): Promise<{ readonly width: number; readonly height: number }> {
-		const kind = baseHalfGenerationKindOfPath(basename(resource));
-		return kind === 'video' && await this.view.generationCardStore.isGenerationCard(resource).catch(() => false)
-			? baseHalfCanvasGenerationCardSize(kind)
-			: baseHalfCanvasDefaultCardSize('file');
+		const stat = await this.view.fileService.stat(resource).catch(() => undefined);
+		const kind = stat && baseHalfCanvasPictureKind({ kind: 'file', stat });
+		if (!kind || !stat) {
+			return baseHalfCanvasDefaultCardSize('file');
+		}
+		const picture = { resource, version: `${stat.mtime ?? 0}-${stat.size ?? 0}`, kind };
+		await this.view.pictureShapes.measure([picture], BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS);
+		const ratio = this.view.pictureShapes.ratioOf(picture);
+		return baseHalfCanvasGenerationCardSize(kind, typeof ratio === 'number' ? ratio : undefined);
 	}
 
 	/** What the card of an item shows of it when there is no file to read: a draft's. */

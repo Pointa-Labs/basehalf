@@ -6,14 +6,19 @@
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname, isEqualOrParent, joinPath } from '../../../../../base/common/resources.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { FileChangesEvent, IFileStat } from '../../../../../platform/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
+	BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO,
+	baseHalfCanvasCardResizes,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasChildPath,
 	baseHalfCanvasFolderWithDrafts,
+	baseHalfCanvasPictureKind,
+	IBaseHalfCanvasCard,
 	IBaseHalfCanvasFile,
 	IBaseHalfCanvasGenerationCard,
 	IBaseHalfCanvasItem,
@@ -25,6 +30,8 @@ import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfC
 import { BASEHALF_CANVAS_DEFAULT_ZOOM_MAX } from '../../../shell/common/basehalfConfiguration.js';
 import { baseHalfUserFacingErrorMessage } from '../../../shell/common/basehalfPlainFailureReason.js';
 import { IBaseHalfGenerationCardEntry } from '../../../video/common/basehalfVideoGeneration.js';
+import { baseHalfVideoChoiceRatio, IBaseHalfVideoCatalog } from '../../../video/common/basehalfVideoCatalog.js';
+import { IBaseHalfCanvasPicture } from '../basehalfCanvasPictureShapes.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneEdge } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
@@ -51,6 +58,9 @@ function edgeId(from: string, to: string): string {
 	return `${from}\u0000${to}`;
 }
 
+/** How long a drawing waits at most for the pictures of the cards that appear in it (canvas card placement). */
+const PICTURES_APPEAR_WAIT_MS = 1000;
+
 /**
  * Draws the canvas of the folder that is shown: reads the folder and its
  * layout, builds the scene, keeps cards that did not change, and holds a
@@ -76,6 +86,8 @@ export class BaseHalfCanvasRenderer {
 	private canvasLayoutReconcileQueuedBehindGesture = false;
 	/** The generation cards of the folder that was drawn last, as the card store listed them, and the folder. */
 	private renderedGenerationCards: { readonly folder: string; readonly cards: readonly IBaseHalfGenerationCardEntry[] } | undefined;
+	/** The ratios of the pictures of the last full drawing, which a layout change keeps. */
+	private renderedPictureRatios: { readonly folder: string; readonly ratios: ReadonlyMap<string, number> } | undefined;
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -91,6 +103,76 @@ export class BaseHalfCanvasRenderer {
 			this.view.logService.warn(`BaseHalf could not list the image and video cards of '${folder.relativePath}'`, error);
 			return [];
 		}
+	}
+
+	/**
+	 * The ratio of the picture of each image and video of the folder whose
+	 * ratio is known: a file's, which the window measures, and the one a
+	 * draft's settings choose, its kind's when they choose none (canvas card
+	 * placement, "The card of an image or a video has its picture's shape"). It
+	 * waits for the pictures of cards that appear, at most
+	 * {@link PICTURES_APPEAR_WAIT_MS}, so that their places are chosen with
+	 * their shape. A draft whose model the catalog cannot tell yet is left out,
+	 * and keeps the size of its row.
+	 */
+	private async readPictureRatios(
+		folder: IBaseHalfCanvasFolderState,
+		stat: IFileStat,
+		generationCards: ReadonlyMap<string, IBaseHalfCanvasGenerationCard>,
+		canvas: IBaseHalfCanvasFile | null,
+		waiting: ReadonlyMap<string, IBaseHalfCanvasCard> | undefined,
+		pathKey: (path: string) => string
+	): Promise<ReadonlyMap<string, number>> {
+		const rows = new Set((canvas?.cards ?? []).map(card => pathKey(card.path)));
+		const pictures: { readonly path: string; readonly picture: IBaseHalfCanvasPicture; readonly appears: boolean }[] = [];
+		const drafts: { readonly path: string; readonly resource: URI; readonly kind: 'image' | 'video' }[] = [];
+		for (const child of stat.children ?? []) {
+			const path = baseHalfCanvasChildPath(folder.relativePath, basename(child.resource));
+			const generation = generationCards.get(path);
+			const kind = baseHalfCanvasPictureKind({ kind: child.isDirectory ? 'folder' : 'file', stat: child, generation });
+			if (!kind) {
+				continue;
+			}
+			if (generation?.draft) {
+				drafts.push({ path, resource: child.resource, kind });
+				continue;
+			}
+			pictures.push({
+				path,
+				picture: { resource: child.resource, version: `${child.mtime ?? 0}-${child.size ?? 0}`, kind },
+				appears: !rows.has(pathKey(path)) && !waiting?.has(path)
+			});
+		}
+		const ratios = new Map<string, number>();
+		const appearing = pictures.some(entry => entry.appears) || drafts.some(draft => !rows.has(pathKey(draft.path)));
+		const [catalog] = await Promise.all([
+			drafts.length > 0 ? this.catalogForDrafts(appearing ? PICTURES_APPEAR_WAIT_MS : 0) : Promise.resolve(undefined),
+			this.view.pictureShapes.measure(pictures.map(entry => entry.picture), appearing ? PICTURES_APPEAR_WAIT_MS : 0)
+		]);
+		for (const { path, picture } of pictures) {
+			const ratio = this.view.pictureShapes.ratioOf(picture);
+			if (typeof ratio === 'number') {
+				ratios.set(path, ratio);
+			}
+		}
+		if (catalog) {
+			await Promise.all(drafts.map(async draft => {
+				const info = await this.view.generationCardStore.read(draft.resource).then(snapshot => snapshot.info, () => undefined);
+				if (info) {
+					ratios.set(draft.path, baseHalfVideoChoiceRatio(catalog, info) ?? BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO[draft.kind]);
+				}
+			}));
+		}
+		return ratios;
+	}
+
+	/** The catalog, which tells the ratio of a draft's model, waiting at most `wait` for one that loads. */
+	private async catalogForDrafts(wait: number): Promise<IBaseHalfVideoCatalog | undefined> {
+		const state = this.view.videoCatalogService.state;
+		if (state.kind === 'ready') {
+			return state.catalog;
+		}
+		return state.kind === 'loading' && wait > 0 ? this.view.videoCatalogService.whenReady(wait).catch(() => undefined) : undefined;
 	}
 
 	/** The folder's stat with its drafts among its children, and the generation cards by path, for the model. */
@@ -419,6 +501,12 @@ export class BaseHalfCanvasRenderer {
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
+		// The card of an image or a video has its picture's shape, known before a
+		// card that appears is placed (canvas card placement).
+		const pictureRatios = await this.readPictureRatios(folder, stat, withCards.generationCards, canvas, waitingPlaces, pathKey ?? (path => path));
+		if (!this.isRenderCurrent(seq)) {
+			return;
+		}
 		const model = baseHalfCanvasModelFromStat(stat, {
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
@@ -427,6 +515,7 @@ export class BaseHalfCanvasRenderer {
 			relationships: connections.relationships,
 			waiting: waitingPlaces,
 			generationCards: withCards.generationCards,
+			pictureRatios,
 			pathKey,
 			released: new Set(goneRows)
 		});
@@ -591,6 +680,7 @@ export class BaseHalfCanvasRenderer {
 				didMountElement: () => this.view.cardRenderer.didMountCardElement(item.path, element),
 				...(this.view.openBadgeFaces.has(item.path) || this.view.canvasNoteSurfacePath === item.path ? { forceInteractive: true as const } : {}),
 				...(this.view.canvasNoteSurfacePath === item.path ? { noteEditing: true as const } : {}),
+				...(baseHalfCanvasCardResizes(item) ? {} : { keepsShape: true as const }),
 				...(connections.refusals.has(item.path) ? { upstreamRefusal: connections.refusals.get(item.path)! } : {})
 			};
 		});
@@ -631,8 +721,9 @@ export class BaseHalfCanvasRenderer {
 		// now on, and saved when the layout can take them.
 		this.view.renderedLayoutRows = canvas?.cards ?? [];
 		this.view.chosenCanvasPlaces.drawn(folder, model.appeared);
+		this.renderedPictureRatios = { folder: currentSceneKey, ratios: pictureRatios };
 		if (canvasReadInFull) {
-			void this.view.chosenCanvasPlaces.save(folder, goneRows, model.respelled);
+			void this.view.chosenCanvasPlaces.save(folder, goneRows, model.respelled, model.reshaped);
 		}
 		if (this.view.canvasNoteSurfacePath && !this.view.noteEditing.tryMountCanvasNoteEditor(this.view.canvasNoteSurfacePath)) {
 			// An editing intent is allowed to precede the first complete Markdown
@@ -929,6 +1020,8 @@ export class BaseHalfCanvasRenderer {
 			// A card whose place is not saved yet stays where it was drawn.
 			waiting: waitingPlaces,
 			generationCards: withCards.generationCards,
+			// A layout change changes no picture.
+			pictureRatios: this.renderedPictureRatios?.folder === sceneKey ? this.renderedPictureRatios.ratios : undefined,
 			pathKey: this.view.creation.canvasPathKey(folder)
 		});
 		this.view.renderedLayoutRows = canvas?.cards ?? [];
@@ -990,6 +1083,10 @@ export class BaseHalfCanvasRenderer {
 			cards: nextCards,
 			edges: nextEdges
 		});
+		// A picture's card that took the room a card left is saved with its size.
+		if (model.reshaped.length > 0) {
+			void this.view.chosenCanvasPlaces.save(folder, [], [], model.reshaped);
+		}
 		return true;
 	}
 

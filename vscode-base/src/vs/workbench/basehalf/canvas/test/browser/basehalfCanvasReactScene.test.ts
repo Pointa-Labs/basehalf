@@ -550,6 +550,8 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, true, 1), false);
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(false, false, 1), false);
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 1, true), false);
+		// The card of an image, a video, or a sound keeps its shape (canvas card resize, "Which cards resize").
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 1, false, true), false);
 		assert.deepStrictEqual(baseHalfCanvasSceneVideoInputPickGesturePolicy(true), {
 			nodesDraggable: false,
 			nodesResizable: false,

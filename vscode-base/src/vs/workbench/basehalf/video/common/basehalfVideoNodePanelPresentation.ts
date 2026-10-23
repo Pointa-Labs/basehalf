@@ -26,6 +26,7 @@ import {
 	baseHalfVideoNumberValues,
 	baseHalfVideoParameterDefault,
 	baseHalfVideoParamValueLabel,
+	baseHalfVideoRatioParts,
 	baseHalfVideoRegionOffersMode,
 	baseHalfVideoRegionOffersModel,
 	baseHalfVideoSentParams,
@@ -750,13 +751,8 @@ function noneChoice(name: string, value: BaseHalfVideoParamValue | undefined): I
 }
 
 function ratioShape(value: string | number): { readonly shape?: { readonly width: number; readonly height: number } } {
-	const match = typeof value === 'string' ? /^(?<width>\d+(?:\.\d+)?):(?<height>\d+(?:\.\d+)?)$/.exec(value) : null;
-	const width = Number(match?.groups?.width);
-	const height = Number(match?.groups?.height);
-	if (!match || !(width > 0) || !(height > 0)) {
-		return {};
-	}
-	return { shape: Object.freeze({ width, height }) };
+	const shape = baseHalfVideoRatioParts(value);
+	return shape ? { shape } : {};
 }
 
 // --- Generate --------------------------------------------------------------------------------------

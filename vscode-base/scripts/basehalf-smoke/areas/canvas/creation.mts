@@ -80,7 +80,8 @@ export async function assertCanvasCreateMenuMakesDrafts(page) {
 	}
 	const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
 	const canvasPath = mirror('canvas.yaml');
-	for (const [label, name, size] of [['New Image', 'image.png', { width: 300, height: 220 }], ['New Video', 'video.mp4', { width: 720, height: 405 }]]) {
+	// A draft without a model has the ratio of its kind: 1:1 for an image, 16:9 for a video (canvas card placement).
+	for (const [label, name, size] of [['New Image', 'image.png', { width: 300, height: 300 }], ['New Video', 'video.mp4', { width: 533, height: 300 }]]) {
 		await clickCanvasCreateAction(page, label);
 		const info = path.join(mirror(name), 'generation.yaml');
 		await waitUntil(() => fs.existsSync(info), `${label} to make the draft ${name}`);

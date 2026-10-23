@@ -105,12 +105,14 @@ export class BaseHalfCanvasChosenPlaces {
 	 * - Nothing is written in a marked folder.
 	 * - `respelled` are rows whose item is spelled differently now, on a volume
 	 *   where both spellings are the same path. Each takes the new spelling.
+	 * - `reshaped` are rows whose card took its picture's shape. Each takes its
+	 *   new size and keeps its place.
 	 * - A failure is logged and shown to nobody, because nothing the user did is
 	 *   waiting. The places keep waiting and the next drawing tries again.
 	 */
-	save(folder: IBaseHalfCanvasFolderState, gone: readonly string[], respelled: readonly { readonly from: string; readonly to: string }[] = []): Promise<void> {
+	save(folder: IBaseHalfCanvasFolderState, gone: readonly string[], respelled: readonly { readonly from: string; readonly to: string }[] = [], reshaped: readonly IBaseHalfCanvasCard[] = []): Promise<void> {
 		const key = keyOf(folder);
-		if (!this.waiting.get(key)?.size && gone.length === 0 && respelled.length === 0) {
+		if (!this.waiting.get(key)?.size && gone.length === 0 && respelled.length === 0 && reshaped.length === 0) {
 			return this.saves.get(key) ?? Promise.resolve();
 		}
 		const save = (this.saves.get(key) ?? Promise.resolve()).then(async () => {
@@ -118,7 +120,7 @@ export class BaseHalfCanvasChosenPlaces {
 				return;
 			}
 			// This write can run later than the drawing that asked for it.
-			await this.write(folder, await this.absent(folder, gone), undefined, false, respelled);
+			await this.write(folder, await this.absent(folder, gone), undefined, false, respelled, reshaped);
 			this.logged.delete(key);
 		}).catch(error => {
 			const message = error instanceof Error ? error.message : String(error);
@@ -142,13 +144,13 @@ export class BaseHalfCanvasChosenPlaces {
 		return this.write(folder, [], lease, true);
 	}
 
-	private async write(folder: IBaseHalfCanvasFolderState, gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease, asDrawn = false, respelled: readonly { readonly from: string; readonly to: string }[] = []): Promise<void> {
+	private async write(folder: IBaseHalfCanvasFolderState, gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease, asDrawn = false, respelled: readonly { readonly from: string; readonly to: string }[] = [], reshaped: readonly IBaseHalfCanvasCard[] = []): Promise<void> {
 		const key = keyOf(folder);
 		const cards = [...this.waiting.get(key)?.values() ?? []];
-		if (cards.length === 0 && gone.length === 0 && respelled.length === 0) {
+		if (cards.length === 0 && gone.length === 0 && respelled.length === 0 && reshaped.length === 0) {
 			return;
 		}
-		if (await this.canvasMirrorService.saveAppearedCards(folder, cards, gone, lease, { asDrawn, respelled }) === undefined) {
+		if (await this.canvasMirrorService.saveAppearedCards(folder, cards, gone, lease, { asDrawn, respelled, reshaped }) === undefined) {
 			return;
 		}
 		// Each of these paths has a row now: the one written here, or one that was there first.

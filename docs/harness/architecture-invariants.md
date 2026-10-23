@@ -136,11 +136,13 @@ in [decisions.md](../decisions.md).
 - Every card has a saved place. A card gets it when it first appears on a
   canvas, and after that only the user changes it: no place is computed
   again at a later drawing, and BaseHalf never puts a card on another one by
-  its own choice. Places are kept in the folder's layout and out of git, by
+  its own choice. Only the size of an image or a video card is computed
+  again, as its picture's shape as large as the room at its place allows.
+  Places are kept in the folder's layout and out of git, by
   an ignore file of BaseHalf's own inside `.bh/`. A row records whether
   BaseHalf chose its place. Only such a row gives way to the row that
   follows a moved item, and only such a row is removed when its item is gone
-  ([canvas card placement](../specs/canvas-card-placement.md), D46).
+  ([canvas card placement](../specs/canvas-card-placement.md), D46, D66).
 - BaseHalf changes an upstream value only through a reference operation that
   the user started or confirmed, or through the rename refactor of an agent
   move, as listed in

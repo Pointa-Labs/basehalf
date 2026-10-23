@@ -345,6 +345,11 @@ export class BaseHalfCanvasCreation {
 			: undefined;
 	}
 
+	/** The size of a card of a kind the user creates, a draft with the ratio its values will choose. */
+	private createSize(kind: BaseHalfCanvasCreateKind): { readonly width: number; readonly height: number } {
+		return canvasCreateSize(kind, kind === 'image' || kind === 'video' ? this.view.generationCardActions.newDraftRatio(kind) : undefined);
+	}
+
 	/**
 	 * What a new card must stay clear of on the shown canvas: the cards that are
 	 * drawn, and the rows of the layout whose items are gone, which keep their
@@ -370,7 +375,7 @@ export class BaseHalfCanvasCreation {
 		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
 		kind: BaseHalfCanvasCreateKind
 	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
-		const size = canvasCreateSize(kind);
+		const size = this.createSize(kind);
 		const canvasPosition = baseHalfCanvasCenteredPlace(placement.canvasPosition, size);
 		return this.avoidCanvasCreateOverlap({
 			canvasPosition,
@@ -393,7 +398,7 @@ export class BaseHalfCanvasCreation {
 		sizeOverride?: { readonly width: number; readonly height: number }
 	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
 		const occupied = this.takenCanvasPlaces();
-		const size = sizeOverride ?? canvasCreateSize(kind);
+		const size = sizeOverride ?? this.createSize(kind);
 		const surface = this.view.surface.getBoundingClientRect();
 		const captionScreenFootprint = (BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP + BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * this.view.canvasZoom;
 		const viewportStart = this.view.canvasScene.screenToCanvasPosition(surface.left + 24, surface.top + 24 + captionScreenFootprint);
@@ -546,9 +551,11 @@ export class BaseHalfCanvasCreation {
 		if (!this.view.uriIdentityService.extUri.isEqual(this.view.getCurrentFolder()?.resource, folder.resource)) {
 			return;
 		}
+		// The shape its place was chosen with: the ratio of the values the draft starts with.
+		const size = this.createSize(kind);
 		const draft = await this.view.generationCardActions.createDraft(folder.resource, kind);
 		const path = baseHalfCanvasChildPath(folder.relativePath, basename(draft));
-		await this.placeCreatedCard(folder, path, canvasPosition, baseHalfCanvasGenerationCardSize(kind));
+		await this.placeCreatedCard(folder, path, canvasPosition, size);
 		this.selectCreatedDraft(folder, path, postCreateOwner, reveal);
 	}
 
@@ -1348,7 +1355,8 @@ export class BaseHalfCanvasCreation {
 			if (!layout || !beside) {
 				return;
 			}
-			const size = { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
+			// A picture, such as a captured frame, has its shape.
+			const size = await this.view.previews.sizeOfNewFileCard(resource);
 			const place = baseHalfCanvasOpenPosition({ x: beside.x + beside.width + BASEHALF_CANVAS_GRID_COLUMN_GAP, y: beside.y }, size, layout.cards.filter(card => card.path !== path));
 			await this.view.canvasMirrorService.updateCardGeometry(folder, { path, kind: 'file', x: place.x, y: place.y, ...size });
 		} catch (error) {
@@ -1357,11 +1365,16 @@ export class BaseHalfCanvasCreation {
 	}
 }
 
-/** The size at which a card of a kind the user creates on the canvas is placed, before it is drawn. */
-function canvasCreateSize(kind: BaseHalfCanvasCreateKind): { readonly width: number; readonly height: number } {
+/**
+ * The size at which a card of a kind the user creates on the canvas is placed,
+ * before it is drawn: for a draft the shape of `ratio`, the ratio its values
+ * choose (canvas card placement, "The card of an image or a video has its
+ * picture's shape").
+ */
+function canvasCreateSize(kind: BaseHalfCanvasCreateKind, ratio?: number): { readonly width: number; readonly height: number } {
 	return kind === 'folder'
 		? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
 		: kind === 'image' || kind === 'video'
-			? baseHalfCanvasGenerationCardSize(kind)
+			? baseHalfCanvasGenerationCardSize(kind, ratio)
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
 }

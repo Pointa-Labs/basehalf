@@ -10,6 +10,7 @@ import { FileType, IFileStat } from '../../../../../platform/files/common/files.
 import {
 	BASEHALF_CANVAS_CHILD_LIMIT,
 	baseHalfCanvasAnchorPoint,
+	baseHalfCanvasCardResizes,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasCenteredPlace,
 	baseHalfCanvasEdgePath,
@@ -21,6 +22,8 @@ import {
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasOpenPosition,
+	baseHalfCanvasPictureCardSize,
+	baseHalfCanvasPictureKind,
 	baseHalfCanvasPosition,
 	baseHalfCanvasRowSpan,
 	baseHalfCanvasTransferPlaces,
@@ -422,7 +425,7 @@ suite('BaseHalfCanvasModel', () => {
 		});
 	});
 
-	test('a draft is an item of its folder with a stat made from its path, marked as a draft, and drawn at the size of its kind', () => {
+	test('a draft is an item of its folder with a stat made from its path, marked as a draft, and drawn with the ratio of its kind while its shape is not known', () => {
 		const shots = folder('/workspace/shots', [file('/workspace/shots/brief.md'), file('/workspace/shots/hero.png')]);
 		const withDrafts = baseHalfCanvasFolderWithDrafts(shots, [
 			{ resource: URI.file('/workspace/shots/video.mp4'), name: 'video.mp4' },
@@ -441,9 +444,9 @@ suite('BaseHalfCanvasModel', () => {
 		});
 		assert.deepStrictEqual(model.items.map(item => [item.path, item.stat.isFile, item.generation, item.card?.width, item.card?.height]), [
 			['shots/brief.md', true, undefined, 300, 220],
-			['shots/hero.png', true, { kind: 'image', draft: false }, 300, 220],
-			['shots/image.png', true, { kind: 'image', draft: true }, 300, 220],
-			['shots/video.mp4', true, { kind: 'video', draft: true }, 720, 405]
+			['shots/hero.png', true, { kind: 'image', draft: false }, 300, 300],
+			['shots/image.png', true, { kind: 'image', draft: true }, 300, 300],
+			['shots/video.mp4', true, { kind: 'video', draft: true }, 533, 300]
 		]);
 	});
 
@@ -459,17 +462,117 @@ suite('BaseHalfCanvasModel', () => {
 
 	test('a card that is larger than a cell keeps the next cards clear of it', () => {
 		const root = folder('/workspace', ['a.mp4', 'b.md', 'c.md', 'd.md'].map(name => file(`/workspace/${name}`)));
-		// A video generation card is drawn at 720 × 405.
-		const model = baseHalfCanvasModelFromStat(root, { rootLevel: true, generationCards: new Map([['a.mp4', { kind: 'video', draft: false }]]) });
+		// A video of 3:1 is drawn at 900 × 300.
+		const model = baseHalfCanvasModelFromStat(root, { rootLevel: true, pictureRatios: new Map([['a.mp4', 3]]) });
 
 		assert.deepStrictEqual(model.appeared.map(card => [card.path, card.x, card.y, card.width, card.height]), [
-			['a.mp4', 540, 690, 720, 405],
+			['a.mp4', 540, 690, 900, 300],
 			// Beside it, 40 beyond its right edge.
-			['b.md', 1300, 690, 300, 220],
+			['b.md', 1480, 690, 300, 220],
 			// The row of four cells is full: a new row, 60 below the lowest edge.
-			['c.md', 540, 1155, 300, 220],
-			['d.md', 880, 1155, 300, 220]
+			['c.md', 540, 1050, 300, 220],
+			['d.md', 880, 1050, 300, 220]
 		]);
+	});
+
+	test('the card of an image or a video has its picture\'s shape: a short side of 300, and a long side of at most three times that', () => {
+		assert.deepStrictEqual([16 / 9, 9 / 16, 1, 3 / 4, 4, 1 / 4, Number.NaN, 0].map(ratio => baseHalfCanvasPictureCardSize(ratio)), [
+			{ width: 533, height: 300 },
+			{ width: 300, height: 533 },
+			{ width: 300, height: 300 },
+			{ width: 300, height: 400 },
+			{ width: 900, height: 300 },
+			{ width: 300, height: 900 },
+			{ width: 300, height: 300 },
+			{ width: 300, height: 300 }
+		]);
+	});
+
+	test('only the cards of an image, a video, and a sound keep their shape; every other card resizes', () => {
+		const item = (path: string, kind: 'file' | 'folder' = 'file', generation?: { readonly kind: 'image' | 'video'; readonly draft: boolean }) => ({ kind, stat: { resource: URI.file(`/workspace/${path}`) }, ...(generation ? { generation } : {}) });
+		assert.deepStrictEqual(
+			[item('note.md'), item('code.ts'), item('paper.pdf'), item('data.bin'), item('shots', 'folder'), item('still.PNG'), item('take.mov'), item('take.mkv'), item('voice.wav'), item('video.mp4', 'file', { kind: 'video', draft: true })]
+				.map(entry => [baseHalfCanvasCardResizes(entry), baseHalfCanvasPictureKind(entry)]),
+			[[true, undefined], [true, undefined], [true, undefined], [true, undefined], [true, undefined], [false, 'image'], [false, 'video'], [false, 'video'], [false, undefined], [false, 'video']]
+		);
+	});
+
+	test('the card of a picture has its picture\'s shape where it is, as large as the room at its corner allows up to the full shape', () => {
+		const names = ['base.md', 'below.md', 'beside.md', 'close.png', 'grown.mp4', 'large.mp4', 'lonely.png', 'narrow.png', 'note.md', 'shot.mp4', 'squeezed.mp4', 'stacked.png', 'still.png', 'tall.png', 'three-four.png', 'under.md', 'wall.md'];
+		const root = folder('/workspace', names.map(name => file(`/workspace/${name}`)));
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			canvas: {
+				path: '',
+				cards: [
+					// A grid of an earlier rule: a note right of the video, an image below it.
+					{ path: 'shot.mp4', kind: 'file', x: 100, y: 50, width: 300, height: 220, auto: true },
+					{ path: 'note.md', kind: 'file', x: 440, y: 50, width: 300, height: 220 },
+					{ path: 'still.png', kind: 'file', x: 100, y: 330, width: 300, height: 220 },
+					// Larger than the full shape.
+					{ path: 'large.mp4', kind: 'file', x: 1000, y: 50, width: 720, height: 405 },
+					// Of its picture's ratio, with a note 40 to its right, and with nothing near.
+					{ path: 'squeezed.mp4', kind: 'file', x: 1000, y: 1000, width: 300, height: 169 },
+					{ path: 'wall.md', kind: 'file', x: 1340, y: 1000, width: 300, height: 220 },
+					{ path: 'grown.mp4', kind: 'file', x: 5000, y: 50, width: 300, height: 169 },
+					{ path: 'lonely.png', kind: 'file', x: 2000, y: 2000, width: 300, height: 220 },
+					// Put by hand 20 from a note, and laid over a note.
+					{ path: 'close.png', kind: 'file', x: 3000, y: 50, width: 300, height: 220 },
+					{ path: 'beside.md', kind: 'file', x: 3320, y: 50, width: 300, height: 220 },
+					{ path: 'stacked.png', kind: 'file', x: 3000, y: 2100, width: 300, height: 220 },
+					{ path: 'under.md', kind: 'file', x: 3100, y: 2200, width: 300, height: 220 },
+					// Tall pictures in cells of the grid with a note below each.
+					{ path: 'narrow.png', kind: 'file', x: 6000, y: 50, width: 300, height: 220 },
+					{ path: 'below.md', kind: 'file', x: 6000, y: 330, width: 300, height: 220 },
+					{ path: 'three-four.png', kind: 'file', x: 7000, y: 50, width: 300, height: 220 },
+					{ path: 'base.md', kind: 'file', x: 7000, y: 330, width: 300, height: 220 }
+				],
+				edges: []
+			},
+			pictureRatios: new Map([
+				['shot.mp4', 16 / 9], ['still.png', 3 / 4], ['large.mp4', 16 / 9], ['squeezed.mp4', 16 / 9], ['grown.mp4', 16 / 9],
+				['lonely.png', 9 / 16], ['close.png', 16 / 9], ['stacked.png', 1], ['tall.png', 9 / 16], ['narrow.png', 9 / 16], ['three-four.png', 3 / 4]
+			])
+		});
+		assert.deepStrictEqual({
+			cards: model.items.map(entry => [entry.path, entry.card?.x, entry.card?.y, entry.card?.width, entry.card?.height]),
+			reshaped: model.reshaped.map(card => [card.path, card.width, card.height, card.auto === true])
+		}, {
+			cards: [
+				['base.md', 7000, 330, 300, 220],
+				['below.md', 6000, 330, 300, 220],
+				['beside.md', 3320, 50, 300, 220],
+				// 20 from the note: no closer than that.
+				['close.png', 3000, 50, 300, 169],
+				// Room has come free: it grows.
+				['grown.mp4', 5000, 50, 533, 300],
+				['large.mp4', 1000, 50, 533, 300],
+				// Nothing near it: the full shape.
+				['lonely.png', 2000, 2000, 300, 533],
+				// 124 × 220 would have its shape: it is as wide as a card can be at least, the image fitted inside.
+				['narrow.png', 6000, 50, 140, 220],
+				['note.md', 440, 50, 300, 220],
+				// The note 40 to its right: as wide as the room there, and as high as 16:9 makes it.
+				['shot.mp4', 100, 50, 300, 169],
+				['squeezed.mp4', 1000, 1000, 300, 169],
+				// Over a note already: its picture inside it, no further over the note.
+				['stacked.png', 3000, 2100, 220, 220],
+				// Nothing below it: the full shape, down to 400.
+				['still.png', 100, 330, 300, 400],
+				// A card that appears has its full shape at the end of the canvas, beside the last card.
+				['tall.png', 3440, 2200, 300, 533],
+				// As high as the note below it allows.
+				['three-four.png', 7000, 50, 165, 220],
+				['under.md', 3100, 2200, 300, 220],
+				['wall.md', 1340, 1000, 300, 220]
+			],
+			// Each keeps its place and whether BaseHalf chose it.
+			reshaped: [
+				['close.png', 300, 169, false], ['grown.mp4', 533, 300, false], ['large.mp4', 533, 300, false], ['lonely.png', 300, 533, false],
+				['narrow.png', 140, 220, false], ['shot.mp4', 300, 169, true], ['stacked.png', 220, 220, false], ['still.png', 300, 400, false],
+				['three-four.png', 165, 220, false]
+			]
+		});
 	});
 
 	test('a group dropped at a point keeps its block, and a card whose slot is taken goes beside it', () => {

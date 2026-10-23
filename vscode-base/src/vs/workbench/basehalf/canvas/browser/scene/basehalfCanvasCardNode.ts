@@ -140,13 +140,20 @@ export function baseHalfCanvasSceneProjectsSelection(selected: boolean, noteEdit
 	return selected && !noteEditing;
 }
 
+/**
+ * Whether a card shows its resize controls (canvas card resize, "Which cards
+ * resize"): the only selected card, not a note being edited, while no video
+ * input is being picked, and not a card that keeps its shape.
+ */
 export function baseHalfCanvasSceneShowsResizeControls(
 	selected: boolean,
 	noteEditing: boolean,
 	selectionSize: number,
-	videoInputPickActive = false
+	videoInputPickActive = false,
+	keepsShape = false
 ): boolean {
-	return baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive).nodesResizable
+	return !keepsShape
+		&& baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive).nodesResizable
 		&& baseHalfCanvasSceneProjectsSelection(selected, noteEditing)
 		&& selectionSize === 1;
 }
@@ -324,7 +331,8 @@ export function createBaseHalfCanvasCardNode(environment: IBaseHalfCanvasSceneEn
 			selected,
 			noteEditing,
 			selectionSize,
-			!!host.dataset.videoInputPickActive
+			!!host.dataset.videoInputPickActive,
+			data.card.keepsShape === true
 		);
 		const presentation = noteEditing
 			? 'preview'

@@ -81,8 +81,9 @@
 	user-select: none;
 }
 
+/* The card has the image's shape: the whole image is drawn, and a picture longer than the card can be is fitted inside it (canvas card placement). */
 .monaco-workbench .basehalf-canvas-card-preview.media-image .basehalf-canvas-card-media-visual {
-	object-fit: cover;
+	object-fit: contain;
 	pointer-events: none;
 }
 

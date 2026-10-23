@@ -141,6 +141,9 @@ export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	/** Only the Markdown Note inline editor suppresses structural controls and
 	 *  retains the static preview beneath its live editing overlay. */
 	readonly noteEditing?: true;
+	/** The card of an image, a video, or a sound: it keeps its shape and has no
+	 *  resize controls (canvas card resize, "Which cards resize"). */
+	readonly keepsShape?: true;
 	/** Set when this card can never receive a connection right now (an
 	 *  upstream-only file, a running node, or a sidecar target in a folder where
 	 *  BaseHalf writes no metadata). The renderer refuses a connection or a

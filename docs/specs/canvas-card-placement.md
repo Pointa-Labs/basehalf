@@ -139,6 +139,7 @@ fourth: it goes where the user pointed
 - No card moves unless the user moves it.
 - A card that the user points at is where they pointed.
 - BaseHalf never puts a card on another card by its own choice.
+- The card of an image or a video has its picture's shape.
 - One rule covers every way a card can come to be on a canvas.
 - Opening a folder or moving a card changes nothing that git shows.
 
@@ -219,12 +220,12 @@ fourth: it goes where the user pointed
 ### When a card appears
 
 1. **Size.** The size at which a card of its kind is drawn when it is new:
-   300 × 220 for a file, 248 × 188 for a folder, and 720 × 405 for a video
-   generation card, a draft or one with its file. An image generation card
-   has the size of a file. BaseHalf chooses the place when it knows the size.
-   For a video it looks for its generation information first; the kind of a
-   draft comes from its extension
-   ([generation cards](generation-cards.md#terms)).
+   300 × 220 for a file, 248 × 188 for a folder, and the shape of its
+   picture for an image or a video, a generation card among them
+   ([below](#the-card-of-an-image-or-a-video-has-its-pictures-shape)).
+   BaseHalf chooses the place when it knows the size: it measures the
+   picture first, and for a draft it reads its settings; the kind of a draft
+   comes from its extension ([generation cards](generation-cards.md#terms)).
 2. **Place.**
    - The user pointed at it: the pointed place,
      [as it is](#a-pointed-place-is-taken-as-it-is).
@@ -243,6 +244,58 @@ So the first drawing of a folder that has no layout puts every card in the
 plain grid in list order, as before, and writes one row for each. The one
 difference is a card that is larger than a cell: the cards after it stand
 clear of it.
+
+### The card of an image or a video has its picture's shape
+
+The card of an image file or a video file, a generation card among them, is
+shaped as its picture. Its full shape has a short side of 300 and a long side
+that follows the picture's ratio, up to three times the short side: a 16:9
+video is 533 × 300, a 9:16 one 300 × 533, a square image 300 × 300, and a 4:1
+panorama 900 × 300 with the picture fitted inside. The user does not resize
+such a card ([canvas card resize](canvas-card-resize.md#which-cards-resize)).
+Its row holds its size, so that the layout stores what the canvas shows.
+
+- **The picture's ratio** is the one the window draws: the width and the
+  height of the image, or of the video's frame, as the window decodes it,
+  turned as the file says, as for an upright photo or a video recorded on a
+  phone held upright. BaseHalf measures it in the window, once for each
+  version of a file (its time and its size), at most six files at a time,
+  and gives one up after 3 s.
+- **A draft** has the ratio its settings choose: the value of its model's
+  ratio setting, or that setting's default. A ratio that follows an input,
+  such as Adaptive, and a draft without a model have the ratio of their
+  kind: 16:9 for a video and 1:1 for an image.
+- **A picture whose ratio is not known**, because the window cannot decode
+  it or has not measured it yet, leaves its card at the size of its row. A
+  card that appears with such a picture has the ratio of its kind.
+- **When a card appears**, it has its full shape, and BaseHalf knows that
+  shape before it chooses the place: it waits for the pictures that appear
+  in one drawing, at most 1 s for all of them.
+- **Where a card is**, it has its full shape when there is room for it. From
+  its top left corner, which stays where it is, it is otherwise the largest
+  shape of its picture's ratio that comes no closer to another card than the
+  gaps of the plain grid, 40 to the side and 60 above or below, or than it
+  already is. It is never larger than the full shape, and never smaller than
+  its picture's shape fitted into the card as it is, as far as the full
+  shape goes; that is also its size when it already lies over another card.
+  Like every card it is at least 140 × 48, and a picture whose shape would
+  be smaller is fitted inside. A card of the plain grid from before
+  this rule, 300 × 220 in a cell of 340 × 280, is 300 × 169 for a 16:9
+  video and, with a card below it, 165 × 220 for a 3:4 image and 140 × 220
+  for a 9:16 one. A video card of 720 × 405 from before this rule is
+  533 × 300.
+- **The size follows** the picture and the room each time the canvas is
+  drawn. The card takes a new shape where it is when the file of a draft
+  arrives, when a file is replaced by one of another shape, when a draft's
+  ratio changes, and when a picture is measured after its card was drawn.
+  It grows when room comes free at its corner, as when the user moves a card
+  away, and keeps its size when a card is moved next to it. Its place never
+  changes, no other card moves, and a row whose size changes is saved. A
+  size that would lie over a row written after the drawing chose it, as by
+  a move in another window, is not saved.
+
+The card of a sound keeps the size of a file card, and the user does not
+resize it either.
 
 ### The end of a canvas
 
@@ -699,6 +752,13 @@ A canvas shows at most 300 cards.
 - **A card made with the Create button can move the view.** When no place
   in the window is open, it goes to the end of the canvas, and the view goes
   to it and fits it, as for the card of a project made from a template.
+- **A card with little room stays small.** The card of a picture grows only
+  into room to its right and below it, and only as far as the grid's gaps,
+  so a card among others, as in a grid from before this rule, is smaller
+  than its full shape until the user moves the cards around it away. A card
+  that appears with many other pictures is placed with the ratio of its kind
+  when its picture was not measured within the 1 s that one drawing waits,
+  and takes its shape where it is afterwards.
 
 ## Compatibility
 
@@ -776,7 +836,7 @@ written with this document.
      right of it, and a new row starts 60 below it.
 8. **Computed.** A card created with the Create button is centered on the
    middle of the visible part of the canvas when it is open there, also a
-   video draft of 720 × 405 at 100%. When the middle is taken, it is at the
+   16:9 video draft of 533 × 300 at 100%. When the middle is taken, it is at the
    nearest open place. When the visible part of the canvas has no open
    place, it is at the end, and the view goes to it. Its row is the user's.
 9. **Dropped together.** Five files are dropped at a point where the first
@@ -827,8 +887,9 @@ written with this document.
     then gets no card. After one shown file is deleted, the first file
     without a card gets one, at the end.
 23. **A generation card** that appears, a draft or one with its file, gets a
-    row of 720 × 405 for a video and 300 × 220 for an image. A draft's row
-    stays while the draft is there.
+    row of its picture's shape: 533 × 300 for a 16:9 video draft and
+    300 × 300 for a square image draft. A draft's row stays while the draft
+    is there.
 24. **Case only.** On a volume that ignores letter case, a file whose name
     changes only in case keeps its row, and no second row is written.
 25. **Nothing else.** Showing canvases writes only `canvas.yaml` files under
@@ -889,6 +950,22 @@ written with this document.
 36. **Not from the view.** The same line, released at the same place of the
     canvas at two zooms and with the canvas moved, gives the same place
     within one screen pixel.
+37. **The shape of a picture.** In a folder that is shown for the first
+    time, a 16:9 MP4, a 9:16 MOV, a square PNG, a 3:4 JPEG, and a 4:1
+    panorama get rows of 533 × 300, 300 × 533, 300 × 300, 300 × 400, and
+    900 × 300, and no card reaches into another.
+38. **The shape follows.** A draft whose ratio goes from 16:9 to 9:16, with
+    nothing below it, is 300 × 533 where it is. An image file replaced by
+    one of another ratio takes that ratio. Each of these rows is saved,
+    keeps its place, and no other row changes.
+39. **The room.** In a canvas of the plain grid from before this rule,
+    300 × 220 cards in cells of 340 × 280, a 16:9 video takes 300 × 169, a
+    3:4 image with a card below it 165 × 220, a 9:16 one 140 × 220 with the
+    image fitted inside, and no card reaches into another. Moving the card right of the video away makes the video
+    391 × 220 where it is, as high as the card below it allows, and its row
+    says so. A note moved to 20 beside a card leaves that card as it is. A
+    video row of 720 × 405 becomes 533 × 300, and a card that already lies
+    over another one does not grow over it.
 
 ## Verification
 
@@ -921,6 +998,15 @@ written with this document.
   the ignore rules were written.
 - Criterion 26 in the real window, with frames sampled as in the trial of
   2026-10-11.
+- Unit tests of the canvas model for the shape of a picture and the room at
+  a card's corner, of the canvas mirror for saving a size, of the picture
+  shapes for measuring once per version, and of the catalog for a draft's
+  ratio: criteria 23, 37, 38, and 39.
+- The smoke steps `canvas-create-menu-makes-drafts` and
+  `video-new-video-makes-draft` for criteria 8 and 23, and
+  `video-picture-cards-keep-their-shape` for two images laid out in the
+  earlier grid (criterion 39).
+- Criteria 37 to 39 in the real window on 2026-10-23, as recorded below.
 
 ### Tried in the real window, 2026-10-11
 
@@ -974,6 +1060,24 @@ One thing was built and taken back the same day. A first version moved the
 view by the least distance that showed the whole card, 33 to 224 screen
 pixels in these trials. The user did not want it
 ([why the view stays](#a-pointed-place-is-taken-as-it-is)).
+
+### Tried in the real window, 2026-10-23
+
+The shapes of picture cards (D66), in a test workspace: a canvas laid out in
+the plain grid of 300 × 220 cards, with three copies of one video that is a
+little wider than 16:9, a 16:10 image, a note, a sound, a PDF, a video the
+window decodes from an MKV file, and a folder; and a folder that was never
+shown, with a square, a 9:16, a 3:4, and a 4:1 image, a video, and a note.
+
+| What was done | What the canvas showed and saved |
+| --- | --- |
+| The grid canvas opened | The videos with a card to their right were 300 × 169 and the image 300 × 188, in their cells. The video with nothing to its right or below it was 534 × 300. The note, the sound, the PDF, and the folder kept their sizes. No two cards crossed, none was closer than the gaps, and every row said what was drawn. |
+| The note to the right of a video moved away | The video was 391 × 220 where it was, as high as the image below it allowed, and its row said so. |
+| A note moved to 33 over the 534 × 300 video, then to 20 beside it | The video stayed 534 × 300 both times. |
+| One card of each kind selected | A note, the PDF, and the folder had four resize corners, the videos, the image, and the sound none. |
+| The folder that was never shown opened | 300 × 300, 300 × 533, 300 × 400, 900 × 300 with the 4:1 image fitted inside, and 534 × 300, placed at the end with nothing crossing. |
+| The square image replaced by one of 600 × 300 | 300 × 150 where it was: the card 40 to its right allowed no more. |
+| A draft written as an agent writes one, with its ratio set to 9:16, 16:9, 21:9, and 1:1 in turn | It appeared at 300 × 533, then was 533 × 300, 700 × 300, and 300 × 300 where it was. |
 
 ## Measurements
 
