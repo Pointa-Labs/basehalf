@@ -90,6 +90,14 @@ export interface IBaseHalfCanvasView {
 	readonly onDidChangeSelection: Event<IBaseHalfCanvasViewSelection>;
 	/** Selects these cards. `onDidChangeSelection` does not fire for it. */
 	select(paths: readonly string[]): void;
+	/**
+	 * Selects a card of this canvas that the user just created at a place
+	 * BaseHalf chose, once it is drawn: the view goes to it when it is not in
+	 * sight, and its panel takes the focus when it first shows (canvas card
+	 * placement, "A card the user just created is shown"). The drawing that
+	 * selects it reports the selection in `onDidChangeScene`.
+	 */
+	selectCreatedCard(path: string): void;
 	/** Whether a gesture of the pointer is going on on the canvas, such as a drag. */
 	isInteracting(): boolean;
 	/** Moves the keyboard focus to a card. */

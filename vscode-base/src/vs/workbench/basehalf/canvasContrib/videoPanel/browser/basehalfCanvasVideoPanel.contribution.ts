@@ -60,8 +60,6 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 	private mount: IBaseHalfCanvasVideoPanelMount | undefined;
 	/** A card that Generate made, or a draft its model renamed: it is selected once it is drawn. */
 	private pendingCardSelection: { readonly sceneKey: string; readonly path: string } | undefined;
-	/** A draft that New Version made: its prompt takes the focus when its panel shows. */
-	private promptFocus: { readonly sceneKey: string; readonly path: string } | undefined;
 	/** Counts selections, so a panel that waits for a drag to end shows only for the latest one. */
 	private selectionToken = 0;
 	/** The only selected card, while it is no generation card: its panel shows once a drawing says it is one. */
@@ -193,11 +191,10 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		if (!item) {
 			return;
 		}
-		const created = this.canvas.takeCreatedNodeFocus(path);
-		const asked = this.takePromptFocus(sceneKey, path);
+		const focusPrompt = this.canvas.takeCreatedNodeFocus(path);
 		const store = new DisposableStore();
 		const panel = store.add(draft
-			? this.createPanel(item.stat.resource, this.panelHost(sceneKey, path), { focusPromptWhenShown: created || asked })
+			? this.createPanel(item.stat.resource, this.panelHost(sceneKey, path), { focusPromptWhenShown: focusPrompt })
 			: this.createRecordPanel(item.stat.resource, this.recordPanelHost(sceneKey, path)));
 		const mount: IBaseHalfCanvasVideoPanelMount = { sceneKey, path, draft, panel, store };
 		this.mount = mount;
@@ -245,24 +242,14 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		return {
 			focusCard: () => this.canvas.focusCard(path),
 			didMakeNewVersion: draft => {
-				// The new version is selected with its prompt focused: Cmd/Ctrl+Enter makes another result at once.
+				// A card the user just created beside another: selected, in sight, with its prompt
+				// focused, so that Cmd/Ctrl+Enter makes another result at once.
 				const folder = this.canvas.getFolder();
-				if (folder) {
-					this.promptFocus = { sceneKey, path: baseHalfCanvasChildPath(folder.relativePath, basename(draft)) };
+				if (folder && this.canvas.isCurrentScene(sceneKey) && this.uriIdentityService.extUri.isEqual(dirname(draft), folder.resource)) {
+					this.canvas.selectCreatedCard(baseHalfCanvasChildPath(folder.relativePath, basename(draft)));
 				}
-				this.selectCardWhenDrawn(sceneKey, draft);
 			}
 		};
-	}
-
-	/** Whether the prompt of the draft at `path` takes the focus when its panel shows, once. */
-	private takePromptFocus(sceneKey: string, path: string): boolean {
-		const wanted = this.promptFocus;
-		if (wanted?.sceneKey !== sceneKey || wanted.path !== path) {
-			return false;
-		}
-		this.promptFocus = undefined;
-		return true;
 	}
 
 	/** Selects a card of this canvas that Generate made, or that was renamed, once its card is drawn. */

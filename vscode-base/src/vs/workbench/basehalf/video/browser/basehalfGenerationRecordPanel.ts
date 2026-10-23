@@ -286,7 +286,9 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			inputs: this.inputs,
 			catalog: this.catalogService.state
 		});
-		this.element.dataset.state = presentation.readable ? 'ready' : 'unreadable';
+		// The card was read; whether its record could be is a state of its own.
+		this.element.dataset.state = 'ready';
+		this.element.dataset.record = presentation.readable ? 'readable' : 'unreadable';
 		this.element.dataset.kind = snapshot.kind;
 		const name = basename(this.resource);
 		this.element.setAttribute('aria-label', snapshot.kind === 'image'

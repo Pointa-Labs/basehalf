@@ -24,10 +24,12 @@ import {
 	clickBlankCanvas,
 	clickCanvasCardOnTop,
 	clickGenerate,
+	clearCanvasWarnings,
 	clickModel,
 	closeAgentArea,
 	closePanelMenu,
 	createGenerationSmokeFolder,
+	deleteCanvasEdge,
 	drawCanvasConnectionInto,
 	END_IMAGE,
 	GENERATION_FOLDER,
@@ -43,7 +45,6 @@ import {
 	readCardRow,
 	readCardToolbar,
 	readCardVideoPlayer,
-	readCardYaml,
 	readCursorAt,
 	readGenerationCard,
 	readGenerationInfo,
@@ -51,8 +52,8 @@ import {
 	readMade,
 	readMentionMenu,
 	readPanelGeometry,
+	readRecordPanel,
 	readSettingsPopover,
-	readTaskRecords,
 	readTextIfThere,
 	readUpstreamSidecar,
 	replacePrompt,
@@ -68,6 +69,7 @@ import {
 	statesOf,
 	taskRecordOf,
 	TASK_RECORD_FOLDER,
+	waitForCanvasWarning,
 	waitForGenerationPanel,
 	waitForGenerationStart,
 	watchGenerations,
@@ -90,7 +92,8 @@ import {
 	readCanvasCardGeometry,
 	readCanvasView,
 	setCanvasZoomPercent,
-	waitForCanvasCardSelection
+	waitForCanvasCardSelection,
+	zoomCanvas
 } from '../../lib/canvas.mts';
 import { expectNotification } from '../../lib/notifications.mts';
 import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION, waitForProvidersPage } from '../../lib/providers.mts';
@@ -106,7 +109,7 @@ const REDO = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y';
 // creates; New Image names its draft `image.png` while no image model was
 // used, and after the extension of the last image model used.
 const VIDEO = `${GENERATION_FOLDER}/video.mp4`;
-// What Generate makes beside VIDEO once that holds its video.
+// What New Version makes beside VIDEO once that holds its video.
 const VIDEO_AGAIN = `${GENERATION_FOLDER}/video-2.mp4`;
 // The next New Video: generations that end without a video, then one that a reload interrupts.
 const VIDEO_FAILS = `${GENERATION_FOLDER}/video-3.mp4`;
@@ -114,8 +117,11 @@ const IMAGE = `${GENERATION_FOLDER}/image.png`;
 const IMAGE_JPEG = `${GENERATION_FOLDER}/image.jpg`;
 // A video file beside the cards, for the player of a video file's card; it goes again after its step.
 const CLIP = `${GENERATION_FOLDER}/clip.mp4`;
-// A draft an agent writes.
+// A draft an agent writes, and the new version `basehalf --generate` makes of it once it holds its video.
 const AGENT_DRAFT = `${GENERATION_FOLDER}/agent-shot.mp4`;
+const AGENT_AGAIN = `${GENERATION_FOLDER}/agent-shot-2.mp4`;
+// The card information a generated file keeps (D67): its record and its inputs.
+const FILE_INFORMATION = ['made.yaml', 'upstream.yaml'];
 
 // The models of the provider SMOKE_PROVIDER that the steps use, by the ids of
 // its module: a video model with frames, one that takes 480p and 720p only,
@@ -144,13 +150,14 @@ const VIDEO_PROVIDER_CREATE_HOLD_MS = 1_500;
 // the test key of a second provider, and the prompt typed into VIDEO.
 const smoke = { provider: undefined, models: undefined, notOffered: undefined, secondKey: undefined, prompt: undefined };
 
-// --- Generation cards (D63, D64, docs/specs/generation-cards.md) -----------------------------------
+// --- Generation cards (D63, D64, D67, docs/specs/generation-cards.md) ------------------------------
 //
-// Acceptance criteria 1 to 8, 13 to 29, and 32 to 38 of generation cards,
-// through the window and against the local test provider with its test key,
-// reached through the provider module of SMOKE_PROVIDER; no paid provider is
-// called. Criterion 30, Sequence, is in workflowTemplate.mts. The steps run
-// in order, each where the one before ended.
+// Acceptance criteria 1 to 8, 13 to 29, 32 to 38, 42, 43, and the canvas's
+// part of 45 and 46 of generation cards, through the window and against the
+// local test provider with its test key, reached through the provider module
+// of SMOKE_PROVIDER; no paid provider is called. Criterion 30, Sequence, is
+// in workflowTemplate.mts. The steps run in order, each where the one before
+// ended.
 
 export async function runGenerationCardSteps(page) {
 	await step('video-new-video-makes-draft', () => assertNewVideoMakesDraft(page));
@@ -169,7 +176,9 @@ export async function runGenerationCardSteps(page) {
 	await step('video-capture-frames', () => assertCaptureFrames(page));
 	await step('video-card-keeps-its-player', () => assertCardKeepsItsPlayer(page));
 	await step('video-card-player-gestures', () => assertCardPlayerGestures(page));
-	await step('video-generate-again-makes-draft', () => assertGenerateAgainMakesDraft(page));
+	await step('video-file-panel-shows-what-made-it', () => assertFilePanelShowsWhatMadeIt(page));
+	await step('video-canvas-refuses-inputs', () => assertCanvasRefusesInputs(page));
+	await step('video-new-version-makes-draft', () => assertNewVersionMakesDraft(page));
 	await step('video-generation-fails-and-stops', () => assertGenerationFailsAndStops(page));
 	await step('video-image-generations', () => assertImageGenerations(page));
 	await step('video-image-arrives-as-jpeg', () => assertImageArrivesAsJpeg(page));
@@ -213,12 +222,6 @@ function assertDraftInformation(cardPath, info, what, files = ['generation.yaml'
 	if (canonicalJson(read) !== canonicalJson(info) || fs.existsSync(workspaceFile(cardPath)) || JSON.stringify(cardInformationFiles(cardPath)) !== JSON.stringify(files)) {
 		throw new Error(`${what} must leave ${cardPath} a draft with ${canonicalJson(info)} and ${files.join(', ')}, and no file: ${JSON.stringify({ read, file: fs.existsSync(workspaceFile(cardPath)), files: cardInformationFiles(cardPath) })}`);
 	}
-}
-
-/** The prompt, provider, model, mode, and values of a card, without the prompt. */
-function choiceOf(info) {
-	const { prompt: _prompt, ...choice } = info ?? {};
-	return choice;
 }
 
 /**
@@ -1127,9 +1130,13 @@ async function generateAndLandVideo(page, provider) {
 	if (JSON.stringify(names) !== JSON.stringify(expectedNames) || leftParts.length) {
 		throw new Error(`Only the video may appear in the card's folder, and the record and its partial downloads must be gone: ${JSON.stringify({ names, leftParts })}`);
 	}
-	if (JSON.stringify(cardInformationFiles(VIDEO)) !== JSON.stringify(['generation.yaml', 'made.yaml', 'upstream.yaml']) || canonicalJson(readGenerationInfo(VIDEO)) !== canonicalJson(info)) {
-		throw new Error(`The card keeps its prompt and settings, and gets its record: ${JSON.stringify(cardInformationFiles(VIDEO))}`);
+	// Criterion 43: what made the file is its record; the draft's generation.yaml goes.
+	if (JSON.stringify(cardInformationFiles(VIDEO)) !== JSON.stringify(FILE_INFORMATION) || readGenerationInfo(VIDEO) !== undefined) {
+		throw new Error(`The card gets its record, and its generation.yaml goes: ${JSON.stringify(cardInformationFiles(VIDEO))}`);
 	}
+	// The open panel of the draft becomes the panel of a card with its file.
+	await waitForReading(() => readRecordPanel(panel), seen => seen.record && seen.state === 'ready' && seen.prompt === made.prompt && JSON.stringify(seen.buttons) === JSON.stringify(['New Version']),
+		'the panel of the card to become the panel of a card with its file');
 	// The card that showed the generation shows the video, in BaseHalf's player.
 	const shown = await waitForReading(() => readGenerationCard(page, VIDEO), seen => seen?.generation === 'file' && seen.face === null && seen.video !== null && seen.video.readyState >= 1, 'the card to show the video');
 	const sampled = await phases.stop();
@@ -1195,7 +1202,7 @@ async function assertCardDetailShowsWhatMadeIt(page) {
 
 // Criteria 29 and 34: Capture Frame writes the current, the first, and the
 // last frame as PNGs beside the video, named after the card, and their cards
-// appear to the right of the video card.
+// appear to the right of the video card, connected from it (D67).
 async function assertCaptureFrames(page) {
 	await selectGenerationCard(page, VIDEO);
 	await page.locator('.basehalf-video-context-toolbar [data-video-action="captureFrame"]').waitFor({ state: 'visible', timeout: 15_000 });
@@ -1220,24 +1227,27 @@ async function assertCaptureFrames(page) {
 		if (!video || !row || row.x < video.x + video.width) {
 			throw new Error(`The card of ${name} must appear to the right of the video card: ${JSON.stringify({ video, row })}`);
 		}
-		// It is an ordinary image, which no generation made.
+		// It is an ordinary image, which no generation made, and the video is its input.
 		if (readGenerationInfo(`${GENERATION_FOLDER}/${name}`) !== undefined || readMade(`${GENERATION_FOLDER}/${name}`) !== undefined) {
 			throw new Error(`A captured frame is an ordinary image: ${name}`);
 		}
+		await waitUntil(() => JSON.stringify(readUpstreamSidecar(`${GENERATION_FOLDER}/${name}`)) === JSON.stringify([VIDEO]), `${name} to be connected from ${VIDEO}`, 10_000);
 	}
+	await assertCanvasEdgeVisible(page, VIDEO, `${GENERATION_FOLDER}/${frames[1][1]}`);
 }
 
-// "The card": the card changes in place when its generation information
-// changes. A video that plays in it under the pointer goes on playing while
-// the panel saves the prompt, with no frame of the loading face. The pointer
-// leaving the card pauses it where it is; deselecting the card and selecting
-// it again keeps the same player.
+// "The card": the card changes in place when its card information changes. A
+// video that plays in it under the pointer goes on playing while an agent
+// writes into its card information, with no frame of the loading face; a
+// generated file does not read a generation.yaml written beside it (D67). The
+// pointer leaving the card pauses it where it is; deselecting the card and
+// selecting it again keeps the same player.
 async function assertCardKeepsItsPlayer(page) {
-	const before = readGenerationInfo(VIDEO);
+	const made = readTextIfThere(path.join(mirrorFolder(VIDEO), 'made.yaml'));
 	let panel = await selectGenerationCard(page, VIDEO);
 	const read = () => readCardVideoPlayer(page, VIDEO);
-	// The prompt has the keyboard while the pointer rests on the picture, which plays the video.
-	await panel.locator('textarea.bh-video-panel-prompt-input').click();
+	// The panel's prompt has the keyboard while the pointer rests on the picture, which plays the video.
+	await panel.locator('.bh-record-panel-prompt').click();
 	const picture = await cardVideoPicturePoint(page, VIDEO);
 	await page.mouse.move(picture.x, picture.y, { steps: 4 });
 	await waitForReading(read, seen => seen?.paused === false && seen.muted, 'the pointer on the card to play its video without sound');
@@ -1271,7 +1281,8 @@ async function assertCardKeepsItsPlayer(page) {
 				sameCard: current === card,
 				samePlayer: player === video,
 				loading: /Checking content/.test(current?.textContent ?? ''),
-				paused: video.paused
+				paused: video.paused,
+				time: video.currentTime
 			});
 			if (globalThis.__bhVideoCardSampling && frames.length < 5_000) {
 				requestAnimationFrame(sample);
@@ -1283,13 +1294,15 @@ async function assertCardKeepsItsPlayer(page) {
 	if (started.error) {
 		throw new Error(started.error);
 	}
-	const edited = `${before.prompt} Slowly.`;
-	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
-	await page.keyboard.type(edited);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === edited, `the prompt to read ${edited}`);
-	await waitUntil(() => readGenerationInfo(VIDEO)?.prompt === edited, 'the panel to save the edited prompt', 10_000);
-	// The canvas reads the changed card information again and shows it in the same card.
+	// An agent writes a prompt beside the generated file, as for a draft. The
+	// canvas reads the changed card information again and shows the same card,
+	// whose panel still shows what made the file.
+	writeGenerationInfo(VIDEO, { prompt: `${smoke.prompt} Slowly.` });
 	await page.waitForTimeout(1_500);
+	const record = await readRecordPanel(panel);
+	if (!record.record || record.prompt !== readMade(VIDEO)?.prompt) {
+		throw new Error(`A generation.yaml beside a generated file is not what its panel shows: ${JSON.stringify(record)}`);
+	}
 	const playing = await page.evaluate(() => {
 		globalThis.__bhVideoCardSampling = false;
 		const frames = globalThis.__bhVideoCardFrames ?? [];
@@ -1298,11 +1311,12 @@ async function assertCardKeepsItsPlayer(page) {
 			replaced: frames.filter(frame => !frame.sameCard || !frame.samePlayer).length,
 			loading: frames.filter(frame => frame.loading).length,
 			paused: frames.filter(frame => frame.paused).length,
-			time: document.querySelector('video[data-smoke-player="kept"]')?.currentTime ?? null,
+			// The video loops: how often its time moved from one frame to the next, not where it ended.
+			moved: frames.filter((frame, index) => index > 0 && frame.time !== frames[index - 1].time).length,
 			why: globalThis.__bhWhyPaused ?? []
 		};
 	});
-	if (playing.frames < 30 || playing.replaced !== 0 || playing.loading !== 0 || playing.paused !== 0 || !(playing.time > started.time)) {
+	if (playing.frames < 30 || playing.replaced !== 0 || playing.loading !== 0 || playing.paused !== 0 || playing.moved < 10) {
 		throw new Error(`A playing video must go on playing in the same card while its card information changes: ${JSON.stringify({ started, playing })}`);
 	}
 	// The pointer leaves the selected card: the video pauses, and the controls stay while the card is selected.
@@ -1314,7 +1328,11 @@ async function assertCardKeepsItsPlayer(page) {
 		'the deselected card to keep its player, paused where it was and without controls');
 	panel = await selectGenerationCard(page, VIDEO);
 	await waitForReading(read, seen => seen?.kept === true && seen.selected && seen.controls === 'shown', 'the selected card to show the same player with its controls');
-	await savePrompt(page, panel, VIDEO, before.prompt);
+	// What the agent wrote goes again; the record never changed.
+	fs.rmSync(path.join(mirrorFolder(VIDEO), 'generation.yaml'), { force: true });
+	if (readTextIfThere(path.join(mirrorFolder(VIDEO), 'made.yaml')) !== made || JSON.stringify(cardInformationFiles(VIDEO)) !== JSON.stringify(FILE_INFORMATION)) {
+		throw new Error(`The record of ${VIDEO} must not change: ${JSON.stringify(cardInformationFiles(VIDEO))}`);
+	}
 }
 
 // Criteria 35 to 38 ("The player"): the picture is the card's and the pointer
@@ -1552,47 +1570,146 @@ async function renameRootReadmeInExplorerAndBack(page) {
 	}, count => count === 0, 'a click on the blank canvas to end the selection once the canvas has drawn the moves');
 }
 
-// Criterion 24: Generate on a card that has its file makes a draft beside
-// it, named like it with the next free number, with the same prompt,
-// settings, and inputs, to its right, selects it, and runs there; the
-// original card, its file, and its card information do not change.
-async function assertGenerateAgainMakesDraft(page) {
-	const provider = await videoSmokeProvider();
-	const original = ['generation.yaml', 'made.yaml', 'upstream.yaml'].map(name => readTextIfThere(path.join(mirrorFolder(VIDEO), name)));
-	const originalFile = fs.readFileSync(workspaceFile(VIDEO));
+// --- a card with its file (D67) ----------------------------------------------------------------------
+
+// Criterion 42: the panel of a card with its file shows the inputs, prompt,
+// model, and summary of the settings of its `made.yaml`, read only, with the
+// inputs named as the prompt names them; its prompt can be selected; it has
+// New Version and no Generate; Escape gives the keyboard back to the card.
+async function assertFilePanelShowsWhatMadeIt(page) {
+	const made = readMade(VIDEO);
 	const panel = await selectGenerationCard(page, VIDEO);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.generate?.disabled === false && !seen.generate.stop, 'Generate to be enabled on the card that has its video');
-	const requestsBefore = provider.mock.requests.length;
-	const watch = watchGenerations();
-	// Cmd/Ctrl+Enter in the prompt generates.
-	await panel.locator('textarea.bh-video-panel-prompt-input').click();
-	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
-	await waitUntil(() => readGenerationInfo(VIDEO_AGAIN) !== undefined, `Generate to make ${VIDEO_AGAIN}`, 20_000);
-	await waitForCanvasCardSelection(page, VIDEO_AGAIN, 20_000);
-	await page.locator(`.basehalf-canvas-video-panel-surface[data-basehalf-card-path="${VIDEO_AGAIN}"]`).waitFor({ state: 'attached', timeout: 15_000 });
-	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(VIDEO_AGAIN)) && readMade(VIDEO_AGAIN) !== undefined, `the video to land on ${VIDEO_AGAIN}`);
-	watch.stop();
-	const seen = watch.first();
-	assertStates(seen, ['preparing', 'submitting', 'running', 'landing?'], 'The generation of the new draft');
-	if (JSON.stringify(seen.record.cards.map(card => card.path)) !== JSON.stringify([VIDEO_AGAIN])) {
-		throw new Error(`The generation must land on the new draft only: ${JSON.stringify(seen.record.cards)}`);
+	const shown = await waitForReading(() => readRecordPanel(panel), seen => seen.record && seen.state === 'ready' && seen.model === 'Seedance 2.5', 'the panel of the card with its video to name its model');
+	if (JSON.stringify(shown.inputs) !== JSON.stringify(['Start: Image 1', 'End: Image 2', 'scene']) || shown.gone.length || shown.prompt !== made.prompt || shown.line !== null
+		|| !shown.settings?.startsWith('Frames') || !shown.settings.includes(`${made.params.duration}s`) || !shown.settings.includes(String(made.params.resolution))
+		|| JSON.stringify(shown.buttons) !== JSON.stringify(['New Version']) || shown.fields !== 0 || await panel.locator('button.bh-video-panel-generate').count() !== 0) {
+		throw new Error(`The panel of a card with its file must show what its record says made it, and offer New Version only: ${JSON.stringify({ shown, made })}`);
 	}
-	if (canonicalJson(readGenerationInfo(VIDEO_AGAIN)) !== canonicalJson(readCardYaml(original[0])) || JSON.stringify(readUpstreamSidecar(VIDEO_AGAIN)) !== JSON.stringify(readCardYaml(original[2]).upstream)
-		|| readMade(VIDEO_AGAIN).id !== seen.id || !provider.isVideo(fs.readFileSync(workspaceFile(VIDEO_AGAIN))) || fs.readFileSync(workspaceFile(VIDEO_AGAIN)).equals(fs.readFileSync(workspaceFile(VIDEO)))) {
-		throw new Error(`The new card must have the original's prompt, settings, and inputs, and its own video: ${JSON.stringify({ info: readGenerationInfo(VIDEO_AGAIN), upstream: readUpstreamSidecar(VIDEO_AGAIN), made: readMade(VIDEO_AGAIN) })}`);
+	const prompt = panel.locator('.bh-record-panel-prompt');
+	const selected = await prompt.evaluate(element => {
+		const selection = element.ownerDocument.getSelection();
+		const range = element.ownerDocument.createRange();
+		range.selectNodeContents(element);
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+		const text = selection?.toString() ?? '';
+		selection?.removeAllRanges();
+		return { text, userSelect: getComputedStyle(element).userSelect };
+	});
+	if (selected.text !== made.prompt || selected.userSelect === 'none') {
+		throw new Error(`The prompt of a card with its file must be text that can be selected and copied: ${JSON.stringify(selected)}`);
 	}
-	const now = ['generation.yaml', 'made.yaml', 'upstream.yaml'].map(name => readTextIfThere(path.join(mirrorFolder(VIDEO), name)));
+	await prompt.focus();
+	await focusCardFromPrompt(page, VIDEO);
+}
+
+// Criteria 45 and 46 on the canvas: a connection into a card with its file is
+// refused with the reason before an edge is drawn, and disconnecting one of
+// its inputs is refused too; a connection from a video into a draft whose
+// model takes no video is refused with the reason. Nothing is written.
+async function assertCanvasRefusesInputs(page) {
+	const lists = () => [VIDEO, IMAGE].map(cardPath => readTextIfThere(path.join(mirrorFolder(cardPath), 'upstream.yaml')) ?? null);
+	const before = lists();
+	const frame = `${GENERATION_FOLDER}/video frame at 1s.png`;
+	const made = 'video.mp4 was made from these inputs. To change them, make a new version.';
+	await clickBlankCanvas(page);
+	const zoom = Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom'));
+	// Every card in sight, to draw a line between any two of them.
+	await zoomCanvas(page, 'fit');
+	try {
+		await drawCanvasConnectionInto(page, frame, VIDEO);
+		await waitForCanvasWarning(page, made);
+		await page.waitForTimeout(500);
+		await assertCanvasEdgeGone(page, frame, VIDEO);
+		await clearCanvasWarnings(page);
+		await deleteCanvasEdge(page, START_IMAGE, VIDEO);
+		await waitForCanvasWarning(page, made);
+		await assertCanvasEdgeVisible(page, START_IMAGE, VIDEO);
+		await clearCanvasWarnings(page);
+		// IMAGE is a draft of an image model, which takes images only.
+		await drawCanvasConnectionInto(page, VIDEO, IMAGE);
+		await waitForCanvasWarning(page, 'takes no videos.');
+		await assertCanvasEdgeGone(page, VIDEO, IMAGE);
+		await page.waitForTimeout(500);
+		if (JSON.stringify(lists()) !== JSON.stringify(before)) {
+			throw new Error(`A refused connection must change no upstream list: ${JSON.stringify({ before, after: lists() })}`);
+		}
+	} finally {
+		await setCanvasZoomPercent(page, Number((zoom * 100).toFixed(2)));
+	}
+}
+
+// Criteria 42 and 43, and New Version: on the panel of a card with its file
+// it makes a draft beside it, named like it with the next free number, from
+// what its `made.yaml` says made it, without the seed and with its inputs,
+// to its right; selects it with its prompt focused; and sends nothing.
+// Cmd/Ctrl+Enter in that prompt generates it, and its panel becomes the panel
+// of a card with its file when its video lands. The original card, its file,
+// and its card information do not change.
+async function assertNewVersionMakesDraft(page) {
+	const provider = await videoSmokeProvider();
+	const original = FILE_INFORMATION.map(name => readTextIfThere(path.join(mirrorFolder(VIDEO), name)));
+	const originalFile = fs.readFileSync(workspaceFile(VIDEO));
+	const made = readMade(VIDEO);
+	await clickBlankCanvas(page);
+	const zoom = Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom'));
+	try {
+		// The card at the left, so that its new version appears in sight to its
+		// right; a press of the step's own to pan would take the keyboard.
+		await setCanvasZoomPercent(page, 50);
+		const view = await readCanvasView(page);
+		await panCanvasCardTo(page, canvasCard(page, VIDEO), { x: Math.round(view.canvas.left + 40), y: Math.round(view.canvas.top + 60) });
+		await assertNewVersionGenerates(page, provider, made);
+	} finally {
+		await setCanvasZoomPercent(page, Number((zoom * 100).toFixed(2)));
+	}
+	const now = FILE_INFORMATION.map(name => readTextIfThere(path.join(mirrorFolder(VIDEO), name)));
 	if (JSON.stringify(now) !== JSON.stringify(original) || !fs.readFileSync(workspaceFile(VIDEO)).equals(originalFile)) {
-		throw new Error(`Generating again changed ${VIDEO}: ${JSON.stringify({ original, now })}`);
+		throw new Error(`A new version changed ${VIDEO}: ${JSON.stringify({ original, now })}`);
+	}
+}
+
+async function assertNewVersionGenerates(page, provider, made) {
+	const panel = await selectGenerationCard(page, VIDEO);
+	await waitForReading(() => readRecordPanel(panel), seen => seen.record && JSON.stringify(seen.buttons) === JSON.stringify(['New Version']), 'New Version on the panel of the card with its video');
+	const requestsBefore = provider.mock.requests.length;
+	await panel.locator('button.bh-record-panel-new-version').click();
+	await waitUntil(() => readGenerationInfo(VIDEO_AGAIN) !== undefined, `New Version to make ${VIDEO_AGAIN}`, 20_000);
+	await waitForCanvasCardSelection(page, VIDEO_AGAIN, 20_000);
+	const draftPanel = await waitForGenerationPanel(page, VIDEO_AGAIN);
+	const shown = await waitForReading(() => readGenerationPanel(draftPanel), seen => seen.promptFocused && seen.prompt === made.prompt && seen.generate?.disabled === false,
+		`the prompt of the new version ${VIDEO_AGAIN} to have the keyboard focus, ready to generate`);
+	const { seed: _seed, ...params } = made.params ?? {};
+	const recipe = { prompt: made.prompt, provider: made.provider, model: made.model, mode: made.mode, params };
+	if (canonicalJson(readGenerationInfo(VIDEO_AGAIN)) !== canonicalJson(recipe) || JSON.stringify(readUpstreamSidecar(VIDEO_AGAIN)) !== JSON.stringify(made.inputs)
+		|| fs.existsSync(workspaceFile(VIDEO_AGAIN)) || taskRecordOf(VIDEO_AGAIN) !== undefined || provider.requestsSince(requestsBefore).length !== 0) {
+		throw new Error(`New Version must make a draft from what made the card, without the seed and with its inputs, and send nothing: ${JSON.stringify({ shown, info: readGenerationInfo(VIDEO_AGAIN), upstream: readUpstreamSidecar(VIDEO_AGAIN), recipe })}`);
 	}
 	const layout = readCanvasLayout();
 	const originalRow = readCanvasCardGeometry(layout, VIDEO);
 	const againRow = readCanvasCardGeometry(layout, VIDEO_AGAIN);
 	if (!originalRow || !againRow || againRow.x < originalRow.x + originalRow.width) {
-		throw new Error(`The new card must appear to the right of the original: ${JSON.stringify({ originalRow, againRow })}`);
+		throw new Error(`The new version must appear to the right of the original: ${JSON.stringify({ originalRow, againRow })}`);
 	}
+	// Cmd/Ctrl+Enter in its prompt generates the new version.
+	const watch = watchGenerations();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(VIDEO_AGAIN)) && readMade(VIDEO_AGAIN) !== undefined, `the video to land on ${VIDEO_AGAIN}`);
+	watch.stop();
+	const seen = watch.first();
+	assertStates(seen, ['preparing', 'submitting', 'running', 'landing?'], 'The generation of the new version');
+	if (JSON.stringify(seen.record.cards.map(card => card.path)) !== JSON.stringify([VIDEO_AGAIN])) {
+		throw new Error(`The generation must land on the new version only: ${JSON.stringify(seen.record.cards)}`);
+	}
+	const againMade = readMade(VIDEO_AGAIN);
+	if (JSON.stringify(cardInformationFiles(VIDEO_AGAIN)) !== JSON.stringify(FILE_INFORMATION) || againMade.id !== seen.id || againMade.prompt !== made.prompt || JSON.stringify(againMade.inputs) !== JSON.stringify(made.inputs)
+		|| !provider.isVideo(fs.readFileSync(workspaceFile(VIDEO_AGAIN))) || fs.readFileSync(workspaceFile(VIDEO_AGAIN)).equals(fs.readFileSync(workspaceFile(VIDEO)))) {
+		throw new Error(`The new version must get its own video and its own record: ${JSON.stringify({ files: cardInformationFiles(VIDEO_AGAIN), made: againMade })}`);
+	}
+	// Criterion 43: its panel, still open, is now the panel of a card with its file.
+	await waitForReading(() => readRecordPanel(draftPanel), seen => seen.record && seen.state === 'ready' && seen.prompt === made.prompt, 'the panel of the new version to show what made it');
 	if (provider.requestsSince(requestsBefore).length !== 1) {
-		throw new Error(`Generating again must send one request: ${JSON.stringify(provider.requestsSince(requestsBefore))}`);
+		throw new Error(`Generating the new version must send one request: ${JSON.stringify(provider.requestsSince(requestsBefore))}`);
 	}
 }
 
@@ -1609,9 +1726,11 @@ async function assertGenerationFailsAndStops(page) {
 	if (cardPath !== VIDEO_FAILS) {
 		throw new Error(`New Video must take the next free number: ${cardPath}`);
 	}
+	// The last generation of its kind is the new version's: what it sent is in its record.
 	const created = readGenerationInfo(VIDEO_FAILS);
-	const lastUsed = readGenerationInfo(VIDEO_AGAIN);
-	if (created.prompt !== '' || canonicalJson(choiceOf(created)) !== canonicalJson(choiceOf(lastUsed)) || lastUsed.model !== SEEDANCE) {
+	const lastUsed = readMade(VIDEO_AGAIN);
+	if (created.prompt !== '' || created.provider !== lastUsed.provider || created.model !== lastUsed.model || created.mode !== lastUsed.mode || lastUsed.model !== SEEDANCE
+		|| Object.entries(lastUsed.params ?? {}).some(([name, value]) => created.params?.[name] !== value)) {
 		throw new Error(`A new draft must start with the provider, model, mode, and values of the last generation of its kind: ${JSON.stringify({ created, lastUsed })}`);
 	}
 
@@ -1725,8 +1844,9 @@ async function assertImageGenerations(page) {
 	await watch.until(w => w.first().removed && cards.every(card => fs.existsSync(workspaceFile(card)) && readMade(card) !== undefined), 'the four images to land on their cards');
 	watch.stop();
 	seen = watch.first();
-	// The drafts were made before the request was sent.
-	const madeAt = cards.slice(1).map(card => fs.statSync(path.join(mirrorFolder(card), 'generation.yaml')).birthtimeMs);
+	// The drafts were made before the request was sent: their card information
+	// folders were, which stay when the generation.yaml in them goes (D67).
+	const madeAt = cards.slice(1).map(card => fs.statSync(mirrorFolder(card)).birthtimeMs);
 	const sentAt = provider.creates[createsBefore];
 	if (sentAt === undefined || madeAt.some(time => !(time < sentAt))) {
 		throw new Error(`The three new drafts must be made before the request is sent: ${JSON.stringify({ madeAt, sentAt })}`);
@@ -1734,9 +1854,10 @@ async function assertImageGenerations(page) {
 	for (const [index, card] of cards.entries()) {
 		made = readMade(card);
 		const row = readCardRow(card);
-		if (made.id !== `${seen.id}-${index + 1}` || made.output !== index + 1 || made.outputs !== 4 || made.prompt !== fourInfo.prompt || !pngSize(fs.readFileSync(workspaceFile(card)))
-			|| canonicalJson(readGenerationInfo(card)) !== canonicalJson(fourInfo) || (index > 0 && (!row || row.x < fourRow.x + fourRow.width || row.y !== fourRow.y))) {
-			throw new Error(`Image ${index + 1} of 4 must land on its own card, to the right of the first, with the same prompt and settings: ${JSON.stringify({ card, made, row, fourRow, info: readGenerationInfo(card) })}`);
+		// Each landed card keeps only its record and its inputs (D67).
+		if (made.id !== `${seen.id}-${index + 1}` || made.output !== index + 1 || made.outputs !== 4 || made.prompt !== fourInfo.prompt || made.model !== fourInfo.model || !pngSize(fs.readFileSync(workspaceFile(card)))
+			|| readGenerationInfo(card) !== undefined || (index > 0 && (!row || row.x < fourRow.x + fourRow.width || row.y !== fourRow.y))) {
+			throw new Error(`Image ${index + 1} of 4 must land on its own card, to the right of the first, made with the same prompt and settings: ${JSON.stringify({ card, made, row, fourRow, files: cardInformationFiles(card) })}`);
 		}
 	}
 	requests = provider.requestsSince(requestsBefore);
@@ -1815,9 +1936,9 @@ async function assertImageArrivesAsJpeg(page) {
 	watch.stop();
 	const moved = readCardRow(jpeg);
 	if (!provider.isJpeg(fs.readFileSync(workspaceFile(jpeg))) || fs.existsSync(workspaceFile(cardPath)) || fs.existsSync(mirrorFolder(cardPath))
-		|| canonicalJson(readGenerationInfo(jpeg)) !== canonicalJson(info) || JSON.stringify(readUpstreamSidecar(jpeg)) !== JSON.stringify([START_IMAGE])
+		|| JSON.stringify(cardInformationFiles(jpeg)) !== JSON.stringify(FILE_INFORMATION) || readMade(jpeg).prompt !== info.prompt || JSON.stringify(readUpstreamSidecar(jpeg)) !== JSON.stringify([START_IMAGE])
 		|| moved?.x !== row.x || moved.y !== row.y || readCardRow(cardPath) !== undefined) {
-		throw new Error(`A JPEG for a .png draft must land as .jpg with its card information, its connections, and its place: ${JSON.stringify({ files: cardInformationFiles(jpeg), row, moved })}`);
+		throw new Error(`A JPEG for a .png draft must land as .jpg with its record, its connections, and its place: ${JSON.stringify({ files: cardInformationFiles(jpeg), row, moved })}`);
 	}
 	await assertCanvasEdgeVisible(page, START_IMAGE, jpeg);
 	await waitForReading(() => readGenerationCard(page, jpeg), card => card?.generation === 'file' && card.image?.complete === true && card.image.width > 0, 'the card to show the JPEG');
@@ -1979,19 +2100,22 @@ async function assertAgentGenerates(page) {
 	if (requests.length !== 1 || !parts.includes('first_frame') || parts.includes('last_frame') || requests[0].prompt !== prompt) {
 		throw new Error(`The agent's generation must send one request with the prompt and the start frame: ${JSON.stringify(requests)}`);
 	}
-	// From the card with its file, a prompt the provider module refuses stops
-	// the generation after its new draft was made: the draft goes, and nothing is sent.
-	const file = path.join(mirrorFolder(AGENT_DRAFT), 'generation.yaml');
-	const info = fs.readFileSync(file, 'utf8');
-	fs.writeFileSync(file, info.replace(`prompt: ${JSON.stringify(prompt)}`, `prompt: ${JSON.stringify(`${prompt} --rs 1080p`)}`), 'utf8');
-	await page.waitForTimeout(500);
+	// A generated file never changes (D67): basehalf --generate on it makes a
+	// new version from its record, which generates, and leaves the file as it is.
+	const record = FILE_INFORMATION.map(name => readTextIfThere(path.join(mirrorFolder(AGENT_DRAFT), name)));
 	requestsBefore = provider.mock.requests.length;
-	const blocked = await runGenerateInTerminal(page, AGENT_DRAFT);
-	const leftDrafts = fs.readdirSync(mirrorFolder(GENERATION_FOLDER)).filter(name => /^agent-shot-\d+\.mp4$/.test(name));
-	if (blocked.ok !== false || blocked.error !== PROMPT_FLAG_PROBLEM || leftDrafts.length || provider.requestsSince(requestsBefore).length || [...readTaskRecords().values()].some(record => record.cards.some(card => card.path.startsWith(`${GENERATION_FOLDER}/agent-shot-`)))) {
-		throw new Error(`A generation that a blocker stops must make no draft and send nothing: ${JSON.stringify({ blocked, leftDrafts })}`);
+	const versionWatch = watchGenerations();
+	const version = await runGenerateInTerminal(page, AGENT_DRAFT);
+	if (canonicalJson(version) !== canonicalJson({ version: 5, type: 'generate', ok: true, outcome: 'succeeded', path: AGENT_DRAFT, cards: [AGENT_AGAIN] })) {
+		throw new Error(`basehalf --generate on a generated file must make a new version and generate that: ${JSON.stringify(version)}`);
 	}
-	fs.writeFileSync(file, info, 'utf8');
+	await versionWatch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(AGENT_AGAIN)) && readMade(AGENT_AGAIN) !== undefined, 'the new version an agent generated to land');
+	versionWatch.stop();
+	const versionMade = readMade(AGENT_AGAIN);
+	if (versionMade.prompt !== prompt || JSON.stringify(versionMade.inputs) !== JSON.stringify([START_IMAGE]) || versionMade.params.duration !== 4 || provider.requestsSince(requestsBefore).length !== 1
+		|| JSON.stringify(FILE_INFORMATION.map(name => readTextIfThere(path.join(mirrorFolder(AGENT_DRAFT), name)))) !== JSON.stringify(record)) {
+		throw new Error(`The new version must be made from the record of ${AGENT_DRAFT}, which does not change: ${JSON.stringify({ versionMade, record })}`);
+	}
 	await closeAgentArea(page);
 	// After all these generations, no workspace file holds a credential.
 	for (const key of [provider.key, smoke.secondKey]) {
@@ -2007,21 +2131,21 @@ async function assertAgentGenerates(page) {
 const HARBOUR = `${GENERATION_FOLDER}/harbour.mp4`;
 const STORM = `${GENERATION_FOLDER}/storm.mp4`;
 
-// Criterion 5: a card with its file renamed in Finder keeps its prompt,
-// settings, record, connections, and place; a draft renamed on the canvas
-// keeps its prompt, settings, connections, and place; the folder of a
-// generating draft renamed in Finder lands the file in the renamed folder.
+// Criterion 5: a card with its file renamed in Finder keeps its record,
+// connections, and place; a draft renamed on the canvas keeps its prompt,
+// settings, connections, and place; the folder of a generating draft renamed
+// in Finder lands the file in the renamed folder.
 async function assertRenamesKeepCards(page) {
 	const provider = await videoSmokeProvider();
 	// A generated video, renamed in Finder; BaseHalf knows it, since it landed a while ago.
-	const names = ['generation.yaml', 'made.yaml', 'upstream.yaml'];
+	const names = FILE_INFORMATION;
 	const before = { texts: names.map(name => readTextIfThere(path.join(mirrorFolder(VIDEO_AGAIN), name))), row: readCardRow(VIDEO_AGAIN) };
 	fs.renameSync(workspaceFile(VIDEO_AGAIN), workspaceFile(HARBOUR));
 	await waitUntil(() => JSON.stringify(cardInformationFiles(HARBOUR)) === JSON.stringify(names) && !fs.existsSync(mirrorFolder(VIDEO_AGAIN)), `the card information of ${VIDEO_AGAIN} to follow it to ${HARBOUR}`, 20_000);
 	await canvasCard(page, HARBOUR).waitFor({ state: 'attached', timeout: 15_000 });
 	const after = { texts: names.map(name => readTextIfThere(path.join(mirrorFolder(HARBOUR), name))), row: readCardRow(HARBOUR) };
 	if (JSON.stringify(after.texts) !== JSON.stringify(before.texts) || after.row?.x !== before.row.x || after.row.y !== before.row.y || await canvasCard(page, HARBOUR).getAttribute('data-generation') !== 'file') {
-		throw new Error(`A generated file renamed in Finder must keep its prompt, settings, record, connections, and place: ${JSON.stringify({ before, after })}`);
+		throw new Error(`A generated file renamed in Finder must keep its record, connections, and place: ${JSON.stringify({ before, after })}`);
 	}
 	await assertCanvasEdgeVisible(page, START_IMAGE, HARBOUR);
 
@@ -2069,8 +2193,8 @@ async function assertRenamesKeepCards(page) {
 		await watch.until(w => w.first()?.record.cards?.[0]?.path === `${shotsAfter}/clip.mp4`, 'the move of the folder to write the new path of the card into its record', 20_000);
 		await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(`${shotsAfter}/clip.mp4`)) && readMade(`${shotsAfter}/clip.mp4`) !== undefined, 'the file to land in the renamed folder');
 		watch.stop();
-		if (fs.existsSync(workspaceFile(shotsBefore)) || fs.existsSync(mirrorFolder(`${shotsBefore}/clip.mp4`)) || readGenerationInfo(`${shotsAfter}/clip.mp4`)?.prompt !== 'A quiet harbour') {
-			throw new Error(`The file of a draft whose folder was renamed must land in the renamed folder: ${JSON.stringify({ old: fs.existsSync(workspaceFile(shotsBefore)), info: readGenerationInfo(`${shotsAfter}/clip.mp4`) })}`);
+		if (fs.existsSync(workspaceFile(shotsBefore)) || fs.existsSync(mirrorFolder(`${shotsBefore}/clip.mp4`)) || readMade(`${shotsAfter}/clip.mp4`)?.prompt !== 'A quiet harbour') {
+			throw new Error(`The file of a draft whose folder was renamed must land in the renamed folder: ${JSON.stringify({ old: fs.existsSync(workspaceFile(shotsBefore)), made: readMade(`${shotsAfter}/clip.mp4`) })}`);
 		}
 	} finally {
 		provider.mock.configure({ durationMs: VIDEO_PROVIDER_DURATION_MS });
@@ -2081,11 +2205,11 @@ async function assertRenamesKeepCards(page) {
 // Criterion 6: a generated file deleted in Finder takes its card off the
 // canvas and leaves no draft to generate; its card information stays, a
 // draft renamed to its name meanwhile is refused, and when the file comes
-// back its card comes back with its prompt and record. The smoke deletes
+// back its card comes back with its record. The smoke deletes
 // permanently, so a file moved out of the workspace stands for one in the
 // Trash.
 async function assertMissingFileComesBack(page) {
-	const names = ['generation.yaml', 'made.yaml', 'upstream.yaml'];
+	const names = FILE_INFORMATION;
 	const texts = names.map(name => readTextIfThere(path.join(mirrorFolder(HARBOUR), name)));
 	const parked = path.join(path.dirname(workspacePath), 'harbour-parked.mp4');
 	fs.renameSync(workspaceFile(HARBOUR), parked);
@@ -2115,44 +2239,66 @@ async function assertMissingFileComesBack(page) {
 		await input.press('Escape');
 		await input.waitFor({ state: 'hidden', timeout: 10_000 });
 	}
-	// The file comes back, and its card with its prompt and record.
+	// The file comes back, and its card with its record.
 	fs.renameSync(parked, workspaceFile(HARBOUR));
 	await canvasCard(page, HARBOUR).waitFor({ state: 'attached', timeout: 20_000 });
 	await waitForReading(() => readGenerationCard(page, HARBOUR), card => card?.generation === 'file', `the card of ${HARBOUR} to come back`);
 	if (JSON.stringify(names.map(name => readTextIfThere(path.join(mirrorFolder(HARBOUR), name)))) !== JSON.stringify(texts)) {
-		throw new Error(`A generated file that comes back must find its prompt and record: ${JSON.stringify(cardInformationFiles(HARBOUR))}`);
+		throw new Error(`A generated file that comes back must find its record: ${JSON.stringify(cardInformationFiles(HARBOUR))}`);
 	}
 }
 
-// Criterion 7: a `generation.yaml` with git's conflict markers leaves the card
-// shown and the panel usable; saving a prompt keeps a recovery copy and says
-// so, and `made.yaml` is unchanged.
+// Criterion 7: a draft's `generation.yaml` with git's conflict markers leaves
+// the card shown and the panel usable; saving a prompt keeps a recovery copy
+// and says so. A `made.yaml` that cannot be read is left as it is, byte for
+// byte: the card shows its file, and its panel says that BaseHalf could not
+// read what made it and offers no New Version (D67).
 async function assertConflictMarkersKeepTheCard(page) {
-	const file = path.join(mirrorFolder(IMAGE), 'generation.yaml');
-	const conflicted = ['<<<<<<< HEAD', 'prompt: "A lighthouse at dawn"', '=======', 'prompt: "A lighthouse at dusk"', '>>>>>>> theirs', ''].join('\n');
-	const madeText = readTextIfThere(path.join(mirrorFolder(IMAGE), 'made.yaml'));
+	const file = path.join(mirrorFolder(STORM), 'generation.yaml');
+	const conflicted = ['<<<<<<< HEAD', 'prompt: "A storm rolls in over the harbour"', '=======', 'prompt: "A storm rolls out over the harbour"', '>>>>>>> theirs', ''].join('\n');
 	fs.writeFileSync(file, conflicted, 'utf8');
 	await page.waitForTimeout(1_000);
-	const card = await readGenerationCard(page, IMAGE);
-	if (card?.generation !== 'file' || !card.image?.complete) {
-		throw new Error(`A card whose generation.yaml has conflict markers must stay shown: ${JSON.stringify(card)}`);
+	const card = await readGenerationCard(page, STORM);
+	if (card?.generation !== 'draft') {
+		throw new Error(`A draft whose generation.yaml has conflict markers must stay shown: ${JSON.stringify(card)}`);
 	}
-	const panel = await selectGenerationCard(page, IMAGE);
+	let panel = await selectGenerationCard(page, STORM);
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.notice === 'BaseHalf could not read this card\'s prompt and settings.' && seen.prompt === '', 'the panel to say that it could not read the prompt and settings');
-	await savePrompt(page, panel, IMAGE, 'A lighthouse in the fog');
-	await expectNotification(page, 'BaseHalf could not read the saved prompt and settings of image.png, so it saved the new ones. A copy of the old ones is kept.');
-	const recoveredFolder = path.join(workspacePath, '.bh', 'cache', 'recovered', 'mirror', ...IMAGE.split('/'));
+	await savePrompt(page, panel, STORM, 'A storm in the fog');
+	await expectNotification(page, 'BaseHalf could not read the saved prompt and settings of storm.mp4, so it saved the new ones. A copy of the old ones is kept.');
+	const recoveredFolder = path.join(workspacePath, '.bh', 'cache', 'recovered', 'mirror', ...STORM.split('/'));
 	const copies = fs.existsSync(recoveredFolder) ? fs.readdirSync(recoveredFolder).filter(name => /^generation\.[0-9a-f]{12}\.yaml$/.test(name)) : [];
-	if (copies.length !== 1 || fs.readFileSync(path.join(recoveredFolder, copies[0]), 'utf8') !== conflicted
-		|| fs.readFileSync(file, 'utf8') !== 'prompt: "A lighthouse in the fog"\n' || readTextIfThere(path.join(mirrorFolder(IMAGE), 'made.yaml')) !== madeText) {
-		throw new Error(`Saving a prompt over conflict markers must keep a recovery copy and leave made.yaml as it is: ${JSON.stringify({ copies, now: fs.readFileSync(file, 'utf8') })}`);
+	if (copies.length !== 1 || fs.readFileSync(path.join(recoveredFolder, copies[0]), 'utf8') !== conflicted || fs.readFileSync(file, 'utf8') !== 'prompt: "A storm in the fog"\n') {
+		throw new Error(`Saving a prompt over conflict markers must keep a recovery copy: ${JSON.stringify({ copies, now: fs.readFileSync(file, 'utf8') })}`);
 	}
 	await clickBlankCanvas(page);
+
+	// The record of a generated image with conflict markers.
+	const madeFile = path.join(mirrorFolder(IMAGE), 'made.yaml');
+	const madeText = fs.readFileSync(madeFile, 'utf8');
+	const conflictedMade = `<<<<<<< HEAD\n${madeText}=======\n${madeText.replace(/^id: .*$/m, 'id: "theirs"')}>>>>>>> theirs\n`;
+	fs.writeFileSync(madeFile, conflictedMade, 'utf8');
+	try {
+		await page.waitForTimeout(1_000);
+		const image = await readGenerationCard(page, IMAGE);
+		if (image?.generation !== 'file' || !image.image?.complete) {
+			throw new Error(`A card whose made.yaml cannot be read must stay shown with its file: ${JSON.stringify(image)}`);
+		}
+		panel = await selectGenerationCard(page, IMAGE);
+		const shown = await waitForReading(() => readRecordPanel(panel), seen => seen.record && seen.state === 'ready' && !seen.readable, 'the panel to say that BaseHalf could not read what made the file');
+		if (shown.notice !== 'BaseHalf could not read what made this file.' || shown.buttons.length !== 0 || fs.readFileSync(madeFile, 'utf8') !== conflictedMade) {
+			throw new Error(`A made.yaml that cannot be read must be left as it is, and its panel must offer no New Version: ${JSON.stringify(shown)}`);
+		}
+		await clickBlankCanvas(page);
+	} finally {
+		fs.writeFileSync(madeFile, madeText, 'utf8');
+	}
 }
 
 // Criterion 8: a file dropped into the folder under a draft's name becomes
-// the draft's file; a file moved there in Finder that BaseHalf recognizes
-// keeps its own card information, and the draft moves to the next free name.
+// the card's file, an ordinary file without a panel, since BaseHalf did not
+// make it; a file moved there in Finder that BaseHalf recognizes keeps its own
+// card information, and the draft moves to the next free name.
 async function assertFileAtDraftPath(page) {
 	const dropped = `${GENERATION_FOLDER}/dropped.png`;
 	writeGenerationInfo(dropped, { prompt: 'A picture dropped into the folder' });
@@ -2160,10 +2306,17 @@ async function assertFileAtDraftPath(page) {
 	// A card that an agent added goes to the end of the canvas, and the view stays: the step looks there.
 	await showCardOnCanvas(page, dropped);
 	fs.writeFileSync(workspaceFile(dropped), solidPng(320, 200, [16, 185, 129]));
-	await waitForReading(() => readGenerationCard(page, dropped), card => card?.generation === 'file' && card.image?.complete === true && card.image.width === 320, `the card of ${dropped} to show the dropped file`, 20_000);
-	if (readGenerationInfo(dropped)?.prompt !== 'A picture dropped into the folder' || readMade(dropped) !== undefined) {
-		throw new Error(`A file dropped under a draft's name becomes its file, and keeps its prompt with no record: ${JSON.stringify(cardInformationFiles(dropped))}`);
+	await waitForReading(() => readGenerationCard(page, dropped), card => card !== null && card.generation === null && card.image?.complete === true && card.image.width === 320, `the card of ${dropped} to show the dropped file as an ordinary file`, 20_000);
+	if (readMade(dropped) !== undefined) {
+		throw new Error(`A file dropped under a draft's name has no record: ${JSON.stringify(cardInformationFiles(dropped))}`);
 	}
+	await clickCanvasCardOnTop(page, dropped);
+	await waitForCanvasCardSelection(page, dropped, 15_000);
+	await page.waitForTimeout(500);
+	if (await page.locator(`.basehalf-canvas-video-panel-surface[data-basehalf-card-path="${dropped}"]`).count() !== 0) {
+		throw new Error(`An ordinary file has no panel: ${dropped}`);
+	}
+	await clickBlankCanvas(page);
 
 	const known = `${GENERATION_FOLDER}/known.png`;
 	const target = `${GENERATION_FOLDER}/target.png`;

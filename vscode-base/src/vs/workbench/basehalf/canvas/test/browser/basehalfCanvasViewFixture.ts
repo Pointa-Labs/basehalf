@@ -130,6 +130,11 @@ export function createBaseHalfTestCanvasView(
 		requestRender: () => calls.push('requestRender'),
 		onDidChangeSelection: onDidChangeSelection.event,
 		select: paths => calls.push(`select ${paths.join(', ')}`),
+		// The canvas selects the card once a drawing shows it, and its panel takes the focus.
+		selectCreatedCard: path => {
+			calls.push(`selectCreatedCard ${path}`);
+			canvas.createdNodeFocusPath = path;
+		},
 		interacting: false,
 		isInteracting: () => canvas.interacting,
 		focusCard: path => calls.push(`focusCard ${path}`),

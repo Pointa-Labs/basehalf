@@ -187,8 +187,9 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		snapshot = { ...snapshot, made: undefined, madeUnreadable: true };
 		changed.fire(CARD);
 		await settle();
-		assert.deepStrictEqual({ state: panel.element.dataset.state, notice: texts(panel, '.bh-video-panel-notice'), buttons: texts(panel, 'button') }, {
-			state: 'unreadable',
+		assert.deepStrictEqual({ state: panel.element.dataset.state, record: panel.element.dataset.record, notice: texts(panel, '.bh-video-panel-notice'), buttons: texts(panel, 'button') }, {
+			state: 'ready',
+			record: 'unreadable',
 			notice: ['BaseHalf could not read what made this file.'],
 			buttons: []
 		});

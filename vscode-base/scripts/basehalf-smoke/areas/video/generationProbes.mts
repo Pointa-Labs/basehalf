@@ -602,6 +602,88 @@ export function readGenerationPanel(panel) {
 	}, undefined, { timeout: 2_000 });
 }
 
+/**
+ * The panel of a card with its file (D67): what made it, read only. Its
+ * inputs by their accessible names (`Start: Image 1`, a gone one with
+ * `Gone`), the prompt, the line under it, the model and the settings as
+ * text, its buttons, and how many of its parts take typing.
+ */
+export function readRecordPanel(panel) {
+	return panel.evaluate(element => {
+		const shown = selector => {
+			const found = element.querySelector(selector);
+			return found && !found.closest('[hidden]') ? found.textContent : null;
+		};
+		return {
+			record: element.classList.contains('bh-record-panel'),
+			state: element.getAttribute('data-state'),
+			readable: element.getAttribute('data-record') === 'readable',
+			kind: element.getAttribute('data-kind'),
+			notice: shown('.bh-video-panel-notice'),
+			inputs: Array.from(element.querySelectorAll('.bh-video-panel-inputs [role="listitem"]')).filter(item => !item.closest('[hidden]')).map(item => item.getAttribute('aria-label')),
+			gone: Array.from(element.querySelectorAll('.bh-video-panel-inputs [role="listitem"].gone')).map(item => item.getAttribute('aria-label')),
+			prompt: shown('.bh-record-panel-prompt'),
+			promptEmpty: element.querySelector('.bh-record-panel-prompt')?.classList.contains('empty') ?? null,
+			line: shown('.bh-record-panel-line'),
+			model: shown('.bh-record-panel-model'),
+			settings: shown('.bh-record-panel-settings'),
+			buttons: Array.from(element.querySelectorAll('button')).filter(button => !button.closest('[hidden]')).map(button => button.textContent?.trim() ?? ''),
+			fields: element.querySelectorAll('textarea, input, [contenteditable="true"], [contenteditable=""]').length
+		};
+	}, undefined, { timeout: 2_000 });
+}
+
+/** Waits until a warning of the canvas says `text`, as when it refuses a connection. */
+export function waitForCanvasWarning(page, text, timeoutMs = 10_000) {
+	return waitForReading(() => page.locator('.basehalf-canvas-warning').allInnerTexts().catch(() => []), warnings => warnings.some(warning => warning.includes(text)), `the canvas to say "${text}"`, timeoutMs);
+}
+
+/** Takes the warnings the canvas shows away, so that the next one a step waits for is a new one. */
+export function clearCanvasWarnings(page) {
+	return page.evaluate(() => {
+		for (const warning of Array.from(document.querySelectorAll('.basehalf-canvas-warning'))) {
+			warning.remove();
+		}
+	});
+}
+
+/** Disconnect: selects the edge `from` → `to` with the mouse, where no card covers it, and presses Delete on it. */
+export async function deleteCanvasEdge(page, from, to) {
+	const edgeId = `${from}${String.fromCharCode(0)}${to}`;
+	const point = await page.evaluate(id => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit')).find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === id);
+		const ctm = hit instanceof SVGPathElement ? hit.getScreenCTM() : null;
+		const total = hit instanceof SVGPathElement ? hit.getTotalLength() : 0;
+		if (!(hit instanceof SVGPathElement) || !ctm || total <= 0) {
+			return undefined;
+		}
+		for (let offset = 0; offset <= 0.45; offset += 0.01) {
+			for (const ratio of offset === 0 ? [0.5] : [0.5 - offset, 0.5 + offset]) {
+				const along = hit.getPointAtLength(total * ratio);
+				const screen = new DOMPoint(along.x, along.y).matrixTransform(ctm);
+				if (document.elementFromPoint(screen.x, screen.y) === hit) {
+					return { x: screen.x, y: screen.y };
+				}
+			}
+		}
+		return undefined;
+	}, edgeId);
+	if (!point) {
+		throw new Error(`No part of the edge ${from} → ${to} is on top to select`);
+	}
+	await page.mouse.click(point.x, point.y);
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-edge-hit.selected') !== null, null, { timeout: 10_000 });
+	await page.evaluate(id => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit')).find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === id);
+		const wrapper = hit?.closest('.react-flow__edge');
+		if (!(wrapper instanceof SVGElement)) {
+			throw new Error('The selected edge has no element to take the keyboard');
+		}
+		wrapper.focus();
+	}, edgeId);
+	await page.keyboard.press('Delete');
+}
+
 export function readModelMenu(panel) {
 	return panel.evaluate(element => {
 		const menu = element.querySelector('.bh-video-panel-menu.model');

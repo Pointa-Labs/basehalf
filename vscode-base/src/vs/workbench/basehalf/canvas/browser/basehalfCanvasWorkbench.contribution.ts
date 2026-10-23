@@ -671,6 +671,12 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			requestRender: () => this.requestRender(),
 			onDidChangeSelection: this.onDidChangeSelectionEmitter.event,
 			select: paths => this.canvasScene.select({ cardPaths: paths }),
+			selectCreatedCard: path => {
+				const folder = this.getCurrentFolder();
+				if (folder) {
+					this.creation.selectCreatedDraft(folder, path, this.captureCanvasPostCreateOwner(), true);
+				}
+			},
 			isInteracting: () => this.canvasScene.isInteracting(),
 			focusCard: path => this.renderedCardElementsByPath.get(path)?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true }),
 			pickCard: exceptPath => this.selectionActions.pickCanvasCard(exceptPath),

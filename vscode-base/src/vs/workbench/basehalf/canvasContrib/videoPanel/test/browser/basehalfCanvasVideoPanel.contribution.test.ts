@@ -167,15 +167,17 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		assert.strictEqual(feature.panels.length, 2, 'drawn again, the card keeps its panel');
 	});
 
-	test('New Version selects the draft it made once its card is drawn, and focuses its prompt, once (D67)', async () => {
+	test('New Version selects the draft it made as a card the user just created, in sight, and its prompt takes the focus, once (D67)', async () => {
 		const { canvas, feature } = createPanel();
 		canvas.changeSelection([STILL]);
 		const record = feature.panels[0] as TestRecordPanel;
+		// A draft in another folder is not this canvas's to select.
+		record.recordHost.didMakeNewVersion(URI.file('/workspace/elsewhere/still-2.png'));
 		record.recordHost.didMakeNewVersion(URI.file('/workspace/folder/still-2.png'));
-		assert.strictEqual(canvas.calls.at(-1), 'requestRender');
+		assert.deepStrictEqual(canvas.calls.filter(call => call.startsWith('selectCreatedCard')), ['selectCreatedCard folder/still-2.png']);
 		canvas.setItem(generationItem('folder/still-2.png', { kind: 'image', draft: true }), { kind: 'draft' });
-		canvas.showScene(canvas.scene);
-		assert.ok(canvas.calls.includes('select folder/still-2.png'));
+		// The drawing that shows the new card selects it.
+		canvas.showScene(canvas.scene, { selection: ['folder/still-2.png'] });
 		const draftPanel = feature.panels.at(-1)!;
 		assert.strictEqual(draftPanel.resource.path, '/workspace/folder/still-2.png');
 		assert.strictEqual(draftPanel.options.focusPromptWhenShown, true);

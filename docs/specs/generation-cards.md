@@ -1051,7 +1051,10 @@ that is a file never changes, so another version is always a new card:
   order. It is not connected from the original card, which is not its input:
   to make a version from the card itself, connect from it
   ([What is connected is sent](#what-is-connected-is-sent)).
-- It becomes the selected card, with its panel open and its prompt focused.
+- It becomes the selected card, with its panel open and its prompt focused;
+  when it is not in sight, the view goes to it, as to any card the user just
+  created at a place BaseHalf chose
+  ([canvas card placement](canvas-card-placement.md#a-card-the-user-just-created-is-shown)).
   Nothing is generated and nothing is paid for until the user generates it:
   `Cmd/Ctrl+Enter` at once makes another result from the same inputs, and a
   change to the prompt or the settings first makes a changed version.
