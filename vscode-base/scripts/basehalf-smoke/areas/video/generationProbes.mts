@@ -591,7 +591,8 @@ export function readGenerationPanel(panel) {
 			generate: generate ? {
 				disabled: generate.getAttribute('aria-disabled') === 'true',
 				label: generate.getAttribute('aria-label'),
-				stop: generate.classList.contains('stop')
+				stop: generate.classList.contains('stop'),
+				cursor: element.ownerDocument.defaultView.getComputedStyle(generate).cursor
 			} : null,
 			emptySlots: Array.from(element.querySelectorAll('.bh-input-tile.empty')).map(slot => slot.getAttribute('data-frame')),
 			start: frame('start'),

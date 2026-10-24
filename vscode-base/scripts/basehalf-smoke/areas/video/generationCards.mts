@@ -698,6 +698,10 @@ async function assertPanelModelAndSettings(page) {
 		throw new Error(`Every video model must show its abilities under its name: ${JSON.stringify(menu.groups.map(candidate => candidate.items))}`);
 	}
 	const seedance = group.items.find(item => item.model === SEEDANCE);
+	// D70, criterion 67: with its range of durations.
+	if (!/ · \d+–\d+s · /.test(seedance?.detail ?? '')) {
+		throw new Error(`A video model must show its range of durations among its abilities: ${JSON.stringify(seedance)}`);
+	}
 	await clickModel(page, panel, SMOKE_PROVIDER, SEEDANCE);
 	const afterChoice = await assertNoCanvasFocusRing(page, 'The model button after a model was chosen with the mouse');
 	if (!afterChoice.element?.includes('bh-video-panel-model')) {
@@ -981,8 +985,9 @@ async function assertPanelInputsAndNames(page) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
 	await page.keyboard.type(' --rs');
 	const flagged = await waitForReading(() => readGenerationPanel(panel), seen => seen.generate?.label === PROMPT_FLAG_PROBLEM, 'the provider module\'s problem with --rs in the prompt to name Generate');
-	if (!flagged.generate.disabled || flagged.reason?.text !== PROMPT_FLAG_PROBLEM || flagged.reason.action !== null) {
-		throw new Error(`A problem the provider module reports must disable Generate and show above the footer, with no action: ${JSON.stringify(flagged)}`);
+	// D70, criterion 68: the prompt fixes it, so Generate is dimmed with the not-allowed pointer and says why, and no line does.
+	if (!flagged.generate.disabled || flagged.generate.cursor !== 'not-allowed' || flagged.reason !== null) {
+		throw new Error(`A problem the provider module reports must dim Generate with the not-allowed pointer and the problem as its name, and show no line above the footer: ${JSON.stringify(flagged)}`);
 	}
 	for (let index = 0; index < ' --rs'.length; index++) {
 		await page.keyboard.press('Backspace');
