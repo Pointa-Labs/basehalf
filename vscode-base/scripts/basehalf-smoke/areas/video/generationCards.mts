@@ -1623,8 +1623,10 @@ async function assertFilePanelShowsWhatMadeIt(page) {
 		range.selectNodeContents(element);
 		selection?.removeAllRanges();
 		selection?.addRange(range);
-		// The caret holder after a chip at the end of a line is no part of the text, and copying leaves it out.
-		const text = (selection?.toString() ?? '').replaceAll('\u200b', '');
+		// What a copy puts on the clipboard: the prompt's text, its chips as their names.
+		const data = new DataTransfer();
+		element.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+		const text = data.getData('text/plain');
 		selection?.removeAllRanges();
 		return { text, userSelect: getComputedStyle(element).userSelect };
 	});
