@@ -20,12 +20,14 @@ suite('BaseHalfGenerationAgentContract', () => {
 			fields: Object.keys(contract.schema.properties),
 			closed: contract.schema.additionalProperties,
 			modes: contract.schema.properties.mode.enum,
-			missing: ['made.yaml', '.bh/cache/', 'draft', 'upstream.yaml', 'host.modelCatalog', 'basehalf --generate', '@[frames/start.png]', 'Write no model\'s own names', 'on the canvas', 'Only a draft has a generation.yaml', 'keeps the inputs that made it', 'Every one is sent', 'The mode that is used', 'without the seed'].filter(phrase => !rules.includes(phrase))
+			missing: ['made.yaml', '.bh/cache/', 'draft', 'upstream.yaml', 'host.modelCatalog', 'basehalf --generate', '@[frames/start.png]', 'Write no model\'s own names', 'on the canvas', 'Only a draft has a generation.yaml', 'keeps the inputs that made it', 'Every one is sent', 'The mode that is used', 'without the seed',
+				// D78: sounds, Lyrics mode, a note in a prompt that is spoken or sung, and the voice.
+				'audio for .mp3, .wav, .flac, .m4a, .aac, .ogg', 'lyrics sends the prompt as the lyrics', 'spoken or sung', 'without its name', 'voice parameter', 'image or song'].filter(phrase => !rules.includes(phrase))
 		}, {
 			version: BASEHALF_GENERATION_AGENT_CONTRACT_VERSION,
 			fields: [...BASEHALF_GENERATION_INFO_FIELDS],
 			closed: false,
-			modes: ['frames', 'reference', 'extend', 'edit'],
+			modes: ['frames', 'reference', 'extend', 'edit', 'lyrics'],
 			missing: []
 		});
 		assert.strictEqual(contract.contractVersion, 7);

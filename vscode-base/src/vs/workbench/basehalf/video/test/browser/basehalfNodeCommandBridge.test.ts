@@ -70,10 +70,20 @@ suite('BaseHalfNodeCommandBridge', () => {
 		const fromFile = await again.handler.handle(requestEvent('/work', 'scenes/shot.mp4'));
 		const several = createHarness({ drafts: ['frames/image.png'], generated: ['/work/frames/image.png', '/work/frames/image-2.png', '/work/frames/image-3.png'] });
 		const images = await several.handler.handle(requestEvent('/work/frames', 'frames/image.png'));
-		assert.deepStrictEqual([fromDraft, fromFile, images].map(response => response?.type === 'generate' ? [response.ok, response.cards] : response), [
+		// An audio draft generates as an image or a video draft does, and every song of several is printed (D78).
+		const sound = createHarness({ drafts: ['voice/audio.mp3'] });
+		const fromSound = await sound.handler.handle(requestEvent('/work', 'voice/audio.mp3'));
+		const songs = createHarness({ drafts: ['songs/audio.wav'], generated: ['/work/songs/audio.wav', '/work/songs/audio-2.wav'] });
+		const fromSongs = await songs.handler.handle(requestEvent('/work/songs', 'songs/audio.wav'));
+		const spoken = createHarness({ generated: ['/work/voice/audio-2.mp3'] });
+		const fromSoundFile = await spoken.handler.handle(requestEvent('/work', 'voice/audio.mp3'));
+		assert.deepStrictEqual([fromDraft, fromFile, images, fromSound, fromSongs, fromSoundFile].map(response => response?.type === 'generate' ? [response.ok, response.cards] : response), [
 			[true, ['scenes/next.mp4']],
 			[true, ['scenes/shot-2.mp4']],
-			[true, ['frames/image.png', 'frames/image-2.png', 'frames/image-3.png']]
+			[true, ['frames/image.png', 'frames/image-2.png', 'frames/image-3.png']],
+			[true, ['voice/audio.mp3']],
+			[true, ['songs/audio.wav', 'songs/audio-2.wav']],
+			[true, ['voice/audio-2.mp3']]
 		]);
 		assert.deepStrictEqual(draft.generateCalls.map(call => call.resource.path), ['/work/scenes/next.mp4']);
 	});
@@ -114,6 +124,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 			['../outside.mp4', {}],
 			['.bh/mirror/shot.mp4/generation.yaml', {}],
 			['scenes/notes.md', {}],
+			// A sound of an extension that no audio card has.
+			['voice/take.opus', {}],
 			// The retired node document is an ordinary file (D63).
 			['scenes/shot.bhnode', {}],
 			// A video without generation information, and a path that names nothing.
@@ -134,6 +146,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 			'../outside.mp4: rejected 0',
 			'.bh/mirror/shot.mp4/generation.yaml: rejected 0',
 			'scenes/notes.md: rejected 0',
+			'voice/take.opus: rejected 0',
 			'scenes/shot.bhnode: rejected 0',
 			'scenes/imported.mp4: rejected 0',
 			'scenes/nothing.mp4: rejected 0',
@@ -539,8 +552,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 			if ([...missing].some(path => resource.path === path || resource.path.startsWith(`${path}/`))) {
 				throw new FileOperationError('not found', FileOperationResult.FILE_NOT_FOUND);
 			}
-			// Everything named like an image, a video, a note, or a node file is a file; the rest are folders.
-			const isFile = !folders.has(resource.path) && /\.(?:mp4|png|md|bhnode)$/.test(resource.path);
+			// Everything named like an image, a video, a sound, a note, or a node file is a file; the rest are folders.
+			const isFile = !folders.has(resource.path) && /\.(?:mp4|png|mp3|wav|md|bhnode)$/.test(resource.path);
 			return { isFile, isDirectory: !isFile, isSymbolicLink: resource.fsPath === options.symbolicLinkPath };
 		};
 		const fileService = {
