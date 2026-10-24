@@ -964,6 +964,45 @@ export async function sampleCardLooks(page, cardPath, run) {
 }
 
 /**
+ * Samples every frame while `run` runs: whether the panel shows the tile of
+ * `from` and whether the canvas shows the line from `from` to `to`. Returns
+ * when each first showed, in milliseconds from the first sample, or -1
+ * (D69, criterion 64).
+ */
+export async function sampleTileAndLine(page, from, to, run) {
+	await page.evaluate(([fromPath, toPath]) => {
+		const token = window.__basehalfTileLine = (window.__basehalfTileLine ?? 0) + 1;
+		window.__basehalfTileLineFrames = [];
+		const edgeId = `${fromPath}\u0000${toPath}`;
+		const started = performance.now();
+		const sample = () => {
+			if (window.__basehalfTileLine !== token) {
+				return;
+			}
+			const tile = Array.from(document.querySelectorAll('.bh-video-panel .bh-input-tile')).some(element => element.getAttribute('data-path') === fromPath);
+			const line = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path')).some(element => element.getAttribute('data-edge-id') === edgeId);
+			window.__basehalfTileLineFrames.push([tile, line, performance.now() - started]);
+			requestAnimationFrame(sample);
+		};
+		requestAnimationFrame(sample);
+	}, [from, to]);
+	let frames = [];
+	try {
+		await run();
+	} finally {
+		frames = await page.evaluate(() => {
+			window.__basehalfTileLine++;
+			return window.__basehalfTileLineFrames;
+		});
+	}
+	const first = index => {
+		const frame = frames.find(entry => entry[index]);
+		return frame ? Math.round(frame[2]) : -1;
+	};
+	return { tile: first(0), line: first(1), frames: frames.length };
+}
+
+/**
  * Moves the pointer over the card at `cardPath` and reads what the window
  * shows there: the pointer over its body and over its name, the label beside
  * the pointer, and whether the card is darkened with a check mark.

@@ -63,6 +63,7 @@ import {
 	runGenerateInTerminal,
 	sampleCardLooks,
 	sampleCardPhases,
+	sampleTileAndLine,
 	savePrompt,
 	SCENE_NOTE,
 	SCENE_NOTE_TEXT,
@@ -1068,12 +1069,19 @@ async function assertPickOnCanvas(page) {
 
 	// Two clicks in a row: the image is connected at the end, and start.png is removed with its name.
 	// Criterion 62: each card keeps its element and its picture, and its look changes once.
+	// Criterion 64: the line on the canvas comes with the tile, within two frames of 60 Hz.
+	let tileAndLine;
 	const connecting = await sampleCardLooks(page, still, async () => {
-		await clickCanvasCardOnTop(page, still);
-		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]), `a click to connect ${still} at the end of the list`, 10_000);
-		await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[still] === 'remove', `picking to stay on and show ${still} as connected`);
-		await page.waitForTimeout(300);
+		tileAndLine = await sampleTileAndLine(page, still, VIDEO, async () => {
+			await clickCanvasCardOnTop(page, still);
+			await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]), `a click to connect ${still} at the end of the list`, 10_000);
+			await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[still] === 'remove', `picking to stay on and show ${still} as connected`);
+			await page.waitForTimeout(300);
+		});
 	});
+	if (tileAndLine.tile < 0 || tileAndLine.line < 0 || Math.abs(tileAndLine.line - tileAndLine.tile) > 34) {
+		throw new Error(`The line of a connection that Pick on Canvas made must show within two frames of its tile: ${JSON.stringify(tileAndLine)}`);
+	}
 	await showCardOnCanvas(page, START_IMAGE);
 	const removing = await sampleCardLooks(page, START_IMAGE, async () => {
 		await clickCanvasCardOnTop(page, START_IMAGE);
