@@ -9,7 +9,7 @@ import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { MenuId, MenuRegistry, registerAction2, Action2, IAction2Options } from '../../../../platform/actions/common/actions.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
 import { isHorizontal, IWorkbenchLayoutService, PanelAlignment, Parts, Position, positionToString } from '../../../services/layout/browser/layoutService.js';
-import { IsAuxiliaryWindowContext, PanelAlignmentContext, PanelMaximizedContext, PanelPositionContext, PanelVisibleContext } from '../../../common/contextkeys.js';
+import { PanelAlignmentContext, PanelMaximizedContext, PanelPositionContext, PanelVisibleContext } from '../../../common/contextkeys.js';
 import { ContextKeyExpr, ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
@@ -25,8 +25,6 @@ import { IBaseHalfAgentAreaService } from '../../../basehalf/agentArea/common/ba
 
 const maximizeIcon = registerIcon('panel-maximize', Codicon.screenFull, localize('maximizeIcon', 'Icon to maximize a panel.'));
 const closeIcon = registerIcon('panel-close', Codicon.close, localize('closeIcon', 'Icon to close a panel.'));
-const panelIcon = registerIcon('panel-layout-icon', Codicon.layoutPanel, localize('togglePanelOffIcon', 'Icon to toggle the panel off when it is on.'));
-const panelOffIcon = registerIcon('panel-layout-icon-off', Codicon.layoutPanelOff, localize('togglePanelOnIcon', 'Icon to toggle the panel on when it is off.'));
 
 export class TogglePanelAction extends Action2 {
 
@@ -50,17 +48,9 @@ export class TogglePanelAction extends Action2 {
 				description: localize('openAndClosePanel', 'Open/Show and Close/Hide Panel'),
 			},
 			keybinding: { primary: KeyMod.CtrlCmd | KeyCode.KeyJ, weight: KeybindingWeight.WorkbenchContrib },
-			menu: [
-				{
-					id: MenuId.MenubarAppearanceMenu,
-					group: '2_workbench_layout',
-					order: 5
-				}, {
-					id: MenuId.LayoutControlMenuSubmenu,
-					group: '0_workbench_layout',
-					order: 4
-				}
-			]
+			// BaseHalf: the command opens and closes the Agent Area, so the
+			// Appearance menu and the layout control menu hold no Panel entry
+			// beside Secondary Side Bar (docs/specs/layout-controls.md, D72).
 		});
 	}
 
@@ -321,29 +311,9 @@ registerAction2(class extends Action2 {
 	}
 });
 
-MenuRegistry.appendMenuItems([
-	{
-		id: MenuId.LayoutControlMenu,
-		item: {
-			group: 'navigation',
-			command: {
-				id: TogglePanelAction.ID,
-				title: localize('togglePanel', "Toggle Panel"),
-				icon: panelOffIcon,
-				toggled: { condition: PanelVisibleContext, icon: panelIcon }
-			},
-			when:
-				ContextKeyExpr.and(
-					IsAuxiliaryWindowContext.negate(),
-					ContextKeyExpr.or(
-						ContextKeyExpr.equals('config.workbench.layoutControl.type', 'toggles'),
-						ContextKeyExpr.equals('config.workbench.layoutControl.type', 'both')
-					)
-				),
-			order: 1
-		}
-	}
-]);
+// BaseHalf: the title bar has no Toggle Panel button. The command opens and
+// closes the Agent Area, which has its own button there
+// (docs/specs/layout-controls.md, D72).
 
 class MoveViewsBetweenPanelsAction extends Action2 {
 	constructor(private readonly source: ViewContainerLocation, private readonly destination: ViewContainerLocation, desc: Readonly<IAction2Options>) {

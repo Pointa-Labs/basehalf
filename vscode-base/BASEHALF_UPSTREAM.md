@@ -167,3 +167,14 @@ these over:
   `src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarActions.ts`: the
   toggle of the part at the left edge is registered in that menu and not in
   `MenuId.LayoutControlMenu`.
+
+## No control of the panel (2026-10-24)
+
+BaseHalf's own change. See public decision D72 and
+`docs/specs/layout-controls.md`. An update of the whole tree has to carry
+it over:
+
+- `src/vs/workbench/browser/parts/panel/panelActions.ts`: Toggle Panel is
+  not registered in `MenuId.LayoutControlMenu`,
+  `MenuId.MenubarAppearanceMenu`, or `MenuId.LayoutControlMenuSubmenu`, and
+  its two layout icons are gone. The command keeps Cmd+J.

@@ -4,8 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
+import { decodeKeybinding } from '../../../../../base/common/keybindings.js';
+import { OperatingSystem } from '../../../../../base/common/platform.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { isIMenuItem, MenuId, MenuRegistry } from '../../../../../platform/actions/common/actions.js';
+import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import '../../../../browser/actions/layoutActions.js';
 import '../../../../browser/parts/auxiliarybar/auxiliaryBarActions.js';
 import '../../../../browser/parts/panel/panelActions.js';
@@ -45,7 +49,7 @@ suite('BaseHalf layout controls', () => {
 			right: layoutControls(MenuId.LayoutControlMenu, {})
 		}, {
 			left: [SIDEBAR],
-			right: [PANEL, AGENT_AREA]
+			right: [AGENT_AREA]
 		});
 	});
 
@@ -56,7 +60,25 @@ suite('BaseHalf layout controls', () => {
 			right: layoutControls(MenuId.LayoutControlMenu, settings)
 		}, {
 			left: [AGENT_AREA],
-			right: [PANEL, SIDEBAR]
+			right: [SIDEBAR]
+		});
+	});
+
+	test('the panel has no control in the title bar or the View menu, and keeps Cmd+J', () => {
+		const menusOf = (command: string) => [MenuId.TitleBarLeft, MenuId.LayoutControlMenu, MenuId.LayoutControlMenuSubmenu, MenuId.MenubarAppearanceMenu, MenuId.CommandPalette]
+			.filter(menu => MenuRegistry.getMenuItems(menu).some(item => isIMenuItem(item) && item.command.id === command))
+			.map(menu => menu.id);
+		const cmdJ = decodeKeybinding(KeyMod.CtrlCmd | KeyCode.KeyJ, OperatingSystem.Macintosh)?.getHashCode();
+		assert.deepStrictEqual({
+			panel: menusOf(PANEL),
+			agentArea: menusOf(AGENT_AREA),
+			cmdJ: KeybindingsRegistry.getDefaultKeybindingsForOS(OperatingSystem.Macintosh)
+				.filter(item => item.keybinding?.getHashCode() === cmdJ && !item.when)
+				.map(item => item.command)
+		}, {
+			panel: ['CommandPalette'],
+			agentArea: ['TitleBarLeft', 'LayoutControlMenu', 'LayoutControlMenuSubmenu', 'MenubarAppearanceMenu', 'CommandPalette'],
+			cmdJ: [PANEL]
 		});
 	});
 
