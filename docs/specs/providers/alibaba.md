@@ -158,7 +158,13 @@ Rules between parameters and inputs, reported by `check`:
 
 - Wan 3.0: with videos, the videos' length plus the duration must be at most
   30 seconds (checked when the files are measured and the duration is not
-  Auto).
+  Auto; the reference says "the total input video duration + output video
+  duration must not exceed 30 seconds", read again on 2026-10-24). The
+  problem says how long the video or the videos are, the sum, and the
+  longest duration that fits, such as "The video lasts 5.0 seconds and the
+  result is to be 30 seconds, 35.0 in all; Wan 3.0 takes at most 30 seconds
+  in all. Choose 25 seconds or less, or Auto." A sum up to 0.05 s over 30
+  passes, for the rounding of a measured length.
 - Wan 2.7 References: at least one reference image or video, at most five
   together, and with a reference video at most 10 seconds.
 - Wan 2.6 and 2.6 Flash: Multiple shots need Prompt Rewriting (`shot_type`
