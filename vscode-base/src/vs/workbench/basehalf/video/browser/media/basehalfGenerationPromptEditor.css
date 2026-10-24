@@ -10,7 +10,8 @@
 	width: 100%;
 	height: 100%;
 	margin: 0;
-	padding: 4px 2px;
+	/* The text begins at the panel's left edge, as the tiles and the footer do. */
+	padding: 4px 0;
 	overflow-x: hidden;
 	overflow-y: auto;
 	color: var(--bh-card-text-primary, var(--vscode-foreground));
@@ -51,25 +52,32 @@
 	cursor: default;
 }
 
-/* A name of an input: one piece of the text, with the input's picture. */
+/*
+ * A name of an input: one piece of the text, with the input's picture. It is
+ * a line of its own text, so its name stands on the baseline of the prompt's
+ * text, whatever its picture is.
+ */
 .monaco-workbench .bh-prompt-chip {
-	display: inline-flex;
+	display: inline-block;
 	height: 18px;
 	box-sizing: border-box;
-	align-items: center;
-	gap: 3px;
 	margin: 0 1px;
 	padding: 0 5px 0 2px;
 	color: var(--bh-card-text-primary, var(--vscode-foreground));
 	background: color-mix(in srgb, var(--bh-video-panel-accent, var(--vscode-focusBorder)) 22%, transparent);
 	border-radius: 5px;
 	font-size: 12px;
-	line-height: 16px;
-	vertical-align: -4px;
+	line-height: 18px;
+	vertical-align: baseline;
 	white-space: nowrap;
 	cursor: default;
 	user-select: all;
 	-webkit-user-select: all;
+}
+
+/* A name at the start of a line begins where the text does. */
+.monaco-workbench .bh-prompt-chip.starts-line {
+	margin-left: 0;
 }
 
 .monaco-workbench .bh-prompt-chip[data-kind="audio"],
@@ -77,20 +85,24 @@
 	padding-left: 4px;
 }
 
+/* The picture and the glyph stand in the middle of the chip's height. */
 .monaco-workbench .bh-prompt-chip-picture {
-	display: block;
+	display: inline-block;
 	width: 14px;
 	height: 14px;
-	flex: none;
+	margin-right: 3px;
 	object-fit: cover;
 	border-radius: 3px;
+	vertical-align: -3px;
 	pointer-events: none;
 }
 
 .monaco-workbench .bh-prompt-chip-glyph.codicon[class*='codicon-'] {
-	flex: none;
+	margin-right: 3px;
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 	font-size: 12px;
+	line-height: 12px;
+	vertical-align: -2px;
 }
 
 .monaco-workbench .bh-prompt-chip-name {

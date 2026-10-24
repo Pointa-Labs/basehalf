@@ -539,7 +539,9 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 			const name = text.slice(token.start, token.end);
 			const chip = this.options.chipOf(token);
 			if (chip) {
-				this.element.append(kept.get(chipKey(name, chip))?.shift() ?? renderChip(name, chip));
+				const element = kept.get(chipKey(name, chip))?.shift() ?? renderChip(name, chip);
+				element.classList.toggle('starts-line', token.start === 0 || text.charAt(token.start - 1) === '\n');
+				this.element.append(element);
 				const next = text.charAt(token.end);
 				if (next === '' || next === '\n') {
 					this.element.append(document.createTextNode(CARET_HOLDER));

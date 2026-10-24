@@ -356,6 +356,18 @@ suite('BaseHalfGenerationPromptEditor (D68)', () => {
 		assert.deepStrictEqual([before !== null, editor.element.querySelector('img.bh-prompt-chip-picture') === before, editor.value], [true, true, 'Look: 图片1 and 图片2']);
 	});
 
+	test('a name at the start of a line begins where the text does; one after text keeps its space', () => {
+		const editor = create();
+		editor.setValue('图片1 rides\n图片2 and 图片1');
+		const chips = [...editor.element.querySelectorAll<HTMLElement>('.bh-prompt-chip')].map(chip => `${chip.dataset.name} ${chip.classList.contains('starts-line')}`);
+		editor.replace(0, 0, 'Look: ');
+		const after = [...editor.element.querySelectorAll<HTMLElement>('.bh-prompt-chip')].map(chip => `${chip.dataset.name} ${chip.classList.contains('starts-line')}`);
+		assert.deepStrictEqual({ chips, after }, {
+			chips: ['图片1 true', '图片2 true', '图片1 false'],
+			after: ['图片1 false', '图片2 true', '图片1 false']
+		});
+	});
+
 	test('replace puts a name in place of what was typed and the caret after it', () => {
 		const editor = create();
 		editor.setValue('look at @');

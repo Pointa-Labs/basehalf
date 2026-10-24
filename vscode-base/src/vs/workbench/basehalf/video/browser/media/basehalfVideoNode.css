@@ -106,7 +106,8 @@
 	flex: none;
 	align-items: center;
 	gap: 6px;
-	padding: 0 2px 0 4px;
+	/* Its icon begins at the panel's left edge and its action ends where Generate ends. */
+	padding: 0;
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 	font-size: 12px;
 	line-height: 16px;

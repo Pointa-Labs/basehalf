@@ -1249,6 +1249,49 @@ suite('BaseHalfVideoNodePanel', () => {
 		assert.deepStrictEqual({ label: slot.getAttribute('aria-label'), added: connections.added }, { label: 'Add a Start Frame', added: ['shots/start.png'] });
 	});
 
+	test('the rows share the panel\'s edges, and a name stands on the baseline of the prompt\'s text', async () => {
+		const frame = mainWindow.document.createElement('div');
+		frame.className = 'monaco-workbench';
+		frame.style.cssText = 'position: absolute; left: 0; top: 0; width: 512px; --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;';
+		mainWindow.document.body.appendChild(frame);
+		mounted.push(frame);
+		// Borealis Media is not set up: the reason shows, with Set Up.
+		store.info = { prompt: 'Image 1 rides along the sea, Image 2 behind', provider: 'borealis', model: 'borealis-one' };
+		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0 }));
+		frame.replaceChildren(panel.element);
+		await settle();
+		const box = (element: Element) => element.getBoundingClientRect();
+		const outer = box(panel.element);
+		const style = getComputedStyle(panel.element);
+		const left = outer.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+		const right = outer.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+		const at = (value: number) => Math.round(value * 2) / 2;
+		// Baselines in a copy of the prompt, by empty inline blocks, which stand on the baseline.
+		const editor = promptOf(panel);
+		const copy = editor.cloneNode(true) as HTMLElement;
+		copy.removeAttribute('contenteditable');
+		copy.style.cssText = `position: absolute; left: 0; top: 0; width: ${editor.clientWidth}px; height: auto; visibility: hidden;`;
+		editor.parentElement!.append(copy);
+		const marker = () => {
+			const element = mainWindow.document.createElement('span');
+			element.style.cssText = 'display: inline-block; width: 0; height: 0;';
+			return element;
+		};
+		const baselines = [...copy.querySelectorAll<HTMLElement>('.bh-prompt-chip')].map(chip => {
+			const inName = marker();
+			chip.querySelector('.bh-prompt-chip-name')!.append(inName);
+			const after = marker();
+			chip.after(after);
+			return at(box(inName).bottom - box(after).bottom);
+		});
+		copy.remove();
+		assert.deepStrictEqual({
+			left: [find(panel, '.bh-input-tile'), find(panel, '.bh-prompt-chip'), find(panel, '.bh-video-panel-reason-icon'), find(panel, '.bh-video-panel-model')].map(element => at(box(element).left - left)),
+			right: [find(panel, '.bh-video-panel-reason-action'), find(panel, '.bh-video-panel-generate')].map(element => at(right - box(element).right)),
+			baselines
+		}, { left: [0, 0, 0, 0], right: [0, 0], baselines: [0, 0] });
+	});
+
 	test('lays out at its width with nothing clipped or overlapping: the footer in one row, the slots, and the settings', async () => {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';

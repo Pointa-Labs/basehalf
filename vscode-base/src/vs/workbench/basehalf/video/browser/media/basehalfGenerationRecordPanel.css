@@ -11,9 +11,10 @@
  * text, and New Version.
  */
 
+/* The line and the model's name begin at the panel's left edge, as the tiles and the prompt do. */
 .monaco-workbench .bh-record-panel-line {
 	flex: none;
-	padding: 0 2px;
+	padding: 0;
 	overflow: hidden;
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 	font-size: 12px;
@@ -36,7 +37,7 @@
 	/* The model's name stays whole up to its width; the summary of the settings gives way first. */
 	max-width: 208px;
 	flex: 0 0 auto;
-	padding: 0 4px 0 8px;
+	padding: 0 4px 0 0;
 	color: var(--bh-card-text-primary, var(--vscode-foreground));
 	font-weight: 600;
 }
