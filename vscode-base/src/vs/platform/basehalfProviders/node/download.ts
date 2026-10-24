@@ -9,7 +9,7 @@ import { ProviderFailure, rejected, unreadable } from './failure.js';
 import { isAllowedAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, USER_AGENT, type BoundHttp, type ProviderTransport, type TransportRequest, type TransportResponse } from './http.js';
 import { AUDIO_SIGNATURE_BYTES, audioFormatOf, IMAGE_SIGNATURE_BYTES, imageFormatOf } from './media.js';
 import type { InlineOutput, OutputAddress } from './module.js';
-import type { ModelKind, OutputFormat, ProviderErrorCode } from '../common/basehalfProviderTypes.js';
+import type { AudioOutputFormat, ModelKind, OutputFormat, ProviderErrorCode } from '../common/basehalfProviderTypes.js';
 
 /** The largest video kept (providers, "Requests"). */
 export const MAX_VIDEO_DOWNLOAD_BYTES = 512 * 1024 * 1024;
@@ -17,7 +17,9 @@ export const MAX_VIDEO_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 export const MAX_IMAGE_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 /** The largest sound kept (providers, "Requests"). */
 export const MAX_AUDIO_DOWNLOAD_BYTES = 256 * 1024 * 1024;
-/** The longest address of a file that the window can hand back to `download`. */
+/** The largest sample of a voice that `voicePreview` fetches for the window to play (providers, "Requests"). */
+export const MAX_VOICE_SAMPLE_BYTES = 5 * 1024 * 1024;
+/** The longest address of a file that the window can hand back to `download` or `voicePreview`. */
 export const MAX_ADDRESS_LENGTH = 8192;
 const MAX_REDIRECTS = 5;
 
@@ -34,9 +36,15 @@ export interface KeptFile {
 	readonly format: OutputFormat;
 }
 
+/** A voice's sample, fetched into memory: its bytes, and the format they start like. */
+export interface FetchedSample {
+	readonly bytes: Buffer;
+	readonly format: AudioOutputFormat;
+}
+
 /** What a file of each kind must be to be kept, and how messages name it. */
 interface FileRule {
-	readonly noun: 'image' | 'video' | 'sound';
+	readonly noun: 'image' | 'video' | 'sound' | 'sample';
 	/** The noun with its article, as a sentence uses it. */
 	readonly aNoun: string;
 	readonly maxBytes: number;
@@ -49,7 +57,7 @@ interface FileRule {
 	readonly accept: string;
 }
 
-/** What a sound must be to be kept (D78). */
+/** What a sound must be, whether a generation made it or it is a voice's sample (D78). */
 const SOUND = Object.freeze({
 	headBytes: AUDIO_SIGNATURE_BYTES,
 	formatOf: audioFormatOf,
@@ -84,6 +92,9 @@ const RULES: Readonly<Record<ModelKind, FileRule>> = Object.freeze({
 	},
 	audio: { noun: 'sound', aNoun: 'a sound', maxBytes: MAX_AUDIO_DOWNLOAD_BYTES, ...SOUND }
 });
+
+/** What a voice's sample must be to reach the window: a sound of at most 5 MiB. */
+const SAMPLE_RULE: FileRule = Object.freeze({ noun: 'sample', aNoun: 'a sample', maxBytes: MAX_VOICE_SAMPLE_BYTES, ...SOUND });
 
 /** A failure after which the whole download starts again, with the wait the provider asked for. */
 class RetryableDownload extends Error {
@@ -145,6 +156,25 @@ export async function downloadFile(http: BoundHttp, location: OutputAddress | In
 		http.secretValues.add(value);
 	}
 	return retried(http, () => downloadOnce(http, location, rule, maxBytes, timeoutMs, fileSink(targetFsPath, rule)));
+}
+
+/**
+ * Fetches the sample of a voice into memory, for the window to play (D78;
+ * providers, "Requests"): under the rules of a download (at most five
+ * redirects, the credentials only to the endpoint's own origin, the same
+ * retries), and only bytes that start like a sound (`notAudio`), at most
+ * 5 MiB (`tooLarge`). Answers the bytes and the format they start like.
+ */
+export async function fetchSample(http: BoundHttp, address: string, options: DownloadOptions = {}): Promise<FetchedSample> {
+	const maxBytes = options.maxBytes ?? SAMPLE_RULE.maxBytes;
+	const timeoutMs = options.timeoutMs ?? http.options.requestTimeoutMs;
+	const bytes = await retried(http, () => downloadOnce(http, { url: address }, SAMPLE_RULE, maxBytes, timeoutMs, memorySink()));
+	// The bytes were taken for starting like a sound; this names the format they start like.
+	const format = audioFormatOf(bytes);
+	if (!format) {
+		throw new ProviderFailure('notAudio', SAMPLE_RULE.unlike);
+	}
+	return { bytes, format };
 }
 
 function isInline(location: OutputAddress | InlineOutput): location is InlineOutput {
@@ -244,6 +274,21 @@ function fileSink(targetFsPath: string, rule: FileRule): DownloadSink<KeptFile> 
 			if (handle) {
 				await removeOwnFile(handle, targetFsPath);
 			}
+		}
+	};
+}
+
+/** The bytes in memory, for a sample that the window plays and that is never written. */
+function memorySink(): DownloadSink<Buffer> {
+	const chunks: Buffer[] = [];
+	return {
+		open: async () => undefined,
+		write: async chunk => {
+			chunks.push(chunk);
+		},
+		finish: async () => Buffer.concat(chunks),
+		discard: async () => {
+			chunks.length = 0;
 		}
 	};
 }

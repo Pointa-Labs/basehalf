@@ -591,13 +591,25 @@ every call that needs them.
   ([Voices](#voices)), at most 2,000, with `truncated` when the provider
   had more. It asks the provider's list calls, as many pages as that takes,
   is retried as `poll` is, and writes nothing. A model whose voices are not
-  listed is refused.
+  listed is refused, and so is a region that does not offer the model, as
+  `check` refuses it; nothing is sent then. What the provider module lists
+  is made safe to show and to send back: a voice whose id is not the id of a
+  voice ([Parameters](#parameters)) is left out; a name and a description
+  are plain text on one line, at most 200 and 300 characters, cut with an
+  ellipsis; a voice without a name is named by its id; a sample is kept only
+  at an `https` address, or an `http` one on this computer, of at most 8,192
+  characters; the account's voices come first, each group in the provider's
+  order; and a voice listed twice is kept once, the first time, the
+  account's before the provider's.
 - `voicePreview` takes the access, the model, and the `sample` address of a
   listed voice, and answers the sample's bytes: an `https` address, or
   `http` on this computer; the credentials go only to the endpoint's own
   origin, as for a download; at most 5 MiB; and only bytes that start like a
   sound, as a downloaded sound must. The window decodes and plays them
-  itself, so that no address of a provider is ever played by the window.
+  itself, so that no address of a provider is ever played by the window. It
+  follows redirects and is retried as a download is, and a model whose
+  voices are not listed has no samples and is refused. The bytes cross from
+  the shared process to the window as bytes, beside the rest of the answer.
 - A provider module maps its own task states to `pending`, `running`,
   `succeeded` with the addresses of the outputs, or `failed` and `cancelled`
   with the provider's message, and reports progress when the provider does.
@@ -845,7 +857,13 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
 - Unit tests of the audio checks of a download and of an answer with the
   file (criterion 15), of `voices` and `voicePreview` against a local server
   (criterion 16), of the `voice` value in `check` (criterion 17), and of each
-  audio module, Lyrics mode among them (criterion 18).
+  audio module, Lyrics mode among them (criterion 18): what a sound starts
+  like (`providerMedia.test.ts`), sounds downloaded and answered with the
+  file (`providerDownload.test.ts`), sounds as outputs, the voice in `check`,
+  and Lyrics mode (`providerAudio.test.ts`), the voices and their samples
+  (`providerVoices.test.ts`), a sample's bytes over the channel between the
+  processes (`basehalfProviderConnection.test.ts`), and the catalog's rules
+  for audio models (`providerCatalog.test.ts`).
 - The smoke generates speech through the ElevenLabs module, with its voices
   and a sample, and two songs in Lyrics mode through the Mureka module,
   against the local test provider, which answers like each of them under a

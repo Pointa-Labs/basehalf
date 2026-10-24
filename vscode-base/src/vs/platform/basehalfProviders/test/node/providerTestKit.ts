@@ -9,7 +9,8 @@
  * provider's storage do; small provider modules declared for the tests, of
  * images and videos and of sounds; builders of small media files, tiny valid
  * images and sounds among them; planned inputs as such files; requests of an
- * audio model; and new files to write outputs to. Nothing here talks to a real provider.
+ * audio model and the voices a module lists, run through the commands; and
+ * new files to write outputs to. Nothing here talks to a real provider.
  */
 
 import { hasKey } from '../../../../base/common/types.js';
@@ -20,10 +21,11 @@ import type { AddressInfo, Socket } from 'net';
 import { tmpdir } from 'os';
 import { join } from '../../../../base/common/path.js';
 import zlib from 'zlib';
+import { VideoProviderCommands } from '../../node/commands.js';
 import { ProviderFailure } from '../../node/failure.js';
 import { audioFormatOf, imageFormatOf, MEDIA_MIME_TYPES } from '../../node/media.js';
 import type { OutputLocation, ProviderModule } from '../../node/module.js';
-import type { AudioOutputFormat, CatalogMode, CatalogProvider, ListedVoice, Media, ModeId, Params, PlannedMedia, PromptPart, ProviderAccess, ProviderResponse, SubmitPayload, SubmitResult } from '../../common/basehalfProviderTypes.js';
+import type { AudioOutputFormat, CatalogMode, CatalogProvider, ListedVoice, Media, ModeId, Params, PlannedMedia, PromptPart, ProviderAccess, ProviderResponse, SubmitPayload, SubmitResult, VoicesResult } from '../../common/basehalfProviderTypes.js';
 
 export interface Received {
 	readonly method: string;
@@ -604,6 +606,31 @@ export function audioRequest(access: ProviderAccess, model: string, options: Aud
 		inputs: { images: [], videos: [], audios: [], ...options.inputs },
 		...(targets > 0 ? { targets: partTargets(targets) } : {})
 	};
+}
+
+/** The voices of a speech model as `voices` answered them, and what the local server received meanwhile, in order. */
+export interface ListedVoices {
+	readonly answer: ProviderResponse<VoicesResult>;
+	readonly received: readonly Received[];
+}
+
+/**
+ * Lists the voices of a speech model of `module` as the window asks for them
+ * when its voice menu opens (D78): `voices` through the commands, against a
+ * local server that `handler` answers as the provider's list calls, at the
+ * path of the region's base URL ({@link testAccess}); the server stops
+ * before it answers. For example
+ * `listVoicesAgainst(FISH_AUDIO, 's2.1-pro', { apiKey: KEY }, routed(myVoicePages))`.
+ */
+export async function listVoicesAgainst(module: ProviderModule, model: string, credentials: Readonly<Record<string, string>>, handler: (request: Received, response: ServerResponse, socket: Socket) => void, region?: string): Promise<ListedVoices> {
+	const server = await startServer(handler);
+	try {
+		const commands = new VideoProviderCommands([module], { http: { sleep: async () => undefined } });
+		const answer = await commands.voices({ ...testAccess(module, server.url, credentials, region), model });
+		return { answer, received: [...server.received] };
+	} finally {
+		await server.close();
+	}
 }
 
 // --- media --------------------------------------------------------------------------------------

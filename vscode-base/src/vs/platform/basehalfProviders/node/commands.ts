@@ -3,17 +3,19 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { isAbsolute } from '../../../base/common/path.js';
 import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, fitParams, keptLimits, measureItems, outputCount, resolveParams } from './check.js';
-import { downloadAddress, downloadFile, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.js';
+import { downloadAddress, downloadFile, fetchSample, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.js';
 import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.js';
-import { BoundHttp, boundToCall, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
+import { BoundHttp, boundToCall, isAllowedAddress, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
 import { createMediaInspector, type MediaInspector } from './media.js';
 import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.js';
 import { checkPlace, placeFile, type PlaceFileSystem } from './place.js';
 import { isPlannedInput, writeSharedPromptNames } from './prompt.js';
 import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.js';
+import { keptVoices, MAX_LISTED_VOICES, voiceParameterOf } from './voices.js';
 import type {
 	CancelResult,
 	Catalog,
@@ -43,7 +45,11 @@ import type {
 	SubmitPayload,
 	SubmitRequest,
 	SubmitResult,
-	TaskRef
+	TaskRef,
+	VoicePreviewRequest,
+	VoicePreviewResult,
+	VoicesRequest,
+	VoicesResult
 } from '../common/basehalfProviderTypes.js';
 
 /**
@@ -84,6 +90,11 @@ interface Resolved {
 	readonly provider: CatalogProvider;
 	readonly region: CatalogRegion;
 	readonly model: CatalogModel;
+}
+
+/** A request for a model whose provider lists its voices, with the module that lists them. */
+interface ListingVoices extends Resolved {
+	readonly module: ProviderModule & Required<Pick<ProviderModule, 'listVoices'>>;
 }
 
 /** Where the outputs of a module come from: the answer of a create, or of a poll. */
@@ -227,6 +238,67 @@ export class VideoProviderCommands {
 			http = this.http(resolved.module, ref, token);
 			return { cancelled: (await resolved.module.cancel(ref, http)) === true };
 		}, undefined, () => http?.secretValues);
+	}
+
+	/**
+	 * Lists the voices of a speech model's provider and of the user's account
+	 * (D78; providers, "Voices"): through the provider module's list calls,
+	 * which are retried as a poll is, at most {@link MAX_LISTED_VOICES}, made
+	 * safe to show and to send back, the account's own first
+	 * ({@link keptVoices}). A model whose voice is not listed is refused, and
+	 * nothing is sent.
+	 */
+	voices(argument: unknown, token: CancellationToken = CancellationToken.None): Promise<ProviderResponse<VoicesResult>> {
+		const secrets = secretsOf(argument);
+		let http: BoundHttp | undefined;
+		return answer(secrets, async () => {
+			const request = parseVoicesRequest(argument);
+			const resolved = this.resolve(request);
+			if (!this.listsVoices(resolved)) {
+				throw rejected(`${resolved.provider.label} lists no voices of ${resolved.model.label}.`);
+			}
+			http = this.http(resolved.module, request, token);
+			return keptVoices(await resolved.module.listVoices(request, http, MAX_LISTED_VOICES));
+		}, undefined, () => http?.secretValues);
+	}
+
+	/**
+	 * Fetches the sample of a voice that `voices` listed, for the window to play
+	 * (D78; providers, "Requests"): from an `https://` address, or an `http://`
+	 * one on this computer, under the rules of a download, with the credentials
+	 * only on the endpoint's own origin, and only bytes that start like a
+	 * sound, at most 5 MiB. Answers the bytes and the format they start like.
+	 */
+	voicePreview(argument: unknown, token: CancellationToken = CancellationToken.None): Promise<ProviderResponse<VoicePreviewResult>> {
+		const secrets = secretsOf(argument);
+		let http: BoundHttp | undefined;
+		return answer(secrets, async () => {
+			const request = parseVoicePreviewRequest(argument);
+			const resolved = this.resolve(request);
+			if (!this.listsVoices(resolved)) {
+				throw rejected(`${resolved.provider.label} lists no voices of ${resolved.model.label}, so it has no samples.`);
+			}
+			http = this.http(resolved.module, request, token);
+			// The size of a sample is its own, not that of a generation's files.
+			const sample = await fetchSample(http, request.sample, { timeoutMs: this.options.download?.timeoutMs });
+			return { bytes: VSBuffer.wrap(sample.bytes), format: sample.format };
+		}, undefined, () => http?.secretValues);
+	}
+
+	/**
+	 * Whether the provider lists the voices of the model: its `voice` parameter
+	 * is `listed` and its module can list them. A region that does not offer
+	 * the model is refused, as `check` refuses it.
+	 */
+	private listsVoices(resolved: Resolved): resolved is ListingVoices {
+		const { module, provider, region, model } = resolved;
+		if (voiceParameterOf(model)?.listed !== true || !module.listVoices) {
+			return false;
+		}
+		if (model.providerModels[region.id] === undefined) {
+			throw rejected(`${provider.label} does not offer ${model.label} in ${region.label}.`);
+		}
+		return true;
 	}
 
 	/** The module, the provider's entry, the region, and the model of a request. */
@@ -715,4 +787,33 @@ export function parseDownloadRequest(value: unknown): DownloadRequest {
 		...(url !== undefined ? { url } : {}),
 		...(kind !== undefined ? { kind: kind as ModelKind } : {})
 	};
+}
+
+/** A request for the voices of a speech model: the access and the model. */
+export function parseVoicesRequest(value: unknown): VoicesRequest {
+	if (!isRecord(value)) {
+		throw cannotRead('a request for voices');
+	}
+	return { ...parseAccess(value, 'a request for voices'), model: field(value, 'model', 'a request for voices', 64) };
+}
+
+/**
+ * A request for the sample of a listed voice: the access, the model, and the
+ * sample's address, which is `https://`, or `http://` on this computer.
+ */
+export function parseVoicePreviewRequest(value: unknown): VoicePreviewRequest {
+	if (!isRecord(value)) {
+		throw cannotRead('a request for a sample');
+	}
+	const sample = field(value, 'sample', 'a request for a sample', MAX_ADDRESS_LENGTH);
+	let url: URL | undefined;
+	try {
+		url = new URL(sample);
+	} catch {
+		url = undefined;
+	}
+	if (!url || !isAllowedAddress(url)) {
+		throw rejected('BaseHalf fetches a sample only from an https:// address, or an http:// address on this computer.');
+	}
+	return { ...parseAccess(value, 'a request for a sample'), model: field(value, 'model', 'a request for a sample', 64), sample };
 }

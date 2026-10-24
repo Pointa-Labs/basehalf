@@ -16,7 +16,7 @@ import { INativeHostService } from '../../native/common/native.js';
 import { systemCertificatesNodeDefault } from '../../request/common/request.js';
 import { getResolvedShellEnv } from '../../shell/node/shellEnv.js';
 import { IBaseHalfProviderService } from '../common/basehalfProviders.js';
-import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderError, ProviderResponse, SubmitPayload, SubmitResult, TaskRef } from '../common/basehalfProviderTypes.js';
+import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderError, ProviderResponse, SubmitPayload, SubmitResult, TaskRef, VoicePreviewRequest, VoicePreviewResult, VoicesRequest, VoicesResult } from '../common/basehalfProviderTypes.js';
 import { VideoProviderCommands } from '../node/commands.js';
 import { plainMessage } from '../node/failure.js';
 import { createNodeTransport, type NodeHttpModules } from '../node/http.js';
@@ -89,6 +89,14 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 
 	async place(request: PlaceRequest): Promise<ProviderResponse<PlaceResult>> {
 		return this.commands.place(request);
+	}
+
+	async voices(request: VoicesRequest, token = CancellationToken.None): Promise<ProviderResponse<VoicesResult>> {
+		return await this.notReady() ?? this.commands.voices(request, token);
+	}
+
+	async voicePreview(request: VoicePreviewRequest, token = CancellationToken.None): Promise<ProviderResponse<VoicePreviewResult>> {
+		return await this.notReady() ?? this.commands.voicePreview(request, token);
 	}
 
 	/** Loads what requests are sent with; the answer of a call that cannot send, since it did not load. */
