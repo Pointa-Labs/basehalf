@@ -1815,8 +1815,8 @@ Inputs
 
 Providers
 
-13. Providers lists the catalog's providers, each with its models under Images
-    and Videos; a provider is set up with a region and its credentials, which
+13. Providers lists the catalog's providers, each with its models under Images,
+    Videos, and Audio; a provider is set up with a region and its credentials, which
     are stored encrypted and are in no workspace file and not in the page's
     DOM.
 14. The model menu of a card lists the catalog's models of the card's kind by
