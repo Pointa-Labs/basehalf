@@ -57,7 +57,6 @@ import {
 } from './areas/cardDetail/richEditor.mts';
 import { assertCanvasBreadcrumbsRemoved, assertCanvasContainsCard, assertMarkdownRichRevealsText } from './areas/navigation/navigation.mts';
 import { assertExplorerRenameCascadesMirror, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
-import { assertExternalPluginInstalledRelaunch, assertExternalPluginLifecycle, assertExternalPluginUninstalled, assertExternalPluginUpdate } from './areas/plugin/externalPlugin.mts';
 import { assertLandingLeftNoPartialFile, runGenerationCardSteps } from './areas/video/generationCards.mts';
 import { assertProviderRequestsFromSharedProcess } from './areas/video/providerService.mts';
 import { assertNoPluginSurface, assertSequenceAddsGeneratedVideo, assertVideoWorkflowTemplate } from './areas/video/workflowTemplate.mts';
@@ -82,7 +81,7 @@ import {
 	assertProductThemeAndCards,
 	assertTitleBarLocationOpensSearch
 } from './areas/workbench/startup.mts';
-import { app, opts, workspacePath } from './context.mts';
+import { app, workspacePath } from './context.mts';
 import { commitFixtureChanges } from './fixture.mts';
 import { assertCanvasEdgeVisible, assertCanvasFolder } from './lib/canvas.mts';
 import { assertCardDetail, assertNativeBackOpensPreviousCanvas, assertNativeForwardOpensCardDetail, assertNoEditorTabFor } from './lib/cardDetail.mts';
@@ -101,8 +100,7 @@ export const SUITES = {
 	canvas: runCanvasSuite,
 	cardDetail: runCardDetailSuite,
 	navigation: runNavigationSuite,
-	video: runVideoSuite,
-	plugin: runPluginSuite
+	video: runVideoSuite
 };
 
 /**
@@ -274,18 +272,4 @@ async function runVideoSuite(page) {
 	await step('video-sequence-adds-generated-video', () => assertSequenceAddsGeneratedVideo(page));
 	await step('video-landing-leaves-no-partial-file', () => assertLandingLeftNoPartialFile());
 	await step('video-requests-from-provider-service', () => assertProviderRequestsFromSharedProcess());
-}
-
-/** The lifecycle of a reviewed external plugin. Not in the whole smoke; it needs --external-plugin-id. */
-async function runPluginSuite(page) {
-	if (!opts.externalPluginId) {
-		throw new Error('The plugin suite runs the lifecycle of a reviewed external plugin: it needs --external-plugin-id.');
-	}
-	return opts.verifyUninstalled
-		? await assertExternalPluginUninstalled(page)
-		: opts.verifyInstalled
-			? await assertExternalPluginInstalledRelaunch(page)
-			: opts.seedVsix
-				? await assertExternalPluginUpdate(page)
-				: await assertExternalPluginLifecycle(page);
 }

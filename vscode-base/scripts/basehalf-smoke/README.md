@@ -40,7 +40,6 @@ waits by itself, since it hits nothing else until the end.
 | `cardDetail` | Card Detail and its projections: the rich Markdown editor, source, media, and PDF; back and forward from it. |
 | `navigation` | Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. |
 | `video` | Generation cards of images and videos: drafts, the panel, generations against the local test provider through the ByteDance module, Providers, the starter template, and Sequence. |
-| `plugin` | The lifecycle of a reviewed external plugin. Only when asked; refused while the plugin platform is frozen. |
 
 ## Files
 
@@ -54,7 +53,7 @@ waits by itself, since it hits nothing else until the end.
 | `fixture.mts` | The fixture workspace, its git history, and what it holds before BaseHalf first opens it. |
 | `app.mts` | Launching and closing BaseHalf: its console and errors, the size of its window, and what a failed run leaves. |
 | `lib/` | Helpers of more than one area: steps and waiting, Quick Open and commands, the canvas, Card Detail, the rich editor's frame, notifications, the workspace's files, the window's controls, the Agent Area's terminal, the Providers page, and the frames Settings paints as it opens at one of BaseHalf's pages. |
-| `areas/<area>/` | The assertions of each area, a file per concern: `workbench/`, `canvas/`, `cardDetail/`, `navigation/`, `video/` (generation cards, with the local test provider), and `plugin/`. |
+| `areas/<area>/` | The assertions of each area, a file per concern: `workbench/`, `canvas/`, `cardDetail/`, `navigation/`, and `video/` (generation cards, with the local test provider). |
 
 ## Adding a step
 

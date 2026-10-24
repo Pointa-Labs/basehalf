@@ -38,7 +38,7 @@ for (let i = 0; i < args.length; i++) {
 }
 
 const known = new Set(SUITE_LIST.map(suite => suite.name));
-const suites = requested ?? SUITE_LIST.filter(suite => !suite.onlyWhenAsked).map(suite => suite.name);
+const suites = requested ?? SUITE_LIST.map(suite => suite.name);
 const unknown = suites.filter(name => !known.has(name));
 if (unknown.length || suites.length === 0) {
 	console.error(`Unknown suite ${unknown.join(', ') || '(none)'}: the suites are ${[...known].join(', ')}.`);
@@ -74,9 +74,6 @@ Options:
                       the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.
   --keep              Keep each suite's temporary folder after the run.
   --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
-
-The plugin suite takes the options of the reviewed-plugin lifecycle; see
-scripts/basehalf-smoke/runSuite.mts --help.
 
 Suites:
 ${SUITE_LIST.map(suite => `  ${suite.name.padEnd(12)}${suite.description}`).join('\n')}

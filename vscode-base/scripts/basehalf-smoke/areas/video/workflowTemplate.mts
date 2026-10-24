@@ -43,8 +43,8 @@ async function runCommandWhenAvailable(page, value, timeout = 30_000) {
 	throw new Error(`Command did not become available in QuickInput: ${value}`);
 }
 
-// The plugin platform is frozen and AI Video is BaseHalf's own code
-// (docs/specs/built-in-ai-video-and-plugin-freeze.md). The product has no
+// AI Video is BaseHalf's own code and there is no plugin platform
+// (docs/specs/built-in-ai-video-and-no-plugins.md). The product has no
 // plugin surface: the sidebar shows exactly Files, Git, and Search, and no
 // command opens Plugins or manages a plugin.
 export async function assertNoPluginSurface(page) {
@@ -64,7 +64,7 @@ export async function assertNoPluginSurface(page) {
 		throw new Error(`The sidebar does not show exactly Files, Git, and Search: ${JSON.stringify(compositeBarLabels)}`);
 	}
 	if (await page.locator('.basehalf-plugins-view, .basehalf-plugin-library').count()) {
-		throw new Error('A frozen plugin surface is mounted in the workbench');
+		throw new Error('A plugin surface is mounted in the workbench');
 	}
 
 	const previousQuickInput = visibleQuickInput(page);

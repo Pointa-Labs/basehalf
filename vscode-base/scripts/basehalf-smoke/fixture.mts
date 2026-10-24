@@ -8,9 +8,8 @@
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { extensionsDir, opts, workspacePath } from './context.mts';
+import { workspacePath } from './context.mts';
 
 export const FAR_FIXTURE_CONTENT = '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n';
 // The file BaseHalf writes at `.bh/.gitignore` before it writes a layout, byte for byte.
@@ -146,37 +145,6 @@ export function createFixtureWorkspace(workspace) {
 	execFileSync('git', ['branch', 'branch-picker-target'], { cwd: workspace, stdio: 'ignore' });
 	fs.appendFileSync(path.join(workspace, 'README.md'), '\nscm dirty change\n', 'utf8');
 	fs.appendFileSync(path.join(workspace, 'src', 'app.ts'), '\nexport const smokeDirtyChange = true;\n', 'utf8');
-}
-
-export function prepareExternalPluginFixture() {
-	if (!opts.externalPluginId) {
-		return;
-	}
-	fs.writeFileSync(externalPluginFixturePath(), '{"kept":true}\n', 'utf8');
-	if (!opts.seedVsix) {
-		return;
-	}
-	if (!fs.existsSync(opts.seedVsix)) {
-		throw new Error(`Seed VSIX does not exist: ${opts.seedVsix}`);
-	}
-	const manifest = JSON.parse(execFileSync('unzip', ['-p', opts.seedVsix, 'extension/package.json'], { encoding: 'utf8' }));
-	const manifestId = `${manifest.publisher}.${manifest.name}`.toLowerCase();
-	if (manifestId !== opts.externalPluginId) {
-		throw new Error(`Seed VSIX id mismatch: expected ${opts.externalPluginId}, received ${manifestId}`);
-	}
-	const extractionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-plugin-seed-'));
-	try {
-		execFileSync('unzip', ['-q', opts.seedVsix, '-d', extractionRoot]);
-		const target = path.join(extensionsDir, `${manifestId}-${manifest.version}`);
-		fs.rmSync(target, { recursive: true, force: true });
-		fs.cpSync(path.join(extractionRoot, 'extension'), target, { recursive: true });
-	} finally {
-		fs.rmSync(extractionRoot, { recursive: true, force: true });
-	}
-}
-
-export function externalPluginFixturePath() {
-	return path.join(workspacePath, `reviewed-plugin.${opts.externalPluginExtension}`);
 }
 
 function initializeGitWorkspace(workspace) {

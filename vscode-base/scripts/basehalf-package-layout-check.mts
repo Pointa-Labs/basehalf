@@ -8,13 +8,12 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 
-// Checks the packaged layout of AI Video as BaseHalf's own code (D75): no AI
-// Video extension among the built-in extensions, no separate plugin payload
-// folder, and a product configuration that names neither the plugin registry
-// nor the portal.
+// Checks a packaged build (D75, D76): no AI Video extension among the built-in
+// extensions, no separate plugin payload folder, and a product configuration
+// that names neither the plugin registry nor the portal.
 const appArgument = process.argv.indexOf('--app');
 if (appArgument < 0 || !process.argv[appArgument + 1]) {
-	throw new Error('Usage: npm run basehalf:plugin:layout-smoke -- --app <BaseHalf.app or resources/app path>');
+	throw new Error('Usage: npm run basehalf:package:layout-check -- --app <BaseHalf.app or resources/app path>');
 }
 
 const input = path.resolve(process.argv[appArgument + 1]);

@@ -37,7 +37,7 @@ import {
 	userDataDir,
 	workspacePath
 } from './context.mts';
-import { createFixtureWorkspace, externalPluginFixturePath, prepareExternalPluginFixture, recordFixtureBeforeLaunch } from './fixture.mts';
+import { createFixtureWorkspace, recordFixtureBeforeLaunch } from './fixture.mts';
 import { passedSteps } from './lib/steps.mts';
 import { SUITES } from './suites.mts';
 
@@ -68,14 +68,7 @@ fs.writeFileSync(
 	'utf8'
 );
 
-if (opts.verifyUninstalled || opts.verifyInstalled) {
-	if (!fs.existsSync(externalPluginFixturePath())) {
-		throw new Error(`Cannot verify an uninstalled plugin without the preserved fixture at ${externalPluginFixturePath()}`);
-	}
-} else {
-	createFixtureWorkspace(workspacePath);
-	prepareExternalPluginFixture();
-}
+createFixtureWorkspace(workspacePath);
 // What the fixture holds under .bh/, and what git shows of it, before BaseHalf first opens it.
 recordFixtureBeforeLaunch();
 
