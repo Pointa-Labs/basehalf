@@ -5,6 +5,9 @@
 
 import { randomUUID } from 'crypto';
 import type { ClientRequest, IncomingHttpHeaders, IncomingMessage, RequestOptions } from 'http';
+import { raceCancellationError } from '../../../base/common/async.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { dispose, type IDisposable } from '../../../base/common/lifecycle.js';
 import { failureForStatus, isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
 
 /**
@@ -191,6 +194,38 @@ export const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = Object.freeze({
 
 export function resolveHttpOptions(options: HttpOptions | undefined): ResolvedHttpOptions {
 	return { ...DEFAULT_HTTP_OPTIONS, ...options };
+}
+
+/**
+ * The HTTP of a call that ends with its token: the window that made the call
+ * closed or reloaded (providers, "Requests"). A request that runs is torn
+ * down, none starts after, and a wait before a retry ends. The token of a call
+ * also ends when the call has answered, when none of its requests runs.
+ */
+export function boundToCall(options: ResolvedHttpOptions, token: CancellationToken): ResolvedHttpOptions {
+	if (token === CancellationToken.None) {
+		return options;
+	}
+	const ended = () => new Error('The window that asked for this is gone.');
+	return {
+		...options,
+		transport: (url, settings, onResponse) => {
+			if (token.isCancellationRequested) {
+				throw ended();
+			}
+			// The token's listener goes with the exchange.
+			const listeners: IDisposable[] = [];
+			const done = () => dispose(listeners);
+			const request = options.transport(url, settings, response => {
+				response.on('close', done);
+				onResponse(response);
+			});
+			listeners.push(token.onCancellationRequested(() => request.destroy(ended())));
+			request.on('error', done);
+			return request;
+		},
+		sleep: ms => raceCancellationError(options.sleep(ms), token)
+	};
 }
 
 /** The statuses after which a request that may be retried is sent again. */

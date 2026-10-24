@@ -3,11 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { CancellationToken } from '../../../base/common/cancellation.js';
 import { isAbsolute } from '../../../base/common/path.js';
 import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, fitParams, keptLimits, measureItems, outputCount, resolveParams } from './check.js';
 import { downloadAddress, downloadFile, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.js';
 import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.js';
-import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
+import { BoundHttp, boundToCall, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
 import { createMediaInspector, type MediaInspector } from './media.js';
 import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.js';
 import { checkPlace, placeFile, type PlaceFileSystem } from './place.js';
@@ -118,7 +119,7 @@ export class VideoProviderCommands {
 	 * at once is sent nothing unless the request names a target for every
 	 * output it may make.
 	 */
-	submit(argument: unknown): Promise<ProviderResponse<SubmitResult>> {
+	submit(argument: unknown, token: CancellationToken = CancellationToken.None): Promise<ProviderResponse<SubmitResult>> {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
 		return answer(secrets, async () => {
@@ -142,7 +143,7 @@ export class VideoProviderCommands {
 						: `${resolved.model.label} may make ${needed} files, but the request names ${named} to write them to. BaseHalf sent nothing.`);
 				}
 			}
-			http = this.http(resolved.module, request, answersAtOnce);
+			http = this.http(resolved.module, request, token, answersAtOnce);
 			const answered = await resolved.module.submit({ ...request, params }, http);
 			if (typeof answered === 'string') {
 				return { remoteId: taskId(answered) };
@@ -155,13 +156,13 @@ export class VideoProviderCommands {
 	}
 
 	/** Asks the provider about a task once; a success with files answered inline writes them to the task's targets. */
-	poll(argument: unknown): Promise<ProviderResponse<PollState>> {
+	poll(argument: unknown, token: CancellationToken = CancellationToken.None): Promise<ProviderResponse<PollState>> {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
 		return answer(secrets, async () => {
 			const ref = parseTaskRef(argument);
 			const resolved = this.resolve(ref);
-			http = this.http(resolved.module, ref);
+			http = this.http(resolved.module, ref, token);
 			return this.pollState(await resolved.module.poll(ref, http), ref, resolved.model, http, secrets);
 		}, undefined, () => http?.secretValues);
 	}
@@ -172,7 +173,7 @@ export class VideoProviderCommands {
 	 * it. Only a file of the model's kind is kept; the answer gives its size and
 	 * the format its bytes start like.
 	 */
-	download(argument: unknown): Promise<ProviderResponse<DownloadResult>> {
+	download(argument: unknown, token: CancellationToken = CancellationToken.None): Promise<ProviderResponse<DownloadResult>> {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
 		return answer(secrets, async () => {
@@ -187,7 +188,7 @@ export class VideoProviderCommands {
 			if (kind === 'image' && address === undefined) {
 				throw rejected('BaseHalf downloads an image only from the address the provider gave.');
 			}
-			http = this.http(resolved.module, request);
+			http = this.http(resolved.module, request, token);
 			let location: OutputAddress | VideoLocation;
 			if (address !== undefined) {
 				location = { url: address };
@@ -215,13 +216,13 @@ export class VideoProviderCommands {
 		});
 	}
 
-	cancel(argument: unknown): Promise<ProviderResponse<CancelResult>> {
+	cancel(argument: unknown, token: CancellationToken = CancellationToken.None): Promise<ProviderResponse<CancelResult>> {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
 		return answer(secrets, async () => {
 			const ref = parseTaskRef(argument);
 			const resolved = this.resolve(ref);
-			http = this.http(resolved.module, ref);
+			http = this.http(resolved.module, ref, token);
 			return { cancelled: (await resolved.module.cancel(ref, http)) === true };
 		}, undefined, () => http?.secretValues);
 	}
@@ -255,14 +256,17 @@ export class VideoProviderCommands {
 		return { module, provider, region, model };
 	}
 
-	/** The HTTP of one command; `answersAtOnce`: its create waits for the files (providers, "Requests"). */
-	private http(module: ProviderModule, access: ProviderAccess, answersAtOnce = false): BoundHttp {
+	/**
+	 * The HTTP of one command, which ends with the call's token; `answersAtOnce`:
+	 * its create waits for the files (providers, "Requests").
+	 */
+	private http(module: ProviderModule, access: ProviderAccess, token: CancellationToken, answersAtOnce = false): BoundHttp {
 		const credentials = access.credentials;
 		return new BoundHttp(
 			parseEndpoint(access.endpoint),
 			() => module.headers(credentials),
 			module.readError?.bind(module),
-			resolveHttpOptions(this.options.http),
+			boundToCall(resolveHttpOptions(this.options.http), token),
 			answersAtOnce
 		);
 	}

@@ -26,7 +26,8 @@ class CatalogCommands {
 			this.calls.push('catalog');
 			const answer = this.answers.shift();
 			if (!answer) {
-				throw new Error('The connection to the shared process was lost.');
+				// What the window's connection answers once the shared process stopped (D75).
+				throw new Error('BaseHalf\'s background process stopped. Restart BaseHalf to continue.');
 			}
 			return await answer() as never;
 		},
@@ -78,7 +79,7 @@ suite('BaseHalfVideoCatalogService', () => {
 	test('tries a failed request once more, says why it failed, and asks again when it is needed again', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 		const commands = new CatalogCommands();
 		commands.answers = [
-			() => { throw new Error('Extension host terminated.'); },
+			() => { throw new Error('Channel name \'basehalfProviders\' timed out after 1000ms'); },
 			() => ({ ok: false, error: { code: 'network', message: 'The catalog could not be built.' } })
 		];
 		const service = createService(commands);
@@ -86,7 +87,7 @@ suite('BaseHalfVideoCatalogService', () => {
 		const answeredWithError = service.state;
 		// A call that does not reach the provider service fails with why.
 		commands.answers = [];
-		await assert.rejects(() => service.whenReady(), /The connection to the shared process was lost\./);
+		await assert.rejects(() => service.whenReady(), /BaseHalf's background process stopped\. Restart BaseHalf to continue\./);
 		const unanswered = service.state;
 		commands.answers = [() => ({ ok: true, value: { schema: 1, providers: [{ ...ACME, models: [ACME_MOTION, { id: 'broken' }] }] } })];
 		service.load();
@@ -94,7 +95,7 @@ suite('BaseHalfVideoCatalogService', () => {
 		const catalog = await service.whenReady();
 		assert.deepStrictEqual({ answeredWithError, unanswered, loadingAgain, models: catalog.providers[0].models.map(model => model.id), asked: commands.calls.length }, {
 			answeredWithError: { kind: 'failed', message: 'The catalog could not be built.' },
-			unanswered: { kind: 'failed', message: 'The connection to the shared process was lost.' },
+			unanswered: { kind: 'failed', message: 'BaseHalf\'s background process stopped. Restart BaseHalf to continue.' },
 			loadingAgain: 'loading',
 			models: ['acme-motion-2'],
 			asked: 5
@@ -131,7 +132,7 @@ suite('BaseHalfVideoCatalogService', () => {
 		const answered = await service.check(request);
 		commands.check = () => ({ ok: false, error: { code: 'unknownProvider', message: 'No such provider.' } });
 		const refused = await service.check(request);
-		commands.check = () => { throw new Error('Extension host terminated.'); };
+		commands.check = () => { throw new Error('BaseHalf\'s background process stopped. Restart BaseHalf to continue.'); };
 		const crashed = await service.check(request);
 		assert.deepStrictEqual({ answered, refused, crashed, seen }, {
 			answered: { problems: ['The start frame is smaller than 300 pixels.'], prompt: 'Rain' },

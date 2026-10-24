@@ -5,15 +5,20 @@
 
 import type { LogLevel as ProxyLogLevel, ProxyAgentParams, ProxySupportSetting } from '@vscode/proxy-agent';
 import { encodeBase64, VSBuffer } from '../../../base/common/buffer.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { getErrorMessage } from '../../../base/common/errors.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { localize } from '../../../nls.js';
 import { IConfigurationService } from '../../configuration/common/configuration.js';
+import { INativeEnvironmentService } from '../../environment/common/environment.js';
 import { ILoggerService, ILogService, LogLevel } from '../../log/common/log.js';
 import { INativeHostService } from '../../native/common/native.js';
 import { systemCertificatesNodeDefault } from '../../request/common/request.js';
+import { getResolvedShellEnv } from '../../shell/node/shellEnv.js';
 import { IBaseHalfProviderService } from '../common/basehalfProviders.js';
-import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderResponse, SubmitPayload, SubmitResult, TaskRef } from '../common/basehalfProviderTypes.js';
+import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderError, ProviderResponse, SubmitPayload, SubmitResult, TaskRef } from '../common/basehalfProviderTypes.js';
 import { VideoProviderCommands } from '../node/commands.js';
+import { plainMessage } from '../node/failure.js';
 import { createNodeTransport, type NodeHttpModules } from '../node/http.js';
 import { PROVIDER_MODULES } from '../node/registry.js';
 
@@ -21,11 +26,14 @@ import { PROVIDER_MODULES } from '../node/registry.js';
  * The provider service of the shared process (D75). Its requests are Node's
  * own, one connection each and never sent again by themselves, so that a
  * create reaches the provider once; the system's proxy settings, a proxy
- * auto-configuration, `http.proxy`, `http.noProxy`, and the certificates the
- * system trusts apply to them as they applied in the extension host, through
- * VS Code's proxy agent. Node's modules and the agent load with the first
- * call that may send. The log of the service gets the method, path, status,
- * and time of each exchange with a provider, and nothing else.
+ * auto-configuration, the proxy variables of the user's login shell,
+ * `http.proxy`, `http.noProxy`, and the certificates the system trusts apply
+ * to them as they applied in the extension host, through VS Code's proxy
+ * agent. Node's modules, the agent, and the login shell's environment load
+ * with the first call that may send. A call's requests end with its token,
+ * when the window that made it closes or reloads. The log of the service gets
+ * the method, path, status, and time of each exchange with a provider, and
+ * nothing else.
  */
 export class BaseHalfProviderService extends Disposable implements IBaseHalfProviderService {
 	declare readonly _serviceBrand: undefined;
@@ -41,6 +49,7 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 		@ILoggerService loggerService: ILoggerService,
 		@INativeHostService private readonly nativeHostService: INativeHostService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@INativeEnvironmentService private readonly environmentService: INativeEnvironmentService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -62,40 +71,53 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 		return this.commands.check(request);
 	}
 
-	async submit(request: SubmitPayload): Promise<ProviderResponse<SubmitResult>> {
-		await this.ready();
-		return this.commands.submit(request);
+	async submit(request: SubmitPayload, token = CancellationToken.None): Promise<ProviderResponse<SubmitResult>> {
+		return await this.notReady() ?? this.commands.submit(request, token);
 	}
 
-	async poll(task: TaskRef): Promise<ProviderResponse<PollState>> {
-		await this.ready();
-		return this.commands.poll(task);
+	async poll(task: TaskRef, token = CancellationToken.None): Promise<ProviderResponse<PollState>> {
+		return await this.notReady() ?? this.commands.poll(task, token);
 	}
 
-	async download(request: DownloadRequest): Promise<ProviderResponse<DownloadResult>> {
-		await this.ready();
-		return this.commands.download(request);
+	async download(request: DownloadRequest, token = CancellationToken.None): Promise<ProviderResponse<DownloadResult>> {
+		return await this.notReady() ?? this.commands.download(request, token);
 	}
 
-	async cancel(task: TaskRef): Promise<ProviderResponse<CancelResult>> {
-		await this.ready();
-		return this.commands.cancel(task);
+	async cancel(task: TaskRef, token = CancellationToken.None): Promise<ProviderResponse<CancelResult>> {
+		return await this.notReady() ?? this.commands.cancel(task, token);
 	}
 
 	async place(request: PlaceRequest): Promise<ProviderResponse<PlaceResult>> {
 		return this.commands.place(request);
 	}
 
-	private ready(): Promise<void> {
+	/** Loads what requests are sent with; the answer of a call that cannot send, since it did not load. */
+	private async notReady(): Promise<{ readonly ok: false; readonly error: ProviderError } | undefined> {
 		this.loading ??= this.load().catch(error => {
 			this.loading = undefined;
 			throw error;
 		});
-		return this.loading;
+		try {
+			await this.loading;
+			return undefined;
+		} catch (error) {
+			this.logService.error('[BaseHalf Providers] what requests are sent with did not load', error);
+			return { ok: false, error: { code: 'network', message: plainMessage(`BaseHalf could not load what it sends requests with: ${getErrorMessage(error)}`, []) } };
+		}
 	}
 
 	private async load(): Promise<void> {
-		const [http, https, proxyAgent] = await Promise.all([import('http'), import('https'), import('@vscode/proxy-agent')]);
+		const [http, https, proxyAgent, shellEnv] = await Promise.all([
+			import('http'),
+			import('https'),
+			import('@vscode/proxy-agent'),
+			// The proxy variables of the login shell, which the shared process, started
+			// with the application's own environment, lacks when it was opened from the Dock.
+			getResolvedShellEnv(this.configurationService, this.logService, this.environmentService.args, process.env).catch(error => {
+				this.logService.warn(`[BaseHalf Providers] the login shell's environment did not resolve: ${getErrorMessage(error)}`);
+				return {};
+			})
+		]);
 		const config = <T>(key: string) => this.configurationService.getValue<T>(key);
 		const params: ProxyAgentParams = {
 			// The main process resolves with the session that every window uses.
@@ -105,8 +127,10 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 			getNoProxyConfig: () => config<string[]>('http.noProxy') || [],
 			isAdditionalFetchSupportEnabled: () => false,
 			isWebSocketPatchEnabled: () => false,
-			addCertificatesV1: () => !config<boolean>('http.experimental.systemCertificatesV2') && config<boolean>('http.systemCertificates') !== false,
-			addCertificatesV2: () => !!config<boolean>('http.experimental.systemCertificatesV2') && config<boolean>('http.systemCertificates') !== false,
+			// The certificates go with each request: the second way adds them to the
+			// process's TLS, which the service leaves to the rest of the shared process.
+			addCertificatesV1: () => config<boolean>('http.systemCertificates') !== false,
+			addCertificatesV2: () => false,
 			loadSystemCertificatesFromNode: () => config<boolean>('http.systemCertificatesNode') ?? systemCertificatesNodeDefault,
 			// From the main process, which keeps them for every window, unless Node's own are chosen.
 			loadAdditionalCertificates: () => (config<boolean>('http.systemCertificatesNode') ?? systemCertificatesNodeDefault)
@@ -118,7 +142,7 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 			getLogLevel: () => proxyLogLevel(this.logService.getLevel(), proxyAgent.LogLevel),
 			proxyResolveTelemetry: () => undefined,
 			isUseHostProxyEnabled: () => true,
-			env: process.env
+			env: { ...process.env, ...shellEnv }
 		};
 		const { resolveProxyWithRequest } = proxyAgent.createProxyResolver(params);
 		this.modules = {

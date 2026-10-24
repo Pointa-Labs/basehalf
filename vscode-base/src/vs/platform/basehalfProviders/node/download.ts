@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { open, unlink } from 'fs/promises';
+import { open, stat, unlink } from 'fs/promises';
 import { isAbsolute } from '../../../base/common/path.js';
 import { ProviderFailure, rejected, unreadable } from './failure.js';
 import { isAllowedAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, USER_AGENT, type BoundHttp, type ProviderTransport, type TransportRequest, type TransportResponse } from './http.js';
@@ -168,9 +168,22 @@ async function writeInline(bytes: Buffer, targetFsPath: string, rule: FileRule, 
 		await handle.close();
 		return { size: bytes.byteLength, format };
 	} catch (error) {
-		await handle.close().catch(() => undefined);
-		await unlink(targetFsPath).catch(() => undefined);
+		await removeOwnFile(handle, targetFsPath);
 		throw rejected(`BaseHalf could not write the ${rule.noun}: ${networkDetail(error)}`);
+	}
+}
+
+/**
+ * Closes a download's file and removes it, only while the name is still that
+ * file's: the window that goes on with a generation downloads under the same
+ * name, after a window that closed left its download (providers, "Requests").
+ */
+async function removeOwnFile(handle: Awaited<ReturnType<typeof open>>, targetFsPath: string): Promise<void> {
+	const own = await handle.stat().catch(() => undefined);
+	await handle.close().catch(() => undefined);
+	const named = await stat(targetFsPath).catch(() => undefined);
+	if (own && named && own.ino === named.ino && own.dev === named.dev) {
+		await unlink(targetFsPath).catch(() => undefined);
 	}
 }
 
@@ -284,8 +297,7 @@ async function write(request: TransportRequest, response: TransportResponse, tar
 		return { size, format };
 	} catch (error) {
 		request.destroy();
-		await handle.close().catch(() => undefined);
-		await unlink(targetFsPath).catch(() => undefined);
+		await removeOwnFile(handle, targetFsPath);
 		if (error instanceof ProviderFailure || error instanceof RetryableDownload) {
 			throw error;
 		}

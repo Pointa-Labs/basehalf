@@ -899,16 +899,19 @@ suite('BaseHalfVideoGenerationService', () => {
 		const lost = await harness.card('shots/lost.mp4', VIDEO);
 		const closed = await harness.card('shots/closed.mp4', VIDEO);
 		const { service, commands } = harness.first;
-		// The shared process stopped while the request was on its way, or the window lost its connection to it.
-		commands.submit = () => { throw new Error('Canceled'); };
+		// The shared process stopped while the request was on its way, as the window's
+		// connection answers, or it has no provider service, as one started before D75.
+		const stopped = 'BaseHalf\'s background process stopped. Restart BaseHalf to continue.';
+		const noChannel = 'Channel name \'basehalfProviders\' timed out after 1000ms';
+		commands.submit = () => { throw new Error(stopped); };
 		await service.generate(lost);
-		commands.submit = () => { throw new Error('Channel has been closed'); };
+		commands.submit = () => { throw new Error(noChannel); };
 		await service.generate(closed);
 		await until(async () => (await harness.records()).filter(task => task.state === 'failed').length === 2, 500, 60_000);
 		const errors = new Map((await harness.records()).map(task => [task.cards[0].path, task.error]));
 		assert.deepStrictEqual([errors.get('shots/lost.mp4'), errors.get('shots/closed.mp4')], [
-			`${unknownOutcomeMessage()} (Canceled)`,
-			`${unknownOutcomeMessage()} (Channel has been closed)`
+			`${unknownOutcomeMessage()} (${stopped})`,
+			`${unknownOutcomeMessage()} (${noChannel})`
 		]);
 		harness.dispose();
 	}));

@@ -4,8 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { strict as assert } from 'assert';
+import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { isCancellationError } from '../../../../base/common/errors.js';
 import { plainMessage, ProviderFailure } from '../../node/failure.js';
-import { BoundHttp, DEFAULT_HTTP_OPTIONS, parseEndpoint, resolveHttpOptions, retryAfterMs, type HttpOptions } from '../../node/http.js';
+import { BoundHttp, boundToCall, DEFAULT_HTTP_OPTIONS, parseEndpoint, resolveHttpOptions, retryAfterMs, type HttpOptions } from '../../node/http.js';
 import { recordingSleep, sendJson, startServer } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
@@ -26,6 +28,37 @@ suite('BaseHalf providers: providerHttp', () => {
 		}
 		assert.fail('expected a failure');
 	}
+
+	test('a call\'s requests end with its token: one that runs is torn down, none starts after, and a wait before a retry ends (D75)', async () => {
+		// The server never answers: only the end of the call ends the request.
+		const server = await startServer(() => undefined);
+		const source = new CancellationTokenSource();
+		try {
+			const http = new BoundHttp(parseEndpoint(`${server.url}/api`), () => ({ Authorization: 'Bearer sk-test-secret' }), undefined, boundToCall(resolveHttpOptions({ sleep: () => new Promise<void>(() => undefined) }), source.token));
+			const running = failure(http.requestOnce({ method: 'GET', path: '/tasks/1' }));
+			for (let tries = 0; server.received.length === 0 && tries < 200; tries++) {
+				await new Promise(resolve => setTimeout(resolve, 5));
+			}
+			const waiting = http.wait(1000).then(() => 'slept', (error: unknown) => isCancellationError(error) ? 'ended' : String(error));
+			source.cancel();
+			const ended = await running;
+			const after = await failure(http.requestOnce({ method: 'GET', path: '/tasks/2' }));
+			assert.deepEqual({
+				ended: [ended.code, ended.message.includes('The window that asked for this is gone.')],
+				after: [after.code, after.message.includes('The window that asked for this is gone.')],
+				waiting: await waiting,
+				received: server.received.map(entry => entry.path)
+			}, {
+				ended: ['network', true],
+				after: ['rejected', true],
+				waiting: 'ended',
+				received: ['/api/tasks/1']
+			});
+		} finally {
+			source.dispose();
+			await server.close();
+		}
+	});
 
 	test('a request is retried three times, 1, 2, then 4 seconds apart, on 503, and then fails as a network error', async () => {
 		const server = await startServer((request, response) => sendJson(response, 503, { error: { message: 'Busy.' } }));

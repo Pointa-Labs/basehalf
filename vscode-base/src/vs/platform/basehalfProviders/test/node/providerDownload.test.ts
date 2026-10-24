@@ -4,12 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { strict as assert } from 'assert';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from '../../../../base/common/path.js';
 import { downloadFile, MAX_IMAGE_DOWNLOAD_BYTES } from '../../node/download.js';
 import { ProviderFailure } from '../../node/failure.js';
-import { BoundHttp, parseEndpoint, resolveHttpOptions } from '../../node/http.js';
+import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { BoundHttp, boundToCall, parseEndpoint, resolveHttpOptions } from '../../node/http.js';
 import { gifHeader, isoMedia, recordingSleep, routed, sendJson, serveFiles, startServer, tinyJpeg, tinyPng, webpHeader } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
@@ -265,5 +266,73 @@ suite('BaseHalf providers: providerDownload', () => {
 			short: ['notImage', 'The file is too short to be a PNG, JPEG, or WebP image.', false],
 			huge: ['tooLarge', `The image is ${MAX_IMAGE_DOWNLOAD_BYTES + 1} bytes, more than the ${MAX_IMAGE_DOWNLOAD_BYTES} bytes BaseHalf downloads.`, false]
 		});
+	});
+	/** Waits until the download has written to its file. */
+	async function written(target: string): Promise<void> {
+		for (let tries = 0; tries < 400; tries++) {
+			if (existsSync(target) && statSync(target).size > 0) {
+				return;
+			}
+			await new Promise(resolve => setTimeout(resolve, 5));
+		}
+		assert.fail(`nothing was written to ${target}`);
+	}
+
+	test('a download whose call ends stops and leaves no file of its own (D75)', async () => {
+		let hold: (() => void) | undefined;
+		const server = await startServer((request, response) => {
+			response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(VIDEO.byteLength * 2) });
+			response.write(VIDEO);
+			hold = () => response.end(VIDEO);
+		});
+		const source = new CancellationTokenSource();
+		try {
+			const target = partPath();
+			const http = new BoundHttp(parseEndpoint(`${server.url}/api`), () => ({ Authorization: 'Bearer sk-download-secret' }), undefined, boundToCall(resolveHttpOptions({ sleep: recordingSleep().sleep }), source.token));
+			const downloading = failure(downloadFile(http, { url: `${server.url}/api/video.mp4` }, target, 'video'));
+			await written(target);
+			source.cancel();
+			// The download is cut off, and its retry sends nothing.
+			const ended = await downloading;
+			assert.deepEqual({
+				ended: [ended.code, ended.message.includes('The window that asked for this is gone.')],
+				left: existsSync(target),
+				requests: server.received.length
+			}, { ended: ['rejected', true], left: false, requests: 1 });
+		} finally {
+			hold?.();
+			source.dispose();
+			await server.close();
+		}
+	});
+
+	test('a download that fails leaves the file of a later download under its name alone (D75)', async () => {
+		// The window that goes on with a generation downloads under the same
+		// name, while the download of a window that closed may still run.
+		const LATER = Buffer.concat([VIDEO, Buffer.from('later')]);
+		let cut: (() => void) | undefined;
+		const server = await startServer((request, response, socket) => {
+			response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(VIDEO.byteLength * 2) });
+			response.write(VIDEO);
+			cut = () => socket.destroy();
+		});
+		try {
+			const target = partPath();
+			const downloading = failure(downloadFile(bound(`${server.url}/api`), { url: `${server.url}/api/video.mp4` }, target, 'video'));
+			await written(target);
+			unlinkSync(target);
+			writeFileSync(target, LATER);
+			cut?.();
+			const ended = await downloading;
+			assert.deepEqual({
+				ended: [ended.code, /could not create the download file/.test(ended.message)],
+				later: readFileSync(target).equals(LATER)
+			}, {
+				ended: ['rejected', true],
+				later: true
+			});
+		} finally {
+			await server.close();
+		}
 	});
 });

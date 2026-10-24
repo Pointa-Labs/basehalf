@@ -83,6 +83,7 @@ import { getPiiPathsFromEnvironment, getTelemetryLevel, isInternalTelemetry, Nul
 import { IUpdateService } from '../../platform/update/common/update.js';
 import { UpdateChannel } from '../../platform/update/common/updateIpc.js';
 import { NotAvailableUpdateDialog } from '../../platform/update/electron-main/notAvailableUpdateDialog.js';
+import { BASEHALF_SHARED_PROCESS_STOPPED_CHANNEL } from '../../platform/basehalfProviders/common/basehalfProviders.js';
 import { BaseHalfDarwinUpdateService } from '../../platform/update/electron-main/updateService.basehalfDarwin.js';
 import { LinuxUpdateService } from '../../platform/update/electron-main/updateService.linux.js';
 import { SnapUpdateService } from '../../platform/update/electron-main/updateService.snap.js';
@@ -1060,6 +1061,16 @@ export class CodeApplication extends Disposable {
 		const sharedProcess = this._register(this.mainInstantiationService.createInstance(SharedProcess, machineId, sqmId, devDeviceId));
 
 		this._register(sharedProcess.onDidCrash(() => this.windowsMainService?.sendToFocused('vscode:reportSharedProcessCrash')));
+
+		// BaseHalf: every window learns that the shared process stopped, and so does a
+		// window opened later, so that its calls to BaseHalf's provider service fail at
+		// once instead of waiting for a process that never answers (D75).
+		let sharedProcessStopped = false;
+		this._register(sharedProcess.onDidCrash(() => {
+			sharedProcessStopped = true;
+			this.windowsMainService?.sendToAll(BASEHALF_SHARED_PROCESS_STOPPED_CHANNEL);
+		}));
+		validatedIpcMain.handle(BASEHALF_SHARED_PROCESS_STOPPED_CHANNEL, async () => sharedProcessStopped);
 
 		const sharedProcessClient = (async () => {
 			this.logService.trace('Main->SharedProcess#connect');
