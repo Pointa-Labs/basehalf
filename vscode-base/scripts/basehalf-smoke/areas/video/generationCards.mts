@@ -472,7 +472,7 @@ async function assertNewVideoMakesDraft(page) {
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.promptFocused, 'the prompt of the new draft to have the keyboard focus');
 	await assertNoCanvasFocusRing(page, 'The prompt of the new draft');
 	await assertCreatedCardInSight(page, row, viewBefore, 'New Video');
-	// The panel shows that the models load until AI Video answers with the catalog.
+	// The panel shows that the models load until the provider service answers with the catalog.
 	const shown = await waitForReading(() => readGenerationPanel(panel), seen => seen.generate?.disabled === true && seen.catalog === 'ready', 'Generate to be disabled while no model is chosen, once the catalog is there', 30_000);
 	// No model and no prompt: the first blocker is the model, and the model button says it; there is no reason line.
 	if (shown.kind !== 'video' || shown.generate.label !== 'Choose a model to generate.' || shown.model !== 'Choose Model' || !shown.modelOutlined || shown.generate.stop || shown.reason !== null) {

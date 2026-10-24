@@ -1,8 +1,0 @@
-.vscode/**
-src/**
-test/**
-docs/**
-tsconfig.json
-tsconfig.tsbuildinfo
-out/**/*.map
-**/.DS_Store

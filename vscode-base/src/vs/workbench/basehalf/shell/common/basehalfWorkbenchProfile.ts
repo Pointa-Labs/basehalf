@@ -12,7 +12,6 @@ import { Testing } from '../../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../../services/search/common/search.js';
-import { BASEHALF_BUILT_IN_CAPABILITIES } from '../../plugins/common/basehalfBuiltInCapabilities.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 
@@ -418,7 +417,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'theme' | 'git' | 'github' | 'github-authentication' | 'codex' | 'claude' | 'ai-video';
+export type BaseHalfExtensionFamily = 'theme' | 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -676,17 +675,6 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 		externalSlotIds: ['basehalf.agentArea.extension.claude'],
 		source: 'VS Code Marketplace extension id anthropic.claude-code; BaseHalf Agent Area extension-host slot',
 		reason: 'Claude Code extension sessions are allowed only through the curated Agent Area extension-agent path.'
-	},
-	{
-		family: 'ai-video',
-		// Not listed under builtInExtensionIds on purpose: those are allowed by
-		// id, while AI Video is allowed only as the copy in the application's own
-		// extensions folder, which the admission service checks by location.
-		builtInExtensionIds: [],
-		externalExtensionIds: BASEHALF_BUILT_IN_CAPABILITIES.map(capability => capability.extensionId),
-		externalSlotIds: [],
-		source: 'extensions/basehalf-ai-video/package.json',
-		reason: 'AI Video ships inside the application as a built-in extension and is admitted only as that copy.'
 	}
 ] as const satisfies readonly IBaseHalfAllowedExtensionFamily[];
 

@@ -236,8 +236,13 @@ export function validateReviewedReleaseJob(value: unknown, options: {
 	};
 }
 
-export async function packagePlugin(options: { root: string; outputDirectory: string }): Promise<ReleaseMetadata> {
-	const extensionRoot = path.join(options.root, 'extensions', 'basehalf-ai-video');
+/**
+ * Packages the official plugin from its folder. Since D75 the repository has
+ * no AI Video extension, which is BaseHalf's own code; the plugin fixture
+ * packages one of its own to check this path.
+ */
+export async function packagePlugin(options: { extensionRoot: string; outputDirectory: string }): Promise<ReleaseMetadata> {
+	const extensionRoot = options.extensionRoot;
 	const manifest = readJson(path.join(extensionRoot, 'package.json'));
 	const extensionId = manifestId(manifest);
 	if (extensionId !== OFFICIAL_EXTENSION_ID) {
@@ -245,7 +250,7 @@ export async function packagePlugin(options: { root: string; outputDirectory: st
 	}
 	assertSemver(manifest.version, 'extension version');
 	if (!fs.existsSync(path.join(extensionRoot, 'out', 'extension.js'))) {
-		throw new Error('AI Video is not compiled. Run the extension compile task before packaging.');
+		throw new Error('The extension is not compiled. Compile it before packaging.');
 	}
 	fs.mkdirSync(options.outputDirectory, { recursive: true });
 	const vsixPath = path.join(options.outputDirectory, `${extensionId}-${manifest.version}.vsix`);
@@ -2535,7 +2540,10 @@ async function main(): Promise<void> {
 	const command = process.argv[2];
 	const args = parseArgs(process.argv.slice(3));
 	if (command === 'package') {
-		const metadata = await packagePlugin({ root, outputDirectory: path.resolve(args.output ?? path.join(root, '.build', 'basehalf-plugins')) });
+		if (!args.extension) {
+			throw new Error('Expected --extension <folder>: since D75 AI Video is BaseHalf\'s own code, and the repository has no extension to package.');
+		}
+		const metadata = await packagePlugin({ extensionRoot: path.resolve(args.extension), outputDirectory: path.resolve(args.output ?? path.join(root, '.build', 'basehalf-plugins')) });
 		if (args['metadata-output']) {
 			writeJsonExact(path.resolve(args['metadata-output']), metadata);
 		}

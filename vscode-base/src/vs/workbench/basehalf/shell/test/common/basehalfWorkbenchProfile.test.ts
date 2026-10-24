@@ -325,7 +325,8 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('openai.chatgpt'), true);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('ANTHROPIC.CLAUDE-CODE'), true);
-		assert.strictEqual(isBaseHalfAllowedExternalExtension('pointa.basehalf-ai-video'), true);
+		// AI Video is BaseHalf's own code (D75), not an extension that runs.
+		assert.strictEqual(isBaseHalfAllowedExternalExtension('pointa.basehalf-ai-video'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('pointa.basehalf-ai-video'), false);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('github.copilot'), false);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('ms-vscode.remote-server'), false);
@@ -340,7 +341,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 		assert.deepStrictEqual(
 			BASEHALF_ALLOWED_EXTENSION_FAMILIES.map(family => family.family),
-			['theme', 'git', 'github', 'github-authentication', 'codex', 'claude', 'ai-video']
+			['theme', 'git', 'github', 'github-authentication', 'codex', 'claude']
 		);
 	});
 

@@ -3,31 +3,42 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, extUri, joinPath } from '../../../../base/common/resources.js';
+import { URI } from '../../../../base/common/uri.js';
 
-export const EXTENSION_ID = 'pointa.basehalf-ai-video';
-export const CREATE_WORKFLOW_COMMAND_ID = `${EXTENSION_ID}.createWorkflow`;
-export const INSPECT_SEQUENCE_COMMAND_ID = `${EXTENSION_ID}.inspectSequence`;
-export const ADD_SEQUENCE_ITEM_COMMAND_ID = `${EXTENSION_ID}.addSequenceItemFromVideoResult`;
-export const MOVE_SEQUENCE_ITEM_COMMAND_ID = `${EXTENSION_ID}.moveSequenceItem`;
-export const REMOVE_SEQUENCE_ITEM_COMMAND_ID = `${EXTENSION_ID}.removeSequenceItem`;
-export const REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID = `${EXTENSION_ID}.repairSequenceItemPath`;
-export const HOST_CREATE_FROM_TEMPLATE_COMMAND_ID = 'basehalf.canvas.createFromTemplate';
-export const STARTER_TEMPLATE_ID = `${EXTENSION_ID}.starter-workflow`;
-export const SEQUENCE_INSPECTION_CONCURRENCY = 8;
-export const MAX_SEQUENCE_ITEMS = 10_000;
+/**
+ * The Sequence document of a video workflow and what it checks (Video
+ * Sequence). Its ids keep the prefix they had when the AI Video extension
+ * held them (D75): agents, the skill, saved Card Detail states, and the
+ * `kind` of files written before name them.
+ */
+export const BASEHALF_SEQUENCE_NAMESPACE = 'pointa.basehalf-ai-video';
+export const BASEHALF_SEQUENCE_CREATE_WORKFLOW_COMMAND_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.createWorkflow`;
+export const BASEHALF_SEQUENCE_INSPECT_COMMAND_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.inspectSequence`;
+export const BASEHALF_SEQUENCE_ADD_COMMAND_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.addSequenceItemFromVideoResult`;
+export const BASEHALF_SEQUENCE_MOVE_COMMAND_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.moveSequenceItem`;
+export const BASEHALF_SEQUENCE_REMOVE_COMMAND_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.removeSequenceItem`;
+export const BASEHALF_SEQUENCE_REPAIR_COMMAND_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.repairSequenceItemPath`;
+export const BASEHALF_SEQUENCE_PROJECTION_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.sequence`;
+export const BASEHALF_SEQUENCE_CAPABILITY_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.sequence-capability`;
+export const BASEHALF_STARTER_WORKFLOW_TEMPLATE_ID = `${BASEHALF_SEQUENCE_NAMESPACE}.starter-workflow`;
+export const BASEHALF_SEQUENCE_FILE_NAME = 'video-sequence.json';
+export const BASEHALF_SEQUENCE_KIND = `${BASEHALF_SEQUENCE_NAMESPACE}.sequence`;
+export const BASEHALF_SHOT_KIND = `${BASEHALF_SEQUENCE_NAMESPACE}.shot`;
+export const BASEHALF_SEQUENCE_INSPECTION_CONCURRENCY = 8;
+export const BASEHALF_SEQUENCE_MAX_ITEMS = 10_000;
 
 /** The extensions of a video file, as BaseHalf's video cards have them (generation cards, "Terms"). */
-export const VIDEO_FILE_EXTENSIONS: readonly string[] = Object.freeze(['.mp4', '.mov', '.m4v', '.webm']);
+export const BASEHALF_SEQUENCE_VIDEO_EXTENSIONS: readonly string[] = Object.freeze(['.mp4', '.mov', '.m4v', '.webm']);
 
 /**
  * A shot of the starter workflow (D63): a stable id, a title, and the path
  * of its clip, the shot's video card, relative to the folder of its
  * `shot.json`. The card is a draft until it generates.
  */
-export interface AIVideoShotDocument {
+export interface IBaseHalfShotDocument {
 	readonly version: 1;
-	readonly kind: 'pointa.basehalf-ai-video.shot';
+	readonly kind: typeof BASEHALF_SHOT_KIND;
 	readonly id: string;
 	readonly title: string;
 	readonly clipNodePath: string;
@@ -38,96 +49,85 @@ export interface AIVideoShotDocument {
  * the Sequence file, and for a video BaseHalf generated, the `id` of its
  * `made.yaml`, which is the clip's identity while the file is moved.
  */
-export interface AIVideoSequenceItem {
+export interface IBaseHalfSequenceItem {
 	readonly id: string;
 	readonly title: string;
 	readonly videoPath: string;
 	readonly generationId?: string;
 }
 
-export interface AIVideoSequenceDocument {
+export interface IBaseHalfSequenceDocument {
 	readonly version: 1;
-	readonly kind: 'pointa.basehalf-ai-video.sequence';
-	readonly items: readonly AIVideoSequenceItem[];
+	readonly kind: typeof BASEHALF_SEQUENCE_KIND;
+	readonly items: readonly IBaseHalfSequenceItem[];
 }
 
-/** What a generation card is, as the host's `inspectGenerationCard` answers it. */
-export interface AIVideoGenerationCardState {
+/** What a generation card is: its kind, whether it has its file, and the `id` of its `made.yaml`. */
+export interface IBaseHalfSequenceCardState {
 	readonly kind: 'image' | 'video';
 	readonly hasFile: boolean;
 	readonly generationId?: string;
 }
 
 /** What the workspace says of the file an item names. */
-export interface AIVideoSequenceVideoState {
+export interface IBaseHalfSequenceVideoState {
 	/** The path names a regular video file inside the workspace folder. */
 	readonly isVideoFile: boolean;
 	/** The `id` of that file's `made.yaml`, when BaseHalf generated it and the record can be read. */
 	readonly generationId?: string;
-	/** Opaque host resource of the file, for the caller that plays it. */
-	readonly resource?: unknown;
+	/** The file, for the view that plays it. */
+	readonly resource?: URI;
 }
 
 /** Where the video of an item with a `generationId` is now. */
-export type AIVideoSequenceRelocation =
+export type BaseHalfSequenceRelocation =
 	| { readonly kind: 'unique'; readonly videoPath: string }
 	| { readonly kind: 'ambiguous'; readonly matchCount: number }
 	| { readonly kind: 'scanLimit'; readonly maximum: number };
 
 /** `missing`: no video file is at the path. `changed`: the video there is not the one the item names. */
-export type AIVideoSequenceItemState = 'available' | 'missing' | 'changed';
+export type BaseHalfSequenceItemState = 'available' | 'missing' | 'changed';
 
-/** The video an inspection verified, for playback. */
-export interface AIVideoSequencePlayableVideo {
-	/** Opaque to the pure domain model; the extension projection validates it as a host URI. */
-	readonly resource?: unknown;
-}
-
-export interface AIVideoSequenceItemInspection {
-	readonly item: AIVideoSequenceItem;
-	readonly state: AIVideoSequenceItemState;
+export interface IBaseHalfSequenceItemInspection {
+	readonly item: IBaseHalfSequenceItem;
+	readonly state: BaseHalfSequenceItemState;
 	readonly message: string;
-	/** The video verified by this inspection pass, when the item is available. */
-	readonly video?: AIVideoSequencePlayableVideo;
-	/** A unique verified moved path. Applying it always requires an explicit command. */
+	/** The video this inspection verified, when the item is available. */
+	readonly video?: { readonly resource?: URI };
+	/** A unique verified moved path. Applying it always takes an explicit command. */
 	readonly repairCandidatePath?: string;
 }
 
-export interface AIVideoSequenceInspection {
+export interface IBaseHalfSequenceInspection {
 	readonly valid: boolean;
-	readonly items: readonly AIVideoSequenceItemInspection[];
+	readonly items: readonly IBaseHalfSequenceItemInspection[];
 }
 
 /** Whether a path names a file with a video extension, in any case. */
-export function isAIVideoSequenceVideoPath(path: string): boolean {
+export function isBaseHalfSequenceVideoPath(path: string): boolean {
 	const lower = path.toLowerCase();
-	return VIDEO_FILE_EXTENSIONS.some(extension => lower.endsWith(extension) && lower.length > extension.length && !lower.endsWith(`/${extension}`));
+	return BASEHALF_SEQUENCE_VIDEO_EXTENSIONS.some(extension => lower.endsWith(extension) && lower.length > extension.length && !lower.endsWith(`/${extension}`));
 }
 
-export function parseAIVideoShotDocument(source: string): AIVideoShotDocument {
+export function parseBaseHalfShotDocument(source: string): IBaseHalfShotDocument {
 	const root = parseJsonRecord(source, 'shot');
 	assertOnlyKeys(root, ['version', 'kind', 'id', 'title', 'clipNodePath'], 'shot');
-	if (root.version !== 1 || root.kind !== 'pointa.basehalf-ai-video.shot') {
+	if (root.version !== 1 || root.kind !== BASEHALF_SHOT_KIND) {
 		throw new Error('The video shot does not use the supported version 1 format.');
 	}
 	return Object.freeze({
 		version: 1,
-		kind: 'pointa.basehalf-ai-video.shot',
+		kind: BASEHALF_SHOT_KIND,
 		id: requiredText(root.id, 'shot.id', 128),
 		title: requiredText(root.title, 'shot.title', 240),
 		clipNodePath: portableVideoPath(root.clipNodePath, 'shot.clipNodePath')
 	});
 }
 
-export function resolveAIVideoShotClipNodePath(shotDocumentPath: string, clipNodePath: string): string {
-	const relativePath = portableVideoPath(clipNodePath, 'shot.clipNodePath');
-	return resolve(dirname(shotDocumentPath), ...relativePath.split('/'));
-}
-
-export function parseAIVideoSequenceDocument(source: string): AIVideoSequenceDocument {
+export function parseBaseHalfSequenceDocument(source: string): IBaseHalfSequenceDocument {
 	const root = parseJsonRecord(source, 'sequence');
 	assertOnlyKeys(root, ['version', 'kind', 'items'], 'sequence');
-	if (root.version !== 1 || root.kind !== 'pointa.basehalf-ai-video.sequence' || !Array.isArray(root.items) || root.items.length > MAX_SEQUENCE_ITEMS) {
+	if (root.version !== 1 || root.kind !== BASEHALF_SEQUENCE_KIND || !Array.isArray(root.items) || root.items.length > BASEHALF_SEQUENCE_MAX_ITEMS) {
 		throw new Error('The video sequence does not use the supported version 1 format.');
 	}
 
@@ -147,40 +147,39 @@ export function parseAIVideoSequenceDocument(source: string): AIVideoSequenceDoc
 			...(item.generationId === undefined ? {} : { generationId: generationId(item.generationId, `sequence.items[${index}].generationId`) })
 		});
 	});
-	return Object.freeze({ version: 1, kind: 'pointa.basehalf-ai-video.sequence', items: Object.freeze(items) });
+	return Object.freeze({ version: 1, kind: BASEHALF_SEQUENCE_KIND, items: Object.freeze(items) });
 }
 
-export function serializeAIVideoSequenceDocument(document: AIVideoSequenceDocument): string {
-	return `${JSON.stringify(parseAIVideoSequenceDocument(JSON.stringify(document)), null, 2)}\n`;
+export function serializeBaseHalfSequenceDocument(document: IBaseHalfSequenceDocument): string {
+	return `${JSON.stringify(parseBaseHalfSequenceDocument(JSON.stringify(document)), null, 2)}\n`;
 }
 
-export function resolveAIVideoSequenceVideoPath(sequenceDocumentPath: string, videoPath: string): string {
-	const relativePath = portableVideoPath(videoPath, 'sequence.videoPath');
-	return resolve(dirname(sequenceDocumentPath), ...relativePath.split('/'));
+/** The file a path of a Sequence names: relative to the folder of the Sequence file. */
+export function resolveBaseHalfSequenceVideo(sequence: URI, videoPath: string): URI {
+	return joinPath(dirname(sequence), ...portableVideoPath(videoPath, 'sequence.videoPath').split('/'));
+}
+
+/** The file a shot's `clipNodePath` names: relative to the folder of its `shot.json`. */
+export function resolveBaseHalfShotClip(shot: URI, clipNodePath: string): URI {
+	return joinPath(dirname(shot), ...portableVideoPath(clipNodePath, 'shot.clipNodePath').split('/'));
 }
 
 /** Appends one clip. A video that the Sequence already names, by its path or its `generationId`, is not added twice. */
-export function addAIVideoSequenceItem(
-	document: AIVideoSequenceDocument,
-	item: AIVideoSequenceItem
-): AIVideoSequenceDocument {
-	const parsed = parseAIVideoSequenceDocument(JSON.stringify(document));
+export function addBaseHalfSequenceItem(document: IBaseHalfSequenceDocument, item: IBaseHalfSequenceItem): IBaseHalfSequenceDocument {
+	const parsed = parseBaseHalfSequenceDocument(JSON.stringify(document));
 	const duplicate = parsed.items.find(candidate => candidate.videoPath === item.videoPath
 		|| (item.generationId !== undefined && candidate.generationId === item.generationId));
 	if (duplicate) {
 		throw new Error(`This video is already in the Sequence as '${duplicate.title}'.`);
 	}
-	return parseAIVideoSequenceDocument(JSON.stringify({
+	return parseBaseHalfSequenceDocument(JSON.stringify({
 		...parsed,
 		items: [...parsed.items, item]
 	}));
 }
 
-export function removeAIVideoSequenceItem(
-	document: AIVideoSequenceDocument,
-	itemId: string
-): AIVideoSequenceDocument {
-	const parsed = parseAIVideoSequenceDocument(JSON.stringify(document));
+export function removeBaseHalfSequenceItem(document: IBaseHalfSequenceDocument, itemId: string): IBaseHalfSequenceDocument {
+	const parsed = parseBaseHalfSequenceDocument(JSON.stringify(document));
 	const normalizedItemId = requiredText(itemId, 'itemId', 128);
 	const items = parsed.items.filter(item => item.id !== normalizedItemId);
 	if (items.length === parsed.items.length) {
@@ -194,7 +193,7 @@ export function removeAIVideoSequenceItem(
  * the path must be a video file, a video card with its file, and its
  * `generationId` is the `id` of its `made.yaml` when it has one.
  */
-export function resolveAIVideoSequenceVideo(videoPath: string, isVideoFile: boolean, card: AIVideoGenerationCardState | undefined): { readonly generationId?: string } {
+export function resolveBaseHalfSequenceVideoCard(videoPath: string, isVideoFile: boolean, card: IBaseHalfSequenceCardState | undefined): { readonly generationId?: string } {
 	if (card && card.kind !== 'video') {
 		throw new Error(`'${videoPath}' is an image card, not a video.`);
 	}
@@ -207,37 +206,27 @@ export function resolveAIVideoSequenceVideo(videoPath: string, isVideoFile: bool
 	return Object.freeze(card?.generationId === undefined ? {} : { generationId: generationId(card.generationId, 'generationId') });
 }
 
-export function isFilePathInside(basePath: string, candidatePath: string): boolean {
-	const descendant = relative(resolve(basePath), resolve(candidatePath));
-	return descendant !== ''
-		&& descendant !== '..'
-		&& !descendant.startsWith(`..${sep}`)
-		&& !isAbsolute(descendant);
+/** Whether a resource is below a folder, and not the folder itself. */
+export function isBaseHalfResourceInside(folder: URI, candidate: URI): boolean {
+	return extUri.isEqualOrParent(candidate, folder) && !extUri.isEqual(candidate, folder);
 }
 
-export function isPlainLocalFileResource(scheme: string, query: string, fragment: string): boolean {
-	return scheme === 'file' && query === '' && fragment === '';
-}
-
-export function isOrdinaryFilePathInside(basePath: string, candidatePath: string, isFile: boolean, isSymbolicLink: boolean): boolean {
-	return isFile && !isSymbolicLink && isFilePathInside(basePath, candidatePath);
+/** A file of the local disk, with nothing that a URI adds to its path. */
+export function isBaseHalfPlainLocalFile(resource: URI): boolean {
+	return resource.scheme === 'file' && resource.query === '' && resource.fragment === '';
 }
 
 /** The portable path of a video below the folder of the Sequence file. */
-export function portableDescendantVideoPath(workflowRootPath: string, videoPath: string): string {
-	if (!isFilePathInside(workflowRootPath, videoPath)) {
+export function baseHalfSequenceVideoPathOf(workflowRoot: URI, video: URI): string {
+	const descendant = isBaseHalfResourceInside(workflowRoot, video) ? extUri.relativePath(workflowRoot, video) : undefined;
+	if (!descendant) {
 		throw new Error('The video must be inside the folder of the Sequence file.');
 	}
-	const descendant = relative(resolve(workflowRootPath), resolve(videoPath)).split(sep).join('/');
 	return portableVideoPath(descendant, 'videoPath');
 }
 
-export function moveAIVideoSequenceItem(
-	document: AIVideoSequenceDocument,
-	itemId: string,
-	direction: 'up' | 'down'
-): AIVideoSequenceDocument {
-	const parsed = parseAIVideoSequenceDocument(JSON.stringify(document));
+export function moveBaseHalfSequenceItem(document: IBaseHalfSequenceDocument, itemId: string, direction: 'up' | 'down'): IBaseHalfSequenceDocument {
+	const parsed = parseBaseHalfSequenceDocument(JSON.stringify(document));
 	const index = parsed.items.findIndex(item => item.id === itemId);
 	if (index < 0) {
 		throw new Error(`Sequence item '${itemId}' does not exist.`);
@@ -252,12 +241,8 @@ export function moveAIVideoSequenceItem(
 }
 
 /** Repair Moved: the item's path, and nothing else of it, changes. */
-export function updateAIVideoSequenceItemPath(
-	document: AIVideoSequenceDocument,
-	itemId: string,
-	videoPath: string
-): AIVideoSequenceDocument {
-	const parsed = parseAIVideoSequenceDocument(JSON.stringify(document));
+export function updateBaseHalfSequenceItemPath(document: IBaseHalfSequenceDocument, itemId: string, videoPath: string): IBaseHalfSequenceDocument {
+	const parsed = parseBaseHalfSequenceDocument(JSON.stringify(document));
 	const normalizedItemId = requiredText(itemId, 'itemId', 128);
 	const normalizedPath = portableVideoPath(videoPath, 'videoPath');
 	let found = false;
@@ -280,15 +265,15 @@ export function updateAIVideoSequenceItemPath(
  * `made.yaml` has it; otherwise it is missing or changed, and for a clip with
  * a `generationId` the moved video is looked for.
  */
-export async function inspectAIVideoSequence(
-	document: AIVideoSequenceDocument,
-	inspectVideo: (videoPath: string) => Promise<AIVideoSequenceVideoState>,
-	locateMovedVideo?: (item: AIVideoSequenceItem) => Promise<AIVideoSequenceRelocation | undefined>,
+export async function inspectBaseHalfSequence(
+	document: IBaseHalfSequenceDocument,
+	inspectVideo: (videoPath: string) => Promise<IBaseHalfSequenceVideoState>,
+	locateMovedVideo?: (item: IBaseHalfSequenceItem) => Promise<BaseHalfSequenceRelocation | undefined>,
 	throwIfCancelled?: () => void
-): Promise<AIVideoSequenceInspection> {
-	const parsed = parseAIVideoSequenceDocument(JSON.stringify(document));
+): Promise<IBaseHalfSequenceInspection> {
+	const parsed = parseBaseHalfSequenceDocument(JSON.stringify(document));
 	throwIfCancelled?.();
-	const items = await inspectAIVideoSequenceItems(parsed.items, inspectVideo, locateMovedVideo, throwIfCancelled);
+	const items = await inspectItems(parsed.items, inspectVideo, locateMovedVideo, throwIfCancelled);
 	throwIfCancelled?.();
 	return Object.freeze({
 		valid: items.every(item => item.state === 'available'),
@@ -296,22 +281,22 @@ export async function inspectAIVideoSequence(
 	});
 }
 
-async function inspectAIVideoSequenceItems(
-	items: readonly AIVideoSequenceItem[],
-	inspectVideo: (videoPath: string) => Promise<AIVideoSequenceVideoState>,
-	locateMovedVideo: ((item: AIVideoSequenceItem) => Promise<AIVideoSequenceRelocation | undefined>) | undefined,
+async function inspectItems(
+	items: readonly IBaseHalfSequenceItem[],
+	inspectVideo: (videoPath: string) => Promise<IBaseHalfSequenceVideoState>,
+	locateMovedVideo: ((item: IBaseHalfSequenceItem) => Promise<BaseHalfSequenceRelocation | undefined>) | undefined,
 	throwIfCancelled: (() => void) | undefined
-): Promise<readonly AIVideoSequenceItemInspection[]> {
-	const inspected = new Array<AIVideoSequenceItemInspection>(items.length);
+): Promise<readonly IBaseHalfSequenceItemInspection[]> {
+	const inspected = new Array<IBaseHalfSequenceItemInspection>(items.length);
 	let nextIndex = 0;
-	const workers = Array.from({ length: Math.min(SEQUENCE_INSPECTION_CONCURRENCY, items.length) }, async () => {
+	const workers = Array.from({ length: Math.min(BASEHALF_SEQUENCE_INSPECTION_CONCURRENCY, items.length) }, async () => {
 		while (true) {
 			throwIfCancelled?.();
 			const index = nextIndex++;
 			if (index >= items.length) {
 				return;
 			}
-			inspected[index] = await inspectAIVideoSequenceItem(items[index], inspectVideo, locateMovedVideo);
+			inspected[index] = await inspectItem(items[index], inspectVideo, locateMovedVideo);
 			throwIfCancelled?.();
 		}
 	});
@@ -319,61 +304,61 @@ async function inspectAIVideoSequenceItems(
 	return inspected;
 }
 
-async function inspectAIVideoSequenceItem(
-	item: AIVideoSequenceItem,
-	inspectVideo: (videoPath: string) => Promise<AIVideoSequenceVideoState>,
-	locateMovedVideo: ((item: AIVideoSequenceItem) => Promise<AIVideoSequenceRelocation | undefined>) | undefined
-): Promise<AIVideoSequenceItemInspection> {
-	let video: AIVideoSequenceVideoState;
+async function inspectItem(
+	item: IBaseHalfSequenceItem,
+	inspectVideo: (videoPath: string) => Promise<IBaseHalfSequenceVideoState>,
+	locateMovedVideo: ((item: IBaseHalfSequenceItem) => Promise<BaseHalfSequenceRelocation | undefined>) | undefined
+): Promise<IBaseHalfSequenceItemInspection> {
+	let video: IBaseHalfSequenceVideoState;
 	try {
 		video = await inspectVideo(item.videoPath);
 	} catch (error) {
-		return sequenceInspection(item, 'missing', errorMessage(error));
+		return itemInspection(item, 'missing', errorMessage(error));
 	}
 	if (video.isVideoFile && (item.generationId === undefined || video.generationId === item.generationId)) {
-		return sequenceInspection(item, 'available', 'The video is available.', undefined, Object.freeze(video.resource === undefined ? {} : { resource: video.resource }));
+		return itemInspection(item, 'available', 'The video is available.', undefined, Object.freeze(video.resource === undefined ? {} : { resource: video.resource }));
 	}
-	const state: AIVideoSequenceItemState = video.isVideoFile ? 'changed' : 'missing';
+	const state: BaseHalfSequenceItemState = video.isVideoFile ? 'changed' : 'missing';
 	const found = state === 'missing'
 		? `'${item.videoPath}' is missing.`
 		: `The video at '${item.videoPath}' is not the one this clip names.`;
 	if (item.generationId === undefined || !locateMovedVideo) {
-		return sequenceInspection(item, state, found);
+		return itemInspection(item, state, found);
 	}
-	let relocation: AIVideoSequenceRelocation | undefined;
+	let relocation: BaseHalfSequenceRelocation | undefined;
 	try {
 		relocation = await locateMovedVideo(item);
 	} catch (error) {
-		return sequenceInspection(item, state, `${found} ${errorMessage(error)}`);
+		return itemInspection(item, state, `${found} ${errorMessage(error)}`);
 	}
 	if (!relocation) {
-		return sequenceInspection(item, state, `${found} No video of its generation was found below the folder of the Sequence.`);
+		return itemInspection(item, state, `${found} No video of its generation was found below the folder of the Sequence.`);
 	}
 	if (relocation.kind === 'scanLimit') {
-		return sequenceInspection(item, state, `${found} It was not looked for, because more than ${relocation.maximum} videos are below the folder of the Sequence.`);
+		return itemInspection(item, state, `${found} It was not looked for, because more than ${relocation.maximum} videos are below the folder of the Sequence.`);
 	}
 	if (relocation.kind === 'ambiguous') {
-		return sequenceInspection(item, state, `${found} ${relocation.matchCount} videos below the folder of the Sequence come from its generation. Keep one, then repair this clip.`);
+		return itemInspection(item, state, `${found} ${relocation.matchCount} videos below the folder of the Sequence come from its generation. Keep one, then repair this clip.`);
 	}
 	let candidatePath: string;
 	try {
 		candidatePath = portableVideoPath(relocation.videoPath, 'repairCandidatePath');
 	} catch (error) {
-		return sequenceInspection(item, state, errorMessage(error));
+		return itemInspection(item, state, errorMessage(error));
 	}
 	if (candidatePath === item.videoPath) {
-		return sequenceInspection(item, state, found);
+		return itemInspection(item, state, found);
 	}
-	return sequenceInspection(item, state, `The video moved to '${candidatePath}'. Repair this clip's path to play it.`, candidatePath);
+	return itemInspection(item, state, `The video moved to '${candidatePath}'. Repair this clip's path to play it.`, candidatePath);
 }
 
-function sequenceInspection(
-	item: AIVideoSequenceItem,
-	state: AIVideoSequenceItemState,
+function itemInspection(
+	item: IBaseHalfSequenceItem,
+	state: BaseHalfSequenceItemState,
 	message: string,
 	repairCandidatePath?: string,
-	video?: AIVideoSequencePlayableVideo
-): AIVideoSequenceItemInspection {
+	video?: { readonly resource?: URI }
+): IBaseHalfSequenceItemInspection {
 	return Object.freeze({
 		item,
 		state,
@@ -429,7 +414,7 @@ function generationId(value: unknown, path: string): string {
 }
 
 function portableVideoPath(value: unknown, path: string): string {
-	const refuse = () => new Error(`${path} must be a safe relative path of a video file (${VIDEO_FILE_EXTENSIONS.join(', ')}).`);
+	const refuse = () => new Error(`${path} must be a safe relative path of a video file (${BASEHALF_SEQUENCE_VIDEO_EXTENSIONS.join(', ')}).`);
 	if (
 		typeof value !== 'string' ||
 		!value ||
@@ -454,7 +439,7 @@ function portableVideoPath(value: unknown, path: string): string {
 			/[. ]$/.test(segment) ||
 			/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(segment)
 		) ||
-		!isAIVideoSequenceVideoPath(value)
+		!isBaseHalfSequenceVideoPath(value)
 	) {
 		throw refuse();
 	}

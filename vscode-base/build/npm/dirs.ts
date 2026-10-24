@@ -15,7 +15,6 @@ export const dirs = [
 	'build/vite',
 	'extensions',
 	'extensions/basehalf',
-	'extensions/basehalf-ai-video',
 	'extensions/configuration-editing',
 	'extensions/copilot',
 	'extensions/css-language-features',

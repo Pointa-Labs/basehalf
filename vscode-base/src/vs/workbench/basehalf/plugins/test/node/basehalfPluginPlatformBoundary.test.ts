@@ -53,6 +53,20 @@ suite('BaseHalfPluginPlatformBoundary', () => {
 		]);
 	});
 
+	test('no compiled module calls a provider command of the AI Video extension (D75)', () => {
+		// The window calls the provider service of the shared process directly.
+		const command = /basehalf\.video\.provider\.(?:catalog|check|submit|poll|download|cancel|place)\b/;
+		const compiledRoot = FileAccess.asFileUri('').fsPath;
+		const callers: string[] = [];
+		for (const entry of readdirSync(join(compiledRoot, 'vs'), { recursive: true, encoding: 'utf8' })) {
+			const segments = entry.split(sep);
+			if (entry.endsWith('.js') && !segments.includes('test') && command.test(readFileSync(join(compiledRoot, 'vs', entry), 'utf8'))) {
+				callers.push(segments.join('/'));
+			}
+		}
+		assert.deepStrictEqual(callers, []);
+	});
+
 	test('keeps frozen plugin management registered by its desktop module, not by the common one', () => {
 		const common = readCompiledModule('vs/workbench/basehalf/plugins/common/basehalfPluginManagementService.js');
 		const desktop = readCompiledModule('vs/workbench/basehalf/plugins/electron-browser/basehalfPluginManagementService.js');

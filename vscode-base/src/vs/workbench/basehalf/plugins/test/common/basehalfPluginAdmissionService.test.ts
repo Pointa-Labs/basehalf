@@ -333,7 +333,7 @@ suite('BaseHalfPluginAdmissionService', () => {
 		assert.strictEqual(normalService.isAllowedContributor(identity('reviewed.workflow', '0.0.1', developmentLocation, false, true)), false);
 	});
 
-	test('admits the built-in capability only from the application extensions folder, packaged or not', () => {
+	test('admits no copy of AI Video, also one at the application extensions folder, packaged or not (D75)', () => {
 		const storage = disposables.add(new InMemoryStorageService());
 		const files = fileService();
 		const official = BASEHALF_CURATED_PLUGINS[0];
@@ -349,7 +349,7 @@ suite('BaseHalfPluginAdmissionService', () => {
 				staleOutputCopy: service.isAllowedContributor(identity(official.extensionId, '0.6.0', staleOutLocation, true)),
 				parentFolder: service.isAllowedContributor(identity(official.extensionId, '0.6.0', joinPath(scannerLocation, '..'), true))
 			}, {
-				builtInCopy: true,
+				builtInCopy: false,
 				profileCopyAtTheSamePath: false,
 				staleOutputCopy: false,
 				parentFolder: false

@@ -3,22 +3,27 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 
 /**
- * The canvas templates that admitted extensions contribute through
- * `contributes.basehalfCanvasTemplates`. A template is a static JSON resource
- * of its extension; `basehalfCanvasTemplate.ts` parses it when a project is
- * made from it.
+ * The canvas templates: BaseHalf's own, whose JSON is part of the
+ * application's code (D75), and those that admitted extensions contribute
+ * through `contributes.basehalfCanvasTemplates`, whose JSON is a static
+ * resource of the extension. `basehalfCanvasTemplate.ts` parses it when a
+ * project is made from it.
  */
 
 const CONTRIBUTION_ID_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*){2,}$/;
 const MAX_CONTRIBUTION_ID_LENGTH = 128;
+/** The most of a template's JSON that is read. */
+export const BASEHALF_CANVAS_TEMPLATE_MAX_BYTES = 512 * 1024;
 
 export interface IBaseHalfCanvasTemplateContribution {
 	readonly id: string;
@@ -28,9 +33,18 @@ export interface IBaseHalfCanvasTemplateContribution {
 	readonly resource: string;
 }
 
+/** A template of BaseHalf's own, whose ids are prefixed by `namespace` as an extension's are by its id. */
+export interface IBaseHalfCanvasBuiltInTemplate extends Omit<IBaseHalfCanvasTemplateContribution, 'resource'> {
+	readonly namespace: string;
+	/** The template's JSON. */
+	readonly source: string;
+}
+
 export interface IBaseHalfCanvasTemplateDescriptor extends Omit<IBaseHalfCanvasTemplateContribution, 'resource'> {
+	/** The extension that contributed it, or the namespace of BaseHalf's own. */
 	readonly extensionId: string;
-	readonly resource: URI;
+	/** The template's JSON: a file of its extension, or the text of BaseHalf's own. */
+	readonly source: URI | string;
 }
 
 export const IBaseHalfCanvasTemplateRegistryService = createDecorator<IBaseHalfCanvasTemplateRegistryService>('baseHalfCanvasTemplateRegistryService');
@@ -39,6 +53,7 @@ export interface IBaseHalfCanvasTemplateRegistryService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChange: Event<void>;
 	registerTemplate(extensionId: string, extensionLocation: URI, contribution: IBaseHalfCanvasTemplateContribution): IDisposable;
+	registerBuiltInTemplate(template: IBaseHalfCanvasBuiltInTemplate): IDisposable;
 	getTemplate(id: string): IBaseHalfCanvasTemplateDescriptor | undefined;
 	getTemplates(): readonly IBaseHalfCanvasTemplateDescriptor[];
 }
@@ -51,7 +66,25 @@ export class BaseHalfCanvasTemplateRegistryService extends Disposable implements
 	readonly onDidChange = this._onDidChange.event;
 
 	registerTemplate(extensionId: string, extensionLocation: URI, contribution: IBaseHalfCanvasTemplateContribution): IDisposable {
-		const descriptor = validateBaseHalfCanvasTemplateContribution(extensionId, extensionLocation, contribution);
+		return this.add(validateBaseHalfCanvasTemplateContribution(extensionId, extensionLocation, contribution));
+	}
+
+	registerBuiltInTemplate(template: IBaseHalfCanvasBuiltInTemplate): IDisposable {
+		const owner = normalizeExtensionId(template.namespace);
+		const id = normalizeContributionId(owner, template.id);
+		if (VSBuffer.fromString(template.source).byteLength > BASEHALF_CANVAS_TEMPLATE_MAX_BYTES) {
+			throw new Error(`BaseHalf canvas template '${id}' is larger than a template may be.`);
+		}
+		return this.add(Object.freeze({
+			id,
+			extensionId: owner,
+			label: boundedText(template.label, `${id}.label`, 80),
+			...(template.description === undefined ? {} : { description: boundedText(template.description, `${id}.description`, 500) }),
+			source: template.source
+		}));
+	}
+
+	private add(descriptor: IBaseHalfCanvasTemplateDescriptor): IDisposable {
 		if (this.templates.has(descriptor.id)) {
 			throw new Error(`A BaseHalf canvas template with id '${descriptor.id}' is already registered.`);
 		}
@@ -89,8 +122,16 @@ export function validateBaseHalfCanvasTemplateContribution(extensionId: string, 
 		extensionId: owner,
 		label,
 		...(description === undefined ? {} : { description }),
-		resource
+		source: resource
 	});
+}
+
+/** The JSON of a template, as the canvas parses it. */
+export async function readBaseHalfCanvasTemplateSource(fileService: IFileService, descriptor: IBaseHalfCanvasTemplateDescriptor): Promise<string> {
+	if (typeof descriptor.source === 'string') {
+		return descriptor.source;
+	}
+	return (await fileService.readFile(descriptor.source, { limits: { size: BASEHALF_CANVAS_TEMPLATE_MAX_BYTES } })).value.toString();
 }
 
 function validateRelativeTemplateResource(value: string, templateId: string): string {

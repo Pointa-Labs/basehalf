@@ -177,9 +177,12 @@ try {
 	assert.throws(() => validateReviewedReleaseJob({ ...reviewedReleaseJob, download_url: `https://${submissionBucket}.s3.${awsRegion}.amazonaws.com/submissions/${submissionId}/${'c'.repeat(64)}.vsix?${signedQuery}` }, { submissionBucket, awsRegion }), /outside the submission quarantine/);
 	assert.throws(() => validateReviewedReleaseJob({ ...reviewedReleaseJob, unexpected: true }, { submissionBucket, awsRegion }), /unsupported fields/);
 
-	const release = await packagePlugin({ root, outputDirectory: temporary });
+	// Since D75 the repository has no AI Video extension: the release path packages one of the fixture's own.
+	const officialExtension = path.join(temporary, 'official-extension');
+	writeOfficialExtensionFixture(officialExtension);
+	const release = await packagePlugin({ extensionRoot: officialExtension, outputDirectory: temporary });
 	const repeatedPackageDirectory = path.join(temporary, 'repeated-package');
-	const repeatedRelease = await packagePlugin({ root, outputDirectory: repeatedPackageDirectory });
+	const repeatedRelease = await packagePlugin({ extensionRoot: officialExtension, outputDirectory: repeatedPackageDirectory });
 	assert.equal(repeatedRelease.sha256, release.sha256);
 	assert.equal(repeatedRelease.installedContentSha256, release.installedContentSha256);
 	assert.equal(repeatedRelease.size, release.size);
@@ -190,6 +193,7 @@ try {
 		'--experimental-strip-types',
 		path.join(root, 'scripts/basehalf-plugin-release.mts'),
 		'package',
+		'--extension', officialExtension,
 		'--output', workflowOutput,
 		'--metadata-output', workflowMetadataPath
 	], { stdio: 'pipe' });
@@ -1198,6 +1202,47 @@ function corruptCentralCrc(source: Buffer, fileName: string): Buffer {
 	throw new Error(`Archive fixture does not contain '${fileName}'.`);
 }
 
+/**
+ * An official plugin as the release path packages it: a manifest that passes
+ * the reviewed checks, an entry point, a template, a README, and a license.
+ */
+function writeOfficialExtensionFixture(directory: string): void {
+	const primaryCommand = `${OFFICIAL_EXTENSION_ID}.createWorkflow`;
+	const files: Record<string, string> = {
+		'package.json': `${JSON.stringify({
+			name: OFFICIAL_EXTENSION_ID.split('.')[1],
+			displayName: 'BaseHalf AI Video',
+			description: 'A fixture of the official plugin for the release checks.',
+			version: '0.6.0',
+			publisher: OFFICIAL_EXTENSION_ID.split('.')[0],
+			license: 'Apache-2.0',
+			repository: { type: 'git', url: 'https://github.com/Pointa-Labs/basehalf.git' },
+			engines: { vscode: '^1.128.0', basehalf: '^0.4.0' },
+			main: './out/extension.js',
+			activationEvents: [],
+			basehalf: { primaryCommand, primaryCommandLabel: 'Create Video Workflow…' },
+			contributes: {
+				commands: [{ command: primaryCommand, title: 'Create Video Workflow…', category: 'BaseHalf' }],
+				basehalfCanvasTemplates: [{ id: `${OFFICIAL_EXTENSION_ID}.starter-workflow`, label: 'Video Starter Workflow', resource: 'templates/starter-workflow.json' }]
+			}
+		}, null, '\t')}\n`,
+		'README.md': '# BaseHalf AI Video\n\nA fixture of the official plugin for the release checks.\n',
+		'LICENSE.txt': 'Apache License, Version 2.0\n',
+		'out/extension.js': 'exports.activate = () => undefined;\n',
+		'templates/starter-workflow.json': `${JSON.stringify({
+			version: 1,
+			files: [{ path: 'brief.md', contents: '# Brief\n' }],
+			drafts: [],
+			cards: [{ path: 'brief.md', x: 0, y: 0, width: 280, height: 180 }],
+			references: []
+		}, null, '\t')}\n`
+	};
+	for (const [file, contents] of Object.entries(files)) {
+		fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
+		fs.writeFileSync(path.join(directory, file), contents);
+	}
+}
+
 function assertWorkflowRunBlocksDoNotInterpolateInputs(file: string): void {
 	const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
 	for (let index = 0; index < lines.length; index++) {
@@ -1299,7 +1344,7 @@ function assertDirectPublishFailsClosed(file: string): void {
 
 	const bindContentHashes = source.indexOf('- name: Bind canonical installed content hashes');
 	const backfill = source.indexOf('- name: Backfill immutable identities from the verified catalog');
-	const packageStep = source.indexOf('- name: Compile and package AI Video');
+	const packageStep = source.indexOf('- name: Package AI Video');
 	const inventory = source.indexOf('- name: Verify empty or resumable bootstrap inventory');
 	const build = source.indexOf('- name: Build publish catalog');
 	const reserve = source.indexOf('- name: Reserve immutable plugin version identity');

@@ -25,7 +25,7 @@ import {
 import { workspacePath } from '../../context.mts';
 import { assertCanvasEdgeVisible, assertCanvasFolder, openRootCanvas, waitForCanvasCardSelection } from '../../lib/canvas.mts';
 import { SMOKE_PROVIDER } from '../../lib/providers.mts';
-import { tryRunCommand, visibleQuickInput } from '../../lib/quickInput.mts';
+import { quickOpen, tryRunCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 const WORKFLOW = 'Video Starter Workflow';
@@ -43,7 +43,7 @@ async function runCommandWhenAvailable(page, value, timeout = 30_000) {
 	throw new Error(`Command did not become available in QuickInput: ${value}`);
 }
 
-// The plugin platform is frozen and AI Video is built in
+// The plugin platform is frozen and AI Video is BaseHalf's own code
 // (docs/specs/built-in-ai-video-and-plugin-freeze.md). The product has no
 // plugin surface: the sidebar shows exactly Files, Git, and Search, and no
 // command opens Plugins or manages a plugin.
@@ -241,4 +241,32 @@ export async function assertSequenceAddsGeneratedVideo(page) {
 	if (repaired.items.length !== 1 || repaired.items[0].generationId !== made.id || repaired.items[0].title !== 'Shot 01' || repaired.items[0].id !== item.id) {
 		throw new Error(`The repair must update only the path of the clip: ${JSON.stringify(repaired)}`);
 	}
+
+	// The Sequence view is BaseHalf's own (D75): the file opens in it, and it
+	// shows the clip, available, with its video. Escape in its page closes
+	// Card Detail.
+	await quickOpen(page, 'video-sequence.json');
+	const projection = page.locator('.basehalf-card-detail.visible .basehalf-card-detail-projection[aria-label="Sequence"]');
+	await projection.waitFor({ state: 'visible', timeout: 20_000 });
+	if (await projection.getAttribute('aria-pressed') !== 'true') {
+		throw new Error('A Sequence file must open in the Sequence view');
+	}
+	const view = await waitForReading(() => readSequenceView(page), seen => !!seen?.video && seen.rows.some(row => row.includes('Shot 01') && row.includes('Available')), 'the Sequence view to show its clip, available, with its video', 20_000);
+	await view.frame.locator('h1').click();
+	await page.keyboard.press('Escape');
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+/** The page of the Sequence view: the text of each clip's row, and the source of its player. */
+async function readSequenceView(page) {
+	for (const frame of page.frames()) {
+		const heading = await frame.locator('main header h1').textContent({ timeout: 200 }).catch(() => null);
+		if (heading === 'Sequence') {
+			const rows = await frame.locator('li.clip').allInnerTexts();
+			const video = await frame.locator('.player video').getAttribute('src', { timeout: 200 }).catch(() => null);
+			// The frame stays out of what a timeout prints.
+			return { frame, rows, video, toJSON: () => ({ rows, video }) };
+		}
+	}
+	return undefined;
 }

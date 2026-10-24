@@ -40,17 +40,6 @@ private-docs/
 # never committed — IP hygiene + keeps the repo small)
 reference/
 
-# Local interaction-research records and evidence. Product conclusions derived
-# from them belong in the maintained specs; raw third-party studies stay local.
-vscode-base/extensions/basehalf-ai-video/docs/*-behavior-audit*.md
-vscode-base/extensions/basehalf-ai-video/docs/*-handoff-prompt*.txt
-vscode-base/extensions/basehalf-ai-video/docs/*-followup-evidence/
-vscode-base/extensions/basehalf-ai-video/docs/product-research*.md
-vscode-base/extensions/basehalf-ai-video/docs/canvas-interaction-spec.md
-vscode-base/extensions/basehalf-ai-video/docs/canvas-implementation-gap-audit.md
-vscode-base/extensions/basehalf-ai-video/docs/canvas-product-conclusion*.md
-vscode-base/extensions/basehalf-ai-video/docs/unified-canvas-product-contract*.md
-
 # Claude Code runtime state (scheduled task locks, etc.)
 .claude/
 

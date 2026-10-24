@@ -91,7 +91,8 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		const official = BASEHALF_CURATED_PLUGINS[0];
 		assert.ok(official.bundledPath);
 		const builtInLocation = joinPath(FileAccess.asFileUri(''), '..', 'extensions', 'basehalf-ai-video');
-		assert.strictEqual(testObject.isAllowed(aLocalExtension(official.extensionId, ExtensionType.System, '0.6.0', builtInLocation)), true);
+		// AI Video is BaseHalf's own code (D75): no copy of it runs, also one where the application kept it.
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(official.extensionId, ExtensionType.System, '0.6.0', builtInLocation)), true);
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(official.extensionId, ExtensionType.User, '0.6.0', builtInLocation)), true);
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(
 			official.extensionId,

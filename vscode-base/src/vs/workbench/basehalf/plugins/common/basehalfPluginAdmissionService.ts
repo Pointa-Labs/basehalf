@@ -14,7 +14,6 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IExtensionDescription } from '../../../../platform/extensions/common/extensions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
-import { baseHalfBuiltInCapabilityLocation, findBaseHalfBuiltInCapability } from './basehalfBuiltInCapabilities.js';
 import { baseHalfPluginLocationsEqual } from './basehalfPluginCatalog.js';
 import { baseHalfCanonicalInstalledFileBytes } from './basehalfPluginInstalledContent.js';
 
@@ -192,14 +191,8 @@ export class BaseHalfPluginAdmissionService extends Disposable implements IBaseH
 			&& this.environmentService.extensionDevelopmentLocationURI?.some(location => baseHalfPluginLocationsEqual(location, identity.extensionLocation))) {
 			return true;
 		}
-		const builtInCapability = findBaseHalfBuiltInCapability(extensionId);
-		if (builtInCapability) {
-			// A built-in capability is admitted only as the copy the application
-			// ships, in a packaged and in a development build alike. A profile copy
-			// with the same identity never is.
-			return identity.isBuiltin
-				&& baseHalfPluginLocationsEqual(identity.extensionLocation, baseHalfBuiltInCapabilityLocation(builtInCapability));
-		}
+		// No extension of the application is admitted (D75): AI Video, which was
+		// the one, is BaseHalf's own code.
 		if (identity.isBuiltin) {
 			return false;
 		}

@@ -292,14 +292,14 @@ build/basehalf/package-darwin.sh arm64
 vscode-base/                         current desktop product source
   src/vs/workbench/basehalf/         BaseHalf's workbench code, a folder per
                                      feature: canvas, card detail, Agent Area,
-                                     video, references, navigation, workspace
+                                     video, Sequence, references, navigation,
+                                     workspace
+  src/vs/platform/basehalfProviders/ the image and video provider modules and
+                                     the model catalog, in the shared process
   src/vs/platform/update/            BaseHalf's update service and protocol,
                                      beside VS Code's (basehalf*.ts)
   extensions/basehalf/               rich Markdown editor, in-card note
                                      editor, and other bundles
-  extensions/basehalf-ai-video/      built-in AI Video: Sequence, the starter
-                                     template, the model catalog, and the
-                                     image and video provider modules
   build/basehalf/                    macOS package, DMG, and update scripts
   BASEHALF_UPSTREAM.md               VS Code import baseline
 

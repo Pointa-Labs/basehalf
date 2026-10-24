@@ -482,13 +482,13 @@ import './contrib/opener/browser/opener.contribution.js';
 // BaseHalf product profile
 import './basehalf/shell/browser/basehalfConfiguration.contribution.js';
 import './basehalf/video/browser/basehalfVideoProviders.contribution.js';
+import './basehalf/sequence/browser/basehalfSequence.contribution.js';
 import './basehalf/shell/browser/basehalfReleaseNotes.contribution.js';
 import './basehalf/shell/browser/basehalfAbout.contribution.js';
 import './basehalf/shell/browser/basehalfHover.contribution.js';
 import './basehalf/shell/browser/basehalfWorkbenchProfile.contribution.js';
 import './basehalf/navigation/browser/basehalfNavigation.contribution.js';
 import './basehalf/plugins/browser/basehalfCardProjectionExtensionPoint.contribution.js';
-import './basehalf/plugins/browser/basehalfBuiltInCapabilities.contribution.js';
 import './basehalf/plugins/browser/basehalfPluginStructuralCleanupExtensionPoint.contribution.js';
 import './basehalf/plugins/browser/basehalfCanvasTemplateExtensionPoint.contribution.js';
 import './basehalf/plugins/browser/basehalfAgentCapabilityExtensionPoint.contribution.js';

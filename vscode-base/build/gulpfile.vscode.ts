@@ -300,8 +300,6 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 		// BaseHalf: the bundled Copilot Chat extension is not part of the curated
 		// extension set (the Agent Area hosts Codex/Claude instead) and would add
 		// ~440MB to the package — keep it out of the shipped app.
-		// AI Video ships with the other built-in extensions, so it works from the
-		// first start with no install step.
 		const basehalfExcludedBuiltInExtensions = [
 			'!.build/extensions/copilot/**'
 		];

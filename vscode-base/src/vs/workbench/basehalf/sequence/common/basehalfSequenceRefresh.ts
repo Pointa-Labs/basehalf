@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-export class SequenceProjectionRefreshState {
+export class BaseHalfSequenceRefreshState {
 	private hiddenChange = false;
 	private visible: boolean;
 
@@ -29,7 +29,7 @@ export class SequenceProjectionRefreshState {
 	}
 }
 
-export class SequenceProjectionRenderQueue {
+export class BaseHalfSequenceRenderQueue {
 	private running: Promise<void> | undefined;
 	private queued = false;
 	private disposed = false;
@@ -71,7 +71,7 @@ export class SequenceProjectionRenderQueue {
 	}
 }
 
-export interface SequenceProjectionWindow<T> {
+export interface IBaseHalfSequenceWindow<T> {
 	readonly items: readonly T[];
 	readonly totalItems: number;
 	readonly truncated: boolean;
@@ -80,10 +80,10 @@ export interface SequenceProjectionWindow<T> {
 /**
  * Keeps Card Detail work bounded independently from the portable document
  * limit. Larger Sequences remain readable and editable as local JSON, while
- * the projection shows a deterministic prefix instead of freezing the
- * Extension Host to inspect and render the entire file.
+ * the view shows a deterministic prefix instead of holding the window up
+ * to inspect and render the entire file.
  */
-export function sequenceProjectionWindow<T>(items: readonly T[], maximumVisibleItems: number): SequenceProjectionWindow<T> {
+export function baseHalfSequenceWindow<T>(items: readonly T[], maximumVisibleItems: number): IBaseHalfSequenceWindow<T> {
 	if (!Number.isInteger(maximumVisibleItems) || maximumVisibleItems < 1) {
 		throw new Error('The Sequence projection limit must be a positive integer.');
 	}
@@ -95,7 +95,7 @@ export function sequenceProjectionWindow<T>(items: readonly T[], maximumVisibleI
 }
 
 /** The video file of every clip of the Sequence, by resource key, so that a change of one shows. */
-export class SequenceProjectionVideoPaths {
+export class BaseHalfSequenceVideoPaths {
 	private resources = new Set<string>();
 	private readonly maximumPaths: number;
 
@@ -122,24 +122,7 @@ export class SequenceProjectionVideoPaths {
 	}
 }
 
-/**
- * The card whose generation record a file event concerns: for
- * `<workspace>/.bh/mirror/<path>/made.yaml`, the resource key of
- * `<workspace>/<path>`, so that a record that arrives after its video, as it
- * does when the video is moved back, inspects the clip again. Keys are
- * resource strings, as `Uri.toString()` writes them.
- */
-export function sequenceCardOfGenerationRecord(workspaceKey: string, candidateKey: string): string | undefined {
-	const root = `${workspaceKey.replace(/\/+$/, '')}/.bh/mirror/`;
-	const record = '/made.yaml';
-	if (!candidateKey.startsWith(root) || !candidateKey.endsWith(record)) {
-		return undefined;
-	}
-	const card = candidateKey.slice(root.length, candidateKey.length - record.length);
-	return card ? `${workspaceKey.replace(/\/+$/, '')}/${card}` : undefined;
-}
-
-export interface SequenceProjectionArtifactBinding {
+export interface IBaseHalfSequenceArtifactBinding {
 	readonly resultKey: string;
 	readonly verifiedResourceKey?: string;
 }
@@ -149,17 +132,17 @@ export interface SequenceProjectionArtifactBinding {
  * a verified local video. Individual verified clips remain previewable while
  * an incomplete order is repaired.
  */
-export function canPlayEntireSequence(totalItems: number, playableItems: number): boolean {
+export function canPlayEntireBaseHalfSequence(totalItems: number, playableItems: number): boolean {
 	return totalItems > 0 && playableItems === totalItems;
 }
 
-export interface SequenceProjectionPlayableItem {
+export interface IBaseHalfSequencePlayableItem {
 	readonly index: number;
 	readonly itemId: string;
 	readonly src: string;
 }
 
-export interface SequenceProjectionPlaybackRestore {
+export interface IBaseHalfSequencePlaybackRestore {
 	readonly playableIndex: number;
 	readonly currentTime: number;
 	readonly shouldPlay: boolean;
@@ -169,12 +152,12 @@ export interface SequenceProjectionPlaybackRestore {
 /**
  * Restores a refreshed projection by stable Sequence item identity. A changed
  * or missing artifact remains selected when possible, but playback resumes
-	 * only when the source of the clip is unchanged.
+ * only when the source of the clip is unchanged.
  */
-export function resolveSequencePlaybackRestore(
-	playable: readonly SequenceProjectionPlayableItem[],
+export function resolveBaseHalfSequencePlaybackRestore(
+	playable: readonly IBaseHalfSequencePlayableItem[],
 	state: unknown
-): SequenceProjectionPlaybackRestore {
+): IBaseHalfSequencePlaybackRestore {
 	if (playable.length === 0) {
 		return { playableIndex: -1, currentTime: 0, shouldPlay: false, playAll: false };
 	}
@@ -208,7 +191,7 @@ export function resolveSequencePlaybackRestore(
 	};
 }
 
-export interface SequencePreviewMediaElement {
+export interface IBaseHalfSequencePreviewMedia {
 	removeAttribute(name: string): void;
 	setAttribute(name: string, value: string): void;
 	load(): void;
@@ -216,10 +199,10 @@ export interface SequencePreviewMediaElement {
 
 /**
  * Reloads only the already verified resource selected by the Sequence item.
-	 * The caller supplies the source of that clip's video instead of asking for
-	 * another one.
+ * The caller supplies the source of that clip's video instead of asking for
+ * another one.
  */
-export function reloadSequencePreview(media: SequencePreviewMediaElement, verifiedSource: string | undefined): boolean {
+export function reloadBaseHalfSequencePreview(media: IBaseHalfSequencePreviewMedia, verifiedSource: string | undefined): boolean {
 	if (!verifiedSource) {
 		return false;
 	}
@@ -235,7 +218,7 @@ export function reloadSequencePreview(media: SequencePreviewMediaElement, verifi
  * An unavailable result keeps its prior path so replacing the file at that exact
  * location can trigger a fresh inspection.
  */
-export class SequenceProjectionArtifactPaths {
+export class BaseHalfSequenceArtifactPaths {
 	private byResult = new Map<string, string>();
 	private resources = new Set<string>();
 	private readonly maximumResults: number;
@@ -247,7 +230,7 @@ export class SequenceProjectionArtifactPaths {
 		this.maximumResults = maximumResults;
 	}
 
-	reconcile(bindings: readonly SequenceProjectionArtifactBinding[]): void {
+	reconcile(bindings: readonly IBaseHalfSequenceArtifactBinding[]): void {
 		if (bindings.length > this.maximumResults) {
 			throw new Error(`Sequence has more than ${this.maximumResults} result artifact paths to watch.`);
 		}

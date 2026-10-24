@@ -7,18 +7,16 @@ import { mainWindow } from '../../../base/browser/window.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableMap } from '../../../base/common/lifecycle.js';
-import { Schemas } from '../../../base/common/network.js';
-import { dirname, extUri } from '../../../base/common/resources.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { URI, UriComponents } from '../../../base/common/uri.js';
-import { IFileService, IFileStatWithPartialMetadata } from '../../../platform/files/common/files.js';
+import { IFileService } from '../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../contrib/webview/browser/webview.js';
 import { IBaseHalfExtensionCardProjectionRuntimeService, IBaseHalfExtensionCardProjectionSession } from '../../basehalf/cardDetail/browser/basehalfExtensionCardProjection.js';
 import { IBaseHalfCardDetailState } from '../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCardProjectionRegistryService } from '../../basehalf/cardDetail/common/basehalfCardDetail.js';
-import { baseHalfGenerationKindOfPath } from '../../basehalf/video/common/basehalfGenerationInfo.js';
-import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore } from '../../basehalf/video/common/basehalfVideoGeneration.js';
+import { inspectBaseHalfGenerationCard } from '../../basehalf/video/common/basehalfGenerationCardInspection.js';
+import { IBaseHalfGenerationCardStore } from '../../basehalf/video/common/basehalfVideoGeneration.js';
 import { IBaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../basehalf/plugins/common/basehalfPluginAdmissionService.js';
 import { IBaseHalfPluginStructuralCleanupService } from '../../basehalf/plugins/common/basehalfPluginStructuralCleanup.js';
 import { IBaseHalfProjectFileTransitionService } from '../../basehalf/plugins/common/basehalfProjectFileTransitions.js';
@@ -179,14 +177,7 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		this.sessions.get(handle)?.setDirty(dirty);
 	}
 
-	/**
-	 * What an admitted extension learns of a generation card (D63, generation
-	 * cards, "Implementation boundaries"): its kind, whether it has its file,
-	 * and the `id` of its `made.yaml`, read through the card store. Every
-	 * resource that is not a generation card of an open local workspace folder
-	 * answers nothing, and so does one that is a symbolic link or resolves
-	 * outside its workspace folder. Nothing is written.
-	 */
+	/** What an admitted extension learns of a generation card, as BaseHalf's own code learns it. */
 	async $inspectGenerationCard(
 		extension: extHostProtocol.IBaseHalfExtensionIdentityDto,
 		resource: UriComponents
@@ -195,62 +186,7 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		if (!this.pluginAdmissionService.isAllowedContributor(contributor)) {
 			throw new Error(`Extension '${contributor.extensionId}' is not admitted to inspect BaseHalf generation cards.`);
 		}
-		const card = URI.revive(resource);
-		if (card.scheme !== Schemas.file || card.query || card.fragment) {
-			return undefined;
-		}
-		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(card)?.uri;
-		const relativePath = workspaceFolder ? extUri.relativePath(workspaceFolder, card) : undefined;
-		if (!workspaceFolder || !relativePath || relativePath === '..' || relativePath.startsWith('../')
-			|| relativePath.split('/').some(segment => segment.toLowerCase() === '.bh')
-			|| !baseHalfGenerationKindOfPath(relativePath)
-			|| !await this.resolvesInside(workspaceFolder, card)
-			|| !await this.generationCardStore.isGenerationCard(card)) {
-			return undefined;
-		}
-		let snapshot: IBaseHalfGenerationCardSnapshot;
-		try {
-			snapshot = await this.generationCardStore.read(card);
-		} catch {
-			return undefined;
-		}
-		return {
-			kind: snapshot.kind,
-			hasFile: snapshot.hasFile,
-			...(snapshot.made ? { generationId: snapshot.made.id } : {})
-		};
-	}
-
-	/**
-	 * Whether a card is a regular file that resolves inside its workspace
-	 * folder, or a draft whose folder does: never a symbolic link.
-	 */
-	private async resolvesInside(workspaceFolder: URI, card: URI): Promise<boolean> {
-		const [workspaceRealpath, stat] = await Promise.all([this.realpathQuietly(workspaceFolder), this.statQuietly(card)]);
-		if (!workspaceRealpath) {
-			return false;
-		}
-		if (stat && (stat.isSymbolicLink || !stat.isFile)) {
-			return false;
-		}
-		const realpath = await this.realpathQuietly(stat ? card : dirname(card));
-		return !!realpath && extUri.isEqualOrParent(realpath, workspaceRealpath) && (!stat || !extUri.isEqual(realpath, workspaceRealpath));
-	}
-
-	private async statQuietly(resource: URI): Promise<IFileStatWithPartialMetadata | undefined> {
-		try {
-			return await this.fileService.stat(resource);
-		} catch {
-			return undefined;
-		}
-	}
-
-	private async realpathQuietly(resource: URI): Promise<URI | undefined> {
-		try {
-			return await this.fileService.realpath(resource);
-		} catch {
-			return undefined;
-		}
+		return inspectBaseHalfGenerationCard(URI.revive(resource), this.fileService, this.workspaceContextService, this.generationCardStore);
 	}
 
 	async $applyProjectFileTransition(

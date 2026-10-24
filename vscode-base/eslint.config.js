@@ -143,13 +143,12 @@ export default defineConfig(
 			]
 		},
 	},
-	// BaseHalf-owned product and official-plugin sources retain Pointa Labs'
-	// Apache-2.0 header while the unmodified VS Code substrate stays MIT.
+	// BaseHalf-owned product sources retain Pointa Labs' Apache-2.0 header
+	// while the unmodified VS Code substrate stays MIT.
 	{
 		files: [
 			'build/basehalf/**/*.{js,mjs,ts,mts}',
 			'extensions/basehalf/**/*.{js,mjs,ts,mts,tsx}',
-			'extensions/basehalf-ai-video/**/*.{js,mjs,ts,mts,tsx}',
 			'scripts/basehalf-*.{js,mjs,ts,mts}',
 			'scripts/basehalf-*/**/*.{js,mjs,ts,mts}',
 			'src/vs/platform/basehalf*/**/*.{js,mjs,ts,mts}',

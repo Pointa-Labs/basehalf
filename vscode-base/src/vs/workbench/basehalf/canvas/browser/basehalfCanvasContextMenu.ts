@@ -38,7 +38,7 @@ import {
 	materializeBaseHalfCanvasTemplateUpstream,
 	parseBaseHalfCanvasTemplate
 } from '../common/basehalfCanvasTemplate.js';
-import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvasTemplateRegistry.js';
+import { IBaseHalfCanvasTemplateRegistryService, readBaseHalfCanvasTemplateSource } from '../common/basehalfCanvasTemplateRegistry.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
@@ -177,9 +177,8 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		if (!descriptor) {
 			throw new Error(localize('basehalf.canvas.template.notFound', "Canvas template '{0}' is not available.", commandArguments.templateId));
 		}
-		const raw = await fileService.readFile(descriptor.resource, { limits: { size: 512 * 1024 } });
+		const templateSource = await readBaseHalfCanvasTemplateSource(fileService, descriptor);
 		throwIfTemplateCreationCancelled(cancellationToken);
-		const templateSource = raw.value.toString();
 		const template = parseBaseHalfCanvasTemplate(templateSource);
 
 		const currentFolder = commandArguments.targetFolder
@@ -394,7 +393,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		}
 		const descriptor = templates.getTemplate(setup.templateId);
 		if (!descriptor) {
-			throw new Error(localize('basehalf.canvas.template.resumeTemplateMissing', "'{0}' is not available, so this setup cannot be finished. If it stays unavailable after BaseHalf has started, AI Video could not start, and reinstalling BaseHalf repairs it.", setup.templateLabel));
+			throw new Error(localize('basehalf.canvas.template.resumeTemplateMissing', "'{0}' is not available, so this setup cannot be finished.", setup.templateLabel));
 		}
 		const projectResource = joinProjectPath(workspaceFolder, setup.projectRelativePath);
 		if (!await fileService.exists(projectResource)) {
@@ -405,8 +404,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 				setup.projectRelativePath
 			));
 		}
-		const raw = await fileService.readFile(descriptor.resource, { limits: { size: 512 * 1024 } });
-		const templateSource = raw.value.toString();
+		const templateSource = await readBaseHalfCanvasTemplateSource(fileService, descriptor);
 		if (await templateSourceDigest(templateSource) !== setup.templateDigest) {
 			throw new Error(localize(
 				'basehalf.canvas.template.resumeTemplateChanged',

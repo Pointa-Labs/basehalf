@@ -59,6 +59,7 @@ import { assertCanvasBreadcrumbsRemoved, assertCanvasContainsCard, assertMarkdow
 import { assertExplorerRenameCascadesMirror, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
 import { assertExternalPluginInstalledRelaunch, assertExternalPluginLifecycle, assertExternalPluginUninstalled, assertExternalPluginUpdate } from './areas/plugin/externalPlugin.mts';
 import { assertLandingLeftNoPartialFile, runGenerationCardSteps } from './areas/video/generationCards.mts';
+import { assertProviderRequestsFromSharedProcess } from './areas/video/providerService.mts';
 import { assertNoPluginSurface, assertSequenceAddsGeneratedVideo, assertVideoWorkflowTemplate } from './areas/video/workflowTemplate.mts';
 import {
 	assertAgentAreaChoices,
@@ -272,6 +273,7 @@ async function runVideoSuite(page) {
 	await runGenerationCardSteps(page);
 	await step('video-sequence-adds-generated-video', () => assertSequenceAddsGeneratedVideo(page));
 	await step('video-landing-leaves-no-partial-file', () => assertLandingLeftNoPartialFile());
+	await step('video-requests-from-provider-service', () => assertProviderRequestsFromSharedProcess());
 }
 
 /** The lifecycle of a reviewed external plugin. Not in the whole smoke; it needs --external-plugin-id. */

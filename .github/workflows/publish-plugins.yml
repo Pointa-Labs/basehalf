@@ -264,15 +264,14 @@ jobs:
             fi
           done < <(find "$GITHUB_WORKSPACE/release/version-identities" -type f -name '*.json' -print0 | sort -z)
 
-      - name: Compile and package AI Video
+      - name: Package AI Video
         if: inputs.operation == 'publish'
         working-directory: vscode-base
         run: |
-          npm run gulp compile-extension:basehalf-ai-video
-          npm run basehalf:plugin:package -- \
-            --output "$GITHUB_WORKSPACE/release" \
-            --metadata-output "$GITHUB_WORKSPACE/release/metadata.json"
-          jq -e '.installedContentSha256 | type == "string" and test("^[a-f0-9]{64}$")' "$GITHUB_WORKSPACE/release/metadata.json" >/dev/null
+          # Since D75 AI Video is BaseHalf's own code, not a plugin. Withdrawal,
+          # rollback, and synchronization of the versions already published work.
+          echo "::error::AI Video is BaseHalf's own code since D75: there is no plugin to package or publish."
+          exit 1
 
       - name: Verify empty or resumable bootstrap inventory
         if: inputs.operation == 'publish' && env.BOOTSTRAP_INVENTORY_REQUIRED == 'true'
