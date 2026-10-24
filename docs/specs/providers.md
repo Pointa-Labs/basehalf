@@ -232,6 +232,9 @@ the provider has one of its own.
 - Rules that join several parameters, such as "1080P allows 6 seconds only"
   or "a transparent background needs PNG", are checked by the provider module
   and reported by `check` ([Requests](#requests)), not declared.
+- A rule that only narrows how far a number goes for the planned inputs or
+  the mode, such as "the input videos and the result are at most 30 seconds
+  together", is answered by `check` as a limit, not as a problem (D70).
 
 **Shared names.** A parameter that means the same at every provider has one
 name and one set of values in the catalog, so that choosing another model
@@ -353,6 +356,15 @@ answer cross-origin requests from the window.
   whose modes and inputs choose among several provider ids, it also answers
   `providerModel`, the id the request would be sent with; the window records
   that id with the generation.
+- `check` also answers `limits`: for each number parameter whose range the
+  planned inputs or the mode narrow, the lowest and the highest value it can
+  take, where they differ from its declaration, and one plain sentence that
+  says why. A value beyond a limit is fitted to it, the highest or the
+  lowest it can take, before the rules are checked, so it is no problem; a
+  value equal to the parameter's Auto is never fitted. The window shows the
+  narrowed range in the settings and sends and records the fitted value
+  ([generation cards, Settings](generation-cards.md#settings)). `submit`
+  fits the parameters as `check` does before it sends them.
 - `submit` takes, with the request, one target file per output the request
   may make (the `count` of an image model, otherwise one), each a new `.part`
   file under `.bh/cache/generation/`; for a model that answers at once, it
@@ -511,7 +523,9 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
    in no workspace file, no page markup, and no log.
 4. `check` reports, before anything is written, a missing required input, too
    many inputs, an input outside the mode's limits, a prompt that is too long
-   or missing, and a rule between parameters.
+   or missing, and a rule between parameters; a range that the inputs or the
+   mode narrow is answered as a limit with its reason, and a value beyond it
+   is fitted, not refused, by `check` and by `submit`.
 5. Each implemented provider passes its module's tests against a local
    server that answers like the provider: create, poll through every state or
    an answer with the outputs at once, download, cancel where offered,

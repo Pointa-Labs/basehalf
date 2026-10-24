@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -9,7 +9,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
 [D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23),
 [D68](../decisions.md#d68--a-cards-references-are-its-connections-and-a-name-in-its-prompt-follows-its-input-new-2026-10-24),
-[D69](../decisions.md#d69--pick-on-canvas-stays-on-and-shows-what-a-click-does-new-2026-10-24)
+[D69](../decisions.md#d69--pick-on-canvas-stays-on-and-shows-what-a-click-does-new-2026-10-24),
+[D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -591,6 +592,18 @@ The settings of a draft are drawn from its model's
   is a number field, or buttons with **None** when it has five or fewer
   steps, and an optional choice adds **None**.
 
+**A range the inputs narrow** (D70). A rule of the provider can narrow how
+far a number goes for what is connected, such as Wan 3.0, whose input videos
+and result are at most 30 seconds together. `check` answers that range with
+its reason ([check](providers.md#requests)), and the setting ends there: its
+slider or field goes no further, and a line under it says why, such as "Up to
+25 s. The connected video lasts 5.0 seconds, and Wan 3.0 makes at most 30
+seconds with it." A value beyond the range is used as its end: the summary
+shows that value, and that is what is sent and recorded. The card keeps the
+value it chose, which shows again when the inputs leave room for it, as a
+value the start frame sets does. Auto is never narrowed. Until `check` has
+answered for the inputs, the declared range shows.
+
 The values are the card's `params`; a parameter without a value shows its
 default, and that is what is sent. Choosing another model or mode keeps every
 value the new model or mode accepts and gives the others their defaults,
@@ -635,8 +648,10 @@ From top to bottom:
      picture and a video its first frame, filling the square; audio, text,
      other kinds, and an input without its file show their glyph, and a text
      input its name under it. An input with a name shows the number of its
-     name at its top left: 1 for 图片1, 2 for 视频2. An input that cannot be
-     used is dimmed.
+     name at its top left: 1 for 图片1, 2 for 视频2. A video and a sound show
+     their length at the bottom left, such as 6.8s, once their file tells
+     it, since a model's limits count it (D70). An input that cannot be used
+     is dimmed.
    - **Frames mode** shows the start and the end frame first, joined by a
      swap arrow, as far as the model takes frames, each marked Start or End
      at its foot; an empty frame is a tile with a plus and its mark, which
@@ -736,8 +751,8 @@ From top to bottom:
      set up first, then the others, each in the catalog's order; a provider
      that is not set up says so next to its name, and its models can still be
      chosen. Each model shows a second line drawn from its declarations: its
-     modes, and for a video its longest duration, its largest resolution,
-     and Sound when it makes sound, such as "Frames · References · 15s ·
+     modes, and for a video its range of durations, its largest resolution,
+     and Sound when it makes sound, such as "Frames · References · 4–15s ·
      1080p · Sound"; for an image its largest resolution, how many images
      one generation can make when that is more than one, and how many
      reference images it takes, such as "4K · Up to 4 images · 14
@@ -787,13 +802,15 @@ no such model, a model of the other kind, the provider, and the region, the
 model button is outlined and its tooltip says the same.
 
 The panel also shows that reason as a line above the footer, at most two
-lines tall, so it can be read without pointing at the button. When one
-action fixes it, the line offers that action: **Set Up** opens Providers at
-the provider that is not set up, and **Providers…** opens it at the provider
-whose region does not offer the model or the mode. There is no line while
-the card generates, while the catalog loads, when no model is chosen, or when
-there is nothing to send: the stop square, the model button, and the empty
-prompt already say those.
+lines tall, only when it is fixed outside the panel (D70): **Set Up** opens
+Providers at the provider that is not set up, **Providers…** opens it at the
+provider whose region does not offer the model or the mode, and a catalog
+that could not be loaded says why. A reason that the panel itself fixes, an
+input, a setting, the model, or the prompt, shows no line: Generate is
+dimmed, its pointer is the not-allowed one, and its tooltip says why, as a
+choice of a menu that cannot be made is dimmed with its reason. There is no
+line either while the card generates, while the catalog loads, when no
+model is chosen, or when there is nothing to send.
 
 The panel asks the provider module for the problems of the planned
 generation a quarter of a second after the model, mode, values, prompt,
@@ -1648,7 +1665,8 @@ Panel and card
     show the same values.
 18. The Generate button is disabled with the first blocker as its tooltip and
     accessible name, in the specified order; the panel shows that reason as a
-    line above the footer, whose Set Up opens Providers at the provider.
+    line above the footer only when it is fixed outside the panel, whose Set
+    Up opens Providers at the provider.
 19. A name in the prompt that matches no input is underlined as a warning;
     `@` opens the reference menu (criterion 54).
 
@@ -1829,6 +1847,19 @@ Pick on Canvas (D69)
     name's text and the prompt's text share a baseline.
 64. A connection made or removed in the panel, and its undo, shows on the
     canvas's line within two frames of the tile at 60 Hz, 34 ms.
+
+Ranges, lengths, and Generate (D70)
+
+65. With a 5.0-second video connected to a Wan 3.0 draft set to 30 seconds,
+    the duration goes up to 25 seconds with its reason under it, the summary
+    says 25s, Generate is enabled, and 25 seconds are sent and recorded; the
+    card keeps 30, which shows again when the video is removed.
+66. The tile of a video or a sound shows its length, such as 5.0s.
+67. The model menu shows each video model's range of durations, such as
+    4–15s.
+68. A reason the panel fixes, such as a problem `check` reports for the
+    prompt, dims Generate with the reason as its tooltip and shows no line;
+    a provider that is not set up shows its line with Set Up.
 
 ## Verification
 

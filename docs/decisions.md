@@ -2498,3 +2498,49 @@ is.
   and chips that stay, so a connection made or removed blinks nothing, and
   an input that comes back soon, by undo or a second click, shows its
   picture at once.
+
+## D70 — What the inputs leave room for is what the settings offer, and Generate says why it cannot run where it is (NEW, 2026-10-24)
+
+**Decision.** A provider's rule that narrows how far a number goes for the
+connected inputs, such as Wan 3.0's input videos and result being at most 30
+seconds together, narrows the setting itself: its range ends there with its
+reason under it, a value chosen beyond it is used as its end, shown, sent,
+and recorded so, and the card keeps the value it chose. A video's and a
+sound's tile shows its length, and the model menu shows each video model's
+range of durations. A reason that the panel itself fixes, an input, a
+setting, the model, or the prompt, dims Generate with the reason as its
+tooltip and shows no line above the footer; the line stays for a reason
+fixed outside the panel, with its Set Up or Providers…. See [generation
+cards](specs/generation-cards.md#settings) and
+[providers](specs/providers.md#requests).
+
+**Why.** On 2026-10-24 the user found the line "The video lasts 5.0 seconds
+and the result is to be 30 seconds…" abrupt: with the duration set to 30
+seconds it showed for every video connected, and the settings had offered
+the 30 seconds in the first place. In the two canvas products for media
+work, a choice that cannot be made is not offered, or is dimmed with its
+reason when pointed at ("this model does not support the connected video"),
+the send button is dimmed when the user has not chosen rightly, with the
+reason when pointed at in the first and none in the second, and neither
+shows a warning line in the panel. The first shows a video's length on its
+tile; the second lists each model with its resolution and its range of
+durations. Neither narrows a duration for the input videos: the first
+offers 2 to 30 seconds with a 6.8-second video connected and prices 36
+seconds, a request the provider refuses.
+
+**What was set aside.**
+- Offering the declared range and reporting the problem, as BaseHalf did:
+  the user is told off for a choice the panel offered.
+- Offering the declared range and sending it, as the first product does: the
+  provider refuses the request after the user has waited.
+- Writing the fitted value into the card: the value the user chose would be
+  lost when the inputs change again.
+
+**Consequences.**
+- `check` answers `limits`, a narrower range of a number parameter with its
+  reason, and fits a value beyond it before the rules are checked; `submit`
+  fits as `check` does, and the window sends and records the fitted value.
+- The rules of Wan 3.0, Wan 2.7 References, PixVerse Extend, and Grok
+  Imagine Video's References and Extend are limits now, not problems.
+- A problem `check` still reports, such as a prompt that sets a value the
+  settings own, shows only on Generate's tooltip.

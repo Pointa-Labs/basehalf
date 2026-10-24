@@ -160,8 +160,8 @@ on), except the duration: xAI's is 8 seconds, the catalog's 5.
 | --- | --- | --- |
 | 1.5 | a start and an end frame make a video at 480p or 720p | Video Generation: `image` with `last_frame` is reference to video, and "reference-to-video goes up to 720p" |
 | 1.5 | References makes a video at 480p or 720p | Reference-to-Video: "Resolution: Up to 720p" |
-| Grok Imagine Video | References makes at most 10 seconds | Video Generation: "Reference-to-video on grok-imagine-video allows up to 10 seconds" |
-| Grok Imagine Video | Extend adds 2 to 10 seconds | Video Extension; the API reference |
+| Grok Imagine Video | References makes at most 10 seconds: answered as a limit of `duration` (D70) | Video Generation: "Reference-to-video on grok-imagine-video allows up to 10 seconds" |
+| Grok Imagine Video | Extend adds 2 to 10 seconds: answered as a limit of `duration` (D70) | Video Extension; the API reference |
 | Grok Imagine Video | References, Edit, and Extend need a prompt | the API reference: the prompt is required for reference to video, editing, and extension |
 
 `check` then reports a clip that is not an MP4, and a request larger than
