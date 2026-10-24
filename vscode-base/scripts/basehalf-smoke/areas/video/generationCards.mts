@@ -907,9 +907,9 @@ async function assertPanelInputsAndNames(page) {
 	panel = await selectGenerationCard(page, VIDEO);
 	const frames = await waitForReading(() => readGenerationPanel(panel), seen => seen.start?.path === START_IMAGE && seen.end?.path === END_IMAGE && seen.inputs.some(input => input.path === SCENE_NOTE), 'the panel to show start.png and end.png as the frames, and the note');
 	const note = frames.inputs.find(input => input.path === SCENE_NOTE);
-	// A tile each, in the order of the list: the frames numbered 1 and 2, the note without a number (D68).
-	if (note.kind !== 'text' || note.dimmed || note.number !== null || frames.start.number !== '1' || frames.end.number !== '2') {
-		throw new Error(`A connected note is a text input that joins the prompt, and the frames are numbered by their names: ${JSON.stringify(frames.inputs)}`);
+	// A tile each, in the order of the list, none with a number (D68, D71).
+	if (note.kind !== 'text' || note.dimmed || frames.inputs.some(input => input.number !== null)) {
+		throw new Error(`A connected note is a text input that joins the prompt, and no tile shows a number: ${JSON.stringify(frames.inputs)}`);
 	}
 	// The inputs change no value; a value the start frame sets (the ratio of
 	// the model) leaves the summary and shows as set by the frame.
