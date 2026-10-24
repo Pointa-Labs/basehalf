@@ -822,6 +822,7 @@ test('check refuses M4A audio, videos too long for the result, images too large 
 		gif: await problems(checkRequest('wan2.7', 'frames', {}, '', { startFrame: image(GIF) })),
 		m4a: await problems(checkRequest('wan3.0', 'reference', {}, 'Sing like Audio 1.', { audios: [{ fsPath: M4A, mimeType: 'audio/mp4' }] })),
 		tooLong: await problems(checkRequest('wan3.0', 'reference', { duration: 20 }, 'Like Video 1.', { videos: [video(LONG_CLIP)] })),
+		twoTooLong: await problems(checkRequest('wan3.0', 'reference', { duration: 25 }, 'Like Video 1 and Video 2.', { videos: [video(CLIP), video(CLIP)] })),
 		autoWithLong: await problems(checkRequest('wan3.0', 'reference', { duration: -1 }, 'Like Video 1.', { videos: [video(LONG_CLIP)] })),
 		fits: await problems(checkRequest('wan3.0', 'reference', { duration: 18 }, 'Like Video 1.', { videos: [video(LONG_CLIP)] }))
 	};
@@ -831,7 +832,8 @@ test('check refuses M4A audio, videos too long for the result, images too large 
 	assert.deepEqual({ ...results, heavy }, {
 		gif: ['The start frame moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
 		m4a: ['Reference audio 1 voice.m4a is M4A audio; Alibaba Cloud takes WAV or MP3.'],
-		tooLong: ['The videos are 12 seconds long and the result is to be 20 seconds; together they may be at most 30 seconds for Wan 3.0. Choose a shorter duration, or Auto.'],
+		tooLong: ['The video lasts 12 seconds and the result is to be 20 seconds, 32 in all; Wan 3.0 takes at most 30 seconds in all. Choose 18 seconds or less, or Auto.'],
+		twoTooLong: ['The videos last 8 seconds and the result is to be 25 seconds, 33 in all; Wan 3.0 takes at most 30 seconds in all. Choose 22 seconds or less, or Auto.'],
 		autoWithLong: [],
 		fits: [],
 		heavy: ['The images are 173.3 MiB together once encoded; AI Video sends at most 128 MiB in one request. Use fewer or smaller images.']

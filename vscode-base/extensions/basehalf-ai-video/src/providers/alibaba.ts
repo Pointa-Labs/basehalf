@@ -200,7 +200,10 @@ const TASKS = Object.freeze({
 
 const MiB = 1024 * 1024;
 const WAN3_AUTO_DURATION = -1;
+const WAN3_SHORTEST_SECONDS = 2;
 const WAN3_LONGEST_SECONDS = 30;
+/** How far over the longest a measured sum may be, for the rounding of a measured length. */
+const WAN3_MEASURE_SLACK = 0.05;
 
 const NO_INPUTS: ModeInputs = {
 	startFrame: 'none',
@@ -299,7 +302,7 @@ function wan3(id: string, label: string, description: string, only: Task): Model
 					default: 'adaptive',
 					modes: ['frames', 'reference']
 				},
-				{ ...duration(2, WAN3_LONGEST_SECONDS), auto: { value: WAN3_AUTO_DURATION, label: LABELS.auto }, modes: ['frames', 'reference'] },
+				{ ...duration(WAN3_SHORTEST_SECONDS, WAN3_LONGEST_SECONDS), auto: { value: WAN3_AUTO_DURATION, label: LABELS.auto }, modes: ['frames', 'reference'] },
 				SOUND,
 				PROMPT_EXTEND,
 				WAN_WATERMARK,
@@ -552,6 +555,17 @@ function regionProblems(request: CheckRequest, counts: PlannedCounts): string[] 
 	return [];
 }
 
+/**
+ * Why the videos and the result are too long together for Wan 3.0: how long
+ * the videos are, the sum, and the longest duration that fits.
+ */
+function wan3TooLong(label: string, videos: number, seconds: number, duration: number): string {
+	const length = videos === 1 ? `The video lasts ${formatSeconds(seconds)} seconds` : `The videos last ${formatSeconds(seconds)} seconds`;
+	const longest = Math.floor(WAN3_LONGEST_SECONDS + WAN3_MEASURE_SLACK - seconds);
+	const fix = longest >= WAN3_SHORTEST_SECONDS ? `Choose ${longest} seconds or less, or Auto.` : 'Choose Auto, or connect shorter videos.';
+	return `${length} and the result is to be ${duration} seconds, ${formatSeconds(seconds + duration)} in all; ${label} takes at most ${WAN3_LONGEST_SECONDS} seconds in all. ${fix}`;
+}
+
 /** The total length of the measured videos, when every one is known. */
 function knownVideoSeconds(measured: readonly MeasuredItem[]): number | undefined {
 	let total = 0;
@@ -575,8 +589,8 @@ function taskProblems(spec: ModelSpec, routed: Task, request: CheckRequest, coun
 	switch (routed.family) {
 		case 'wan3': {
 			const seconds = knownVideoSeconds(measured);
-			if (typeof params.duration === 'number' && params.duration !== WAN3_AUTO_DURATION && seconds !== undefined && seconds > 0 && seconds + params.duration > WAN3_LONGEST_SECONDS + 0.05) {
-				problems.push(`The videos are ${formatSeconds(seconds)} seconds long and the result is to be ${params.duration} seconds; together they may be at most ${WAN3_LONGEST_SECONDS} seconds for ${label}. Choose a shorter duration, or Auto.`);
+			if (typeof params.duration === 'number' && params.duration !== WAN3_AUTO_DURATION && seconds !== undefined && seconds > 0 && seconds + params.duration > WAN3_LONGEST_SECONDS + WAN3_MEASURE_SLACK) {
+				problems.push(wan3TooLong(label, counts.videos, seconds, params.duration));
 			}
 			break;
 		}
