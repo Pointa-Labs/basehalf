@@ -507,9 +507,10 @@ languages, and hosts), `api-reference/voice-management-get` and
   speech once (the voice management reference), and MiniMax deletes one
   that is not used within 7 days of its making (`faq/about-apis`); a card
   that sends such a voice gets MiniMax's answer ([Errors](#errors-1)).
-- A nonzero `base_resp` of the list maps as the codes of a query do
-  ([Errors](#errors)): an unknown or internal error is a network failure,
-  and nothing is created.
+- A nonzero `base_resp` of the list maps as in [Errors](#errors) for a
+  request that creates nothing: an unknown or internal error is a network
+  failure, and any other code not named there is `rejected`. A rate limit
+  of the list names no limit: MiniMax states none for it.
 - More than 2,000 voices answer the first 2,000, with `truncated`.
 
 ### Parameters
