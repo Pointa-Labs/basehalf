@@ -757,6 +757,14 @@ From top to bottom:
      stop square that stops the generation. A tooltip it showed goes when it
      changes under the pointer, so that it never names what it did before.
 
+The rows share the panel's edges. The tiles, the text of the prompt, a name
+at the start of a line of it, the warning icon of the reason that Generate
+cannot run, and the model button begin at one left edge, and the reason's
+action ends where the Generate button ends; in the panel of a card with its
+file, the line under the prompt and the model's name begin there too. A
+name in the prompt stands on the line of its text: its name and the text
+around it share a baseline.
+
 The Generate button is enabled only when the card can generate. Otherwise its
 tooltip and accessible name say the first reason, in this order
 (`getBaseHalfGenerateBlocker`): the card is generating; the catalog is
@@ -842,8 +850,12 @@ While the draft picks:
   folder cannot be an input."). The draft itself has no label.
 - **The cards** show what they are. Under the pointer, a card that a click
   connects has the accent outline; a connected card is darkened, with a
-  check mark at its top left; a card that cannot be an input is faded. The
-  draft stays selected, with its panel.
+  check mark at its top left; a card that cannot be an input is faded. A
+  look changes at once, without a fade, and a click that connects or
+  removes a card draws neither card again
+  ([card continuity](canvas-card-interaction-continuity.md#a-change-of-connections)),
+  so the outline under the pointer never blinks. The draft stays selected,
+  with its panel.
 - **The canvas is not edited**: no card moves or resizes, the handles that
   draw a connection and the toolbars of the selection, such as a draft's
   Upload Image, do not show, the blank canvas starts no selection box, a
@@ -1803,6 +1815,13 @@ Pick on Canvas (D69)
     Pick on Canvas, draws the row and the prompt again without a blank
     frame: the tiles and chips that stay keep their pictures, and a video's
     tile keeps its first frame.
+62. While picking, a click that connects or removes the card under the
+    pointer changes its look in one frame: the accent outline appears or
+    goes once, and the card's element, picture, and video stay.
+63. The tiles, the prompt's text and a name at its start, the reason's icon,
+    and the model button begin at one left edge, within half a pixel, and
+    the reason's action and the Generate button end at one right edge; a
+    name's text and the prompt's text share a baseline.
 
 ## Verification
 
@@ -1860,7 +1879,7 @@ Pick on Canvas (D69)
   `basehalfGenerationPromptEditor.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
-  42 to 46, 49, 50, 52, 54, 56, 59, and 60, against the local test provider through the ByteDance module, with a
+  42 to 46, 49, 50, 52, 54, 56, 59, 60, 62, and 63, against the local test provider through the ByteDance module, with a
   test key; no paid provider is called. The test provider answers every task
   and image with a file of its own, as a real provider does, so that a file
   moved outside BaseHalf is told from another by its content. After a
