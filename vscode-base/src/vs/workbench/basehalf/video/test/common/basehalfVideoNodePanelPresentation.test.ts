@@ -18,12 +18,14 @@ import {
 	BaseHalfVideoPanelControl,
 	baseHalfVideoPanelInputFileName,
 	baseHalfVideoPanelMentionQuery,
+	baseHalfVideoPanelPlaceholder,
 	createBaseHalfVideoPanelPresentation,
 	IBaseHalfVideoPanelInputItem,
 	IBaseHalfVideoPanelPresentation,
 	IBaseHalfVideoPanelState,
 	swapBaseHalfVideoUpstreamEntries
 } from '../../common/basehalfVideoNodePanelPresentation.js';
+import { TEST_AUDIO_CATALOG } from './basehalfGenerationAudioCatalogFixture.js';
 import { TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from './basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfVideoNodePanelPresentation', () => {
@@ -576,5 +578,87 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				modes: ['Frames', 'References (Not offered in East · Acme Cloud)']
 			}
 		});
+	});
+
+	// --- Audio cards (D78) ----------------------------------------------------------------------
+
+	const audio: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+	const speech: IBaseHalfVideoGenerationChoice = { provider: 'dulcet', model: 'dulcet-speech-2', mode: 'reference', params: { voice: 'kore', speed: 1 } };
+	const song: IBaseHalfVideoGenerationChoice = { provider: 'ember', model: 'ember-song-9', mode: 'lyrics', params: { count: 2 } };
+	/** A song, a picture, a clip, and a note, connected in that order. */
+	const audioSources: IBaseHalfVideoInputSource[] = [
+		{ path: 'refs/theme.mp3', kind: 'audio', available: true },
+		{ path: 'refs/cover.png', kind: 'image', available: true },
+		{ path: 'refs/clip.mp4', kind: 'video', available: true },
+		{ path: 'notes/lyrics.md', kind: 'text', available: true }
+	];
+
+	test('without a model, an audio card shows its sounds and images as references and describes the sound (D78)', () => {
+		const presentation = present({ kind: 'audio', catalog: audio, noModel: true, inputs: audioSources });
+		const empty = present({ kind: 'audio', catalog: audio, noModel: true, inputs: [] });
+		assert.deepStrictEqual({
+			mode: presentation.inputRow?.mode,
+			slots: presentation.inputRow?.slots.length,
+			items: presentation.inputRow?.items.map(describe),
+			hint: empty.inputRow?.emptyHint,
+			placeholder: presentation.placeholder,
+			voice: presentation.voice,
+			menu: present({ kind: 'audio', catalog: { kind: 'ready', catalog: TEST_VIDEO_CATALOG }, noModel: true }).modelMenu.message
+		}, {
+			mode: 'reference',
+			slots: 0,
+			items: ['theme.mp3:reference', 'cover.png:reference', 'clip.mp4:unused (Not used: This model takes no videos in this mode.)', 'lyrics:text'],
+			hint: 'Add images or audio as references',
+			placeholder: 'Describe the sound. Type @ to mention an input.',
+			voice: undefined,
+			menu: 'BaseHalf offers no audio models.'
+		});
+	});
+
+	test('a speech model has the voice button with its voice\'s name, and its settings and their summary leave the voice out (D78)', () => {
+		const presentation = present({ kind: 'audio', catalog: audio, generation: speech, inputs: [], notSetUp: [] });
+		assert.deepStrictEqual({
+			voice: presentation.voice && { value: presentation.voice.value, label: presentation.voice.label, title: presentation.voice.title, parameter: presentation.voice.parameter.name },
+			controls: controls(presentation.settingsView!.controls),
+			summary: presentation.settingsView!.summary,
+			placeholder: presentation.placeholder,
+			// A model that makes music or sound effects speaks in no voice.
+			others: [present({ kind: 'audio', catalog: audio, generation: song, inputs: [] }).voice, present({ kind: 'audio', catalog: audio, generation: { provider: 'dulcet', model: 'dulcet-effects' }, inputs: [] }).voice]
+		}, {
+			voice: { value: 'kore', label: 'Kore', title: 'Voice', parameter: 'voice' },
+			controls: ['Speed slider 0.5-2 by 0.05 at 1 (1)'],
+			summary: 'Speech · Speed 1',
+			placeholder: 'Write what the voice says. Type @ to mention an input.',
+			others: [undefined, undefined]
+		});
+	});
+
+	test('the prompt\'s placeholder says what the prompt is: what the voice says, the music, the lyrics in Lyrics mode, or the sound (D78)', () => {
+		const placeholder = (generation: IBaseHalfVideoGenerationChoice) => present({ kind: 'audio', catalog: audio, generation, inputs: [] }).placeholder;
+		assert.deepStrictEqual({
+			speech: placeholder(speech),
+			music: placeholder({ ...song, mode: 'reference' }),
+			lyrics: placeholder(song),
+			sound: placeholder({ provider: 'dulcet', model: 'dulcet-effects' }),
+			unknownModel: placeholder({ provider: 'dulcet', model: 'dulcet-retired' }),
+			image: baseHalfVideoPanelPlaceholder('image'),
+			video: baseHalfVideoPanelPlaceholder('video')
+		}, {
+			speech: 'Write what the voice says. Type @ to mention an input.',
+			music: 'Describe the music. Type @ to mention an input.',
+			lyrics: 'Write the lyrics. Type @ to mention an input.',
+			sound: 'Describe the sound. Type @ to mention an input.',
+			unknownModel: 'Describe the sound. Type @ to mention an input.',
+			image: 'Describe the image. Type @ to mention an input.',
+			video: 'Describe the video. Type @ to mention an input.'
+		});
+	});
+
+	test('the model menu of an audio card lists the audio models, each with what it makes first on its second line (D78)', () => {
+		const menu = present({ kind: 'audio', catalog: audio, generation: speech, inputs: [], notSetUp: ['ember'] }).modelMenu;
+		assert.deepStrictEqual(menu.groups.map(group => ({ provider: group.label, detail: group.detail, models: group.items.map(item => `${item.label}: ${item.detail}`) })), [
+			{ provider: 'Dulcet Voice', detail: undefined, models: ['Dulcet Speech 2: Speech · Up to 10,000 characters', 'Dulcet Effects: Sound Effects · Up to 22s'] },
+			{ provider: 'Ember Sound', detail: 'Not set up', models: ['Ember Song 9: Music · From a Description · From Lyrics · Up to 3 songs · 1 reference sound', 'Ember Voice: Speech · Up to 5,000 characters'] }
+		]);
 	});
 });

@@ -225,8 +225,44 @@
 	border-radius: 14px;
 }
 
+/* The voice of a model that speaks (D78): its glyph and its name, between the model and the settings. */
+.monaco-workbench .bh-video-panel-voice {
+	display: inline-flex;
+	height: 28px;
+	min-width: 56px;
+	max-width: 148px;
+	flex: 0 1 auto;
+	align-items: center;
+	gap: 5px;
+	padding: 0 10px 0 8px;
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	background: var(--bh-video-panel-fill);
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--bh-video-panel-line);
+	border-radius: 14px;
+	font-size: 12px;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .bh-video-panel-voice-icon.codicon[class*='codicon-'] {
+	flex: none;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	font-size: 14px;
+}
+
+.monaco-workbench .bh-video-panel-voice-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .monaco-workbench .bh-video-panel-model:hover,
 .monaco-workbench .bh-video-panel-model[aria-expanded="true"],
+.monaco-workbench .bh-video-panel-voice:hover,
+.monaco-workbench .bh-video-panel-voice[aria-expanded="true"],
 .monaco-workbench .bh-video-panel-settings:hover,
 .monaco-workbench .bh-video-panel-settings[aria-expanded="true"] {
 	color: var(--bh-card-text-primary, var(--vscode-foreground));
