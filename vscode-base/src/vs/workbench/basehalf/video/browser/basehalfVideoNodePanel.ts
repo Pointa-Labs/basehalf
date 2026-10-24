@@ -114,6 +114,12 @@ export interface IBaseHalfVideoNodePanelHost {
 	/** Moves the focus to the card: Escape with no menu open. */
 	focusCard(): void;
 	/**
+	 * The panel changed the card's connections, or such a change was undone or
+	 * done again: the canvas draws its lines at once, as it does for a line
+	 * drawn on it, so a line changes with its tile.
+	 */
+	didChangeConnections?(): void;
+	/**
 	 * Generate ran on another card: a card with its file makes a new draft
 	 * beside it and generates there. The workbench selects that card.
 	 */
@@ -2204,6 +2210,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			return false;
 		} finally {
 			this.scheduleRefresh();
+			this.host.didChangeConnections?.();
 		}
 	}
 
@@ -2220,7 +2227,10 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			label,
 			resources: [canvas],
 			source: BASEHALF_CANVAS_UNDO_REDO_SOURCE,
-			onDidRun: () => this.scheduleRefresh()
+			onDidRun: () => {
+				this.scheduleRefresh();
+				this.host.didChangeConnections?.();
+			}
 		});
 	}
 

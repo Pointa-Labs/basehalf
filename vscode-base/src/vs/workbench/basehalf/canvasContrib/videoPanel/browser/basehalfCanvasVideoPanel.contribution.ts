@@ -230,6 +230,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 	private panelHost(sceneKey: string, path: string): IBaseHalfVideoNodePanelHost {
 		return {
 			startPick: pick => this.canvas.startCardPick(pick),
+			didChangeConnections: () => this.canvas.requestRender(),
 			importFile: accept => this.importFile(path, accept),
 			focusCard: () => this.canvas.focusCard(path),
 			didGenerateInNode: resource => this.selectCardWhenDrawn(sceneKey, resource),

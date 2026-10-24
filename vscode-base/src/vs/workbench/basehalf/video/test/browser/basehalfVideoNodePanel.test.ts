@@ -24,7 +24,7 @@ import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNode
 import { IBaseHalfCanvasCardPick } from '../../../canvas/common/basehalfCanvasCardPick.js';
 import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../../canvas/common/basehalfCanvasScene.js';
-import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../../../references/common/basehalfReferenceEdit.js';
+import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceUndoElementOptions } from '../../../references/common/basehalfReferenceEdit.js';
 import {
 	BaseHalfVideoCatalogState,
 	BaseHalfVideoMedia,
@@ -336,7 +336,9 @@ suite('BaseHalfVideoNodePanel', () => {
 	let notifications: RecordingNotificationService;
 	let hovers: Map<HTMLElement, () => string>;
 	let connections: { readonly added: string[]; readonly removed: string[]; undoSteps: number };
-	let host: IBaseHalfVideoNodePanelHost & { cardFocused: number; pick: IBaseHalfCanvasCardPick | undefined };
+	let host: IBaseHalfVideoNodePanelHost & { cardFocused: number; pick: IBaseHalfCanvasCardPick | undefined; linesDrawn: number };
+	/** What the last step of undo that the panel pushed runs after its undo or redo. */
+	let lastUndo: Pick<IBaseHalfReferenceUndoElementOptions, 'onDidRun'> | undefined;
 	let mounted: HTMLElement[];
 	/** Why the draft's model would refuse an input, by its path. */
 	let refusal: (path: string) => string | undefined;
@@ -353,12 +355,15 @@ suite('BaseHalfVideoNodePanel', () => {
 		notifications = new RecordingNotificationService();
 		hovers = new Map();
 		connections = { added: [], removed: [], undoSteps: 0 };
+		lastUndo = undefined;
 		mounted = [];
 		refusal = () => undefined;
 		folderFiles = [];
 		host = {
 			cardFocused: 0,
 			pick: undefined,
+			linesDrawn: 0,
+			didChangeConnections: () => { host.linesDrawn++; },
 			startPick: pick => {
 				host.pick = pick;
 				return toDisposable(() => {
@@ -387,8 +392,9 @@ suite('BaseHalfVideoNodePanel', () => {
 				connections.removed.push(entry);
 				return result;
 			},
-			pushUndoElement: () => {
+			pushUndoElement: (_result, options) => {
 				connections.undoSteps++;
+				lastUndo = options;
 				return undefined;
 			}
 		});
@@ -1130,14 +1136,20 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('the cross removes a connection and Pick on Canvas connects the clicked card, each as one undo step', async () => {
+	test('the cross removes a connection and Pick on Canvas connects the clicked card, each as one undo step, and the canvas draws its lines at once', async () => {
 		const panel = await createPanel();
 		const remove = findAll(panel, '.bh-input-tile-remove').find(button => button.getAttribute('aria-label') === 'Remove Image 1');
 		remove?.click();
 		await settle();
 		startPick(panel).pick('refs/c.png');
 		await settle();
-		assert.deepStrictEqual(connections, { added: ['refs/c.png'], removed: ['frames/a.png'], undoSteps: 2 });
+		const linesAfterEdits = host.linesDrawn;
+		lastUndo?.onDidRun?.('undo', 'applied');
+		assert.deepStrictEqual({ connections, linesAfterEdits, linesAfterUndo: host.linesDrawn }, {
+			connections: { added: ['refs/c.png'], removed: ['frames/a.png'], undoSteps: 2 },
+			linesAfterEdits: 2,
+			linesAfterUndo: 3
+		});
 	});
 
 	test('Escape closes the open menu first, and then returns the focus to the card', async () => {
@@ -1262,7 +1274,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		const box = (element: Element) => element.getBoundingClientRect();
 		const outer = box(panel.element);
-		const style = getComputedStyle(panel.element);
+		const style = mainWindow.getComputedStyle(panel.element);
 		const left = outer.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
 		const right = outer.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
 		const at = (value: number) => Math.round(value * 2) / 2;
