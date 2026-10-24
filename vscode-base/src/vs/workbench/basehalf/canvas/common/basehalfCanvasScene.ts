@@ -42,12 +42,11 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 }
 
 /**
- * The actions of the toolbar above a selected generation card (generation
- * cards, "The toolbar"): Upload Image or Upload Video for a draft that does
- * not generate, and Reveal and Open, and Capture Frame for a video, for a card
- * with its file.
+ * The actions of the toolbar above a selected generation card with its file
+ * (generation cards, "The toolbar"): Reveal and Open, and Capture Frame for a
+ * video. A draft has no toolbar (D71).
  */
-export type BaseHalfCanvasSceneVideoAction = 'importResult' | 'captureFrame' | 'revealVideo' | 'openFullPreview';
+export type BaseHalfCanvasSceneVideoAction = 'captureFrame' | 'revealVideo' | 'openFullPreview';
 
 /** The frame that Capture Frame takes: the first, the one the card's player shows, or the last. */
 export type BaseHalfCanvasSceneVideoFrame = 'first' | 'current' | 'last';
@@ -58,17 +57,10 @@ const BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER: readonly BaseHalfCanvasSceneVid
 	'openFullPreview'
 ]);
 
-/**
- * Keeps the toolbar of a selected generation card state-specific. Upload
- * belongs only to a draft; a malformed projection must never mix it with the
- * actions of a card that has its file.
- */
+/** The actions of the toolbar of a selected generation card, each once, in the toolbar's order. */
 export function baseHalfCanvasSceneVideoSelectionActions(
 	actions: readonly BaseHalfCanvasSceneVideoAction[]
 ): readonly BaseHalfCanvasSceneVideoAction[] {
-	if (actions.includes('importResult')) {
-		return Object.freeze<BaseHalfCanvasSceneVideoAction[]>(['importResult']);
-	}
 	const advertised = new Set(actions);
 	return Object.freeze(BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER.filter(action => advertised.has(action)));
 }
@@ -86,7 +78,7 @@ export type BaseHalfCanvasSceneCardControls =
 		/** A generation card, of an image or a video: the panel goes beside it. */
 		readonly kind: 'video';
 		readonly actions: readonly BaseHalfCanvasSceneVideoAction[];
-		/** What the card makes, so that Upload says Image or Video. A video when absent. */
+		/** What the card makes, so that its toolbar is named for an image or a video. A video when absent. */
 		readonly media?: 'image' | 'video';
 	};
 

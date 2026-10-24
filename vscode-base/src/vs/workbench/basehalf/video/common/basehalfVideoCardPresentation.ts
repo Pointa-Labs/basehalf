@@ -186,15 +186,15 @@ export function baseHalfGenerationPhaseText(phase: BaseHalfVideoGenerationPhase)
 
 /**
  * The actions of the toolbar above a selected generation card (generation
- * cards, "The toolbar"): Upload above a draft that does not generate, also
- * one whose last generation failed or stopped; Reveal and Open above a card
- * with its file, and Capture Frame above a video; none while it generates.
+ * cards, "The toolbar"): Reveal and Open above a card with its file, and
+ * Capture Frame above a video. A draft has none: what it takes is added from
+ * its panel (D71).
  */
 export function baseHalfGenerationCardToolbarActions(kind: BaseHalfGenerationKind, phase: BaseHalfGenerationPhase): readonly BaseHalfCanvasSceneVideoAction[] {
 	if (phase === 'file') {
 		return Object.freeze<BaseHalfCanvasSceneVideoAction[]>(kind === 'video' ? ['captureFrame', 'revealVideo', 'openFullPreview'] : ['revealVideo', 'openFullPreview']);
 	}
-	return phase === 'generating' ? Object.freeze([]) : Object.freeze<BaseHalfCanvasSceneVideoAction[]>(['importResult']);
+	return Object.freeze([]);
 }
 
 function taskCard(task: IBaseHalfGenerationTask, path: string): IBaseHalfGenerationTaskCard | undefined {

@@ -16,7 +16,6 @@ import { baseHalfCanvasChildPath, baseHalfCanvasItemBounds, IBaseHalfCanvasBound
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from '../../../shell/browser/basehalfItemGlyph.js';
-import { BASEHALF_GENERATION_EXTENSIONS } from '../../../video/common/basehalfGenerationInfo.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { IBaseHalfGenerationCardFace, renderBaseHalfGenerationCardFace } from '../../../video/browser/basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from '../../../video/browser/basehalfVideoFrameCapture.js';
@@ -85,9 +84,6 @@ export class BaseHalfCanvasCardRenderer {
 		}
 		this.view.markCanvasUserInteraction();
 		switch (action) {
-			case 'importResult':
-				await this.uploadToDraft(folder, item);
-				return;
 			case 'openFullPreview':
 				// Open shows the card large, as a double click does; its video pauses.
 				this.playerOf(path)?.pause();
@@ -498,46 +494,6 @@ export class BaseHalfCanvasCardRenderer {
 	private playerOf(path: string): IBaseHalfCanvasCardVideoPlayer | undefined {
 		const element = this.view.renderedCardElementsByPath.get(path);
 		return element ? this.mediaVideoPlayers.get(element) : undefined;
-	}
-
-	/**
-	 * Upload Image or Upload Video (generation cards, "The toolbar"): the user
-	 * chooses a file of the draft's kind, which is copied to the draft's path.
-	 * A file of another kind is refused with the reason.
-	 */
-	private async uploadToDraft(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem): Promise<void> {
-		const generation = item.generation;
-		if (!generation?.draft || this.view.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-		const title = generation.kind === 'image'
-			? localize('basehalf.canvas.upload.imageTitle', "Upload Image")
-			: localize('basehalf.canvas.upload.videoTitle', "Upload Video");
-		const picked = await this.view.fileDialogService.showOpenDialog({
-			title,
-			openLabel: localize('basehalf.canvas.upload.openLabel', "Upload"),
-			defaultUri: folder.resource,
-			canSelectFiles: true,
-			canSelectFolders: false,
-			canSelectMany: false,
-			filters: [{
-				name: generation.kind === 'image'
-					? localize('basehalf.canvas.upload.images', "Images")
-					: localize('basehalf.canvas.upload.videos', "Videos"),
-				extensions: [...BASEHALF_GENERATION_EXTENSIONS[generation.kind]]
-			}]
-		});
-		const source = picked?.[0];
-		if (!source) {
-			return;
-		}
-		try {
-			await this.view.generationCardActions.upload(item.stat.resource, source);
-		} catch (error) {
-			this.view.reportCanvasMutationError(error);
-			return;
-		}
-		this.view.requestRender();
 	}
 
 	/**

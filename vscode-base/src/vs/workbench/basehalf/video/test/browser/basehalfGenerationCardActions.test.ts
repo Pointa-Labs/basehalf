@@ -299,41 +299,6 @@ suite('BaseHalfGenerationCardActions', () => {
 		});
 	});
 
-	test('Upload copies a file of the draft\'s kind to its path, renamed to the file\'s extension first, leaves an ordinary file, and refuses another kind', async () => {
-		const harness = await createHarness(disposables, {
-			'shots/.keep': '',
-			'brief.md': '# Brief',
-			'.bh/mirror/shots/image.png/generation.yaml': 'prompt: "A heron."\n',
-			'.bh/mirror/shots/image.png/upstream.yaml': 'upstream:\n  - brief.md\n',
-			'.bh/mirror/shots/clip.mp4/generation.yaml': 'prompt: ""\n',
-			'.bh/mirror/shots/image.jpeg/badge.yaml': 'path: "shots/image.jpeg"\n',
-			'picked/photo.jpeg': 'jpeg',
-			'picked/notes.txt': 'text'
-		});
-		await assert.rejects(harness.actions.upload(harness.resource('shots/image.png'), harness.resource('picked/notes.txt')), /An image card takes a PNG, JPEG, WebP, GIF, AVIF, or BMP file\./);
-		await assert.rejects(harness.actions.upload(harness.resource('shots/clip.mp4'), harness.resource('picked/photo.jpeg')), /A video card takes an MP4, MOV, M4V, or WebM file\./);
-		harness.generation.generating.add('/work/shots/clip.mp4');
-		await assert.rejects(harness.actions.upload(harness.resource('shots/clip.mp4'), harness.resource('picked/clip.mp4')), /clip\.mp4 is generating/);
-		const uploaded = await harness.actions.upload(harness.resource('shots/image.png'), harness.resource('picked/photo.jpeg'));
-		assert.deepStrictEqual({
-			uploaded: uploaded.path,
-			file: await harness.read('shots/image-2.jpeg'),
-			info: await harness.read('.bh/mirror/shots/image-2.jpeg/generation.yaml'),
-			upstream: (await harness.read('.bh/mirror/shots/image-2.jpeg/upstream.yaml'))?.includes('brief.md') ?? false,
-			card: await harness.store.isGenerationCard(uploaded),
-			old: await harness.exists('.bh/mirror/shots/image.png/generation.yaml')
-		}, {
-			// image.jpeg holds the description of an item that is gone: the next free number.
-			uploaded: '/work/shots/image-2.jpeg',
-			file: 'jpeg',
-			// BaseHalf did not make the file (D67): no prompt, settings, or connections, and no generation card.
-			info: undefined,
-			upstream: false,
-			card: false,
-			old: false
-		});
-	});
-
 	test('New Version makes a draft beside a generated file from what made it, without the seed, with its inputs, as one step of undo, and generates nothing (D67)', async () => {
 		const made = {
 			id: '20261023T080000-k3f9',

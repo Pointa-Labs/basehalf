@@ -484,16 +484,6 @@ export interface IBaseHalfGenerationCardActions {
 	copyDraft(draft: URI, folder: URI, undoLabel: string): Promise<URI>;
 
 	/**
-	 * Upload: copies `file` to the path of a draft that does not generate,
-	 * after renaming the draft to the file's extension when it has another one.
-	 * Refuses a file without a generation extension of the draft's kind. The
-	 * card is then an ordinary file, which BaseHalf did not make: the draft's
-	 * `generation.yaml` and its connections are removed (D67). Resolves with
-	 * the card's path. Not a step of undo.
-	 */
-	upload(draft: URI, file: URI): Promise<URI>;
-
-	/**
 	 * New Version (generation cards, "New Version"): a new draft beside a card
 	 * with its file, from what its `made.yaml` says made it, without the seed,
 	 * and with the card's inputs, placed to its right. It generates nothing.

@@ -115,13 +115,3 @@
 	background: var(--vscode-menu-selectionBackground);
 	outline: none;
 }
-
-.monaco-workbench .basehalf-canvas-note-toolbar-action.basehalf-video-upload-action {
-	width: auto;
-	min-width: 0;
-	flex: 1 1 auto;
-	gap: 6px;
-	padding: 0 12px;
-	white-space: nowrap;
-	font-size: 12px;
-}

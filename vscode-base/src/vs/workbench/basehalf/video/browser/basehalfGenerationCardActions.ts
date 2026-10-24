@@ -14,12 +14,9 @@ import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
-import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import {
 	BaseHalfGenerationKind,
 	baseHalfGenerationDefaultBaseName,
-	baseHalfGenerationExtension,
-	baseHalfGenerationKindOfPath,
 	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationNameParts,
 	IBaseHalfGenerationInfo,
@@ -71,7 +68,6 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
 		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
-		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IFileService private readonly fileService: IFileService,
@@ -149,36 +145,6 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		}
 	}
 
-	async upload(draft: URI, file: URI): Promise<URI> {
-		const kind = baseHalfGenerationKindOfPath(draft.path);
-		if (!kind || baseHalfGenerationKindOfPath(file.path) !== kind) {
-			throw new Error(kind === 'image'
-				? localize('basehalf.generation.actions.uploadImage', "An image card takes a PNG, JPEG, WebP, GIF, AVIF, or BMP file.")
-				: localize('basehalf.generation.actions.uploadVideo', "A video card takes an MP4, MOV, M4V, or WebM file."));
-		}
-		if (this.generationService.isGenerating(draft)) {
-			throw new Error(localize('basehalf.generation.actions.uploadGenerating', "{0} is generating. Stop it first.", basename(draft)));
-		}
-		const snapshot = await this.cardStore.read(draft);
-		if (snapshot.hasFile || snapshot.made) {
-			throw new Error(localize('basehalf.generation.actions.uploadHasFile', "{0} has its file already.", basename(draft)));
-		}
-		let target = draft;
-		const extension = baseHalfGenerationExtension(file.path)!;
-		if (extension !== baseHalfGenerationExtension(draft.path)) {
-			// The draft takes the file's extension first, as a rename gives it, with the next free number.
-			const name = basename(draft);
-			const next = await this.cardStore.nextFreeName(dirname(draft), baseHalfGenerationNameParts(name).base, extension, baseHalfGenerationNameOrdinal(name));
-			target = await this.draftOperations.move(draft, joinPath(dirname(draft), next));
-		}
-		await this.fileService.copy(file, target, false);
-		this.logService.info(`[BaseHalf generation] uploaded ${file.toString()} to ${target.toString()}`);
-		// BaseHalf did not make the file: the card is an ordinary file's, without a prompt, settings, or inputs (D67).
-		await this.cardStore.removeInfo(target);
-		await this.disconnectInputs(target);
-		return target;
-	}
-
 	async newVersion(card: URI): Promise<URI> {
 		const snapshot = await this.cardStore.read(card);
 		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(card)?.uri;
@@ -214,28 +180,6 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		const catalog = this.catalogService.state.kind === 'ready' ? this.catalogService.state.catalog : undefined;
 		const model = findBaseHalfVideoModel(catalog, snapshot.info.provider, snapshot.info.model)?.model;
 		return baseHalfVideoAddedInputRefusal(model, snapshot.upstream, added, change.remove);
-	}
-
-	/** Removes every entry of a card's upstream list, as part of an action the user started. */
-	private async disconnectInputs(card: URI): Promise<void> {
-		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(card)?.uri;
-		const relativePath = workspaceFolder ? this.uriIdentityService.extUri.relativePath(workspaceFolder, card) : undefined;
-		if (!workspaceFolder || !relativePath) {
-			return;
-		}
-		const node = { resource: card, workspaceFolder, relativePath };
-		try {
-			const snapshot = await this.referenceEditService.readSnapshot(node);
-			if (!snapshot || snapshot.items.length === 0) {
-				return;
-			}
-			await this.referenceEditService.apply([{ node, operation: { kind: 'transition', from: snapshot, to: { items: [] } } }], {
-				label: localize('basehalf.generation.actions.uploadDisconnect', "Upload")
-			});
-		} catch (error) {
-			// The file is in place; a connection that stays shows on the canvas and can be removed there.
-			this.logService.warn(`[BaseHalf generation] the connections of ${relativePath} were not removed after the upload`, error);
-		}
 	}
 
 	/** The catalog, waiting a moment while it loads. */

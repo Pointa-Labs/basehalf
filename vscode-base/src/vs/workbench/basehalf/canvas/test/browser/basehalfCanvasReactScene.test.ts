@@ -321,12 +321,12 @@ suite('BaseHalfCanvasReactScene', () => {
 
 	test('keeps the compact Video toolbar above the card in stable screen-space geometry', () => {
 		assert.deepStrictEqual([
-			baseHalfCanvasVideoToolbarWidth(['importResult']),
 			// Padding, Capture Frame with its chevron, Reveal, Open, and two gaps.
 			baseHalfCanvasVideoToolbarWidth(['captureFrame', 'revealVideo', 'openFullPreview']),
-			baseHalfCanvasVideoToolbarWidth(['importResult', 'revealVideo']),
+			baseHalfCanvasVideoToolbarWidth(['revealVideo', 'openFullPreview']),
+			// A draft has no toolbar (D71).
 			baseHalfCanvasVideoToolbarWidth([])
-		], [112, 3 + 42 + 2 + 28 + 2 + 28 + 3, 112, 0]);
+		], [3 + 42 + 2 + 28 + 2 + 28 + 3, 3 + 28 + 2 + 28 + 3, 0]);
 
 		const centered = resolveBaseHalfCanvasVideoSelectionPlacement({
 			left: 160,
@@ -701,10 +701,6 @@ suite('BaseHalfCanvasReactScene', () => {
 		videoToolbar.classList.add('basehalf-video-context-toolbar', 'basehalf-video-result-toolbar');
 		const videoToolbarButton = document.createElement('button');
 		videoToolbar.append(videoToolbarButton);
-		const videoDraftToolbar = document.createElement('div');
-		videoDraftToolbar.classList.add('basehalf-video-context-toolbar', 'basehalf-video-draft-toolbar');
-		const videoDraftToolbarButton = document.createElement('button');
-		videoDraftToolbar.append(videoDraftToolbarButton);
 		const selectedEdge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 		selectedEdge.classList.add('react-flow__edge', 'selected', 'nopan');
 		card.append(editor, customInput, restingContent);
@@ -719,7 +715,6 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(restingContent), false);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(noteToolbarButton), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(videoToolbarButton), true);
-		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(videoDraftToolbarButton), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(restingContent), false);
 	});
 

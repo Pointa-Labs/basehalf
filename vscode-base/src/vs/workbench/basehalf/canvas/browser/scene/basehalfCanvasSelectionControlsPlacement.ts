@@ -21,7 +21,6 @@ export const NOTE_CONTROLS_SCREEN_MARGIN = 8;
 const NOTE_CONTROLS_SCREEN_GAP = 10;
 const NOTE_TOOLBAR_SCREEN_WIDTH = 392;
 export const NOTE_TOOLBAR_SCREEN_HEIGHT = 36;
-const VIDEO_UPLOAD_TOOLBAR_SCREEN_WIDTH = 112;
 /** The padding of the video toolbar and the gap between its buttons, in screen pixels. */
 const VIDEO_TOOLBAR_SCREEN_PADDING = 3;
 const VIDEO_TOOLBAR_SCREEN_BUTTON_GAP = 2;
@@ -155,9 +154,6 @@ export function baseHalfCanvasVideoToolbarWidth(actions: readonly BaseHalfCanvas
 	const canonicalActions = baseHalfCanvasSceneVideoSelectionActions(actions);
 	if (canonicalActions.length === 0) {
 		return 0;
-	}
-	if (canonicalActions.length === 1 && canonicalActions[0] === 'importResult') {
-		return VIDEO_UPLOAD_TOOLBAR_SCREEN_WIDTH;
 	}
 	return VIDEO_TOOLBAR_SCREEN_PADDING * 2
 		+ canonicalActions.reduce((width, action) => width + (action === 'captureFrame' ? VIDEO_TOOLBAR_CAPTURE_BUTTON_WIDTH : VIDEO_TOOLBAR_BUTTON_WIDTH), 0)

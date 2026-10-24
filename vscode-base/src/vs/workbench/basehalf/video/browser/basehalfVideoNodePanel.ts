@@ -1441,7 +1441,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.menuItem(element, localize('basehalf.video.panel.importFile', "Import File…"), () => {
 			this.closeMenu(false);
 			void this.importFile();
-		}, { key: 'import', icon: Codicon.cloudUpload });
+		}, { key: 'import', icon: Codicon.attach });
 	}
 
 	private fillModelMenu(element: HTMLElement): void {

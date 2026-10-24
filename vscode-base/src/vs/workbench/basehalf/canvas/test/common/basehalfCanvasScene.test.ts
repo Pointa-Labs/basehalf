@@ -64,7 +64,8 @@ suite('BaseHalfCanvasScene', () => {
 	test('shows contextual controls only for one explicitly typed card', () => {
 		const note = { controls: { kind: 'note' as const } };
 		const video = { controls: { kind: 'video' as const, actions: ['openFullPreview' as const] } };
-		const emptyVideoDraft = { controls: { kind: 'video' as const, actions: ['importResult' as const] } };
+		// A draft has no toolbar, and the panel still goes beside it (D71).
+		const emptyVideoDraft = { controls: { kind: 'video' as const, actions: [] } };
 		const pendingNode = { controls: { kind: 'pending' as const } };
 		const file = { controls: undefined };
 
@@ -81,15 +82,15 @@ suite('BaseHalfCanvasScene', () => {
 		assert.strictEqual(baseHalfCanvasSceneSelectionSurface([note, video]), 'structural');
 	});
 
-	test('keeps Upload Video of an empty node apart from the actions of a node with a video', () => {
+	test('lists the actions of a card with its file once each, in the toolbar\'s order', () => {
 		assert.deepStrictEqual({
 			none: baseHalfCanvasSceneVideoSelectionActions([]),
 			ordered: baseHalfCanvasSceneVideoSelectionActions(['openFullPreview', 'revealVideo', 'captureFrame']),
-			uploadAlone: baseHalfCanvasSceneVideoSelectionActions(['captureFrame', 'importResult', 'openFullPreview'])
+			once: baseHalfCanvasSceneVideoSelectionActions(['revealVideo', 'openFullPreview', 'revealVideo'])
 		}, {
 			none: [],
 			ordered: ['captureFrame', 'revealVideo', 'openFullPreview'],
-			uploadAlone: ['importResult']
+			once: ['revealVideo', 'openFullPreview']
 		});
 	});
 });

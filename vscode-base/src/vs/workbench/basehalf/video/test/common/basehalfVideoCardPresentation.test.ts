@@ -89,7 +89,7 @@ suite('BaseHalfVideoCardPresentation', () => {
 			}, { message: [300, true, true], landedThenEnded: 'file' });
 		});
 
-		test('the toolbar offers Upload above a draft that does not generate, Capture Frame for a video with its file, and Reveal and Open for any file', () => {
+		test('the toolbar offers nothing above a draft, Capture Frame for a video with its file, and Reveal and Open for any file (D71)', () => {
 			assert.deepStrictEqual({
 				imageDraft: baseHalfGenerationCardToolbarActions('image', 'draft'),
 				generating: baseHalfGenerationCardToolbarActions('image', 'generating'),
@@ -97,9 +97,9 @@ suite('BaseHalfVideoCardPresentation', () => {
 				image: baseHalfGenerationCardToolbarActions('image', 'file'),
 				video: baseHalfGenerationCardToolbarActions('video', 'file')
 			}, {
-				imageDraft: ['importResult'],
+				imageDraft: [],
 				generating: [],
-				failed: ['importResult'],
+				failed: [],
 				image: ['revealVideo', 'openFullPreview'],
 				video: ['captureFrame', 'revealVideo', 'openFullPreview']
 			});

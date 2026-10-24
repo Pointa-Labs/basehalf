@@ -244,7 +244,8 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			const actions = append(this.element, $('.bh-input-row-actions'));
 			const pick = this.renderAction(actions, 'pick', Codicon.inspect, localize('basehalf.generation.inputRow.pick', "Pick on Canvas"), () => this.delegate.togglePick());
 			pick.setAttribute('aria-pressed', String(!!model.picking));
-			this.renderAction(actions, 'import', Codicon.cloudUpload, localize('basehalf.generation.inputRow.import', "Import File…"), () => this.delegate.importFile());
+			// A paperclip, as an attachment has: nothing is uploaded anywhere, the file is copied into the folder.
+			this.renderAction(actions, 'import', Codicon.attach, localize('basehalf.generation.inputRow.import', "Import File…"), () => this.delegate.importFile());
 		}
 		this.dropUndrawnPictures();
 		list.scrollLeft = scrolled;
