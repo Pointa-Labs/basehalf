@@ -186,6 +186,18 @@ suite('BaseHalfGenerationNameFollower (D68)', () => {
 		assert.strictEqual(await harness.prompt('shots/next.mp4'), ', 图片3 at night');
 	});
 
+	test('undo and redo that run twice, as the Undo of a rename\'s report and then canvas undo, change the prompt once', async () => {
+		const harness = await createHarness(disposables, draft('图片1里的人骑车，背景是图片3', ['shots/a.png', 'shots/b.png', 'shots/c.png']));
+		const removed = await harness.edit.remove(harness.node('shots/next.mp4'), 'shots/a.png', options);
+		const [dependent] = removed.dependents ?? [];
+		await dependent.undo();
+		await dependent.undo();
+		const undone = await harness.prompt('shots/next.mp4');
+		await dependent.redo();
+		await dependent.redo();
+		assert.deepStrictEqual([undone, await harness.prompt('shots/next.mp4')], ['图片1里的人骑车，背景是图片3', '里的人骑车，背景是图片2']);
+	});
+
 	test('a connection into an ordinary file follows nothing and says nothing', async () => {
 		const harness = await createHarness(disposables, {
 			'shots/a.png': 'a',

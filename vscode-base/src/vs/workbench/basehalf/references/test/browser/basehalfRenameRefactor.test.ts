@@ -185,6 +185,7 @@ interface IHarness {
 	readonly notifications: RecordingNotificationService;
 	readonly dialogs: RecordingDialogService;
 	readonly refactor: IBaseHalfReferenceRefactorService;
+	readonly edit: IBaseHalfReferenceEditService;
 	readonly undoRedo: IUndoRedoService;
 	readonly movedItems: TestMovedItems;
 	readonly draftOperations: IBaseHalfDraftOperations;
@@ -276,6 +277,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		notifications,
 		dialogs,
 		refactor,
+		edit: instantiationService.get(IBaseHalfReferenceEditService),
 		undoRedo: instantiationService.get(IUndoRedoService),
 		movedItems,
 		draftOperations,
@@ -678,6 +680,32 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 			undone: [n1, n2, 'upstream:\n  - old/a.md\n']
 		});
 	});
+	test('what a participant wrote with a relink is put back by the report\'s Undo and by canvas undo, as the lists are (D68)', async () => {
+		const harness = await createHarness(disposables, {
+			'new.mp4': 'mp4',
+			'pic.png': 'png',
+			'.bh/mirror/pic.png/upstream.yaml': 'upstream:\n  - old.png\n'
+		});
+		const log: string[] = [];
+		disposables.add(harness.edit.registerParticipant({
+			participate: async changes => changes.map(change => ({
+				undo: async () => { log.push(`undo ${change.node.relativePath}`); },
+				redo: async () => { log.push(`redo ${change.node.relativePath}`); }
+			}))
+		}));
+		harness.dialogs.answer = true;
+		await harness.refactor.relinkEverywhere(folder, 'old.png', 'new.mp4');
+		const relinked = await harness.read('.bh/mirror/pic.png/upstream.yaml');
+		await (await harness.prompt('Relinked')).choose('Undo');
+		// The canvas step finds the list restored, and puts back nothing that is back already.
+		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		assert.deepStrictEqual({ relinked, log, list: await harness.read('.bh/mirror/pic.png/upstream.yaml') }, {
+			relinked: 'upstream:\n  - new.mp4\n',
+			log: ['undo pic.png', 'undo pic.png'],
+			list: 'upstream:\n  - old.png\n'
+		});
+	});
+
 	test('deleting a folder named 09 retires its canvas row and never stops the cascade', async () => {
 		const note = '  - path: "note.md"\n    kind: file\n    x: 1\n    y: 2\n    width: 300\n    height: 220\n';
 		const harness = await createHarness(disposables, {

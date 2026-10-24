@@ -25,11 +25,13 @@ import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDra
 import {
 	BaseHalfReferenceEditFailure,
 	BaseHalfReferenceEditRefusal,
+	IBaseHalfReferenceDependentEdit,
 	IBaseHalfReferenceEditResult,
 	IBaseHalfReferenceEditService,
 	IBaseHalfReferenceStoreEdit,
 	IBaseHalfReferenceStoreResult,
-	IBaseHalfReferenceUndoStore
+	IBaseHalfReferenceUndoStore,
+	runBaseHalfReferenceDependents
 } from '../common/basehalfReferenceEdit.js';
 import { baseHalfUpstreamIdentity, baseHalfUpstreamResourceKey, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { BaseHalfReferenceIndexState, IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
@@ -99,6 +101,8 @@ export interface IBaseHalfReferenceRefactorOutcome {
 	readonly undo?: IWorkspaceUndoRedoElement;
 	/** The expected and next state of every store the operation changed. */
 	readonly changedStores: readonly IBaseHalfReferenceUndoStore[];
+	/** What participants wrote with the lists, such as the names of a draft's prompt, which the report's Undo puts back too. */
+	readonly dependents: readonly IBaseHalfReferenceDependentEdit[];
 	/** The label of the operation. */
 	readonly label: string;
 	/** Why the operation, or part of it, did not complete. */
@@ -234,7 +238,11 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 	async update(workspaceFolder: URI, input: () => IBaseHalfReferenceRefactorInput | undefined, options: IBaseHalfReferenceRefactorApplyOptions): Promise<IBaseHalfReferenceRefactorOutcome | undefined> {
 		const errors: unknown[] = [];
 		const stores: IBaseHalfReferenceStoreResult[] = [];
-		const collect = (result: IBaseHalfReferenceEditResult) => stores.push(...result.stores);
+		const dependents: IBaseHalfReferenceDependentEdit[] = [];
+		const collect = (result: IBaseHalfReferenceEditResult) => {
+			stores.push(...result.stores);
+			dependents.push(...result.dependents ?? []);
+		};
 		// Stores the edit service refused at write time, by node.
 		const refused = new Map<string, IBaseHalfRenameSkip>();
 		let plan: IBaseHalfRenameUpdatePlan | undefined;
@@ -305,7 +313,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 				}
 			}
 		}
-		const undo = options.noUndo ? undefined : this.referenceEditService.pushUndoElement({ stores, changed: stores.some(store => store.outcome === 'changed') }, {
+		const undo = options.noUndo ? undefined : this.referenceEditService.pushUndoElement({ stores, changed: stores.some(store => store.outcome === 'changed'), dependents }, {
 			label: options.label,
 			resources: options.undoResources,
 			source: BASEHALF_CANVAS_UNDO_REDO_SOURCE,
@@ -316,7 +324,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 		const changedStores = stores
 			.filter(store => store.outcome === 'changed')
 			.map(store => ({ node: store.node, storeKind: store.storeKind, expected: store.expected, next: store.next }));
-		return { plan, updated, movedIntoFile, ...(undo ? { undo } : {}), changedStores, label: options.label, errors };
+		return { plan, updated, movedIntoFile, ...(undo ? { undo } : {}), changedStores, dependents, label: options.label, errors };
 	}
 
 	/**
@@ -548,9 +556,10 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 
 	/**
 	 * The report's **Undo**: restores every changed store under the rules of
-	 * canvas undo (each store must still hold what the operation wrote). The
-	 * canvas undo step stays on its stack; when canvas undo reaches it, it
-	 * finds the stores restored and completes without writing, and redo then
+	 * canvas undo (each store must still hold what the operation wrote), and
+	 * then what participants wrote with them. The canvas undo step stays on
+	 * its stack; when canvas undo reaches it, it finds the stores and what
+	 * depends on them restored and completes without writing, and redo then
 	 * applies the operation again.
 	 */
 	private async undo(outcome: IBaseHalfReferenceRefactorOutcome): Promise<void> {
@@ -559,6 +568,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 				node: store.node,
 				operation: { kind: 'transition', from: store.next, to: store.expected, store: store.storeKind }
 			})), { label: outcome.label, restoring: true });
+			await runBaseHalfReferenceDependents(outcome.dependents, 'undo');
 		} catch (error) {
 			if (error instanceof BaseHalfReferenceEditFailure) {
 				// The edit service told the user which files changed.

@@ -411,7 +411,16 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				throw error;
 			}
 		};
-		const result = await runLocked(0);
+		let result: IBaseHalfReferenceEditResult;
+		try {
+			result = await runLocked(0);
+		} catch (error) {
+			if (error instanceof BaseHalfReferenceEditFailure && !options.restoring) {
+				// The lists written before the failure stay, and so do their names: undo puts back both.
+				throw new BaseHalfReferenceEditFailure(error.message, await this.participate(edits, error.result));
+			}
+			throw error;
+		}
 		// Outside the leases: a participant writes through its own services.
 		return options.restoring ? result : this.participate(edits, result);
 	}
@@ -426,17 +435,17 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			return result;
 		}
 		const changes: IBaseHalfReferenceListChange[] = [];
-		result.stores.forEach((store, index) => {
+		for (const store of result.stores) {
 			if (store.outcome !== 'changed') {
-				return;
+				continue;
 			}
 			const identity = this.identity(store.node.workspaceFolder);
 			const entries = (snapshot: IBaseHalfUpstreamStoreSnapshot): IBaseHalfReferenceListEntry[] => snapshot.items.flatMap(item => {
 				const path = item.scalar ? baseHalfNormalizeUpstreamEntry(item.text) : undefined;
 				return path !== undefined && !baseHalfUpstreamEntryProblem(path, store.node.relativePath, identity) ? [{ path, key: identity.key(path) }] : [];
 			});
-			// The stores of a result are in the order of the edits.
-			const operation = edits[index]?.operation;
+			// An operation changes a store once: its edit is the one of that node. A failure's result holds only some of the stores.
+			const operation = edits.find(edit => this.uriIdentityService.extUri.isEqual(edit.node.resource, store.node.resource))?.operation;
 			const replacements = operation?.kind === 'replace'
 				? [operation]
 				: operation?.kind === 'replaceEntries'
@@ -448,7 +457,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				after: entries(store.next),
 				replacements: replacements.map(replacement => ({ from: identity.key(baseHalfNormalizeUpstreamEntry(replacement.from)), to: identity.key(baseHalfNormalizeUpstreamEntry(replacement.to)) }))
 			});
-		});
+		}
 		if (changes.length === 0) {
 			return result;
 		}

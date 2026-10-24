@@ -121,7 +121,11 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 		return written;
 	}
 
-	/** Puts `restore` back when the prompt is still `expected`, and otherwise gives its names the numbers of `change`'s list. */
+	/**
+	 * Puts `restore` back when the prompt is still `expected`, and otherwise
+	 * gives its names the numbers of `change`'s list. A prompt that is
+	 * `restore` already stays, as after the Undo of a rename's report.
+	 */
 	private async restore(resource: URI, expected: string, restore: string, change: INameChange): Promise<void> {
 		try {
 			if (!await this.cardStore.isGenerationCard(resource)) {
@@ -132,6 +136,9 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 				return;
 			}
 			await this.cardStore.update(resource, info => {
+				if (info.prompt === restore) {
+					return info;
+				}
 				const target = info.prompt === expected ? restore : rewriteBaseHalfPromptNames(info.prompt, change.before, change.after, change.replacements);
 				return target === undefined ? info : setBaseHalfGenerationPrompt(info, target);
 			});

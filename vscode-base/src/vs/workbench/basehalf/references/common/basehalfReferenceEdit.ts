@@ -155,10 +155,24 @@ export interface IBaseHalfReferenceListChange {
 
 /** What a participant wrote with an operation, which its undo and redo put back. */
 export interface IBaseHalfReferenceDependentEdit {
-	/** Called after undo put the lists back; puts back what was written. */
+	/** Called after undo put the lists back; puts back what was written, and changes nothing when it is back already. */
 	undo(): Promise<void>;
-	/** Called after redo wrote the lists again; writes it again. */
+	/** Called after redo wrote the lists again; writes it again, and changes nothing when it is written already. */
 	redo(): Promise<void>;
+}
+
+/**
+ * Puts back, newest first, or writes again, oldest first, what the
+ * participants of an operation wrote. Each says itself what it could not write.
+ */
+export async function runBaseHalfReferenceDependents(dependents: readonly IBaseHalfReferenceDependentEdit[], direction: 'undo' | 'redo'): Promise<void> {
+	for (const dependent of direction === 'undo' ? [...dependents].reverse() : dependents) {
+		try {
+			await (direction === 'undo' ? dependent.undo() : dependent.redo());
+		} catch {
+			// A participant reports its own failures; the lists stay as undo wrote them.
+		}
+	}
 }
 
 /**
@@ -432,7 +446,7 @@ export class BaseHalfReferenceUndoElement implements IWorkspaceUndoRedoElement {
 		try {
 			const result = await this.editService.apply(edits, { label: this.label, restoring: true });
 			outcome = result.changed ? 'applied' : 'alreadyApplied';
-			await this.runDependents(direction);
+			await runBaseHalfReferenceDependents(this.options.dependents ?? [], direction);
 		} catch (error) {
 			outcome = 'refused';
 			if (error instanceof BaseHalfReferenceEditFailure) {
@@ -451,20 +465,5 @@ export class BaseHalfReferenceUndoElement implements IWorkspaceUndoRedoElement {
 			}
 		}
 		this.options.onDidRun?.(direction, outcome);
-	}
-
-	/**
-	 * Puts back, newest first, or writes again, oldest first, what the
-	 * participants wrote. Each says itself what it could not write.
-	 */
-	private async runDependents(direction: 'undo' | 'redo'): Promise<void> {
-		const dependents = this.options.dependents ?? [];
-		for (const dependent of direction === 'undo' ? [...dependents].reverse() : dependents) {
-			try {
-				await (direction === 'undo' ? dependent.undo() : dependent.redo());
-			} catch {
-				// A participant reports its own failures; the lists stay as undo wrote them.
-			}
-		}
 	}
 }

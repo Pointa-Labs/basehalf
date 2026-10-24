@@ -1238,6 +1238,39 @@ suite('BaseHalfReferenceEditService', () => {
 		});
 	});
 
+	test('a participant sees the lists an operation wrote before it failed, and the failure carries what it wrote (D68)', async () => {
+		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': '---\nupstream:\n  - a.md\n---\n# B\n', 'c.md': '---\nupstream:\n  - a.md\n---\n# C\n' });
+		const seen: string[] = [];
+		disposables.add(harness.edit.registerParticipant({
+			participate: async changes => {
+				seen.push(...changes.map(change => `${change.node.relativePath}: ${change.after.map(entry => entry.path).join(', ') || 'nothing'}`));
+				return [{ undo: async () => { }, redo: async () => { } }];
+			}
+		}));
+		harness.provider.failingWrites.add('/work/c.md');
+		let failure: unknown;
+		try {
+			await harness.edit.apply([
+				{ node: harness.node('b.md'), operation: { kind: 'remove', entry: 'a.md' } },
+				{ node: harness.node('c.md'), operation: { kind: 'remove', entry: 'a.md' } }
+			], options);
+		} catch (error) {
+			failure = error;
+		}
+		assert.ok(failure instanceof BaseHalfReferenceEditFailure);
+		assert.deepStrictEqual({
+			outcomes: failure.result.stores.map(store => [store.node.relativePath, store.outcome]),
+			seen,
+			dependents: failure.result.dependents?.length
+		}, {
+			outcomes: [['b.md', 'changed'], ['c.md', 'failed']],
+			seen: ['b.md: nothing'],
+			dependents: 1
+		});
+		await harness.textFileService.revert(harness.node('c.md').resource);
+		harness.textFileService.files.get(harness.node('c.md').resource)?.dispose();
+	});
+
 	test('a target-end reconnect whose add is not saved never removes the old entry', async () => {
 		const old = '---\nupstream:\n  - a.md\n---\n';
 		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': old, 'c.md': '# C\n' });

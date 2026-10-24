@@ -673,10 +673,14 @@ resume. Entries that were not yet updated stay visible as issues.
   undoable. The rename refactor and Relink Everywhere are canvas undo elements.
 - **Anchor rows** do not take part in undo.
 - **Participants.** A feature may take part in a reference edit of a node it
-  owns. Once every store of the operation is written, it writes what depends
-  on the list that changed, and the operation's undo and redo restore that
-  together with the lists. Generation cards do this for the names in a
-  draft's prompt ([generation cards](generation-cards.md#names-follow-their-inputs)).
+  owns. Once every store of the operation is written, or the stores it wrote
+  before it failed, it writes what depends on the lists that changed, and
+  every undo and redo of the operation restores that together with the
+  lists: the canvas step, and the Undo of a rename's report too. Putting
+  back or writing again what a participant wrote changes nothing that is so
+  already, so a step whose lists were restored another way leaves it right.
+  Generation cards do this for the names in a draft's prompt
+  ([generation cards](generation-cards.md#names-follow-their-inputs)).
   A participant never takes part in undo, redo, or a rollback, which put
   back what it wrote instead; an operation that was refused or wrote no
   store never reaches it; and when it cannot write, the lists stay written
