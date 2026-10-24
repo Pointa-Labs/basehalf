@@ -66,6 +66,7 @@ import {
 	sampleTileAndLine,
 	sampleTileAndLook,
 	savePrompt,
+	writePromptAtRest,
 	SCENE_NOTE,
 	SCENE_NOTE_TEXT,
 	seekCardVideo,
@@ -144,8 +145,10 @@ const SET_MODEL = 'seedream-5.0-lite';
 const JPEG_MODEL = 'seedream-4.5';
 
 const VIDEO_PROMPT = 'A cyclist rides along the sea at dusk, the camera follows slowly';
-// The prompt once `@` has typed the name of the end frame into it.
-const VIDEO_PROMPT_WITH_NAME = `${VIDEO_PROMPT} Image 2`;
+// The prompt once `@` has put the mention of the end frame into it (D74).
+const VIDEO_PROMPT_WITH_MENTION = `${VIDEO_PROMPT} @[${END_IMAGE}]`;
+// The prompt that generates: it mentions the note too, which is sent as its name in quotes.
+const VIDEO_PROMPT_WITH_MENTIONS = `${VIDEO_PROMPT_WITH_MENTION} in the mood of @[${SCENE_NOTE}]`;
 // What the provider module of SMOKE_PROVIDER says of a prompt that sets the resolution itself.
 const PROMPT_FLAG_PROBLEM = 'The prompt sets --rs; choose it in the settings instead, so that what the panel shows is sent.';
 // The test provider makes a video in this long; Generate first asks 3 s after the task is made.
@@ -161,7 +164,7 @@ const smoke = { provider: undefined, models: undefined, notOffered: undefined, s
 // --- Generation cards (D63, D64, D67, docs/specs/generation-cards.md) ------------------------------
 //
 // Acceptance criteria 1 to 8, 13 to 29, 32 to 38, 42, 43, the canvas's part
-// of 45 and 46, 59, 60, and 69 to 72 of generation cards, through the window and against the
+// of 45 and 46, 59, 60, 69 to 76, and 78 of generation cards, through the window and against the
 // local test provider with its test key, reached through the provider module
 // of SMOKE_PROVIDER; no paid provider is called. Criterion 30, Sequence, is
 // in workflowTemplate.mts. The steps run in order, each where the one before
@@ -176,7 +179,7 @@ export async function runGenerationCardSteps(page) {
 	await step('video-panel-model-and-settings', () => assertPanelModelAndSettings(page));
 	await step('video-provider-key-stays-secret', () => assertProviderKeyStaysSecret(page));
 	await step('video-image-model-menu', () => assertImageModelMenu(page));
-	await step('video-panel-inputs-and-names', () => assertPanelInputsAndNames(page));
+	await step('video-panel-inputs-and-mentions', () => assertPanelInputsAndMentions(page));
 	await step('video-pick-on-canvas', () => assertPickOnCanvas(page));
 	await step('video-input-box-buttons', () => assertInputBoxButtons(page));
 	await step('video-panel-placement', () => assertPanelPlacement(page));
@@ -195,6 +198,7 @@ export async function runGenerationCardSteps(page) {
 	await step('video-reload-continues-generations', () => assertReloadContinuesGenerations(page));
 	await step('video-agent-generates', () => assertAgentGenerates(page));
 	await step('video-renames-keep-cards', () => assertRenamesKeepCards(page));
+	await step('video-mentions-follow-renames', () => assertMentionsFollowRenames(page));
 	await step('video-missing-file-comes-back', () => assertMissingFileComesBack(page));
 	await step('video-conflict-markers-keep-the-card', () => assertConflictMarkersKeepTheCard(page));
 	await step('video-file-at-draft-path', () => assertFileAtDraftPath(page));
@@ -886,10 +890,11 @@ async function assertImageModelMenu(page) {
 // connected by a drawn line are the start and end frames, in upstream order,
 // and a note connected by a line is a text input; the swap arrow exchanges the
 // two frames' entries and nothing else, in one undo step; `@` lists the
-// inputs that have a name and types the chosen one; a name of no input is
-// underlined; a problem that the provider module reports for the prompt
-// blocks Generate and shows above the footer until it is gone.
-async function assertPanelInputsAndNames(page) {
+// inputs and puts the chosen one's mention in; a mention of a file that is not
+// connected is underlined and keeps Generate from running (D74); a problem
+// that the provider module reports for the prompt blocks Generate and shows
+// above the footer until it is gone.
+async function assertPanelInputsAndMentions(page) {
 	let panel = await selectGenerationCard(page, VIDEO);
 	const empty = await readGenerationPanel(panel);
 	if (JSON.stringify(empty.emptySlots) !== JSON.stringify(['start', 'end'])) {
@@ -915,8 +920,8 @@ async function assertPanelInputsAndNames(page) {
 	// the model) leaves the summary and shows as set by the frame.
 	const before = summaryWithoutFrames.split(' · ');
 	const after = frames.settings?.split(' · ') ?? [];
-	if (frames.start.name !== 'Image 1' || frames.end.name !== 'Image 2' || after.length !== before.length - 1 || !after.every(part => before.includes(part))) {
-		throw new Error(`The frames must be named by upstream order, and the settings must leave out only the value the start frame sets from ${summaryWithoutFrames}: ${JSON.stringify(frames)}`);
+	if (frames.start.name !== 'start.png' || frames.end.name !== 'end.png' || after.length !== before.length - 1 || !after.every(part => before.includes(part))) {
+		throw new Error(`The frames must be named by their files, and the settings must leave out only the value the start frame sets from ${summaryWithoutFrames}: ${JSON.stringify(frames)}`);
 	}
 	await panel.locator('button.bh-video-panel-settings').click();
 	await waitForReading(() => readSettingsPopover(panel), seen => seen !== null && seen.focusInside, 'the settings popover to open');
@@ -930,7 +935,7 @@ async function assertPanelInputsAndNames(page) {
 	const beforeSwap = { info: readGenerationInfo(VIDEO), upstream: readUpstreamSidecar(VIDEO) };
 	await panel.locator('button.bh-input-row-swap').click();
 	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([END_IMAGE, START_IMAGE, SCENE_NOTE]) && canonicalJson(readGenerationInfo(VIDEO)) === canonicalJson(beforeSwap.info), 'the swap arrow to exchange the two entries and change nothing else', 10_000);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.start?.path === END_IMAGE && seen.start.name === 'Image 1' && seen.end?.path === START_IMAGE, 'the panel to show the swapped frames, named by their new order');
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.start?.path === END_IMAGE && seen.start.name === 'end.png' && seen.end?.path === START_IMAGE, 'the panel to show the swapped frames');
 	await waitForReading(() => page.evaluate(() => !!document.activeElement?.closest('.basehalf-canvas-workbench')), inside => inside, 'the keyboard focus to stay on the canvas after the swap');
 	await page.keyboard.press(UNDO);
 	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify(beforeSwap.upstream), 'one undo to put the two frames back', 10_000);
@@ -940,54 +945,66 @@ async function assertPanelInputsAndNames(page) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
 	await page.keyboard.type(' @');
 	const mention = await waitForReading(() => readMentionMenu(panel), seen => seen !== null && seen.searchFocused && seen.options.length > 0, 'typing @ to open the reference menu with its search field focused');
-	// The note has no name: its text joins the prompt. The cards of the canvas follow, by kind.
-	const connected = mention.options.filter(option => option.label !== null);
-	if (JSON.stringify(connected.map(option => option.label)) !== JSON.stringify(['Image 1', 'Image 2'])
-		|| !connected[0].file.startsWith('start') || !connected[1].file.startsWith('end') || !mention.options[0].active) {
-		throw new Error(`@ must list Image 1 (start.png) and Image 2 (end.png), the first one current: ${JSON.stringify(mention)}`);
+	// Connected first, in the order of the row, the note too (D71, D74); the cards of the canvas follow, by kind.
+	if (JSON.stringify(mention.options.slice(0, 3).map(option => option.file)) !== JSON.stringify(['start.png', 'end.png', 'scene'])
+		|| mention.options.slice(0, 3).some(option => option.label !== null) || !mention.options[0].active) {
+		throw new Error(`@ must list start.png, end.png, and the note under Connected, by their files, the first one current: ${JSON.stringify(mention)}`);
 	}
 	await page.keyboard.press('ArrowDown');
 	await page.keyboard.press('Enter');
-	// The name is a chip in place of the @, with a space after it, and the keyboard is back in the prompt.
-	const named = await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_NAME} ` && seen.promptFocused, 'choosing Image 2 to put its name in place of the @');
-	if (await readMentionMenu(panel) !== null || JSON.stringify(named.names) !== JSON.stringify([{ text: 'Image 2', known: true, underlined: false }])) {
-		throw new Error(`The chosen name must be a chip of a known input: ${JSON.stringify(named)}`);
+	// The mention is a chip in place of the @, with a space after it, and the keyboard is back in the prompt.
+	const mentioned = await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_MENTION} ` && seen.promptFocused, 'choosing end.png to put its mention in place of the @');
+	if (await readMentionMenu(panel) !== null || JSON.stringify(mentioned.chips) !== JSON.stringify([{ text: 'end.png', known: true, underlined: false }])) {
+		throw new Error(`The chosen input must be a chip with its file's name: ${JSON.stringify(mentioned)}`);
 	}
-	await page.keyboard.type('Video 1');
-	await waitForReading(() => readGenerationPanel(panel), seen => JSON.stringify(seen.names) === JSON.stringify([{ text: 'Image 2', known: true, underlined: false }, { text: 'Video 1', known: false, underlined: true }]), 'Video 1, the name of no input, to be underlined');
-	for (let index = 0; index < 'Video 1 '.length; index++) {
-		await page.keyboard.press('Backspace');
+	// Criterion 74: a mention of a file that is not connected, typed by hand after the menu closed.
+	await page.keyboard.type('@');
+	await waitForReading(() => readMentionMenu(panel), seen => seen?.searchFocused === true, 'the @ to open the reference menu');
+	await page.keyboard.press('Escape');
+	await page.keyboard.type(`[${GENERATION_FOLDER}/gone.png]`);
+	const stray = await waitForReading(() => readGenerationPanel(panel), seen => JSON.stringify(seen.chips) === JSON.stringify([{ text: 'end.png', known: true, underlined: false }, { text: 'gone.png', known: false, underlined: true }]), 'a mention of gone.png, which is not connected, to be underlined');
+	if (stray.generate?.label !== 'The prompt mentions gone.png, which is not connected.' || !stray.generate.disabled || stray.reason !== null) {
+		throw new Error(`A mention of a file that is not connected must keep Generate from running, with the reason as its name and no line: ${JSON.stringify(stray)}`);
 	}
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to end with the name of Image 2 again');
+	// Backspace takes the chip out whole, then the space before it.
+	await page.keyboard.press('Backspace');
+	await page.keyboard.press('Backspace');
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_MENTION, 'the prompt to end with the mention of end.png again');
 	// Escape closes the menu and leaves the @ as typed.
 	await page.keyboard.type(' @');
 	await waitForReading(() => readMentionMenu(panel), seen => seen?.searchFocused === true, 'a second @ to open the reference menu');
 	await page.keyboard.press('Escape');
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_NAME} @` && seen.promptFocused, 'Escape to close the menu and leave the @ in the prompt');
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_MENTION} @` && seen.promptFocused, 'Escape to close the menu and leave the @ in the prompt');
 	await page.keyboard.press('Backspace');
 	await page.keyboard.press('Backspace');
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to end with the name of Image 2 once more');
-	await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt with the name to be saved', 10_000);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_MENTION, 'the prompt to end with the mention of end.png once more');
+	await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === VIDEO_PROMPT_WITH_MENTION, 'the prompt with the mention to be saved', 10_000);
 
-	// D68, criteria 50 and 52: the cross of Image 1 removes its connection, and
-	// the prompt's Image 2 becomes Image 1 in the same step; undo brings both back.
-	await panel.locator('.bh-input-tile[data-frame="start"]').hover();
-	await panel.locator('.bh-input-tile[data-frame="start"] .bh-input-tile-remove').click();
-	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([END_IMAGE, SCENE_NOTE]) && readGenerationInfo(VIDEO)?.prompt === `${VIDEO_PROMPT} Image 1`, 'the cross to remove start.png and rename Image 2 in the prompt', 10_000);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.start?.path === END_IMAGE && seen.start.name === 'Image 1' && JSON.stringify(seen.names) === JSON.stringify([{ text: 'Image 1', known: true, underlined: false }]), 'the panel to show end.png as Image 1 and its name in the prompt');
+	// D68 and D74, criteria 50 and 52: the cross of end.png removes its connection
+	// and takes its mention out in the same step; undo brings both back.
+	await panel.locator('.bh-input-tile[data-frame="end"]').hover();
+	await panel.locator('.bh-input-tile[data-frame="end"] .bh-input-tile-remove').click();
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([START_IMAGE, SCENE_NOTE]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT, 'the cross to remove end.png and take its mention out of the prompt', 10_000);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.start?.path === START_IMAGE && seen.end === null && seen.chips.length === 0, 'the panel to show no end frame and no chip');
 	await clickBlankCanvas(page);
 	await page.keyboard.press(UNDO);
-	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([START_IMAGE, END_IMAGE, SCENE_NOTE]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_NAME, 'one undo to bring back start.png and the name Image 2', 10_000);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([START_IMAGE, END_IMAGE, SCENE_NOTE]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_MENTION, 'one undo to bring back end.png and its mention', 10_000);
 	panel = await selectGenerationCard(page, VIDEO);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.start?.path === START_IMAGE && seen.prompt === VIDEO_PROMPT_WITH_NAME, 'the panel to show the connection and the name again');
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.end?.path === END_IMAGE && seen.prompt === VIDEO_PROMPT_WITH_MENTION, 'the panel to show the connection and the mention again');
 
 	// The panel asks the provider module about the prompt as it changes.
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.generate?.disabled === false, 'Generate to be enabled with the provider set up and both frames connected');
 	// Criterion 56: Select All in the prompt selects all of it, and what is typed takes its place.
 	await panel.locator('.bh-prompt-editor').click();
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
-	await page.keyboard.type(VIDEO_PROMPT_WITH_NAME);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME && JSON.stringify(seen.names) === JSON.stringify([{ text: 'Image 2', known: true, underlined: false }]), 'Select All and typing to put the prompt in place of the whole prompt');
+	await page.keyboard.type(`${VIDEO_PROMPT} `);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT} ` && seen.chips.length === 0, 'Select All and typing to put the prompt in place of the whole prompt');
+	// The @ of the end frame's tile puts its mention at the caret, and the keyboard stays in the prompt.
+	await panel.locator('.bh-input-tile[data-frame="end"]').hover();
+	await panel.locator('.bh-input-tile[data-frame="end"] .bh-input-tile-name').click();
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_MENTION} ` && seen.promptFocused, 'the @ of end.png to put its mention at the caret');
+	await page.keyboard.press('Backspace');
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_MENTION && JSON.stringify(seen.chips) === JSON.stringify([{ text: 'end.png', known: true, underlined: false }]), 'the prompt with the mention of end.png');
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
 	await page.keyboard.type(' --rs');
 	const flagged = await waitForReading(() => readGenerationPanel(panel), seen => seen.generate?.label === PROMPT_FLAG_PROBLEM, 'the provider module\'s problem with --rs in the prompt to name Generate');
@@ -998,8 +1015,8 @@ async function assertPanelInputsAndNames(page) {
 	for (let index = 0; index < ' --rs'.length; index++) {
 		await page.keyboard.press('Backspace');
 	}
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME && seen.generate?.disabled === false && seen.reason === null, 'Generate to be enabled again once the prompt no longer sets --rs');
-	await waitUntil(() => readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt with the name to be saved', 10_000);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_MENTION && seen.generate?.disabled === false && seen.reason === null, 'Generate to be enabled again once the prompt no longer sets --rs');
+	await waitUntil(() => readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_MENTION, 'the prompt with the name to be saved', 10_000);
 }
 
 // D69, criteria 59 and 60: Pick on Canvas stays on until Escape. The bar
@@ -1032,7 +1049,7 @@ async function assertPickOnCanvas(page) {
 	}
 	let panel = await selectGenerationCard(page, VIDEO);
 	const connected = [START_IMAGE, END_IMAGE, SCENE_NOTE];
-	if (JSON.stringify(readUpstreamSidecar(VIDEO)) !== JSON.stringify(connected) || readGenerationInfo(VIDEO)?.prompt !== VIDEO_PROMPT_WITH_NAME) {
+	if (JSON.stringify(readUpstreamSidecar(VIDEO)) !== JSON.stringify(connected) || readGenerationInfo(VIDEO)?.prompt !== VIDEO_PROMPT_WITH_MENTION) {
 		throw new Error(`The step starts where the inputs and names left ${VIDEO}: ${JSON.stringify({ upstream: readUpstreamSidecar(VIDEO), info: readGenerationInfo(VIDEO) })}`);
 	}
 	await startPickOnCanvas(page, panel);
@@ -1093,11 +1110,12 @@ async function assertPickOnCanvas(page) {
 	if (tileAndLine.tile < 0 || tileAndLine.line < 0 || Math.abs(tileAndLine.line - tileAndLine.tile) > 34) {
 		throw new Error(`The line of a connection that Pick on Canvas made must show within two frames of its tile: ${JSON.stringify(tileAndLine)}`);
 	}
-	await showCardOnCanvas(page, START_IMAGE);
-	const removing = await sampleCardLooks(page, START_IMAGE, async () => {
-		await clickCanvasCardOnTop(page, START_IMAGE);
-		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([END_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === `${VIDEO_PROMPT} Image 1`, `a click on the connected ${START_IMAGE} to remove it and rename Image 2 in the prompt`, 10_000);
-		await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[START_IMAGE] === 'connect', `picking to stay on and show ${START_IMAGE} as one a click connects`);
+	// The end frame is the input the prompt mentions: a click that removes it takes its mention out too (D74).
+	await showCardOnCanvas(page, END_IMAGE);
+	const removing = await sampleCardLooks(page, END_IMAGE, async () => {
+		await clickCanvasCardOnTop(page, END_IMAGE);
+		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([START_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT, `a click on the connected ${END_IMAGE} to remove it and take its mention out of the prompt`, 10_000);
+		await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[END_IMAGE] === 'connect', `picking to stay on and show ${END_IMAGE} as one a click connects`);
 		await page.waitForTimeout(300);
 	});
 	for (const looks of [connecting, removing]) {
@@ -1119,7 +1137,7 @@ async function assertPickOnCanvas(page) {
 	// Each click was one step of undo.
 	await clickBlankCanvas(page);
 	await page.keyboard.press(UNDO);
-	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_NAME, `one undo to bring back ${START_IMAGE} and the name Image 2`, 10_000);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_MENTION, `one undo to bring back ${END_IMAGE} and its mention`, 10_000);
 	await page.keyboard.press(UNDO);
 	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify(connected), `a second undo to take away the connection of ${still}`, 10_000);
 	for (const cardPath of [still, take]) {
@@ -1144,7 +1162,7 @@ async function assertInputBoxButtons(page) {
 	await waitUntil(() => readCardRow(idea) !== undefined, `the card of ${idea} to get a place`, 15_000);
 	const connected = [START_IMAGE, END_IMAGE, SCENE_NOTE];
 	let panel = await selectGenerationCard(page, VIDEO);
-	if (JSON.stringify(readUpstreamSidecar(VIDEO)) !== JSON.stringify(connected) || readGenerationInfo(VIDEO)?.prompt !== VIDEO_PROMPT_WITH_NAME) {
+	if (JSON.stringify(readUpstreamSidecar(VIDEO)) !== JSON.stringify(connected) || readGenerationInfo(VIDEO)?.prompt !== VIDEO_PROMPT_WITH_MENTION) {
 		throw new Error(`The step starts where Pick on Canvas left ${VIDEO}: ${JSON.stringify({ upstream: readUpstreamSidecar(VIDEO), info: readGenerationInfo(VIDEO) })}`);
 	}
 
@@ -1212,7 +1230,7 @@ async function assertInputBoxButtons(page) {
 	await panel.locator('.bh-prompt-editor').click();
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
 	await page.keyboard.type(' ');
-	await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === `${VIDEO_PROMPT_WITH_NAME} ` || prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to be saved', 10_000);
+	await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === `${VIDEO_PROMPT_WITH_MENTION} ` || prompt === VIDEO_PROMPT_WITH_MENTION, 'the prompt to be saved', 10_000);
 	await page.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.45, { steps: 3 });
 	await page.locator('.bh-input-look').waitFor({ state: 'visible', timeout: 10_000 });
 	const name = tile.locator('.bh-input-tile-name');
@@ -1221,20 +1239,26 @@ async function assertInputBoxButtons(page) {
 	const frames = await sampleTileAndLook(page, START_IMAGE, async () => {
 		await page.mouse.down();
 		await page.mouse.up();
-		await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === `${VIDEO_PROMPT_WITH_NAME} Image 1 `, 'the @ of start.png to put Image 1 in the prompt and the prompt to be saved', 10_000);
+		await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === `${VIDEO_PROMPT_WITH_MENTION} @[${START_IMAGE}] `, 'the @ of start.png to put its mention in the prompt and the prompt to be saved', 10_000);
 		await page.waitForTimeout(700);
 	});
 	if (frames.length !== 1 || frames[0].includes('-')) {
 		throw new Error(`A click on a tile's @ must draw neither the row nor the look again: ${JSON.stringify(frames)}`);
 	}
-	await savePrompt(page, panel, VIDEO, VIDEO_PROMPT_WITH_NAME);
+	// Backspace takes out the space, the chip whole, and the space before it.
+	await panel.locator('.bh-prompt-editor').click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
+	for (let index = 0; index < 3; index++) {
+		await page.keyboard.press('Backspace');
+	}
+	await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === VIDEO_PROMPT_WITH_MENTION, 'three presses of Backspace to take the mention of start.png out again, and the prompt to be saved', 10_000);
 
-	// Criterion 70: Notes in the reference menu; choosing a note connects it and takes the @ out.
+	// Criterion 70: Notes in the reference menu; choosing a note connects it and puts its mention in (D74).
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
 	await page.keyboard.type(' @');
 	const mention = await waitForReading(() => readMentionMenu(panel), seen => seen !== null && seen.searchFocused && seen.options.some(option => option.file === 'Notes'), 'typing @ to open the reference menu with Notes');
 	if (!mention.options.some(option => option.file === 'scene' && option.label === null)) {
-		throw new Error(`The connected note must be listed under Connected, without a name: ${JSON.stringify(mention)}`);
+		throw new Error(`The connected note must be listed under Connected: ${JSON.stringify(mention)}`);
 	}
 	await panel.locator('.bh-reference-menu-option[data-key="kind:text"]').hover();
 	const flyout = panel.locator('.bh-reference-menu.flyout');
@@ -1245,20 +1269,23 @@ async function assertInputBoxButtons(page) {
 	}
 	await flyout.locator('.bh-reference-menu-option', { hasText: 'idea' }).click();
 	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, idea]), `choosing ${idea} in the reference menu to connect it`, 10_000);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_NAME} ` && seen.inputs.some(input => input.path === idea) && seen.promptFocused, 'the note\'s tile to appear, and the @ to be taken out with the keyboard in the prompt');
-	if (await readMentionMenu(panel) !== null) {
-		throw new Error('Choosing a note must close the reference menu');
+	const noted = await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_MENTION} @[${idea}] ` && seen.inputs.some(input => input.path === idea) && seen.promptFocused, 'the note\'s tile to appear, and its mention to take the place of the @ with the keyboard in the prompt');
+	if (await readMentionMenu(panel) !== null || JSON.stringify(noted.chips.map(chip => chip.text)) !== JSON.stringify(['end.png', 'idea'])) {
+		throw new Error(`Choosing a note must close the reference menu and put a chip of the note in: ${JSON.stringify(noted)}`);
 	}
 
 	// As it was: the prompt, the list, and no note beside the cards.
-	await savePrompt(page, panel, VIDEO, VIDEO_PROMPT_WITH_NAME);
+	for (let index = 0; index < 3; index++) {
+		await page.keyboard.press('Backspace');
+	}
+	await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === VIDEO_PROMPT_WITH_MENTION, 'Backspace to take the mention of the note out again, and the prompt to be saved', 10_000);
 	await clickBlankCanvas(page);
 	await page.keyboard.press(UNDO);
 	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify(connected), `undo to take away the connection of ${idea}`, 10_000);
 	fs.rmSync(workspaceFile(idea), { force: true });
 	await canvasCard(page, idea).waitFor({ state: 'detached', timeout: 15_000 });
 	panel = await selectGenerationCard(page, VIDEO);
-	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to be as the step found it');
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_MENTION, 'the prompt to be as the step found it');
 }
 
 // Criterion 16: opening the panel moves the canvas neither way; it sits 10
@@ -1327,6 +1354,8 @@ async function assertPanelPlacement(page) {
 // agent wrote, and the field keeps what was typed.
 async function assertPromptAndAgentWriteTogether(page) {
 	const panel = await selectGenerationCard(page, VIDEO);
+	// The prompt mentions the end frame and the note, as the generation will send them (D74).
+	await writePromptAtRest(page, panel, VIDEO, VIDEO_PROMPT_WITH_MENTIONS);
 	const before = readGenerationInfo(VIDEO);
 	const file = path.join(mirrorFolder(VIDEO), 'generation.yaml');
 	await panel.locator('.bh-prompt-editor').click();
@@ -1399,9 +1428,11 @@ async function generateAndLandVideo(page, provider) {
 	if (seen.states.find(state => state.state === 'submitting')?.remoteId !== undefined || !running?.remoteId || JSON.stringify(record.cards.map(card => card.path)) !== JSON.stringify([VIDEO]) || record.answersAtOnce) {
 		throw new Error(`The record must name the card, and get the provider's task id once it runs: ${JSON.stringify(seen.states)}`);
 	}
-	// What was sent: the card's prompt with the note's text, without its front matter, kept on this computer only.
-	if (!record.sentPrompt?.startsWith(info.prompt) || !record.sentPrompt.includes(SCENE_NOTE_TEXT) || record.sentPrompt.includes('tags:')) {
-		throw new Error(`The prompt as sent must be the card's prompt and the note's text without its front matter: ${JSON.stringify(record.sentPrompt)}`);
+	// What was sent: the card's prompt as the ByteDance module writes it, its mention of the end
+	// frame as "the last frame", and the note's text under its name, without its front matter,
+	// kept on this computer only (criterion 75, D74).
+	if (!record.sentPrompt?.startsWith(info.prompt.replace(`@[${END_IMAGE}]`, 'the last frame').replace(`@[${SCENE_NOTE}]`, '"scene"')) || !record.sentPrompt.includes(`\n\nscene:\n# Scene\n\n${SCENE_NOTE_TEXT}`) || record.sentPrompt.includes('tags:') || record.sentPrompt.includes('@[')) {
+		throw new Error(`The prompt as sent must be the card's prompt as its module names its inputs, and the note's text under its name without its front matter: ${JSON.stringify({ sent: record.sentPrompt, prompt: info.prompt })}`);
 	}
 	const made = readMade(VIDEO);
 	// The start frame sets the ratio of the model: the record leaves it out, and the card keeps it.
@@ -1486,8 +1517,9 @@ async function assertCardDetailShowsWhatMadeIt(page) {
 	const made = readMade(VIDEO);
 	if (shown.label !== 'What made this video' || shown.title !== 'Generated' || shown.note !== null
 		|| shown.rows.Model !== `Seedance 2.5 (${made.providerModel})` || !/^ByteDance · International\b/.test(shown.rows.Provider ?? '') || shown.rows.Mode !== 'Frames'
-		|| shown.rows.Prompt !== made.prompt || !(shown.rows.Settings ?? '').includes(String(made.params.resolution)) || !shown.rows.Started || !/, after \d+:\d\d$/.test(shown.rows.Finished ?? '')
-		|| JSON.stringify(shown.inputs) !== JSON.stringify([`Image 1 ${START_IMAGE}`, `Image 2 ${END_IMAGE}`, `Text ${SCENE_NOTE}`])) {
+		// Criterion 78: each mention as its file's name, and each input with what it was used as (D74).
+		|| shown.rows.Prompt !== made.prompt.replace(`@[${END_IMAGE}]`, 'end.png').replace(`@[${SCENE_NOTE}]`, 'scene') || !(shown.rows.Settings ?? '').includes(String(made.params.resolution)) || !shown.rows.Started || !/, after \d+:\d\d$/.test(shown.rows.Finished ?? '')
+		|| JSON.stringify(shown.inputs) !== JSON.stringify([`Start frame ${START_IMAGE}`, `End frame ${END_IMAGE}`, `Note ${SCENE_NOTE}`])) {
 		throw new Error(`Card Detail must say what made the video, from its record: ${JSON.stringify({ shown, made })}`);
 	}
 	await page.locator('.basehalf-card-detail-close').click();
@@ -1887,12 +1919,12 @@ async function assertFilePanelShowsWhatMadeIt(page) {
 	const made = readMade(VIDEO);
 	const panel = await selectGenerationCard(page, VIDEO);
 	const shown = await waitForReading(() => readRecordPanel(panel), seen => seen.record && seen.state === 'ready' && seen.model === 'Seedance 2.5', 'the panel of the card with its video to name its model');
-	if (JSON.stringify(shown.inputs) !== JSON.stringify(['Start: Image 1', 'End: Image 2', 'scene']) || shown.gone.length || shown.prompt !== made.prompt || shown.line !== null
+	if (JSON.stringify(shown.inputs) !== JSON.stringify(['Start: start.png', 'End: end.png', 'scene']) || shown.gone.length || shown.prompt !== made.prompt || shown.line !== null
 		|| !shown.settings?.startsWith('Frames') || !shown.settings.includes(`${made.params.duration}s`) || !shown.settings.includes(String(made.params.resolution))
 		|| JSON.stringify(shown.buttons) !== JSON.stringify(['New Version']) || shown.fields !== 0 || await panel.locator('button.bh-video-panel-generate').count() !== 0) {
 		throw new Error(`The panel of a card with its file must show what its record says made it, and offer New Version only: ${JSON.stringify({ shown, made })}`);
 	}
-	// The prompt field of a draft, read only, with its names as chips (D68).
+	// The prompt field of a draft, read only, with its mentions as chips (D68, D74).
 	const prompt = panel.locator('.bh-prompt-editor');
 	const selected = await prompt.evaluate(element => {
 		const selection = element.ownerDocument.getSelection();
@@ -1900,7 +1932,7 @@ async function assertFilePanelShowsWhatMadeIt(page) {
 		range.selectNodeContents(element);
 		selection?.removeAllRanges();
 		selection?.addRange(range);
-		// What a copy puts on the clipboard: the prompt's text, its chips as their names.
+		// What a copy puts on the clipboard: the prompt's text, its chips as their mentions.
 		const data = new DataTransfer();
 		element.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
 		const text = data.getData('text/plain');
@@ -2511,6 +2543,64 @@ async function assertRenamesKeepCards(page) {
 		provider.mock.configure({ durationMs: VIDEO_PROVIDER_DURATION_MS });
 	}
 	await closeAgentArea(page);
+}
+
+// Criterion 73 (D74): a mention follows its input's file. A rename in Finder,
+// which BaseHalf follows, and a rename on the canvas write the new path into
+// the draft's list and into its prompt's mention, and the chip shows the new
+// name; undoing the rename on the canvas, and renaming the file back in
+// Finder, put both back.
+async function assertMentionsFollowRenames(page) {
+	const gull = `${GENERATION_FOLDER}/gull.png`;
+	const wings = `${GENERATION_FOLDER}/gull-wings.png`;
+	const sky = `${GENERATION_FOLDER}/gull-sky.png`;
+	const shot = `${GENERATION_FOLDER}/gull-shot.mp4`;
+	const prompt = input => `A gull above @[${input}] at noon`;
+	const follows = input => JSON.stringify(readUpstreamSidecar(shot)) === JSON.stringify([input]) && readGenerationInfo(shot)?.prompt === prompt(input);
+	fs.writeFileSync(workspaceFile(gull), solidPng(320, 180, [150, 190, 230]));
+	await canvasCard(page, gull).waitFor({ state: 'attached', timeout: 15_000 });
+	// The draft that mentions it, as an agent writes it.
+	writeUpstreamSidecar(shot, [gull]);
+	writeGenerationInfo(shot, { prompt: prompt(gull), provider: SMOKE_PROVIDER, model: SEEDANCE, mode: 'frames' });
+	await canvasCard(page, shot).waitFor({ state: 'attached', timeout: 15_000 });
+	// BaseHalf takes the new file into what it follows after its quiet second.
+	await page.waitForTimeout(3_000);
+	fs.renameSync(workspaceFile(gull), workspaceFile(wings));
+	await waitUntil(() => follows(wings), `a rename in Finder to write ${wings} into the list and the mention of ${shot}`, 20_000);
+	await canvasCard(page, wings).waitFor({ state: 'attached', timeout: 15_000 });
+	await clickBlankCanvas(page);
+	await showCardOnCanvas(page, wings);
+	await canvasCard(page, wings).focus();
+	await page.keyboard.press('F2');
+	const input = canvasCard(page, wings).locator('.basehalf-canvas-inline-name-input input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	await input.fill('gull-sky.png');
+	await input.press('Enter');
+	await waitUntil(() => follows(sky), `a rename on the canvas to write ${sky} into the list and the mention`, 15_000);
+	await showCardOnCanvas(page, shot);
+	const panel = await selectGenerationCard(page, shot);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === prompt(sky) && JSON.stringify(seen.chips) === JSON.stringify([{ text: 'gull-sky.png', known: true, underlined: false }]), 'the chip of the mention to show the new name');
+	// The rename is a step of the canvas's undo (canvas card name, criterion
+	// 28). The panel goes first: its prompt has an undo of its own.
+	await clickBlankCanvas(page);
+	await waitForReading(() => page.locator('.basehalf-canvas-video-panel-surface').count(), count => count === 0, 'the panel to go when its card is deselected');
+	await canvasCard(page, sky).focus();
+	await page.keyboard.press(UNDO);
+	await waitUntil(() => follows(wings) && fs.existsSync(workspaceFile(wings)), 'undo on the canvas to take the rename back, with the list and the mention', 15_000);
+	await canvasCard(page, wings).waitFor({ state: 'attached', timeout: 15_000 });
+	await canvasCard(page, wings).focus();
+	await page.keyboard.press(REDO);
+	await waitUntil(() => follows(sky) && fs.existsSync(workspaceFile(sky)), 'redo on the canvas to rename it again, with the list and the mention', 15_000);
+	await canvasCard(page, sky).waitFor({ state: 'attached', timeout: 15_000 });
+	// Back in Finder to the name of the first rename, within the minute in
+	// which its first pair still counts (following moved items, criterion 31).
+	fs.renameSync(workspaceFile(sky), workspaceFile(wings));
+	await waitUntil(() => follows(wings), 'renaming the file back in Finder to put the old name back into the list and the mention', 20_000);
+	// As it was: neither the image nor the draft is left.
+	fs.rmSync(workspaceFile(wings), { force: true });
+	fs.rmSync(mirrorFolder(shot), { recursive: true, force: true });
+	await canvasCard(page, wings).waitFor({ state: 'detached', timeout: 15_000 });
+	await canvasCard(page, shot).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
 // Criterion 6: a generated file deleted in Finder takes its card off the

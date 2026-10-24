@@ -560,12 +560,14 @@ export async function sampleCardPhases(page, cardPath) {
 export function readGenerationPanel(panel) {
 	return panel.evaluate(element => {
 		const text = selector => element.querySelector(selector)?.textContent?.trim() ?? null;
-		// The prompt's text, its chips as their names (D68).
+		// The prompt's text, its chips as their mentions, `@[<entry>]` (D74).
 		const prompt = element.querySelector('.bh-prompt-editor');
+		const storedText = field => Array.from(field.childNodes).map(node => node.nodeType === 1 && node.classList.contains('bh-prompt-chip') ? node.getAttribute('data-text') ?? '' : node.textContent ?? '').join('').replaceAll('\u200b', '');
 		const generate = element.querySelector('button.bh-video-panel-generate');
 		const tile = input => ({
 			kind: input.getAttribute('data-kind'),
-			name: input.getAttribute('data-label'),
+			// The name of its file, as its look and its accessible name say it.
+			name: (input.getAttribute('aria-label') ?? '').split(', ')[0],
 			path: input.getAttribute('data-path'),
 			number: input.querySelector('.bh-input-tile-number')?.textContent ?? null,
 			dimmed: input.classList.contains('dimmed')
@@ -583,7 +585,7 @@ export function readGenerationPanel(panel) {
 			catalog: element.getAttribute('data-catalog'),
 			notice: notice && !notice.hidden ? notice.textContent : null,
 			reason: reason && !reason.hidden ? { text: reason.querySelector('.bh-video-panel-reason-text')?.textContent ?? null, action: action && !action.hidden ? action.textContent : null } : null,
-			prompt: prompt ? (prompt.textContent ?? '').replaceAll('\u200b', '') : null,
+			prompt: prompt ? storedText(prompt) : null,
 			promptFocused: !!prompt && element.ownerDocument.activeElement === prompt,
 			model: text('.bh-video-panel-model-label'),
 			modelOutlined: element.querySelector('.bh-video-panel-model')?.classList.contains('outlined') ?? false,
@@ -599,20 +601,24 @@ export function readGenerationPanel(panel) {
 			end: frame('end'),
 			// Every tile, the frames among them, in the order the row shows them.
 			inputs: Array.from(element.querySelectorAll('.bh-input-tile[data-path]')).map(tile),
-			names: Array.from(element.querySelectorAll('.bh-prompt-chip, .bh-prompt-name')).map(name => ({
-				text: name.classList.contains('bh-prompt-chip') ? name.getAttribute('data-name') : name.textContent,
-				known: name.classList.contains('bh-prompt-chip'),
-				underlined: getComputedStyle(name).textDecorationLine.includes('underline')
-			}))
+			// Each chip by the name it shows; one of a file that is not connected is underlined (D74).
+			chips: Array.from(element.querySelectorAll('.bh-prompt-chip')).map(chip => {
+				const name = chip.querySelector('.bh-prompt-chip-name');
+				return {
+					text: name?.textContent ?? '',
+					known: !chip.classList.contains('unknown'),
+					underlined: !!name && getComputedStyle(name).textDecorationLine.includes('underline')
+				};
+			})
 		};
 	}, undefined, { timeout: 2_000 });
 }
 
 /**
  * The panel of a card with its file (D67): what made it, read only. Its
- * inputs as its tiles name them (`Start: Image 1`, a text input by its
+ * inputs as its tiles name them (`Start: start.png`, a text input by its
  * file's name), the gone ones among them, the prompt with its chips as their
- * names (D68), the line under it, the model and the settings as text, its
+ * mentions (D74), the line under it, the model and the settings as text, its
  * buttons, and how many of its parts take typing.
  */
 export function readRecordPanel(panel) {
@@ -622,13 +628,13 @@ export function readRecordPanel(panel) {
 			return found && !found.closest('[hidden]') ? found.textContent : null;
 		};
 		const nameOf = tile => {
-			const name = tile.getAttribute('data-label') ?? tile.querySelector('.bh-input-tile-caption')?.textContent ?? tile.getAttribute('data-path');
+			const name = tile.querySelector('.bh-input-tile-caption')?.textContent ?? (tile.getAttribute('aria-label') ?? tile.getAttribute('data-path') ?? '').split(', ')[0];
 			const frame = tile.getAttribute('data-frame');
 			return frame ? `${frame === 'start' ? 'Start' : 'End'}: ${name}` : name;
 		};
 		const tiles = Array.from(element.querySelectorAll('.bh-input-tile[data-path]')).filter(tile => !tile.closest('[hidden]'));
 		const prompt = element.querySelector('.bh-prompt-editor');
-		const promptText = prompt ? (prompt.textContent ?? '').replaceAll('\u200b', '') : null;
+		const promptText = prompt ? Array.from(prompt.childNodes).map(node => node.nodeType === 1 && node.classList.contains('bh-prompt-chip') ? node.getAttribute('data-text') ?? '' : node.textContent ?? '').join('').replaceAll('\u200b', '') : null;
 		return {
 			record: element.classList.contains('bh-record-panel'),
 			state: element.getAttribute('data-state'),
@@ -811,6 +817,22 @@ export async function replacePrompt(page, panel, text) {
 export async function savePrompt(page, panel, cardPath, text) {
 	await replacePrompt(page, panel, text);
 	await waitForReading(() => readGenerationInfo(cardPath), info => info?.prompt === text, `the prompt of ${cardPath} to be saved`, 10_000);
+}
+
+/**
+ * Writes a prompt with mentions into the card's `generation.yaml`, as an
+ * agent writes it, and waits for the panel at rest to show it: an `@` typed
+ * into the prompt opens the reference menu, so a mention is not typed (D74).
+ */
+export async function writePromptAtRest(page, panel, cardPath, text) {
+	const field = panel.locator('.bh-prompt-editor');
+	if (await field.evaluate(element => element.ownerDocument.activeElement === element)) {
+		// Escape gives the keyboard back to the card, and the field is at rest.
+		await field.press('Escape');
+	}
+	await waitForReading(() => readGenerationPanel(panel), seen => !seen.promptFocused, 'the prompt to be at rest');
+	writeGenerationInfo(cardPath, { ...readGenerationInfo(cardPath), prompt: text });
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === text, `the panel of ${cardPath} to show the prompt ${text}`, 10_000);
 }
 
 // Waits for a generation to start. A refused one says why in a notification,
