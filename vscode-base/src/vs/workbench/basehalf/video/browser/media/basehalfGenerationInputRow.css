@@ -1,0 +1,411 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The input row of a generation card's panel: its connections as tiles (D68). */
+
+.monaco-workbench .bh-input-row {
+	display: flex;
+	height: 48px;
+	min-width: 0;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	overflow: hidden;
+}
+
+/* The tiles take the width they need and scroll sideways beyond the row; the plus follows them. */
+.monaco-workbench .bh-input-row-list {
+	position: relative;
+	display: flex;
+	height: 48px;
+	min-width: 0;
+	flex: 0 1 auto;
+	align-items: center;
+	gap: 6px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+}
+
+.monaco-workbench .bh-input-row-list:empty {
+	display: none;
+}
+
+.monaco-workbench .bh-input-row-list::-webkit-scrollbar {
+	display: none;
+}
+
+.monaco-workbench .bh-input-row-list.overflow-end {
+	-webkit-mask-image: linear-gradient(to right, black calc(100% - 18px), transparent);
+	mask-image: linear-gradient(to right, black calc(100% - 18px), transparent);
+}
+
+.monaco-workbench .bh-input-row-list.overflow-start {
+	-webkit-mask-image: linear-gradient(to left, black calc(100% - 18px), transparent);
+	mask-image: linear-gradient(to left, black calc(100% - 18px), transparent);
+}
+
+.monaco-workbench .bh-input-row-list.overflow-start.overflow-end {
+	-webkit-mask-image: linear-gradient(to right, transparent, black 18px, black calc(100% - 18px), transparent);
+	mask-image: linear-gradient(to right, transparent, black 18px, black calc(100% - 18px), transparent);
+}
+
+.monaco-workbench .bh-input-tile {
+	position: relative;
+	display: grid;
+	width: 48px;
+	height: 48px;
+	flex: none;
+	place-items: center;
+	box-sizing: border-box;
+	padding: 0;
+	overflow: hidden;
+	color: var(--bh-card-text-tertiary, var(--vscode-descriptionForeground));
+	background: var(--bh-video-panel-fill, color-mix(in srgb, var(--vscode-foreground) 6%, transparent));
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--bh-video-panel-line, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
+	border-radius: 9px;
+	font: inherit;
+	cursor: default;
+}
+
+.monaco-workbench .bh-input-row.editable .bh-input-tile:not(.empty) {
+	cursor: grab;
+}
+
+.monaco-workbench .bh-input-row.dragging,
+.monaco-workbench .bh-input-row.dragging .bh-input-tile:not(.empty) {
+	cursor: grabbing;
+}
+
+.monaco-workbench .bh-input-tile.dragging {
+	opacity: 0.4;
+}
+
+.monaco-workbench .bh-input-tile-picture {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.monaco-workbench .bh-input-tile-picture > img,
+.monaco-workbench .bh-input-tile-picture > video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.monaco-workbench .bh-input-tile-picture > .codicon[class*='codicon-'] {
+	font-size: 16px;
+}
+
+/* A text input shows its glyph above its name. */
+.monaco-workbench .bh-input-tile[data-kind="text"] .bh-input-tile-picture,
+.monaco-workbench .bh-input-tile[data-kind="other"] .bh-input-tile-picture {
+	bottom: 12px;
+}
+
+.monaco-workbench .bh-input-tile-caption {
+	position: absolute;
+	right: 3px;
+	bottom: 4px;
+	left: 3px;
+	overflow: hidden;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	font-size: 9px;
+	line-height: 11px;
+	text-align: center;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	pointer-events: none;
+}
+
+.monaco-workbench .bh-input-tile-number {
+	position: absolute;
+	top: 3px;
+	left: 3px;
+	min-width: 14px;
+	height: 14px;
+	box-sizing: border-box;
+	padding: 0 3px;
+	color: #fff;
+	background: rgba(0, 0, 0, 0.55);
+	border-radius: 7px;
+	font-size: 9px;
+	font-weight: 600;
+	line-height: 14px;
+	text-align: center;
+	-webkit-backdrop-filter: blur(4px);
+	backdrop-filter: blur(4px);
+	pointer-events: none;
+}
+
+.monaco-workbench .bh-input-tile-mark {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	height: 14px;
+	padding-left: 4px;
+	color: #fff;
+	background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+	font-size: 9px;
+	line-height: 14px;
+	text-align: left;
+	pointer-events: none;
+}
+
+.monaco-workbench .bh-input-tile.empty {
+	background: transparent;
+	border-style: dashed;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .bh-input-tile.empty .bh-input-tile-mark {
+	padding-left: 0;
+	color: inherit;
+	background: none;
+	text-align: center;
+}
+
+.monaco-workbench .bh-input-tile.empty > .codicon[class*='codicon-'] {
+	margin-bottom: 8px;
+	font-size: 14px;
+}
+
+.monaco-workbench .bh-input-tile.empty:hover:not(:disabled) {
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	background: var(--bh-video-panel-hover, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
+}
+
+.monaco-workbench .bh-input-tile.empty:disabled {
+	cursor: default;
+}
+
+.monaco-workbench .bh-input-tile.dimmed {
+	border-style: dashed;
+}
+
+.monaco-workbench .bh-input-tile.dimmed .bh-input-tile-picture {
+	opacity: 0.42;
+	filter: grayscale(1);
+}
+
+.monaco-workbench .bh-input-tile-remove,
+.monaco-workbench .bh-input-tile-name {
+	position: absolute;
+	display: grid;
+	width: 16px;
+	height: 16px;
+	place-items: center;
+	padding: 0;
+	color: #fff;
+	background: rgba(0, 0, 0, 0.6);
+	border: 0;
+	border-radius: 50%;
+	font: inherit;
+	font-size: 10px;
+	line-height: 16px;
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 100ms ease, background-color 100ms ease;
+}
+
+.monaco-workbench .bh-input-tile-remove {
+	top: 2px;
+	right: 2px;
+}
+
+.monaco-workbench .bh-input-tile-name {
+	right: 2px;
+	bottom: 2px;
+}
+
+.monaco-workbench .bh-input-tile-remove > .codicon[class*='codicon-'] {
+	font-size: 10px;
+}
+
+.monaco-workbench .bh-input-tile:hover > .bh-input-tile-remove,
+.monaco-workbench .bh-input-tile:hover > .bh-input-tile-name,
+.monaco-workbench .bh-input-tile:focus-visible > .bh-input-tile-remove,
+.monaco-workbench .bh-input-tile:focus-visible > .bh-input-tile-name {
+	opacity: 1;
+}
+
+.monaco-workbench .bh-input-row.dragging .bh-input-tile:hover > .bh-input-tile-remove,
+.monaco-workbench .bh-input-row.dragging .bh-input-tile:hover > .bh-input-tile-name {
+	opacity: 0;
+}
+
+.monaco-workbench .bh-input-tile-remove:hover {
+	background: var(--vscode-errorForeground, #f14c4c);
+}
+
+.monaco-workbench .bh-input-tile-name:hover {
+	background: var(--bh-video-panel-accent, var(--vscode-focusBorder));
+}
+
+/* Where a dragged tile goes. */
+.monaco-workbench .bh-input-row-drop {
+	position: absolute;
+	top: 4px;
+	bottom: 4px;
+	width: 2px;
+	background: var(--bh-video-panel-accent, var(--vscode-focusBorder));
+	border-radius: 1px;
+	pointer-events: none;
+}
+
+.monaco-workbench .bh-input-row-swap,
+.monaco-workbench .bh-input-row-add {
+	display: grid;
+	flex: none;
+	place-items: center;
+	padding: 0;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	background: transparent;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .bh-input-row-swap {
+	width: 24px;
+	height: 24px;
+	border: 0;
+	border-radius: 50%;
+}
+
+.monaco-workbench .bh-input-row-swap > .codicon[class*='codicon-'],
+.monaco-workbench .bh-input-row-arrow > .codicon[class*='codicon-'] {
+	font-size: 14px;
+}
+
+.monaco-workbench .bh-input-row-arrow {
+	display: grid;
+	width: 16px;
+	flex: none;
+	place-items: center;
+	color: var(--bh-card-text-tertiary, var(--vscode-descriptionForeground));
+}
+
+.monaco-workbench .bh-input-row-swap:disabled {
+	cursor: default;
+	opacity: 0.35;
+}
+
+.monaco-workbench .bh-input-row-swap:hover:not(:disabled) {
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	background: var(--bh-video-panel-hover, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
+}
+
+.monaco-workbench .bh-input-row-add {
+	width: 48px;
+	height: 48px;
+	border-width: 1px;
+	border-style: dashed;
+	border-color: var(--bh-video-panel-line, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
+	border-radius: 9px;
+}
+
+.monaco-workbench .bh-input-row-add:hover,
+.monaco-workbench .bh-input-row-add[aria-expanded="true"] {
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	background: var(--bh-video-panel-hover, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
+}
+
+.monaco-workbench .bh-input-row.picking .bh-input-row-add {
+	color: var(--bh-video-panel-accent, var(--vscode-focusBorder));
+	border-color: var(--bh-video-panel-accent, var(--vscode-focusBorder));
+	border-style: solid;
+}
+
+/* A hint takes up to two lines of the row rather than being cut. */
+.monaco-workbench .bh-input-row-hint {
+	display: -webkit-box;
+	min-width: 0;
+	flex: 0 1 auto;
+	overflow: hidden;
+	color: var(--bh-card-text-tertiary, var(--vscode-descriptionForeground));
+	line-height: 15px;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+
+/* The larger look at an input, above its tile. */
+.monaco-workbench .bh-input-look {
+	position: absolute;
+	z-index: 6;
+	display: flex;
+	max-width: 192px;
+	box-sizing: border-box;
+	flex-direction: column;
+	gap: 6px;
+	padding: 6px;
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	background: var(--bh-card-surface, var(--vscode-editorWidget-background));
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--bh-video-panel-line, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+	pointer-events: none;
+}
+
+.monaco-workbench .bh-input-look-picture {
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+	background: rgba(0, 0, 0, 0.3);
+	border-radius: 8px;
+}
+
+.monaco-workbench .bh-input-look-picture > img,
+.monaco-workbench .bh-input-look-picture > video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+}
+
+.monaco-workbench .bh-input-look-picture > .codicon[class*='codicon-'] {
+	font-size: 20px;
+}
+
+.monaco-workbench .bh-input-look-names {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 1px;
+	padding: 0 2px;
+}
+
+.monaco-workbench .bh-input-look-label {
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 16px;
+}
+
+.monaco-workbench .bh-input-look-file {
+	overflow: hidden;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	font-size: 11px;
+	line-height: 15px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .bh-input-look-note {
+	padding: 0 2px;
+	color: var(--bh-card-warning, var(--vscode-editorWarning-foreground));
+	font-size: 11px;
+	line-height: 15px;
+}

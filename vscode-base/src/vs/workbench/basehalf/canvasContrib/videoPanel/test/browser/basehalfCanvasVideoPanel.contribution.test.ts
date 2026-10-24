@@ -286,15 +286,21 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		existing.add('/workspace/folder/frame.png');
 		// A draft has the next name.
 		drafts.add('/workspace/.bh/mirror/folder/frame 2.png/generation.yaml');
-		assert.strictEqual(await host.importFile(), 'folder/frame 3.png');
+		const accept = async () => true;
+		assert.strictEqual(await host.importFile(accept), 'folder/frame 3.png');
 		assert.deepStrictEqual(copies, ['/elsewhere/frame.png -> /workspace/folder/frame 3.png']);
 
 		picked = URI.file('/workspace/folder/already.png');
-		assert.strictEqual(await host.importFile(), 'folder/already.png');
+		assert.strictEqual(await host.importFile(accept), 'folder/already.png');
 		assert.strictEqual(copies.length, 1);
 
 		picked = undefined;
-		assert.strictEqual(await host.importFile(), undefined);
+		assert.strictEqual(await host.importFile(accept), undefined);
+
+		// A file the model cannot use is refused before anything is copied (D67).
+		picked = URI.file('/elsewhere/notes.pdf');
+		assert.strictEqual(await host.importFile(async path => path !== 'folder/notes.pdf'), undefined);
+		assert.strictEqual(copies.length, 1);
 	});
 
 	test('saves the prompt when the window closes, and when it is disposed', () => {

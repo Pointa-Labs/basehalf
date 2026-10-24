@@ -2381,3 +2381,71 @@ media; the other chooses the generation type from what is connected.
 - Capture Frame connects the image it makes from its video.
 - The product has not launched: a `generation.yaml` that an earlier build
   left beside a generated file is not read, and nothing converts it.
+
+## D68 — A card's references are its connections, and a name in its prompt follows its input (NEW, 2026-10-24)
+
+**Decision.** The input row above a draft's prompt is the draft's
+connections: one tile for each entry of its list, in order, with the input's
+picture, the number of its name, a larger look when the pointer is on it, a
+cross that removes the connection, an `@` that puts its name into the prompt,
+and a drag that changes its place in the list. A connection made or removed
+anywhere shows in the row at once, and the row adds and removes nothing but
+connections. The names in the prompt (图片1, Video 2) show as chips with their
+input's picture; what is stored and sent is still their text. Typing `@`
+opens a reference menu with a search field, the connected inputs, and the
+cards of the canvas by kind; choosing a card that is not connected connects
+it. When BaseHalf removes, reorders, or replaces an entry of a draft's list,
+from the panel, the canvas, or the badge editor, it gives the names in the
+draft's prompt their inputs' new numbers and takes out the names of inputs
+that are no longer connected, in the same step of undo, through a
+participant of the reference edit service. See [generation
+cards](specs/generation-cards.md#the-panel),
+["Names follow their inputs"](specs/generation-cards.md#names-follow-their-inputs),
+and the [reference graph](specs/reference-graph.md#undo).
+
+**Why.** On 2026-10-24 the user asked for the prompt field and its references
+to work as in the two canvas products for media work: the connections and the
+references above the field are one, so that what is removed or added in one
+is removed or added in the other; each reference has a preview, a number, and
+a cross; and `@` in the field opens a menu. In both products, the cross of a
+reference removes its connection, cutting the connection removes the
+reference, picking a card on the canvas connects it, and pointing at a
+reference shows its picture larger above it. One of them numbers its
+references and makes each mention a chip bound to its node: removing a
+reference took its chips out of the prompt and renumbered the others, and
+dragging a reference to the front renumbered the references and the chips
+together. Its `@` menu moves the keyboard into a search field and lists the
+referenced nodes and then the canvas's nodes by kind; picking one that was
+not referenced connected it. The other names its chips after their nodes and
+lists the connected nodes and the user's own library.
+
+BaseHalf's names were text that meant a place in the list. Removing the
+first of three images made the second name the third without a word, as the
+earlier specification allowed ("keeps meaning the same input while the list
+keeps its order").
+
+**What was set aside.**
+- Keeping a mention as a path in the prompt and making the names when the
+  prompt is sent: the models read names, agents write them, and the prompt
+  would have one form on disk and another in the request.
+- Naming chips after their cards, as one of the products does: the models
+  that take references read numbered names.
+- Renumbering only from the panel: most connections are removed on the
+  canvas, and deleting a card can remove its entries too.
+- Renumbering after any change of `upstream.yaml`, by watching it: an
+  agent's own list would change its prompt behind it, and undo could not
+  bring back a name that was taken out.
+- Notes under On This Canvas: a note has no name in a prompt; its text joins
+  the prompt when it is connected.
+- A double click on a reference that shows its card on the canvas, as one of
+  the products has: left for later.
+
+**Consequences.**
+- The prompt is BaseHalf's own text field with chips and its own undo and
+  Select All. VS Code takes only `input` and `textarea` for text fields, so
+  its Undo would otherwise undo a step of the canvas while the prompt has the
+  keyboard, and its Select All would select nothing.
+- The reference edit service has participants (reference graph, Undo).
+- The panel is at most 268 px tall instead of 260, for 48 px tiles.
+- What agents read and write does not change: `generation.yaml` holds the
+  prompt as text, and a list that an agent writes changes no prompt.

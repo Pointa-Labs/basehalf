@@ -6,7 +6,7 @@
 import { timeout } from '../../../../base/common/async.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Emitter } from '../../../../base/common/event.js';
-import { Disposable, IReference } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, IReference, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, dirname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IBulkEditService, ResourceTextEdit } from '../../../../editor/browser/services/bulkEditService.js';
@@ -48,9 +48,13 @@ import {
 	BaseHalfReferenceUndoElement,
 	baseHalfUpstreamSnapshotsEqual,
 	IBaseHalfReferenceBlockingStore,
+	IBaseHalfReferenceDependentEdit,
 	IBaseHalfReferenceEditOptions,
+	IBaseHalfReferenceEditParticipant,
 	IBaseHalfReferenceEditResult,
 	IBaseHalfReferenceEditService,
+	IBaseHalfReferenceListChange,
+	IBaseHalfReferenceListEntry,
 	IBaseHalfReferenceStoreEdit,
 	IBaseHalfReferenceStoreResult,
 	IBaseHalfReferenceUndoElementOptions,
@@ -181,6 +185,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	private readonly _onDidCreateFrontmatter = this._register(new Emitter<IBaseHalfWorkspaceResource>());
 	readonly onDidCreateFrontmatter = this._onDidCreateFrontmatter.event;
 
+	private readonly participants = new Set<IBaseHalfReferenceEditParticipant>();
+
 	constructor(
 		@IFileService private readonly fileService: IFileService,
 		@ITextModelService private readonly textModelService: ITextModelService,
@@ -201,6 +207,11 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	//#region Public API
+
+	registerParticipant(participant: IBaseHalfReferenceEditParticipant): IDisposable {
+		this.participants.add(participant);
+		return toDisposable(() => this.participants.delete(participant));
+	}
 
 	add(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
 		return this.apply([{ node, operation: { kind: 'add', entry } }], options);
@@ -319,7 +330,12 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		for (const resource of [...options.resources, ...nodeResources]) {
 			resources.set(this.uriIdentityService.extUri.getComparisonKey(resource), resource);
 		}
-		const element = new BaseHalfReferenceUndoElement({ ...options, resources: [...resources.values()], stores }, this, this.undoRedoService, this.notificationService);
+		const element = new BaseHalfReferenceUndoElement({
+			...options,
+			resources: [...resources.values()],
+			stores,
+			...(result.dependents?.length ? { dependents: result.dependents } : {})
+		}, this, this.undoRedoService, this.notificationService);
 		this.undoRedoService.pushElement(element, UndoRedoGroup.None, options.source);
 		return element;
 	}
@@ -395,7 +411,57 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				throw error;
 			}
 		};
-		return runLocked(0);
+		const result = await runLocked(0);
+		// Outside the leases: a participant writes through its own services.
+		return options.restoring ? result : this.participate(edits, result);
+	}
+
+	/**
+	 * Hands the lists that an operation changed to the participants, and adds
+	 * what they wrote to the result, for its undo element (reference graph,
+	 * "Undo").
+	 */
+	private async participate(edits: readonly IInternalEdit[], result: IBaseHalfReferenceEditResult): Promise<IBaseHalfReferenceEditResult> {
+		if (this.participants.size === 0 || !result.changed) {
+			return result;
+		}
+		const changes: IBaseHalfReferenceListChange[] = [];
+		result.stores.forEach((store, index) => {
+			if (store.outcome !== 'changed') {
+				return;
+			}
+			const identity = this.identity(store.node.workspaceFolder);
+			const entries = (snapshot: IBaseHalfUpstreamStoreSnapshot): IBaseHalfReferenceListEntry[] => snapshot.items.flatMap(item => {
+				const path = item.scalar ? baseHalfNormalizeUpstreamEntry(item.text) : undefined;
+				return path !== undefined && !baseHalfUpstreamEntryProblem(path, store.node.relativePath, identity) ? [{ path, key: identity.key(path) }] : [];
+			});
+			// The stores of a result are in the order of the edits.
+			const operation = edits[index]?.operation;
+			const replacements = operation?.kind === 'replace'
+				? [operation]
+				: operation?.kind === 'replaceEntries'
+					? operation.replacements
+					: [];
+			changes.push({
+				node: store.node,
+				before: entries(store.expected),
+				after: entries(store.next),
+				replacements: replacements.map(replacement => ({ from: identity.key(baseHalfNormalizeUpstreamEntry(replacement.from)), to: identity.key(baseHalfNormalizeUpstreamEntry(replacement.to)) }))
+			});
+		});
+		if (changes.length === 0) {
+			return result;
+		}
+		const dependents: IBaseHalfReferenceDependentEdit[] = [];
+		for (const participant of [...this.participants]) {
+			try {
+				dependents.push(...await participant.participate(changes));
+			} catch (error) {
+				// A participant reports its own failures; the lists stay written.
+				this.logService.error(error instanceof Error ? error : String(error));
+			}
+		}
+		return dependents.length > 0 ? { ...result, dependents } : result;
 	}
 
 	private async describe(edit: IInternalEdit, options?: IBaseHalfReferenceEditOptions): Promise<IStoreTarget> {

@@ -105,7 +105,7 @@ export async function assertCanvasCreateMenuMakesDrafts(page) {
 		}, `the draft ${name} to get a place of ${size.width} by ${size.height}`);
 		await page.waitForFunction(cardPath => {
 			const surface = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface')).find(element => element.getAttribute('data-basehalf-card-path') === cardPath);
-			return document.activeElement === surface?.querySelector('textarea.bh-video-panel-prompt-input');
+			return document.activeElement === surface?.querySelector('.bh-prompt-editor');
 		}, name, { timeout: 15_000 });
 		if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
 			throw new Error(`${label} opened content instead of leaving the new card selected`);

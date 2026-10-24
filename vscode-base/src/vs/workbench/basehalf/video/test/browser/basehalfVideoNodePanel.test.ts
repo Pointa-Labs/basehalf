@@ -42,6 +42,7 @@ import {
 	BaseHalfVideoGenerationError,
 	IBaseHalfDraftOperations,
 	IBaseHalfDraftSnapshot,
+	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardEntry,
 	IBaseHalfGenerationCardSnapshot,
 	IBaseHalfGenerationCardStore,
@@ -336,6 +337,10 @@ suite('BaseHalfVideoNodePanel', () => {
 	let connections: { readonly added: string[]; readonly removed: string[]; undoSteps: number };
 	let host: IBaseHalfVideoNodePanelHost & { cardFocused: number; picked: string | undefined };
 	let mounted: HTMLElement[];
+	/** Why the draft's model would refuse an input, by its path. */
+	let refusal: (path: string) => string | undefined;
+	/** The files of the card's folder, by name, as the reference menu reads them. */
+	let folderFiles: string[];
 
 	setup(() => {
 		instantiationService = disposables.add(new TestInstantiationService());
@@ -348,6 +353,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		hovers = new Map();
 		connections = { added: [], removed: [], undoSteps: 0 };
 		mounted = [];
+		refusal = () => undefined;
+		folderFiles = [];
 		host = {
 			cardFocused: 0,
 			picked: 'refs/c.png',
@@ -379,7 +386,11 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 		instantiationService.stub(IBaseHalfCanvasMirrorService, { canvasResource: () => URI.joinPath(WORKSPACE, '.bh', 'mirror', 'shots', 'canvas.yaml') });
 		instantiationService.stub(IWorkspaceContextService, { getWorkspaceFolder: () => toWorkspaceFolder(WORKSPACE) });
-		instantiationService.stub(IFileService, { onDidFilesChange: Event.None });
+		instantiationService.stub(IFileService, {
+			onDidFilesChange: Event.None,
+			resolve: (async (resource: URI) => ({ children: folderFiles.map(name => ({ name, resource: URI.joinPath(resource, name), isDirectory: false })) })) as unknown as IFileService['resolve']
+		});
+		instantiationService.stub(IBaseHalfGenerationCardActions, { inputRefusal: async (_card: URI, change: { readonly add?: string }) => change.add !== undefined ? refusal(change.add) : undefined });
 		instantiationService.set(IHoverService, {
 			...NullHoverService,
 			setupDelayedHover: (target, options) => {
@@ -427,10 +438,26 @@ suite('BaseHalfVideoNodePanel', () => {
 		return item.querySelector('.bh-video-panel-menu-label')?.textContent;
 	}
 
-	function type(prompt: HTMLTextAreaElement, value: string): void {
-		prompt.value = value;
-		prompt.setSelectionRange(value.length, value.length);
-		prompt.dispatchEvent(new InputEvent('input', { bubbles: true }));
+	/** The prompt field of the panel (D68). */
+	function promptOf(panel: BaseHalfVideoNodePanel): HTMLElement {
+		return find(panel, '.bh-prompt-editor');
+	}
+
+	/** The text of the prompt, chips as their names. */
+	function valueOf(prompt: HTMLElement): string {
+		return (prompt.textContent ?? '').replaceAll('\u200b', '');
+	}
+
+	/** Changes the prompt's text as the browser does when the user types, with the caret at its end. */
+	function type(prompt: HTMLElement, value: string): void {
+		prompt.replaceChildren(mainWindow.document.createTextNode(value));
+		const range = mainWindow.document.createRange();
+		range.selectNodeContents(prompt);
+		range.collapse(false);
+		const selection = mainWindow.getSelection()!;
+		selection.removeAllRanges();
+		selection.addRange(range);
+		prompt.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
 	}
 
 	function press(target: HTMLElement, key: string, init?: KeyboardEventInit): void {
@@ -440,7 +467,7 @@ suite('BaseHalfVideoNodePanel', () => {
 	test('saves the prompt half a second after typing stops and at once on flush, without a dialog, also with no model', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 		store.info = { prompt: '' };
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		type(prompt, 'Rain');
 		await timeout(400);
 		type(prompt, 'Rain on');
@@ -460,10 +487,10 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('writes nothing while an input method composes, and the composed text after it ends', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		type(prompt, 'Rain ');
 		prompt.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-		prompt.value = 'Rain 雨';
+		(prompt.firstChild as Text).data = 'Rain 雨';
 		prompt.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
 		await timeout(2000);
 		const whileComposing = [...store.prompts];
@@ -481,12 +508,12 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('a prompt that cannot be saved stays in the panel and says so, with no dialog', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		store.failure = new Error('The disk is full.');
 		type(prompt, 'Rain');
 		await panel.flush();
 		const state = find(panel, '.bh-video-panel-prompt-state');
-		const failed = { hidden: state.hidden, label: state.getAttribute('aria-label'), value: prompt.value, notifications: [...notifications.shown] };
+		const failed = { hidden: state.hidden, label: state.getAttribute('aria-label'), value: valueOf(prompt), notifications: [...notifications.shown] };
 		store.failure = undefined;
 		type(prompt, 'Rain!');
 		await panel.flush();
@@ -502,34 +529,139 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	}));
 
-	test('typing @ lists the named inputs, and choosing one types its name', async () => {
+	test('typing @ opens the reference menu with its search field focused; Enter puts the name of a connected input in place of the @ as a chip', async () => {
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		prompt.focus();
 		type(prompt, 'The cat in @');
-		const listed = findAll(panel, '.bh-video-panel-mention').map(option => option.textContent);
-		press(prompt, 'ArrowDown');
-		press(prompt, 'Enter');
 		await settle();
-		type(prompt, `${prompt.value} meets @vid`);
-		const noMatch = findAll(panel, '.bh-video-panel-menu-empty').map(element => element.textContent);
-		assert.deepStrictEqual({ listed, value: prompt.value, noMatch }, {
-			listed: ['Image 1a.png', 'Image 2b.png'],
-			value: 'The cat in Image 2 meets @vid',
-			noMatch: ['No input has that name.']
+		const search = find<HTMLInputElement>(panel, '.bh-reference-menu-search input');
+		const opened = {
+			focused: mainWindow.document.activeElement === search,
+			listed: findAll(panel, '.bh-reference-menu-option').map(option => option.textContent)
+		};
+		press(search, 'ArrowDown');
+		press(search, 'Enter');
+		await settle();
+		assert.deepStrictEqual({ opened, value: valueOf(prompt), chips: findAll(panel, '.bh-prompt-chip').map(chip => chip.dataset.name), menu: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt }, {
+			opened: { focused: true, listed: ['a.pngImage 1', 'b.pngImage 2'] },
+			value: 'The cat in Image 2 ',
+			chips: ['Image 2'],
+			menu: 0,
+			focused: true
 		});
 	});
 
-	test('marks the names in the prompt and underlines a name with no input', async () => {
+	test('a card of the canvas chosen in the reference menu is connected and named; one the model cannot use is dimmed, and Escape leaves the @', async () => {
+		folderFiles = ['c.png', 'clip.mp4', 'shot.mp4', '.hidden.png', 'notes.md'];
+		refusal = path => path.endsWith('.mp4') ? 'Acme Motion 2 takes no videos in Frames.' : undefined;
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
+		prompt.focus();
+		type(prompt, 'Then @');
+		await settle();
+		const search = find<HTMLInputElement>(panel, '.bh-reference-menu-search input');
+		const kinds = findAll(panel, '.bh-reference-menu-option').map(option => `${option.textContent}${option.classList.contains('disabled') ? ' (dimmed)' : ''}`);
+		search.value = 'c.png';
+		search.dispatchEvent(new InputEvent('input', { bubbles: true }));
+		press(search, 'Enter');
+		await settle();
+		const chosen = { added: [...connections.added], value: valueOf(prompt) };
+		type(prompt, `${valueOf(prompt)}and @`);
+		await settle();
+		press(find(panel, '.bh-reference-menu-search input'), 'Escape');
+		await settle();
+		assert.deepStrictEqual({ kinds, chosen, escaped: { value: valueOf(prompt), menu: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt } }, {
+			// The card itself, a hidden file, and a note are not listed; the connected images are in another folder.
+			kinds: ['a.pngImage 1', 'b.pngImage 2', 'Images1', 'VideosAcme Motion 2 takes no videos in Frames.1 (dimmed)', 'Audio0'],
+			chosen: { added: ['shots/c.png'], value: 'Then Image 3 ' },
+			escaped: { value: 'Then Image 3 and @', menu: 0, focused: true }
+		});
+	});
+
+	test('a name typed by hand turns into a chip with its input, and a name with no input is underlined', async () => {
+		const panel = await createPanel();
+		const prompt = promptOf(panel);
 		type(prompt, 'Image 1 turns into Image 3.');
-		assert.deepStrictEqual(findAll(panel, '.bh-video-panel-name').map(mark => `${mark.textContent}${mark.classList.contains('unknown') ? '?' : ''}`), ['Image 1', 'Image 3?']);
+		assert.deepStrictEqual({
+			chips: findAll(panel, '.bh-prompt-chip').map(chip => chip.dataset.name),
+			unknown: findAll(panel, '.bh-prompt-name.unknown').map(name => name.textContent),
+			value: valueOf(prompt)
+		}, { chips: ['Image 1'], unknown: ['Image 3'], value: 'Image 1 turns into Image 3.' });
+	});
+
+	test('the @ of a tile puts its name at the caret, and Alt+Right on a tile moves it one place in the list', async () => {
+		// In references mode every input is a tile of its own, in the order of the list.
+		store.info = { prompt: 'From  to the sea', ...READY, mode: 'reference' };
+		const panel = await createPanel();
+		const prompt = promptOf(panel);
+		prompt.focus();
+		const range = mainWindow.document.createRange();
+		range.setStart(prompt.firstChild!, 5);
+		range.collapse(true);
+		mainWindow.getSelection()!.removeAllRanges();
+		mainWindow.getSelection()!.addRange(range);
+		const end = findAll(panel, '.bh-input-tile').find(tile => tile.dataset.path === 'frames/b.png')!;
+		end.querySelector<HTMLButtonElement>('.bh-input-tile-name')!.click();
+		await settle();
+		const named = valueOf(prompt);
+		press(findAll(panel, '.bh-input-tile').find(tile => tile.dataset.path === 'notes/scene.md')!, 'ArrowRight', { altKey: true });
+		await settle();
+		assert.deepStrictEqual({ named, reorders: store.reorders }, {
+			named: 'From Image 2  to the sea',
+			reorders: [['frames/a.png', 'frames/b.png', 'notes/scene.md']]
+		});
+	});
+
+	test('while the draft generates, its prompt is read only, its tiles have no cross, @, or plus, and the model opens nothing (D67)', async () => {
+		generation.generating = true;
+		const panel = await createPanel();
+		const prompt = promptOf(panel);
+		find(panel, '.bh-video-panel-model').click();
+		type(prompt, 'Rain @');
+		await settle();
+		assert.deepStrictEqual({
+			editable: prompt.contentEditable,
+			controls: findAll(panel, '.bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-add, .bh-input-row-swap').length,
+			menus: findAll(panel, '.bh-video-panel-menu, .bh-reference-menu').length,
+			model: find(panel, '.bh-video-panel-model').getAttribute('aria-disabled')
+		}, { editable: 'false', controls: 0, menus: 0, model: 'true' });
+	});
+
+	test('Pick on Canvas of a card the model cannot use says why and connects nothing (D67)', async () => {
+		host.picked = 'refs/clip.mp4';
+		refusal = () => 'Acme Motion 2 takes no videos in Frames.';
+		const panel = await createPanel();
+		find(panel, '.bh-input-row-add').click();
+		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Pick on Canvas')?.click();
+		await settle();
+		assert.deepStrictEqual({ added: connections.added, said: notifications.shown }, { added: [], said: ['Acme Motion 2 takes no videos in Frames.'] });
+	});
+
+	test('the prompt is saved before a tile is removed, so that its names follow from what was typed (D68)', async () => {
+		const panel = await createPanel();
+		type(promptOf(panel), 'Image 2 rides');
+		const order: string[] = [];
+		const update = store.update.bind(store);
+		store.update = async (resource, mutate) => {
+			const snapshot = await update(resource, mutate);
+			order.push(`saved ${snapshot.info.prompt}`);
+			return snapshot;
+		};
+		const edit = instantiationService.get(IBaseHalfReferenceEditService);
+		const remove = edit.remove.bind(edit);
+		edit.remove = async (node, entry, options) => {
+			order.push(`removed ${entry}`);
+			return remove(node, entry, options);
+		};
+		findAll(panel, '.bh-input-tile').find(tile => tile.dataset.path === 'frames/a.png')!.querySelector<HTMLButtonElement>('.bh-input-tile-remove')!.click();
+		await settle();
+		assert.deepStrictEqual(order, ['saved Image 2 rides', 'removed frames/a.png']);
 	});
 
 	test('the swap arrow exchanges the two frames in the upstream list and nothing else', async () => {
 		const panel = await createPanel();
-		find(panel, '.bh-video-panel-swap').click();
+		find(panel, '.bh-input-row-swap').click();
 		await settle();
 		assert.deepStrictEqual(store.reorders, [['frames/b.png', 'notes/scene.md', 'frames/a.png']]);
 	});
@@ -575,7 +707,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		await timeout(300);
 		const first = { label: generate.getAttribute('aria-label'), checks: catalog.checks.length };
 		catalog.answer = () => ({ problems: [] });
-		type(find<HTMLTextAreaElement>(panel, 'textarea'), 'A shorter prompt');
+		type(promptOf(panel), 'A shorter prompt');
 		await timeout(100);
 		const whileAsking = { label: generate.getAttribute('aria-label'), checks: catalog.checks.length };
 		await timeout(200);
@@ -593,7 +725,7 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test(`${isMacintosh ? 'Cmd' : 'Ctrl'}+Enter saves the prompt and generates, and the stop square stops`, async () => {
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		type(prompt, 'Rain on the window');
 		press(prompt, 'Enter', isMacintosh ? { metaKey: true } : { ctrlKey: true });
 		await settle();
@@ -635,11 +767,11 @@ suite('BaseHalfVideoNodePanel', () => {
 		assert.deepStrictEqual({ notSetUp, region, ready: { hidden: reason.hidden, height: panel.height }, opened: providers.opened }, {
 			notSetUp: { hidden: false, text: 'Borealis Media is not set up. Set it up in Providers.', action: 'Set Up', beforeFooter: true, height: notSetUp.height },
 			region: { hidden: false, text: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.', action: 'Providers…', beforeFooter: true },
-			ready: { hidden: true, height: 180 },
+			ready: { hidden: true, height: 188 },
 			opened: ['borealis', 'acme']
 		});
 		// The line takes its height above the footer: one line beside its action, or two.
-		assert.ok(notSetUp.height >= 180 + 8 + 20 && notSetUp.height <= 180 + 8 + 32, `the panel with a reason line is ${notSetUp.height} px tall`);
+		assert.ok(notSetUp.height >= 188 + 8 + 20 && notSetUp.height <= 188 + 8 + 32, `the panel with a reason line is ${notSetUp.height} px tall`);
 	});
 
 	test('check is asked with the files a generation would send, again when they change, and an input that is not a file on this computer is named instead', async () => {
@@ -654,7 +786,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		const afterChange = catalog.checks.length;
 		generation.refusal = 'b.png is not a file on this computer.';
-		type(find<HTMLTextAreaElement>(panel, 'textarea'), 'Rain at night');
+		type(promptOf(panel), 'Rain at night');
 		await settle();
 		const generate = find(panel, '.bh-video-panel-generate');
 		assert.deepStrictEqual({
@@ -791,12 +923,16 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('the prompt stays the same element, with its text and selection, through every update, and typing keeps the inputs drawn', async () => {
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
-		const thumbnail = find(panel, '.bh-video-panel-thumb');
+		const prompt = promptOf(panel);
+		const tile = find(panel, '.bh-input-tile');
 		prompt.focus();
 		type(prompt, 'A slow push in.');
-		const thumbnailKept = find(panel, '.bh-video-panel-thumb') === thumbnail;
-		prompt.setSelectionRange(2, 6);
+		const tileKept = find(panel, '.bh-input-tile') === tile;
+		const range = mainWindow.document.createRange();
+		range.setStart(prompt.firstChild!, 2);
+		range.setEnd(prompt.firstChild!, 6);
+		mainWindow.getSelection()!.removeAllRanges();
+		mainWindow.getSelection()!.addRange(range);
 		store.writeFromElsewhere({ ...store.info, ...READY, params: { ...READY.params, resolution: '1080p' } });
 		providers.change();
 		generation.report();
@@ -804,28 +940,29 @@ suite('BaseHalfVideoNodePanel', () => {
 			detail: { placement: 'above', visible: true, following: false, left: 100, top: 40, width: 512, height: 180, canvasWidth: 1200, canvasHeight: 800 }
 		}));
 		await settle();
+		const selection = mainWindow.getSelection()!;
 		assert.deepStrictEqual({
-			thumbnailKept,
-			same: find(panel, 'textarea') === prompt,
-			value: prompt.value,
-			selection: [prompt.selectionStart, prompt.selectionEnd],
+			tileKept,
+			same: promptOf(panel) === prompt,
+			value: valueOf(prompt),
+			selection: [selection.anchorOffset, selection.focusOffset],
 			focused: mainWindow.document.activeElement === prompt
-		}, { thumbnailKept: true, same: true, value: 'A slow push in.', selection: [2, 6], focused: true });
+		}, { tileKept: true, same: true, value: 'A slow push in.', selection: [2, 6], focused: true });
 	});
 
 	test('an agent\'s new prompt shows when the panel holds no unsaved text, and while the prompt has the focus it keeps what the user typed', async () => {
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		store.writeFromElsewhere({ ...store.info, prompt: 'Written by an agent.' });
 		await settle();
-		const atRest = prompt.value;
+		const atRest = valueOf(prompt);
 		prompt.focus();
 		type(prompt, 'Typed by the user.');
 		store.writeFromElsewhere({ ...store.info, prompt: 'Written again by the agent.', model: 'acme-still' });
 		await settle();
-		const whileTyping = prompt.value;
+		const whileTyping = valueOf(prompt);
 		// The window of a test may not have the focus, which keeps a real blur from firing.
-		prompt.dispatchEvent(new FocusEvent('blur'));
+		prompt.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
 		await settle();
 		assert.deepStrictEqual({ atRest, whileTyping, saved: [store.info.prompt, store.info.model] }, {
 			atRest: 'Written by an agent.',
@@ -836,15 +973,15 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('a prompt the file changed while the field had the focus and nothing was typed shows once the field is left', async () => {
 		const panel = await createPanel();
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		prompt.focus();
 		store.writeFromElsewhere({ ...store.info, prompt: 'Written by an agent.' });
 		await settle();
-		const focused = prompt.value;
+		const focused = valueOf(prompt);
 		// The window of a test may not have the focus, which keeps a real blur from firing.
-		prompt.dispatchEvent(new FocusEvent('blur'));
+		prompt.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
 		await settle();
-		assert.deepStrictEqual({ focused, left: prompt.value, written: store.prompts }, { focused: '', left: 'Written by an agent.', written: [] });
+		assert.deepStrictEqual({ focused, left: valueOf(prompt), written: store.prompts }, { focused: '', left: 'Written by an agent.', written: [] });
 	});
 
 	test('an image card lists the image models, and an image model that delivers another format renames the draft at once', async () => {
@@ -865,7 +1002,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		assert.deepStrictEqual({
 			items,
-			placeholder: find<HTMLTextAreaElement>(panel, 'textarea').placeholder,
+			placeholder: promptOf(panel).dataset.placeholder,
 			written: store.generations.at(-1),
 			moves: drafts.moves,
 			renamed
@@ -884,7 +1021,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		const panel = await createPanel();
 		const notice = find(panel, '.bh-video-panel-notice');
 		const shown = { hidden: notice.hidden, text: notice.textContent, prompt: find(panel, '.bh-video-panel-prompt').hidden };
-		type(find<HTMLTextAreaElement>(panel, 'textarea'), 'Rain');
+		type(promptOf(panel), 'Rain');
 		await panel.flush();
 		await settle();
 		assert.deepStrictEqual({ shown, saved: store.prompts, after: notice.hidden }, {
@@ -896,10 +1033,10 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('the cross removes a connection and Pick on Canvas connects the clicked card, each as one undo step', async () => {
 		const panel = await createPanel();
-		const remove = findAll(panel, '.bh-video-panel-remove').find(button => button.getAttribute('aria-label') === 'Remove Image 1');
+		const remove = findAll(panel, '.bh-input-tile-remove').find(button => button.getAttribute('aria-label') === 'Remove Image 1');
 		remove?.click();
 		await settle();
-		find(panel, '.bh-video-panel-add').click();
+		find(panel, '.bh-input-row-add').click();
 		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Pick on Canvas')?.click();
 		await settle();
 		assert.deepStrictEqual(connections, { added: ['refs/c.png'], removed: ['frames/a.png'], undoSteps: 2 });
@@ -922,7 +1059,7 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('a panel of a node just created focuses its prompt once the scene shows it', async () => {
 		const panel = await createPanel({ focusPromptWhenShown: true });
-		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const prompt = promptOf(panel);
 		const beforeShown = mainWindow.document.activeElement === prompt;
 		panel.element.dispatchEvent(new CustomEvent<IBaseHalfCanvasSceneVideoPanelLayout>(BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, {
 			detail: { placement: 'below', visible: true, following: false, left: 100, top: 400, width: 512, height: 180, canvasWidth: 1200, canvasHeight: 900 }
@@ -956,7 +1093,7 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('a menu that a click opened has no current item until an arrow key chooses one; from the keyboard it starts at its first item', async () => {
 		const panel = await createPanel();
-		const add = find(panel, '.bh-video-panel-add');
+		const add = find(panel, '.bh-input-row-add');
 		const active = () => mainWindow.document.activeElement as HTMLElement;
 		// The focused item by its name, or the menu itself.
 		const current = () => active().matches('.bh-video-panel-menu') ? 'menu' : active().querySelector('.bh-video-panel-menu-label')?.textContent ?? active().className;
@@ -1005,9 +1142,9 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('an empty slot offers Import File, which connects the imported copy', async () => {
 		store.upstream = [];
-		host.importFile = async () => 'shots/start.png';
+		host.importFile = async accept => await accept('shots/start.png') ? 'shots/start.png' : undefined;
 		const panel = await createPanel();
-		const slot = find(panel, '.bh-video-panel-slot.empty');
+		const slot = find(panel, '.bh-input-tile.empty');
 		slot.click();
 		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Import File…')?.click();
 		await settle();
@@ -1038,8 +1175,8 @@ suite('BaseHalfVideoNodePanel', () => {
 				.filter(selector => !find(panel, selector).hidden)
 				.map(selector => box(selector));
 			const footer = box('.bh-video-panel-footer');
-			const slots = findAll(panel, '.bh-video-panel-slot').map(slot => slot.getBoundingClientRect());
-			const row = box('.bh-video-panel-inputs');
+			const slots = findAll(panel, '.bh-input-tile').map(slot => slot.getBoundingClientRect());
+			const row = box('.bh-input-row');
 			const settingsShown = !find(panel, '.bh-video-panel-settings').hidden;
 			let clippedChoices: (string | null)[] = [];
 			let popoverWidth = 0;
@@ -1067,8 +1204,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		const long = await measure({ provider: 'acme', model: 'acme-motion-with-a-very-long-name-that-a-catalog-no-longer-has-1015-preview' });
 		assert.deepStrictEqual({ motion, long: { modelClipped: long.modelClipped, footerInOrder: long.footerInOrder } }, {
 			motion: {
-				height: 180,
-				reported: 180,
+				height: 188,
+				reported: 188,
 				modelClipped: false,
 				settingsClipped: false,
 				footerHolds: ['bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
@@ -1093,6 +1230,6 @@ suite('BaseHalfVideoNodePanel', () => {
 		store.upstream = [];
 		store.writeFromElsewhere({ prompt: 'Rain', provider: 'borealis', model: 'borealis-one' });
 		await settle();
-		assert.deepStrictEqual({ withRow, withoutRow: panel.height, heights }, { withRow: 180, withoutRow: 132, heights: [132] });
+		assert.deepStrictEqual({ withRow, withoutRow: panel.height, heights }, { withRow: 188, withoutRow: 132, heights: [132] });
 	});
 });
