@@ -4,283 +4,117 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
+import type {
+	ModelKind as BaseHalfModelKind,
+	CatalogParameter as BaseHalfVideoCatalogParameter,
+	ImageFormat as BaseHalfVideoImageFormat,
+	Media as BaseHalfVideoMedia,
+	ModeId as BaseHalfVideoModeId,
+	Output as BaseHalfVideoOutput,
+	OutputFormat as BaseHalfVideoOutputFormat,
+	Params as BaseHalfVideoParams,
+	ParamValue as BaseHalfVideoParamValue,
+	PollState as BaseHalfVideoPollState,
+	PromptInputSlot as BaseHalfVideoPromptInputSlot,
+	PromptPart as BaseHalfVideoPromptPart,
+	ProviderErrorCode as BaseHalfVideoProviderErrorCode,
+	ProviderResponse as BaseHalfVideoProviderResponse,
+	SlotUse as BaseHalfVideoSlotUse,
+	BooleanParameter as IBaseHalfVideoBooleanParameter,
+	CancelResult as IBaseHalfVideoCancelResult,
+	Catalog as IBaseHalfVideoCatalog,
+	CatalogCredential as IBaseHalfVideoCatalogCredential,
+	CatalogMode as IBaseHalfVideoCatalogMode,
+	CatalogModel as IBaseHalfVideoCatalogModel,
+	CatalogProvider as IBaseHalfVideoCatalogProvider,
+	CatalogRegion as IBaseHalfVideoCatalogRegion,
+	CheckLimit as IBaseHalfVideoCheckLimit,
+	CheckPayload as IBaseHalfVideoCheckRequest,
+	CheckResult as IBaseHalfVideoCheckResult,
+	ChoiceParameter as IBaseHalfVideoChoiceParameter,
+	CountSlot as IBaseHalfVideoCountSlot,
+	DownloadRequest as IBaseHalfVideoDownloadRequest,
+	DownloadResult as IBaseHalfVideoDownloadResult,
+	ModeInputs as IBaseHalfVideoModeInputs,
+	ModeLimits as IBaseHalfVideoModeLimits,
+	NumberParameter as IBaseHalfVideoNumberParameter,
+	PlaceRequest as IBaseHalfVideoPlaceRequest,
+	PlaceResult as IBaseHalfVideoPlaceResult,
+	PlannedMedia as IBaseHalfVideoPlannedMedia,
+	PromptInput as IBaseHalfVideoPromptInput,
+	PromptRule as IBaseHalfVideoPromptRule,
+	ProviderAccess as IBaseHalfVideoProviderAccess,
+	ProviderError as IBaseHalfVideoProviderError,
+	SubmitPayload as IBaseHalfVideoSubmitRequest,
+	SubmitResult as IBaseHalfVideoSubmitResult,
+	TaskRef as IBaseHalfVideoTaskRef,
+	TextParameter as IBaseHalfVideoTextParameter
+} from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 
 /**
- * The model catalog as the window receives it from the AI Video extension,
- * and the payloads of the provider commands (D59, video providers and the
+ * The model catalog as the window receives it from the provider service,
+ * and the requests and answers of that service (D59, D75, providers and the
  * model catalog). The window draws the panel, the settings, and the Video
  * Providers page from this catalog; nothing here names a provider or a
- * model. The extension mirrors these types in
- * `extensions/basehalf-ai-video/src/providers/types.ts`; the two must stay
- * the same.
+ * model. The types have one definition, in
+ * `src/vs/platform/basehalfProviders/common/basehalfProviderTypes.ts`, which
+ * the service shares; these are its names in the window.
  *
- * Below the types, the window's pure functions over the catalog: reading
- * it, normalizing a node's values, planning its inputs from a mode's slots,
- * summing up the settings, and the Generate blockers
- * (video node specification, "Settings", "Inputs", and "The panel"). They are
- * the window's alone and are not mirrored.
+ * Below them, the window's pure functions over the catalog: reading it,
+ * normalizing a node's values, planning its inputs from a mode's slots,
+ * summing up the settings, and the Generate blockers (video node
+ * specification, "Settings", "Inputs", and "The panel").
  */
-
-// --- The catalog ------------------------------------------------------------------------------
-
-/** How a mode uses the node's inputs (video providers, "Modes and inputs"). */
-export type BaseHalfVideoModeId = 'frames' | 'reference' | 'extend' | 'edit';
-
-export type BaseHalfVideoSlotUse = 'none' | 'optional' | 'required';
-
-/** What a model makes (D64). */
-export type BaseHalfModelKind = 'image' | 'video';
-
-export interface IBaseHalfVideoCatalog {
-	/** Changes when the shape of the catalog changes. */
-	readonly schema: 1;
-	readonly providers: readonly IBaseHalfVideoCatalogProvider[];
-}
-
-export interface IBaseHalfVideoCatalogRegion {
-	readonly id: string;
-	readonly label: string;
-	readonly baseUrl: string;
-	/** Where the user gets credentials for this region. */
-	readonly console?: string;
-}
-
-/** One value the provider needs to accept a request. Every value is a secret. */
-export interface IBaseHalfVideoCatalogCredential {
-	readonly id: string;
-	readonly label: string;
-	readonly placeholder?: string;
-}
-
-export interface IBaseHalfVideoCatalogProvider {
-	/** Stable; what a node stores. */
-	readonly id: string;
-	readonly label: string;
-	/** At least one. The first is the default. */
-	readonly regions: readonly IBaseHalfVideoCatalogRegion[];
-	/** At least one, in order. */
-	readonly credentials: readonly IBaseHalfVideoCatalogCredential[];
-	readonly models: readonly IBaseHalfVideoCatalogModel[];
-}
-
-export interface IBaseHalfVideoCatalogModel {
-	/** Stable within its provider; what a node stores. */
-	readonly id: string;
-	readonly label: string;
-	readonly description?: string;
-	/** For each region that offers the model, the id sent to the provider there. */
-	readonly providerModels: Readonly<Record<string, string>>;
-	readonly prompt: IBaseHalfVideoPromptRule;
-	/** At least one. The first is the default. */
-	readonly modes: readonly IBaseHalfVideoCatalogMode[];
-	readonly parameters: readonly BaseHalfVideoCatalogParameter[];
-	/** Listed only for cards that already use it. */
-	readonly deprecated?: boolean;
-	/** What the model makes. The extension writes it for every model. */
-	readonly kind: BaseHalfModelKind;
-	/** For an image model: the format its module asks the provider for, which a draft's extension follows. */
-	readonly outputFormat?: BaseHalfVideoImageFormat;
-	/** The provider answers the request with the files instead of a task (providers, "Requests"). */
-	readonly answersAtOnce?: boolean;
-	/** The regions that retire the model when not all of them do; it is deprecated only there. */
-	readonly deprecatedIn?: readonly string[];
-}
-
-export interface IBaseHalfVideoPromptRule {
-	/** `withoutMedia`: required when the mode sends no image and no video. */
-	readonly required: 'always' | 'withoutMedia' | 'never';
-	/** Characters of the prompt as sent, text inputs included. */
-	readonly maxLength: number;
-}
-
-export interface IBaseHalfVideoCountSlot {
-	readonly min: number;
-	readonly max: number;
-}
-
-export interface IBaseHalfVideoModeInputs {
-	readonly startFrame: BaseHalfVideoSlotUse;
-	readonly endFrame: BaseHalfVideoSlotUse;
-	/** Reference images. */
-	readonly images: IBaseHalfVideoCountSlot;
-	readonly videos: IBaseHalfVideoCountSlot;
-	readonly audios: IBaseHalfVideoCountSlot;
-	/** The clip of `extend` and `edit`. */
-	readonly source: 'none' | 'required';
-}
-
-/** An image format a provider takes. */
-export type BaseHalfVideoImageFormat = 'png' | 'jpeg' | 'webp';
-
-/** Checked by `check` before anything is sent. Any may be absent. */
-export interface IBaseHalfVideoModeLimits {
-	/** The image formats the provider takes, PNG among them; all three when absent. The window draws any other image to PNG. */
-	readonly imageFormats?: readonly BaseHalfVideoImageFormat[];
-	readonly imageMinSide?: number;
-	readonly imageMaxSide?: number;
-	/** Width divided by height, inclusive. */
-	readonly imageAspect?: readonly [number, number];
-	readonly imageMaxBytes?: number;
-	readonly videoSeconds?: readonly [number, number];
-	readonly videoTotalSeconds?: number;
-	readonly videoMaxBytes?: number;
-	readonly audioSeconds?: readonly [number, number];
-	readonly audioTotalSeconds?: number;
-	readonly audioMaxBytes?: number;
-}
-
-export interface IBaseHalfVideoCatalogMode {
-	readonly id: BaseHalfVideoModeId;
-	readonly label: string;
-	readonly inputs: IBaseHalfVideoModeInputs;
-	readonly limits: IBaseHalfVideoModeLimits;
-	/** The regions that offer the mode, when not every region that offers the model does. */
-	readonly regions?: readonly string[];
-}
-
-export type BaseHalfVideoParamValue = string | number | boolean;
-export type BaseHalfVideoParams = Readonly<Record<string, BaseHalfVideoParamValue>>;
-
-interface IBaseHalfVideoParameterBase {
-	/** The key in the node's `params`. */
-	readonly name: string;
-	readonly label: string;
-	readonly tooltip?: string;
-	/** The modes the parameter applies to; all when absent. */
-	readonly modes?: readonly BaseHalfVideoModeId[];
-	/** Shown under More. */
-	readonly advanced?: boolean;
-	/** May be left unset; nothing is sent then. A parameter that is not optional has a default. */
-	readonly optional?: boolean;
-	/** A start frame decides it: with a start frame, nothing is sent or recorded for it. */
-	readonly setByStartFrame?: boolean;
-}
-
-export interface IBaseHalfVideoChoiceParameter extends IBaseHalfVideoParameterBase {
-	readonly kind: 'choice';
-	readonly options: readonly { readonly value: string | number; readonly label: string }[];
-	readonly default?: string | number;
-	/** `ratio` draws each value as a small ratio shape. */
-	readonly display?: 'ratio';
-}
-
-export interface IBaseHalfVideoNumberParameter extends IBaseHalfVideoParameterBase {
-	readonly kind: 'integer' | 'number';
-	readonly min: number;
-	readonly max: number;
-	readonly step: number;
-	readonly default?: number;
-	readonly unit?: 'seconds';
-	/** A value outside the range that lets the provider decide, such as -1 for Auto. */
-	readonly auto?: { readonly value: number; readonly label: string };
-}
-
-export interface IBaseHalfVideoBooleanParameter extends IBaseHalfVideoParameterBase {
-	readonly kind: 'boolean';
-	readonly default?: boolean;
-}
-
-export interface IBaseHalfVideoTextParameter extends IBaseHalfVideoParameterBase {
-	readonly kind: 'text';
-	readonly default?: string;
-	readonly maxLength: number;
-	readonly multiline?: boolean;
-}
-
-export type BaseHalfVideoCatalogParameter =
-	| IBaseHalfVideoChoiceParameter
-	| IBaseHalfVideoNumberParameter
-	| IBaseHalfVideoBooleanParameter
-	| IBaseHalfVideoTextParameter;
-
-// --- The provider commands ---------------------------------------------------------------------
-
-/** The internal commands of AI Video (video providers, "Requests"). */
-export const BASEHALF_VIDEO_PROVIDER_COMMANDS = Object.freeze({
-	catalog: 'basehalf.video.provider.catalog',
-	check: 'basehalf.video.provider.check',
-	submit: 'basehalf.video.provider.submit',
-	poll: 'basehalf.video.provider.poll',
-	download: 'basehalf.video.provider.download',
-	cancel: 'basehalf.video.provider.cancel',
-	place: 'basehalf.video.provider.place'
-});
-
-/** Where a request goes and with what: the provider, its region, the endpoint in use, and the credential values by id. */
-export interface IBaseHalfVideoProviderAccess {
-	readonly provider: string;
-	readonly region: string;
-	/** The region's base URL, or the one the user entered. */
-	readonly endpoint: string;
-	readonly credentials: Readonly<Record<string, string>>;
-}
-
-/** A file of the workspace, or an image the window drew (an SVG made a PNG). */
-export type BaseHalfVideoMedia =
-	| { readonly fsPath: string; readonly mimeType: string }
-	| { readonly dataUrl: string };
-
-/** The planned inputs of a generation, by the slots of its mode. */
-export interface IBaseHalfVideoPlannedMedia {
-	readonly startFrame?: BaseHalfVideoMedia;
-	readonly endFrame?: BaseHalfVideoMedia;
-	readonly images: readonly BaseHalfVideoMedia[];
-	readonly videos: readonly BaseHalfVideoMedia[];
-	readonly audios: readonly BaseHalfVideoMedia[];
-	readonly source?: BaseHalfVideoMedia;
-}
-
-/** Where an input is in a request: a frame, the clip, or the n-th reference image, video, or sound (D74). */
-export type BaseHalfVideoPromptInputSlot = 'startFrame' | 'endFrame' | 'source' | 'images' | 'videos' | 'audios';
-
-/** A mention in the prompt as AI Video receives it: the place in the request of the input it names (providers, "Names in the prompt"). */
-export interface IBaseHalfVideoPromptInput {
-	readonly input: BaseHalfVideoPromptInputSlot;
-	/** From 0, among `images`, `videos`, or `audios`; absent for a frame and the clip. */
-	readonly index?: number;
-}
-
-/** A part of the prompt as AI Video receives it: text, or a mention of an input of the request, which the provider module names. */
-export type BaseHalfVideoPromptPart = string | IBaseHalfVideoPromptInput;
-
-export interface IBaseHalfVideoCheckRequest {
-	readonly provider: string;
-	readonly region: string;
-	readonly model: string;
-	readonly mode: BaseHalfVideoModeId;
-	/** Every parameter that applies, with its value or default; optional ones only when set. */
-	readonly params: BaseHalfVideoParams;
-	/** The prompt in parts, text inputs included; the provider module writes its mentions. */
-	readonly prompt: readonly BaseHalfVideoPromptPart[];
-	/** The files a generation would send; the module measures them. */
-	readonly inputs: IBaseHalfVideoPlannedMedia;
-}
-
-export interface IBaseHalfVideoCheckResult {
-	/** Plain sentences, the first being what blocks the generation. Empty when it can run. */
-	readonly problems: readonly string[];
-	/** The prompt as the provider module writes it, its mentions named as its model reads them: what is checked and sent. */
-	readonly prompt: string;
-	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
-	readonly providerModel?: string;
-	/**
-	 * The ranges of number parameters that the planned inputs or the mode
-	 * narrow, by parameter name (D70; providers, "Requests"). A value beyond
-	 * one is fitted to it before it is checked, sent, and recorded.
-	 */
-	readonly limits?: Readonly<Record<string, IBaseHalfVideoCheckLimit>>;
-}
-
-/** How far a number parameter goes for the planned inputs or the mode, where that is narrower than its declaration, and why. */
-export interface IBaseHalfVideoCheckLimit {
-	readonly min?: number;
-	readonly max?: number;
-	readonly reason: string;
-}
+export type {
+	BaseHalfModelKind,
+	BaseHalfVideoCatalogParameter,
+	BaseHalfVideoImageFormat,
+	BaseHalfVideoMedia,
+	BaseHalfVideoModeId,
+	BaseHalfVideoOutput,
+	BaseHalfVideoOutputFormat,
+	BaseHalfVideoParams,
+	BaseHalfVideoParamValue,
+	BaseHalfVideoPollState,
+	BaseHalfVideoPromptInputSlot,
+	BaseHalfVideoPromptPart,
+	BaseHalfVideoProviderErrorCode,
+	BaseHalfVideoProviderResponse,
+	BaseHalfVideoSlotUse,
+	IBaseHalfVideoBooleanParameter,
+	IBaseHalfVideoCancelResult,
+	IBaseHalfVideoCatalog,
+	IBaseHalfVideoCatalogCredential,
+	IBaseHalfVideoCatalogMode,
+	IBaseHalfVideoCatalogModel,
+	IBaseHalfVideoCatalogProvider,
+	IBaseHalfVideoCatalogRegion,
+	IBaseHalfVideoCheckLimit,
+	IBaseHalfVideoCheckRequest,
+	IBaseHalfVideoCheckResult,
+	IBaseHalfVideoChoiceParameter,
+	IBaseHalfVideoCountSlot,
+	IBaseHalfVideoDownloadRequest,
+	IBaseHalfVideoDownloadResult,
+	IBaseHalfVideoModeInputs,
+	IBaseHalfVideoModeLimits,
+	IBaseHalfVideoNumberParameter,
+	IBaseHalfVideoPlaceRequest,
+	IBaseHalfVideoPlaceResult,
+	IBaseHalfVideoPlannedMedia,
+	IBaseHalfVideoPromptInput,
+	IBaseHalfVideoPromptRule,
+	IBaseHalfVideoProviderAccess,
+	IBaseHalfVideoProviderError,
+	IBaseHalfVideoSubmitRequest,
+	IBaseHalfVideoSubmitResult,
+	IBaseHalfVideoTaskRef,
+	IBaseHalfVideoTextParameter
+};
 
 /**
  * The values with each number beyond a limit fitted to its end, on the
- * parameter's steps and inside its declared range, as AI Video fits them
+ * parameter's steps and inside its declared range, as the provider service fits them
  * before it checks and sends them (D70). Auto and a value that is not a number
  * are kept; a value left to its default is fitted when the default is beyond
  * the limit.
@@ -322,109 +156,6 @@ export function baseHalfVideoLimitRange(parameter: IBaseHalfVideoNumberParameter
 		max: limit?.max === undefined ? parameter.max : onSteps(limit.max, Math.floor)
 	};
 }
-
-export interface IBaseHalfVideoSubmitRequest extends IBaseHalfVideoProviderAccess {
-	readonly model: string;
-	readonly mode: BaseHalfVideoModeId;
-	readonly params: BaseHalfVideoParams;
-	readonly prompt: readonly BaseHalfVideoPromptPart[];
-	readonly inputs: IBaseHalfVideoPlannedMedia;
-	/**
-	 * One new file per output the request may make, each ending in `.part`,
-	 * under `.bh/cache/generation/`. An output the provider answers inline is
-	 * written there under the checks of a download.
-	 */
-	readonly targets?: readonly string[];
-}
-
-/** The format of a file a generation made. */
-export type BaseHalfVideoOutputFormat = BaseHalfVideoImageFormat | 'mp4';
-
-/** One file of a generation: an address to download, a target already written, or why the provider refused it alone. */
-export type BaseHalfVideoOutput =
-	| { readonly url: string }
-	| { readonly written: string; readonly size: number; readonly format: BaseHalfVideoOutputFormat }
-	| { readonly refused: string };
-
-/** A task to poll, or the outputs of a provider that answers at once. */
-export type IBaseHalfVideoSubmitResult =
-	| { readonly remoteId: string }
-	| { readonly outputs: readonly BaseHalfVideoOutput[] };
-
-export interface IBaseHalfVideoTaskRef extends IBaseHalfVideoProviderAccess {
-	readonly model: string;
-	readonly remoteId: string;
-	/** As in {@link IBaseHalfVideoSubmitRequest.targets}, for a poll whose answer holds the files themselves. */
-	readonly targets?: readonly string[];
-}
-
-export type BaseHalfVideoPollState =
-	| { readonly state: 'pending' | 'running'; readonly fraction?: number }
-	| { readonly state: 'succeeded'; readonly videoUrl?: string; readonly outputs?: readonly BaseHalfVideoOutput[] }
-	| { readonly state: 'failed' | 'cancelled'; readonly message: string };
-
-export interface IBaseHalfVideoDownloadRequest extends IBaseHalfVideoTaskRef {
-	/** From the poll; without it, the provider module knows where the video is. */
-	readonly videoUrl?: string;
-	/** An output's address from the poll or the submit, for an image. */
-	readonly url?: string;
-	/** What is downloaded; `video` when absent. */
-	readonly kind?: BaseHalfModelKind;
-	/** A new file whose name ends in `.part`. */
-	readonly targetFsPath: string;
-}
-
-export interface IBaseHalfVideoDownloadResult {
-	readonly size: number;
-	/** The format the bytes start like. */
-	readonly format?: BaseHalfVideoOutputFormat;
-}
-
-export interface IBaseHalfVideoCancelResult {
-	readonly cancelled: boolean;
-}
-
-/**
- * A file a generation received, to put into its card's place (generation
- * cards, "Landing"): `from` is a `.part` file directly in a
- * `.bh/cache/generation/` folder, and `to` a name of that workspace folder,
- * outside `.bh/`, that no file has. Both are absolute.
- */
-export interface IBaseHalfVideoPlaceRequest {
-	readonly from: string;
-	readonly to: string;
-}
-
-export interface IBaseHalfVideoPlaceResult {
-	readonly placed: true;
-}
-
-export type BaseHalfVideoProviderErrorCode =
-	| 'auth'
-	| 'rejected'
-	| 'rateLimited'
-	| 'balance'
-	| 'unknownOutcome'
-	| 'network'
-	| 'invalidResponse'
-	| 'notFound'
-	| 'notVideo'
-	| 'notImage'
-	| 'tooLarge'
-	| 'unknownProvider'
-	/** Putting a file in place: a file already has the name. */
-	| 'exists';
-
-export interface IBaseHalfVideoProviderError {
-	readonly code: BaseHalfVideoProviderErrorCode;
-	/** Plain text of at most 1,000 characters, without credentials, markup, or request bodies. */
-	readonly message: string;
-	readonly status?: number;
-}
-
-export type BaseHalfVideoProviderResponse<T> =
-	| { readonly ok: true; readonly value: T }
-	| { readonly ok: false; readonly error: IBaseHalfVideoProviderError };
 
 // ================================================================================================
 // The window's functions over the catalog. Not mirrored by the extension.
@@ -1439,10 +1170,10 @@ export function baseHalfVideoExampleGeneration(catalog: IBaseHalfVideoCatalog, s
 	return undefined;
 }
 
-// --- Reading what AI Video answers ----------------------------------------------------------------
+// --- Reading what the provider service answers --------------------------------------------------
 
 /**
- * Reads the catalog that AI Video answered, keeping only what the window
+ * Reads the catalog that the provider service answered, keeping only what the window
  * knows. A provider, model, mode, or parameter that is not well formed is
  * left out and named in `problems`; a catalog that is not one at all is
  * refused with an error.

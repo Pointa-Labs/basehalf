@@ -27,7 +27,7 @@ import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalf
 
 /**
  * The services of generation cards (D63, D64): the catalog service holds the
- * model catalog of AI Video; the provider settings service holds how the user
+ * model catalog of the provider service; the provider settings service holds how the user
  * set up each provider on this computer; the generation service runs a
  * generation from Generate to the files on its cards; the card store, the
  * task record store, the card actions, and the draft operations keep a
@@ -48,7 +48,7 @@ export const IBaseHalfVideoCatalogService = createDecorator<IBaseHalfVideoCatalo
 
 /**
  * The model catalog of this window (D59, video providers, "The catalog"). It
- * asks AI Video once, keeps the answer, and tries once more at once when the
+ * asks the provider service once, keeps the answer, and tries once more at once when the
  * request fails.
  */
 export interface IBaseHalfVideoCatalogService {
@@ -69,7 +69,7 @@ export interface IBaseHalfVideoCatalogService {
 	 */
 	whenReady(timeout?: number): Promise<IBaseHalfVideoCatalog>;
 
-	/** Has the provider module check a planned generation. Resolves `undefined` when AI Video does not answer. */
+	/** Has the provider module check a planned generation. Resolves `undefined` when the provider service does not answer. */
 	check(request: IBaseHalfVideoCheckRequest): Promise<IBaseHalfVideoCheckResult | undefined>;
 }
 

@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems } from './check.ts';
-import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import type { ProviderHttp } from './http.ts';
-import { base64Length, bufferSource, dataUrlOf, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CountSlot, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems } from './check.js';
+import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import type { ProviderHttp } from './http.js';
+import { base64Length, bufferSource, dataUrlOf, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.js';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CountSlot, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * ByteDance's models on Volcengine Ark (China) and BytePlus ModelArk
@@ -93,8 +93,8 @@ const TEXT = Object.freeze({
 	imagesOnly: (label: string) => `${label} cannot be sent: Seedream takes reference images only.`,
 	noSize: (model: string) => `${model} has no size for these settings.`,
 	noImageTask: (model: string) => `${model} answers with its images at once: there is no task to ask about.`,
-	unreadableImage: 'ByteDance answered an image AI Video cannot read.',
-	noImages: 'ByteDance accepted the request but answered no images AI Video can read.',
+	unreadableImage: 'ByteDance answered an image BaseHalf cannot read.',
+	noImages: 'ByteDance accepted the request but answered no images BaseHalf can read.',
 	adaptiveNeedsStartFrame: (model: string) => `${model} chooses a ratio only from a start frame: choose a ratio, or connect an image.`,
 	referencesNeedInput: (model: string) => `${model} in References mode needs at least one image or audio clip.`,
 	textSetting: (flag: string) => `The prompt sets ${flag}; choose it in the settings instead, so that what the panel shows is sent.`,
@@ -106,8 +106,8 @@ const TEXT = Object.freeze({
 	cancelled: 'The task was cancelled.',
 	noVideo: 'The provider gives no video address for this task.',
 	notReady: 'The task has no video yet.',
-	unknownStatus: (status: string) => `The provider reports a task status AI Video does not know: ${status || 'none'}.`,
-	noTaskId: 'The provider accepted the request but gave no task id AI Video can read.'
+	unknownStatus: (status: string) => `The provider reports a task status BaseHalf does not know: ${status || 'none'}.`,
+	noTaskId: 'The provider accepted the request but gave no task id BaseHalf can read.'
 });
 
 // --- the models --------------------------------------------------------------------------------
@@ -431,6 +431,7 @@ function catalogModel(model: Seedance): CatalogModel {
 	}
 	return {
 		id: model.id,
+		kind: 'video',
 		label: text.label,
 		description: text.description,
 		providerModels,
@@ -696,7 +697,7 @@ async function submitSeedream(model: Seedream, request: SubmitRequest, http: Pro
 		...(model.outputFormat === 'png' ? { output_format: 'png' } : {}),
 		...(model.background ? { background: params.background } : {}),
 		...(model.fastPrompt ? { optimize_prompt_options: { mode: params[PROMPT_MODE] } } : {}),
-		// Addresses: a set of large PNGs as base64 could pass the most AI Video reads of an answer.
+		// Addresses: a set of large PNGs as base64 could pass the most BaseHalf reads of an answer.
 		response_format: 'url',
 		// Seedream marks images unless told not to.
 		watermark: params.watermark === true

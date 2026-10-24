@@ -3,24 +3,24 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BYTEDANCE } from './bytedance.ts';
-import { KLING } from './kling.ts';
-import { ALIBABA } from './alibaba.ts';
-import { MINIMAX } from './minimax.ts';
-import { VIDU } from './vidu.ts';
-import { GOOGLE } from './google.ts';
-import { PIXVERSE } from './pixverse.ts';
-import { LUMA } from './luma.ts';
-import { RUNWAY } from './runway.ts';
-import { XAI } from './xai.ts';
-import { LTX } from './ltx.ts';
-import { BFL } from './bfl.ts';
-import { OPENAI } from './openai.ts';
-import type { ProviderModule } from './module.ts';
-import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from './types.ts';
+import { BYTEDANCE } from './bytedance.js';
+import { KLING } from './kling.js';
+import { ALIBABA } from './alibaba.js';
+import { MINIMAX } from './minimax.js';
+import { VIDU } from './vidu.js';
+import { GOOGLE } from './google.js';
+import { PIXVERSE } from './pixverse.js';
+import { LUMA } from './luma.js';
+import { RUNWAY } from './runway.js';
+import { XAI } from './xai.js';
+import { LTX } from './ltx.js';
+import { BFL } from './bfl.js';
+import { OPENAI } from './openai.js';
+import type { ProviderModule } from './module.js';
+import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from '../common/basehalfProviderTypes.js';
 
 /**
- * The provider modules of AI Video, in the order the window lists them. A
+ * The provider modules of BaseHalf, in the order the window lists them. A
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
@@ -46,9 +46,7 @@ export function buildCatalog(modules: readonly ProviderModule[] = PROVIDER_MODUL
 		ids.add(provider.id);
 		validateProvider(provider);
 	}
-	// Every model of the answer says what it makes: a module may leave out `kind` for a video model.
-	const answered = providers.map(provider => ({ ...provider, models: provider.models.map(model => ({ ...model, kind: model.kind ?? 'video' })) }));
-	return deepFreeze({ schema: 1, providers: structuredClone(answered) });
+	return deepFreeze({ schema: 1, providers: structuredClone(providers) });
 }
 
 /** Validates one provider's entry. Throws an error that names the declaration at fault. */

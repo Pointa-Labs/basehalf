@@ -145,6 +145,9 @@ import { PlaywrightChannel } from '../../../platform/browserView/node/playwright
 import { AgentNetworkFilterService } from '../../../platform/networkFilter/common/networkFilterService.js';
 import { ILocalGitService } from '../../../platform/git/common/localGitService.js';
 import { LocalGitService } from '../../../platform/git/node/localGitService.js';
+// BaseHalf: the provider service of generation cards runs here, for every window (D75).
+import { BASEHALF_PROVIDERS_CHANNEL, IBaseHalfProviderService } from '../../../platform/basehalfProviders/common/basehalfProviders.js';
+import { BaseHalfProviderService } from '../../../platform/basehalfProviders/electron-utility/basehalfProviderService.js';
 
 class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
@@ -418,6 +421,9 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		// Local Git
 		services.set(ILocalGitService, new SyncDescriptor(LocalGitService, undefined, false /* proxied to other processes */));
 
+		// BaseHalf: the provider service of generation cards (D75)
+		services.set(IBaseHalfProviderService, new SyncDescriptor(BaseHalfProviderService, undefined, true));
+
 		// SSH Remote Agent Host
 		services.set(ISSHRemoteAgentHostMainService, new SyncDescriptor(SSHRemoteAgentHostMainService, undefined, true));
 
@@ -505,6 +511,9 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		// Local Git
 		const localGitChannel = ProxyChannel.fromService(accessor.get(ILocalGitService), this._store);
 		this.server.registerChannel('localGit', localGitChannel);
+
+		// BaseHalf: the provider service of generation cards (D75)
+		this.server.registerChannel(BASEHALF_PROVIDERS_CHANNEL, ProxyChannel.fromService(accessor.get(IBaseHalfProviderService), this._store));
 
 		// SSH Remote Agent Host
 		const sshRemoteAgentHostChannel = ProxyChannel.fromService(accessor.get(ISSHRemoteAgentHostMainService), this._store);

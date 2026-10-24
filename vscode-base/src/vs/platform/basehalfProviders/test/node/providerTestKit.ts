@@ -11,17 +11,18 @@
  * files to write outputs to. Nothing here talks to a real provider.
  */
 
-import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo, Socket } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import zlib from 'node:zlib';
-import { ProviderFailure } from '../src/providers/failure.ts';
-import { imageFormatOf, MEDIA_MIME_TYPES } from '../src/providers/media.ts';
-import type { ProviderModule } from '../src/providers/module.ts';
-import type { CatalogProvider, Media, PlannedMedia, ProviderResponse } from '../src/providers/types.ts';
+import { hasKey } from '../../../../base/common/types.js';
+import { strict as assert } from 'assert';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
+import type { AddressInfo, Socket } from 'net';
+import { tmpdir } from 'os';
+import { join } from '../../../../base/common/path.js';
+import zlib from 'zlib';
+import { ProviderFailure } from '../../node/failure.js';
+import { imageFormatOf, MEDIA_MIME_TYPES } from '../../node/media.js';
+import type { ProviderModule } from '../../node/module.js';
+import type { CatalogProvider, Media, PlannedMedia, ProviderResponse, SubmitResult } from '../../common/basehalfProviderTypes.js';
 
 export interface Received {
 	readonly method: string;
@@ -42,6 +43,7 @@ export interface TestServer {
 export async function startServer(handler: (request: Received, response: ServerResponse, socket: Socket) => void): Promise<TestServer> {
 	const received: Received[] = [];
 	const sockets = new Set<Socket>();
+	const { createServer } = await import('http');
 	const server = createServer((incoming: IncomingMessage, response) => {
 		const chunks: Buffer[] = [];
 		incoming.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -78,6 +80,17 @@ export function sendJson(response: ServerResponse, status: number, body: unknown
 export function value<T>(response: ProviderResponse<T>): T {
 	assert.equal(response.ok, true, response.ok ? '' : JSON.stringify(response.error));
 	return (response as { readonly value: T }).value;
+}
+
+/** The task id of a submit's answer that is a task. */
+export function remoteIdIn(submitted: SubmitResult): string {
+	assert.ok(hasKey(submitted, { remoteId: true }), `expected a task, got ${JSON.stringify(submitted)}`);
+	return submitted.remoteId;
+}
+
+/** The task id of a submit that the provider answered with a task. */
+export function remoteIdOf(response: ProviderResponse<SubmitResult>): string {
+	return remoteIdIn(value(response));
 }
 
 export function error<T>(response: ProviderResponse<T>): { code: string; message: string; status?: number } {
@@ -223,6 +236,7 @@ export function testProvider(): CatalogProvider {
 		models: [
 			{
 				id: 'clip-1',
+				kind: 'video',
 				label: 'Clip 1',
 				providerModels: { home: 'clip-1-home', away: 'clip-1-away' },
 				prompt: { required: 'withoutMedia', maxLength: 50 },
@@ -249,6 +263,7 @@ export function testProvider(): CatalogProvider {
 			},
 			{
 				id: 'clip-away',
+				kind: 'video',
 				label: 'Clip Away',
 				providerModels: { away: 'clip-away' },
 				prompt: { required: 'always', maxLength: 100 },
@@ -520,7 +535,7 @@ function plannedFile(name: string, mimeType: string, bytes: () => Buffer): Media
 }
 
 /**
- * Planned inputs of the given counts as small files that AI Video measures as
+ * Planned inputs of the given counts as small files that BaseHalf measures as
  * it measures a user's: a 1280 × 720 PNG for each image, an MP4 of 5 seconds
  * for each video, and a WAV of 5 seconds for each audio clip.
  */

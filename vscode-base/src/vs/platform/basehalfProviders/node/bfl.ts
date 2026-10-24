@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems, type MeasuredItem } from './check.ts';
-import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, isAllowedAddress, retryAfterMs, type HttpAnswer, type HttpCall, type ProviderHttp } from './http.ts';
-import { base64Length, base64Of, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type ReadMedia } from './media.ts';
-import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, Media, ModeId, ModeInputs, ModeLimits, ModelKind, Params, PlannedMedia, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems, type MeasuredItem } from './check.js';
+import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, isAllowedAddress, retryAfterMs, type HttpAnswer, type HttpCall, type ProviderHttp } from './http.js';
+import { base64Length, base64Of, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type ReadMedia } from './media.js';
+import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, Media, ModeId, ModeInputs, ModeLimits, ModelKind, Params, PlannedMedia, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Black Forest Labs' FLUX 3 video model and its image models, FLUX 3 Image and
@@ -59,7 +59,7 @@ const EDIT_PROMPT_MAX_LENGTH = 4096;
 const PROMPT_MAX_LENGTH = 20_000;
 /** An edit's clip: about 0.7 seconds (17 frames at 24 fps) to 15 seconds; the output keeps its length. */
 const EDIT_CLIP_SECONDS: readonly [number, number] = Object.freeze([0.7, 15]) as readonly [number, number];
-/** The most AI Video sends in one request; inline images are read up to the part of it their base64 can take. */
+/** The most BaseHalf sends in one request; inline images are read up to the part of it their base64 can take. */
 const REQUEST_MAX_BYTES = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
 const IMAGE_READ_MAX_BYTES = Math.floor(REQUEST_MAX_BYTES * 3 / 4);
 /** The longest task id a node keeps. */
@@ -137,13 +137,13 @@ const TEXT = Object.freeze({
 	notImage: (label: string) => `${label} is not a PNG, JPEG, or WebP image.`,
 	notVideo: (label: string) => `${label} is not an MP4 video.`,
 	noSuchInput: (model: string, label: string) => `${model} takes no ${label.charAt(0).toLowerCase()}${label.slice(1)}.`,
-	tooLarge: (size: number, limit: number) => `The inputs make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller inputs.`,
+	tooLarge: (size: number, limit: number) => `The inputs make a request of ${describeBytes(size)}; BaseHalf sends at most ${describeBytes(limit)}. Use fewer or smaller inputs.`,
 	noMode: (mode: string) => `FLUX 3 has no ${mode} mode.`,
 	noResolution: (value: unknown) => `FLUX 3 has no resolution ${String(value)}.`,
 	noSize: (model: string, ratio: unknown, resolution: unknown) => `${model} has no size for the ratio ${String(ratio)} at ${String(resolution)}.`,
 	noModel: (model: string) => `Black Forest Labs has no model "${model}".`,
-	noTask: 'Black Forest Labs accepted the request but gave no task id or polling address AI Video can read.',
-	pollingElsewhere: 'The task\'s polling address is neither on the endpoint set up for Black Forest Labs nor on a host of Black Forest Labs, so AI Video does not ask it.',
+	noTask: 'Black Forest Labs accepted the request but gave no task id or polling address BaseHalf can read.',
+	pollingElsewhere: 'The task\'s polling address is neither on the endpoint set up for Black Forest Labs nor on a host of Black Forest Labs, so BaseHalf does not ask it.',
 	requestModerated: (reasons: string) => `Black Forest Labs' moderation refused the prompt or an input before the video was made${reasons}. Change the request: the same one is refused again.`,
 	contentModerated: (reasons: string) => `Black Forest Labs' moderation withheld the finished video${reasons}. Change the prompt or the inputs.`,
 	imageRequestModerated: (reasons: string) => `Black Forest Labs' moderation refused the prompt or an input before the image was made${reasons}. Change the request: the same one is refused again.`,
@@ -151,7 +151,7 @@ const TEXT = Object.freeze({
 	failed: (detail: string) => detail ? `Black Forest Labs reports that the generation failed: ${detail}` : 'Black Forest Labs reports that the generation failed.',
 	noCard: 'Black Forest Labs ended the task without a result (No Card Generated).',
 	notFound: (id: string) => `Black Forest Labs does not know the task ${id}: it does not exist or has expired.`,
-	unknownStatus: (status: string) => `Black Forest Labs reports a task state AI Video does not know: ${status}.`,
+	unknownStatus: (status: string) => `Black Forest Labs reports a task state BaseHalf does not know: ${status}.`,
 	noVideo: 'Black Forest Labs gives no address of a video for this task.',
 	noImage: 'Black Forest Labs reports the image ready but gives no address of it.',
 	refusedKey: 'Black Forest Labs refused the API key. Check it in Providers.',
@@ -227,6 +227,7 @@ const PARAMETERS = Object.freeze<CatalogParameter[]>([
 
 const FLUX_3 = Object.freeze<CatalogModel>({
 	id: VIDEO_MODEL_ID,
+	kind: 'video',
 	label: TEXT.model,
 	description: TEXT.description,
 	providerModels: { global: 'flux-3-video' },
@@ -534,7 +535,7 @@ async function sentImages(route: ImageRoute, inputs: PlannedMedia): Promise<stri
 }
 
 /**
- * A polling address AI Video asks: `https` (or `http` on this computer), at
+ * A polling address BaseHalf asks: `https` (or `http` on this computer), at
  * most as long as a task id, on the endpoint's origin, or on a host of BFL
  * over `https`. The framework sends the key to the endpoint's origin only.
  */
@@ -559,7 +560,7 @@ function isAddress(remoteId: string): boolean {
 	return /^https?:\/\//i.test(remoteId);
 }
 
-/** The task's `remoteId`: the polling address BFL answered when AI Video may ask it, otherwise the task's id. */
+/** The task's `remoteId`: the polling address BFL answered when BaseHalf may ask it, otherwise the task's id. */
 function remoteIdOf(body: Record<string, unknown>, endpoint: URL): string {
 	const polling = typeof body.polling_url === 'string' ? followableAddress(body.polling_url.trim(), endpoint) : undefined;
 	if (polling) {
@@ -764,7 +765,7 @@ function ruleProblems(request: CheckRequest): string[] {
 	return problems;
 }
 
-/** A clip that is not an MP4, and a request larger than AI Video sends. */
+/** A clip that is not an MP4, and a request larger than BaseHalf sends. */
 async function fileProblems(route: Route, request: CheckRequest, inputs: PlannedMedia, media: MediaInspector): Promise<string[]> {
 	const problems: string[] = [];
 	const keyframes: string[] = [];
@@ -792,7 +793,7 @@ async function fileProblems(route: Route, request: CheckRequest, inputs: Planned
 	return problems;
 }
 
-/** An image of FLUX 3 Image above 16 megapixels, and an image request larger than AI Video sends. */
+/** An image of FLUX 3 Image above 16 megapixels, and an image request larger than BaseHalf sends. */
 function imageProblems(route: ImageRoute, request: CheckRequest, measured: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
 	const images = measured.filter(item => item.slot === 'image');

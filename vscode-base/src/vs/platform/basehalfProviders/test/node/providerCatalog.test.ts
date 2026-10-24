@@ -3,191 +3,196 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import assert from 'node:assert/strict';
-import test from 'node:test';
-import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogModel, CatalogParameter, CatalogProvider } from '../src/providers/types.ts';
-import { testModule, testProvider } from './providerTestKit.ts';
+import { strict as assert } from 'assert';
+import { buildCatalog, PROVIDER_MODULES } from '../../node/registry.js';
+import type { CatalogModel, CatalogParameter, CatalogProvider } from '../../common/basehalfProviderTypes.js';
+import { testModule, testProvider } from './providerTestKit.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
-type Mutable<T> = { -readonly [K in keyof T]: T[K] extends object ? Mutable<T[K]> : T[K] };
+suite('BaseHalf providers: providerCatalog', () => {
 
-/** The catalog of one test provider changed by `change`. */
-function catalogWith(change: (provider: Mutable<CatalogProvider>) => void) {
-	const provider = structuredClone(testProvider()) as Mutable<CatalogProvider>;
-	change(provider);
-	return () => buildCatalog([testModule({ describe: () => provider as CatalogProvider })]);
-}
+	ensureNoDisposablesAreLeakedInTestSuite();
 
-function firstModel(provider: Mutable<CatalogProvider>): Mutable<CatalogModel> {
-	return provider.models[0] as Mutable<CatalogModel>;
-}
+	type Mutable<T> = { -readonly [K in keyof T]: T[K] extends object ? Mutable<T[K]> : T[K] };
 
-function parameter(provider: Mutable<CatalogProvider>, name: string): Mutable<CatalogParameter> {
-	return firstModel(provider).parameters.find(entry => entry.name === name) as Mutable<CatalogParameter>;
-}
+	/** The catalog of one test provider changed by `change`. */
+	function catalogWith(change: (provider: Mutable<CatalogProvider>) => void) {
+		const provider = structuredClone(testProvider()) as Mutable<CatalogProvider>;
+		change(provider);
+		return () => buildCatalog([testModule({ describe: () => provider as CatalogProvider })]);
+	}
 
-test('the shipped provider modules build a valid catalog', () => {
-	const catalog = buildCatalog(PROVIDER_MODULES);
-	assert.equal(catalog.schema, 1);
-	assert.equal(catalog.providers.length, PROVIDER_MODULES.length);
-});
+	function firstModel(provider: Mutable<CatalogProvider>): Mutable<CatalogModel> {
+		return provider.models[0] as Mutable<CatalogModel>;
+	}
 
-test('a valid provider builds a frozen copy of its declarations', () => {
-	const catalog = buildCatalog([testModule()]);
-	assert.deepEqual(catalog.providers.map(provider => provider.id), ['testprovider']);
-	assert.ok(Object.isFrozen(catalog) && Object.isFrozen(catalog.providers[0].models[0].parameters[0]));
-	// The answer says what every model makes; a module may leave it out for a video model.
-	const declared = testProvider();
-	assert.deepEqual(catalog.providers[0], { ...declared, models: declared.models.map(model => ({ ...model, kind: model.kind ?? 'video' })) });
-});
+	function parameter(provider: Mutable<CatalogProvider>, name: string): Mutable<CatalogParameter> {
+		return firstModel(provider).parameters.find(entry => entry.name === name) as Mutable<CatalogParameter>;
+	}
 
-test('an image model declares its format and offers only references of images', () => {
-	const image = (change: (model: Mutable<CatalogModel>) => void) => catalogWith(provider => {
-		const model = firstModel(provider);
-		model.kind = 'image';
-		model.outputFormat = 'png';
-		model.modes = [{ id: 'reference', label: 'References', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 4 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} }];
-		model.parameters = [{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 4, step: 1, default: 1 }];
-		change(model);
+	test('the shipped provider modules build a valid catalog', () => {
+		const catalog = buildCatalog(PROVIDER_MODULES);
+		assert.equal(catalog.schema, 1);
+		assert.equal(catalog.providers.length, PROVIDER_MODULES.length);
 	});
-	assert.equal(image(() => { })().providers[0].models[0].kind, 'image');
-	assert.throws(image(model => { delete model.outputFormat; }), /declares its outputFormat/);
-	assert.throws(image(model => { model.modes[0].inputs.videos.max = 1; }), /the one mode reference, with images only/);
-	assert.throws(image(model => { model.parameters[0] = { name: 'count', label: 'Images', kind: 'integer', min: 1, max: 20, step: 1, default: 1 }; }), /count is a whole number from 1 to at most 16/);
-	assert.throws(catalogWith(provider => { firstModel(provider).outputFormat = 'png'; }), /only an image model declares an outputFormat/);
-	assert.throws(catalogWith(provider => { firstModel(provider).deprecatedIn = ['nowhere']; }), /deprecatedIn must name regions that offer the model/);
-});
 
-test('provider ids are unique, and so are model ids and parameter names within their parent', () => {
-	assert.throws(() => buildCatalog([testModule(), testModule()]), /provider testprovider: declared twice/);
-	assert.throws(catalogWith(provider => {
-		provider.models[1].id = 'clip-1';
-	}), /model clip-1: declared twice/);
-	assert.throws(catalogWith(provider => {
-		parameter(provider, 'seed').name = 'duration';
-	}), /parameter duration: declared twice/);
-	assert.throws(catalogWith(provider => {
-		provider.regions[1].id = 'home';
-	}), /region home: declared twice/);
-});
+	test('a valid provider builds a frozen copy of its declarations', () => {
+		const catalog = buildCatalog([testModule()]);
+		assert.deepEqual(catalog.providers.map(provider => provider.id), ['testprovider']);
+		assert.ok(Object.isFrozen(catalog) && Object.isFrozen(catalog.providers[0].models[0].parameters[0]));
+		// The answer says what every model makes; a module may leave it out for a video model.
+		const declared = testProvider();
+		assert.deepEqual(catalog.providers[0], { ...declared, models: declared.models.map(model => ({ ...model, kind: model.kind ?? 'video' })) });
+	});
 
-test('regions are declared, with https base URLs, and every offering names one', () => {
-	assert.throws(catalogWith(provider => {
-		provider.regions = [];
-	}), /at least one region is needed/);
-	assert.throws(catalogWith(provider => {
-		provider.regions[0].baseUrl = 'http://api.example.com/v1';
-	}), /region home: the base URL must be an https address/);
-	assert.throws(catalogWith(provider => {
-		provider.regions[0].baseUrl = 'https://api.example.com/v1/';
-	}), /without a trailing slash/);
-	assert.throws(catalogWith(provider => {
-		(firstModel(provider).providerModels as Record<string, string>).elsewhere = 'clip-1-elsewhere';
-	}), /providerModels names the region elsewhere, which the provider does not declare/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).providerModels = {};
-	}), /at least one region must offer it/);
-	assert.throws(catalogWith(provider => {
-		provider.credentials = [];
-	}), /at least one credential is needed/);
-});
+	test('an image model declares its format and offers only references of images', () => {
+		const image = (change: (model: Mutable<CatalogModel>) => void) => catalogWith(provider => {
+			const model = firstModel(provider);
+			model.kind = 'image';
+			model.outputFormat = 'png';
+			model.modes = [{ id: 'reference', label: 'References', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 4 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} }];
+			model.parameters = [{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 4, step: 1, default: 1 }];
+			change(model);
+		});
+		assert.equal(image(() => { })().providers[0].models[0].kind, 'image');
+		assert.throws(image(model => { delete model.outputFormat; }), /declares its outputFormat/);
+		assert.throws(image(model => { model.modes[0].inputs.videos.max = 1; }), /the one mode reference, with images only/);
+		assert.throws(image(model => { model.parameters[0] = { name: 'count', label: 'Images', kind: 'integer', min: 1, max: 20, step: 1, default: 1 }; }), /count is a whole number from 1 to at most 16/);
+		assert.throws(catalogWith(provider => { firstModel(provider).outputFormat = 'png'; }), /only an image model declares an outputFormat/);
+		assert.throws(catalogWith(provider => { firstModel(provider).deprecatedIn = ['nowhere']; }), /deprecatedIn must name regions that offer the model/);
+	});
 
-test('modes are declared once each, with sane slot counts', () => {
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes = [];
-	}), /at least one mode is needed/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes[1].id = 'frames';
-	}), /mode frames: declared twice/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes[1].inputs.images = { min: 4, max: 3 };
-	}), /mode reference: images: min and max must be whole numbers with 0 ≤ min ≤ max/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes[1].inputs.audios = { min: -1, max: 2 };
-	}), /audios: min and max/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes[0].inputs.startFrame = 'none';
-	}), /mode frames: an end frame needs a start frame/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes[0].limits.imageMinSide = 7000;
-	}), /imageMinSide must not exceed imageMaxSide/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes[0].limits.imageAspect = [2.5, 0.4];
-	}), /imageAspect: the range must be two positive numbers, the smaller first/);
-	for (const imageFormats of [['png', 'gif'], ['png', 'png'], []]) {
+	test('provider ids are unique, and so are model ids and parameter names within their parent', () => {
+		assert.throws(() => buildCatalog([testModule(), testModule()]), /provider testprovider: declared twice/);
 		assert.throws(catalogWith(provider => {
-			(firstModel(provider).modes[0].limits as { imageFormats?: string[] }).imageFormats = imageFormats;
-		}), /limits.imageFormats must name png, jpeg, or webp, each once|limits.imageFormats must include png/, imageFormats.join());
-	}
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).modes[0].limits.imageFormats = ['jpeg', 'webp'];
-	}), /limits.imageFormats must include png, the format the window draws other images to/);
-	assert.doesNotThrow(catalogWith(provider => {
-		firstModel(provider).modes[0].limits.imageFormats = ['png', 'jpeg'];
-	}));
-});
-
-test('a mode names regions that offer the model, and a parameter set by a start frame applies to a mode with one', () => {
-	for (const regions of [[], ['home', 'home'], ['elsewhere']]) {
+			provider.models[1].id = 'clip-1';
+		}), /model clip-1: declared twice/);
 		assert.throws(catalogWith(provider => {
-			firstModel(provider).modes[1].regions = regions;
-		}), /mode reference: regions must name at least one region, each once|mode reference: regions names elsewhere, which does not offer the model/, regions.join());
-	}
-	assert.doesNotThrow(catalogWith(provider => {
-		firstModel(provider).modes[1].regions = ['away'];
-	}));
-	// Ratio applies to References only, which takes no start frame.
-	assert.throws(catalogWith(provider => {
-		parameter(provider, 'ratio').setByStartFrame = true;
-	}), /parameter ratio: setByStartFrame needs a mode with a start frame/);
-	assert.doesNotThrow(catalogWith(provider => {
-		const ratio = parameter(provider, 'ratio');
-		ratio.setByStartFrame = true;
-		delete ratio.modes;
-	}));
-});
+			parameter(provider, 'seed').name = 'duration';
+		}), /parameter duration: declared twice/);
+		assert.throws(catalogWith(provider => {
+			provider.regions[1].id = 'home';
+		}), /region home: declared twice/);
+	});
 
-test('a parameter that is not optional has a default, and every default is one the parameter allows', () => {
-	assert.throws(catalogWith(provider => {
-		delete parameter(provider, 'resolution').default;
-	}), /parameter resolution: a parameter that is not optional needs a default/);
-	assert.throws(catalogWith(provider => {
-		parameter(provider, 'resolution').default = '1080p';
-	}), /parameter resolution: the default 1080p is not one of the options/);
-	assert.throws(catalogWith(provider => {
-		parameter(provider, 'duration').default = 13;
-	}), /parameter duration: the default 13 is outside \[4, 12\]/);
-	assert.throws(catalogWith(provider => {
-		const duration = parameter(provider, 'duration') as Mutable<CatalogParameter & { step: number }>;
-		duration.step = 2;
-		duration.default = 5;
-	}), /parameter duration: the default 5 is not a multiple of the step 2 from 4/);
-	assert.throws(catalogWith(provider => {
-		(parameter(provider, 'duration') as Mutable<CatalogParameter & { auto: { value: number; label: string } }>).auto = { value: 6, label: 'Auto' };
-	}), /the auto value must lie outside \[4, 12\]/);
-	assert.throws(catalogWith(provider => {
-		(parameter(provider, 'resolution') as Mutable<CatalogParameter & { options: unknown[] }>).options = [];
-	}), /a choice needs options/);
-	// Auto may be the default, and an optional parameter needs none.
-	assert.doesNotThrow(catalogWith(provider => {
-		parameter(provider, 'duration').default = -1;
-	}));
-});
+	test('regions are declared, with https base URLs, and every offering names one', () => {
+		assert.throws(catalogWith(provider => {
+			provider.regions = [];
+		}), /at least one region is needed/);
+		assert.throws(catalogWith(provider => {
+			provider.regions[0].baseUrl = 'http://api.example.com/v1';
+		}), /region home: the base URL must be an https address/);
+		assert.throws(catalogWith(provider => {
+			provider.regions[0].baseUrl = 'https://api.example.com/v1/';
+		}), /without a trailing slash/);
+		assert.throws(catalogWith(provider => {
+			(firstModel(provider).providerModels as Record<string, string>).elsewhere = 'clip-1-elsewhere';
+		}), /providerModels names the region elsewhere, which the provider does not declare/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).providerModels = {};
+		}), /at least one region must offer it/);
+		assert.throws(catalogWith(provider => {
+			provider.credentials = [];
+		}), /at least one credential is needed/);
+	});
 
-test('a parameter limited to some modes names modes the model declares', () => {
-	assert.throws(catalogWith(provider => {
-		parameter(provider, 'ratio').modes = ['extend'];
-	}), /parameter ratio: modes names extend, which the model does not declare/);
-	assert.throws(catalogWith(provider => {
-		parameter(provider, 'ratio').modes = [];
-	}), /modes must name at least one mode/);
-});
+	test('modes are declared once each, with sane slot counts', () => {
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes = [];
+		}), /at least one mode is needed/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[1].id = 'frames';
+		}), /mode frames: declared twice/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[1].inputs.images = { min: 4, max: 3 };
+		}), /mode reference: images: min and max must be whole numbers with 0 ≤ min ≤ max/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[1].inputs.audios = { min: -1, max: 2 };
+		}), /audios: min and max/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[0].inputs.startFrame = 'none';
+		}), /mode frames: an end frame needs a start frame/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[0].limits.imageMinSide = 7000;
+		}), /imageMinSide must not exceed imageMaxSide/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[0].limits.imageAspect = [2.5, 0.4];
+		}), /imageAspect: the range must be two positive numbers, the smaller first/);
+		for (const imageFormats of [['png', 'gif'], ['png', 'png'], []]) {
+			assert.throws(catalogWith(provider => {
+				(firstModel(provider).modes[0].limits as { imageFormats?: string[] }).imageFormats = imageFormats;
+			}), /limits.imageFormats must name png, jpeg, or webp, each once|limits.imageFormats must include png/, imageFormats.join());
+		}
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[0].limits.imageFormats = ['jpeg', 'webp'];
+		}), /limits.imageFormats must include png, the format the window draws other images to/);
+		assert.doesNotThrow(catalogWith(provider => {
+			firstModel(provider).modes[0].limits.imageFormats = ['png', 'jpeg'];
+		}));
+	});
 
-test('labels and the prompt rule are declared', () => {
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).label = ' ';
-	}), /model clip-1: label must be text/);
-	assert.throws(catalogWith(provider => {
-		firstModel(provider).prompt.maxLength = 0;
-	}), /prompt.maxLength must be a positive whole number/);
+	test('a mode names regions that offer the model, and a parameter set by a start frame applies to a mode with one', () => {
+		for (const regions of [[], ['home', 'home'], ['elsewhere']]) {
+			assert.throws(catalogWith(provider => {
+				firstModel(provider).modes[1].regions = regions;
+			}), /mode reference: regions must name at least one region, each once|mode reference: regions names elsewhere, which does not offer the model/, regions.join());
+		}
+		assert.doesNotThrow(catalogWith(provider => {
+			firstModel(provider).modes[1].regions = ['away'];
+		}));
+		// Ratio applies to References only, which takes no start frame.
+		assert.throws(catalogWith(provider => {
+			parameter(provider, 'ratio').setByStartFrame = true;
+		}), /parameter ratio: setByStartFrame needs a mode with a start frame/);
+		assert.doesNotThrow(catalogWith(provider => {
+			const ratio = parameter(provider, 'ratio');
+			ratio.setByStartFrame = true;
+			delete ratio.modes;
+		}));
+	});
+
+	test('a parameter that is not optional has a default, and every default is one the parameter allows', () => {
+		assert.throws(catalogWith(provider => {
+			delete parameter(provider, 'resolution').default;
+		}), /parameter resolution: a parameter that is not optional needs a default/);
+		assert.throws(catalogWith(provider => {
+			parameter(provider, 'resolution').default = '1080p';
+		}), /parameter resolution: the default 1080p is not one of the options/);
+		assert.throws(catalogWith(provider => {
+			parameter(provider, 'duration').default = 13;
+		}), /parameter duration: the default 13 is outside \[4, 12\]/);
+		assert.throws(catalogWith(provider => {
+			const duration = parameter(provider, 'duration') as Mutable<CatalogParameter & { step: number }>;
+			duration.step = 2;
+			duration.default = 5;
+		}), /parameter duration: the default 5 is not a multiple of the step 2 from 4/);
+		assert.throws(catalogWith(provider => {
+			(parameter(provider, 'duration') as Mutable<CatalogParameter & { auto: { value: number; label: string } }>).auto = { value: 6, label: 'Auto' };
+		}), /the auto value must lie outside \[4, 12\]/);
+		assert.throws(catalogWith(provider => {
+			(parameter(provider, 'resolution') as Mutable<CatalogParameter & { options: unknown[] }>).options = [];
+		}), /a choice needs options/);
+		// Auto may be the default, and an optional parameter needs none.
+		assert.doesNotThrow(catalogWith(provider => {
+			parameter(provider, 'duration').default = -1;
+		}));
+	});
+
+	test('a parameter limited to some modes names modes the model declares', () => {
+		assert.throws(catalogWith(provider => {
+			parameter(provider, 'ratio').modes = ['extend'];
+		}), /parameter ratio: modes names extend, which the model does not declare/);
+		assert.throws(catalogWith(provider => {
+			parameter(provider, 'ratio').modes = [];
+		}), /modes must name at least one mode/);
+	});
+
+	test('labels and the prompt rule are declared', () => {
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).label = ' ';
+		}), /model clip-1: label must be text/);
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).prompt.maxLength = 0;
+		}), /prompt.maxLength must be a positive whole number/);
+	});
 });

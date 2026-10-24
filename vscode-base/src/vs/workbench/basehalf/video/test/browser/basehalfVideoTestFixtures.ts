@@ -9,6 +9,7 @@ import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { dirname, isEqual, isEqualOrParent, joinPath, relativePath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { IBaseHalfProviderService } from '../../../../../platform/basehalfProviders/common/basehalfProviders.js';
 import { ICommandEvent, ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IChecksumService } from '../../../../../platform/checksum/common/checksumService.js';
 import { createFileSystemProviderError, FileSystemProviderCapabilities, FileSystemProviderErrorCode, IFileChange, IFileService, IStat, IWatchOptions } from '../../../../../platform/files/common/files.js';
@@ -21,7 +22,6 @@ import { baseHalfMirrorRoot } from '../../../workspace/common/basehalfMirrorTree
 import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
 import {
-	BASEHALF_VIDEO_PROVIDER_COMMANDS,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoDownloadRequest,
 	IBaseHalfVideoPlaceRequest,
@@ -321,11 +321,24 @@ export function fakeWrittenPrompt(prompt: IBaseHalfVideoCheckRequest['prompt']):
 	return prompt.map(part => typeof part === 'string' ? part : `<${part.input}${part.index !== undefined ? ` ${part.index}` : ''}>`).join('');
 }
 
+/** The calls of the provider service, as the fake records them. */
+export const PROVIDER_CALL = Object.freeze({
+	catalog: 'catalog',
+	check: 'check',
+	submit: 'submit',
+	poll: 'poll',
+	download: 'download',
+	cancel: 'cancel',
+	place: 'place'
+} as const);
+
 /**
- * The provider commands of the AI Video extension, scripted, with the test
- * catalog of invented providers. The default check finds no problem, the
- * default submit makes a task, and the default download writes an MP4, or a
- * PNG for an image, where it is asked to.
+ * The provider service of the shared process (D75), scripted by the handlers
+ * below, with the test catalog of invented providers: {@link service} answers
+ * through them. The default check finds no problem, the default submit makes
+ * a task, and the default download writes an MP4, or a PNG for an image,
+ * where it is asked to. It is a command service too, for what else the
+ * window runs as a command.
  */
 export class FakeProviderCommands implements ICommandService {
 	declare readonly _serviceBrand: undefined;
@@ -339,7 +352,7 @@ export class FakeProviderCommands implements ICommandService {
 	poll: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/video.mp4' } });
 	download: Handler<IBaseHalfVideoDownloadRequest>;
 	cancel: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { cancelled: true } });
-	/** As AI Video puts a file in place: under a name no file has, and the partial download goes. */
+	/** As the provider service puts a file in place: under a name no file has, and the partial download goes. */
 	place: Handler<IBaseHalfVideoPlaceRequest>;
 	other: Handler<unknown> = () => undefined;
 
@@ -358,7 +371,7 @@ export class FakeProviderCommands implements ICommandService {
 		};
 	}
 
-	/** Writes a file into a target, as AI Video writes a file the provider answered with. */
+	/** Writes a file into a target, as the provider service writes a file the provider answered with. */
 	async write(target: string, bytes: VSBuffer): Promise<{ readonly written: string; readonly size: number; readonly format: 'png' | 'jpeg' | 'mp4' }> {
 		await this.fileService.writeFile(URI.file(target), bytes);
 		return { written: target, size: bytes.byteLength, format: bytes === FAKE_JPEG ? 'jpeg' : bytes === FAKE_MP4 ? 'mp4' : 'png' };
@@ -368,18 +381,27 @@ export class FakeProviderCommands implements ICommandService {
 		return this.calls.filter(call => call.id === id).length;
 	}
 
+	/** The provider service, answering through the handlers as they are when it is called. */
+	readonly service: IBaseHalfProviderService = {
+		_serviceBrand: undefined,
+		catalog: () => this.answer(PROVIDER_CALL.catalog, undefined, () => this.catalog(undefined)),
+		check: request => this.answer(PROVIDER_CALL.check, request, () => this.check(request)),
+		submit: request => this.answer(PROVIDER_CALL.submit, request, () => this.submit(request)),
+		poll: task => this.answer(PROVIDER_CALL.poll, task, () => this.poll(task)),
+		download: request => this.answer(PROVIDER_CALL.download, request, () => this.download(request)),
+		cancel: task => this.answer(PROVIDER_CALL.cancel, task, () => this.cancel(task)),
+		place: request => this.answer(PROVIDER_CALL.place, request, () => this.place(request))
+	};
+
+	/** A handler may answer anything, as a broken service would. */
+	private async answer<T>(id: string, argument: unknown, run: () => unknown): Promise<T> {
+		this.calls.push({ id, argument });
+		return await run() as T;
+	}
+
 	async executeCommand<R = unknown>(id: string, ...args: unknown[]): Promise<R> {
 		const argument = args[0];
 		this.calls.push({ id, argument });
-		switch (id) {
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.catalog: return await this.catalog(argument) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.check: return await this.check(argument as IBaseHalfVideoCheckRequest) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.submit: return await this.submit(argument as IBaseHalfVideoSubmitRequest) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.poll: return await this.poll(argument as IBaseHalfVideoTaskRef) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.download: return await this.download(argument as IBaseHalfVideoDownloadRequest) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel: return await this.cancel(argument as IBaseHalfVideoTaskRef) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.place: return await this.place(argument as IBaseHalfVideoPlaceRequest) as R;
-			default: return await this.other(argument) as R;
-		}
+		return await this.other(argument) as R;
 	}
 }

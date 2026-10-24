@@ -3,8 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { describeBytes, plannedItems, type MediaFacts, type MediaInspector, type PlannedItem } from './media.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CheckLimit, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from './types.ts';
+import { describeBytes, plannedItems, type MediaFacts, type MediaInspector, type PlannedItem } from './media.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CheckLimit, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from '../common/basehalfProviderTypes.js';
 
 /**
  * What every model is checked against before anything is sent, from its
@@ -70,7 +70,7 @@ export function resolveParams(model: CatalogModel, mode: ModeId, params: Params,
 }
 
 /**
- * The limits a module answered that AI Video keeps: of a number parameter of
+ * The limits a module answered that BaseHalf keeps: of a number parameter of
  * the model, with a finite end, a reason, and room between its ends.
  */
 export function keptLimits(model: CatalogModel, limits: unknown): Readonly<Record<string, CheckLimit>> | undefined {
@@ -321,7 +321,7 @@ export function checkLimits(mode: CatalogMode, items: readonly MeasuredItem[]): 
 		const { facts } = item;
 		if (item.kind === 'image') {
 			if (!facts.format || !IMAGE_FORMATS.has(facts.format) || !facts.width || !facts.height) {
-				problems.push(`${item.label} is not an image AI Video can read (PNG, JPEG, WebP, or GIF).`);
+				problems.push(`${item.label} is not an image BaseHalf can read (PNG, JPEG, WebP, or GIF).`);
 				continue;
 			}
 			const formats = limits.imageFormats ?? DEFAULT_IMAGE_FORMATS;
@@ -359,7 +359,7 @@ export function checkLimits(mode: CatalogMode, items: readonly MeasuredItem[]): 
 		}
 		if (range || total !== undefined) {
 			if (!facts.format || !formats.has(facts.format) || facts.seconds === undefined) {
-				problems.push(`${item.label} is not ${kind} whose length AI Video can read (${video ? 'MP4 or MOV' : 'WAV, MP3, or M4A'}).`);
+				problems.push(`${item.label} is not ${kind} whose length BaseHalf can read (${video ? 'MP4 or MOV' : 'WAV, MP3, or M4A'}).`);
 				continue;
 			}
 			if (range && (facts.seconds < range[0] - 0.05 || facts.seconds > range[1] + 0.05)) {

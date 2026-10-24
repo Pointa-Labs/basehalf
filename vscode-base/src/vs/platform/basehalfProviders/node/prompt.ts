@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ModeId, Params, PlannedMedia, PromptInput, PromptPart } from './types.ts';
+import type { ModeId, Params, PlannedMedia, PromptInput, PromptPart } from '../common/basehalfProviderTypes.js';
 
 /**
  * The names a prompt gives its inputs (D74; providers, "Names in the

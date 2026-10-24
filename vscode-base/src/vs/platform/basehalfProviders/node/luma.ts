@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
-import { base64Length, base64Of, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.ts';
-import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, Media, ModeLimits, ModelKind, Params, PlannedMedia, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
+import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.js';
+import { base64Length, base64Of, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.js';
+import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, Media, ModeLimits, ModelKind, Params, PlannedMedia, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Luma's video model, Ray 3.2, and its image models, Uni-1 and Uni-1 Max, on
@@ -84,16 +84,16 @@ const TEXT = Object.freeze({
 	loopHdr: 'Ray 3.2 does not make a looping video in HDR.',
 	loopEndFrame: 'A looping video takes no end frame: remove the end frame, or turn Loop off.',
 	mangaRatio: 'Without connected images, the Manga style takes a portrait ratio: choose 2:3, 9:16, 1:2, 1:3, or Adaptive.',
-	framesTooLarge: (size: number, limit: number) => `The frames make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use smaller images.`,
-	imagesTooLarge: (size: number, limit: number) => `The images make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller images.`,
-	clipTooLarge: (label: string, size: number, limit: number) => `${label} is ${describeBytes(size)}; AI Video uploads at most ${describeBytes(limit)} in one request. Use a smaller clip.`,
+	framesTooLarge: (size: number, limit: number) => `The frames make a request of ${describeBytes(size)}; BaseHalf sends at most ${describeBytes(limit)}. Use smaller images.`,
+	imagesTooLarge: (size: number, limit: number) => `The images make a request of ${describeBytes(size)}; BaseHalf sends at most ${describeBytes(limit)}. Use fewer or smaller images.`,
+	clipTooLarge: (label: string, size: number, limit: number) => `${label} is ${describeBytes(size)}; BaseHalf uploads at most ${describeBytes(limit)} in one request. Use a smaller clip.`,
 	// Inputs and uploads.
 	notTaken: (model: string, label: string) => `${model} does not take ${inSentence(label)} in this mode.`,
 	noClip: 'Ray 3.2 in Edit mode needs a video to work on.',
 	imageFormat: (label: string) => `${label} is not a PNG, JPEG, or WebP image.`,
 	videoFormat: (label: string) => `${label} is not an MP4 or MOV video.`,
 	uploadFailed: (label: string, detail: string) => `${label} could not be uploaded to Luma: ${detail.replace(/^Luma: /, '')}`,
-	uploadUnreadable: 'Luma answered the upload in a form AI Video cannot read.',
+	uploadUnreadable: 'Luma answered the upload in a form BaseHalf cannot read.',
 	storageRefused: (label: string, status: number, code: string | undefined, message: string | undefined) =>
 		`Luma's storage refused the upload of ${inSentence(label)} (HTTP ${status}${code ? `, ${code}` : ''})${message ? `: ${message}` : '.'}`,
 	fileFailed: (label: string, reason: string) => `Luma refused ${inSentence(label)} when it checked it${reason ? `: ${reason}` : '.'}`,
@@ -101,9 +101,9 @@ const TEXT = Object.freeze({
 	fileNotReady: (label: string) => `Luma has not finished checking ${inSentence(label)} after 2 minutes, and nothing was generated. Generate again in a moment.`,
 	notOffered: (model: string) => `Luma does not offer the model "${model}" in this region.`,
 	// Answers.
-	noTaskId: 'Luma accepted the request but gave no generation id AI Video can read.',
+	noTaskId: 'Luma accepted the request but gave no generation id BaseHalf can read.',
 	transient: (detail: string) => `Luma is unavailable for a moment and made no generation, so nothing is charged. Generate again in a moment.${detail ? ` (${detail})` : ''}`,
-	unknownState: (state: string) => `Luma reports a generation state AI Video does not know: ${state || 'none'}.`,
+	unknownState: (state: string) => `Luma reports a generation state BaseHalf does not know: ${state || 'none'}.`,
 	noVideo: 'Luma reports that the generation completed but gives no address of its video.',
 	noImage: 'Luma reports that the generation completed but gives no address of its image.',
 	noVideoAddress: 'Luma gives no address of a video for this generation.',
@@ -217,6 +217,7 @@ const PARAMETERS: readonly CatalogParameter[] = Object.freeze([
 
 const MODEL: CatalogModel = Object.freeze<CatalogModel>({
 	id: MODEL_ID,
+	kind: 'video',
 	label: TEXT.model,
 	description: TEXT.description,
 	providerModels: { [REGION]: MODEL_ID },
@@ -335,12 +336,12 @@ function ruleProblems(request: CheckRequest, counts: PlannedCounts): string[] {
 	return problems;
 }
 
-/** The JSON of a request with its inputs left empty, then the inputs as base64: what AI Video would send. */
+/** The JSON of a request with its inputs left empty, then the inputs as base64: what BaseHalf would send. */
 function inlineRequestSize(body: Record<string, unknown>, inline: readonly MeasuredItem[]): number {
 	return Buffer.byteLength(JSON.stringify(body), 'utf8') + inline.reduce((total, item) => total + base64Length(item.facts.bytes), 0);
 }
 
-/** A request too large for AI Video to send: the images or the frames inline, or the clip in its upload. */
+/** A request too large for BaseHalf to send: the images or the frames inline, or the clip in its upload. */
 function fileProblems(request: CheckRequest, inputs: PlannedMedia, measured: readonly MeasuredItem[]): string[] {
 	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
 	const empty = { data: '', media_type: 'image/jpeg' };

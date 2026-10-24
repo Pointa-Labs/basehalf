@@ -295,7 +295,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			? localize('basehalf.video.providers.loading', "Loading the providers…")
 			: state.kind === 'failed'
 				? localize('basehalf.video.providers.failed', "BaseHalf could not load the providers: {0}", state.message)
-				: localize('basehalf.video.providers.none', "AI Video offers no providers.");
+				: localize('basehalf.video.providers.none', "BaseHalf offers no providers.");
 		if (state.kind === 'failed') {
 			const retry = this.button(empty, localize('basehalf.video.providers.retry', "Try Again"), 'codicon-refresh', 'retry');
 			disposables.add(addDisposableListener(retry, EventType.CLICK, () => this.catalogService.load()));

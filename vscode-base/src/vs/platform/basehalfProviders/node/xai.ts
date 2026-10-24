@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { isRecord, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
-import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, TaskSucceeded, VideoLocation } from './module.ts';
-import { promptLanguage, sharedPromptName, writePromptNames } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ModeId, ModeInputs, Params, PollState, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
+import { isRecord, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.js';
+import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.js';
+import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, TaskSucceeded, VideoLocation } from './module.js';
+import { promptLanguage, sharedPromptName, writePromptNames } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ModeId, ModeInputs, Params, PollState, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * xAI's Grok Imagine video and image models with the user's own key (D59,
@@ -78,15 +78,15 @@ const TEXT = Object.freeze({
 	oneImageRatio: (label: string) => `With one reference image, ${label} keeps the shape of that image. Choose Adaptive for Ratio, or connect another image.`,
 	noImageAddress: 'xAI gave no address for this image.',
 	imageWithheld: 'xAI withheld this image because it did not pass moderation; xAI still charges for the generation.',
-	noImages: 'xAI reports that the images are ready but gives no list of them AI Video can read.',
+	noImages: 'xAI reports that the images are ready but gives no list of them BaseHalf can read.',
 	notOffered: (label: string) => `xAI does not offer ${label} in this region.`,
-	noRequestId: 'xAI accepted the request but gave no request id AI Video can read.',
+	noRequestId: 'xAI accepted the request but gave no request id BaseHalf can read.',
 	failed: 'xAI reports that the generation failed.',
 	withheld: 'xAI withheld the video because it did not pass moderation; xAI still charges for the generation.',
 	expired: 'xAI reports that the request expired before its video was ready.',
-	noAddress: 'xAI reports that the video is ready but gives no address AI Video can read.',
+	noAddress: 'xAI reports that the video is ready but gives no address BaseHalf can read.',
 	notReady: 'xAI has no video for this request yet.',
-	unknownStatus: (status: string) => `xAI reports a status AI Video does not know: ${status}.`,
+	unknownStatus: (status: string) => `xAI reports a status BaseHalf does not know: ${status}.`,
 	rateLimits: 'xAI takes 10 requests a second for each video model and 6 for each image model at the first usage tier, unless the team\'s limit was raised.',
 	notMp4: (label: string) => `${label} is not an MP4 video; xAI edits and extends MP4 videos only.`,
 	notImage: (label: string) => `${label} is not a PNG, JPEG, or WebP image.`,
@@ -131,7 +131,7 @@ const MODELS: readonly XaiModel[] = Object.freeze([
 	}
 ] satisfies XaiModel[]);
 
-/** xAI states no longest prompt; the most AI Video takes. */
+/** xAI states no longest prompt; the most BaseHalf takes. */
 const PROMPT_MAX_LENGTH = 1_048_576;
 const RATIOS: readonly string[] = Object.freeze(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9', '5:2']);
 /** A clip to edit is at most 8.7 seconds; xAI states no shortest one. */
@@ -213,6 +213,7 @@ function declareParameters(model: XaiModel): CatalogParameter[] {
 function declareModel(model: XaiModel): CatalogModel {
 	return {
 		id: model.id,
+		kind: 'video',
 		label: TEXT.models[model.id].label,
 		description: TEXT.models[model.id].description,
 		providerModels: { global: model.id },
@@ -473,7 +474,7 @@ interface TaskAnswer {
 async function askAbout(ref: TaskRef, http: ProviderHttp, collection: 'videos' | 'images' = 'videos'): Promise<TaskAnswer> {
 	const answer: HttpAnswer = await http.request({ method: 'GET', path: `/${collection}/${encodeURIComponent(ref.remoteId)}` });
 	if (answer.status === 202) {
-		// Still in progress; the body, when AI Video can read it, says how far.
+		// Still in progress; the body, when BaseHalf can read it, says how far.
 		try {
 			return { inProgress: true, body: answer.object() };
 		} catch {
@@ -633,7 +634,7 @@ function ruleProblems(model: XaiModel, request: CheckRequest, counts: PlannedCou
 }
 
 /**
- * A request too large for AI Video to send: `value` is the JSON of the request
+ * A request too large for BaseHalf to send: `value` is the JSON of the request
  * with empty inputs, to which the inputs add their data URLs.
  */
 function sizeProblems(value: Record<string, unknown>, measured: readonly MeasuredItem[]): string[] {
@@ -644,10 +645,10 @@ function sizeProblems(value: Record<string, unknown>, measured: readonly Measure
 	}
 	const size = Buffer.byteLength(JSON.stringify(value), 'utf8') + encoded;
 	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
-	return size > limit ? [`The inputs make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller inputs.`] : [];
+	return size > limit ? [`The inputs make a request of ${describeBytes(size)}; BaseHalf sends at most ${describeBytes(limit)}. Use fewer or smaller inputs.`] : [];
 }
 
-/** A clip that is not an MP4, and a request too large for AI Video to send. */
+/** A clip that is not an MP4, and a request too large for BaseHalf to send. */
 function fileProblems(model: XaiModel, request: CheckRequest, measured: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
 	const media: SentMedia[] = [];

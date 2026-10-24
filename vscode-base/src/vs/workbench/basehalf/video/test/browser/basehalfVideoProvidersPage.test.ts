@@ -274,12 +274,12 @@ suite('BaseHalfVideoProvidersPage', () => {
 
 	test('says when the providers are loading or could not be loaded, and asks for them again when it opens and with Try Again', async () => {
 		const loading = createPage({ kind: 'loading' });
-		const failed = createPage({ kind: 'failed', message: 'AI Video is not running.' });
+		const failed = createPage({ kind: 'failed', message: 'The provider service did not answer.' });
 		const retry = descendants(failed.container).find(element => element.dataset.focus === 'retry');
 		retry?.click();
 		assert.deepStrictEqual({
 			loading: [loading.container.textContent?.includes('Loading the providers…'), loading.catalog.loads, descendants(loading.container).some(element => element.dataset.focus === 'retry')],
-			failed: [failed.container.textContent?.includes('BaseHalf could not load the providers: AI Video is not running.'), retry?.textContent, failed.catalog.loads]
+			failed: [failed.container.textContent?.includes('BaseHalf could not load the providers: The provider service did not answer.'), retry?.textContent, failed.catalog.loads]
 		}, { loading: [true, 1, false], failed: [true, 'Try Again', 2] });
 		loading.catalog.state = { kind: 'ready', catalog: TEST_VIDEO_CATALOG };
 		loading.catalog.changed.fire();
@@ -437,7 +437,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 	});
 
 	test('Try Again keeps the focus in the page while the providers load again', async () => {
-		const failed = createPage({ kind: 'failed', message: 'AI Video is not running.' });
+		const failed = createPage({ kind: 'failed', message: 'The provider service did not answer.' });
 		failed.catalog.load = () => {
 			failed.catalog.loads++;
 			failed.catalog.state = { kind: 'loading' };

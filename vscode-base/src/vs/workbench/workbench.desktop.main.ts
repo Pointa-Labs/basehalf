@@ -97,6 +97,8 @@ import './services/browserView/electron-browser/playwrightWorkbenchService.js';
 import './services/process/electron-browser/processService.js';
 import './services/power/electron-browser/powerService.js';
 import './basehalf/plugins/electron-browser/basehalfPluginPlatform.contribution.js';
+// BaseHalf: the window's connection to the provider service in the shared process (D75).
+import '../platform/basehalfProviders/electron-browser/basehalfProviderService.js';
 
 import { registerSingleton } from '../platform/instantiation/common/extensions.js';
 import { IUserDataInitializationService, UserDataInitializationService } from './services/userData/browser/userDataInit.js';

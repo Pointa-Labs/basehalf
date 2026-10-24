@@ -17,7 +17,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { IChecksumService } from '../../../../platform/checksum/common/checksumService.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IBaseHalfProviderService } from '../../../../platform/basehalfProviders/common/basehalfProviders.js';
 import { FileOperationResult, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -71,7 +71,6 @@ import {
 import { buildBaseHalfPromptParts } from '../common/basehalfGenerationMentions.js';
 import {
 	BASEHALF_VIDEO_IMAGE_FORMATS,
-	BASEHALF_VIDEO_PROVIDER_COMMANDS,
 	BaseHalfVideoGenerateBlocker,
 	baseHalfVideoGenerateBlockerText,
 	BaseHalfVideoImageFormat,
@@ -181,9 +180,9 @@ export type BaseHalfVideoImageRasterizer = (bytes: VSBuffer, mimeType: string) =
 
 type ProviderAnswer<T> =
 	| { readonly ok: true; readonly value: T }
-	| { readonly ok: false; readonly error: IBaseHalfVideoProviderError; /** AI Video did not answer at all. */ readonly unavailable?: boolean };
+	| { readonly ok: false; readonly error: IBaseHalfVideoProviderError; /** The provider service did not answer at all. */ readonly unavailable?: boolean };
 
-/** Where the file of one card comes from: an address to download, a file AI Video already wrote, or the provider's refusal of it alone. */
+/** Where the file of one card comes from: an address to download, a file the provider service already wrote, or the provider's refusal of it alone. */
 type LandingSource =
 	| { readonly kind: 'download'; readonly url?: string }
 	| { readonly kind: 'written'; readonly path: string }
@@ -262,7 +261,7 @@ class FollowedGeneration {
 		this.paths = paths;
 	}
 
-	/** The task as AI Video is asked about it; a provider that answered at once gave no task id, and its outputs are found by their addresses. */
+	/** The task as the provider service is asked about it; a provider that answered at once gave no task id, and its outputs are found by their addresses. */
 	taskRef(): IBaseHalfVideoTaskRef {
 		return { ...this.access!, model: this.model!, remoteId: this.remoteId ?? '' };
 	}
@@ -278,8 +277,8 @@ class FollowedGeneration {
  * generation"): from Generate through a task record of this computer to the
  * files on their cards. The steps before the record is `submitting` write
  * nothing but the record and the drafts the generation makes, and a stop
- * there removes both. Requests go through the AI Video extension's provider
- * commands; a request that may have reached a provider is never sent again.
+ * there removes both. Requests go through the provider service of the shared
+ * process (D75); a request that may have reached a provider is never sent again.
  * One window follows each generation and says every 30 seconds that it is
  * alive; another window takes a generation over only when that has not
  * happened for 90 seconds. Files land inside the workspace mutation lease.
@@ -316,7 +315,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IChecksumService private readonly checksumService: IChecksumService,
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
-		@ICommandService private readonly commandService: ICommandService,
+		@IBaseHalfProviderService private readonly providerService: IBaseHalfProviderService,
 		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
@@ -638,7 +637,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		// The provider module checks the planned generation with its files:
 		// sizes, lengths, counts, the prompt, and the rules between values.
-		const checked = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.check, {
+		const checked = await this.callProvider(service => service.check({
 			provider: ref.provider.id,
 			region: access.region,
 			model: ref.model.id,
@@ -646,10 +645,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			params: sent,
 			prompt: prompt.parts,
 			inputs
-		}, parseBaseHalfVideoCheckResult, false);
+		}), parseBaseHalfVideoCheckResult, false);
 		throwIfCancelled(token);
 		if (!checked.ok) {
-			throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.checkFailed', "AI Video could not check the generation, and nothing was sent: {0}", errorDetail(checked.error, Object.values(access.credentials))));
+			throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.checkFailed', "BaseHalf could not check the generation, and nothing was sent: {0}", errorDetail(checked.error, Object.values(access.credentials))));
 		}
 		const problem = checked.value.problems[0];
 		if (problem) {
@@ -815,7 +814,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	private async sendAndTakeUp(follow: FollowedGeneration, request: IBaseHalfVideoSubmitRequest, lastUsed: IBaseHalfVideoGenerationChoice): Promise<void> {
-		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.submit, request, parseSubmitResult, true);
+		const answer = await this.callProvider(service => service.submit(request), parseSubmitResult, true);
 		if (answer.ok && hasKey(answer.value, { remoteId: true })) {
 			follow.remoteId = answer.value.remoteId;
 		}
@@ -902,7 +901,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		// A target is written only as a new file: one an earlier poll left is removed first.
 		await this.deleteUnreceivedParts(follow);
-		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.poll, { ...follow.taskRef(), targets: this.targetsOf(follow) }, parsePollState, false);
+		const answer = await this.callProvider(service => service.poll({ ...follow.taskRef(), targets: this.targetsOf(follow) }), parsePollState, false);
 		if (follow.stopped || follow.ended) {
 			return;
 		}
@@ -956,7 +955,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 				return;
 			}
 		}
-		// A network error, an overloaded provider, or AI Video restarting: ask
+		// A network error, an overloaded provider, or the provider service restarting: ask
 		// again at the next interval, for up to 30 minutes in a row.
 		const now = Date.now();
 		follow.transientSince ??= now;
@@ -972,7 +971,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	/**
 	 * Step 10: each file lands on its card in the order of the outputs. The
 	 * record is `landing` from the moment the provider has the files. The
-	 * files AI Video wrote with its answer are complete, and their sizes and
+	 * files the provider service wrote with its answer are complete, and their sizes and
 	 * SHA-256 go into the record in one write before the first of them lands;
 	 * a file downloaded from an address gets its own once it is received in
 	 * full. So a window that takes the record over lands them again without a
@@ -1065,7 +1064,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	/**
-	 * The files AI Video wrote with its answer: complete, since it answers only
+	 * The files the provider service wrote with its answer: complete, since it answers only
 	 * after it wrote them. Each is checked, and the sizes and SHA-256 of the
 	 * ones taken go into the record in one write, before the first of them
 	 * lands, so that a reload while they land loses none of them.
@@ -1084,7 +1083,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			const part = this.taskStore.partFile(task, index);
 			try {
 				if (!this.uriIdentityService.extUri.isEqual(URI.file(source.path), part)) {
-					this.logService.warn(`[BaseHalf generation] AI Video wrote ${source.path}, not ${part.fsPath}.`);
+					this.logService.warn(`[BaseHalf generation] The provider service wrote ${source.path}, not ${part.fsPath}.`);
 				}
 				const checked = await this.checkFile(follow, part);
 				if (hasKey(checked, { problem: true })) {
@@ -1134,7 +1133,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		if (source.kind === 'written') {
 			if (!this.uriIdentityService.extUri.isEqual(URI.file(source.path), part)) {
-				this.logService.warn(`[BaseHalf generation] AI Video wrote ${source.path}, not ${part.fsPath}.`);
+				this.logService.warn(`[BaseHalf generation] The provider service wrote ${source.path}, not ${part.fsPath}.`);
 			}
 		} else {
 			const downloaded = await this.download(follow, index, part, source.url);
@@ -1182,14 +1181,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			await this.failCard(follow, index, closedWhileSavingMessage());
 			return 'failed';
 		}
-		// AI Video writes only a file that is not there: a download cut short before is gone first.
+		// The provider service writes only a file that is not there: a download cut short before is gone first.
 		await this.deleteQuietly(part);
-		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.download, {
+		const answer = await this.callProvider(service => service.download({
 			...follow.taskRef(),
 			...(url !== undefined ? { url } : {}),
 			kind: follow.kind,
 			targetFsPath: part.fsPath
-		}, parseDownloadResult, false);
+		}), parseDownloadResult, false);
 		if (follow.stopped) {
 			await this.deleteQuietly(part);
 			return 'failed';
@@ -1396,7 +1395,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	/**
 	 * Puts a received file at `target` without ever replacing anything there,
-	 * and with nothing partial in the card's folder at any moment: AI Video
+	 * and with nothing partial in the card's folder at any moment: the provider service
 	 * gives the complete partial download the card's name by a hard link,
 	 * which fails when the name is taken, and then removes the partial
 	 * download (providers, "Requests"). Resolves `false` when the name is
@@ -1405,7 +1404,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	 */
 	private async publish(part: URI, target: URI): Promise<boolean> {
 		const request: IBaseHalfVideoPlaceRequest = { from: part.fsPath, to: target.fsPath };
-		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.place, request, parsePlaceResult, false);
+		const answer = await this.callProvider(service => service.place(request), parsePlaceResult, false);
 		if (answer.ok) {
 			return true;
 		}
@@ -1601,13 +1600,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const record = stopped ?? task;
 		const remoteId = follow?.remoteId ?? record.remoteId;
 		if (remoteId && record.request) {
+			const model = record.request.model;
 			try {
 				const access = follow?.access ?? await this.accessOfTask(record);
 				if (access && !follow?.cancelSent) {
 					if (follow) {
 						follow.cancelSent = true;
 					}
-					await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel, { ...access, model: record.request.model, remoteId }, parseAnything, false);
+					await this.callProvider(service => service.cancel({ ...access, model, remoteId }), parseAnything, false);
 				}
 			} catch (error) {
 				this.logService.info(`[BaseHalf generation] Could not ask the provider to cancel ${remoteId}: ${getErrorMessage(error)}`);
@@ -1670,7 +1670,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		follow.cancelSent = true;
-		await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel, follow.taskRef(), parseAnything, false);
+		await this.callProvider(service => service.cancel(follow.taskRef()), parseAnything, false);
 	}
 
 	/** Ends the generation as failed. Its partial downloads stay with its record: only a stop or the record's removal takes them. */
@@ -1940,18 +1940,14 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	// --- helpers -------------------------------------------------------------------------------
 
-	private async callProvider<T>(command: string, argument: unknown, parse: (value: unknown) => T | undefined, isSubmit: boolean): Promise<ProviderAnswer<T>> {
+	private async callProvider<T>(call: (service: IBaseHalfProviderService) => Promise<unknown>, parse: (value: unknown) => T | undefined, isSubmit: boolean): Promise<ProviderAnswer<T>> {
 		let raw: unknown;
 		try {
-			raw = await this.commandService.executeCommand(command, argument);
+			raw = await call(this.providerService);
 		} catch (error) {
-			if (isCommandNotFound(error, command)) {
-				// AI Video has not registered the command, so it did not run: nothing was sent.
-				return { ok: false, unavailable: true, error: { code: 'network', message: localize('basehalf.video.generation.extensionMissing', "AI Video, which sends the request, is not running.") } };
-			}
-			// The command ran, or AI Video stopped while it ran it, which also
-			// takes its commands away: for a request, whether it reached the
-			// provider is unknown.
+			// The call did not reach the provider service of the shared process,
+			// or the service stopped while it ran it (D75): for a request,
+			// whether it reached the provider is unknown.
 			return { ok: false, unavailable: !isSubmit, error: { code: isSubmit ? 'unknownOutcome' : 'network', message: getErrorMessage(error) } };
 		}
 		return parseProviderAnswer(raw, parse);
@@ -2135,7 +2131,7 @@ function parseProviderAnswer<T>(raw: unknown, parse: (value: unknown) => T | und
 			};
 		}
 	}
-	return { ok: false, error: { code: 'invalidResponse', message: localize('basehalf.video.generation.unreadableAnswer', "AI Video answered in a form BaseHalf cannot read.") } };
+	return { ok: false, error: { code: 'invalidResponse', message: localize('basehalf.video.generation.unreadableAnswer', "The provider service answered in a form BaseHalf cannot read.") } };
 }
 
 function parseSubmitResult(value: unknown): IBaseHalfVideoSubmitResult | undefined {
@@ -2306,7 +2302,7 @@ function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: fal
 		case 'notFound':
 			return localize('basehalf.video.generation.endpointNotFound', "The provider does not answer this request at its endpoint. Check the endpoint in Providers: {0}", detail);
 		case 'unknownProvider':
-			return localize('basehalf.video.generation.unknownProvider', "AI Video does not know this provider, and nothing was sent: {0}", detail);
+			return localize('basehalf.video.generation.unknownProvider', "BaseHalf does not know this provider, and nothing was sent: {0}", detail);
 		default:
 			return detail ? `${unknownOutcomeMessage()} (${detail})` : unknownOutcomeMessage();
 	}
@@ -2364,10 +2360,6 @@ function throwIfCancelled(token: CancellationToken): void {
 }
 
 /** The command service's refusal of a command that no one registered: then the command did not run at all. */
-function isCommandNotFound(error: unknown, command: string): boolean {
-	return error instanceof Error && error.message === `command '${command}' not found`;
-}
-
 /** Up to {@link TAKEOVER_JITTER} milliseconds, different in every window. */
 function takeoverJitter(): number {
 	return Math.floor(Math.random() * TAKEOVER_JITTER);

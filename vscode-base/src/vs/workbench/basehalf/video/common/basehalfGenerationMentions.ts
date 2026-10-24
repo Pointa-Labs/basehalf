@@ -13,7 +13,7 @@ import { BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, BaseHalfVideoPromptPart, IBaseHal
  * what agents write, and what the panel shows as a chip. This module finds
  * the mentions, names them as chips and notes show them, writes them again
  * after a change of the card's list, and gives the prompt in the parts that
- * AI Video receives, where each provider module names the inputs as its model
+ * the provider service receives, where each provider module names the inputs as its model
  * reads them. Pure.
  */
 
@@ -216,7 +216,7 @@ export interface IBaseHalfPromptParts {
 }
 
 /**
- * The prompt as AI Video receives it (generation cards, "Inputs" and
+ * The prompt as the provider service receives it (generation cards, "Inputs" and
  * "Mentions"): the card's prompt without the spaces around it, with each
  * mention of an image, a video, or a sound that the request sends as that
  * input's place in it, and each mention of a note as the note's name in

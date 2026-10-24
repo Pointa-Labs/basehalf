@@ -38,16 +38,8 @@ test('contributes the commands, Sequence, template, and Agent contracts, and not
 		REMOVE_SEQUENCE_ITEM_COMMAND_ID,
 		REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID
 	]);
-	// The provider commands are internal: they activate AI Video but are not in the Command Palette.
-	assert.deepEqual(manifest.activationEvents, [
-		'onCommand:basehalf.video.provider.catalog',
-		'onCommand:basehalf.video.provider.check',
-		'onCommand:basehalf.video.provider.submit',
-		'onCommand:basehalf.video.provider.poll',
-		'onCommand:basehalf.video.provider.download',
-		'onCommand:basehalf.video.provider.cancel',
-		'onCommand:basehalf.video.provider.place'
-	]);
+	// The provider service runs in the shared process (D75): nothing activates AI Video for it.
+	assert.deepEqual(manifest.activationEvents, []);
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].id, STARTER_TEMPLATE_ID);
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].resource, 'templates/starter-workflow.json');
 	const capability = manifest.contributes.basehalfAgentCapabilities[0];

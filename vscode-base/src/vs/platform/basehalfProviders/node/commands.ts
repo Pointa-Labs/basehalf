@@ -3,16 +3,16 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { isAbsolute } from 'node:path';
-import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, fitParams, keptLimits, measureItems, outputCount, resolveParams } from './check.ts';
-import { downloadAddress, downloadFile, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.ts';
-import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.ts';
-import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.ts';
-import { createMediaInspector, type MediaInspector } from './media.ts';
-import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.ts';
-import { checkPlace, placeFile, type PlaceFileSystem } from './place.ts';
-import { isPlannedInput, writeSharedPromptNames } from './prompt.ts';
-import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.ts';
+import { isAbsolute } from '../../../base/common/path.js';
+import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, fitParams, keptLimits, measureItems, outputCount, resolveParams } from './check.js';
+import { downloadAddress, downloadFile, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.js';
+import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.js';
+import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
+import { createMediaInspector, type MediaInspector } from './media.js';
+import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.js';
+import { checkPlace, placeFile, type PlaceFileSystem } from './place.js';
+import { isPlannedInput, writeSharedPromptNames } from './prompt.js';
+import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.js';
 import type {
 	CancelResult,
 	Catalog,
@@ -43,10 +43,10 @@ import type {
 	SubmitRequest,
 	SubmitResult,
 	TaskRef
-} from './types.ts';
+} from '../common/basehalfProviderTypes.js';
 
 /**
- * The provider commands of AI Video (providers, "Requests"). Each
+ * The provider commands of BaseHalf (providers, "Requests"). Each
  * answers `{ok: true, value}` or `{ok: false, error}` and never throws; keeps
  * nothing between calls; validates its payload strictly; and dispatches to the
  * provider module by its id (`unknownProvider` for an id no module has).
@@ -138,8 +138,8 @@ export class VideoProviderCommands {
 				const needed = outputCount(params);
 				if (named < needed) {
 					throw rejected(needed === 1
-						? `${resolved.model.label} may make 1 file, but the request names none to write it to. AI Video sent nothing.`
-						: `${resolved.model.label} may make ${needed} files, but the request names ${named} to write them to. AI Video sent nothing.`);
+						? `${resolved.model.label} may make 1 file, but the request names none to write it to. BaseHalf sent nothing.`
+						: `${resolved.model.label} may make ${needed} files, but the request names ${named} to write them to. BaseHalf sent nothing.`);
 				}
 			}
 			http = this.http(resolved.module, request, answersAtOnce);
@@ -148,7 +148,7 @@ export class VideoProviderCommands {
 				return { remoteId: taskId(answered) };
 			}
 			if (!isRecord(answered) || !Array.isArray(answered.outputs)) {
-				throw unknownOutcome('The provider accepted the request but gave no task id AI Video can read.');
+				throw unknownOutcome('The provider accepted the request but gave no task id BaseHalf can read.');
 			}
 			return { outputs: await this.keepOutputs(answered.outputs, request.targets, resolved.model, http, secrets, 'submit') };
 		}, () => http?.createAnswered === true, () => http?.secretValues);
@@ -181,11 +181,11 @@ export class VideoProviderCommands {
 			const kind = request.kind ?? 'video';
 			const modelKind = resolved.model.kind ?? 'video';
 			if (kind !== modelKind) {
-				throw rejected(`${resolved.model.label} makes ${modelKind === 'image' ? 'images' : 'videos'}; AI Video downloads only a file of that kind for it.`);
+				throw rejected(`${resolved.model.label} makes ${modelKind === 'image' ? 'images' : 'videos'}; BaseHalf downloads only a file of that kind for it.`);
 			}
 			const address = kind === 'image' ? request.url : request.url ?? request.videoUrl;
 			if (kind === 'image' && address === undefined) {
-				throw rejected('AI Video downloads an image only from the address the provider gave.');
+				throw rejected('BaseHalf downloads an image only from the address the provider gave.');
 			}
 			http = this.http(resolved.module, request);
 			let location: OutputAddress | VideoLocation;
@@ -194,7 +194,7 @@ export class VideoProviderCommands {
 			} else if (resolved.module.videoLocation) {
 				location = await resolved.module.videoLocation(request, http);
 			} else {
-				throw unreadable(`AI Video needs the address the poll gave to download a video from ${resolved.provider.label}.`);
+				throw unreadable(`BaseHalf needs the address the poll gave to download a video from ${resolved.provider.label}.`);
 			}
 			const file = await downloadFile(http, location, request.targetFsPath, kind, this.options.download);
 			return { size: file.size, format: file.format };
@@ -231,7 +231,7 @@ export class VideoProviderCommands {
 		const module = this.modules.get(request.provider);
 		const provider = this.catalogValue.providers.find(entry => entry.id === request.provider);
 		if (!module || !provider) {
-			throw new ProviderFailure('unknownProvider', `AI Video has no video provider "${request.provider}".`);
+			throw new ProviderFailure('unknownProvider', `BaseHalf has no video provider "${request.provider}".`);
 		}
 		const region = provider.regions.find(entry => entry.id === request.region);
 		if (!region) {
@@ -314,7 +314,7 @@ export class VideoProviderCommands {
 					: { state: state.state };
 			case 'succeeded': {
 				if (state.outputs !== undefined && !Array.isArray(state.outputs)) {
-					throw unreadable('The provider answered files AI Video cannot read.');
+					throw unreadable('The provider answered files BaseHalf cannot read.');
 				}
 				const outputs = state.outputs !== undefined ? await this.keepOutputs(state.outputs, ref.targets, model, http, secrets, 'poll') : undefined;
 				return { state: 'succeeded', ...(state.videoUrl ? { videoUrl: state.videoUrl } : {}), ...(outputs ? { outputs } : {}) };
@@ -323,7 +323,7 @@ export class VideoProviderCommands {
 			case 'cancelled':
 				return { state: state.state, message: plainMessage(state.message, [...secrets, ...http.secretValues]) || (state.state === 'failed' ? 'The provider reports that the task failed.' : 'The provider reports that the task was cancelled.') };
 			default:
-				throw unreadable('The provider module answered a state AI Video does not know.');
+				throw unreadable('The provider module answered a state BaseHalf does not know.');
 		}
 	}
 
@@ -338,8 +338,8 @@ export class VideoProviderCommands {
 		const read = answered.map(readOutputLocation);
 		if (read.some(location => location === undefined)) {
 			throw source === 'submit'
-				? unknownOutcome('The provider accepted the request but answered files AI Video cannot read.')
-				: unreadable('The provider answered files AI Video cannot read.');
+				? unknownOutcome('The provider accepted the request but answered files BaseHalf cannot read.')
+				: unreadable('The provider answered files BaseHalf cannot read.');
 		}
 		let locations = read as OutputLocation[];
 		if (targets && locations.length > targets.length) {
@@ -373,7 +373,7 @@ export class VideoProviderCommands {
 		}
 		if (isAddress(location) && !location.headers) {
 			if (location.url.length > MAX_ADDRESS_LENGTH) {
-				return { refused: plain(`The provider gave ${kind === 'image' ? 'an image' : 'a video'} address longer than AI Video takes.`) };
+				return { refused: plain(`The provider gave ${kind === 'image' ? 'an image' : 'a video'} address longer than BaseHalf takes.`) };
 			}
 			try {
 				downloadAddress(location.url, kind);
@@ -418,9 +418,9 @@ async function answer<T>(
 		const detail = plainMessage(error instanceof Error ? error.message : String(error), hidden);
 		if (createAnswered?.()) {
 			// The provider accepted the request, so a task may exist.
-			return { ok: false, error: { code: 'unknownOutcome', message: `The provider accepted the request, but AI Video could not read its answer: ${detail}` } };
+			return { ok: false, error: { code: 'unknownOutcome', message: `The provider accepted the request, but BaseHalf could not read its answer: ${detail}` } };
 		}
-		return { ok: false, error: { code: 'rejected', message: `AI Video could not prepare the request: ${detail}` } };
+		return { ok: false, error: { code: 'rejected', message: `BaseHalf could not prepare the request: ${detail}` } };
 	}
 }
 
@@ -435,7 +435,7 @@ function secretsOf(argument: unknown): string[] {
 /** A provider's task id, as a node's file can hold it. */
 function taskId(value: unknown): string {
 	if (typeof value !== 'string' || !value.trim() || value.length > 256 || /[\u0000- \u007F]/.test(value)) {
-		throw unknownOutcome('The provider accepted the request but gave no task id AI Video can read.');
+		throw unknownOutcome('The provider accepted the request but gave no task id BaseHalf can read.');
 	}
 	return value;
 }
@@ -484,7 +484,7 @@ function needsTarget(location: OutputLocation): boolean {
 // --- payloads -----------------------------------------------------------------------------------
 
 function cannotRead(what: string): ProviderFailure {
-	return rejected(`AI Video received ${what} it cannot read.`);
+	return rejected(`BaseHalf received ${what} it cannot read.`);
 }
 
 function field(record: Record<string, unknown>, name: string, what: string, maxLength = 256): string {
@@ -544,7 +544,7 @@ function parseTargets(value: unknown): readonly string[] | undefined {
 	}
 	if (!Array.isArray(value) || !value.length || value.length > MAX_OUTPUTS || new Set(value).size !== value.length
 		|| !value.every(target => typeof target === 'string' && target.length <= MAX_PATH_LENGTH && isAbsolute(target) && target.endsWith('.part'))) {
-		throw rejected(`AI Video writes the outputs of a request only to new .part files, 1 to ${MAX_OUTPUTS} of them, each named once.`);
+		throw rejected(`BaseHalf writes the outputs of a request only to new .part files, 1 to ${MAX_OUTPUTS} of them, each named once.`);
 	}
 	return [...value];
 }
@@ -613,7 +613,7 @@ function writePrompt(resolved: Resolved, payload: CheckPayload | SubmitPayload):
 		? resolved.module.writePrompt(payload.prompt, { model: payload.model, mode: payload.mode, params: payload.params, inputs: payload.inputs })
 		: writeSharedPromptNames(payload.prompt);
 	if (typeof written !== 'string' || written.length > MAX_PROMPT_CHARACTERS) {
-		throw rejected('AI Video could not write the prompt for this model.');
+		throw rejected('BaseHalf could not write the prompt for this model.');
 	}
 	return written;
 }

@@ -3,10 +3,10 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { open, readFile, stat } from 'node:fs/promises';
-import { basename, isAbsolute } from 'node:path';
-import { rejected } from './failure.ts';
-import type { ImageFormat, Media, PlannedMedia } from './types.ts';
+import { open, readFile, stat } from 'fs/promises';
+import { basename, isAbsolute } from '../../../base/common/path.js';
+import { rejected } from './failure.js';
+import type { ImageFormat, Media, PlannedMedia } from '../common/basehalfProviderTypes.js';
 
 /**
  * The inputs of a generation as bytes: a workspace file or a data URL the
@@ -35,7 +35,7 @@ export interface MediaFacts {
 	/** The file name; absent for an image the window drew. */
 	readonly name?: string;
 	readonly bytes: number;
-	/** Absent when AI Video does not recognize the bytes. */
+	/** Absent when BaseHalf does not recognize the bytes. */
 	readonly format?: MediaFormat;
 	/** Of an image. */
 	readonly width?: number;
@@ -114,7 +114,7 @@ const DATA_URL = /^data:(?<type>[a-z]+\/[a-z0-9.+-]+)(?:;[a-z0-9.+-]+=[^;,]*)*;b
 function decodeDataUrl(dataUrl: string, maxBytes: number, label: string): ReadMedia {
 	const match = DATA_URL.exec(dataUrl);
 	if (!match?.groups) {
-		throw rejected(`${label} is not an encoded file AI Video can read.`);
+		throw rejected(`${label} is not an encoded file BaseHalf can read.`);
 	}
 	if (Math.floor(match.groups.payload.length * 3 / 4) > maxBytes + 3) {
 		throw rejected(`${label} is larger than ${describeBytes(maxBytes)}.`);

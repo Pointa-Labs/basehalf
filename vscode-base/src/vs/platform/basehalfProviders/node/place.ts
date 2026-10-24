@@ -3,11 +3,11 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { constants } from 'node:fs';
-import { copyFile, link, lstat, unlink } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, relative, sep } from 'node:path';
-import { ProviderFailure, rejected } from './failure.ts';
-import type { PlaceResult } from './types.ts';
+import { constants } from 'fs';
+import { copyFile, link, lstat, unlink } from 'fs/promises';
+import { basename, dirname, isAbsolute, relative, sep } from '../../../base/common/path.js';
+import { ProviderFailure, rejected } from './failure.js';
+import type { PlaceResult } from '../common/basehalfProviderTypes.js';
 
 /** The calls of the file system that putting a file in place needs: Node's, or a test's. */
 export interface PlaceFileSystem {
@@ -47,7 +47,7 @@ export async function placeFile(from: string, to: string, files: PlaceFileSystem
 		throw rejected('The file to put in place is not there any more.');
 	}
 	if (!source.isFile()) {
-		throw rejected('AI Video puts in place only a file a generation received.');
+		throw rejected('BaseHalf puts in place only a file a generation received.');
 	}
 	try {
 		await files.link(from, to);
@@ -57,7 +57,7 @@ export async function placeFile(from: string, to: string, files: PlaceFileSystem
 			throw taken();
 		}
 		if (code === undefined || !CANNOT_LINK.has(code)) {
-			throw rejected(`AI Video could not put the file in place: ${errorMessage(error)}`);
+			throw rejected(`BaseHalf could not put the file in place: ${errorMessage(error)}`);
 		}
 		await copyExclusively(from, to, files);
 	}
@@ -80,12 +80,12 @@ export function checkPlace(from: string, to: string): void {
 	const cacheFolder = dirname(generationFolder);
 	const bhFolder = dirname(cacheFolder);
 	if (!isAbsolute(from) || !from.endsWith('.part') || basename(generationFolder) !== 'generation' || basename(cacheFolder) !== 'cache' || basename(bhFolder) !== '.bh') {
-		throw rejected('AI Video puts in place only a partial download of .bh/cache/generation/.');
+		throw rejected('BaseHalf puts in place only a partial download of .bh/cache/generation/.');
 	}
 	const workspaceFolder = dirname(bhFolder);
 	const inside = relative(workspaceFolder, to);
 	if (!isAbsolute(to) || to.endsWith('.part') || !inside || inside.startsWith('..') || isAbsolute(inside) || inside.split(sep).includes('.bh')) {
-		throw rejected('AI Video puts a file in place only at a name of its workspace folder, outside .bh/.');
+		throw rejected('BaseHalf puts a file in place only at a name of its workspace folder, outside .bh/.');
 	}
 }
 
@@ -98,7 +98,7 @@ async function copyExclusively(from: string, to: string, files: PlaceFileSystem)
 			throw taken();
 		}
 		await files.unlink(to).catch(() => undefined);
-		throw rejected(`AI Video could not copy the file into place: ${errorMessage(error)}`);
+		throw rejected(`BaseHalf could not copy the file into place: ${errorMessage(error)}`);
 	}
 }
 

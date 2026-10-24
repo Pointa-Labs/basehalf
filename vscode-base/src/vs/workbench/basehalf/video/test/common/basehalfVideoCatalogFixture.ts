@@ -12,7 +12,7 @@ import {
 } from '../../common/basehalfVideoCatalog.js';
 
 /**
- * A model catalog of invented providers and models, as AI Video would answer
+ * A model catalog of invented providers and models, as the provider service would answer
  * it, for the window's tests. The window knows no real provider or model, so
  * its tests do not either.
  *
@@ -211,13 +211,13 @@ export const CORVID: IBaseHalfVideoCatalogProvider = {
 	models: [CORVID_PAINT, CORVID_PRINT, CORVID_REEL]
 };
 
-/** The fixture as the window keeps it once it has read AI Video's answer. */
+/** The fixture as the window keeps it once it has read the provider service's answer. */
 export const TEST_VIDEO_CATALOG: IBaseHalfVideoCatalog = parseBaseHalfVideoCatalog({ schema: 1, providers: [ACME, BOREALIS] }).catalog;
 
 /** The fixture with a provider of image models, as a generation card's tests read it. */
 export const TEST_GENERATION_CATALOG: IBaseHalfVideoCatalog = parseBaseHalfVideoCatalog({ schema: 1, providers: [ACME, BOREALIS, CORVID] }).catalog;
 
-/** The catalog read from AI Video's answer, whose models are the ones above. */
+/** The catalog read from the provider service's answer, whose models are the ones above. */
 export function testVideoModel(providerId: string, modelId: string): IBaseHalfVideoCatalogModel {
 	const model = TEST_VIDEO_CATALOG.providers.find(provider => provider.id === providerId)?.models.find(candidate => candidate.id === modelId);
 	if (!model) {

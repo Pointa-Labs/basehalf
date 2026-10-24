@@ -3,14 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { open, unlink } from 'node:fs/promises';
-import type { ClientRequest, IncomingMessage } from 'node:http';
-import { isAbsolute } from 'node:path';
-import { ProviderFailure, rejected, unreadable } from './failure.ts';
-import { isAllowedAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, startRequest, USER_AGENT, type BoundHttp } from './http.ts';
-import { IMAGE_SIGNATURE_BYTES, imageFormatOf } from './media.ts';
-import type { InlineOutput, OutputAddress } from './module.ts';
-import type { ModelKind, OutputFormat, ProviderErrorCode } from './types.ts';
+import { open, unlink } from 'fs/promises';
+import { isAbsolute } from '../../../base/common/path.js';
+import { ProviderFailure, rejected, unreadable } from './failure.js';
+import { isAllowedAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, USER_AGENT, type BoundHttp, type ProviderTransport, type TransportRequest, type TransportResponse } from './http.js';
+import { IMAGE_SIGNATURE_BYTES, imageFormatOf } from './media.js';
+import type { InlineOutput, OutputAddress } from './module.js';
+import type { ModelKind, OutputFormat, ProviderErrorCode } from '../common/basehalfProviderTypes.js';
 
 /** The largest video kept (providers, "Requests"). */
 export const MAX_VIDEO_DOWNLOAD_BYTES = 512 * 1024 * 1024;
@@ -118,7 +117,7 @@ function isMp4(head: Buffer): boolean {
 export async function downloadFile(http: BoundHttp, location: OutputAddress | InlineOutput, targetFsPath: string, kind: ModelKind, options: DownloadOptions = {}): Promise<KeptFile> {
 	const rule = RULES[kind];
 	if (!isAbsolute(targetFsPath) || !targetFsPath.endsWith('.part')) {
-		throw rejected('AI Video writes a download only to a new .part file.');
+		throw rejected('BaseHalf writes a download only to a new .part file.');
 	}
 	const maxBytes = options.maxBytes ?? rule.maxBytes;
 	if (isInline(location)) {
@@ -162,7 +161,7 @@ async function writeInline(bytes: Buffer, targetFsPath: string, rule: FileRule, 
 	try {
 		handle = await open(targetFsPath, 'wx');
 	} catch (error) {
-		throw rejected(`AI Video could not create the download file: ${networkDetail(error)}`);
+		throw rejected(`BaseHalf could not create the download file: ${networkDetail(error)}`);
 	}
 	try {
 		await handle.writeFile(bytes);
@@ -171,7 +170,7 @@ async function writeInline(bytes: Buffer, targetFsPath: string, rule: FileRule, 
 	} catch (error) {
 		await handle.close().catch(() => undefined);
 		await unlink(targetFsPath).catch(() => undefined);
-		throw rejected(`AI Video could not write the ${rule.noun}: ${networkDetail(error)}`);
+		throw rejected(`BaseHalf could not write the ${rule.noun}: ${networkDetail(error)}`);
 	}
 }
 
@@ -185,7 +184,7 @@ async function downloadOnce(http: BoundHttp, location: OutputAddress, targetFsPa
 			...(ownOrigin ? (location.headers ?? http.credentialHeadersFor(url)) : {})
 		};
 		const startedAt = Date.now();
-		const { request, response } = await openGet(url, headers, timeoutMs, () => http.log('GET', url, 'failed', startedAt));
+		const { request, response } = await openGet(http.options.transport, url, headers, timeoutMs, () => http.log('GET', url, 'failed', startedAt));
 		const status = response.statusCode ?? 0;
 		http.log('GET', url, status, startedAt);
 		if (status >= 300 && status < 400 && response.headers.location) {
@@ -215,17 +214,17 @@ async function downloadOnce(http: BoundHttp, location: OutputAddress, targetFsPa
 	}
 }
 
-function openGet(url: URL, headers: Record<string, string>, timeoutMs: number, onFailure: () => void): Promise<{ request: ClientRequest; response: IncomingMessage }> {
+function openGet(transport: ProviderTransport, url: URL, headers: Record<string, string>, timeoutMs: number, onFailure: () => void): Promise<{ request: TransportRequest; response: TransportResponse }> {
 	return new Promise((resolve, reject) => {
 		let settled = false;
-		let request: ClientRequest;
+		let request: TransportRequest;
 		try {
-			request = startRequest(url, { method: 'GET', headers }, response => {
+			request = transport(url, { method: 'GET', headers }, response => {
 				settled = true;
 				resolve({ request, response });
 			});
 		} catch (error) {
-			reject(rejected(`AI Video could not start the download: ${networkDetail(error)}`));
+			reject(rejected(`BaseHalf could not start the download: ${networkDetail(error)}`));
 			return;
 		}
 		request.on('error', error => {
@@ -240,7 +239,7 @@ function openGet(url: URL, headers: Record<string, string>, timeoutMs: number, o
 	});
 }
 
-async function write(request: ClientRequest, response: IncomingMessage, targetFsPath: string, rule: FileRule, limit: number): Promise<KeptFile> {
+async function write(request: TransportRequest, response: TransportResponse, targetFsPath: string, rule: FileRule, limit: number): Promise<KeptFile> {
 	const declared = Number(response.headers['content-length']);
 	if (Number.isFinite(declared) && declared > limit) {
 		response.resume();
@@ -253,13 +252,13 @@ async function write(request: ClientRequest, response: IncomingMessage, targetFs
 	} catch (error) {
 		response.resume();
 		request.destroy();
-		throw rejected(`AI Video could not create the download file: ${networkDetail(error)}`);
+		throw rejected(`BaseHalf could not create the download file: ${networkDetail(error)}`);
 	}
 	let size = 0;
 	let head = Buffer.alloc(0);
 	let format: OutputFormat | undefined;
 	try {
-		for await (const chunk of response as AsyncIterable<Buffer>) {
+		for await (const chunk of response) {
 			size += chunk.byteLength;
 			if (size > limit) {
 				throw new ProviderFailure('tooLarge', `The ${rule.noun} is larger than the ${limit} bytes BaseHalf downloads.`);

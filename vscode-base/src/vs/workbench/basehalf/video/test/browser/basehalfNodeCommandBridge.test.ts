@@ -242,7 +242,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		const response = await harness.handler.handle(operationDiscoveryEvent());
 		assert.deepStrictEqual(response?.type === 'listCapabilities' ? [response.outcome, response.host?.modelCatalog] : undefined, [
 			'succeeded',
-			{ providers: [], error: 'AI Video, which provides the video models, is not running.' }
+			{ providers: [], error: 'The provider service did not answer.' }
 		]);
 	});
 
@@ -642,7 +642,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		const modelCatalog = {
 			whenReady: async () => {
 				if (options.modelCatalogFails) {
-					throw new Error('AI Video, which provides the video models, is not running.');
+					throw new Error('The provider service did not answer.');
 				}
 				return TEST_VIDEO_CATALOG;
 			}

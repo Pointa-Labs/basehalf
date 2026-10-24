@@ -573,8 +573,8 @@ function modelMenu(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelModelMen
 	return Object.freeze({
 		...(groups.length === 0 ? {
 			message: state.kind === 'image'
-				? localize('basehalf.video.panel.noImageModels', "AI Video offers no image models.")
-				: localize('basehalf.video.panel.noModels', "AI Video offers no video models.")
+				? localize('basehalf.video.panel.noImageModels', "BaseHalf offers no image models.")
+				: localize('basehalf.video.panel.noModels', "BaseHalf offers no video models.")
 		} : {}),
 		groups: Object.freeze(groups),
 		settingsLabel

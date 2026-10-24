@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems } from './check.ts';
-import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, type FormPart, type HttpAnswer, type ProviderHttp } from './http.ts';
-import { bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ModelKind, Params, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems } from './check.js';
+import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, type FormPart, type HttpAnswer, type ProviderHttp } from './http.js';
+import { bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.js';
+import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ModelKind, Params, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Runway's own video and image models on its API, Runway Dev (D59, D64;
@@ -86,10 +86,10 @@ const LABELS = Object.freeze({
 	noRatio: (label: string, ratio: string) => `${label} has no size for the ratio ${ratio}.`,
 	noImageSize: (label: string, ratio: string, resolution: string) => `${label} has no size for the ratio ${ratio} at ${resolution}.`,
 	uploadFailed: (item: string, detail: string) => `${item} could not be uploaded to Runway: ${detail}`,
-	uploadUnreadable: 'Runway answered the upload request in a form AI Video cannot read.',
+	uploadUnreadable: 'Runway answered the upload request in a form BaseHalf cannot read.',
 	storageRefused: (status: number, code: string | undefined, message: string | undefined) => `Runway's storage refused the file (HTTP ${status}${code ? `, ${code}` : ''})${message ? `: ${message}` : '.'}`,
-	noTaskId: 'Runway accepted the request but gave no task id AI Video can read.',
-	unknownState: (state: string) => `Runway reports a task state AI Video does not know: ${state}.`,
+	noTaskId: 'Runway accepted the request but gave no task id BaseHalf can read.',
+	unknownState: (state: string) => `Runway reports a task state BaseHalf does not know: ${state}.`,
 	failed: 'Runway reports that the task failed.',
 	failures: Object.freeze({
 		safetyInput: 'Runway\'s moderation refused an input, and Runway does not refund such a task.',
@@ -114,9 +114,9 @@ const MiB = 1024 * 1024;
 /** Runway's upload takes files of 512 bytes to 200 MB. */
 const UPLOAD_MIN_BYTES = 512;
 const UPLOAD_MAX_BYTES = 200 * MiB;
-/** Room for the upload's form fields within the largest request AI Video sends. */
+/** Room for the upload's form fields within the largest request BaseHalf sends. */
 const FORM_ROOM_BYTES = MiB;
-/** The largest file AI Video uploads: 127 MiB, within Runway's limit and the 128 MiB AI Video sends in one request. */
+/** The largest file BaseHalf uploads: 127 MiB, within Runway's limit and the 128 MiB BaseHalf sends in one request. */
 const FILE_MAX_BYTES = Math.min(UPLOAD_MAX_BYTES, DEFAULT_HTTP_OPTIONS.maxRequestBytes - FORM_ROOM_BYTES);
 /** The longest image data URI Runway takes, in characters: 5 MiB. A longer one is uploaded. */
 const IMAGE_DATA_URI_MAX_LENGTH = 5 * MiB;
@@ -211,6 +211,7 @@ const PUBLIC_FIGURES: CatalogParameter = {
 function declareModel(id: RunwayModelId, required: 'always' | 'withoutMedia', mode: CatalogMode, parameters: readonly CatalogParameter[]): CatalogModel {
 	return {
 		id,
+		kind: 'video',
 		label: LABELS.models[id].label,
 		description: LABELS.models[id].description,
 		providerModels: { global: id },

@@ -86,7 +86,7 @@ suite('BaseHalfVideoCatalog', () => {
 		].map(entry => baseHalfVideoChoiceRatio(TEST_VIDEO_CATALOG, entry)), [9 / 16, 16 / 9, undefined, undefined, undefined, undefined, undefined]);
 	});
 
-	test('reads the catalog AI Video answers, leaves out what is not well formed and says what, and refuses what is no catalog', () => {
+	test('reads the catalog the provider service answers, leaves out what is not well formed and says what, and refuses what is no catalog', () => {
 		const broken = parseBaseHalfVideoCatalog({
 			schema: 1,
 			providers: [
@@ -311,7 +311,7 @@ suite('BaseHalfVideoCatalog', () => {
 		});
 	});
 
-	test('reads the ranges check answered with their reasons, and fits a value beyond one to its end on the steps, as AI Video does (D70)', () => {
+	test('reads the ranges check answered with their reasons, and fits a value beyond one to its end on the steps, as the provider service does (D70)', () => {
 		const checked = parseBaseHalfVideoCheckResult({
 			problems: [],
 			prompt: '',
@@ -400,7 +400,7 @@ suite('BaseHalfVideoCatalog', () => {
 		const cases: Record<string, Partial<IBaseHalfVideoGenerateBlockerInput>> = {
 			generating: { generating: true, catalog: { kind: 'loading' } },
 			catalogLoading: { catalog: { kind: 'loading' }, generation: undefined },
-			catalogFailed: { catalog: { kind: 'failed', message: 'AI Video is not running.' } },
+			catalogFailed: { catalog: { kind: 'failed', message: 'The provider service did not answer.' } },
 			noModel: { generation: { provider: 'acme' }, setup: setup({ setUp: false }) },
 			unknownModel: { generation: { provider: 'acme', model: 'acme-motion-9' } },
 			otherKind: { kind: 'image', setup: setup({ setUp: false }) },
@@ -422,7 +422,7 @@ suite('BaseHalfVideoCatalog', () => {
 		assert.deepStrictEqual(Object.fromEntries(Object.entries(blockers).map(([name, blocker]) => [name, blocker ? [blocker.kind, baseHalfVideoGenerateBlockerText(blocker), isBaseHalfVideoModelBlocker(blocker)] : undefined])), {
 			generating: ['generating', 'This card is already generating.', false],
 			catalogLoading: ['catalogLoading', 'The models are still loading.', false],
-			catalogFailed: ['catalogFailed', 'BaseHalf could not load the models: AI Video is not running.', false],
+			catalogFailed: ['catalogFailed', 'BaseHalf could not load the models: The provider service did not answer.', false],
 			noModel: ['noModel', 'Choose a model to generate.', true],
 			unknownModel: ['unknownModel', 'acme-motion-9 is not a model BaseHalf offers. Choose another model.', true],
 			otherKind: ['otherKind', 'Acme Still makes videos. Choose an image model.', true],

@@ -5,46 +5,51 @@
 
 import * as assert from 'assert';
 import { timeout } from '../../../../../base/common/async.js';
-import { Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { ICommandEvent, ICommandService } from '../../../../../platform/commands/common/commands.js';
+import { IBaseHalfProviderService } from '../../../../../platform/basehalfProviders/common/basehalfProviders.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { BaseHalfVideoCatalogService } from '../../browser/basehalfVideoCatalogService.js';
-import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoCheckRequest } from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCheckRequest } from '../../common/basehalfVideoCatalog.js';
 import { ACME, ACME_MOTION, BOREALIS } from '../common/basehalfVideoCatalogFixture.js';
 
-/** AI Video's catalog and check commands, scripted. */
-class CatalogCommands implements ICommandService {
-	declare readonly _serviceBrand: undefined;
-	readonly onWillExecuteCommand: Event<ICommandEvent> = Event.None;
-	readonly onDidExecuteCommand: Event<ICommandEvent> = Event.None;
+/** The catalog and the check of the provider service, scripted; a call with no answer left does not reach it. */
+class CatalogCommands {
 	readonly calls: string[] = [];
 	answers: (() => unknown)[] = [];
 	check: (request: IBaseHalfVideoCheckRequest) => unknown = () => ({ ok: true, value: { problems: [] } });
 
-	async executeCommand<R = unknown>(id: string, ...args: unknown[]): Promise<R> {
-		this.calls.push(id);
-		if (id === BASEHALF_VIDEO_PROVIDER_COMMANDS.check) {
-			return this.check(args[0] as IBaseHalfVideoCheckRequest) as R;
-		}
-		const answer = this.answers.shift();
-		if (!answer) {
-			throw new Error(`command '${id}' not found`);
-		}
-		return answer() as R;
-	}
+	readonly service: IBaseHalfProviderService = {
+		_serviceBrand: undefined,
+		catalog: async () => {
+			this.calls.push('catalog');
+			const answer = this.answers.shift();
+			if (!answer) {
+				throw new Error('The connection to the shared process was lost.');
+			}
+			return await answer() as never;
+		},
+		check: async request => {
+			this.calls.push('check');
+			return await this.check(request) as never;
+		},
+		submit: () => { throw new Error('not used'); },
+		poll: () => { throw new Error('not used'); },
+		download: () => { throw new Error('not used'); },
+		cancel: () => { throw new Error('not used'); },
+		place: () => { throw new Error('not used'); }
+	};
 }
 
 suite('BaseHalfVideoCatalogService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
 	function createService(commands: CatalogCommands, retryDelay = 1_000): BaseHalfVideoCatalogService {
-		return disposables.add(new BaseHalfVideoCatalogService(retryDelay, commands, new NullLogService()));
+		return disposables.add(new BaseHalfVideoCatalogService(retryDelay, commands.service, new NullLogService()));
 	}
 
-	test('asks AI Video once when the catalog is first needed, and keeps the answer', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+	test('asks the provider service once when the catalog is first needed, and keeps the answer', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 		const commands = new CatalogCommands();
 		commands.answers = [() => ({ ok: true, value: { schema: 1, providers: [ACME, BOREALIS] } })];
 		const service = createService(commands);
@@ -66,7 +71,7 @@ suite('BaseHalfVideoCatalogService', () => {
 			first: 'loading',
 			changes: ['ready'],
 			providers: ['acme', 'borealis'],
-			asked: [BASEHALF_VIDEO_PROVIDER_COMMANDS.catalog]
+			asked: ['catalog']
 		});
 	}));
 
@@ -79,9 +84,9 @@ suite('BaseHalfVideoCatalogService', () => {
 		const service = createService(commands);
 		await assert.rejects(() => service.whenReady(), /The catalog could not be built\./);
 		const answeredWithError = service.state;
-		// AI Video never registered its command in this test: when nothing answers, it does not run.
+		// A call that does not reach the provider service fails with why.
 		commands.answers = [];
-		await assert.rejects(() => service.whenReady(), /AI Video, which provides the video models, is not running\./);
+		await assert.rejects(() => service.whenReady(), /The connection to the shared process was lost\./);
 		const unanswered = service.state;
 		commands.answers = [() => ({ ok: true, value: { schema: 1, providers: [{ ...ACME, models: [ACME_MOTION, { id: 'broken' }] }] } })];
 		service.load();
@@ -89,7 +94,7 @@ suite('BaseHalfVideoCatalogService', () => {
 		const catalog = await service.whenReady();
 		assert.deepStrictEqual({ answeredWithError, unanswered, loadingAgain, models: catalog.providers[0].models.map(model => model.id), asked: commands.calls.length }, {
 			answeredWithError: { kind: 'failed', message: 'The catalog could not be built.' },
-			unanswered: { kind: 'failed', message: 'AI Video, which provides the video models, is not running.' },
+			unanswered: { kind: 'failed', message: 'The connection to the shared process was lost.' },
 			loadingAgain: 'loading',
 			models: ['acme-motion-2'],
 			asked: 5
@@ -103,14 +108,14 @@ suite('BaseHalfVideoCatalogService', () => {
 		commands.answers = [() => new Promise(resolve => answer = resolve)];
 		const service = createService(commands);
 		store.add({ dispose: () => answer?.({ ok: true, value: { schema: 1, providers: [] } }) });
-		await assert.rejects(() => service.whenReady(5_000), /did not answer with the video models in time/);
+		await assert.rejects(() => service.whenReady(5_000), /BaseHalf did not get the models in time/);
 		answer?.({ ok: true, value: { schema: 1, providers: [BOREALIS] } });
 		await timeout(0);
 		assert.deepStrictEqual((await service.whenReady(5_000)).providers.map(provider => provider.id), ['borealis']);
 		store.dispose();
 	}));
 
-	test('checks a planned generation, and answers nothing when AI Video does not', async () => {
+	test('checks a planned generation, and answers nothing when the provider service does not', async () => {
 		const commands = new CatalogCommands();
 		const service = createService(commands, 0);
 		const request: IBaseHalfVideoCheckRequest = {

@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ProviderErrorCode } from './types.ts';
+import type { ProviderErrorCode } from '../common/basehalfProviderTypes.js';
 
 /** The longest message an error carries (video providers, "Requests"). */
 export const MAX_MESSAGE_LENGTH = 1000;
@@ -30,7 +30,7 @@ export function rejected(message: string, status?: number): ProviderFailure {
 	return new ProviderFailure('rejected', message, status);
 }
 
-/** An answer AI Video cannot read. */
+/** An answer BaseHalf cannot read. */
 export function unreadable(message: string): ProviderFailure {
 	return new ProviderFailure('invalidResponse', message);
 }

@@ -52,7 +52,7 @@ import {
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../../common/basehalfGenerationInfo.js';
-import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoCatalogProvider, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
 import { ACME, BOREALIS, CORVID, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import {
@@ -68,12 +68,13 @@ import {
 	InMemoryCredentialStore,
 	RecordingCanvasMirror,
 	RecordingUndoRedoService,
+	PROVIDER_CALL,
 	TestChecksumService,
 	testDigestHex
 } from './basehalfVideoTestFixtures.js';
 
 const START = Date.parse('2026-10-22T08:00:00.000Z');
-const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DOWNLOAD, cancel: CANCEL, place: PLACE } = BASEHALF_VIDEO_PROVIDER_COMMANDS;
+const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DOWNLOAD, cancel: CANCEL, place: PLACE } = PROVIDER_CALL;
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgo=';
 const KEY = 'acme-test-key-0123';
 const CORVID_KEY = 'corvid-test-key-4567';
@@ -151,7 +152,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			const commands = new FakeProviderCommands(fileService);
 			commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [...(options.catalogProviders ?? [ACME, BOREALIS, CORVID])] } });
 			const context = new TestContextService(testWorkspace(root));
-			const catalogService = owner.add(new BaseHalfVideoCatalogService(0, commands, new NullLogService()));
+			const catalogService = owner.add(new BaseHalfVideoCatalogService(0, commands.service, new NullLogService()));
 			const tasks = owner.add(new BaseHalfGenerationTaskStore(fileService, context, uriIdentity, new NullLogService()));
 			const cards = owner.add(new BaseHalfGenerationCardStore(
 				fileService,
@@ -180,7 +181,7 @@ suite('BaseHalfVideoGenerationService', () => {
 				canvas.asService(),
 				new TestChecksumService(fileService),
 				undo.asService(),
-				commands,
+				commands.service,
 				fileService,
 				context,
 				uriIdentity,
@@ -893,21 +894,21 @@ suite('BaseHalfVideoGenerationService', () => {
 		harness.dispose();
 	}));
 
-	test('a request that AI Video was running when it stopped has an unknown outcome; nothing was sent only when the command was never there', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+	test('a submit whose call does not reach the provider service, or whose service stops while it runs, has an unknown outcome (D75)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
 		const lost = await harness.card('shots/lost.mp4', VIDEO);
-		const missing = await harness.card('shots/missing.mp4', VIDEO);
+		const closed = await harness.card('shots/closed.mp4', VIDEO);
 		const { service, commands } = harness.first;
-		// The extension host stopped while the request was on its way: the call is refused, and the command is gone with it.
+		// The shared process stopped while the request was on its way, or the window lost its connection to it.
 		commands.submit = () => { throw new Error('Canceled'); };
 		await service.generate(lost);
-		commands.submit = () => { throw new Error(`command '${SUBMIT}' not found`); };
-		await service.generate(missing);
+		commands.submit = () => { throw new Error('Channel has been closed'); };
+		await service.generate(closed);
 		await until(async () => (await harness.records()).filter(task => task.state === 'failed').length === 2, 500, 60_000);
 		const errors = new Map((await harness.records()).map(task => [task.cards[0].path, task.error]));
-		assert.deepStrictEqual([errors.get('shots/lost.mp4'), errors.get('shots/missing.mp4')], [
+		assert.deepStrictEqual([errors.get('shots/lost.mp4'), errors.get('shots/closed.mp4')], [
 			`${unknownOutcomeMessage()} (Canceled)`,
-			'Nothing was sent to the provider: AI Video, which sends the request, is not running.'
+			`${unknownOutcomeMessage()} (Channel has been closed)`
 		]);
 		harness.dispose();
 	}));
@@ -1248,7 +1249,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		commands.place = async request => {
 			places.push(request.to.slice(root.fsPath.length));
 			if (places.length === 1) {
-				// Another program takes the name the moment before AI Video links the file to it.
+				// Another program takes the name the moment before the provider service links the file to it.
 				await harness.write('shots/video.mp4', 'dropped at the last moment');
 			}
 			return place(request);

@@ -3,10 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { randomUUID } from 'node:crypto';
-import { request as httpRequest, type ClientRequest, type IncomingHttpHeaders, type IncomingMessage, type RequestOptions } from 'node:http';
-import { request as httpsRequest } from 'node:https';
-import { failureForStatus, isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
+import { randomUUID } from 'crypto';
+import type { ClientRequest, IncomingHttpHeaders, IncomingMessage, RequestOptions } from 'http';
+import { failureForStatus, isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
 
 /**
  * HTTP for one provider command (video providers, "Requests"), bound to the
@@ -113,12 +112,40 @@ export interface HttpAnswer {
 	object(): Record<string, unknown>;
 }
 
-/** Where the commands write their one line per exchange. A `LogOutputChannel` is one. */
+/** Where the commands write their one line per exchange. A logger of the shared process is one. */
 export interface ProviderLog {
 	info(message: string): void;
 }
 
 export const NO_LOG: ProviderLog = Object.freeze({ info: () => undefined });
+
+/** What an exchange needs of a request in flight: Node's own requests have it. */
+export interface TransportRequest {
+	/** The body has left this computer, or is leaving it. */
+	on(event: 'finish', listener: () => void): this;
+	on(event: 'error', listener: (error: Error) => void): this;
+	/** Calls `onTimeout` once nothing has moved for `ms`. */
+	setTimeout(ms: number, onTimeout: () => void): this;
+	/** Ends the request; with an error, its `error` listeners hear it. */
+	destroy(error?: Error): this;
+	end(body?: Uint8Array): this;
+}
+
+/** What an exchange reads of an answer: a stream of its body with its status and headers. */
+export interface TransportResponse extends AsyncIterable<Buffer> {
+	readonly statusCode?: number;
+	/** Lowercase names. */
+	readonly headers: IncomingHttpHeaders;
+	/** The whole body arrived. */
+	readonly complete: boolean;
+	on(event: 'data', listener: (chunk: Buffer) => void): this;
+	on(event: 'end' | 'close', listener: () => void): this;
+	on(event: 'error', listener: (error: Error) => void): this;
+	resume(): this;
+}
+
+/** Starts one request. It never follows a redirect: a 3xx answer is the answer. */
+export type ProviderTransport = (url: URL, options: { readonly method: string; readonly headers: Readonly<Record<string, string>> }, onResponse: (response: TransportResponse) => void) => TransportRequest;
 
 /** Limits of the HTTP of a command. Tests lower them. */
 export interface HttpOptions {
@@ -142,6 +169,8 @@ export interface HttpOptions {
 	readonly maxRequestBytes?: number;
 	readonly log?: ProviderLog;
 	readonly sleep?: (ms: number) => Promise<void>;
+	/** How requests are sent: Node's own requests unless the shared process says otherwise. */
+	readonly transport?: ProviderTransport;
 }
 
 export type ResolvedHttpOptions = Required<HttpOptions>;
@@ -156,7 +185,8 @@ export const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = Object.freeze({
 	maxAtOnceAnswerBytes: 256 * 1024 * 1024,
 	maxRequestBytes: 128 * 1024 * 1024,
 	log: NO_LOG,
-	sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+	sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)),
+	transport: (url, options, onResponse) => NODE_TRANSPORT(url, options, onResponse)
 });
 
 export function resolveHttpOptions(options: HttpOptions | undefined): ResolvedHttpOptions {
@@ -255,11 +285,39 @@ function settled(error: unknown): unknown {
 	return error instanceof TransportFailure || error instanceof RetryableAnswer ? new ProviderFailure(error.code, error.message, error.status) : error;
 }
 
-export function startRequest(url: URL, options: RequestOptions, onResponse: (response: IncomingMessage) => void): ClientRequest {
-	// A fresh connection per request: what counts as sent is this request's own.
-	const settings: RequestOptions = { ...options, agent: false };
-	return url.protocol === 'https:' ? httpsRequest(url, settings, onResponse) : httpRequest(url, settings, onResponse);
+/** The request of Node's `http` or `https`, or of what stands for them, such as modules that apply the system's proxy. */
+export interface NodeHttpModule {
+	request(url: URL, options: RequestOptions, callback: (response: IncomingMessage) => void): ClientRequest;
 }
+
+/** Node's `http` and `https`, or what stands for them. */
+export interface NodeHttpModules {
+	readonly http: NodeHttpModule;
+	readonly https: NodeHttpModule;
+}
+
+/**
+ * Node's own requests, through `modules` once `load` gave them: one connection
+ * each, and none is sent again by itself, so that a create reaches the
+ * provider once (providers, "Requests"). Node's `http` and `https` load with
+ * the first request.
+ */
+export function createNodeTransport(load: () => NodeHttpModules = loadNodeHttpModules): ProviderTransport {
+	let modules: NodeHttpModules | undefined;
+	return (url, options, onResponse) => {
+		modules ??= load();
+		// A fresh connection per request: what counts as sent is this request's own.
+		const settings: RequestOptions = { method: options.method, headers: { ...options.headers }, agent: false };
+		return (url.protocol === 'https:' ? modules.https : modules.http).request(url, settings, onResponse);
+	};
+}
+
+function loadNodeHttpModules(): NodeHttpModules {
+	return { http: process.getBuiltinModule('http'), https: process.getBuiltinModule('https') };
+}
+
+/** Node's own requests, which the tests send with. */
+const NODE_TRANSPORT = createNodeTransport();
 
 export function networkDetail(error: unknown): string {
 	if (error instanceof Error) {
@@ -443,8 +501,8 @@ export class BoundHttp implements ProviderHttp {
 			throw once && RETRYABLE_STATUSES.has(raw.status) ? new RetryableAnswer(told, asked) : told;
 		}
 		const fail = () => creates
-			? unknownOutcome('The provider accepted the request but answered in a form AI Video cannot read.')
-			: unreadable('The provider answered in a form AI Video cannot read.');
+			? unknownOutcome('The provider accepted the request but answered in a form BaseHalf cannot read.')
+			: unreadable('The provider answered in a form BaseHalf cannot read.');
 		return {
 			status: raw.status,
 			headers: raw.headers,
@@ -504,9 +562,9 @@ export class BoundHttp implements ProviderHttp {
 					? new TransportFailure(unknownOutcome(`The connection ended after the request was sent: ${detail}`), false)
 					: new TransportFailure(new ProviderFailure('network', detail), true));
 			};
-			let request: ClientRequest;
+			let request: TransportRequest;
 			try {
-				request = startRequest(url, { method: call.method, headers }, response => {
+				request = this.options.transport(url, { method: call.method, headers }, response => {
 					const chunks: Buffer[] = [];
 					let size = 0;
 					response.on('data', (chunk: Buffer) => {
@@ -541,7 +599,7 @@ export class BoundHttp implements ProviderHttp {
 					});
 				});
 			} catch (error) {
-				reject(rejected(`AI Video could not send the request: ${networkDetail(error)}`));
+				reject(rejected(`BaseHalf could not send the request: ${networkDetail(error)}`));
 				return;
 			}
 			request.on('finish', () => {
@@ -552,7 +610,8 @@ export class BoundHttp implements ProviderHttp {
 			request.setTimeout(creates ? this.createTimeoutMs : this.options.requestTimeoutMs, timedOut);
 			if (atOnce) {
 				deadline = setTimeout(timedOut, this.createTimeoutMs);
-				deadline.unref();
+				// Node's timer keeps no process alive by itself; a window's timer has no `unref`.
+				(deadline as unknown as { unref?: () => void }).unref?.();
 			}
 			request.end(body?.bytes);
 		});

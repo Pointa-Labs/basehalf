@@ -3,14 +3,14 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { randomUUID } from 'node:crypto';
-import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, retryAfterMs, type FormPart, type HttpAnswer, type ProviderHttp } from './http.ts';
-import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ChoiceParameter, Media, ModeId, ModeInputs, ModeLimits, NumberParameter, Params, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { randomUUID } from 'crypto';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
+import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, retryAfterMs, type FormPart, type HttpAnswer, type ProviderHttp } from './http.js';
+import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.js';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ChoiceParameter, Media, ModeId, ModeInputs, ModeLimits, NumberParameter, Params, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Alibaba Cloud Model Studio (DashScope): the Wan and HappyHorse video models
@@ -265,6 +265,7 @@ function wan3(id: string, label: string, description: string, only: Task): Model
 		route: () => only,
 		model: {
 			id,
+			kind: 'video',
 			label,
 			description,
 			providerModels: both(only.id),
@@ -303,6 +304,7 @@ function happyHorse(version: '1.1' | '1.0'): ModelSpec {
 		route: (mode, counts) => mode === 'reference' ? tasks.r2v : counts.startFrame ? tasks.i2v : tasks.t2v,
 		model: {
 			id: `happyhorse-${version}`,
+			kind: 'video',
 			label: version === '1.1' ? LABELS.happyHorse11 : LABELS.happyHorse10,
 			description: LABELS.happyHorseDescription,
 			providerModels: both(tasks.t2v.id),
@@ -340,6 +342,7 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 		},
 		model: {
 			id: 'wan2.7',
+			kind: 'video',
 			label: LABELS.wan27,
 			description: LABELS.wan27Description,
 			providerModels: both(TASKS.wan27T2v.id),
@@ -373,6 +376,7 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 		route: (_mode, counts) => counts.startFrame ? TASKS.wan26I2v : TASKS.wan26T2v,
 		model: {
 			id: 'wan2.6',
+			kind: 'video',
 			label: LABELS.wan26,
 			description: LABELS.wan26Description,
 			providerModels: both(TASKS.wan26T2v.id),
@@ -385,6 +389,7 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 		route: () => TASKS.wan26Flash,
 		model: {
 			id: 'wan2.6-flash',
+			kind: 'video',
 			label: LABELS.wan26Flash,
 			description: LABELS.wan26FlashDescription,
 			providerModels: both(TASKS.wan26Flash.id),
@@ -641,7 +646,7 @@ function formatProblems(measured: readonly MeasuredItem[]): string[] {
 	}
 	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
 	if (encodedImages > limit) {
-		problems.push(`The images are ${describeBytes(encodedImages)} together once encoded; AI Video sends at most ${describeBytes(limit)} in one request. Use fewer or smaller images.`);
+		problems.push(`The images are ${describeBytes(encodedImages)} together once encoded; BaseHalf sends at most ${describeBytes(limit)} in one request. Use fewer or smaller images.`);
 	}
 	return problems;
 }
@@ -718,7 +723,7 @@ async function uploadPolicy(http: ProviderHttp, providerModel: string): Promise<
 	const text = (name: string): string => {
 		const value = isRecord(data) ? data[name] : undefined;
 		if (typeof value !== 'string' || !value) {
-			throw unreadable('Alibaba Cloud answered the upload request in a form AI Video cannot read.');
+			throw unreadable('Alibaba Cloud answered the upload request in a form BaseHalf cannot read.');
 		}
 		return value;
 	};
@@ -987,7 +992,7 @@ function imageOutputsOf(body: Record<string, unknown>): OutputLocation[] {
 		if (reading) {
 			throw new ProviderFailure(reading.code ?? 'rejected', reading.message ?? 'Alibaba Cloud refused the request.');
 		}
-		throw unknownOutcome('Alibaba Cloud accepted the request but answered without images AI Video can read.');
+		throw unknownOutcome('Alibaba Cloud accepted the request but answered without images BaseHalf can read.');
 	}
 	const outputs: OutputLocation[] = [];
 	for (const choice of choices) {
@@ -1050,7 +1055,7 @@ async function imageSubmit(spec: ImageSpec, request: SubmitRequest, http: Provid
 function pollStateOf(body: Record<string, unknown>): PollState {
 	const output = body.output;
 	if (!isRecord(output) || typeof output.task_status !== 'string') {
-		throw unreadable('Alibaba Cloud answered about the task in a form AI Video cannot read.');
+		throw unreadable('Alibaba Cloud answered about the task in a form BaseHalf cannot read.');
 	}
 	const reason = () => {
 		const message = typeof output.message === 'string' ? output.message.trim() : '';
@@ -1071,7 +1076,7 @@ function pollStateOf(body: Record<string, unknown>): PollState {
 		case 'UNKNOWN':
 			throw new ProviderFailure('notFound', 'Alibaba Cloud does not know this task: it does not exist, or it is older than 24 hours.');
 		default:
-			throw unreadable(`Alibaba Cloud reports a task state AI Video does not know: ${output.task_status.slice(0, 40)}.`);
+			throw unreadable(`Alibaba Cloud reports a task state BaseHalf does not know: ${output.task_status.slice(0, 40)}.`);
 	}
 }
 
@@ -1222,7 +1227,7 @@ export const ALIBABA: ProviderModule = Object.freeze({
 		const output = answer.object().output;
 		const taskId = isRecord(output) ? output.task_id : undefined;
 		if (typeof taskId !== 'string' || !taskId) {
-			throw unknownOutcome('Alibaba Cloud accepted the request but gave no task id AI Video can read.');
+			throw unknownOutcome('Alibaba Cloud accepted the request but gave no task id BaseHalf can read.');
 		}
 		return taskId;
 	},

@@ -8,12 +8,11 @@ import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
-import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IBaseHalfProviderService } from '../../../../platform/basehalfProviders/common/basehalfProviders.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import {
-	BASEHALF_VIDEO_PROVIDER_COMMANDS,
 	BaseHalfVideoCatalogState,
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCheckRequest,
@@ -30,9 +29,10 @@ const READY_TIMEOUT = 30_000;
 
 /**
  * The model catalog of this window (D59, video providers, "The catalog"). It
- * asks AI Video through the command service the first time anyone needs it,
- * keeps the answer for the life of the window, and tries a failed request
- * once more a second later; a later {@link load} asks again after a failure.
+ * asks the provider service of the shared process (D75) the first time anyone
+ * needs it, keeps the answer for the life of the window, and tries a failed
+ * request once more a second later; a later {@link load} asks again after a
+ * failure.
  */
 export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalfVideoCatalogService {
 	declare readonly _serviceBrand: undefined;
@@ -46,7 +46,7 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 
 	constructor(
 		private readonly retryDelay: number,
-		@ICommandService private readonly commandService: ICommandService,
+		@IBaseHalfProviderService private readonly providerService: IBaseHalfProviderService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -92,12 +92,12 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 		}
 		throw new Error(state.kind === 'failed'
 			? state.message
-			: localize('basehalf.video.catalog.stillLoading', "AI Video did not answer with the video models in time."));
+			: localize('basehalf.video.catalog.stillLoading', "BaseHalf did not get the models in time."));
 	}
 
 	async check(request: IBaseHalfVideoCheckRequest): Promise<IBaseHalfVideoCheckResult | undefined> {
 		try {
-			const answer = await this.commandService.executeCommand(BASEHALF_VIDEO_PROVIDER_COMMANDS.check, request);
+			const answer: unknown = await this.providerService.check(request);
 			return isRecord(answer) && answer.ok === true ? parseBaseHalfVideoCheckResult(answer.value) : undefined;
 		} catch (error) {
 			this.logService.trace(`[BaseHalf video] check did not answer: ${getErrorMessage(error)}`);
@@ -111,9 +111,9 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 			try {
 				let answer: unknown;
 				try {
-					answer = await this.commandService.executeCommand(BASEHALF_VIDEO_PROVIDER_COMMANDS.catalog);
+					answer = await this.providerService.catalog();
 				} catch (error) {
-					throw new Error(this.unansweredMessage(error));
+					throw new Error(plainMessage(error) || localize('basehalf.video.catalog.unknownFailure', "The provider service did not answer."));
 				}
 				const { catalog, problems } = parseBaseHalfVideoCatalog(this.unwrap(answer));
 				for (const problem of problems) {
@@ -136,7 +136,7 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 		}
 	}
 
-	/** The catalog out of AI Video's answer: `{ ok: true, value }`, or an error with its message. */
+	/** The catalog out of the provider service's answer: `{ ok: true, value }`, or an error with its message. */
 	private unwrap(answer: unknown): unknown {
 		if (isRecord(answer) && answer.ok === true) {
 			return answer.value;
@@ -144,15 +144,7 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 		if (isRecord(answer) && answer.ok === false && isRecord(answer.error) && typeof answer.error.message === 'string' && answer.error.message.trim()) {
 			throw new Error(answer.error.message.trim());
 		}
-		throw new Error(localize('basehalf.video.catalog.unreadable', "AI Video answered in a form BaseHalf cannot read."));
-	}
-
-	/** Why the command did not answer: AI Video never registered it, or it failed while it ran. */
-	private unansweredMessage(error: unknown): string {
-		if (!CommandsRegistry.getCommand(BASEHALF_VIDEO_PROVIDER_COMMANDS.catalog)) {
-			return localize('basehalf.video.catalog.notRunning', "AI Video, which provides the video models, is not running.");
-		}
-		return plainMessage(error) || localize('basehalf.video.catalog.unknownFailure', "AI Video did not answer.");
+		throw new Error(localize('basehalf.video.catalog.unreadable', "The provider service answered in a form BaseHalf cannot read."));
 	}
 
 	private setState(state: BaseHalfVideoCatalogState): void {

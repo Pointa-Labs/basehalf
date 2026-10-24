@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import type { HttpAnswer, ProviderHttp } from './http.ts';
-import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
+import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import type { HttpAnswer, ProviderHttp } from './http.js';
+import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.js';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * MiniMax's video and image models on MiniMax's own API, in China
@@ -75,8 +75,8 @@ const TEXT = Object.freeze({
 	},
 	imageReferenceOnly: (label: string) => `${label} cannot be sent: MiniMax's image models take one reference image only.`,
 	imageBlocked: 'MiniMax\'s content check stopped this image.',
-	unreadableImage: 'MiniMax answered an image AI Video cannot read.',
-	noImages: 'MiniMax accepted the request but answered no images AI Video can read.',
+	unreadableImage: 'MiniMax answered an image BaseHalf cannot read.',
+	noImages: 'MiniMax accepted the request but answered no images BaseHalf can read.',
 	noImageTask: (model: string) => `${model} answers with its images at once: there is no task to ask about.`,
 	needsRatio: (model: string) => `${model} needs a ratio for a video made from the prompt alone: choose one, or connect an image.`,
 	referencesNeedInput: (model: string) => `${model} in References mode needs at least one image, video, or audio clip.`,
@@ -94,12 +94,12 @@ const TEXT = Object.freeze({
 	framesOnly: (label: string) => `${label} cannot be sent: Hailuo models take frames only.`,
 	requestTooLarge: 'The request with its inputs is larger than the 64 MB MiniMax takes. Use fewer or smaller inputs.',
 	uploadFailed: (label: string, detail: string) => `${label} could not be uploaded to MiniMax: ${detail}`,
-	uploadUnreadable: 'MiniMax answered the upload in a form AI Video cannot read.',
+	uploadUnreadable: 'MiniMax answered the upload in a form BaseHalf cannot read.',
 	errorCode: (code: number) => `MiniMax answered with error code ${code}.`,
 	rateLimits: 'MiniMax takes 20 requests a minute for Hailuo models, 300 requests a minute with at most 30 tasks at a time for H3 models, and 10 requests a minute for image models.',
-	noTaskId: 'MiniMax accepted the request but gave no task id AI Video can read.',
+	noTaskId: 'MiniMax accepted the request but gave no task id BaseHalf can read.',
 	noTask: 'MiniMax answered without the task.',
-	unknownStatus: (status: string) => `MiniMax reports a task status AI Video does not know: ${status || 'none'}.`,
+	unknownStatus: (status: string) => `MiniMax reports a task status BaseHalf does not know: ${status || 'none'}.`,
 	failed: 'MiniMax reports that the video could not be made.',
 	cancelled: 'The task was cancelled.',
 	notReady: 'The task has no video yet.',
@@ -421,6 +421,7 @@ function catalogModel(model: MiniMaxModel): CatalogModel {
 	}
 	return {
 		id: model.id,
+		kind: 'video',
 		label: text.label,
 		description: text.description,
 		// MiniMax serves each model under the same id in both regions.

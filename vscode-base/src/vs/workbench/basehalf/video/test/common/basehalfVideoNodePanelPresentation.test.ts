@@ -328,7 +328,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			west: menu(present({ regions: { acme: 'west' } })).groups[0],
 			legacy: menu(present({ generation: { provider: 'acme', model: 'acme-legacy' } })).groups[0].items,
 			loading: menu(present({ catalog: { kind: 'loading' } })),
-			failed: menu(present({ catalog: { kind: 'failed', message: 'AI Video is not running.' } })).message
+			failed: menu(present({ catalog: { kind: 'failed', message: 'The provider service did not answer.' } })).message
 		}, {
 			east: {
 				message: undefined,
@@ -341,7 +341,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			west: { label: 'Acme Video', detail: 'West · Acme Global', items: ['Acme Motion 2*', 'Acme Still (Not offered in West · Acme Global)', 'Acme Clip'] },
 			legacy: ['Acme Motion 2', 'Acme Still', 'Acme Clip', 'Acme Legacy*'],
 			loading: { message: 'Loading the models…', groups: [], end: 'Providers…' },
-			failed: 'BaseHalf could not load the models: AI Video is not running.'
+			failed: 'BaseHalf could not load the models: The provider service did not answer.'
 		});
 	});
 
@@ -372,7 +372,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		const states = {
 			generating: present({ generating: true }),
 			loading: present({ catalog: { kind: 'loading' } }),
-			failed: present({ catalog: { kind: 'failed', message: 'AI Video is not running.' } }),
+			failed: present({ catalog: { kind: 'failed', message: 'The provider service did not answer.' } }),
 			noModel: present({ noModel: true }),
 			unknownModel: present({ generation: { provider: 'acme', model: 'acme-motion-9' } }),
 			notSetUp: present({ generation: { provider: 'borealis', model: 'borealis-one' } }),
@@ -388,7 +388,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			: null])), {
 			generating: null,
 			loading: null,
-			failed: 'BaseHalf could not load the models: AI Video is not running.',
+			failed: 'BaseHalf could not load the models: The provider service did not answer.',
 			noModel: null,
 			// What the panel fixes shows on Generate alone; a line is for what is fixed outside it (D70).
 			unknownModel: null,
@@ -482,7 +482,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				'hero.png has no file yet. Generate it first, or remove its connection.',
 				undefined
 			],
-			noImages: 'AI Video offers no image models.'
+			noImages: 'BaseHalf offers no image models.'
 		});
 	});
 

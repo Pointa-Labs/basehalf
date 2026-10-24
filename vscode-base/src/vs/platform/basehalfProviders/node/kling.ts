@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, type PlannedCounts } from './check.ts';
-import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
-import { base64Length, base64Of, describeBytes, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ImageFormat, Params, ParamValue, PlannedMedia, PromptInput, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, type PlannedCounts } from './check.js';
+import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.js';
+import { base64Length, base64Of, describeBytes, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.js';
+import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ImageFormat, Params, ParamValue, PlannedMedia, PromptInput, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Kling's video models on its new API, where the model is part of the path,
@@ -207,6 +207,7 @@ function declareParameters(model: KlingModel): CatalogParameter[] {
 function declareModel(model: KlingModel): CatalogModel {
 	return {
 		id: model.id,
+		kind: 'video',
 		label: LABELS.models[model.id].label,
 		description: LABELS.models[model.id].description,
 		providerModels: { cn: model.id, intl: model.id },
@@ -484,7 +485,7 @@ function createdTaskId(answer: HttpAnswer): string {
 	}
 	const id = isRecord(body.data) ? body.data.id : undefined;
 	if (typeof id !== 'string' || !id.trim()) {
-		throw unknownOutcome('Kling accepted the request but gave no task id AI Video can read.');
+		throw unknownOutcome('Kling accepted the request but gave no task id BaseHalf can read.');
 	}
 	return id;
 }
@@ -498,7 +499,7 @@ async function askAbout(ref: TaskRef, http: ProviderHttp): Promise<Record<string
 		throw answeredFailure(code, body.message, false);
 	}
 	if (!Array.isArray(body.data)) {
-		throw unreadable('Kling answered about the task in a form AI Video cannot read.');
+		throw unreadable('Kling answered about the task in a form BaseHalf cannot read.');
 	}
 	const tasks = body.data.filter(isRecord);
 	const task = tasks.find(entry => entry.id === ref.remoteId) ?? (body.data.length === 1 ? tasks[0] : undefined);
@@ -562,7 +563,7 @@ function createdImageTaskId(answer: HttpAnswer): string {
 	}
 	const id = isRecord(body.data) ? body.data.task_id : undefined;
 	if (typeof id !== 'string' || !id.trim()) {
-		throw unknownOutcome('Kling accepted the request but gave no task id AI Video can read.');
+		throw unknownOutcome('Kling accepted the request but gave no task id BaseHalf can read.');
 	}
 	return id;
 }
@@ -576,7 +577,7 @@ async function askAboutImage(model: KlingImageModel, ref: TaskRef, http: Provide
 		throw answeredFailure(code, body.message, false);
 	}
 	if (!isRecord(body.data)) {
-		throw unreadable('Kling answered about the task in a form AI Video cannot read.');
+		throw unreadable('Kling answered about the task in a form BaseHalf cannot read.');
 	}
 	return body.data;
 }
@@ -610,7 +611,7 @@ function imagePollState(task: Record<string, unknown>): ModulePollState {
 		case 'failed':
 			return { state: 'failed', message: typeof task.task_status_msg === 'string' && task.task_status_msg.trim() ? task.task_status_msg : 'Kling reports that the task failed.' };
 		default:
-			throw unreadable(`Kling reports a task state AI Video does not know: ${String(task.task_status).slice(0, 40)}.`);
+			throw unreadable(`Kling reports a task state BaseHalf does not know: ${String(task.task_status).slice(0, 40)}.`);
 	}
 }
 
@@ -653,14 +654,14 @@ function ruleProblems(model: KlingModel, request: CheckRequest, counts: PlannedC
 	return problems;
 }
 
-/** A request whose JSON with empty images, and then its images as base64, is larger than AI Video sends. */
+/** A request whose JSON with empty images, and then its images as base64, is larger than BaseHalf sends. */
 function sizeProblems(value: unknown, imageBytes: number): string[] {
 	const size = Buffer.byteLength(JSON.stringify(value), 'utf8') + imageBytes;
 	const limit = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
-	return size > limit ? [`The images make a request of ${describeBytes(size)}; AI Video sends at most ${describeBytes(limit)}. Use fewer or smaller images.`] : [];
+	return size > limit ? [`The images make a request of ${describeBytes(size)}; BaseHalf sends at most ${describeBytes(limit)}. Use fewer or smaller images.`] : [];
 }
 
-/** A request too large for AI Video to send. */
+/** A request too large for BaseHalf to send. */
 async function fileProblems(model: KlingModel, request: CheckRequest, inputs: PlannedMedia, media: MediaInspector): Promise<string[]> {
 	const images: SentImage[] = [];
 	let imageBytes = 0;
@@ -772,7 +773,7 @@ export const KLING: ProviderModule = {
 			case 'failed':
 				return { state: 'failed', message: typeof task.message === 'string' && task.message.trim() ? task.message : 'Kling reports that the task failed.' };
 			default:
-				throw unreadable(`Kling reports a task state AI Video does not know: ${String(task.status).slice(0, 40)}.`);
+				throw unreadable(`Kling reports a task state BaseHalf does not know: ${String(task.status).slice(0, 40)}.`);
 		}
 	},
 

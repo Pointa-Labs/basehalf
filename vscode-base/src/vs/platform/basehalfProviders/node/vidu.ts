@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import type { HttpAnswer, ProviderHttp } from './http.ts';
-import { base64Length, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CountSlot, Media, ModeId, ModeLimits, ModelKind, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
+import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import type { HttpAnswer, ProviderHttp } from './http.js';
+import { base64Length, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.js';
+import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CountSlot, Media, ModeId, ModeLimits, ModelKind, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Vidu on its own API (D59, D64; docs/specs/providers/vidu.md): two regions,
@@ -358,6 +358,7 @@ function catalogModel(model: ViduModel): CatalogModel {
 	}
 	return {
 		id: model.id,
+		kind: 'video',
 		label: text.label,
 		description: text.description,
 		providerModels,

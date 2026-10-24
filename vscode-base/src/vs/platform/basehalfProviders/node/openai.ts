@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { measureItems } from './check.ts';
-import { isRecord, readCommonError, rejected, unknownOutcome, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, type FormPart, type ProviderHttp } from './http.ts';
-import { bufferSource, describeBytes, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule } from './module.ts';
-import type { CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, OutputFormat, PollState, SubmitRequest, TaskRef } from './types.ts';
+import { measureItems } from './check.js';
+import { isRecord, readCommonError, rejected, unknownOutcome, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, type FormPart, type ProviderHttp } from './http.js';
+import { bufferSource, describeBytes, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.js';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule } from './module.js';
+import type { CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, OutputFormat, PollState, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * OpenAI's GPT Image models on OpenAI's own Image API (providers, "OpenAI").
@@ -55,14 +55,14 @@ const TEXT = Object.freeze({
 		moderations: { auto: 'Auto', low: 'Low' }
 	},
 	moderationWithReferences: 'OpenAI takes Moderation Low only for an image made from the prompt alone: set Moderation to Auto, or disconnect the reference images.',
-	requestTooLarge: (size: string, limit: string) => `The reference images make a request of ${size}; AI Video sends at most ${limit}. Use fewer or smaller images.`,
+	requestTooLarge: (size: string, limit: string) => `The reference images make a request of ${size}; BaseHalf sends at most ${limit}. Use fewer or smaller images.`,
 	imagesOnly: (label: string) => `${label} cannot be sent: GPT Image takes reference images only.`,
 	imageFormat: (label: string) => `${label} is not a PNG, JPEG, or WebP image.`,
 	noModel: (id: string) => `OpenAI has no model "${id}".`,
 	noSize: (model: string) => `${model} has no size for these settings.`,
 	noImageTask: (model: string) => `${model} answers with its images at once: there is no task to ask about.`,
-	unreadableImage: 'OpenAI answered an image AI Video cannot read.',
-	noImages: 'OpenAI accepted the request but answered no images AI Video can read.'
+	unreadableImage: 'OpenAI answered an image BaseHalf cannot read.',
+	noImages: 'OpenAI accepted the request but answered no images BaseHalf can read.'
 });
 
 // --- the models --------------------------------------------------------------------------------
@@ -143,7 +143,7 @@ const IMAGE_MAX_BYTES = 50 * 1024 * 1024 - 1;
 const MAX_REFERENCES = 16;
 const MAX_IMAGES = 10;
 const PROMPT_MAX_LENGTH = 32_000;
-/** What AI Video sends in one request: OpenAI documents no limit of its own for an edit. */
+/** What BaseHalf sends in one request: OpenAI documents no limit of its own for an edit. */
 const REQUEST_MAX_BYTES = DEFAULT_HTTP_OPTIONS.maxRequestBytes;
 
 function parametersOf(model: GptImage): CatalogParameter[] {

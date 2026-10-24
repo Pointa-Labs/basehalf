@@ -4,10 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The model catalog and the payloads of the provider commands, as the host
- * defines them in `src/vs/workbench/basehalf/video/common/basehalfVideoCatalog.ts`
- * (D59, video providers and the model catalog). The two must stay the same:
- * only the `IBaseHalfVideo`/`BaseHalfVideo` prefixes differ.
+ * The model catalog and the requests and answers of the provider service
+ * (D59, D64, D75, providers and the model catalog): their one definition. The
+ * window uses these types under its own names, which
+ * `src/vs/workbench/basehalf/video/common/basehalfVideoCatalog.ts` gives them.
  */
 
 // --- The catalog ------------------------------------------------------------------------------
@@ -65,8 +65,8 @@ export interface CatalogModel {
 	readonly parameters: readonly CatalogParameter[];
 	/** Listed only for cards that already use it. */
 	readonly deprecated?: boolean;
-	/** What the model makes; `video` when absent. `buildCatalog` always writes it. */
-	readonly kind?: ModelKind;
+	/** What the model makes. */
+	readonly kind: ModelKind;
 	/** For an image model: the format its module asks the provider for, which a draft's extension follows. */
 	readonly outputFormat?: ImageFormat;
 	/** The provider answers the request with the files instead of a task (providers, "Requests"). */
@@ -183,17 +183,6 @@ export type CatalogParameter =
 	| TextParameter;
 
 // --- The provider commands ---------------------------------------------------------------------
-
-/** The internal commands of AI Video (video providers, "Requests"). */
-export const VIDEO_PROVIDER_COMMANDS = Object.freeze({
-	catalog: 'basehalf.video.provider.catalog',
-	check: 'basehalf.video.provider.check',
-	submit: 'basehalf.video.provider.submit',
-	poll: 'basehalf.video.provider.poll',
-	download: 'basehalf.video.provider.download',
-	cancel: 'basehalf.video.provider.cancel',
-	place: 'basehalf.video.provider.place'
-});
 
 /** Where a request goes and with what: the provider, its region, the endpoint in use, and the credential values by id. */
 export interface ProviderAccess {

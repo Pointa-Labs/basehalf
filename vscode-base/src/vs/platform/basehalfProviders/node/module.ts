@@ -3,11 +3,11 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { ProviderErrorReading } from './failure.ts';
-import type { ProviderHttp } from './http.ts';
-import type { MediaInspector } from './media.ts';
-import type { PromptContext } from './prompt.ts';
-import type { CatalogProvider, CheckRequest, CheckResult, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import type { ProviderErrorReading } from './failure.js';
+import type { ProviderHttp } from './http.js';
+import type { MediaInspector } from './media.js';
+import type { PromptContext } from './prompt.js';
+import type { CatalogProvider, CheckRequest, CheckResult, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * One provider on its own API, with its image and video models (D59, D64,
@@ -41,7 +41,7 @@ import type { CatalogProvider, CheckRequest, CheckResult, OutputFormat, PollStat
  * - a refusal stays a refusal, with the provider's reason made plain.
  *
  * An output that cannot be kept (not a file of the model's kind, too large, an
- * address AI Video does not download from, a target that cannot be written) is
+ * address BaseHalf does not download from, a target that cannot be written) is
  * answered as refused with the reason, and the others land. Outputs beyond the
  * targets are dropped, and the extension's log says how many. A module of a
  * video model whose poll gives one address may still answer it as `videoUrl`,

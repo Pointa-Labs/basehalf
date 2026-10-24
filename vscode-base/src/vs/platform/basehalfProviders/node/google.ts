@@ -3,13 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems } from './check.ts';
-import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import type { HttpAnswer, ProviderHttp } from './http.ts';
-import { base64Length, base64Of, bufferSource, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { AnsweredAtOnce, ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ImageFormat, ModeId, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems } from './check.js';
+import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import type { HttpAnswer, ProviderHttp } from './http.js';
+import { base64Length, base64Of, bufferSource, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.js';
+import type { AnsweredAtOnce, ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ImageFormat, ModeId, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Google's models on the Gemini API, all through the Interactions API
@@ -84,20 +84,20 @@ const TEXT = Object.freeze({
 	noAudio: (label: string) => `${label} cannot be sent: Gemini Omni 1.1 Flash takes no audio references.`,
 	imagesOnly: (label: string) => `${label} cannot be sent: Google's image models take reference images only.`,
 	notOffered: (model: string) => `Google does not offer "${model}" in this region.`,
-	noTaskId: 'Google accepted the request but gave no interaction id AI Video can read.',
+	noTaskId: 'Google accepted the request but gave no interaction id BaseHalf can read.',
 	failed: 'Google reports that the generation failed.',
 	cancelled: 'The generation was cancelled.',
 	incomplete: 'Google ended the generation without a complete video.',
 	imageIncomplete: 'Google ended the generation before the image was finished.',
-	requiresAction: 'Google waits for an action on the generation that AI Video cannot take.',
+	requiresAction: 'Google waits for an action on the generation that BaseHalf cannot take.',
 	budgetExceeded: 'Google ended the generation when its budget ran out.',
 	noVideo: 'Google finished the generation without a video.',
 	noVideoSaying: (text: string) => `Google finished the generation without a video: ${text}`,
 	noImage: 'Google finished the generation without an image.',
 	noImageSaying: (text: string) => `Google finished the generation without an image: ${text}`,
 	notReady: 'The generation has no video yet.',
-	unreadableAddress: 'Google gave an address AI Video cannot read.',
-	unknownStatus: (status: string) => `Google reports a generation status AI Video does not know: ${status || 'none'}.`,
+	unreadableAddress: 'Google gave an address BaseHalf cannot read.',
+	unknownStatus: (status: string) => `Google reports a generation status BaseHalf does not know: ${status || 'none'}.`,
 	freeTier: 'Google offers this model only on a paid tier, and the project of this API key is on the free tier. Set up billing for the project in Google AI Studio, or use the key of a project that has it.'
 });
 
@@ -184,6 +184,7 @@ const PARAMETERS: readonly CatalogParameter[] = [
 
 const OMNI: CatalogModel = {
 	id: MODEL_ID,
+	kind: 'video',
 	label: TEXT.model,
 	description: TEXT.description,
 	providerModels: { global: MODEL_ID },
@@ -331,7 +332,7 @@ function interactionPath(remoteId: string): string {
 	return `${INTERACTIONS}/${encodeURIComponent(remoteId)}`;
 }
 
-/** The MIME types the Interactions API names for each format AI Video reads. */
+/** The MIME types the Interactions API names for each format BaseHalf reads. */
 const IMAGE_TYPES: Readonly<Partial<Record<MediaFormat, string>>> = Object.freeze({ png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' });
 const VIDEO_TYPES: Readonly<Partial<Record<MediaFormat, string>>> = Object.freeze({ mp4: 'video/mp4', mov: 'video/mov' });
 
@@ -468,7 +469,7 @@ async function submitImage(model: GoogleImageModel, request: SubmitRequest, http
 
 // --- the interaction ---------------------------------------------------------------------------
 
-/** What AI Video reads of an interaction. */
+/** What BaseHalf reads of an interaction. */
 interface Reading {
 	readonly status: string;
 	/** The output's video: its base64, or the address Google gave instead. */
@@ -674,7 +675,7 @@ async function cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean> {
 		const value = answer.object().status;
 		status = typeof value === 'string' ? value : '';
 	} catch {
-		// Taken without an answer AI Video can read; Google updates the status after its clean-up.
+		// Taken without an answer BaseHalf can read; Google updates the status after its clean-up.
 	}
 	return !ENDED.has(status);
 }

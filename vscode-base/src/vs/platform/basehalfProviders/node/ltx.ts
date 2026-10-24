@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import type { HttpAnswer, ProviderHttp } from './http.ts';
-import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { ModuleCheckResult, ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ModeId, ModeLimits, Params, PollState, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
+import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import type { HttpAnswer, ProviderHttp } from './http.js';
+import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.js';
+import type { ModuleCheckResult, ProviderModule, VideoLocation } from './module.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ModeId, ModeLimits, Params, PollState, ProviderErrorCode, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * Lightricks' LTX video models on LTX's asynchronous API (D59;
@@ -106,7 +106,7 @@ const TEXT = Object.freeze({
 	autoWithEndFrame: (model: string) => `${model} cannot choose the length itself with an end frame: choose a duration, or leave out the end frame.`,
 	audioTooLong: (item: string, seconds: string, resolution: string, model: string, longest: number) =>
 		`${item} is ${seconds} seconds long; at ${resolution}, ${model} takes at most ${longest} seconds of audio.`,
-	clipUnreadable: (item: string) => `${item} is not an MP4 or MOV video whose length AI Video can read.`,
+	clipUnreadable: (item: string) => `${item} is not an MP4 or MOV video whose length BaseHalf can read.`,
 	clipTooShort: (item: string, seconds: string) => `${item} is ${seconds} seconds long; LTX needs a clip of at least 73 frames, about 3 seconds at 24 fps.`,
 	sectionAfterClip: (start: string, item: string, seconds: string) => `The section starts at ${start} seconds, after the end of ${item}, which is ${seconds} seconds long.`,
 	wrongFormat: Object.freeze<Record<MediaKind, (item: string) => string>>({
@@ -120,15 +120,15 @@ const TEXT = Object.freeze({
 	notOffered: (model: string) => `LTX does not offer ${model} in this region.`,
 	noMode: (model: string, mode: string) => `${model} has no ${mode} mode.`,
 	uploadFailed: (item: string, detail: string) => `LTX could not take ${item}: ${detail}`,
-	uploadUnreadable: 'LTX answered the upload request in a form AI Video cannot read.',
+	uploadUnreadable: 'LTX answered the upload request in a form BaseHalf cannot read.',
 	storageRefused: (item: string, status: number, code: string | undefined, message: string | undefined) =>
 		`LTX's storage refused ${item} (HTTP ${status}${code ? `, ${code}` : ''})${message ? `: ${message}` : '.'}`,
-	noJobId: 'LTX accepted the request but gave no job id AI Video can read.',
-	notLtxTask: (remoteId: string) => `The task ${remoteId} names no LTX endpoint, so AI Video cannot ask LTX about it.`,
+	noJobId: 'LTX accepted the request but gave no job id BaseHalf can read.',
+	notLtxTask: (remoteId: string) => `The task ${remoteId} names no LTX endpoint, so BaseHalf cannot ask LTX about it.`,
 	failed: 'LTX reports that the job failed.',
 	noVideo: 'LTX reports that the job completed but gives no address of its video.',
 	noVideoYet: 'LTX gives no address of a video for this job.',
-	unknownStatus: (status: string) => `LTX reports a job status AI Video does not know: ${status || 'none'}.`
+	unknownStatus: (status: string) => `LTX reports a job status BaseHalf does not know: ${status || 'none'}.`
 });
 
 // --- the models ---------------------------------------------------------------------------------
@@ -173,7 +173,7 @@ const SHORTEST_DURATION = 6;
 const SHORTEST_CLIP_SECONDS = 3;
 /** The longest context of an extension. */
 const LONGEST_CONTEXT = 20;
-/** AI Video's bound of a retake section, which LTX does not bound. */
+/** BaseHalf's bound of a retake section, which LTX does not bound. */
 const SECTION_BOUND = 3600;
 /** At 1440p and 4K, audio to video takes at most 10 seconds of audio on every model. */
 const LONGEST_AUDIO_AT_HIGH_RESOLUTIONS = 10;
@@ -327,6 +327,7 @@ function declareModel(model: LtxModel): CatalogModel {
 	const modes = declareModes(model);
 	return {
 		id: model.id,
+		kind: 'video',
 		label: LABELS.models[model.id].label,
 		description: LABELS.models[model.id].description,
 		providerModels: { global: model.id },
@@ -427,7 +428,7 @@ function ruleProblems(model: LtxModel, request: CheckRequest, counts: PlannedCou
 	return problems;
 }
 
-/** The length of the measured clip of Edit or Extend, when it is one AI Video can read. */
+/** The length of the measured clip of Edit or Extend, when it is one BaseHalf can read. */
 function clipSeconds(measured: readonly MeasuredItem[]): number | undefined {
 	const clip = measured.find(item => item.slot === 'source');
 	return clip && (clip.facts.format === 'mp4' || clip.facts.format === 'mov') ? clip.facts.seconds : undefined;
@@ -534,7 +535,7 @@ const UPLOAD_PATH = '/v1/upload';
 const STORAGE_REFUSALS: readonly number[] = Object.freeze([400, 401, 403, 404, 409, 411, 412, 413]);
 /** The storage refuses to overwrite: the upload's own earlier copy is there (`x-goog-if-generation-match: 0`). */
 const ALREADY_THERE = 412;
-/** Headers AI Video sets itself, never taken from `required_headers`. */
+/** Headers BaseHalf sets itself, never taken from `required_headers`. */
 const OWN_HEADERS: ReadonlySet<string> = new Set(['content-length', 'host', 'connection', 'transfer-encoding']);
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,256}$/;
 const HEADER_VALUE = /^[\t\x20-\x7e]{0,8192}$/;

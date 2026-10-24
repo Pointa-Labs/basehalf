@@ -16,9 +16,6 @@ import {
 } from './domain';
 import { addSequenceItemFromVideoResultCommand, inspectSequenceCommand, moveSequenceItemCommand, removeSequenceItemCommand, repairSequenceItemPathCommand } from './sequenceCommands';
 import { resolveSequenceProjection, SEQUENCE_PROJECTION_ID } from './sequenceProjection';
-import { VideoProviderCommands } from './providers/commands.ts';
-import { PROVIDER_MODULES } from './providers/registry.ts';
-import { VIDEO_PROVIDER_COMMANDS } from './providers/types.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	context.subscriptions.push(vscode.commands.registerCommand(CREATE_WORKFLOW_COMMAND_ID, () =>
@@ -32,19 +29,5 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	context.subscriptions.push(vscode.basehalf.registerCardProjectionProvider(SEQUENCE_PROJECTION_ID, {
 		resolveCardProjection: resolveSequenceProjection
 	}));
-
-	// The model catalog and the provider requests of the generations of image
-	// and video cards (D59, D64). The window passes the credentials with every
-	// call; nothing is kept here between calls. The log gets the method, path,
-	// status, and time of each exchange with a provider, and nothing else.
-	const log = vscode.window.createOutputChannel('BaseHalf AI Video', { log: true });
-	context.subscriptions.push(log);
-	const providers = new VideoProviderCommands(PROVIDER_MODULES, { http: { log } });
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.catalog, () => providers.catalog()));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.check, (request: unknown) => providers.check(request)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.submit, (request: unknown) => providers.submit(request)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.poll, (task: unknown) => providers.poll(task)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.download, (request: unknown) => providers.download(request)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.cancel, (task: unknown) => providers.cancel(task)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.place, (request: unknown) => providers.place(request)));
+	// The provider service runs in the shared process (D75).
 }

@@ -3,14 +3,14 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { randomUUID } from 'node:crypto';
-import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
-import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
-import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
-import { bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { ModuleCheckResult, ProviderModule, VideoLocation } from './module.ts';
-import { promptLanguage, referenceNumber, sharedPromptName } from './prompt.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ModeId, ModeInputs, ModeLimits, PollState, PromptInput, PromptPart, SubmitRequest, TaskRef } from './types.ts';
+import { randomUUID } from 'crypto';
+import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.js';
+import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
+import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.js';
+import { bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.js';
+import type { ModuleCheckResult, ProviderModule, VideoLocation } from './module.js';
+import { promptLanguage, referenceNumber, sharedPromptName } from './prompt.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ModeId, ModeInputs, ModeLimits, PollState, PromptInput, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
 
 /**
  * PixVerse's video models on its own API (D59; docs/specs/video-providers/pixverse.md,
@@ -84,17 +84,17 @@ const TEXT = Object.freeze({
 	tooManyImages: (label: string, limit: number, planned: number) => `Without a reference video, ${label} takes at most ${limit} reference images; ${planned} are planned.`,
 	extendRoom: (source: number, limit: number) => `The source video lasts ${seconds(source)} seconds, and PixVerse makes at most ${limit} seconds in all.`,
 	extendNoRoom: (source: number, limit: number) => `The source video lasts ${seconds(source)} seconds, and PixVerse makes at most ${limit} seconds in all, which leaves no room to extend it. Choose a shorter source video.`,
-	videoTooLarge: (label: string, size: string, limit: string) => `${label} is ${size}; AI Video uploads at most ${limit} in one request.`,
+	videoTooLarge: (label: string, size: string, limit: string) => `${label} is ${size}; BaseHalf uploads at most ${limit} in one request.`,
 	wrongFormat: (label: string, kind: 'image' | 'video') => kind === 'image' ? `${label} is not a JPEG, PNG, or WebP image.` : `${label} is not an MP4 or MOV video.`,
 	noAudio: (label: string) => `PixVerse takes no audio in this mode: ${label}.`,
 	uploadFailed: (label: string, detail: string) => `${label} could not be uploaded to PixVerse: ${detail}`,
-	uploadUnreadable: 'PixVerse answered the upload in a form AI Video cannot read.',
-	noTaskId: 'PixVerse accepted the request but gave no task id AI Video can read.',
-	noTask: 'PixVerse answered about the task in a form AI Video cannot read.',
+	uploadUnreadable: 'PixVerse answered the upload in a form BaseHalf cannot read.',
+	noTaskId: 'PixVerse accepted the request but gave no task id BaseHalf can read.',
+	noTask: 'PixVerse answered about the task in a form BaseHalf cannot read.',
 	noVideo: 'PixVerse gives no address of a video for this task.',
 	moderated: 'PixVerse\'s content moderation refused the video. Change the prompt or the inputs.',
 	failed: 'PixVerse reports that the video could not be generated.',
-	unknownStatus: (status: string) => `PixVerse reports a task state AI Video does not know: ${status.slice(0, 40)}.`
+	unknownStatus: (status: string) => `PixVerse reports a task state BaseHalf does not know: ${status.slice(0, 40)}.`
 });
 
 // --- the models ---------------------------------------------------------------------------------
@@ -159,7 +159,7 @@ const MAX_REFERENCE_IMAGES_WITHOUT_VIDEO = 7;
 /** The prompt of every create page, and the shorter one of Image-to-Video. */
 const PROMPT_MAX_LENGTH = 5000;
 const IMAGE_TO_VIDEO_PROMPT_MAX_LENGTH = 2048;
-/** The largest file AI Video uploads: its request limit, less room for the form around the file. */
+/** The largest file BaseHalf uploads: its request limit, less room for the form around the file. */
 const UPLOAD_MAX_BYTES = DEFAULT_HTTP_OPTIONS.maxRequestBytes - 64 * 1024;
 
 const NO_INPUTS = Object.freeze({ min: 0, max: 0 });
@@ -253,6 +253,7 @@ function declareModel(model: PixVerseModel): CatalogModel {
 	const modes = declareModes(model);
 	return {
 		id: model.id,
+		kind: 'video',
 		label: TEXT.models[model.id].label,
 		description: TEXT.models[model.id].description,
 		providerModels: { global: model.sentAs },
@@ -678,7 +679,7 @@ function ruleProblems(model: PixVerseModel, request: CheckRequest, counts: Plann
 	return problems;
 }
 
-/** Reference videos too large for AI Video to upload in one request. */
+/** Reference videos too large for BaseHalf to upload in one request. */
 function fileProblems(measured: readonly MeasuredItem[]): string[] {
 	return measured
 		.filter(item => item.slot === 'video' && item.facts.bytes > UPLOAD_MAX_BYTES)
