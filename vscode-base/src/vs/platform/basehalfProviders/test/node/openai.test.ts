@@ -135,14 +135,14 @@ suite('BaseHalf providers: openai', () => {
 			qualities: labels('quality'),
 			backgrounds: labels('background'),
 			videoLocation: OPENAI.videoLocation,
-			last: PROVIDER_MODULES.at(-1) === OPENAI,
+			shipped: PROVIDER_MODULES.includes(OPENAI),
 			deprecated: provider.models.some(model => model.deprecated)
 		}, {
 			resolutions: ['1K', '2K', '4K'],
 			qualities: ['Low', 'Medium', 'High', 'Extra High', 'Max', 'Auto'],
 			backgrounds: ['Opaque', 'Transparent', 'Auto'],
 			videoLocation: undefined,
-			last: true,
+			shipped: true,
 			deprecated: false
 		});
 	});
