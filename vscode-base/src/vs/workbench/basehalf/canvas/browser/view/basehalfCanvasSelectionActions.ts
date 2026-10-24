@@ -3,8 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import '../media/basehalfCanvasCardPick.css';
 import * as DOM from '../../../../../base/browser/dom.js';
-import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { toAction } from '../../../../../base/common/actions.js';
 import { basename, dirname } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -23,11 +24,17 @@ import { BASEHALF_CANVAS_CARD_IS_DRAFT, IBaseHalfCanvasActionContext } from '../
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfCanvasSceneContextMenuRequest, BaseHalfCanvasSceneSelectionAction } from '../../common/basehalfCanvasScene.js';
+import { IBaseHalfCanvasCardPick, IBaseHalfCanvasCardPickCard } from '../../common/basehalfCanvasCardPick.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from '../basehalfCanvasContextMenu.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { IBaseHalfCanvasPostCreateOwner, badgeType, cardDisplayName } from './basehalfCanvasViewShared.js';
 
 const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
+const CARD_SELECTOR = '.basehalf-canvas-card[data-basehalf-card-path]';
+/** How far a press of Pick on Canvas may move and still be a click, in screen pixels. */
+const CLICK_SLOP = 4;
+/** The events of a press and its release, as Pick on Canvas sees them. */
+const PRESSES: ReadonlySet<string> = new Set(['pointerdown', 'mousedown', 'pointerup', 'mouseup']);
 
 /**
  * What the user does with cards: opening a card, duplicating and deleting a
@@ -38,8 +45,8 @@ const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
  * and reaches the state the view shares and the other parts through `view`.
  */
 export class BaseHalfCanvasSelectionActions {
-	/** Pick on Canvas while it waits for a click (IBaseHalfCanvasView.pickCard). */
-	private canvasCardPick: { readonly store: DisposableStore; finish(path: string | undefined): void } | undefined;
+	/** Pick on Canvas while it is on (IBaseHalfCanvasView.startCardPick). */
+	private canvasCardPick: { end(tell: boolean): void } | undefined;
 	/** Bumped when a pending card open is cancelled: a late open that follows a selection that moved on does nothing. */
 	private cardOpenIntent = 0;
 
@@ -639,74 +646,206 @@ export class BaseHalfCanvasSelectionActions {
 	}
 
 	/**
-	 * Pick on Canvas: the next click on a card picks it, as the Video panel
-	 * picks a card to connect to its node (IBaseHalfCanvasView.pickCard). The
-	 * gesture of that click never reaches the canvas, so it selects or moves
-	 * nothing; the scene leaves dragging and resizing while the cards element
-	 * is marked. A click on the blank canvas or Escape cancels; a click on
-	 * `exceptPath` or on a folder keeps waiting.
+	 * Pick on Canvas (generation cards, "Pick on Canvas"; D69): until it is
+	 * ended, a click on a card hands it to `pick` when a click connects or
+	 * removes it, and its gesture never reaches the canvas, so it selects,
+	 * moves, and connects nothing; the scene leaves dragging, resizing, and
+	 * its handles while the cards element is marked. The canvas shows what a
+	 * click does: a bar with Done at its top, and, from `pick.cardOf`, each
+	 * card's look and the pointer and a label for the card under the pointer.
+	 * Escape or Done ends it and tells `pick`; disposing the result ends it
+	 * without. A new pick ends the one before.
 	 */
-	pickCanvasCard(exceptPath: string): Promise<string | undefined> {
-		this.cancelCanvasCardPick();
-		return new Promise<string | undefined>(resolve => {
-			const store = new DisposableStore();
-			const pick = {
-				store,
-				finish: (path: string | undefined) => {
-					if (this.canvasCardPick !== pick) {
-						return;
+	startCanvasCardPick(pick: IBaseHalfCanvasCardPick): IDisposable {
+		this.canvasCardPick?.end(true);
+		const store = new DisposableStore();
+		const cards = this.view.cards;
+		const targetDocument = cards.ownerDocument;
+		const session = {
+			end: (tell: boolean) => {
+				if (this.canvasCardPick !== session) {
+					return;
+				}
+				this.canvasCardPick = undefined;
+				store.dispose();
+				if (tell) {
+					pick.ended();
+				}
+			}
+		};
+		this.canvasCardPick = session;
+		cards.dataset.videoInputPickActive = 'true';
+		store.add(toDisposable(() => delete cards.dataset.videoInputPickActive));
+
+		// Over the canvas, apart from its overlay, which each drawing of the canvas clears.
+		const layer = DOM.append(this.view.surface, DOM.$('.basehalf-canvas-pick-layer'));
+		store.add(toDisposable(() => layer.remove()));
+		const bar = DOM.append(layer, DOM.$('.basehalf-canvas-pick-bar'));
+		bar.setAttribute('role', 'status');
+		DOM.append(bar, DOM.$('span.basehalf-canvas-pick-title')).textContent = pick.title;
+		const done = DOM.append(bar, DOM.$<HTMLButtonElement>('button.basehalf-canvas-pick-done'));
+		done.type = 'button';
+		done.textContent = localize('basehalf.canvas.pick.done', "Done");
+		store.add(DOM.addDisposableListener(done, 'click', () => session.end(true)));
+		const label = DOM.append(layer, DOM.$('.basehalf-canvas-pick-label'));
+		label.hidden = true;
+
+		// Each card shows what a click on it does, also one the canvas draws again.
+		const states = new Map<string, IBaseHalfCanvasCardPickCard>();
+		const stateOf = (card: HTMLElement): IBaseHalfCanvasCardPickCard | undefined => {
+			const path = card.dataset.basehalfCardPath;
+			if (path === undefined) {
+				return undefined;
+			}
+			let state = states.get(path);
+			if (!state) {
+				state = pick.cardOf(path, this.view.renderedItemsByPath.get(path)?.stat.isDirectory === true);
+				states.set(path, state);
+			}
+			return state;
+		};
+		const marked = new Set<HTMLElement>();
+		const mark = (card: HTMLElement | undefined): void => {
+			const state = card && stateOf(card);
+			if (card && state && card.dataset.basehalfPick !== state.action) {
+				card.dataset.basehalfPick = state.action;
+				marked.add(card);
+			}
+		};
+		// The canvas keeps the element of every card, also of one it does not draw yet.
+		const markAll = (): void => {
+			for (const card of this.view.renderedCardElementsByPath.values()) {
+				mark(card);
+			}
+		};
+		store.add(toDisposable(() => {
+			for (const card of marked) {
+				delete card.dataset.basehalfPick;
+			}
+		}));
+		markAll();
+		// A card the canvas creates again, as after its file changed, is marked once it is drawn.
+		const MutationObserverConstructor = DOM.getWindow(cards).MutationObserver;
+		const observer = new MutationObserverConstructor(records => {
+			for (const record of records) {
+				for (const node of record.addedNodes) {
+					if (!DOM.isHTMLElement(node)) {
+						continue;
 					}
-					this.canvasCardPick = undefined;
-					store.dispose();
-					resolve(path);
+					if (node.matches(CARD_SELECTOR)) {
+						mark(node);
+					} else if (node.classList.contains('react-flow__node') && node.dataset.id !== undefined) {
+						mark(this.view.renderedCardElementsByPath.get(node.dataset.id));
+					}
 				}
-			};
-			this.canvasCardPick = pick;
-			// The panel says what the next click does, where the user chose Pick on Canvas.
-			this.view.cards.dataset.videoInputPickActive = 'true';
-			store.add(toDisposable(() => delete this.view.cards.dataset.videoInputPickActive));
-			let pressedPath: string | undefined | null = null;
-			const onPointer = (event: Event): void => {
-				const target = event.target;
-				if (!DOM.isHTMLElement(target) && !DOM.isSVGElement(target)) {
-					return;
-				}
-				if (!this.view.cards.contains(target) || target.closest('.bh-video-panel')) {
-					return;
-				}
+			}
+		});
+		observer.observe(cards, { childList: true, subtree: true });
+		store.add(toDisposable(() => observer.disconnect()));
+
+		// The label beside the pointer says what a click on the card under it does.
+		const cardAt = (target: EventTarget | null): HTMLElement | undefined => {
+			if ((!DOM.isHTMLElement(target) && !DOM.isSVGElement(target)) || !cards.contains(target) || target.closest('.bh-video-panel')) {
+				return undefined;
+			}
+			return target.closest<HTMLElement>(CARD_SELECTOR) ?? undefined;
+		};
+		const pointer = { x: 0, y: 0 };
+		const showLabel = (card: HTMLElement | undefined): void => {
+			const text = card ? stateOf(card)?.label : undefined;
+			label.hidden = !text;
+			if (!text) {
+				return;
+			}
+			label.textContent = text;
+			const targetWindow = DOM.getWindow(label);
+			label.style.left = `${Math.max(8, Math.min(pointer.x + 14, targetWindow.innerWidth - label.offsetWidth - 8))}px`;
+			label.style.top = `${Math.max(8, Math.min(pointer.y + 18, targetWindow.innerHeight - label.offsetHeight - 8))}px`;
+		};
+		store.add(DOM.addDisposableListener(targetDocument, 'pointermove', event => {
+			pointer.x = event.clientX;
+			pointer.y = event.clientY;
+			showLabel(cardAt(event.target));
+		}, true));
+		store.add(DOM.addDisposableListener(targetDocument, 'pointerout', event => {
+			// The pointer left the window.
+			if (!event.relatedTarget) {
+				showLabel(undefined);
+			}
+		}));
+		// The view moved under the pointer, as the wheel moves it: the card under it is another one.
+		let wheelFrame: IDisposable | undefined;
+		store.add(DOM.addDisposableListener(targetDocument, 'wheel', () => {
+			wheelFrame?.dispose();
+			wheelFrame = DOM.scheduleAtNextAnimationFrame(DOM.getWindow(cards), () => showLabel(cardAt(targetDocument.elementFromPoint(pointer.x, pointer.y))));
+		}, { capture: true, passive: true }));
+		store.add(toDisposable(() => wheelFrame?.dispose()));
+		store.add(pick.onDidChange(() => {
+			states.clear();
+			markAll();
+			showLabel(cardAt(targetDocument.elementFromPoint(pointer.x, pointer.y)));
+		}));
+
+		let pressed: HTMLElement | undefined | null = null;
+		const pressedAt = { x: 0, y: 0 };
+		const onPointer = (event: MouseEvent): void => {
+			const target = event.target;
+			if ((!DOM.isHTMLElement(target) && !DOM.isSVGElement(target)) || !cards.contains(target) || target.closest('.bh-video-panel')) {
+				return;
+			}
+			// The middle and the right button still move the view, as at other times.
+			if (event.button !== 0 && PRESSES.has(event.type)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			if (event.type === 'pointerdown') {
+				pressed = cardAt(target);
+				pressedAt.x = event.clientX;
+				pressedAt.y = event.clientY;
+				return;
+			}
+			if (event.type !== 'click' || pressed === null) {
+				return;
+			}
+			const card = pressed;
+			pressed = null;
+			// A press that moved, as a drag does, or that was let go on another card, is no click.
+			if (!card || cardAt(target) !== card || Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > CLICK_SLOP) {
+				return;
+			}
+			const action = stateOf(card)?.action;
+			const path = card.dataset.basehalfCardPath;
+			// A click on the blank canvas, the card that picks, or a card that cannot be an input changes nothing.
+			if (path !== undefined && (action === 'connect' || action === 'remove')) {
+				pick.pick(path);
+			}
+		};
+		// No menu opens on the canvas either.
+		for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick', 'auxclick', 'contextmenu']) {
+			store.add(DOM.addDisposableListener(targetDocument, type, onPointer, true));
+		}
+		store.add(DOM.addDisposableListener(targetDocument, 'keydown', event => {
+			// In the panel, Escape first closes its menus; the panel ends picking then.
+			const inPanel = DOM.isHTMLElement(event.target) && !!event.target.closest('.bh-video-panel');
+			if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229 && !inPanel) {
 				event.preventDefault();
 				event.stopImmediatePropagation();
-				if (event.type === 'pointerdown') {
-					pressedPath = target.closest<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]')?.dataset.basehalfCardPath;
-					return;
-				}
-				if (event.type !== 'click' || pressedPath === null) {
-					return;
-				}
-				const path = pressedPath;
-				pressedPath = null;
-				if (path === undefined) {
-					pick.finish(undefined);
-				} else if (path !== exceptPath && this.view.renderedItemsByPath.get(path)?.stat.isDirectory !== true) {
-					pick.finish(path);
-				}
-			};
-			const targetDocument = this.view.cards.ownerDocument;
-			for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick']) {
-				store.add(DOM.addDisposableListener(targetDocument, type, onPointer, true));
+				session.end(true);
+				return;
 			}
-			store.add(DOM.addDisposableListener(targetDocument, 'keydown', event => {
-				if (event.key === 'Escape') {
-					event.preventDefault();
-					event.stopImmediatePropagation();
-					pick.finish(undefined);
-				}
-			}, true));
-		});
+			// The canvas is not edited while picking: a card that has the keyboard is not deleted.
+			if ((event.key === 'Delete' || event.key === 'Backspace') && DOM.isHTMLElement(event.target) && cards.contains(event.target) && !inPanel) {
+				event.preventDefault();
+				event.stopImmediatePropagation();
+			}
+		}, true));
+		return toDisposable(() => session.end(false));
 	}
 
-	cancelCanvasCardPick(): void {
-		this.canvasCardPick?.finish(undefined);
+	/** Ends Pick on Canvas, when it is on, without telling its pick. */
+	endCanvasCardPick(): void {
+		this.canvasCardPick?.end(false);
 	}
 
 	selectCard(path: string): void {

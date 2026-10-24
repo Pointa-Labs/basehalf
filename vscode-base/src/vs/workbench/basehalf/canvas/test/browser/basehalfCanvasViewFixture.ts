@@ -9,6 +9,7 @@ import { DisposableStore, toDisposable } from '../../../../../base/common/lifecy
 import { URI } from '../../../../../base/common/uri.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
+import { IBaseHalfCanvasCardPick } from '../../common/basehalfCanvasCardPick.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
@@ -39,8 +40,8 @@ export interface IBaseHalfTestCanvasView extends IBaseHalfCanvasView {
 	noteEditorCloses: boolean;
 	/** Makes the next `moveCards` fail with this error. */
 	failNextMove(error: Error): void;
-	/** Answers the pick that `pickCard` waits for. */
-	finishCardPick(path: string | undefined): void;
+	/** The pick that `startCardPick` started, while it is on. */
+	readonly cardPick: IBaseHalfCanvasCardPick | undefined;
 	/** Whether a gesture of the pointer is going on. */
 	interacting: boolean;
 	/** The node that `takeCreatedNodeFocus` answers for once. */
@@ -110,7 +111,7 @@ export function createBaseHalfTestCanvasView(
 	const viewport = options?.viewport ?? { x: 0, y: 0, zoom };
 	let lastMoveUndoOrRedo: ((undone: boolean) => void) | undefined;
 	let nextMoveError: Error | undefined;
-	let pendingPick: ((path: string | undefined) => void) | undefined;
+	let cardPick: IBaseHalfCanvasCardPick | undefined;
 	const canvas: IBaseHalfTestCanvasView = {
 		calls,
 		get zoom() { return zoom; },
@@ -138,16 +139,17 @@ export function createBaseHalfTestCanvasView(
 		interacting: false,
 		isInteracting: () => canvas.interacting,
 		focusCard: path => calls.push(`focusCard ${path}`),
-		pickCard: exceptPath => {
-			calls.push(`pickCard except ${exceptPath}`);
-			pendingPick?.(undefined);
-			return new Promise<string | undefined>(resolve => { pendingPick = resolve; });
+		get cardPick() { return cardPick; },
+		startCardPick: pick => {
+			calls.push(`startCardPick ${pick.title}`);
+			cardPick = pick;
+			return toDisposable(() => {
+				if (cardPick === pick) {
+					cardPick = undefined;
+				}
+			});
 		},
-		cancelCardPick: () => {
-			const pick = pendingPick;
-			pendingPick = undefined;
-			pick?.(undefined);
-		},
+		endCardPick: () => { cardPick = undefined; },
 		cardPanels: new Map<string, HTMLElement>(),
 		showCardPanel: (sceneKey, path, element, screenHeight) => {
 			calls.push(`showCardPanel ${sceneKey} ${path} ${screenHeight}`);
@@ -224,11 +226,6 @@ export function createBaseHalfTestCanvasView(
 		},
 		undoOrRedoLastMove: undone => lastMoveUndoOrRedo?.(undone),
 		failNextMove: error => { nextMoveError = error; },
-		finishCardPick: path => {
-			const pick = pendingPick;
-			pendingPick = undefined;
-			pick?.(path);
-		},
 	};
 	return canvas;
 }

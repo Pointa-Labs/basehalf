@@ -198,7 +198,7 @@
 	cursor: text;
 }
 
-/* A drag and an input pick keep the card's cursor over the name. */
+/* A drag keeps the card's cursor over the name; Pick on Canvas sets its own (basehalfCanvasCardPick.css). */
 .monaco-workbench .react-flow__node.dragging .basehalf-canvas-card-label.renamable {
 	cursor: inherit;
 }

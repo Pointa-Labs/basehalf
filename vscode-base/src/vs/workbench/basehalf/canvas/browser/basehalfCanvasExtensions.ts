@@ -8,6 +8,7 @@ import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { BrandedService, IConstructorSignature } from '../../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
+import { IBaseHalfCanvasCardPick } from '../common/basehalfCanvasCardPick.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../common/basehalfCanvasScene.js';
 
@@ -103,13 +104,16 @@ export interface IBaseHalfCanvasView {
 	/** Moves the keyboard focus to a card. */
 	focusCard(path: string): void;
 	/**
-	 * Pick on Canvas: lets the user click a card and resolves with its path.
-	 * The click selects or moves nothing. A click on the blank canvas, Escape,
-	 * or `cancelCardPick` resolves with undefined; a click on `exceptPath` or
-	 * on a folder keeps waiting.
+	 * Pick on Canvas (generation cards, "Pick on Canvas"; D69): until it is
+	 * ended, a click on a card that `pick` connects or removes hands it to
+	 * `pick`, and no click selects, moves, or connects a card. The canvas
+	 * shows what a click on each card does, as `pick.cardOf` says. Escape or
+	 * the bar's Done ends it and tells `pick`; disposing the result ends it
+	 * without. A new pick ends the one before.
 	 */
-	pickCard(exceptPath: string): Promise<string | undefined>;
-	cancelCardPick(): void;
+	startCardPick(pick: IBaseHalfCanvasCardPick): IDisposable;
+	/** Ends Pick on Canvas, when it is on, without telling its pick. */
+	endCardPick(): void;
 	/**
 	 * Shows an element as the panel under a selected card, such as the Video
 	 * panel. The scene places it; `screenHeight` is its height in screen

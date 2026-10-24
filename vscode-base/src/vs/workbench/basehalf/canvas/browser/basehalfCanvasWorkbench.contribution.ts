@@ -345,7 +345,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			this.badgeEditor.flushAllBadgeDescriptionWrites(),
 			{ id: 'join.basehalfBadgeDescriptions', label: localize('join.basehalfBadgeDescriptions', "Saving Badge prompts") }
 		)));
-		this._register(toDisposable(() => this.selectionActions.cancelCanvasCardPick()));
+		this._register(toDisposable(() => this.selectionActions.endCanvasCardPick()));
 
 		const editorContainer = this.layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
 		if (!editorContainer) {
@@ -679,8 +679,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			},
 			isInteracting: () => this.canvasScene.isInteracting(),
 			focusCard: path => this.renderedCardElementsByPath.get(path)?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true }),
-			pickCard: exceptPath => this.selectionActions.pickCanvasCard(exceptPath),
-			cancelCardPick: () => this.selectionActions.cancelCanvasCardPick(),
+			startCardPick: pick => this.selectionActions.startCanvasCardPick(pick),
+			endCardPick: () => this.selectionActions.endCanvasCardPick(),
 			showCardPanel: (sceneKey, path, element, screenHeight) => this.canvasScene.setVideoPanelSurface({ sceneKey, structuralEpoch: this.renderedSceneStructuralEpoch, path, element, screenHeight }),
 			clearCardPanel: element => this.canvasScene.clearVideoPanelSurface(element),
 			takeCreatedNodeFocus: path => {

@@ -1,0 +1,151 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Pick on Canvas (generation cards, "Pick on Canvas"; D69): what a click on
+ * each card does, by the pointer and the card's look, the bar at the top of
+ * the canvas, and the label beside the pointer.
+ */
+
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .react-flow__pane,
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .react-flow__node {
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .basehalf-canvas-card[data-basehalf-pick] {
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .basehalf-canvas-card[data-basehalf-pick="refused"],
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .basehalf-canvas-card[data-basehalf-pick="self"] {
+	cursor: not-allowed;
+}
+
+/* Its name, its picture, and its player take the card's pointer: never the hand that moves it, or the text cursor. */
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .basehalf-canvas-card[data-basehalf-pick] * {
+	cursor: inherit !important;
+}
+
+/* The marks of a card are screen pixels, whatever the zoom. */
+.monaco-workbench .basehalf-canvas-card[data-basehalf-pick] {
+	--bh-pick-px: calc(1px / var(--basehalf-canvas-zoom, 1));
+}
+
+.monaco-workbench .basehalf-canvas-card[data-basehalf-pick="connect"]:hover {
+	box-shadow: 0 0 0 calc(2 * var(--bh-pick-px)) var(--vscode-focusBorder), 0 1px 3px rgb(7 8 9 / 46%), 0 6px 18px rgb(7 8 9 / 12%);
+}
+
+/* A connected card is darkened, with a check mark at its top left. */
+.monaco-workbench .basehalf-canvas-card[data-basehalf-pick="remove"]::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	background: rgb(0 0 0 / 45%);
+	border-radius: inherit;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-card[data-basehalf-pick="remove"]:hover::after {
+	background: rgb(0 0 0 / 55%);
+}
+
+.monaco-workbench .basehalf-canvas-card[data-basehalf-pick="remove"]::before {
+	content: '\2713';
+	position: absolute;
+	top: calc(8 * var(--bh-pick-px));
+	left: calc(8 * var(--bh-pick-px));
+	z-index: 4;
+	width: calc(20 * var(--bh-pick-px));
+	height: calc(20 * var(--bh-pick-px));
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	border-radius: 50%;
+	box-shadow: 0 0 0 calc(1.5 * var(--bh-pick-px)) rgb(255 255 255 / 85%);
+	font-size: calc(12 * var(--bh-pick-px));
+	font-weight: 700;
+	line-height: calc(20 * var(--bh-pick-px));
+	text-align: center;
+	pointer-events: none;
+}
+
+/* Nothing on the canvas is edited: the handles that draw a connection and the toolbars of the selection do not show; the draft's panel does. */
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .basehalf-canvas-card-connect-handle,
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .basehalf-canvas-adjacent-chrome:not(.basehalf-canvas-video-panel-surface) {
+	visibility: hidden !important;
+	pointer-events: none !important;
+}
+
+/* A card that cannot be an input is faded. */
+.monaco-workbench .basehalf-canvas-card[data-basehalf-pick="refused"] {
+	opacity: 0.4;
+}
+
+.monaco-workbench .basehalf-canvas-pick-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 30;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-pick-bar {
+	position: absolute;
+	top: 14px;
+	left: 50%;
+	display: flex;
+	max-width: calc(100% - 48px);
+	box-sizing: border-box;
+	align-items: center;
+	gap: 12px;
+	padding: 5px 5px 5px 14px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	border-radius: 18px;
+	box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+	font-size: 12px;
+	line-height: 18px;
+	pointer-events: auto;
+	transform: translateX(-50%);
+}
+
+.monaco-workbench .basehalf-canvas-pick-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-canvas-pick-done {
+	flex: none;
+	padding: 3px 12px;
+	color: inherit;
+	background: rgb(255 255 255 / 18%);
+	border: 0;
+	border-radius: 13px;
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-pick-done:hover {
+	background: rgb(255 255 255 / 28%);
+}
+
+.monaco-workbench .basehalf-canvas-pick-label {
+	position: fixed;
+	max-width: 280px;
+	box-sizing: border-box;
+	padding: 4px 8px;
+	color: #fff;
+	background: rgb(0 0 0 / 82%);
+	border-radius: 6px;
+	font-size: 12px;
+	line-height: 16px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-pick-label[hidden] {
+	display: none;
+}

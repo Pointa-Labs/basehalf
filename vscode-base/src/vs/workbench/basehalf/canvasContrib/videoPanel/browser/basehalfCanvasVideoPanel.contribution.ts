@@ -86,7 +86,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		)));
 		this._register(toDisposable(() => {
 			this.disposed = true;
-			this.canvas.cancelCardPick();
+			this.canvas.endCardPick();
 			this.mount?.store.dispose();
 			this.mount = undefined;
 		}));
@@ -216,7 +216,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			return;
 		}
 		this.mount = undefined;
-		this.canvas.cancelCardPick();
+		this.canvas.endCardPick();
 		this.canvas.clearCardPanel(mount.panel.element);
 		try {
 			await mount.panel.flush();
@@ -229,7 +229,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 
 	private panelHost(sceneKey: string, path: string): IBaseHalfVideoNodePanelHost {
 		return {
-			pickCard: () => this.canvas.pickCard(path),
+			startPick: pick => this.canvas.startCardPick(pick),
 			importFile: accept => this.importFile(path, accept),
 			focusCard: () => this.canvas.focusCard(path),
 			didGenerateInNode: resource => this.selectCardWhenDrawn(sceneKey, resource),

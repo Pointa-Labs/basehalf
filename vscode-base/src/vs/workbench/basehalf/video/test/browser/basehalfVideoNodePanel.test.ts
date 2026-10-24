@@ -21,6 +21,7 @@ import { INotification, INotificationHandle, INotificationService } from '../../
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { IWorkspaceContextService, toWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../browser/basehalfVideoNodePanel.js';
+import { IBaseHalfCanvasCardPick } from '../../../canvas/common/basehalfCanvasCardPick.js';
 import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../../../references/common/basehalfReferenceEdit.js';
@@ -335,7 +336,7 @@ suite('BaseHalfVideoNodePanel', () => {
 	let notifications: RecordingNotificationService;
 	let hovers: Map<HTMLElement, () => string>;
 	let connections: { readonly added: string[]; readonly removed: string[]; undoSteps: number };
-	let host: IBaseHalfVideoNodePanelHost & { cardFocused: number; picked: string | undefined };
+	let host: IBaseHalfVideoNodePanelHost & { cardFocused: number; pick: IBaseHalfCanvasCardPick | undefined };
 	let mounted: HTMLElement[];
 	/** Why the draft's model would refuse an input, by its path. */
 	let refusal: (path: string) => string | undefined;
@@ -357,8 +358,15 @@ suite('BaseHalfVideoNodePanel', () => {
 		folderFiles = [];
 		host = {
 			cardFocused: 0,
-			picked: 'refs/c.png',
-			pickCard: async () => host.picked,
+			pick: undefined,
+			startPick: pick => {
+				host.pick = pick;
+				return toDisposable(() => {
+					if (host.pick === pick) {
+						host.pick = undefined;
+					}
+				});
+			},
 			importFile: async () => undefined,
 			focusCard: () => { host.cardFocused++; }
 		};
@@ -462,6 +470,14 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	function press(target: HTMLElement, key: string, init?: KeyboardEventInit): void {
 		target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+	}
+
+	/** Chooses Pick on Canvas from the plus, and answers what the panel asked the canvas to pick with. */
+	function startPick(panel: BaseHalfVideoNodePanel): IBaseHalfCanvasCardPick {
+		find(panel, '.bh-input-row-add').click();
+		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Pick on Canvas')?.click();
+		assert.ok(host.pick, 'The panel started no pick.');
+		return host.pick;
 	}
 
 	test('saves the prompt half a second after typing stops and at once on flush, without a dialog, also with no model', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
@@ -628,14 +644,97 @@ suite('BaseHalfVideoNodePanel', () => {
 		}, { editable: 'false', controls: 0, menus: 0, model: 'true' });
 	});
 
-	test('Pick on Canvas of a card the model cannot use says why and connects nothing (D67)', async () => {
-		host.picked = 'refs/clip.mp4';
+	test('a card clicked while picking that the model cannot use says why and connects nothing (D67)', async () => {
 		refusal = () => 'Acme Motion 2 takes no videos in Frames.';
 		const panel = await createPanel();
-		find(panel, '.bh-input-row-add').click();
-		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Pick on Canvas')?.click();
+		startPick(panel).pick('refs/clip.mp4');
 		await settle();
 		assert.deepStrictEqual({ added: connections.added, said: notifications.shown }, { added: [], said: ['Acme Motion 2 takes no videos in Frames.'] });
+	});
+
+	test('Pick on Canvas says what a click on each card does: connect it, remove it, or why not (D69)', async () => {
+		store.upstream = ['frames/a.png', 'refs/clip.mp4'];
+		const panel = await createPanel();
+		const pick = startPick(panel);
+		assert.deepStrictEqual({
+			title: pick.title,
+			self: pick.cardOf(NODE_PATH, false),
+			connected: pick.cardOf('frames/a.png', false),
+			image: pick.cardOf('refs/c.png', false),
+			video: pick.cardOf('refs/clip-2.mp4', false),
+			unusable: pick.cardOf('refs/brief.pdf', false),
+			folder: pick.cardOf('refs', true),
+			pressed: find(panel, '.bh-input-row-add').getAttribute('aria-pressed'),
+			hint: find(panel, '.bh-input-row-hint').textContent
+		}, {
+			title: 'Click cards to connect them to shot.mp4, or a connected card to remove it.',
+			self: { action: 'self' },
+			connected: { action: 'remove', label: 'Remove a.png' },
+			image: { action: 'connect', label: 'Connect c.png' },
+			video: { action: 'refused', label: 'Acme Motion 2 takes one video at most.' },
+			unusable: { action: 'refused', label: 'An image or video card cannot use brief.pdf.' },
+			folder: { action: 'refused', label: 'A folder cannot be an input.' },
+			pressed: 'true',
+			hint: 'Click cards on the canvas. Escape or Done ends.'
+		});
+	});
+
+	test('Pick on Canvas stays on: clicks connect cards in their order, and a click on a connected card removes it (D69)', async () => {
+		store.upstream = ['frames/a.png'];
+		const edit = instantiationService.get(IBaseHalfReferenceEditService);
+		edit.add = async (_node, entry) => {
+			connections.added.push(entry);
+			store.upstream = [...store.upstream, entry];
+			return { stores: [], changed: true };
+		};
+		edit.remove = async (_node, entry) => {
+			connections.removed.push(entry);
+			store.upstream = store.upstream.filter(path => path !== entry);
+			return { stores: [], changed: true };
+		};
+		const panel = await createPanel();
+		const pick = startPick(panel);
+		let told = 0;
+		disposables.add(pick.onDidChange(() => told++));
+		pick.pick('refs/c.png');
+		pick.pick('refs/d.png');
+		// A second click on a card whose click is being carried out does nothing.
+		pick.pick('refs/d.png');
+		await settle();
+		const connected = { upstream: store.upstream, d: pick.cardOf('refs/d.png', false), told: told > 0 };
+		pick.pick('refs/c.png');
+		await settle();
+		assert.deepStrictEqual({ connected, upstream: store.upstream, c: pick.cardOf('refs/c.png', false), connections, picking: host.pick === pick }, {
+			connected: { upstream: ['frames/a.png', 'refs/c.png', 'refs/d.png'], d: { action: 'remove', label: 'Remove d.png' }, told: true },
+			upstream: ['frames/a.png', 'refs/d.png'],
+			c: { action: 'connect', label: 'Connect c.png' },
+			connections: { added: ['refs/c.png', 'refs/d.png'], removed: ['refs/c.png'], undoSteps: 3 },
+			picking: true
+		});
+	});
+
+	test('Pick on Canvas ends with the plus, with Escape in the panel, from the canvas, and when the draft generates (D69)', async () => {
+		const panel = await createPanel();
+		startPick(panel);
+		find(panel, '.bh-input-row-add').click();
+		const byPlus = { picking: !!host.pick, menus: findAll(panel, '.bh-video-panel-menu').length, pressed: find(panel, '.bh-input-row-add').getAttribute('aria-pressed') };
+		startPick(panel);
+		press(promptOf(panel), 'Escape');
+		const byEscape = { picking: !!host.pick, cardFocused: host.cardFocused };
+		// Escape on the canvas or its Done: the canvas ended picking and tells the panel.
+		const ended = startPick(panel);
+		host.pick = undefined;
+		ended.ended();
+		const byCanvas = { pressed: find(panel, '.bh-input-row-add').getAttribute('aria-pressed'), hint: findAll(panel, '.bh-input-row-hint').map(hint => hint.textContent) };
+		startPick(panel);
+		generation.generating = true;
+		catalog.set(catalog.state);
+		assert.deepStrictEqual({ byPlus, byEscape, byCanvas, generating: !!host.pick }, {
+			byPlus: { picking: false, menus: 0, pressed: null },
+			byEscape: { picking: false, cardFocused: 0 },
+			byCanvas: { pressed: null, hint: [] },
+			generating: false
+		});
 	});
 
 	test('the prompt is saved before a tile is removed, so that its names follow from what was typed (D68)', async () => {
@@ -1036,8 +1135,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		const remove = findAll(panel, '.bh-input-tile-remove').find(button => button.getAttribute('aria-label') === 'Remove Image 1');
 		remove?.click();
 		await settle();
-		find(panel, '.bh-input-row-add').click();
-		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Pick on Canvas')?.click();
+		startPick(panel).pick('refs/c.png');
 		await settle();
 		assert.deepStrictEqual(connections, { added: ['refs/c.png'], removed: ['frames/a.png'], undoSteps: 2 });
 	});

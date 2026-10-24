@@ -54,7 +54,7 @@ export interface IBaseHalfInputRowModel {
 	readonly hint?: string;
 	/** The inputs can be removed, named, reordered, and added to: a draft that does not generate. */
 	readonly editable: boolean;
-	/** The plus waits for a click on a card. */
+	/** Pick on Canvas is on (D69): the plus is pressed, and a click on it ends picking. */
 	readonly picking?: boolean;
 }
 
@@ -212,11 +212,14 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			add.dataset.key = 'add';
 			add.setAttribute('aria-haspopup', 'menu');
 			add.setAttribute('aria-label', localize('basehalf.generation.inputRow.add', "Add Input"));
+			if (model.picking) {
+				add.setAttribute('aria-pressed', 'true');
+			}
 			add.append(renderGlyph(Codicon.add));
 			this.rowStore.add(addDisposableListener(add, 'click', event => this.delegate.openAddMenu(add, event.detail > 0)));
 		}
 		const hint = model.picking
-			? localize('basehalf.generation.inputRow.picking', "Click a card to connect it. Escape cancels.")
+			? localize('basehalf.generation.inputRow.picking', "Click cards on the canvas. Escape or Done ends.")
 			: model.hint;
 		if (hint) {
 			const text = append(this.element, $('span.bh-input-row-hint'));

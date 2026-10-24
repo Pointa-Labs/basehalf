@@ -1093,6 +1093,24 @@ export function baseHalfVideoUnusableKindReason(path: string): string {
 	return localize('basehalf.video.catalog.input.kind', "An image or video card cannot use {0}.", path.slice(path.lastIndexOf('/') + 1) || path);
 }
 
+/**
+ * Why a draft with `model` and the list `upstream` does not take `added`, as
+ * one more input or in place of `removed` (D67). Only what the change brings
+ * in is refused: an input that a later model cannot use already says so in
+ * the panel. Without a model, only a file that is neither an image, a video,
+ * a sound, nor text is refused.
+ */
+export function baseHalfVideoAddedInputRefusal(model: IBaseHalfVideoCatalogModel | undefined, upstream: readonly string[], added: string, removed?: string): string | undefined {
+	if (!model) {
+		return baseHalfVideoInputKindOfPath(added) === 'other' ? baseHalfVideoUnusableKindReason(added) : undefined;
+	}
+	const inputs = removed !== undefined && upstream.includes(removed)
+		? upstream.map(entry => entry === removed ? added : entry)
+		: [...upstream.filter(entry => entry !== added), added];
+	const problem = baseHalfVideoInputProblem(model, inputs.map(path => ({ path, kind: baseHalfVideoInputKindOfPath(path), available: true })));
+	return problem && problem.path === added ? problem.reason : undefined;
+}
+
 function inputProblemReason(model: IBaseHalfVideoCatalogModel, inputs: readonly IBaseHalfVideoInputSource[], source: IBaseHalfVideoInputSource): string {
 	const name = source.path.slice(source.path.lastIndexOf('/') + 1) || source.path;
 	const kind = source.kind;

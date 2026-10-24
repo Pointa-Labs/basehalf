@@ -10,7 +10,7 @@ import { RunOnceScheduler, TimeoutTimer } from '../../../../base/common/async.js
 import { Codicon } from '../../../../base/common/codicons.js';
 import { compareFileNames } from '../../../../base/common/comparers.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { basename, dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
@@ -22,6 +22,7 @@ import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IBaseHalfCanvasCardPick, IBaseHalfCanvasCardPickCard } from '../../canvas/common/basehalfCanvasCardPick.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../canvas/common/basehalfCanvasScene.js';
@@ -34,6 +35,7 @@ import {
 	BaseHalfVideoModeId,
 	BaseHalfVideoParamValue,
 	baseHalfModelFileExtension,
+	baseHalfVideoAddedInputRefusal,
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
 	baseHalfVideoChooseModel,
@@ -97,11 +99,11 @@ import {
  */
 export interface IBaseHalfVideoNodePanelHost {
 	/**
-	 * Lets the user click a card on the canvas and resolves with its
-	 * workspace-relative path, or with `undefined` when they press Escape. The
-	 * panel connects the card as an input.
+	 * Pick on Canvas (D69): until the result is disposed or the canvas calls
+	 * `pick.ended`, a click on a card of the canvas goes to `pick`, which says
+	 * what a click on each card does.
 	 */
-	pickCard(): Promise<string | undefined>;
+	startPick(pick: IBaseHalfCanvasCardPick): IDisposable;
 	/**
 	 * Asks the user for a file, copies it into the card's folder, and resolves
 	 * with the copy's workspace-relative path, or with `undefined` when they
@@ -266,7 +268,15 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private starting = false;
 	/** What the Generate button was drawn as last: Generate or Stop. */
 	private generateKind: 'generate' | 'stop' | undefined;
-	private picking = false;
+	/** Pick on Canvas while it is on (D69). */
+	private readonly pick = this._register(new MutableDisposable<IDisposable>());
+	private readonly _onDidChangePick = this._register(new Emitter<void>());
+	/** What a click on each card does depends on this: when it changes, the canvas asks again. */
+	private pickKey: string | undefined;
+	/** The cards whose click is being carried out: a second click on one of them does nothing. */
+	private readonly picksRunning = new Set<string>();
+	/** The clicks of Pick on Canvas, carried out one after the other. */
+	private pickQueue: Promise<unknown> = Promise.resolve();
 	/** The panel's width when the prompt was last measured. */
 	private measuredWidth: number | undefined;
 	private readonly saveDelay: number;
@@ -313,7 +323,14 @@ export class BaseHalfVideoNodePanel extends Disposable {
 					void this.reorder(order);
 				}
 			},
-			openAddMenu: (trigger, byPointer) => this.toggleMenu('add', trigger, byPointer),
+			openAddMenu: (trigger, byPointer) => {
+				// While picking, the plus is pressed: a click on it ends picking.
+				if (this.picking) {
+					this.endPick();
+				} else {
+					this.toggleMenu('add', trigger, byPointer);
+				}
+			},
 			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
 		}, this.layer));
 		this.inputRow.element.hidden = true;
@@ -728,10 +745,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (event.key !== 'Escape' || event.isComposing || event.keyCode === 229) {
 			return;
 		}
-		if (this.picking) {
-			// The canvas's pick owns Escape: it cancels the pick.
-			return;
-		}
 		event.preventDefault();
 		event.stopPropagation();
 		if (this.openMenu) {
@@ -740,6 +753,10 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 		if (this.referenceMenu.value) {
 			this.closeReferenceMenu(true);
+			return;
+		}
+		if (this.picking) {
+			this.endPick();
 			return;
 		}
 		this.host.focusCard();
@@ -793,12 +810,20 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			if (this.openMenu) {
 				this.closeMenu(false);
 			}
+			this.pick.clear();
 		}
 		this.renderInputRow();
 		this.renderReason();
 		this.renderFooter();
 		this.refreshMenu();
 		this.updateHeight();
+		if (this.pick.value) {
+			const key = this.pickStateKey();
+			if (key !== this.pickKey) {
+				this.pickKey = key;
+				this._onDidChangePick.fire();
+			}
+		}
 	}
 
 	/** The draft generates: its prompt, inputs, model, and settings show what is being generated and cannot be changed (D67). */
@@ -1391,7 +1416,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		element.setAttribute('aria-label', addInputLabel());
 		this.menuItem(element, localize('basehalf.video.panel.pickOnCanvas', "Pick on Canvas"), () => {
 			this.closeMenu(false);
-			void this.pickOnCanvas();
+			this.startPick();
 		}, { key: 'pick', icon: Codicon.inspect });
 		this.menuItem(element, localize('basehalf.video.panel.importFile', "Import File…"), () => {
 			this.closeMenu(false);
@@ -2013,25 +2038,101 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		await this.reorder(order);
 	}
 
-	private async pickOnCanvas(): Promise<void> {
-		if (this.picking) {
+	//#region Pick on Canvas
+
+	private get picking(): boolean {
+		return !!this.pick.value;
+	}
+
+	/**
+	 * Starts Pick on Canvas (D69): until it is ended, a click on a card of the
+	 * canvas connects it, or removes it when it is connected.
+	 */
+	private startPick(): void {
+		if (this.pick.value || this.isLocked() || !this.snapshot || this.disposed) {
 			return;
 		}
-		this.picking = true;
+		this.pickKey = this.pickStateKey();
+		this.pick.value = this.host.startPick({
+			title: localize('basehalf.video.panel.pickTitle', "Click cards to connect them to {0}, or a connected card to remove it.", baseHalfVideoPanelInputFileName(this.snapshot.path)),
+			cardOf: (path, folder) => this.pickCardOf(path, folder),
+			pick: path => this.pickCard(path),
+			ended: () => this.endPick(),
+			onDidChange: this._onDidChangePick.event
+		});
 		this.render();
-		let path: string | undefined;
-		try {
-			path = await this.host.pickCard();
-		} finally {
-			this.picking = false;
-			if (!this.disposed) {
-				this.render();
-			}
-		}
-		if (path && !this.disposed && await this.acceptInput(path)) {
-			await this.connect(path);
-		}
 	}
+
+	private endPick(): void {
+		if (!this.pick.value) {
+			return;
+		}
+		this.pick.clear();
+		this.render();
+	}
+
+	/** What a click on the card at `path` does while picking, as a connection drawn on the canvas would be refused (D67). */
+	private pickCardOf(path: string, folder: boolean): IBaseHalfCanvasCardPickCard {
+		const snapshot = this.snapshot;
+		if (!snapshot || path === snapshot.path) {
+			return PICK_SELF;
+		}
+		if (folder) {
+			return Object.freeze({ action: 'refused', label: localize('basehalf.video.panel.pickFolder', "A folder cannot be an input.") });
+		}
+		const name = baseHalfVideoPanelInputFileName(path);
+		if (snapshot.upstream.includes(path)) {
+			return Object.freeze({ action: 'remove', label: localize('basehalf.video.panel.pickRemove', "Remove {0}", name) });
+		}
+		const reason = baseHalfVideoAddedInputRefusal(this.model(), snapshot.upstream, path);
+		return Object.freeze(reason
+			? { action: 'refused', label: reason }
+			: { action: 'connect', label: localize('basehalf.video.panel.pickConnect', "Connect {0}", name) });
+	}
+
+	/** What `pickCardOf` answers from: the card, its list, and its model. */
+	private pickStateKey(): string {
+		const info = this.info();
+		return JSON.stringify([this.snapshot?.path, this.snapshot?.upstream, info.provider, info.model, this.catalogService.state.kind]);
+	}
+
+	/** The draft's model, as the panel shows it. */
+	private model(): IBaseHalfVideoCatalogModel | undefined {
+		const catalog = this.catalogService.state;
+		const info = this.info();
+		return catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, info.provider, info.model)?.model : undefined;
+	}
+
+	/**
+	 * A click while picking: connects the card at the end of the list, or
+	 * removes a connected one. Clicks are carried out one after the other,
+	 * each from the list as the one before left it.
+	 */
+	private pickCard(path: string): void {
+		if (this.picksRunning.has(path)) {
+			return;
+		}
+		this.picksRunning.add(path);
+		const run = async () => {
+			try {
+				const snapshot = this.snapshot;
+				if (!snapshot || this.disposed || this.isLocked()) {
+					return;
+				}
+				if (snapshot.upstream.includes(path)) {
+					await this.disconnect(path);
+				} else if (!await this.acceptInput(path) || !await this.connect(path)) {
+					return;
+				}
+				await this.refresh();
+			} finally {
+				this.picksRunning.delete(path);
+			}
+		};
+		this.pickQueue = this.pickQueue.then(run, run);
+	}
+
+	//#endregion
 
 	private async importFile(): Promise<void> {
 		let path: string | undefined;
@@ -2215,6 +2316,8 @@ function addInputLabel(): string {
 }
 
 const EMPTY_INFO: IBaseHalfGenerationInfo = Object.freeze({ prompt: '' });
+/** The draft itself, while it picks: a click on it does nothing, and nothing says so. */
+const PICK_SELF: IBaseHalfCanvasCardPickCard = Object.freeze({ action: 'self' });
 
 /** The canvas's cards before the reference menu read them. */
 const EMPTY_CANVAS_CARDS: readonly IBaseHalfReferenceMenuKindList[] = Object.freeze([

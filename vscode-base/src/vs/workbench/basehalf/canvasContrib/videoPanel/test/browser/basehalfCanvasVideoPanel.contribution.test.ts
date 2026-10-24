@@ -6,7 +6,7 @@
 import assert from 'assert';
 import { mainWindow } from '../../../../../../base/browser/window.js';
 import { timeout } from '../../../../../../base/common/async.js';
-import { Emitter } from '../../../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../../../base/common/event.js';
 import { extUri } from '../../../../../../base/common/resources.js';
 import { URI } from '../../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
@@ -244,21 +244,25 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		assert.strictEqual(feature.panels[1].options.focusPromptWhenShown, false);
 	});
 
-	test('picks a card through the canvas, and taking the panel away ends the pick', async () => {
+	test('picks cards through the canvas, and taking the panel away ends picking', async () => {
 		const { canvas, feature } = createPanel();
 		canvas.changeSelection([CLIP]);
 		const host = feature.panels[0].host;
-		const pick = host.pickCard();
-		assert.ok(canvas.calls.includes(`pickCard except ${CLIP}`));
-		canvas.finishCardPick('folder/image.png');
-		assert.strictEqual(await pick, 'folder/image.png');
+		const pick = { title: 'Pick cards', cardOf: () => ({ action: 'connect' as const }), pick: () => { }, ended: () => { }, onDidChange: Event.None };
+		const picking = host.startPick(pick);
+		const started = { calls: canvas.calls.includes('startCardPick Pick cards'), pick: canvas.cardPick === pick };
+		picking.dispose();
+		const disposed = canvas.cardPick;
 
 		host.focusCard();
 		assert.strictEqual(canvas.calls.at(-1), `focusCard ${CLIP}`);
 
-		const ended = host.pickCard();
+		const again = host.startPick(pick);
 		canvas.changeSelection([]);
-		assert.strictEqual(await ended, undefined);
+		await timeout(0);
+		const closed = canvas.cardPick;
+		again.dispose();
+		assert.deepStrictEqual({ started, disposed, closed }, { started: { calls: true, pick: true }, disposed: undefined, closed: undefined });
 	});
 
 	test('selects a draft that Generate made beside the card, and a draft its model renamed, once its card is drawn', () => {

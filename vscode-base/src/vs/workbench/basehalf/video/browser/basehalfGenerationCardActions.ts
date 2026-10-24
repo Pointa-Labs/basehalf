@@ -29,9 +29,7 @@ import {
 	baseHalfModelFileExtension,
 	baseHalfVideoChoiceRatio,
 	baseHalfVideoInitialGeneration,
-	baseHalfVideoInputKindOfPath,
-	baseHalfVideoInputProblem,
-	baseHalfVideoUnusableKindReason,
+	baseHalfVideoAddedInputRefusal,
 	findBaseHalfVideoModel,
 	IBaseHalfVideoCatalog
 } from '../common/basehalfVideoCatalog.js';
@@ -213,19 +211,9 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 			// Fewer inputs are always sent: disconnecting leaves no input that cannot be.
 			return undefined;
 		}
-		const inputs = change.remove !== undefined && snapshot.upstream.includes(change.remove)
-			? snapshot.upstream.map(entry => entry === change.remove ? added : entry)
-			: [...snapshot.upstream.filter(entry => entry !== added), added];
-		const sources = inputs.map(path => ({ path, kind: baseHalfVideoInputKindOfPath(path), available: true }));
 		const catalog = this.catalogService.state.kind === 'ready' ? this.catalogService.state.catalog : undefined;
 		const model = findBaseHalfVideoModel(catalog, snapshot.info.provider, snapshot.info.model)?.model;
-		if (!model) {
-			// Without a model, any image, video, audio, or text: the panel says what the model chosen later cannot use.
-			return baseHalfVideoInputKindOfPath(added) === 'other' ? baseHalfVideoUnusableKindReason(added) : undefined;
-		}
-		const problem = baseHalfVideoInputProblem(model, sources);
-		// Only what this change brings in is refused: an input that a later model cannot use already says so in the panel.
-		return problem && problem.path === added ? problem.reason : undefined;
+		return baseHalfVideoAddedInputRefusal(model, snapshot.upstream, added, change.remove);
 	}
 
 	/** Removes every entry of a card's upstream list, as part of an action the user started. */
