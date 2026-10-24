@@ -36,10 +36,30 @@ export function pauseBaseHalfCanvasMedia(media: HTMLMediaElement): void {
 	}
 }
 
+/** Sounds that play without a media element, such as a voice's sample (D78): each stops when a video or a sound starts. */
+const soundsInTurn = new Set<() => void>();
+/** What each root that plays its media one at a time pauses when such a sound starts. */
+const pausesForSounds = new Set<() => void>();
+
+/**
+ * A sound that plays without a media element takes its turn, as the sample
+ * of a voice does (generation cards, "The panel"): what plays in every root
+ * of {@link playBaseHalfCanvasMediaOneAtATime} pauses now, and `stop` is
+ * called when a video or a sound starts there, until the result is disposed.
+ */
+export function playBaseHalfCanvasSoundInTurn(stop: () => void): IDisposable {
+	for (const pause of [...pausesForSounds]) {
+		pause();
+	}
+	soundsInTurn.add(stop);
+	return toDisposable(() => soundsInTurn.delete(stop));
+}
+
 /**
  * One video or sound in `root` plays at a time (video node, "The player"):
- * one that starts pauses the others, on cards and in notes alike. Media
- * events do not bubble, so `root` hears them on their way down.
+ * one that starts pauses the others, on cards and in notes alike, and stops
+ * a sound that plays in turn. Media events do not bubble, so `root` hears
+ * them on their way down.
  */
 export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposable {
 	const playing = new Set<HTMLMediaElement>();
@@ -48,6 +68,14 @@ export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposabl
 		const target = event.target as HTMLElement | null;
 		return target?.tagName === 'VIDEO' || target?.tagName === 'AUDIO' ? target as HTMLMediaElement : undefined;
 	};
+	const pauseAll = () => {
+		for (const media of [...playing]) {
+			playing.delete(media);
+			pauseBaseHalfCanvasMedia(media);
+		}
+	};
+	pausesForSounds.add(pauseAll);
+	store.add(toDisposable(() => pausesForSounds.delete(pauseAll)));
 	store.add(addDisposableListener(root, 'play', event => {
 		const media = mediaOf(event);
 		if (!media) {
@@ -60,6 +88,10 @@ export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposabl
 			}
 		}
 		playing.add(media);
+		for (const stop of [...soundsInTurn]) {
+			soundsInTurn.delete(stop);
+			stop();
+		}
 	}, true));
 	store.add(addDisposableListener(root, 'pause', event => {
 		const media = mediaOf(event);

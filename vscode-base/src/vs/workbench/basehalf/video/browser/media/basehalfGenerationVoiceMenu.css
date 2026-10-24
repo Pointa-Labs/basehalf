@@ -1,0 +1,232 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The menu of the voice button (D78), drawn into a menu of the draft's panel
+ * (basehalfVideoNode.css): a search field, a line that says what the list
+ * lacks, and the voices, which scroll. The menu's own rule outweighs the
+ * panel's rule of menus by its second class, whichever loads last.
+ */
+
+.monaco-workbench .bh-video-panel-menu.bh-voice-menu {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 6px;
+	overflow: hidden;
+}
+
+.monaco-workbench .bh-voice-menu-search {
+	display: flex;
+	height: 30px;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	padding: 0 8px;
+	color: var(--vscode-descriptionForeground);
+	background: var(--vscode-input-background, transparent);
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--vscode-input-border, var(--vscode-widget-border));
+	border-radius: 8px;
+}
+
+.monaco-workbench .bh-voice-menu-search:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .bh-voice-menu-search > .codicon[class*='codicon-'] {
+	flex: none;
+	font-size: 13px;
+}
+
+/* The field shows the focus by its border alone; the attribute outweighs the workbench's ring on a focused text field. */
+.monaco-workbench .bh-voice-menu-search > input[type="text"],
+.monaco-workbench .bh-voice-menu-search > input[type="text"]:focus {
+	min-width: 0;
+	height: 100%;
+	flex: 1 1 auto;
+	padding: 0;
+	color: var(--vscode-input-foreground, var(--vscode-foreground));
+	background: transparent;
+	border: 0;
+	outline: none;
+	font: inherit;
+	font-size: 12px;
+}
+
+/* What the list lacks: Set Up, Try Again, that it loads, or why a sample could not be played. */
+.monaco-workbench .bh-voice-menu-status {
+	display: flex;
+	min-width: 0;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	padding: 2px 4px 2px 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.monaco-workbench .bh-voice-menu-status-text {
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow-wrap: anywhere;
+}
+
+.monaco-workbench .bh-voice-menu-status-action {
+	display: inline-flex;
+	height: 22px;
+	flex: none;
+	align-items: center;
+	padding: 0 8px;
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
+	border-width: 1px;
+	border-style: solid;
+	border-color: color-mix(in srgb, var(--vscode-foreground) 11%, transparent);
+	border-radius: 6px;
+	font-size: 12px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.monaco-workbench .bh-voice-menu-status-action:hover {
+	background: color-mix(in srgb, var(--vscode-foreground) 11%, transparent);
+}
+
+.monaco-workbench .bh-voice-menu-list {
+	position: relative;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+}
+
+.monaco-workbench .bh-voice-menu-header {
+	padding: 6px 8px 2px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 16px;
+}
+
+.monaco-workbench .bh-voice-menu-note {
+	padding: 6px 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.monaco-workbench .bh-voice-menu-option {
+	display: flex;
+	min-width: 0;
+	min-height: 32px;
+	box-sizing: border-box;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 8px 3px 4px;
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+.monaco-workbench .bh-voice-menu-option.active {
+	color: var(--vscode-menu-selectionForeground, inherit);
+	background: var(--vscode-menu-selectionBackground, color-mix(in srgb, var(--vscode-foreground) 10%, transparent));
+}
+
+.monaco-workbench .bh-voice-menu-play,
+.monaco-workbench .bh-voice-menu-play-space {
+	width: 24px;
+	height: 24px;
+	flex: none;
+}
+
+.monaco-workbench .bh-voice-menu-play {
+	display: grid;
+	box-sizing: border-box;
+	place-items: center;
+	margin: 0;
+	padding: 0;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: 50%;
+	cursor: pointer;
+	opacity: 0.75;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.monaco-workbench .bh-voice-menu-play:hover {
+	background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+	opacity: 1;
+}
+
+.monaco-workbench .bh-voice-menu-play.playing {
+	color: var(--bh-card-accent, var(--vscode-textLink-foreground));
+	opacity: 1;
+}
+
+.monaco-workbench .bh-voice-menu-play > .codicon[class*='codicon-'] {
+	font-size: 13px;
+}
+
+.monaco-workbench .bh-voice-menu-play.loading > .codicon[class*='codicon-'] {
+	animation: bh-voice-menu-loading 1.2s ease-in-out infinite;
+}
+
+@keyframes bh-voice-menu-loading {
+	50% {
+		opacity: 0.3;
+	}
+}
+
+.monaco-workbench .bh-voice-menu-text {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.monaco-workbench .bh-voice-menu-name,
+.monaco-workbench .bh-voice-menu-description {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .bh-voice-menu-name {
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.monaco-workbench .bh-voice-menu-description {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 14px;
+}
+
+.monaco-workbench .bh-voice-menu-option.active .bh-voice-menu-description {
+	color: inherit;
+	opacity: 0.8;
+}
+
+.monaco-workbench .bh-voice-menu-check.codicon[class*='codicon-'] {
+	flex: none;
+	font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .bh-voice-menu-play.loading > .codicon[class*='codicon-'] {
+		animation: none;
+		opacity: 0.5;
+	}
+}
