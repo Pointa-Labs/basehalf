@@ -11,6 +11,7 @@ import { localize } from '../../../../../nls.js';
 import { FileChangesEvent, IFileStat } from '../../../../../platform/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
+	BASEHALF_CANVAS_DOCUMENT_CARD_RATIO,
 	BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO,
 	baseHalfCanvasCardBuiltConnections,
 	baseHalfCanvasCardResizes,
@@ -20,6 +21,7 @@ import {
 	baseHalfCanvasChildPath,
 	baseHalfCanvasFolderWithDrafts,
 	baseHalfCanvasPictureKind,
+	baseHalfCanvasShowsDocument,
 	IBaseHalfCanvasCard,
 	IBaseHalfCanvasFile,
 	IBaseHalfCanvasGenerationCard,
@@ -113,7 +115,8 @@ export class BaseHalfCanvasRenderer {
 	 * The ratio of the picture of each image and video of the folder whose
 	 * ratio is known: a file's, which the window measures, and the one a
 	 * draft's settings choose, its kind's when they choose none (canvas card
-	 * placement, "The card of an image or a video has its picture's shape"). It
+	 * placement, "The card of an image or a video has its picture's shape").
+	 * A PDF or a book has the ratio of its card, 3:4, without measuring. It
 	 * waits for the pictures of cards that appear, at most
 	 * {@link PICTURES_APPEAR_WAIT_MS}, so that their places are chosen with
 	 * their shape. A draft whose model the catalog cannot tell yet is left out,
@@ -130,11 +133,16 @@ export class BaseHalfCanvasRenderer {
 		const rows = new Set((canvas?.cards ?? []).map(card => pathKey(card.path)));
 		const pictures: { readonly path: string; readonly picture: IBaseHalfCanvasPicture; readonly appears: boolean }[] = [];
 		const drafts: { readonly path: string; readonly resource: URI; readonly kind: 'image' | 'video' }[] = [];
+		const documents: string[] = [];
 		for (const child of stat.children ?? []) {
 			const path = baseHalfCanvasChildPath(folder.relativePath, basename(child.resource));
 			const generation = generationCards.get(path);
-			const kind = baseHalfCanvasPictureKind({ kind: child.isDirectory ? 'folder' : 'file', stat: child, generation });
+			const shaped = { kind: child.isDirectory ? 'folder' as const : 'file' as const, stat: child, generation };
+			const kind = baseHalfCanvasPictureKind(shaped);
 			if (!kind) {
+				if (baseHalfCanvasShowsDocument(shaped)) {
+					documents.push(path);
+				}
 				continue;
 			}
 			if (generation?.draft) {
@@ -147,7 +155,7 @@ export class BaseHalfCanvasRenderer {
 				appears: !rows.has(pathKey(path)) && !waiting?.has(path)
 			});
 		}
-		const ratios = new Map<string, number>();
+		const ratios = new Map<string, number>(documents.map(path => [path, BASEHALF_CANVAS_DOCUMENT_CARD_RATIO]));
 		const appearing = pictures.some(entry => entry.appears) || drafts.some(draft => !rows.has(pathKey(draft.path)));
 		const [catalog] = await Promise.all([
 			drafts.length > 0 ? this.catalogForDrafts(appearing ? PICTURES_APPEAR_WAIT_MS : 0) : Promise.resolve(undefined),
@@ -468,6 +476,7 @@ export class BaseHalfCanvasRenderer {
 			return;
 		}
 		this.view.renderedNoteBackgrounds = appearanceRead.backgrounds;
+		this.view.renderedHiddenCovers = appearanceRead.hiddenCovers;
 		for (const problem of appearanceRead.problems) {
 			this.view.logService.warn(`BaseHalf card appearance issue for ${problem.relativePath}: ${problem.message}`);
 		}
@@ -870,6 +879,8 @@ export class BaseHalfCanvasRenderer {
 		return JSON.stringify({
 			badge: item.badge ? { description: item.badge.description, orphan: item.badge.orphan } : undefined,
 			badgeOpen,
+			// The card of a PDF or a book whose cover another window hid or showed is drawn again.
+			coverHidden: this.view.renderedHiddenCovers.has(item.path) ? true : undefined,
 			inlineRename,
 			relationships: baseHalfCanvasCardBuiltConnections(item.relationships, badgeOpen),
 			indexState: this.view.renderedIndexState,

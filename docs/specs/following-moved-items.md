@@ -136,7 +136,7 @@ it by path, and where an edit to the file changes nothing.
 - **Fingerprint** of a file:
   - its size in bytes and the SHA-256 of its content. For a file larger than
     16 MiB the hash covers three windows of 1 MiB: the first, the last, and
-    the one at the middle;
+    the one at the middle, and only these windows are read from the disk;
   - for a text file of at most 1 MiB, also its **pieces**: its words, in
     lower case, and for text in a script without spaces between words each
     pair of neighboring characters. For each distinct piece BaseHalf keeps a

@@ -1,6 +1,7 @@
 # Canvas card resize
 
-Status: Active (2026-10-09; which cards resize, 2026-10-23)
+Status: Active (2026-10-09; which cards resize, 2026-10-23; PDFs and books,
+2026-10-25)
 Related: [roadmap](../roadmap.md) tracks 2 and 9,
 [architecture invariants](../harness/architecture-invariants.md)
 
@@ -57,7 +58,7 @@ circles.
 - Resize controls exist only when exactly one card is selected, it is not a
   Note being edited, video input picking is not active, and it is a card
   that shows text or a folder: the card of a note, of another text or code
-  file, of a PDF, of another file, or of a folder
+  file, of another file, or of a folder
   (`baseHalfCanvasSceneShowsResizeControls`). Hovering a card that is not
   selected shows no resize affordance.
 - The card of an image, a video, or a sound has no resize controls, as in
@@ -66,6 +67,9 @@ circles.
   a video card have the shape of their picture, and a sound card the size of
   a file card
   ([canvas card placement](canvas-card-placement.md#the-card-of-an-image-or-a-video-has-its-pictures-shape)).
+- The card of a PDF or a book has no resize controls either: it is 300 ×
+  400 and shows its cover (D81,
+  [PDFs and books](documents-and-books.md#the-card)).
 
 ### Corner targets
 
@@ -184,9 +188,9 @@ radius, so every kind of card gets the same targets.
    0.2, 0.5, 1, 2, and 4, and stay concentric with the corner arc. The
    indicator covers 20° to 70° of the sector at every zoom.
 10. Each side target starts and ends 22 flow pixels from the card's corners.
-11. A selected image, video, or sound card, a generation card among them,
-    shows no resize targets or indicators. A selected note, PDF, other file,
-    or folder card shows them.
+11. A selected image, video, sound, PDF, or book card, a generation card
+    among them, shows no resize targets or indicators. A selected note,
+    other file, or folder card shows them.
 
 ## Verification
 

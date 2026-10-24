@@ -9,10 +9,11 @@ import { BaseHalfAgentSelectionIcon } from '../../agentArea/common/basehalfAgent
 
 /**
  * The glyphs BaseHalf draws for items: the kind of a card in its caption, the
- * badge toggle, and the status bar entry of the selection agents can see,
- * which draws a card's kind exactly as its caption does.
+ * badge toggle, the cover toggle of a PDF or a book, and the status bar entry
+ * of the selection agents can see, which draws a card's kind exactly as its
+ * caption does.
  */
-export type BaseHalfItemGlyph = BaseHalfAgentSelectionIcon | 'badge';
+export type BaseHalfItemGlyph = BaseHalfAgentSelectionIcon | 'badge' | 'coverShown' | 'coverHidden';
 
 /** Appends a glyph drawn with lines of the current colour, in `tone`, `size` wide and high. */
 export function renderBaseHalfItemGlyph(container: Element, type: BaseHalfItemGlyph, tone: string, size: number | string): void {
@@ -104,6 +105,25 @@ function renderGlyphPath(svg: SVGElement, type: BaseHalfItemGlyph): void {
 	}
 	if (type === 'code') {
 		appendPath('M6 5L3 8l3 3M10 5l3 3-3 3');
+		return;
+	}
+	if (type === 'book') {
+		// An open book: two pages that meet at the spine.
+		appendPath('M8 4.6C6.8 3.7 5 3.3 2.5 3.4v8.8c2.5-.1 4.3.3 5.5 1.2');
+		appendPath('M8 4.6c1.2-.9 3-1.3 5.5-1.2v8.8c-2.5-.1-4.3.3-5.5 1.2z');
+		return;
+	}
+	if (type === 'coverShown' || type === 'coverHidden') {
+		// An eye, crossed out while the cover is hidden.
+		appendPath('M1.8 8C3.3 5.4 5.4 4 8 4s4.7 1.4 6.2 4c-1.5 2.6-3.6 4-6.2 4S3.3 10.6 1.8 8z');
+		const pupil = $.SVG('circle');
+		pupil.setAttribute('cx', '8');
+		pupil.setAttribute('cy', '8');
+		pupil.setAttribute('r', '1.8');
+		svg.appendChild(pupil);
+		if (type === 'coverHidden') {
+			appendPath('M3 13L13 3');
+		}
 		return;
 	}
 	if (type === 'badge') {

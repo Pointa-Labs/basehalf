@@ -12,7 +12,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { FileAccess } from '../../../../../base/common/network.js';
 import { localize } from '../../../../../nls.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
-import { baseHalfCanvasChildPath, baseHalfCanvasItemBounds, IBaseHalfCanvasBounds, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
+import { baseHalfCanvasChildPath, baseHalfCanvasItemBounds, baseHalfCanvasShowsDocument, IBaseHalfCanvasBounds, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfItemDisplayName, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from '../../../shell/browser/basehalfItemGlyph.js';
@@ -25,6 +25,9 @@ import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/baseh
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
 import { whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
+import { IBaseHalfCanvasCardDocumentFace, renderBaseHalfCanvasCardDocument } from '../basehalfCanvasCardDocument.js';
+import { baseHalfDocumentVersion } from '../../../documents/common/basehalfDocuments.js';
+import { setBaseHalfHover } from '../../../shell/browser/basehalfHover.js';
 import {
 	BaseHalfCanvasSceneCardControls,
 	BaseHalfCanvasSceneVideoAction,
@@ -64,6 +67,9 @@ export class BaseHalfCanvasCardRenderer {
 	private readonly generationFaces = new Map<string, IBaseHalfGenerationCardFace>();
 	/** Where each card element draws its badge toggle, to draw it again in place when only its connections change. */
 	private readonly badgeToggles = new WeakMap<HTMLElement, { readonly container: HTMLElement; readonly listeners: DisposableStore; readonly issueCount: number }>();
+	/** The face of the PDF or the book drawn in each card element, and its cover toggle, which a click changes in place. */
+	private readonly documentFaces = new WeakMap<HTMLElement, IBaseHalfCanvasCardDocumentFace>();
+	private readonly coverToggles = new WeakMap<HTMLElement, () => void>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -239,10 +245,15 @@ export class BaseHalfCanvasCardRenderer {
 			listeners.add(this.view.addDisposableListener(label, 'click', event => event.stopPropagation()));
 		}
 		const captionActions = append(caption, $('.basehalf-canvas-card-caption-actions'));
+		if (!orphan && baseHalfCanvasShowsDocument(item)) {
+			// Before the badge toggle, in a box of its own, so that the badge toggle is drawn again without it.
+			this.renderCoverToggle(append(captionActions, $('.basehalf-canvas-card-cover-toggle-slot')), item, card, displayName, listeners);
+		}
 		if (canShowBadgeFace) {
 			const toggleListeners = listeners.add(new DisposableStore());
-			this.view.badgeEditor.renderCardBadgeToggle(captionActions, item, badgeIssueCount, toggleListeners);
-			this.badgeToggles.set(card, { container: captionActions, listeners: toggleListeners, issueCount: badgeIssueCount });
+			const badgeSlot = append(captionActions, $('.basehalf-canvas-card-badge-toggle-slot'));
+			this.view.badgeEditor.renderCardBadgeToggle(badgeSlot, item, badgeIssueCount, toggleListeners);
+			this.badgeToggles.set(card, { container: badgeSlot, listeners: toggleListeners, issueCount: badgeIssueCount });
 		}
 		const content = append(card, $('.basehalf-canvas-card-content'));
 		this.view.creation.renderInlineRenameEditor(card, item);
@@ -404,6 +415,10 @@ export class BaseHalfCanvasCardRenderer {
 		}
 		if (preview.kind === 'markdown') {
 			this.view.noteEditing.renderMarkdownPreview(previewNode, item, preview.text, listeners, card);
+			return;
+		}
+		if (preview.kind === 'media' && (preview.mediaKind === 'pdf' || preview.mediaKind === 'book')) {
+			this.renderDocumentPreview(previewNode, item, preview, listeners, card);
 			return;
 		}
 		if (preview.kind === 'media') {
@@ -624,7 +639,113 @@ export class BaseHalfCanvasCardRenderer {
 		this.renderMediaFallback(container, preview.text, preview.mediaKind);
 	}
 
-	private renderMediaFallback(container: HTMLElement, label: string, kind: 'image' | 'video' | 'audio' | 'pdf', reload?: () => void): void {
+	/**
+	 * The face of the card of a PDF or a book: its cover, or the grey face
+	 * while the cover is hidden (PDFs and books, "The card"). `card` is the
+	 * card element, whose cover toggle changes the face in place.
+	 */
+	private renderDocumentPreview(
+		container: HTMLElement,
+		item: IBaseHalfCanvasItem,
+		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'media' }>,
+		listeners: DisposableStore,
+		card: HTMLElement
+	): void {
+		container.classList.add(`media-${preview.mediaKind}`);
+		const face = listeners.add(renderBaseHalfCanvasCardDocument(container, {
+			resource: item.stat.resource,
+			version: baseHalfDocumentVersion(item.stat),
+			coverShown: !this.view.renderedHiddenCovers.has(item.path),
+			coverService: this.view.documentCoverService,
+			renderGlyph: glyph => this.renderGlyph(glyph, preview.mediaKind, 'var(--bh-card-text-tertiary)', 24)
+		}));
+		this.documentFaces.set(card, face);
+		listeners.add(toDisposable(() => {
+			if (this.documentFaces.get(card) === face) {
+				this.documentFaces.delete(card);
+			}
+		}));
+	}
+
+	/**
+	 * The button at the right end of the caption of a PDF's or a book's card
+	 * that hides or shows its cover (PDFs and books, "Hiding and showing the
+	 * cover"). A click changes the card's face in place and keeps the choice in
+	 * the card's `appearance.yaml`; the selection does not change.
+	 */
+	private renderCoverToggle(container: HTMLElement, item: IBaseHalfCanvasItem, card: HTMLElement, displayName: string, listeners: DisposableStore): void {
+		const button = append(container, $('button.basehalf-canvas-card-cover-toggle')) as HTMLButtonElement;
+		button.classList.add('nodrag', 'nopan', 'nowheel');
+		button.type = 'button';
+		const paint = () => {
+			const shown = !this.view.renderedHiddenCovers.has(item.path);
+			clearNode(button);
+			this.renderGlyph(button, shown ? 'coverShown' : 'coverHidden', 'var(--bh-card-text-tertiary)', 15);
+			setBaseHalfHover(button, shown ? localize('basehalf.canvas.cover.hide', "Hide Cover") : localize('basehalf.canvas.cover.show', "Show Cover"));
+			button.setAttribute('aria-label', shown
+				? localize('basehalf.canvas.cover.hideAria', "Hide the cover of {0}", displayName)
+				: localize('basehalf.canvas.cover.showAria', "Show the cover of {0}", displayName));
+			button.setAttribute('aria-pressed', String(shown));
+			button.classList.toggle('hidden-cover', !shown);
+		};
+		paint();
+		this.coverToggles.set(card, paint);
+		listeners.add(toDisposable(() => {
+			if (this.coverToggles.get(card) === paint) {
+				this.coverToggles.delete(card);
+			}
+		}));
+		// The button takes no part in moving or selecting the card.
+		listeners.add(this.view.addDisposableListener(button, 'pointerdown', event => event.stopPropagation()));
+		listeners.add(this.view.addDisposableListener(button, 'dblclick', event => {
+			event.preventDefault();
+			event.stopPropagation();
+		}));
+		listeners.add(this.view.addDisposableListener(button, 'click', event => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.toggleCover(item, card);
+		}));
+	}
+
+	private async toggleCover(item: IBaseHalfCanvasItem, card: HTMLElement): Promise<void> {
+		const folder = this.view.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		this.view.markCanvasUserInteraction();
+		const hidden = !this.view.renderedHiddenCovers.has(item.path);
+		this.setCoverHidden(item.path, card, hidden);
+		try {
+			await this.view.canvasAppearanceService.setCover(folder.workspaceFolder, item.path, hidden ? 'hidden' : 'shown');
+		} catch (error) {
+			this.view.logService.warn(`[BaseHalf] the cover of ${item.path} could not be ${hidden ? 'hidden' : 'shown'}`, error);
+			this.setCoverHidden(item.path, card, !hidden);
+			this.view.queueCanvasWarning(hidden
+				? localize('basehalf.canvas.cover.hideFailed', "BaseHalf could not hide the cover of {0}.", cardDisplayName(item))
+				: localize('basehalf.canvas.cover.showFailed', "BaseHalf could not show the cover of {0}.", cardDisplayName(item)));
+			this.view.requestRender();
+		}
+	}
+
+	/** Shows or hides a card's cover in place, and keeps the card's element for the next drawing. */
+	private setCoverHidden(path: string, card: HTMLElement, hidden: boolean): void {
+		const next = new Set(this.view.renderedHiddenCovers);
+		if (hidden) {
+			next.add(path);
+		} else {
+			next.delete(path);
+		}
+		this.view.renderedHiddenCovers = next;
+		this.documentFaces.get(card)?.setCoverShown(!hidden);
+		this.coverToggles.get(card)?.();
+		const cached = this.view.renderedCardsByPath.get(path);
+		if (cached?.element === card) {
+			this.view.renderedCardsByPath.set(path, { ...cached, visualKey: this.view.renderer.cardVisualKey(cached.item) });
+		}
+	}
+
+	private renderMediaFallback(container: HTMLElement, label: string, kind: 'image' | 'video' | 'audio' | 'pdf' | 'book', reload?: () => void): void {
 		if (container.querySelector('.basehalf-canvas-card-media-fallback')) {
 			return;
 		}

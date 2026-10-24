@@ -63,8 +63,8 @@ another.
   the same way whether it was opened from its card, from Files, Search, or
   Quick Open.
 - Card Detail fades in with what it shows of an image, a video, or a sound.
-  An editor, such as that of a note, and a PDF show themselves once the
-  transition is over: the browser holds a transition up for the first frame
+  An editor, such as that of a note, a PDF, and a book show themselves once
+  the transition is over: the browser holds a transition up for the first frame
   of a webview that has just started (2 s for a note's editor, measured
   2026-10-23). So does a projection that is not drawn after 250 ms.
 
@@ -84,17 +84,19 @@ another.
   keyboard: the editor of a note has the caret at the end of the note, so
   that what is typed goes on from there; the editor of another text has it
   at its start, or where it was opened, as from a result of Search; the
-  player of a video or a sound has it on Play; an image and a PDF have it in
-  their page. It does not when it was opened to keep the keyboard where it
+  player of a video or a sound has it on Play; an image, a PDF, and a book
+  have it in their page. It does not when it was opened to keep the keyboard where it
   was, as a click in Files does, or when the keyboard went out of the canvas
   meanwhile.
 - Escape closes Card Detail, wherever in it the keyboard is: in its header,
-  in the player, in a note's editor, in an image, in a PDF, or in the
-  Sequence view ([Video Sequence](video-sequence.md#the-sequence-view)).
+  in the player, in a note's editor, in an image, in a PDF, in a book, or in
+  the Sequence view ([Video Sequence](video-sequence.md#the-sequence-view)).
   What uses Escape itself takes it first: a menu or a list of the editor
   (slash, files, emoji, a block's or a table's menu), a field of its own,
   such as that of a link or the page number of a PDF, a menu or a dialog of
-  the PDF viewer, the composition of an input method, and full screen.
+  the PDF viewer, the contents and the search of the book reader
+  ([PDFs and books](documents-and-books.md#the-book-reader)), the
+  composition of an input method, and full screen.
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the canvas, where the keys of the selected card work again.
 

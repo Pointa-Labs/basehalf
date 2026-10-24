@@ -175,6 +175,48 @@
 	min-width: 0;
 }
 
+/* Each button of the caption is drawn again in a box of its own, which takes no room. */
+.monaco-workbench .basehalf-canvas-card-cover-toggle-slot,
+.monaco-workbench .basehalf-canvas-card-badge-toggle-slot {
+	display: contents;
+}
+
+/* The cover toggle of a PDF's or a book's card has the look of the badge toggle beside it (PDFs and books, "Hiding and showing the cover"). */
+.monaco-workbench .basehalf-canvas-card-cover-toggle {
+	position: relative;
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	color: var(--bh-card-text-tertiary);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	cursor: pointer;
+	opacity: 0.72;
+	transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 80ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-cover-toggle,
+.monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-cover-toggle,
+.monaco-workbench .basehalf-canvas-card-cover-toggle:focus-visible {
+	opacity: 1;
+	border-color: var(--bh-card-border-strong);
+}
+
+.monaco-workbench .basehalf-canvas-card-cover-toggle:hover,
+.monaco-workbench .basehalf-canvas-card-cover-toggle:focus-visible {
+	border-color: var(--bh-card-border-strong);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-cover-toggle:active {
+	transform: scale(0.94);
+}
+
 .monaco-workbench .basehalf-canvas-card-label {
 	min-width: 0;
 	/* As wide as its text: only the text shows the text cursor and takes the

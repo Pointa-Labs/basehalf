@@ -45,8 +45,7 @@ import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../../n
 import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, isBaseHalfCanvasDraftCreateKind } from '../../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfPdfSelection } from '../../../cardDetail/common/basehalfMediaViewState.js';
-import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../../../cardDetail/common/basehalfPdfBranch.js';
+import { baseHalfDocumentBranchBaseName, baseHalfDocumentBranchMarkdown, IBaseHalfDocumentSelection } from '../../../documents/common/basehalfDocumentBranch.js';
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
@@ -585,7 +584,8 @@ export class BaseHalfCanvasCreation {
 		this.view.pendingCanvasReveal = { sceneKey: this.view.sceneKey(folder), paths, owner };
 	}
 
-	async createPdfBranch(resource: URI, selection: IBaseHalfPdfSelection): Promise<void> {
+	/** Grow branch: a note of a passage selected in a PDF or a book, next to its card and connected from it. */
+	async createDocumentBranch(resource: URI, selection: IBaseHalfDocumentSelection): Promise<void> {
 		this.view.markCanvasUserInteraction();
 		const createOwner = this.view.captureCanvasPostCreateOwner();
 		const createFocusOrigin = this.view.root.ownerDocument.activeElement;
@@ -594,13 +594,13 @@ export class BaseHalfCanvasCreation {
 		if (!cardDetail || !folder
 			|| !this.view.uriIdentityService.extUri.isEqual(cardDetail.resource, resource)
 			|| !this.view.uriIdentityService.extUri.isEqual(dirname(resource), folder.resource)) {
-			throw new Error(localize('basehalf.pdf.branch.stale', "The PDF or its canvas changed before the branch could be created."));
+			throw new Error(localize('basehalf.document.branch.stale', "The document or its canvas changed before the branch could be created."));
 		}
 
 		const renderedItems = [...this.view.renderedItemsByPath.values()];
 		const sourceItem = this.view.renderedItemsByPath.get(cardDetail.relativePath);
 		const sourceIndex = sourceItem ? renderedItems.indexOf(sourceItem) : -1;
-		// Every card has its place, so the PDF's card stays where it is when a
+		// Every card has its place, so the document's card stays where it is when a
 		// sibling is added (canvas card placement).
 		const sourceBounds = sourceItem && sourceIndex >= 0
 			? baseHalfCanvasItemBounds(sourceItem, sourceIndex, renderedItems.length)
@@ -608,7 +608,7 @@ export class BaseHalfCanvasCreation {
 
 		const context = await this.view.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
 		const sourceName = basename(resource);
-		const baseName = baseHalfPdfBranchBaseName(sourceName);
+		const baseName = baseHalfDocumentBranchBaseName(sourceName);
 		let name: string | undefined;
 		for (let index = 0; index < 1000; index++) {
 			const candidate = `${baseName}${index === 0 ? '' : `-${index + 1}`}.md`;
@@ -618,18 +618,18 @@ export class BaseHalfCanvasCreation {
 			}
 		}
 		if (!name) {
-			throw new Error(localize('basehalf.pdf.branch.exhausted', "Too many notes already use this PDF's branch name."));
+			throw new Error(localize('basehalf.document.branch.exhausted', "Too many notes already use this document's branch name."));
 		}
 
 		const defaultPlacement = this.canvasCreatePlacement(undefined);
-		// Beside the PDF's card, or, without it, centered on the middle of the visible part.
+		// Beside the document's card, or, without it, centered on the middle of the visible part.
 		const placement = sourceBounds
 			? this.avoidCanvasCreateOverlap({ canvasPosition: { x: sourceBounds.x + sourceBounds.width + 72, y: sourceBounds.y } }, 'note')
 			: this.computedCanvasCreatePlacement(defaultPlacement, 'note');
-		// The note's first bytes list the PDF as upstream (D37): the create is
+		// The note's first bytes list the document as upstream (D37): the create is
 		// the connection, so there is no "created but not connected" state.
 		const targetPath = baseHalfCanvasChildPath(folder.relativePath, name);
-		const contents = VSBuffer.fromString(baseHalfPdfBranchMarkdown(sourceName, selection, {
+		const contents = VSBuffer.fromString(baseHalfDocumentBranchMarkdown(sourceName, selection, {
 			sourcePath: cardDetail.relativePath,
 			notePath: targetPath
 		}));
@@ -638,8 +638,8 @@ export class BaseHalfCanvasCreation {
 			select: false
 		});
 
-		// Frame the PDF's downstream set from the index, including the new note
-		// once it is indexed; fall back to the PDF and the new note.
+		// Frame the document's downstream set from the index, including the new
+		// note once it is indexed; fall back to the document and the new note.
 		let fittedPaths: readonly string[] = [cardDetail.relativePath, targetPath];
 		try {
 			const downstream = this.view.referenceIndexService.getDownstream({
@@ -651,7 +651,7 @@ export class BaseHalfCanvasCreation {
 		} catch (error) {
 			// Framing is a view concern and must not turn a successful create
 			// into an apparent action failure.
-			this.view.logService.warn('[BaseHalf] failed to read the PDF downstream set for canvas framing', error);
+			this.view.logService.warn('[BaseHalf] failed to read the document downstream set for canvas framing', error);
 		}
 		await this.view.noteEditing.activateCreatedCanvasNoteAfterDetail(
 			cardDetail,

@@ -20,6 +20,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IFileQuery, ISearchService, QueryType } from '../../../services/search/common/search.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
 import { BaseHalfCanvasItemKind, baseHalfIsCanvasEligiblePath } from '../../canvas/common/basehalfCanvasModel.js';
+import { readBaseHalfFileRange } from './basehalfFileRange.js';
 import { baseHalfIsWorkspaceFolderMarked } from './basehalfLegacyCleanup.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from './basehalfMirrorTree.js';
 import { baseHalfComputeFileFingerprint, baseHalfMovedItemPath, baseHalfRecognizeMovedItems, IBaseHalfFileFingerprint, IBaseHalfFollowedItem, IBaseHalfMovedItem } from './basehalfMovedItems.js';
@@ -1466,7 +1467,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		try {
 			fingerprint = await baseHalfComputeFileFingerprint({
 				size: stat.size,
-				read: async (position, length) => (await this.fileService.readFile(resource, { position, length })).value
+				read: (position, length) => readBaseHalfFileRange(this.fileService, resource, position, length)
 			}, true);
 		} catch {
 			return;
@@ -1488,7 +1489,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 			}
 			return await baseHalfComputeFileFingerprint({
 				size: stat.size,
-				read: async (position, length) => (await this.fileService.readFile(resource, { position, length })).value
+				read: (position, length) => readBaseHalfFileRange(this.fileService, resource, position, length)
 			}, withPieces);
 		} catch {
 			return undefined;

@@ -16,10 +16,12 @@ import { NullHoverService } from '../../../../../platform/hover/test/browser/nul
 import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { ILogService, NullLogService } from '../../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
+import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { IWebviewService } from '../../../../contrib/webview/browser/webview.js';
 import { BaseHalfMediaCardDetail } from '../../browser/basehalfMediaCardDetail.js';
+import { IBaseHalfDocumentCoverService } from '../../../documents/browser/basehalfDocumentCovers.js';
 import { IBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfGenerationVoiceService, IBaseHalfVoices } from '../../../video/common/basehalfGenerationVoices.js';
 import { IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from '../../../video/common/basehalfVideoCatalog.js';
@@ -80,9 +82,11 @@ suite('BaseHalfMediaCardDetail', () => {
 				askedOnce.add(`${provider.id}/${region}/${model.id}`);
 			}
 		});
-		// A sound plays in BaseHalf's player: no page of its own, and nothing kept of a PDF's view.
+		// A sound plays in BaseHalf's player: no page of its own, nothing kept of a PDF's view, no link, and no cover (D81).
 		instantiationService.stub(IWebviewService, {});
 		instantiationService.stub(IStorageService, {});
+		instantiationService.stub(IOpenerService, {});
+		instantiationService.stub(IBaseHalfDocumentCoverService, {});
 		instantiationService.set(INotificationService, new TestNotificationService());
 		instantiationService.set(ILogService, new NullLogService());
 		instantiationService.set(IHoverService, NullHoverService);
@@ -99,7 +103,7 @@ suite('BaseHalfMediaCardDetail', () => {
 		const container = mainWindow.document.createElement('div');
 		mainWindow.document.body.append(container);
 		mounted.push(container);
-		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }));
+		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }));
 		void detail.open({ resource: SOUND, workspaceFolder: WORKSPACE, relativePath: 'shots/speech.mp3', source: 'explorer', projection: 'media' });
 		await settle();
 		return container;

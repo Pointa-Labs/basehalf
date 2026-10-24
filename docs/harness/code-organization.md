@@ -23,6 +23,7 @@ per feature:
 | `canvas/` | The canvas: its model and layout file, its view, scene, gestures, placement, and arrangement | The canvas specifications in the [harness routes](README.md#task-routes) |
 | `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/`, `snap/`, and `tidy/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
 | `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5 |
+| `documents/` | PDFs and books: which files they are, their covers and the cache that keeps them, the readers of covers, and the book reader's page | [PDFs and books](../specs/documents-and-books.md) |
 | `agentArea/` | The Agent Area, its terminal, the agent skill, the selection agents can see, and the registry of the capabilities agents read | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | Generation cards of images, videos, and sounds: their drafts and generation information, the task records, the model catalog as the window receives it, the providers' settings, and the Providers page | [Generation cards](../specs/generation-cards.md), [providers and the model catalog](../specs/providers.md) |
 | `sequence/` | Video Sequence: the Sequence document, its view in Card Detail, its commands and its capability for agents, and the starter template | [Video Sequence](../specs/video-sequence.md) |

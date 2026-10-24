@@ -12,6 +12,7 @@ import {
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasDefaultCardSize,
 	baseHalfCanvasGenerationCardSize,
+	baseHalfCanvasNewCardSize,
 	baseHalfCanvasPictureKind,
 	IBaseHalfCanvasItem
 } from '../../common/basehalfCanvasModel.js';
@@ -35,6 +36,7 @@ const CARD_EXCERPT_READ_BYTES = 8192;
 const MEDIA_LABELS: Readonly<Record<BaseHalfRenderableContentKind, string>> = {
 	image: 'Image file',
 	pdf: 'PDF document',
+	book: 'Book',
 	video: 'Video file',
 	audio: 'Audio file'
 };
@@ -114,7 +116,8 @@ export class BaseHalfCanvasPreviews {
 		const stat = await this.view.fileService.stat(resource).catch(() => undefined);
 		const kind = stat && baseHalfCanvasPictureKind({ kind: 'file', stat });
 		if (!kind || !stat) {
-			return baseHalfCanvasDefaultCardSize('file');
+			// A PDF or a book is 300 × 400 without measuring anything.
+			return stat ? baseHalfCanvasNewCardSize({ kind: 'file', stat }) : baseHalfCanvasDefaultCardSize('file');
 		}
 		const picture = { resource, version: `${stat.mtime ?? 0}-${stat.size ?? 0}`, kind };
 		await this.view.pictureShapes.measure([picture], BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS);
@@ -163,7 +166,8 @@ export class BaseHalfCanvasPreviews {
 		// The canvas shows the files that Card Detail shows (architecture invariants, "Product shell").
 		const mediaKind = baseHalfRenderableContentKind(item.stat.resource);
 		if (mediaKind) {
-			const resource = mediaKind === 'pdf' ? item.stat.resource : item.stat.resource.with({
+			// The face of a PDF or a book draws its cover, which is made from the file's version.
+			const resource = mediaKind === 'pdf' || mediaKind === 'book' ? item.stat.resource : item.stat.resource.with({
 				query: `basehalfCanvasVersion=${item.stat.mtime ?? 0}-${item.stat.size ?? 0}`
 			});
 			return { kind: 'media', text: MEDIA_LABELS[mediaKind], mediaKind, resource };

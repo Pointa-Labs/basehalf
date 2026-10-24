@@ -80,6 +80,23 @@ suite('BaseHalfAgentSelection', () => {
 		]);
 	});
 
+	test('text selected in a PDF names its pages, and in a book its chapter (PDFs and books, "What agents can see")', () => {
+		const pdf = { path: 'sources/strang.pdf', isFolder: false };
+		const records = [
+			baseHalfAgentSelectionFor({ ...canvas, detail: pdf, text: { path: 'sources/strang.pdf', pages: { first: 12, last: 13 }, text: 'A matrix times a vector' } }),
+			baseHalfAgentSelectionFor({ ...canvas, detail: pdf, text: { path: 'books/sicp.epub', chapter: '1.1 The Elements of Programming', text: 'Every powerful language' } }),
+			baseHalfAgentSelectionFor({ ...canvas, detail: pdf, text: { path: 'books/comic.cbz', text: 'POW' } }),
+			baseHalfAgentSelectionFor({ ...canvas, detail: pdf, text: { path: 'sources/strang.pdf', pages: { first: 1, last: 1 }, text: ' \n ' } })
+		];
+		assert.deepStrictEqual(records.map(selection => toPlain(parseYaml(serializeBaseHalfAgentSelection(selection), []))), [
+			{ selected: 'text', path: 'sources/strang.pdf', first_page: '12', last_page: '13', text: 'A matrix times a vector' },
+			{ selected: 'text', path: 'books/sicp.epub', chapter: '1.1 The Elements of Programming', text: 'Every powerful language' },
+			{ selected: 'text', path: 'books/comic.cbz', text: 'POW' },
+			{ selected: 'card', path: 'sources/strang.pdf' }
+		]);
+		assert.deepStrictEqual(baseHalfAgentSelectionLabel(records[0]), { icon: 'selectedText', text: 'A matrix times a vector' });
+	});
+
 	test('text that is only white space shows nothing, and a card is shown as its caption', () => {
 		assert.deepStrictEqual([
 			baseHalfAgentSelectionFor({ ...canvas, cards: [note], text: { ...text, text: '\n \n' } }),

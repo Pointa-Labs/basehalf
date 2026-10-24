@@ -36,8 +36,8 @@ waits by itself, since it hits nothing else until the end.
 | Suite | What it covers |
 | --- | --- |
 | `workbench` | The window at startup, the surfaces BaseHalf hides, the Agent Area, Source Control, and Settings. |
-| `canvas` | Creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, and snapping. |
-| `cardDetail` | Card Detail and its projections: the rich Markdown editor, source, media, and PDF; back and forward from it. |
+| `canvas` | Creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, snapping, and the covers of PDFs and books. |
+| `cardDetail` | Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; back and forward from it. |
 | `navigation` | Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. |
 | `video` | Generation cards of images, videos, and sounds: drafts, the panel, the voice menu, generations against the local test provider through the ByteDance, ElevenLabs, and Mureka modules, Providers, the starter template, and Sequence. |
 

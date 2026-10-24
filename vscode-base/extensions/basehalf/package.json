@@ -18,6 +18,7 @@
 		"test:canvas-markdown-inline": "node test.canvasMarkdownInlineCommands.mts"
 	},
 	"devDependencies": {
-		"@types/vscode-webview": "1.57.5"
+		"@types/vscode-webview": "1.57.5",
+		"foliate-js": "github:johnfactotum/foliate-js#78914aef4466eb960965702401634c2cb348e9b1"
 	}
 }

@@ -1,0 +1,390 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The book reader of Card Detail (PDFs and books, "The book reader"), in the
+ * colors of the workbench. */
+
+html, body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	/* A webview's body has padding at its sides by default, which would shift the reader out of Card Detail. */
+	padding: 0;
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+	font-family: var(--vscode-font-family);
+	font-size: 13px;
+}
+
+#basehalf-book-reader {
+	position: relative;
+	display: grid;
+	/* The book never makes the page wider than Card Detail. */
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: 40px minmax(0, 1fr) 40px;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+
+.bar {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	padding: 0 8px;
+	box-sizing: border-box;
+	color: var(--vscode-descriptionForeground);
+}
+
+.bar.top {
+	border-bottom: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.bar.bottom {
+	gap: 10px;
+	padding: 0 12px;
+}
+
+.chapter {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	text-align: center;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.actions {
+	display: flex;
+	gap: 2px;
+}
+
+button.icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 28px;
+	height: 28px;
+	padding: 0 6px;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 5px;
+	font: inherit;
+	cursor: pointer;
+}
+
+button.icon:hover:not(:disabled) {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+button.icon:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+button.icon[aria-expanded="true"] {
+	background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+button:focus {
+	outline: none;
+}
+
+button:focus-visible,
+input:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+button.icon svg {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.3;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+button.text-size {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0;
+}
+
+button.text-size.larger {
+	font-size: 15px;
+}
+
+#flow .scroll-glyph,
+#flow.scrolled .pages-glyph {
+	display: none;
+}
+
+#flow.scrolled .scroll-glyph {
+	display: inline;
+}
+
+.fixed-layout #smaller,
+.fixed-layout #larger,
+.fixed-layout #flow {
+	display: none;
+}
+
+#book {
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+}
+
+foliate-view {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+#panel {
+	position: absolute;
+	top: 40px;
+	bottom: 40px;
+	left: 0;
+	z-index: 3;
+	display: flex;
+	flex-direction: column;
+	width: min(320px, 80%);
+	box-sizing: border-box;
+	background: var(--vscode-sideBar-background, var(--vscode-editorWidget-background));
+	border-right: 1px solid var(--vscode-widget-border, transparent);
+	box-shadow: 0 6px 24px rgb(0 0 0 / 22%);
+}
+
+#panel[hidden] {
+	display: none;
+}
+
+/* Where there is room, the panel stands beside the book instead of over it. */
+#basehalf-book-reader.wide #panel {
+	box-shadow: none;
+}
+
+#basehalf-book-reader.wide.panel-open #book {
+	margin-inline-start: min(320px, 80%);
+}
+
+#search-box {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 10px 10px 6px;
+}
+
+#search-box[hidden] {
+	display: none;
+}
+
+#search-input {
+	height: 28px;
+	padding: 0 8px;
+	box-sizing: border-box;
+	color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 4px;
+	font: inherit;
+}
+
+#search-status {
+	min-height: 16px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+#toc,
+#results {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	padding: 6px 0 12px;
+	overflow: auto;
+}
+
+#toc[hidden],
+#results[hidden] {
+	display: none;
+}
+
+#toc ol,
+#results,
+#results ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.toc-entry,
+.result {
+	display: block;
+	width: 100%;
+	padding: 5px 12px 5px calc(12px + var(--depth, 0) * 14px);
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 0;
+	font: inherit;
+	line-height: 1.4;
+	text-align: start;
+	cursor: pointer;
+}
+
+.toc-entry:hover:not(:disabled),
+.result:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.toc-entry:disabled {
+	color: var(--vscode-descriptionForeground);
+	cursor: default;
+}
+
+.toc-entry.current {
+	color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+	background: var(--vscode-list-inactiveSelectionBackground);
+	font-weight: 600;
+}
+
+.result-section {
+	padding: 8px 12px 2px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.result {
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.result mark {
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-findMatchHighlightBackground, rgb(234 92 0 / 33%));
+	border-radius: 2px;
+}
+
+#progress {
+	flex: 1;
+	min-width: 0;
+	accent-color: var(--vscode-button-background);
+}
+
+#percent {
+	min-width: 38px;
+	font-variant-numeric: tabular-nums;
+	text-align: end;
+}
+
+#grow {
+	position: absolute;
+	z-index: 4;
+	height: 30px;
+	padding: 0 12px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	border: 0;
+	border-radius: 6px;
+	box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
+	font: inherit;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+#grow:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+#grow[hidden] {
+	display: none;
+}
+
+#hover {
+	position: fixed;
+	z-index: 10;
+	max-width: 260px;
+	padding: 4px 8px;
+	color: var(--vscode-editorHoverWidget-foreground);
+	background: var(--vscode-editorHoverWidget-background);
+	border: 1px solid var(--vscode-editorHoverWidget-border, transparent);
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
+	font-size: 12px;
+	pointer-events: none;
+}
+
+#hover[hidden] {
+	display: none;
+}
+
+.status {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	box-sizing: border-box;
+	color: var(--vscode-descriptionForeground);
+	background: var(--vscode-editor-background);
+}
+
+.status[hidden] {
+	display: none;
+}
+
+.status-content {
+	display: grid;
+	justify-items: center;
+	gap: 14px;
+	max-width: 520px;
+	text-align: center;
+}
+
+.status-message {
+	margin: 0;
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.loading .status-placeholder {
+	width: min(360px, 50vw);
+	height: min(480px, 62vh);
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 3px;
+	background: linear-gradient(100deg, var(--vscode-editorWidget-background) 20%, var(--vscode-toolbar-hoverBackground) 45%, var(--vscode-editorWidget-background) 70%);
+	background-size: 220% 100%;
+	box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+	animation: basehalf-book-loading 1.4s ease-in-out infinite;
+}
+
+.error .status-placeholder {
+	display: none;
+}
+
+.error .status-message {
+	color: var(--vscode-errorForeground, var(--vscode-descriptionForeground));
+}
+
+@keyframes basehalf-book-loading {
+	from { background-position: 100% 0; }
+	to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.loading .status-placeholder {
+		animation: none;
+	}
+}

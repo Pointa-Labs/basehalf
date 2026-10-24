@@ -760,7 +760,9 @@ entries after a move, so that they keep naming the inputs that were moved.
 ### Creating connected nodes
 
 - **PDF branch** creates the note with an `upstream` list naming the PDF in its
-  initial bytes: a frontmatter block before the heading.
+  initial bytes: a frontmatter block before the heading. Grow branch from a
+  book does the same with the book
+  ([PDFs and books](documents-and-books.md#grow-branch-from-a-book)).
   - The body's `Source:` Markdown link stays for navigation.
   - This is one create with no second write, so there is no "created but not
     connected" state.

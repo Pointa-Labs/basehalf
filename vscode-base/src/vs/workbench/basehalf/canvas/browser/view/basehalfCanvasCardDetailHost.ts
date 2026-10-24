@@ -19,7 +19,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction } from '../../common/basehalfCanvasEditing.js';
 import { BaseHalfCardDetailProjection, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
+import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfMarkdownPreviewCardDetail } from '../../../cardDetail/browser/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from '../../../cardDetail/browser/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from '../../../cardDetail/browser/basehalfSourceCardDetail.js';
@@ -669,9 +669,10 @@ export class BaseHalfCanvasCardDetailHost {
 					instance: this.view.instantiationService.createInstance(
 						BaseHalfMediaCardDetail,
 						host,
-						(resource, selection) => this.view.creation.createPdfBranch(resource, selection),
+						(resource, selection) => this.view.creation.createDocumentBranch(resource, selection),
 						() => this.view.markCanvasUserInteraction(),
-						() => void this.view.canvasNavigationService.closeCardDetail()
+						() => void this.view.canvasNavigationService.closeCardDetail(),
+						selected => this.setAgentSelectionDetailText('media', selected)
 					)
 				};
 			}
@@ -717,7 +718,7 @@ export class BaseHalfCanvasCardDetailHost {
 		}
 	}
 
-	private setAgentSelectionDetailText(projection: BaseHalfCardDetailProjection, selected: IBaseHalfAgentSelectionText | undefined): void {
+	private setAgentSelectionDetailText(projection: BaseHalfCardDetailProjection, selected: IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText | undefined): void {
 		if (selected) {
 			this.view.agentSelectionDetailText.set(projection, selected);
 		} else if (!this.view.agentSelectionDetailText.delete(projection)) {

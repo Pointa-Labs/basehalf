@@ -8,7 +8,9 @@ canvas's folder; version 7, 2026-10-23, D67: only a draft has a
 is sent, and `--generate` on a generated file makes a new draft first;
 version 8, 2026-10-24, D74: a prompt mentions an input as `@[<entry>]`;
 version 9, 2026-10-25, D78: a generation card is an image, a video, or a
-sound, and a sound an agent makes itself goes where an image does)
+sound, and a sound an agent makes itself goes where an image does;
+version 10, 2026-10-25, D81: selected text in a PDF names its pages and in
+a book its chapter)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
@@ -17,7 +19,8 @@ Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-s
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
 [D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23),
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
-[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)
+[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
+[D81](../decisions.md#d81--a-pdf-or-a-book-shows-its-cover-at-one-size-and-a-book-opens-to-be-read-new-2026-10-25)
 Related: [agent launch context](agent-launch-context.md),
 [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -258,7 +261,7 @@ still work there, because they write only to the user's home folder.
    itself goes,
    contains every line of the launch instruction's shared sections, and has
    fewer than 500 lines. It names no `.bhnode` and no `--run-node`. Its
-   version is `9`. Unit test.
+   version is `10`. Unit test.
 2. Installing writes both files with exactly the bundled bytes and creates
    missing folders. The states are missing before, current after, and
    outdated after the file is changed. Removing deletes both files and the

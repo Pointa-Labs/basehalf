@@ -11,6 +11,7 @@ import {
 	BASEHALF_CANVAS_CHILD_LIMIT,
 	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasCardBuiltConnections,
+	BASEHALF_CANVAS_DOCUMENT_CARD_RATIO,
 	baseHalfCanvasCardResizes,
 	baseHalfCanvasCardToggleConnections,
 	baseHalfCanvasEdgeLayouts,
@@ -24,11 +25,13 @@ import {
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
+	baseHalfCanvasNewCardSize,
 	baseHalfCanvasOpenPosition,
 	baseHalfCanvasPictureCardSize,
 	baseHalfCanvasPictureKind,
 	baseHalfCanvasPosition,
 	baseHalfCanvasRowSpan,
+	baseHalfCanvasShowsDocument,
 	baseHalfCanvasTransferPlaces,
 	baseHalfCanvasTransferPosition,
 	IBaseHalfCanvasCard,
@@ -511,15 +514,51 @@ suite('BaseHalfCanvasModel', () => {
 		]);
 	});
 
-	test('only the cards of an image, a video, and a sound keep their shape; every other card resizes', () => {
+	test('only the cards of an image, a video, a sound, a PDF, and a book keep their shape; every other card resizes', () => {
 		const item = (path: string, kind: 'file' | 'folder' = 'file', generation?: { readonly kind: 'image' | 'video' | 'audio'; readonly draft: boolean }) => ({ kind, stat: { resource: URI.file(`/workspace/${path}`) }, ...(generation ? { generation } : {}) });
 		assert.deepStrictEqual(
-			[item('note.md'), item('code.ts'), item('paper.pdf'), item('data.bin'), item('shots', 'folder'), item('still.PNG'), item('take.mov'), item('take.mkv'), item('voice.wav'), item('video.mp4', 'file', { kind: 'video', draft: true }), item('audio.mp3', 'file', { kind: 'audio', draft: true })]
-				.map(entry => [baseHalfCanvasCardResizes(entry), baseHalfCanvasPictureKind(entry)]),
-			[[true, undefined], [true, undefined], [true, undefined], [true, undefined], [true, undefined], [false, 'image'], [false, 'video'], [false, 'video'], [false, undefined], [false, 'video'], [false, undefined]]
+			[item('note.md'), item('code.ts'), item('paper.pdf'), item('book.EPUB'), item('data.bin'), item('shots', 'folder'), item('shelf.pdf', 'folder'), item('still.PNG'), item('take.mov'), item('take.mkv'), item('voice.wav'), item('video.mp4', 'file', { kind: 'video', draft: true }), item('audio.mp3', 'file', { kind: 'audio', draft: true })]
+				.map(entry => [baseHalfCanvasCardResizes(entry), baseHalfCanvasPictureKind(entry), baseHalfCanvasShowsDocument(entry)]),
+			[[true, undefined, false], [true, undefined, false], [false, undefined, true], [false, undefined, true], [true, undefined, false], [true, undefined, false], [true, undefined, false], [false, 'image', false], [false, 'video', false], [false, 'video', false], [false, undefined, false], [false, 'video', false], [false, undefined, false]]
 		);
 		// A sound's card keeps the size of a file card, whatever ratio is asked (D78).
 		assert.deepStrictEqual([baseHalfCanvasGenerationCardSize('audio', 16 / 9), baseHalfCanvasGenerationCardSize('video')], [{ width: 300, height: 220 }, { width: 533, height: 300 }]);
+	});
+
+	test('the card of a PDF or a book is 300 × 400, and where it is as large as the room at its corner allows', () => {
+		const item = (path: string) => ({ kind: 'file' as const, stat: { resource: URI.file(`/workspace/${path}`) } });
+		const root = folder('/workspace', ['below.md', 'old.pdf', 'roomy.epub', 'new.mobi'].map(name => file(`/workspace/${name}`)));
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			canvas: {
+				path: '',
+				cards: [
+					// The plain grid of an earlier rule: a PDF with a note 60 below it.
+					{ path: 'old.pdf', kind: 'file', x: 100, y: 50, width: 300, height: 220, auto: true },
+					{ path: 'below.md', kind: 'file', x: 100, y: 330, width: 300, height: 220 },
+					// A book with nothing near: it takes its full shape.
+					{ path: 'roomy.epub', kind: 'file', x: 1000, y: 50, width: 300, height: 220, auto: true }
+				],
+				edges: []
+			},
+			// The renderer gives every document the ratio of its card.
+			pictureRatios: new Map([['old.pdf', BASEHALF_CANVAS_DOCUMENT_CARD_RATIO], ['roomy.epub', BASEHALF_CANVAS_DOCUMENT_CARD_RATIO], ['new.mobi', BASEHALF_CANVAS_DOCUMENT_CARD_RATIO]])
+		});
+		const size = (path: string) => {
+			const card = model.items.find(candidate => candidate.path === path)?.card;
+			return card && { width: card.width, height: card.height };
+		};
+		assert.deepStrictEqual({
+			newCard: baseHalfCanvasNewCardSize(item('paper.pdf')),
+			old: size('old.pdf'),
+			roomy: size('roomy.epub'),
+			appeared: size('new.mobi')
+		}, {
+			newCard: { width: 300, height: 400 },
+			old: { width: 165, height: 220 },
+			roomy: { width: 300, height: 400 },
+			appeared: { width: 300, height: 400 }
+		});
 	});
 
 	test('the card of a picture has its picture\'s shape where it is, as large as the room at its corner allows up to the full shape', () => {
