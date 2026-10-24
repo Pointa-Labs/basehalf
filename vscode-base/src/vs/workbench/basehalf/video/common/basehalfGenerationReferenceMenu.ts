@@ -8,20 +8,25 @@ import { BaseHalfNamedInputKind } from './basehalfGenerationInputNames.js';
 
 /**
  * What the reference menu lists (generation cards, "The panel", D68): the
- * card's inputs that have a name, and the cards of the canvas by kind, or,
- * while a search is typed, what matches it. Pure: the menu draws the rows
- * and the tests check them.
+ * card's inputs that have a name and its notes, and the cards of the canvas
+ * by kind, or, while a search is typed, what matches it. Pure: the menu draws
+ * the rows and the tests check them.
  */
+
+/** The kinds the menu lists: those that have names, and notes (D71). */
+export type BaseHalfReferenceMenuKind = BaseHalfNamedInputKind | 'text';
 
 /** An input or a card the menu offers. */
 export interface IBaseHalfReferenceMenuItem {
 	/** The workspace-relative path: who it is. */
 	readonly path: string;
-	readonly kind: BaseHalfNamedInputKind;
+	readonly kind: BaseHalfReferenceMenuKind;
 	/** Its name as BaseHalf shows it. */
 	readonly title: string;
 	/** Its name in the prompt, for a connected input (图片1). */
 	readonly label?: string;
+	/** A connected note, which has no name to show that it is connected. */
+	readonly connected?: boolean;
 	/** Why it cannot be chosen; it is dimmed. */
 	readonly disabled?: string;
 	/** The picture of an image, as a URL the window can load. */
@@ -30,23 +35,24 @@ export interface IBaseHalfReferenceMenuItem {
 
 /** The cards of one kind on the canvas of the card's folder. */
 export interface IBaseHalfReferenceMenuKindList {
-	readonly kind: BaseHalfNamedInputKind;
+	readonly kind: BaseHalfReferenceMenuKind;
 	readonly items: readonly IBaseHalfReferenceMenuItem[];
 	/** Why no card of this kind can be chosen, as when the model takes none. */
 	readonly disabled?: string;
 }
 
 export interface IBaseHalfReferenceMenuModel {
-	/** The card's inputs that have a name, in the order of the list. */
+	/** The card's inputs that have a name, and its notes, in the order of the list. */
 	readonly connected: readonly IBaseHalfReferenceMenuItem[];
-	/** Images, videos, and audio, in that order. */
+	/** Images, videos, audio, and notes, in that order. */
 	readonly canvas: readonly IBaseHalfReferenceMenuKindList[];
 }
 
 export type BaseHalfReferenceMenuRow =
 	| { readonly type: 'header'; readonly text: string }
-	| { readonly type: 'item'; readonly key: string; readonly item: IBaseHalfReferenceMenuItem }
-	| { readonly type: 'kind'; readonly key: string; readonly kind: BaseHalfNamedInputKind; readonly text: string; readonly count: number; readonly disabled?: string }
+	/** `mark` is what the item shows at its right: its name, or that a note is connected. */
+	| { readonly type: 'item'; readonly key: string; readonly item: IBaseHalfReferenceMenuItem; readonly mark?: string }
+	| { readonly type: 'kind'; readonly key: string; readonly kind: BaseHalfReferenceMenuKind; readonly text: string; readonly count: number; readonly disabled?: string }
 	| { readonly type: 'empty'; readonly text: string };
 
 /** The rows of the menu: its two parts, or what matches `query`. */
@@ -90,13 +96,13 @@ export function baseHalfReferenceMenuRows(model: IBaseHalfReferenceMenuModel, qu
 		}
 	}
 	if (!rows.length) {
-		rows.push({ type: 'empty', text: localize('basehalf.generation.references.nothing', "Connect an image, a video, or audio, or add one to this canvas, to name it here.") });
+		rows.push({ type: 'empty', text: localize('basehalf.generation.references.nothing', "Connect an image, a video, audio, or a note, or add one to this canvas.") });
 	}
 	return Object.freeze(rows);
 }
 
 /** The rows of the list of one kind: every card of that kind on the canvas, the connected ones with their names. */
-export function baseHalfReferenceMenuKindRows(model: IBaseHalfReferenceMenuModel, kind: BaseHalfNamedInputKind): readonly BaseHalfReferenceMenuRow[] {
+export function baseHalfReferenceMenuKindRows(model: IBaseHalfReferenceMenuModel, kind: BaseHalfReferenceMenuKind): readonly BaseHalfReferenceMenuRow[] {
 	const list = model.canvas.find(candidate => candidate.kind === kind);
 	if (!list?.items.length) {
 		return Object.freeze([{ type: 'empty', text: emptyKind(kind) }]);
@@ -109,13 +115,15 @@ export function isBaseHalfReferenceMenuChoice(row: BaseHalfReferenceMenuRow): ro
 	return row.type === 'item' || row.type === 'kind';
 }
 
+/** An item's row; under Connected it shows its name, and in a kind's list a connected note says so. */
 function itemRow(group: string, item: IBaseHalfReferenceMenuItem): BaseHalfReferenceMenuRow {
-	return { type: 'item', key: `${group}:${item.path}`, item };
+	const mark = item.label ?? (item.connected && group !== 'connected' ? localize('basehalf.generation.references.connectedNote', "Connected") : undefined);
+	return { type: 'item', key: `${group}:${item.path}`, item, ...(mark ? { mark } : {}) };
 }
 
 /** A card that is connected has its name and is not refused; the others take their kind's reason. */
 function withKindDisabled(item: IBaseHalfReferenceMenuItem, list: IBaseHalfReferenceMenuKindList): IBaseHalfReferenceMenuItem {
-	return list.disabled && !item.label && !item.disabled ? { ...item, disabled: list.disabled } : item;
+	return list.disabled && !item.label && !item.connected && !item.disabled ? { ...item, disabled: list.disabled } : item;
 }
 
 function matches(item: IBaseHalfReferenceMenuItem, needle: string): boolean {
@@ -130,18 +138,20 @@ function connectedTitle(): string {
 	return localize('basehalf.generation.references.connected', "Connected");
 }
 
-function kindTitle(kind: BaseHalfNamedInputKind): string {
+function kindTitle(kind: BaseHalfReferenceMenuKind): string {
 	switch (kind) {
 		case 'image': return localize('basehalf.generation.references.images', "Images");
 		case 'video': return localize('basehalf.generation.references.videos', "Videos");
 		case 'audio': return localize('basehalf.generation.references.audio', "Audio");
+		case 'text': return localize('basehalf.generation.references.notes', "Notes");
 	}
 }
 
-function emptyKind(kind: BaseHalfNamedInputKind): string {
+function emptyKind(kind: BaseHalfReferenceMenuKind): string {
 	switch (kind) {
 		case 'image': return localize('basehalf.generation.references.noImages', "No images on this canvas.");
 		case 'video': return localize('basehalf.generation.references.noVideos', "No videos on this canvas.");
 		case 'audio': return localize('basehalf.generation.references.noAudio', "No audio on this canvas.");
+		case 'text': return localize('basehalf.generation.references.noNotes', "No notes on this canvas.");
 	}
 }

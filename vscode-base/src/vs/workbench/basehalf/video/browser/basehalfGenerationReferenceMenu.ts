@@ -11,9 +11,9 @@ import { Disposable, DisposableStore, toDisposable } from '../../../../base/comm
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
-import { BaseHalfNamedInputKind } from '../common/basehalfGenerationInputNames.js';
 import {
 	baseHalfReferenceMenuKindRows,
+	BaseHalfReferenceMenuKind,
 	baseHalfReferenceMenuRows,
 	BaseHalfReferenceMenuRow,
 	IBaseHalfReferenceMenuItem,
@@ -55,7 +55,7 @@ export class BaseHalfGenerationReferenceMenu extends Disposable {
 	private readonly flyoutStore = this._register(new DisposableStore());
 	private readonly id = `bh-reference-menu-${generateUuid()}`;
 	private flyout: HTMLElement | undefined;
-	private flyoutKind: BaseHalfNamedInputKind | undefined;
+	private flyoutKind: BaseHalfReferenceMenuKind | undefined;
 	/** The options drawn, by key, in the menu and in the list of a kind. */
 	private readonly menuOptions = new Map<string, HTMLElement>();
 	private readonly flyoutOptions = new Map<string, HTMLElement>();
@@ -211,8 +211,8 @@ export class BaseHalfGenerationReferenceMenu extends Disposable {
 		if (disabled) {
 			append(text, $('span.bh-reference-menu-reason')).textContent = disabled;
 		}
-		if (row.type === 'item' && row.item.label) {
-			append(option, $('span.bh-reference-menu-label')).textContent = row.item.label;
+		if (row.type === 'item' && row.mark) {
+			append(option, $('span.bh-reference-menu-label')).textContent = row.mark;
 		}
 		if (row.type === 'kind') {
 			option.setAttribute('aria-haspopup', 'listbox');
@@ -238,7 +238,7 @@ export class BaseHalfGenerationReferenceMenu extends Disposable {
 		store.add(addDisposableListener(option, 'click', () => this.choose(row)));
 	}
 
-	private openFlyout(kind: BaseHalfNamedInputKind, byKeyboard: boolean): void {
+	private openFlyout(kind: BaseHalfReferenceMenuKind, byKeyboard: boolean): void {
 		this.flyoutKind = kind;
 		this.renderFlyout();
 		const first = this.flyoutRows.find(isBaseHalfReferenceMenuChoice);
@@ -452,11 +452,12 @@ export class BaseHalfGenerationReferenceMenu extends Disposable {
 	}
 }
 
-function glyphOf(kind: BaseHalfNamedInputKind): ThemeIcon {
+function glyphOf(kind: BaseHalfReferenceMenuKind): ThemeIcon {
 	switch (kind) {
 		case 'image': return Codicon.fileMedia;
 		case 'video': return Codicon.play;
 		case 'audio': return Codicon.unmute;
+		case 'text': return Codicon.fileText;
 	}
 }
 

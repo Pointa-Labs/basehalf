@@ -37,7 +37,7 @@ function brief(rows: readonly BaseHalfReferenceMenuRow[]): string[] {
 			case 'header': return `# ${row.text}`;
 			case 'empty': return `(${row.text})`;
 			case 'kind': return `${row.text} › ${row.count}${row.disabled ? ` [${row.disabled}]` : ''}`;
-			case 'item': return `${row.item.title}${row.item.label ? ` = ${row.item.label}` : ''}${row.item.disabled ? ` [${row.item.disabled}]` : ''}`;
+			case 'item': return `${row.item.title}${row.mark ? ` = ${row.mark}` : ''}${row.item.disabled ? ` [${row.item.disabled}]` : ''}`;
 		}
 	});
 }
@@ -82,9 +82,39 @@ suite('BaseHalf generation reference menu (D68)', () => {
 		});
 	});
 
-	test('with nothing connected and nothing on the canvas, it says how to name an input', () => {
-		assert.deepStrictEqual(brief(baseHalfReferenceMenuRows({ connected: [], canvas: [{ kind: 'image', items: [] }, { kind: 'video', items: [] }, { kind: 'audio', items: [] }] }, '')), [
-			'(Connect an image, a video, or audio, or add one to this canvas, to name it here.)'
+	test('with nothing connected and nothing on the canvas, it says what to connect', () => {
+		assert.deepStrictEqual(brief(baseHalfReferenceMenuRows({ connected: [], canvas: [{ kind: 'image', items: [] }, { kind: 'video', items: [] }, { kind: 'audio', items: [] }, { kind: 'text', items: [] }] }, '')), [
+			'(Connect an image, a video, audio, or a note, or add one to this canvas.)'
 		]);
+	});
+
+	test('notes are listed with the inputs, without a name: a connected one under Connected, and in Notes a connected one says so; a refused kind never dims a connected note (D71)', () => {
+		const withNotes: IBaseHalfReferenceMenuModel = {
+			connected: [
+				MODEL.connected[0],
+				{ path: 'notes/scene.md', kind: 'text', title: 'scene', connected: true },
+				MODEL.connected[1]
+			],
+			canvas: [
+				...MODEL.canvas,
+				{
+					kind: 'text', items: [
+						{ path: 'notes/scene.md', kind: 'text', title: 'scene', connected: true },
+						{ path: 'notes/plan.md', kind: 'text', title: 'plan' }
+					], disabled: 'Not here.'
+				}
+			]
+		};
+		assert.deepStrictEqual({
+			menu: brief(baseHalfReferenceMenuRows(withNotes, '')),
+			notes: brief(baseHalfReferenceMenuKindRows(withNotes, 'text')),
+			search: brief(baseHalfReferenceMenuRows(withNotes, 'pla')),
+			none: brief(baseHalfReferenceMenuKindRows({ connected: [], canvas: [{ kind: 'text', items: [] }] }, 'text'))
+		}, {
+			menu: ['# Connected', '曹操.png = 图片1', 'scene', '杜甫.png = 图片2', '# On This Canvas', 'Images › 3', 'Videos › 1 [Acme Image 1 takes no videos.]', 'Audio › 0', 'Notes › 2 [Not here.]'],
+			notes: ['scene = Connected', 'plan [Not here.]'],
+			search: ['# Notes', 'plan [Not here.]'],
+			none: ['(No notes on this canvas.)']
+		});
 	});
 });

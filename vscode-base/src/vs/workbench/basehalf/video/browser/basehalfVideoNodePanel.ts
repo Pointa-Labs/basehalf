@@ -81,8 +81,8 @@ import {
 	IBaseHalfVideoPanelInputItem,
 	IBaseHalfVideoPanelPresentation
 } from '../common/basehalfVideoNodePanelPresentation.js';
-import { baseHalfInputNameOrdinals, BaseHalfNamedInputKind, isBaseHalfNamedInputKind } from '../common/basehalfGenerationInputNames.js';
-import { IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
+import { baseHalfInputNameOrdinals, isBaseHalfNamedInputKind } from '../common/basehalfGenerationInputNames.js';
+import { BaseHalfReferenceMenuKind, IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
 import { BaseHalfGenerationPromptEditor, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
@@ -1911,34 +1911,44 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	/** The card's named inputs, then the canvas's cards by kind, as the menu lists them. */
+	/** The card's named inputs and its notes, in the order of the input row, then the canvas's cards by kind, as the menu lists them. */
 	private referenceMenuModel(): IBaseHalfReferenceMenuModel {
 		const labels = new Map<string, string>();
-		const connected = (this.presentation?.names ?? []).map(name => {
-			labels.set(name.path, name.label);
-			const input = this.inputs[name.index];
-			return Object.freeze<IBaseHalfReferenceMenuItem>({
-				path: name.path,
-				kind: name.kind,
-				title: name.fileName,
-				label: name.label,
-				...pictureOf(name.kind, input?.available ? input.file : undefined)
-			});
-		});
+		const row = this.presentation?.inputRow;
+		const connected: IBaseHalfReferenceMenuItem[] = [];
+		for (const item of row ? [...row.slots.flatMap(slot => slot.item ? [slot.item] : []), ...row.items] : []) {
+			if (item.label && isBaseHalfNamedInputKind(item.kind)) {
+				labels.set(item.path, item.label);
+				const input = this.inputs[item.index];
+				connected.push(Object.freeze<IBaseHalfReferenceMenuItem>({
+					path: item.path,
+					kind: item.kind,
+					title: item.fileName,
+					label: item.label,
+					...pictureOf(item.kind, input?.available ? input.file : undefined)
+				}));
+			} else if (item.kind === 'text') {
+				// A note has no name (D71).
+				connected.push(Object.freeze<IBaseHalfReferenceMenuItem>({ path: item.path, kind: 'text', title: item.fileName, connected: true }));
+			}
+		}
+		const upstream = new Set(this.snapshot?.upstream ?? []);
 		const canvas = (this.canvasCards ?? EMPTY_CANVAS_CARDS).map(list => Object.freeze({
 			...list,
 			items: list.items.map(item => {
 				const label = labels.get(item.path);
-				return label ? Object.freeze({ ...item, label }) : item;
+				return label
+					? Object.freeze({ ...item, label })
+					: item.kind === 'text' && upstream.has(item.path) ? Object.freeze({ ...item, connected: true }) : item;
 			})
 		}));
 		return Object.freeze({ connected, canvas });
 	}
 
 	/**
-	 * Reads the images, videos, and audio of the card's folder, drafts too,
-	 * apart from the card itself, and asks for each kind whether the draft's
-	 * model takes one more. `undefined` when the folder cannot be read.
+	 * Reads the images, videos, audio, and notes of the card's folder, drafts
+	 * too, apart from the card itself, and asks for each kind whether the
+	 * draft's model takes one more. `undefined` when the folder cannot be read.
 	 */
 	private async readCanvasCards(): Promise<readonly IBaseHalfReferenceMenuKindList[] | undefined> {
 		const snapshot = this.snapshot;
@@ -1958,7 +1968,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			for (const entry of entries) {
 				const path = folderPath ? `${folderPath}/${entry.name}` : entry.name;
 				const kind = baseHalfVideoInputKindOfPath(path);
-				if (path === snapshot.path || entry.name.startsWith('.') || !isBaseHalfNamedInputKind(kind)) {
+				if (path === snapshot.path || entry.name.startsWith('.') || (!isBaseHalfNamedInputKind(kind) && kind !== 'text')) {
 					continue;
 				}
 				items.push(Object.freeze({ path, kind, title: baseHalfVideoPanelInputFileName(path), ...pictureOf(kind, entry.file) }));
@@ -1971,7 +1981,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		items.sort((left, right) => compareFileNames(left.title, right.title));
 		const connected = new Set(snapshot.upstream);
 		const lists: IBaseHalfReferenceMenuKindList[] = [];
-		for (const kind of ['image', 'video', 'audio'] as const) {
+		for (const kind of ['image', 'video', 'audio', 'text'] as const) {
 			const ofKind = items.filter(item => item.kind === kind);
 			// The model takes one more of a kind or none, whichever card it is: asked once, for the first that is not connected.
 			const candidate = ofKind.find(item => !connected.has(item.path));
@@ -1989,12 +1999,28 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	/**
 	 * Puts the chosen input's name in place of the `@`. A card that is not
 	 * connected is connected first, as a connection on the canvas is, or the
-	 * reason it cannot be is shown and the `@` stays.
+	 * reason it cannot be is shown and the `@` stays. A note has no name: it is
+	 * connected, and the `@` is taken out (D71).
 	 */
 	private async chooseReference(item: IBaseHalfReferenceMenuItem): Promise<void> {
 		const at = this.mentionAt;
 		this.referenceMenu.clear();
 		this.mentionAt = undefined;
+		if (item.kind === 'text') {
+			if (!this.snapshot?.upstream.includes(item.path)) {
+				const connected = await this.acceptInput(item.path) && await this.connect(item.path);
+				if (this.disposed) {
+					return;
+				}
+				if (!connected) {
+					this.editor.focus(at !== undefined ? at + 1 : undefined);
+					return;
+				}
+				await this.refresh();
+			}
+			this.takeOutMention(at);
+			return;
+		}
 		let label = item.label;
 		if (!label) {
 			const count = this.presentation?.names.filter(name => name.kind === item.kind).length ?? 0;
@@ -2012,6 +2038,17 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			label = baseHalfVideoInputLabel(item.kind, count + 1);
 		}
 		this.replaceMention(at, label);
+	}
+
+	/** Takes out the `@` at `at` and puts the caret there, or gives the prompt the keyboard when the `@` is not there any more. */
+	private takeOutMention(at: number | undefined): void {
+		const text = this.editor.value;
+		if (at !== undefined && (text.charAt(at) === '@' || text.charAt(at) === '\uff20')) {
+			this.editor.focus(at);
+			this.editor.replace(at, at + 1, '');
+			return;
+		}
+		this.editor.focus();
 	}
 
 	/** Puts `label` and a space in place of the `@` at `at`, or at the caret when it is not there any more. */
@@ -2366,7 +2403,7 @@ const EMPTY_CANVAS_CARDS: readonly IBaseHalfReferenceMenuKindList[] = Object.fre
 ]);
 
 /** The picture of an image the window can show; a video and audio have their glyph. */
-function pictureOf(kind: BaseHalfNamedInputKind, file: URI | undefined): { readonly picture?: string } {
+function pictureOf(kind: BaseHalfReferenceMenuKind, file: URI | undefined): { readonly picture?: string } {
 	return kind === 'image' && file ? { picture: FileAccess.uriToBrowserUri(file).toString(true) } : {};
 }
 

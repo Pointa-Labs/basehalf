@@ -570,7 +570,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		press(search, 'Enter');
 		await settle();
 		assert.deepStrictEqual({ opened, value: valueOf(prompt), chips: findAll(panel, '.bh-prompt-chip').map(chip => chip.dataset.name), menu: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt }, {
-			opened: { focused: true, listed: ['a.pngImage 1', 'b.pngImage 2'] },
+			// The connected note is listed too, after the frames, as the row shows it (D71).
+			opened: { focused: true, listed: ['a.pngImage 1', 'b.pngImage 2', 'scene'] },
 			value: 'The cat in Image 2 ',
 			chips: ['Image 2'],
 			menu: 0,
@@ -598,10 +599,38 @@ suite('BaseHalfVideoNodePanel', () => {
 		press(find(panel, '.bh-reference-menu-search input'), 'Escape');
 		await settle();
 		assert.deepStrictEqual({ kinds, chosen, escaped: { value: valueOf(prompt), menu: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt } }, {
-			// The card itself, a hidden file, and a note are not listed; the connected images are in another folder.
-			kinds: ['a.pngImage 1', 'b.pngImage 2', 'Images1', 'VideosAcme Motion 2 takes no videos in Frames.1 (dimmed)', 'Audio0'],
+			// The card itself and a hidden file are not listed; the connected images and note are in other folders (D71).
+			kinds: ['a.pngImage 1', 'b.pngImage 2', 'scene', 'Images1', 'VideosAcme Motion 2 takes no videos in Frames.1 (dimmed)', 'Audio0', 'Notes1'],
 			chosen: { added: ['shots/c.png'], value: 'Then Image 3 ' },
 			escaped: { value: 'Then Image 3 and @', menu: 0, focused: true }
+		});
+	});
+
+	test('the reference menu lists the notes: a connected one under Connected, and Notes of the canvas; choosing a note connects it and takes the @ out (D71)', async () => {
+		folderFiles = ['c.png', 'idea.md', 'plan.txt'];
+		const panel = await createPanel();
+		const prompt = promptOf(panel);
+		prompt.focus();
+		type(prompt, 'Then @');
+		await settle();
+		const options = () => findAll(panel, '.bh-reference-menu-option');
+		const listed = options().map(option => option.textContent);
+		options().find(option => option.dataset.key === 'kind:text')!.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
+		const notes = findAll(panel, '.bh-reference-menu.flyout .bh-reference-menu-option');
+		const flyout = notes.map(option => option.textContent);
+		notes.find(option => option.dataset.key === 'text:shots/idea.md')!.click();
+		await settle();
+		const chosen = { added: [...connections.added], value: valueOf(prompt), menus: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt };
+		// The connected note: nothing to connect, and the @ is taken out.
+		type(prompt, `${valueOf(prompt)}@`);
+		await settle();
+		options().find(option => option.dataset.key === 'connected:notes/scene.md')!.click();
+		await settle();
+		assert.deepStrictEqual({ listed, flyout, chosen, connectedNote: { added: connections.added, value: valueOf(prompt) } }, {
+			listed: ['a.pngImage 1', 'b.pngImage 2', 'scene', 'Images1', 'Videos0', 'Audio0', 'Notes2'],
+			flyout: ['idea', 'plan.txt'],
+			chosen: { added: ['shots/idea.md'], value: 'Then ', menus: 0, focused: true },
+			connectedNote: { added: ['shots/idea.md'], value: 'Then ' }
 		});
 	});
 
