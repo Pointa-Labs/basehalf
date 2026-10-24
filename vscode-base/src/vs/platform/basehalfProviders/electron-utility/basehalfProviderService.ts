@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { LogLevel as ProxyLogLevel, ProxyAgentParams, ProxySupportSetting } from '@vscode/proxy-agent';
+import { encodeBase64, VSBuffer } from '../../../base/common/buffer.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { localize } from '../../../nls.js';
 import { IConfigurationService } from '../../configuration/common/configuration.js';
@@ -32,6 +33,9 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 	private readonly commands: VideoProviderCommands;
 	private modules: NodeHttpModules | undefined;
 	private loading: Promise<void> | undefined;
+	/** What each proxy last asked for, and the Basic authorization the user gave it. */
+	private readonly proxyAuthenticate = new Map<string, string | string[]>();
+	private readonly basicAuthorization = new Map<string, string>();
 
 	constructor(
 		@ILoggerService loggerService: ILoggerService,
@@ -104,10 +108,12 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 			addCertificatesV1: () => !config<boolean>('http.experimental.systemCertificatesV2') && config<boolean>('http.systemCertificates') !== false,
 			addCertificatesV2: () => !!config<boolean>('http.experimental.systemCertificatesV2') && config<boolean>('http.systemCertificates') !== false,
 			loadSystemCertificatesFromNode: () => config<boolean>('http.systemCertificatesNode') ?? systemCertificatesNodeDefault,
-			loadAdditionalCertificates: () => proxyAgent.loadSystemCertificates({
-				loadSystemCertificatesFromNode: () => config<boolean>('http.systemCertificatesNode') ?? systemCertificatesNodeDefault,
-				log: this.logService
-			}),
+			// From the main process, which keeps them for every window, unless Node's own are chosen.
+			loadAdditionalCertificates: () => (config<boolean>('http.systemCertificatesNode') ?? systemCertificatesNodeDefault)
+				? proxyAgent.loadSystemCertificates({ loadSystemCertificatesFromNode: () => true, log: this.logService })
+				: this.nativeHostService.loadCertificates(),
+			lookupProxyAuthorization: (proxyURL, proxyAuthenticate, state) => this.lookupProxyAuthorization(proxyURL, proxyAuthenticate, state),
+			getNetworkInterfaceCheckInterval: () => (config<number>('http.experimental.networkInterfaceCheckInterval') ?? 300) * 1000,
 			log: this.logService,
 			getLogLevel: () => proxyLogLevel(this.logService.getLevel(), proxyAgent.LogLevel),
 			proxyResolveTelemetry: () => undefined,
@@ -119,6 +125,62 @@ export class BaseHalfProviderService extends Disposable implements IBaseHalfProv
 			http: proxyAgent.createHttpPatch(params, http, resolveProxyWithRequest),
 			https: proxyAgent.createHttpPatch(params, https, resolveProxyWithRequest)
 		};
+	}
+
+	/**
+	 * What a proxy that asks for authentication gets, as in the extension host:
+	 * a Kerberos ticket, which the main process asks for, or the user's name
+	 * and password for the proxy, which the main process asks the user for
+	 * once and BaseHalf keeps for this proxy while it runs.
+	 */
+	private async lookupProxyAuthorization(proxyURL: string, proxyAuthenticate: string | string[] | undefined, state: { kerberosRequested?: boolean; basicAuthCacheUsed?: boolean; basicAuthAttempt?: number }): Promise<string | undefined> {
+		proxyURL = proxyURL.replace(/\/+$/, '');
+		if (proxyAuthenticate) {
+			this.proxyAuthenticate.set(proxyURL, proxyAuthenticate);
+		}
+		const header = proxyAuthenticate ?? this.proxyAuthenticate.get(proxyURL);
+		const authenticate = Array.isArray(header) ? header : typeof header === 'string' ? [header] : [];
+		if (authenticate.some(value => /^(Negotiate|Kerberos)( |$)/i.test(value)) && !state.kerberosRequested) {
+			state.kerberosRequested = true;
+			const kerberos = await this.nativeHostService.lookupKerberosAuthorization(proxyURL).catch(() => undefined);
+			if (kerberos) {
+				return kerberos;
+			}
+		}
+		const basic = authenticate.find(value => /^Basic( |$)/i.test(value));
+		if (!basic) {
+			return undefined;
+		}
+		const cached = this.basicAuthorization.get(proxyURL);
+		if (cached) {
+			if (!state.basicAuthCacheUsed) {
+				state.basicAuthCacheUsed = true;
+				return cached;
+			}
+			// The proxy refused what was kept: ask again.
+			this.basicAuthorization.delete(proxyURL);
+		}
+		state.basicAuthAttempt = (state.basicAuthAttempt ?? 0) + 1;
+		const url = new URL(proxyURL);
+		try {
+			const credentials = await this.nativeHostService.lookupAuthorization({
+				scheme: 'basic',
+				host: url.hostname,
+				port: Number(url.port),
+				realm: / realm="([^"]+)"/i.exec(basic)?.[1] ?? '',
+				isProxy: true,
+				attempt: state.basicAuthAttempt
+			});
+			if (!credentials) {
+				return undefined;
+			}
+			const authorization = `Basic ${encodeBase64(VSBuffer.fromString(`${credentials.username}:${credentials.password}`))}`;
+			this.basicAuthorization.set(proxyURL, authorization);
+			return authorization;
+		} catch (error) {
+			this.logService.error('[BaseHalf Providers] proxy authentication failed', error);
+			return undefined;
+		}
 	}
 }
 
