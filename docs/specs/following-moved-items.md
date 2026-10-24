@@ -360,6 +360,18 @@ A file that appeared is fingerprinted only when a file disappeared in the
 same comparison. Rule 2 is skipped when the number of unpaired text files
 that disappeared times the number that appeared exceeds 1,000,000.
 
+**A pair counts for the rest of the minute.** While BaseHalf runs, a file
+that was paired stays on the list of what disappeared, as paired, for the
+rest of its 60 seconds, so that files moved to a new folder one by one still
+bring the folder along (rule 3). It is not paired again, and no other file is
+paired with the path it went to. When it moves on, outside or through the
+workbench, its pair leads to where it is now, as moves compose everywhere
+else: the path it left is free again, and a file that comes back there is
+paired as any other. Found on 2026-10-24: a picture renamed in Finder,
+renamed again on the canvas, and renamed back in Finder within the minute
+was not followed, because its first pair still held the name it came back
+to.
+
 **Why rule 2 asks two questions.** Both earlier versions asked one, and
 both were measured on the 364 Markdown files of this repository
 ([measurement](#verification)).
@@ -746,6 +758,7 @@ was running, the row says so.
 | Renamed or moved, content unchanged | Yes |
 | Renamed and edited or reworded, with at least half of its own words kept | Yes |
 | Renamed, and then rewritten completely while BaseHalf runs | Yes, paired at the rename |
+| Renamed, renamed again outside or through the workbench, and renamed back, within a minute while BaseHalf runs | Yes, at every rename |
 | A folder renamed as a whole, with more than half of its files recognizable | Yes, and the files in it that were rewritten come along |
 | A folder's files moved one by one to a new folder, within a minute while BaseHalf runs | Yes |
 | A folder renamed with most of its files rewritten | No |
@@ -931,6 +944,13 @@ with the same expectations.
     draft's path keeps its own card, and the draft moves to the next free
     name. These are criteria 5 and 8 of
     [generation cards](generation-cards.md#acceptance-criteria) too.
+31. **Back to a name it was paired with.** While running, a followed file is
+    renamed outside, then renamed through the workbench, and then renamed
+    outside back to the name of the first rename, all within a minute. The
+    last rename is recognized, and the file's card information and the
+    entries that name it follow it. The same holds when the second rename is
+    made outside too. The smoke does this with an input of a draft (criterion
+    73 of [generation cards](generation-cards.md#acceptance-criteria)).
 
 ## Verification
 
@@ -938,7 +958,8 @@ with the same expectations.
   function of the snapshot and the items on disk. That function takes no
   file type: one method serves every kind of item.
 - Unit tests on an in-memory file system for comparison and relocation.
-- The smoke steps of criterion 25.
+- The smoke steps of criterion 25, and the generation cards step of
+  criterion 31.
 - Measurements on a real folder before the limits are final: the listing and
   comparison at open for 100,000 files with 5,000 followed and nothing
   changed, the first fingerprints of a workspace with 5,000 followed files,
