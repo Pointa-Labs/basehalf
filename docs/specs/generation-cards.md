@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -8,7 +8,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
 [D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23),
-[D68](../decisions.md#d68--a-cards-references-are-its-connections-and-a-name-in-its-prompt-follows-its-input-new-2026-10-24)
+[D68](../decisions.md#d68--a-cards-references-are-its-connections-and-a-name-in-its-prompt-follows-its-input-new-2026-10-24),
+[D69](../decisions.md#d69--pick-on-canvas-stays-on-and-shows-what-a-click-does-new-2026-10-24)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -662,11 +663,16 @@ From top to bottom:
      as one step of undo. A press that moves less than 4 px is a click. A
      drag of a tile never moves the card or the canvas. The swap arrow
      exchanges the two frames' entries in `upstream`.
-   - The plus offers **Pick on Canvas** (the next click on a card connects it
-     as an input; Escape cancels) and **Import File…** (copies a file into
-     the card's folder and connects it). A card or a file that the model
-     cannot use is refused with the reason, as a connection on the canvas
-     is, and Import File… copies nothing then.
+   - The plus offers **Pick on Canvas** (clicking cards of the canvas
+     connects them, [Pick on Canvas](#pick-on-canvas)) and **Import File…**
+     (copies a file into the card's folder and connects it). A card or a
+     file that the model cannot use is refused with the reason, as a
+     connection on the canvas is, and Import File… copies nothing then.
+   - A connection made or removed changes the row at once. The tiles that
+     stay keep their pictures and a video's first frame, so drawing the row
+     again blinks nothing, and an input that comes back soon, as by undo or a
+     second click of Pick on Canvas, shows its picture at once; the prompt's
+     chips keep their pictures too.
    - The tiles scroll sideways when they do not fit, and the plus follows
      them.
 2. **Prompt**: a text field that grows to five lines and then scrolls.
@@ -790,8 +796,8 @@ name instead, and nothing is asked.
 none of it can be changed: the prompt is read only and can be selected and
 copied, and `@` opens nothing; the input row has no plus, no cross, no `@`,
 no swap arrow, and no dragging; the model and
-settings buttons show their values and open nothing; and Generate is the stop
-square. When the generation fails or is stopped, the card is a draft again
+settings buttons show their values and open nothing; Generate is the stop
+square; and Pick on Canvas ends. When the generation fails or is stopped, the card is a draft again
 and its panel can be changed again.
 
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
@@ -811,6 +817,54 @@ and the text being typed looks as it does at rest. A field of the settings
 popover shows the focus by its border alone. The buttons, slots, and menu
 items show a ring only when the keyboard moved the focus to them, so a model
 chosen with the mouse leaves no ring on the model button.
+
+### Pick on Canvas
+
+**Pick on Canvas**, from the plus of the input row, connects cards of the
+canvas to the draft by clicking them (D69). It stays on until it is ended,
+and a click on a connected card removes it again. A card with its file and a
+draft that generates do not offer it.
+
+While the draft picks:
+
+- **A bar** at the top of the canvas says what a click does: "Click cards to
+  connect them to <name>, or a connected card to remove it." It has **Done**
+  at its right. The plus is shown pressed, and the input row says "Click
+  cards on the canvas. Escape or Done ends."
+- **The pointer** over a card is the pointing hand when a click connects or
+  removes it, and the not-allowed pointer over a card that cannot be an
+  input: the draft itself, a folder, or a card the model cannot use. It is
+  never the hand that moves a card, and never the text cursor over a card's
+  name. Over the blank canvas it is the arrow.
+- **A label** beside the pointer says what a click on the card under it does,
+  "Connect <name>" or "Remove <name>", or why the card cannot be an input,
+  as a refused connection says it ("Seedream 5.0 Pro takes no videos.", "A
+  folder cannot be an input."). The draft itself has no label.
+- **The cards** show what they are. Under the pointer, a card that a click
+  connects has the accent outline; a connected card is darkened, with a
+  check mark at its top left; a card that cannot be an input is faded. The
+  draft stays selected, with its panel.
+- **The canvas is not edited**: no card moves or resizes, the handles that
+  draw a connection and the toolbars of the selection, such as a draft's
+  Upload Image, do not show, the blank canvas starts no selection box, a
+  double click does nothing, and no menu opens on the canvas. The view moves
+  and zooms as at other times, by the wheel, the trackpad, or a drag with
+  the middle or the right button, and the panel's tiles and prompt work as
+  before. A press that moves more than 4 px, or that is let go on another
+  card, is no click.
+
+A click on a card that can be connected connects it at the end of the list,
+as a line drawn on the canvas does. A click on a connected card removes its
+connection, and its names leave the prompt, as its tile's cross does
+([Names follow their inputs](#names-follow-their-inputs)). Each is one step
+of undo; the card, its line, and the row change at once, and picking goes
+on. A click on a card that cannot be an input, on the draft, or on the blank
+canvas changes nothing.
+
+Escape, Done, or the plus ends picking, and so does whatever takes the panel
+away or locks it: the draft no longer being selected, starting to generate,
+moved, or deleted. In the panel, Escape first closes a menu that is open
+there.
 
 ### The panel of a card with its file
 
@@ -1734,6 +1788,22 @@ References and names (D68)
     its prompt opens no menu; the panel of a card with its file shows its
     inputs as tiles and the names of its prompt as chips, read only.
 
+Pick on Canvas (D69)
+
+59. Pick on Canvas stays on: clicks on two cards connect both, in that
+    order; a click on a connected card removes it and its names; each is one
+    step of undo; and a click on the blank canvas, the draft, or a card the
+    model cannot use changes nothing. Escape and Done end it.
+60. While picking, the pointer over a card that a click connects or removes
+    is the pointing hand, and over the draft, a folder, or a card the model
+    cannot use it is the not-allowed pointer, over a card's name as well;
+    the label beside it says what a click does or why not; a connected card
+    is darkened with a check mark; and a drag moves no card.
+61. A connection made or removed, by a tile's cross, the reference menu, or
+    Pick on Canvas, draws the row and the prompt again without a blank
+    frame: the tiles and chips that stay keep their pictures, and a video's
+    tile keeps its first frame.
+
 ## Verification
 
 - Unit tests of the pure modules (`basehalfGenerationInfo.test.ts`,
@@ -1783,9 +1853,14 @@ References and names (D68)
   the tiles, their look, and dragging (`basehalfGenerationInputRow.test.ts`);
   the reference menu (`basehalfGenerationReferenceMenu.test.ts`); and the
   panel (`basehalfVideoNodePanel.test.ts`).
+- Unit tests for D69: what a click on each card does while picking, and
+  connecting and removing in a row (`basehalfVideoNodePanel.test.ts`); the
+  pictures and chips kept when the row and the prompt are drawn again
+  (`basehalfGenerationInputRow.test.ts`,
+  `basehalfGenerationPromptEditor.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
-  42 to 46, 49, 50, 52, 54, and 56, against the local test provider through the ByteDance module, with a
+  42 to 46, 49, 50, 52, 54, 56, 59, and 60, against the local test provider through the ByteDance module, with a
   test key; no paid provider is called. The test provider answers every task
   and image with a file of its own, as a real provider does, so that a file
   moved outside BaseHalf is told from another by its content. After a
@@ -1805,6 +1880,8 @@ References and names (D68)
   video draft, and a connection into a card with its file; and for D68, the
   tiles and their look, a drag of a tile, the reference menu typed with the
   real keyboard and with an input method, and the names of a prompt after a
-  connection is removed on the canvas and after undo.
+  connection is removed on the canvas and after undo; and for D69, Pick on
+  Canvas on a canvas of large images and videos, with every frame of the row
+  sampled while cards are connected and removed (criterion 61).
 - A generation with a real provider is run by a person with their own key
   before a release that adds or changes a provider module.

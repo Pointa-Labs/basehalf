@@ -2449,3 +2449,52 @@ keeps its order").
 - The panel is at most 268 px tall instead of 260, for 48 px tiles.
 - What agents read and write does not change: `generation.yaml` holds the
   prompt as text, and a list that an agent writes changes no prompt.
+
+## D69 — Pick on Canvas stays on and shows what a click does (NEW, 2026-10-24)
+
+**Decision.** Pick on Canvas lets the user click several cards in a row: a
+click connects a card to the draft, a click on a connected card removes it,
+and Escape or Done ends it. While it is on, a bar at the top of the canvas
+says what a click does; the pointer and a label beside it say what a click
+on the card under it does, or why the card cannot be an input; connected
+cards are darkened with a check mark and cards that cannot be inputs are
+faded; and the canvas itself is not edited. See [generation
+cards](specs/generation-cards.md#pick-on-canvas).
+
+**Why.** On 2026-10-24 the user found Pick on Canvas wanting: the pointer did
+not change and showed the hand that moves a card over other cards, and the
+mode had no whole logic for what a click does and what the user sees, such as
+that a card already chosen cannot be chosen again. In the two canvas products
+for media work, the first keeps picking references on until it is ended: a
+bar at the top says to pick from the canvas, with a button that ends it; the
+pointer is the arrow, never the hand that moves a node; a label beside the
+pointer names the card a click selects, or offers to deselect a connected
+one, which is darkened; a click on the blank canvas does not end it, and the
+wheel moves the view. The second picks one card for a frame slot and ends:
+its bar names what is picked, its pointer is the pointing hand, and only the
+cards that fit the slot react. Neither says why a card cannot be used: the
+first offers it and lets the click do nothing, the second leaves it as it
+is.
+
+**What was set aside.**
+- Ending after one card, as the second product does for a frame slot:
+  references are several, and a draft's frames come from the order of its
+  list, so one way of picking serves both.
+- A click on the blank canvas ending picking, as BaseHalf's first build did:
+  both products keep picking, and a click that misses a card would end it.
+- A button that brings the draft back into sight and ends picking, as the
+  first product has: BaseHalf does not move the view for the user (D50), and
+  Done ends picking where the user is.
+
+**Consequences.**
+- The panel tells the canvas, for each card, whether a click connects it,
+  removes it, or cannot use it and why, by the same rule that refuses a line
+  drawn on the canvas; the canvas draws the bar, the label, the pointer, and
+  the cards' looks, and hands the clicks back.
+- While picking, the canvas hides what would edit it, the handles that draw
+  a connection and the toolbars of the selection, and opens no menu; the
+  view still moves and zooms.
+- Drawing the input row or the prompt again keeps the pictures of the tiles
+  and chips that stay, so a connection made or removed blinks nothing, and
+  an input that comes back soon, by undo or a second click, shows its
+  picture at once.

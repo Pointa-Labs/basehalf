@@ -175,9 +175,10 @@ text cursor. Over the rest of the caption it is as before.
 Two states come first:
 
 - While a card is dragged, the pointer is the drag cursor, also over a name.
-- While a generation card waits for the user to pick an input (**Pick on
-  Canvas**), the pointer over a card is the cursor of the pick, also over its
-  name.
+- While a generation card picks its inputs (**Pick on Canvas**), the pointer
+  over a card is the one that picking gives it, also over its name: the
+  pointing hand, or the not-allowed pointer over a card that cannot be an
+  input ([generation cards](generation-cards.md#pick-on-canvas)).
 
 ### Input on the name target
 
