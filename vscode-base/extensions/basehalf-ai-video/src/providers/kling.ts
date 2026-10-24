@@ -7,22 +7,9 @@ import { countsOf, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, describeBytes, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import type {
-	CatalogMode,
-	CatalogModel,
-	CatalogParameter,
-	CatalogProvider,
-	CheckRequest,
-	CheckResult,
-	ImageFormat,
-	Params,
-	ParamValue,
-	PlannedMedia,
-	ProviderErrorCode,
-	SubmitRequest,
-	TaskRef
-} from './types.ts';
+import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ImageFormat, Params, ParamValue, PlannedMedia, PromptInput, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Kling's video models on its new API, where the model is part of the path,
@@ -446,11 +433,47 @@ function createRequest(model: KlingModel, region: string, params: Params, prompt
 	if (model.api === 'split' && !startFrame) {
 		return { path: `/text-to-video/${id}`, value: { prompt, settings } };
 	}
+	// An omni model's prompt names an image by the id of its item, `@image_1` (D74).
 	const contents = [
 		...(prompt.trim() ? [{ type: 'prompt', text: prompt }] : []),
-		...images.map(image => ({ type: contentType(image.slot), url: image.base64 }))
+		...images.map((image, index) => ({ type: contentType(image.slot), url: image.base64, ...(model.api === 'omni' ? { id: omniImageId(index) } : {}) }))
 	];
 	return { path: `/${model.api === 'split' ? 'image-to-video' : 'omni-video'}/${id}`, value: { contents, settings } };
+}
+
+/** The id of the n-th image item of an omni video request, from 0 in the order of `contents`: the frames, then the references. */
+function omniImageId(index: number): string {
+	return `image_${index + 1}`;
+}
+
+/** The place of a planned image among the image items of a video request: the start frame, the end frame, then the references. */
+function imageItemIndex(input: PromptInput, inputs: PlannedMedia): number {
+	const frames = (inputs.startFrame ? 1 : 0) + (inputs.endFrame ? 1 : 0);
+	switch (input.input) {
+		case 'startFrame': return 0;
+		case 'endFrame': return inputs.startFrame ? 1 : 0;
+		default: return frames + (input.index ?? 0);
+	}
+}
+
+/**
+ * The names of the inputs in a prompt (D74; Kling, "Names in the prompt").
+ * An omni video model reads `@` and the id of an item, which BaseHalf gives
+ * every image item, `image_1` onward in the order of `contents`, frames
+ * included; an omni image model reads `<<<image_1>>>` for the n-th image of
+ * `image_list`. Kling documents no name for the other models' images, which
+ * take the shared names.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	const image = imageModelOf(request.model);
+	if (image) {
+		return writePromptNames(prompt, input => image.api === 'omni' && input.input === 'images' ? `<<<image_${referenceNumber(input)}>>>` : sharedPromptName(input, language));
+	}
+	const model = MODELS.find(entry => entry.id === request.model);
+	return writePromptNames(prompt, input => model?.api === 'omni' && (input.input === 'startFrame' || input.input === 'endFrame' || input.input === 'images')
+		? `@${omniImageId(imageItemIndex(input, request.inputs))}`
+		: sharedPromptName(input, language));
 }
 
 function createdTaskId(answer: HttpAnswer): string {
@@ -697,7 +720,9 @@ export const KLING: ProviderModule = {
 		return { message: errorMessage(code, body.message), ...(known ? { code: known } : {}) };
 	},
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const image = imageModelOf(request.model);
 		if (image) {
 			return { problems: await imageProblems(image, request, media) };

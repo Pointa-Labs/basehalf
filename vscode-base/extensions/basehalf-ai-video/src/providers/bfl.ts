@@ -7,24 +7,9 @@ import { countsOf, measureItems, type MeasuredItem } from './check.ts';
 import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, isAllowedAddress, retryAfterMs, type HttpAnswer, type HttpCall, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type ReadMedia } from './media.ts';
-import type { ModulePollState, ProviderModule, VideoLocation } from './module.ts';
-import type {
-	CatalogMode,
-	CatalogModel,
-	CatalogParameter,
-	CatalogProvider,
-	CheckRequest,
-	CheckResult,
-	Media,
-	ModeId,
-	ModeInputs,
-	ModeLimits,
-	ModelKind,
-	Params,
-	PlannedMedia,
-	SubmitRequest,
-	TaskRef
-} from './types.ts';
+import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, Media, ModeId, ModeInputs, ModeLimits, ModelKind, Params, PlannedMedia, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Black Forest Labs' FLUX 3 video model and its image models, FLUX 3 Image and
@@ -107,27 +92,27 @@ const TEXT = Object.freeze({
 	imageModels: Object.freeze<Record<ImageModelId, { readonly label: string; readonly description: string }>>({
 		'flux-3-image': {
 			label: 'FLUX 3 Image',
-			description: 'Black Forest Labs\' newest image model: an image from the prompt, an edit of a connected image, or a composition of up to 10, up to 4K, grounded in a web search. Name the images in the prompt by their position, as image 1 to image 10.'
+			description: 'Black Forest Labs\' newest image model: an image from the prompt, an edit of a connected image, or a composition of up to 10, up to 4K, grounded in a web search.'
 		},
 		'flux-2-pro': {
 			label: 'FLUX.2 [pro]',
-			description: 'FLUX.2 for most images and edits: an image from the prompt, or an edit or a composition of up to 8 connected images, up to 4 megapixels. Name the images in the prompt by their order, as image 1, image 2, and so on.'
+			description: 'FLUX.2 for most images and edits: an image from the prompt, or an edit or a composition of up to 8 connected images, up to 4 megapixels.'
 		},
 		'flux-2-max': {
 			label: 'FLUX.2 [max]',
-			description: 'FLUX.2\'s highest quality and prompt following, with up to 8 connected images, up to 4 megapixels; it searches the web when the prompt asks about something current. Name the images in the prompt by their order, as image 1, image 2, and so on.'
+			description: 'FLUX.2\'s highest quality and prompt following, with up to 8 connected images, up to 4 megapixels; it searches the web when the prompt asks about something current.'
 		},
 		'flux-2-flex': {
 			label: 'FLUX.2 [flex]',
-			description: 'FLUX.2 for text in the image and small details, with adjustable steps and guidance; up to 8 connected images, up to 4 megapixels. Name the images in the prompt by their order, as image 1, image 2, and so on.'
+			description: 'FLUX.2 for text in the image and small details, with adjustable steps and guidance; up to 8 connected images, up to 4 megapixels.'
 		},
 		'flux-2-klein-4b': {
 			label: 'FLUX.2 [klein] 4B',
-			description: 'The fastest FLUX.2 model: an image from the prompt or from up to 4 connected images, up to 4 megapixels. It does not rewrite the prompt, so describe the image fully. Name the images in the prompt by their order, as image 1, image 2, and so on.'
+			description: 'The fastest FLUX.2 model: an image from the prompt or from up to 4 connected images, up to 4 megapixels. It does not rewrite the prompt, so describe the image fully.'
 		},
 		'flux-2-klein-9b': {
 			label: 'FLUX.2 [klein] 9B',
-			description: 'A fast FLUX.2 model with higher quality than 4B: an image from the prompt or from up to 4 connected images, up to 4 megapixels. It does not rewrite the prompt, so describe the image fully. Name the images in the prompt by their order, as image 1, image 2, and so on.'
+			description: 'A fast FLUX.2 model with higher quality than 4B: an image from the prompt or from up to 4 connected images, up to 4 megapixels. It does not rewrite the prompt, so describe the image fully.'
 		}
 	}),
 	imageResolutionTooltip: 'Each size has about the same number of pixels at every shape: 1K about 1 megapixel, 1.5K about 2, 2K about 4, and 4K about 16, which can take several minutes.',
@@ -838,6 +823,20 @@ function keyHeaders(credentials: Readonly<Record<string, string>>): Readonly<Rec
 	return { 'x-key': credentials.apiKey };
 }
 
+/**
+ * The names of the inputs in a prompt (D74; BFL, "Names in the prompt"):
+ * FLUX 3 Image calls the n-th entry of `images` "Image n", and FLUX.2 calls
+ * its inputs "image 1", "image 2", in the prompt's every language. The video
+ * model's frames and clip have no names there and take the shared ones.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	const route = imageRouteOf(request.model);
+	return writePromptNames(prompt, input => route && input.input === 'images'
+		? `${route.family === 'flux-3' ? 'Image' : 'image'} ${referenceNumber(input)}`
+		: sharedPromptName(input, language));
+}
+
 export const BFL: ProviderModule = Object.freeze({
 	describe(): CatalogProvider {
 		return PROVIDER;
@@ -847,7 +846,9 @@ export const BFL: ProviderModule = Object.freeze({
 
 	readError: readBflError,
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const image = imageRouteOf(request.model);
 		if (image) {
 			return { problems: imageProblems(image, request, await measureItems(request.inputs, media)) };

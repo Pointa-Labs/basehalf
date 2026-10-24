@@ -7,23 +7,9 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import type {
-	CatalogMode,
-	CatalogModel,
-	CatalogParameter,
-	CatalogProvider,
-	CheckRequest,
-	CheckResult,
-	CountSlot,
-	Media,
-	ModeId,
-	ModeLimits,
-	ModelKind,
-	ProviderErrorCode,
-	SubmitRequest,
-	TaskRef
-} from './types.ts';
+import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CountSlot, Media, ModeId, ModeLimits, ModelKind, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Vidu on its own API (D59, D64; docs/specs/providers/vidu.md): two regions,
@@ -824,6 +810,27 @@ function pollStateOf(answer: Record<string, unknown>, kind: ModelKind = 'video')
 
 // --- the module ---------------------------------------------------------------------------------
 
+/**
+ * The names of the inputs in a prompt (D74; Vidu, "Names in the prompt").
+ * Q4 Preview's example names its references `[@reference_image_1]` and
+ * `[reference_audio_1]` in English and 参考图1 and 参考音频1 in Chinese,
+ * counted by kind in order. Vidu documents no names for its other models,
+ * which take the shared ones.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	const zh = language === 'zh';
+	return writePromptNames(prompt, input => {
+		if (request.model !== 'q4-preview' || (input.input !== 'images' && input.input !== 'audios')) {
+			return sharedPromptName(input, language);
+		}
+		const number = referenceNumber(input);
+		return input.input === 'images'
+			? (zh ? `参考图${number}` : `[@reference_image_${number}]`)
+			: (zh ? `参考音频${number}` : `[reference_audio_${number}]`);
+	});
+}
+
 export const VIDU = Object.freeze<ProviderModule>({
 	describe(): CatalogProvider {
 		return PROVIDER;
@@ -837,7 +844,9 @@ export const VIDU = Object.freeze<ProviderModule>({
 		return readViduError(body, status);
 	},
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const image = IMAGE_MODELS_BY_ID.get(request.model);
 		if (image) {
 			return { problems: await imageProblems(image, request, media) };

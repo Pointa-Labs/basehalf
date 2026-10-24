@@ -314,7 +314,7 @@ test('each mode of each model uploads its inputs, then is created once at its en
 				imageUpload(REFERENCES[0], 'reference-image-1.png', 'image/png'),
 				imageUpload(REFERENCES[1], 'reference-image-2.jpg', 'image/jpeg'),
 				imageUpload(REFERENCES[2], 'reference-image-3.webp', 'image/webp'),
-				create('fusion', { model: 'v6', prompt: PROMPT, duration: 9, quality: '720p', aspect_ratio: '3:2', image_references: [{ img_id: 101 }, { img_id: 102 }, { img_id: 103 }], generate_audio_switch: false })
+				create('fusion', { model: 'v6', prompt: PROMPT, duration: 9, quality: '720p', aspect_ratio: '3:2', image_references: [{ img_id: 101, ref_name: 'image1' }, { img_id: 102, ref_name: 'image2' }, { img_id: 103, ref_name: 'image3' }], generate_audio_switch: false })
 			]
 		},
 		{
@@ -327,8 +327,8 @@ test('each mode of each model uploads its inputs, then is created once at its en
 				mediaUpload(CLIPS[1], 'reference-video-2.mov', 'video/quicktime'),
 				create('fusion', {
 					model: 'v6', prompt: PROMPT, duration: 0, quality: '1080p', aspect_ratio: '16:9',
-					image_references: [{ img_id: 101 }, { img_id: 102 }],
-					video_references: [{ video_media_id: 201 }, { video_media_id: 202 }],
+					image_references: [{ img_id: 101, ref_name: 'image1' }, { img_id: 102, ref_name: 'image2' }],
+					video_references: [{ video_media_id: 201, ref_name: 'video1' }, { video_media_id: 202, ref_name: 'video2' }],
 					reference_mode: 'omni',
 					generate_audio_switch: true
 				})
@@ -338,7 +338,7 @@ test('each mode of each model uploads its inputs, then is created once at its en
 			model: 'pixverse-v6', mode: 'reference', params: { ratio: '21:9' }, inputs: { videos: CLIPS.slice(0, 1) },
 			sent: () => [
 				mediaUpload(CLIPS[0], 'reference-video-1.mp4', 'video/mp4'),
-				create('fusion', { model: 'v6', prompt: PROMPT, duration: 0, quality: '720p', aspect_ratio: '21:9', video_references: [{ video_media_id: 201 }], reference_mode: 'omni', generate_audio_switch: false })
+				create('fusion', { model: 'v6', prompt: PROMPT, duration: 0, quality: '720p', aspect_ratio: '21:9', video_references: [{ video_media_id: 201, ref_name: 'video1' }], reference_mode: 'omni', generate_audio_switch: false })
 			]
 		},
 		{

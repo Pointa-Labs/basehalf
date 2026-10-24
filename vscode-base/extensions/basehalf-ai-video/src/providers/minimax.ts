@@ -7,8 +7,9 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { AnsweredAtOnce, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, ParamValue, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * MiniMax's video and image models on MiniMax's own API, in China
@@ -516,7 +517,7 @@ function imageRules(request: CheckRequest): string[] {
 	return request.params.watermark === true && request.region !== 'cn' ? [TEXT.watermarkChinaOnly] : [];
 }
 
-async function check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+async function check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	const model = modelOf(request.model);
 	if (model.api === 'image') {
 		return { problems: imageRules(request) };
@@ -1064,10 +1065,35 @@ async function cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean> {
 	return action !== 'deleted';
 }
 
+/**
+ * The names of the inputs in a prompt (D74; MiniMax, "Names in the prompt").
+ * The V2 guide calls its references "reference image 1", "reference video 1",
+ * and "reference audio 1", 参考图1, 参考视频1, and 参考音频1, counted by kind
+ * in the order of `content`. The frames, the V1 Hailuo models, and the image
+ * models have no names there and take the shared ones.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	const zh = language === 'zh';
+	const v2 = MODELS_IN_ORDER.some(model => model.id === request.model && model.api === 'v2');
+	return writePromptNames(prompt, input => {
+		if (!v2 || input.index === undefined) {
+			return sharedPromptName(input, language);
+		}
+		const number = referenceNumber(input);
+		switch (input.input) {
+			case 'images': return zh ? `参考图${number}` : `reference image ${number}`;
+			case 'videos': return zh ? `参考视频${number}` : `reference video ${number}`;
+			default: return zh ? `参考音频${number}` : `reference audio ${number}`;
+		}
+	});
+}
+
 export const MINIMAX: ProviderModule = Object.freeze({
 	describe: () => ENTRY,
 	headers: (credentials: Readonly<Record<string, string>>) => ({ Authorization: `Bearer ${credentials.apiKey}` }),
 	readError,
+	writePrompt,
 	check,
 	submit,
 	poll,

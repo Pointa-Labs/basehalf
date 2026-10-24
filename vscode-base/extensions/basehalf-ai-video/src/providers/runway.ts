@@ -7,8 +7,9 @@ import { countsOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type FormPart, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { ModulePollState, ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, ModelKind, Params, SubmitRequest, TaskRef } from './types.ts';
+import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ModelKind, Params, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Runway's own video and image models on its API, Runway Dev (D59, D64;
@@ -63,12 +64,12 @@ const LABELS = Object.freeze({
 		},
 		'gen4_image': {
 			label: 'Gen-4 Image',
-			description: 'Runway\'s image model: an image of 720p or 1080p from the prompt, guided by up to 3 connected images. Name them in the prompt as @image1, @image2, and @image3, in the order they are connected.',
+			description: 'Runway\'s image model: an image of 720p or 1080p from the prompt, guided by up to 3 connected images.',
 			ratioTooltip: 'The shape of the image.'
 		},
 		'gen4_image_turbo': {
 			label: 'Gen-4 Image Turbo',
-			description: 'Runway\'s fastest image model: an image of 720p or 1080p from the prompt and 1 to 3 connected images. Name them in the prompt as @image1, @image2, and @image3, in the order they are connected.',
+			description: 'Runway\'s fastest image model: an image of 720p or 1080p from the prompt and 1 to 3 connected images.',
 			ratioTooltip: 'The shape of the image.'
 		}
 	}),
@@ -619,6 +620,17 @@ function readRunwayError(status: number, body: unknown): ProviderErrorReading | 
 
 // --- the module ---------------------------------------------------------------------------------
 
+/**
+ * The names of the inputs in a prompt (D74; Runway, "Names in the prompt"):
+ * an image model's references are tagged `image1` to `image3` in order, and
+ * the prompt names each by an at-mention of its tag, `@image1`. Runway names
+ * no frame and no clip of its video models, which take the shared names.
+ */
+function writePrompt(prompt: readonly PromptPart[]): string {
+	const language = promptLanguage(prompt);
+	return writePromptNames(prompt, input => input.input === 'images' ? `@image${referenceNumber(input)}` : sharedPromptName(input, language));
+}
+
 export const RUNWAY: ProviderModule = Object.freeze<ProviderModule>({
 	describe() {
 		return PROVIDER;
@@ -630,7 +642,9 @@ export const RUNWAY: ProviderModule = Object.freeze<ProviderModule>({
 
 	readError: readRunwayError,
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const model = modelOf(request.model);
 		const label = labelOf(model);
 		const counts = countsOf(request.inputs);

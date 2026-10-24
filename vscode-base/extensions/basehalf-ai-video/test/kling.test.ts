@@ -97,9 +97,11 @@ function sentBody(request: Received): unknown {
 }
 
 const prompt = { type: 'prompt', text: PROMPT };
-const firstFrame = () => ({ type: 'first_frame', url: base64(START) });
-const lastFrame = () => ({ type: 'last_frame', url: base64(END) });
-const referImage = (media: FileMedia) => ({ type: 'refer_image', url: base64(media) });
+// An omni model's items carry the ids its prompt names them by (D74).
+const withId = (id: string | undefined) => id ? { id } : {};
+const firstFrame = (id?: string) => ({ type: 'first_frame', url: base64(START), ...withId(id) });
+const lastFrame = (id?: string) => ({ type: 'last_frame', url: base64(END), ...withId(id) });
+const referImage = (media: FileMedia, id?: string) => ({ type: 'refer_image', url: base64(media), ...withId(id) });
 
 // --- the catalog --------------------------------------------------------------------------------
 
@@ -205,22 +207,22 @@ test('each mode of each model is created once, at its path, with the exact body 
 			{
 				model: 'kling-3.0-omni', mode: 'frames', params: { resolution: '1080p', duration: 8 }, inputs: { startFrame: START, endFrame: END },
 				path: '/omni-video/kling-3.0-omni',
-				body: () => ({ contents: [prompt, firstFrame(), lastFrame()], settings: { resolution: '1080p', duration: 8, audio: 'off' } })
+				body: () => ({ contents: [prompt, firstFrame('image_1'), lastFrame('image_2')], settings: { resolution: '1080p', duration: 8, audio: 'off' } })
 			},
 			{
 				model: 'kling-3.0-omni', mode: 'reference', params: { resolution: '4k', ratio: '9:16', duration: 15 }, inputs: { images: REFERENCES },
 				path: '/omni-video/kling-3.0-omni',
-				body: () => ({ contents: [prompt, ...REFERENCES.map(referImage)], settings: { resolution: '4k', aspect_ratio: '9:16', duration: 15, audio: 'off' } })
+				body: () => ({ contents: [prompt, ...REFERENCES.map((media, index) => referImage(media, `image_${index + 1}`))], settings: { resolution: '4k', aspect_ratio: '9:16', duration: 15, audio: 'off' } })
 			},
 			{
 				model: 'kling-o1', mode: 'frames', params: { resolution: '1080p', duration: 10 }, inputs: { startFrame: START },
 				path: '/omni-video/kling-o1',
-				body: () => ({ contents: [prompt, firstFrame()], settings: { resolution: '1080p', duration: 10 } })
+				body: () => ({ contents: [prompt, firstFrame('image_1')], settings: { resolution: '1080p', duration: 10 } })
 			},
 			{
 				model: 'kling-o1', mode: 'reference', params: { ratio: '1:1', duration: 3 }, inputs: { images: REFERENCES.slice(0, 2) }, prompt: '',
 				path: '/omni-video/kling-o1',
-				body: () => ({ contents: REFERENCES.slice(0, 2).map(referImage), settings: { resolution: '720p', aspect_ratio: '1:1', duration: 3 } })
+				body: () => ({ contents: REFERENCES.slice(0, 2).map((media, index) => referImage(media, `image_${index + 1}`)), settings: { resolution: '720p', aspect_ratio: '1:1', duration: 3 } })
 			},
 			{
 				model: 'kling-2.6', mode: 'frames', params: { resolution: '1080p', duration: 10, sound: true },

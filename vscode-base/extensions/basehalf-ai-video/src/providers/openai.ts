@@ -7,8 +7,8 @@ import { measureItems } from './check.ts';
 import { isRecord, readCommonError, rejected, unknownOutcome, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type FormPart, type ProviderHttp } from './http.ts';
 import { bufferSource, describeBytes, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { AnsweredAtOnce, OutputLocation, ProviderModule } from './module.ts';
-import type { CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, OutputFormat, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule } from './module.ts';
+import type { CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, OutputFormat, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * OpenAI's GPT Image models on OpenAI's own Image API (providers, "OpenAI").
@@ -229,7 +229,7 @@ function formOverhead(prompt: string): number {
 	return Buffer.byteLength(prompt, 'utf8') + 4096;
 }
 
-async function check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+async function check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	modelOf(request.model);
 	const problems: string[] = [];
 	if (!request.inputs.images.length) {

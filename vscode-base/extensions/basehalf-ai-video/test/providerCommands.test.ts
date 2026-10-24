@@ -57,15 +57,15 @@ test('check runs the declarations\' checks, then the module\'s rules', async () 
 	const notOffered = value(await providers.check({ ...base, model: 'clip-away', region: 'home', prompt: 'p', params: {} }));
 	const withFiles = value(await providers.check({ ...base, prompt: 'p', params: {}, inputs: { startFrame: { fsPath: smallFrame, mimeType: 'image/png' }, ...NO_INPUTS } }));
 	assert.deepEqual({ empty, rule, badValue, away, notOffered, withFiles }, {
-		empty: { problems: ['Write a prompt or connect an image: Clip 1 needs one or the other.'] },
-		rule: { problems: ['720p allows 10 seconds at most.'] },
-		badValue: { problems: ['Resolution cannot be 4k for Clip 1; choose 480p, 720p.'] },
-		away: { problems: ['Test Provider does not offer Clip Away in Home.'] },
-		notOffered: { problems: ['Test Provider does not offer Clip Away in Home.'] },
-		withFiles: { problems: ['The start frame small.png is 100 × 100 px; each side must be between 300 and 6000 px.'] }
+		empty: { problems: ['Write a prompt or connect an image: Clip 1 needs one or the other.'], prompt: '' },
+		rule: { problems: ['720p allows 10 seconds at most.'], prompt: 'p' },
+		badValue: { problems: ['Resolution cannot be 4k for Clip 1; choose 480p, 720p.'], prompt: 'p' },
+		away: { problems: ['Test Provider does not offer Clip Away in Home.'], prompt: 'p' },
+		notOffered: { problems: ['Test Provider does not offer Clip Away in Home.'], prompt: 'p' },
+		withFiles: { problems: ['The start frame small.png is 100 × 100 px; each side must be between 300 and 6000 px.'], prompt: 'p' }
 	});
 	const awayRegion = value(await providers.check({ ...base, region: 'away', model: 'clip-away', prompt: 'p', params: {} }));
-	assert.deepEqual(awayRegion, { problems: [] });
+	assert.deepEqual(awayRegion, { problems: [], prompt: 'p' });
 });
 
 test('a parameter a start frame sets is left out with a start frame, and a mode outside its regions is refused', async () => {
@@ -122,9 +122,9 @@ test('check refuses an image in a format the mode does not take, and answers the
 	const fromImage = value(await providers.check({ ...base, inputs: { startFrame: { fsPath: startFrame, mimeType: 'image/png' }, ...NO_INPUTS } }));
 	const fromText = value(await providers.check({ ...base, inputs: NO_INPUTS }));
 	assert.deepEqual({ webp, fromImage, fromText }, {
-		webp: { problems: ['The start frame start.webp is a WebP image; this mode takes PNG or JPEG images.'], providerModel: 'clip-1-from-image' },
-		fromImage: { problems: [], providerModel: 'clip-1-from-image' },
-		fromText: { problems: [], providerModel: 'clip-1-from-text' }
+		webp: { problems: ['The start frame start.webp is a WebP image; this mode takes PNG or JPEG images.'], prompt: 'p', providerModel: 'clip-1-from-image' },
+		fromImage: { problems: [], prompt: 'p', providerModel: 'clip-1-from-image' },
+		fromText: { problems: [], prompt: 'p', providerModel: 'clip-1-from-text' }
 	});
 });
 
@@ -146,6 +146,12 @@ test('payloads are validated strictly, an unknown provider answers unknownProvid
 			await providers.submit({ ...submitRequest(endpoint), inputs: { startFrame: true, endFrame: false, images: 0, videos: 0, audios: 0, source: false } }),
 			await providers.submit({ ...submitRequest(endpoint), inputs: { startFrame: { fsPath: join(folder, 'missing.png'), mimeType: 'image/png' }, ...NO_INPUTS } }),
 			await providers.submit({ ...submitRequest(endpoint), prompt: 42 }),
+			// A mention names a slot of the request, and a reference by its place among them (D74).
+			await providers.submit({ ...submitRequest(endpoint), prompt: ['A ', { input: 'images' }] }),
+			await providers.submit({ ...submitRequest(endpoint), prompt: [{ input: 'startFrame', index: 0 }] }),
+			await providers.submit({ ...submitRequest(endpoint), prompt: [{ input: 'images', index: -1 }] }),
+			await providers.submit({ ...submitRequest(endpoint), prompt: [{ input: 'shot' }] }),
+			await providers.submit({ ...submitRequest(endpoint), prompt: [{ input: 'endFrame', label: 'x' }] }),
 			await providers.submit('not a request'),
 			await providers.poll({ ...submitRequest(endpoint), remoteId: 'has space' }),
 			// A check takes the files, never counts of them.
@@ -153,8 +159,52 @@ test('payloads are validated strictly, an unknown provider answers unknownProvid
 			await providers.check({ provider: 'nobody', region: 'home', model: 'clip-1', mode: 'frames', params: {}, prompt: '', inputs: NO_INPUTS })
 		].map(outcome => error<unknown>(outcome).code);
 		assert.deepEqual({ outcomes, received: server.received.length }, {
-			outcomes: ['unknownProvider', 'rejected', 'rejected', 'rejected', 'auth', 'auth', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'unknownProvider'],
+			outcomes: ['unknownProvider', 'rejected', 'rejected', 'rejected', 'auth', 'auth', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'unknownProvider'],
 			received: 0
+		});
+	} finally {
+		await server.close();
+	}
+});
+
+test('the prompt comes in parts: each mention is written by the module, or with the shared names in the language of the text, and check answers what is sent (D74)', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { id: 'task-1' }));
+	try {
+		const seen: string[] = [];
+		const sent: string[] = [];
+		const shared = commands({
+			async check(request) {
+				seen.push(request.prompt);
+				return { problems: [] };
+			},
+			async submit(request, http) {
+				sent.push(request.prompt);
+				const answer = await http.create({ method: 'POST', path: '/tasks', body: { kind: 'json', value: { prompt: request.prompt } } });
+				return String(answer.object().id);
+			}
+		});
+		const frame = { fsPath: startFrame, mimeType: 'image/png' };
+		const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', params: {}, inputs: { startFrame: frame, ...NO_INPUTS } };
+		const english = value(await shared.check({ ...base, prompt: [{ input: 'startFrame' }, ' turns to the sea.'] }));
+		const chinese = value(await shared.check({ ...base, prompt: [{ input: 'startFrame' }, '里的人转身看海。'] }));
+		const plain = value(await shared.check({ ...base, prompt: 'A plain prompt.' }));
+		const empty = value(await shared.check({ ...base, prompt: [] }));
+		const refused = error(await shared.check({ ...base, prompt: [{ input: 'endFrame' }, ' fades.'] }));
+		const accepted = value(await shared.submit(submitRequest(`${server.url}/v1`, { prompt: ['From ', { input: 'startFrame' }, ' on.'] })));
+		const own = commands({ writePrompt: (prompt, request) => prompt.map(part => typeof part === 'string' ? part : `<${part.input} of ${request.model}>`).join('') });
+		const written = value(await own.check({ ...base, prompt: ['See ', { input: 'startFrame' }, '.'] }));
+		assert.deepEqual({ english: english.prompt, chinese: chinese.prompt, plain: plain.prompt, empty: empty.prompt, refused, seen, accepted, sent, body: JSON.parse(server.received[0].body.toString('utf8')), written: written.prompt }, {
+			english: 'the first frame turns to the sea.',
+			chinese: '首帧里的人转身看海。',
+			plain: 'A plain prompt.',
+			empty: '',
+			refused: { code: 'rejected', message: 'The prompt mentions an input that the request does not send.' },
+			// Submit checks what it sends, as check does.
+			seen: ['the first frame turns to the sea.', '首帧里的人转身看海。', 'A plain prompt.', '', 'From the first frame on.'],
+			accepted: { remoteId: 'task-1' },
+			sent: ['From the first frame on.'],
+			body: { prompt: 'From the first frame on.' },
+			written: 'See <startFrame of clip-1>.'
 		});
 	} finally {
 		await server.close();

@@ -11,6 +11,7 @@ import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from '
 import { createMediaInspector, type MediaInspector } from './media.ts';
 import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.ts';
 import { checkPlace, placeFile, type PlaceFileSystem } from './place.ts';
+import { isPlannedInput, writeSharedPromptNames } from './prompt.ts';
 import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.ts';
 import type {
 	CancelResult,
@@ -18,6 +19,7 @@ import type {
 	CatalogModel,
 	CatalogProvider,
 	CatalogRegion,
+	CheckPayload,
 	CheckRequest,
 	CheckResult,
 	DownloadRequest,
@@ -33,8 +35,11 @@ import type {
 	PlaceResult,
 	PlannedMedia,
 	PollState,
+	PromptInputSlot,
+	PromptPart,
 	ProviderAccess,
 	ProviderResponse,
+	SubmitPayload,
 	SubmitRequest,
 	SubmitResult,
 	TaskRef
@@ -60,6 +65,9 @@ export interface VideoProviderCommandOptions {
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const OUTPUT_FORMATS: ReadonlySet<string> = new Set<OutputFormat>(['png', 'jpeg', 'webp', 'mp4']);
 const MAX_PROMPT_CHARACTERS = 1024 * 1024;
+/** The most parts a prompt is sent in: its text and its mentions (D74). */
+const MAX_PROMPT_PARTS = 4096;
+const PROMPT_INPUT_SLOTS: ReadonlySet<string> = new Set<PromptInputSlot>(['startFrame', 'endFrame', 'source', 'images', 'videos', 'audios']);
 const MAX_PATH_LENGTH = 4096;
 
 /** What an output the provider refused without a word says, by the kind of the model. */
@@ -93,10 +101,12 @@ export class VideoProviderCommands {
 		return { ok: true, value: this.catalogValue };
 	}
 
+	/** Writes the prompt for its model and checks the planned generation, answering the problems and the prompt as written (D74). */
 	check(argument: unknown): Promise<ProviderResponse<CheckResult>> {
 		return answer([], async () => {
-			const request = parseCheckRequest(argument);
-			const resolved = this.resolve(request);
+			const payload = parseCheckRequest(argument);
+			const resolved = this.resolve(payload);
+			const request: CheckRequest = { ...payload, prompt: writePrompt(resolved, payload) };
 			return this.runCheck(resolved, request, cachingInspector((this.options.inspector ?? createMediaInspector)()));
 		});
 	}
@@ -112,8 +122,10 @@ export class VideoProviderCommands {
 		const secrets = secretsOf(argument);
 		let http: BoundHttp | undefined;
 		return answer(secrets, async () => {
-			const request = parseSubmitRequest(argument);
-			const resolved = this.resolve(request);
+			const payload = parseSubmitRequest(argument);
+			const resolved = this.resolve(payload);
+			// What is sent is the prompt as the module writes it, as `check` answered it (D74).
+			const request: SubmitRequest = { ...payload, prompt: writePrompt(resolved, payload) };
 			const checked = await this.runCheck(resolved, request, cachingInspector((this.options.inspector ?? createMediaInspector)()));
 			if (checked.problems.length) {
 				throw rejected(checked.problems[0]);
@@ -255,19 +267,20 @@ export class VideoProviderCommands {
 		);
 	}
 
-	/** The checks of the declarations, then the module's own, with the id the request would be sent with. */
+	/** The checks of the declarations, then the module's own, with the id the request would be sent with and the prompt as written. */
 	private async runCheck(resolved: Resolved, request: CheckRequest, inspector: MediaInspector): Promise<CheckResult> {
 		const { model, region, provider } = resolved;
+		const prompt = request.prompt;
 		const mode = model.modes.find(entry => entry.id === request.mode);
 		if (!mode) {
-			return { problems: [`${model.label} has no ${request.mode} mode.`] };
+			return { problems: [`${model.label} has no ${request.mode} mode.`], prompt };
 		}
 		if (model.providerModels[region.id] === undefined) {
-			return { problems: [`${provider.label} does not offer ${model.label} in ${region.label}.`] };
+			return { problems: [`${provider.label} does not offer ${model.label} in ${region.label}.`], prompt };
 		}
 		if (mode.regions && !mode.regions.includes(region.id)) {
 			const where = provider.regions.filter(candidate => mode.regions?.includes(candidate.id)).map(candidate => candidate.label).join(', ');
-			return { problems: [`${model.label} offers ${mode.label} mode only in ${where}. Choose another mode, or another region in Providers.`] };
+			return { problems: [`${model.label} offers ${mode.label} mode only in ${where}. Choose another mode, or another region in Providers.`], prompt };
 		}
 		const counts = countsOf(request.inputs);
 		const problems = [
@@ -276,7 +289,7 @@ export class VideoProviderCommands {
 		];
 		const parameterProblems = checkParams(model, mode, request.params, counts);
 		if (parameterProblems.length) {
-			return { problems: [...problems, ...parameterProblems] };
+			return { problems: [...problems, ...parameterProblems], prompt };
 		}
 		problems.push(...checkLimits(mode, await measureItems(request.inputs, inspector)));
 		let own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params, counts) }, inspector);
@@ -288,7 +301,7 @@ export class VideoProviderCommands {
 		}
 		const all = [...problems, ...own.problems];
 		const providerModel = typeof own.providerModel === 'string' && /^\S{1,256}$/.test(own.providerModel) ? { providerModel: own.providerModel } : {};
-		return { problems: all, ...providerModel, ...(limits ? { limits } : {}) };
+		return { problems: all, prompt, ...providerModel, ...(limits ? { limits } : {}) };
 	}
 
 	/** A module's state as the contract answers it: progress kept between 0 and 1, messages made plain, and outputs kept. */
@@ -536,12 +549,12 @@ function parseTargets(value: unknown): readonly string[] | undefined {
 	return [...value];
 }
 
-function parseGeneration(value: unknown, what: string): Record<string, unknown> & { provider: string; region: string; model: string; mode: ModeId; params: Params; prompt: string } {
+function parseGeneration(value: unknown, what: string): Record<string, unknown> & { provider: string; region: string; model: string; mode: ModeId; params: Params; prompt: readonly PromptPart[] } {
 	if (!isRecord(value)) {
 		throw cannotRead(what);
 	}
 	const mode = value.mode;
-	if (typeof mode !== 'string' || !MODE_IDS.has(mode) || typeof value.prompt !== 'string' || value.prompt.length > MAX_PROMPT_CHARACTERS) {
+	if (typeof mode !== 'string' || !MODE_IDS.has(mode)) {
 		throw cannotRead(what);
 	}
 	return {
@@ -551,11 +564,61 @@ function parseGeneration(value: unknown, what: string): Record<string, unknown> 
 		model: field(value, 'model', what, 64),
 		mode: mode as ModeId,
 		params: parseParams(value.params),
-		prompt: value.prompt
+		prompt: parsePrompt(value.prompt, what)
 	};
 }
 
-export function parseCheckRequest(value: unknown): CheckRequest {
+/**
+ * The prompt in its parts (D74): text, and mentions of planned inputs by
+ * their slot and, for references, their index. A prompt that mentions
+ * nothing may come as one string.
+ */
+function parsePrompt(value: unknown, what: string): readonly PromptPart[] {
+	if (typeof value === 'string') {
+		if (value.length > MAX_PROMPT_CHARACTERS) {
+			throw cannotRead(what);
+		}
+		return value ? [value] : [];
+	}
+	if (!Array.isArray(value) || value.length > MAX_PROMPT_PARTS) {
+		throw cannotRead(what);
+	}
+	let characters = 0;
+	return value.map((part): PromptPart => {
+		if (typeof part === 'string') {
+			characters += part.length;
+			if (characters > MAX_PROMPT_CHARACTERS) {
+				throw cannotRead(what);
+			}
+			return part;
+		}
+		if (!isRecord(part) || typeof part.input !== 'string' || !PROMPT_INPUT_SLOTS.has(part.input) || Object.keys(part).some(key => key !== 'input' && key !== 'index')
+			|| (part.index !== undefined && (typeof part.index !== 'number' || !Number.isSafeInteger(part.index) || part.index < 0))) {
+			throw cannotRead(what);
+		}
+		return part.index === undefined ? { input: part.input as PromptInputSlot } : { input: part.input as PromptInputSlot, index: part.index as number };
+	});
+}
+
+/**
+ * The prompt as the request's model reads it (D74; providers, "Names in the
+ * prompt"): the module's own names for the inputs it mentions, or the shared
+ * ones. A mention of an input the request does not send is refused.
+ */
+function writePrompt(resolved: Resolved, payload: CheckPayload | SubmitPayload): string {
+	if (payload.prompt.some(part => typeof part !== 'string' && !isPlannedInput(part, payload.inputs))) {
+		throw rejected('The prompt mentions an input that the request does not send.');
+	}
+	const written = resolved.module.writePrompt
+		? resolved.module.writePrompt(payload.prompt, { model: payload.model, mode: payload.mode, params: payload.params, inputs: payload.inputs })
+		: writeSharedPromptNames(payload.prompt);
+	if (typeof written !== 'string' || written.length > MAX_PROMPT_CHARACTERS) {
+		throw rejected('AI Video could not write the prompt for this model.');
+	}
+	return written;
+}
+
+export function parseCheckRequest(value: unknown): CheckPayload {
 	const generation = parseGeneration(value, 'a check');
 	if (!isRecord(generation.inputs)) {
 		throw cannotRead('inputs');
@@ -575,7 +638,7 @@ function parseAccess(value: Record<string, unknown>, what: string): ProviderAcce
 	};
 }
 
-export function parseSubmitRequest(value: unknown): SubmitRequest {
+export function parseSubmitRequest(value: unknown): SubmitPayload {
 	const generation = parseGeneration(value, 'a request');
 	if (!isRecord(generation.inputs) || !Array.isArray(generation.inputs.images)) {
 		throw cannotRead('inputs');

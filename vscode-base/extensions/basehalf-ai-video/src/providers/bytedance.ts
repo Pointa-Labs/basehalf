@@ -7,8 +7,9 @@ import { countsOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { AnsweredAtOnce, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, CountSlot, OutputFormat, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CountSlot, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * ByteDance's models on Volcengine Ark (China) and BytePlus ModelArk
@@ -546,13 +547,30 @@ function modelOf(id: string): Seedance {
 	return model;
 }
 
-async function check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+/**
+ * The names of the inputs in a prompt (D74; ByteDance, "Names in the
+ * prompt"). Seedance 2.5 reads `@图片1` and `@Image 1`, the 2.0 series
+ * `图片1` and `Image 1`, each counted by kind in the order of `content`, which
+ * is the order of the references; a frame has no name there, and is the
+ * first or the last frame. Seedream's examples number its images `图1` and
+ * `Image 1`.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	if (IMAGE_MODELS.has(request.model)) {
+		return writePromptNames(prompt, input => input.input === 'images' ? (language === 'zh' ? `图${referenceNumber(input)}` : `Image ${referenceNumber(input)}`) : sharedPromptName(input, language));
+	}
+	const mark = request.model === 'seedance-2.5' ? '@' : '';
+	return writePromptNames(prompt, input => input.index !== undefined ? `${mark}${sharedPromptName(input, language)}` : sharedPromptName(input, language));
+}
+
+async function check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	const image = IMAGE_MODELS.get(request.model);
 	return image ? checkSeedream(image, request, media) : checkSeedance(request, media);
 }
 
 /** The rules of a Seedream model: the size of a set, a transparent background, the pixels of a reference, and the whole request. */
-async function checkSeedream(model: Seedream, request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+async function checkSeedream(model: Seedream, request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	const label = TEXT.models[model.id].label;
 	const counts = countsOf(request.inputs);
 	const problems: string[] = [];
@@ -582,7 +600,7 @@ async function checkSeedream(model: Seedream, request: CheckRequest, media: Medi
 	return { problems };
 }
 
-async function checkSeedance(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+async function checkSeedance(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	const model = modelOf(request.model);
 	const label = TEXT.models[model.id].label;
 	const counts = countsOf(request.inputs);
@@ -877,6 +895,7 @@ export const BYTEDANCE: ProviderModule = Object.freeze({
 	describe: () => ENTRY,
 	headers: (credentials: Readonly<Record<string, string>>) => ({ Authorization: `Bearer ${credentials.apiKey}` }),
 	readError,
+	writePrompt,
 	check,
 	submit,
 	poll,

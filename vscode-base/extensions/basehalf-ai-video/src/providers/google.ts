@@ -7,8 +7,9 @@ import { countsOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
-import type { AnsweredAtOnce, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, ImageFormat, ModeId, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { AnsweredAtOnce, ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ImageFormat, ModeId, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Google's models on the Gemini API, all through the Interactions API
@@ -306,7 +307,7 @@ function providerModelOf(model: string, region: string): string {
 
 // --- check -------------------------------------------------------------------------------------
 
-async function check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+async function check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	const counts = countsOf(request.inputs);
 	const problems: string[] = [];
 	if (!imageModelOf(request.model) && request.mode === 'reference' && counts.images === 0 && counts.videos === 0) {
@@ -701,10 +702,34 @@ function readError(status: number, body: unknown): ProviderErrorReading | undefi
 	return message ? { message } : readCommonError(body);
 }
 
+/**
+ * The names of the inputs in a prompt (D74; Google, "Names in the prompt").
+ * Gemini Omni reads the tags of its roles: `<FIRST_FRAME>`, `<LAST_FRAME>`,
+ * and `<IMAGE_REF_0>` and `<VIDEO_REF_0>` for the references, counted from 0
+ * by kind in the order they are sent. Its clip has no tag, and the image
+ * models' prompts name images in words, so those take the shared names.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	if (request.model !== MODEL_ID) {
+		return writePromptNames(prompt, input => sharedPromptName(input, language));
+	}
+	return writePromptNames(prompt, input => {
+		switch (input.input) {
+			case 'startFrame': return '<FIRST_FRAME>';
+			case 'endFrame': return '<LAST_FRAME>';
+			case 'images': return `<IMAGE_REF_${input.index ?? 0}>`;
+			case 'videos': return `<VIDEO_REF_${input.index ?? 0}>`;
+			default: return sharedPromptName(input, language);
+		}
+	});
+}
+
 export const GOOGLE: ProviderModule = Object.freeze({
 	describe: () => ENTRY,
 	headers: (credentials: Readonly<Record<string, string>>) => ({ 'x-goog-api-key': credentials.apiKey }),
 	readError,
+	writePrompt,
 	check,
 	submit,
 	poll,

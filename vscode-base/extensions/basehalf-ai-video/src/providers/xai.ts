@@ -7,23 +7,9 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { ModulePollState, OutputLocation, ProviderModule, TaskSucceeded, VideoLocation } from './module.ts';
-import type {
-	CatalogMode,
-	CatalogModel,
-	CatalogParameter,
-	CatalogProvider,
-	CheckLimit,
-	CheckRequest,
-	CheckResult,
-	ModeId,
-	ModeInputs,
-	Params,
-	PollState,
-	ProviderErrorCode,
-	SubmitRequest,
-	TaskRef
-} from './types.ts';
+import type { ModuleCheckResult, ModulePollState, OutputLocation, ProviderModule, TaskSucceeded, VideoLocation } from './module.ts';
+import { promptLanguage, sharedPromptName, writePromptNames } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ModeId, ModeInputs, Params, PollState, PromptPart, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * xAI's Grok Imagine video and image models with the user's own key (D59,
@@ -688,6 +674,17 @@ function imageProblems(model: XaiImageModel, request: CheckRequest, counts: Plan
 
 // --- the module ---------------------------------------------------------------------------------
 
+/**
+ * The names of the inputs in a prompt (D74; xAI, "Names in the prompt"):
+ * `<IMAGE_0>`, `<IMAGE_1>`, … for the images, counted from 0 in the order
+ * they are sent, the references of a video and the images of an edit alike.
+ * xAI names no frame and no clip, which take the shared names.
+ */
+function writePrompt(prompt: readonly PromptPart[]): string {
+	const language = promptLanguage(prompt);
+	return writePromptNames(prompt, input => input.input === 'images' ? `<IMAGE_${input.index ?? 0}>` : sharedPromptName(input, language));
+}
+
 export const XAI: ProviderModule = Object.freeze({
 	describe(): CatalogProvider {
 		return PROVIDER;
@@ -699,7 +696,9 @@ export const XAI: ProviderModule = Object.freeze({
 
 	readError: readXaiError,
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const counts = countsOf(request.inputs);
 		const measured = await measureItems(request.inputs, media);
 		const image = imageModelOf(request.model);

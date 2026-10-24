@@ -7,8 +7,9 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.ts';
-import type { ModulePollState, ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Media, ModeLimits, ModelKind, Params, PlannedMedia, SubmitRequest, TaskRef } from './types.ts';
+import type { ModuleCheckResult, ModulePollState, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, Media, ModeLimits, ModelKind, Params, PlannedMedia, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Luma's video model, Ray 3.2, and its image models, Uni-1 and Uni-1 Max, on
@@ -63,11 +64,11 @@ const TEXT = Object.freeze({
 	imageModels: Object.freeze<Record<ImageModelId, { readonly label: string; readonly description: string }>>({
 		'uni-1': {
 			label: 'Uni-1',
-			description: 'Luma\'s image model: an image from the prompt, or with connected images an edit of the first one, guided by up to 8 more. Name each image\'s role in the prompt by its order, such as "the first reference".'
+			description: 'Luma\'s image model: an image from the prompt, or with connected images an edit of the first one, guided by up to 8 more. Mention each connected image in the prompt with what it is for.'
 		},
 		'uni-1-max': {
 			label: 'Uni-1 Max',
-			description: 'Uni-1 at higher quality: an image from the prompt, or with connected images an edit of the first one, guided by up to 8 more. Name each image\'s role in the prompt by its order, such as "the first reference".'
+			description: 'Uni-1 at higher quality: an image from the prompt, or with connected images an edit of the first one, guided by up to 8 more. Mention each connected image in the prompt with what it is for.'
 		}
 	}),
 	imageRatioTooltip: 'The shape of the image. Adaptive lets the model choose it from the prompt. With connected images, the image keeps the size of the first one, which it edits.',
@@ -741,6 +742,31 @@ function readLumaError(status: number, body: unknown): ProviderErrorReading | un
 
 // --- the module ---------------------------------------------------------------------------------
 
+/** The ordinals of Luma's references: an edit takes up to 8 besides its source. */
+const ORDINALS = Object.freeze(['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth']);
+
+/**
+ * The names of the inputs in a prompt (D74; Luma, "Names in the prompt").
+ * Luma's guides name an edit's first image "the source image" and the
+ * references after it by their order, "the first reference"; the image of a
+ * video edit is its start frame. The other frames and the clip take the
+ * shared names.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	const image = IMAGE_MODEL_IDS.includes(request.model as ImageModelId);
+	return writePromptNames(prompt, input => {
+		if (input.input !== 'images') {
+			return sharedPromptName(input, language);
+		}
+		const index = input.index ?? 0;
+		if (!image) {
+			return language === 'zh' ? '首帧' : 'the start frame';
+		}
+		return index === 0 ? 'the source image' : `the ${ORDINALS[index - 1] ?? `${index}th`} reference`;
+	});
+}
+
 export const LUMA: ProviderModule = Object.freeze({
 	describe(): CatalogProvider {
 		return PROVIDER;
@@ -752,7 +778,9 @@ export const LUMA: ProviderModule = Object.freeze({
 
 	readError: readLumaError,
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const problems = ruleProblems(request, countsOf(request.inputs));
 		const measured = await measureItems(request.inputs, media);
 		problems.push(...fileProblems(request, request.inputs, measured));

@@ -7,22 +7,8 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
-import type {
-	CatalogMode,
-	CatalogModel,
-	CatalogParameter,
-	CatalogProvider,
-	CheckRequest,
-	CheckResult,
-	ModeId,
-	ModeLimits,
-	Params,
-	PollState,
-	ProviderErrorCode,
-	SubmitRequest,
-	TaskRef
-} from './types.ts';
+import type { ModuleCheckResult, ProviderModule, VideoLocation } from './module.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ModeId, ModeLimits, Params, PollState, ProviderErrorCode, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Lightricks' LTX video models on LTX's asynchronous API (D59;
@@ -791,7 +777,7 @@ export const LTX: ProviderModule = {
 		return { message: errorText(type, said), ...(code ? { code } : {}) };
 	},
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const model = modelOf(request.model);
 		const counts = countsOf(request.inputs);
 		const measured = await measureItems(request.inputs, media);

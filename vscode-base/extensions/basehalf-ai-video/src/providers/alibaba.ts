@@ -8,27 +8,9 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { failureForStatus, isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, retryAfterMs, type FormPart, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
-import type { AnsweredAtOnce, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
-import type {
-	CatalogMode,
-	CatalogModel,
-	CatalogParameter,
-	CatalogProvider,
-	CheckLimit,
-	CheckRequest,
-	CheckResult,
-	ChoiceParameter,
-	Media,
-	ModeId,
-	ModeInputs,
-	ModeLimits,
-	NumberParameter,
-	Params,
-	ParamValue,
-	PollState,
-	SubmitRequest,
-	TaskRef
-} from './types.ts';
+import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ChoiceParameter, Media, ModeId, ModeInputs, ModeLimits, NumberParameter, Params, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Alibaba Cloud Model Studio (DashScope): the Wan and HappyHorse video models
@@ -1036,7 +1018,7 @@ function imageCreateRefused(spec: ImageSpec, answer: HttpAnswer): ProviderFailur
 }
 
 /** Rules of an image model that its declarations cannot express, and a request too large to send. */
-async function imageCheck(spec: ImageSpec, request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+async function imageCheck(spec: ImageSpec, request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	const problems: string[] = [];
 	if (request.params.resolution === '4k' && countsOf(request.inputs).images > 0) {
 		problems.push(`${spec.model.label} makes 4K images from the prompt alone; with reference images, choose 1K or 2K.`);
@@ -1137,6 +1119,51 @@ function specOf(model: string): ModelSpec {
 	return spec;
 }
 
+/**
+ * The names of the inputs in a prompt (D74; Alibaba, "Names in the prompt").
+ * Wan 3.0 counts each kind in the order of `media`, the clip first, so the
+ * clip of an edit or an extension is Video 1 and a start frame Image 1; Wan
+ * 2.7's references are `Image 1` and `Video 1`, `图1` and `视频1`;
+ * HappyHorse's references are `[Image 1]` in both languages; the image
+ * models' images are `image 1` and `图1`. What no page names is written with
+ * the shared names.
+ */
+function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
+	const language = promptLanguage(prompt);
+	const zh = language === 'zh';
+	const shared = (input: Parameters<typeof sharedPromptName>[0]) => sharedPromptName(input, language);
+	if (IMAGE_SPECS.has(request.model)) {
+		return writePromptNames(prompt, input => input.input === 'images' ? (zh ? `图${referenceNumber(input)}` : `image ${referenceNumber(input)}`) : shared(input));
+	}
+	const inputs = request.inputs;
+	switch (SPECS.get(request.model)?.route(request.mode, countsOf(inputs)).family) {
+		case 'wan3': {
+			const image = (number: number) => zh ? `图片${number}` : `Image ${number}`;
+			const video = (number: number) => zh ? `视频${number}` : `Video ${number}`;
+			const frames = (inputs.startFrame ? 1 : 0) + (inputs.endFrame ? 1 : 0);
+			const clip = inputs.source ? 1 : 0;
+			return writePromptNames(prompt, input => {
+				switch (input.input) {
+					case 'startFrame': return image(1);
+					case 'endFrame': return image(inputs.startFrame ? 2 : 1);
+					case 'source': return video(1);
+					case 'images': return image(frames + referenceNumber(input));
+					case 'videos': return video(clip + referenceNumber(input));
+					default: return shared(input);
+				}
+			});
+		}
+		case 'wan27-r2v':
+			return writePromptNames(prompt, input => input.input === 'images'
+				? (zh ? `图${referenceNumber(input)}` : `Image ${referenceNumber(input)}`)
+				: input.input === 'videos' ? (zh ? `视频${referenceNumber(input)}` : `Video ${referenceNumber(input)}`) : shared(input));
+		case 'happyhorse-r2v':
+			return writePromptNames(prompt, input => input.input === 'images' ? `[Image ${referenceNumber(input)}]` : shared(input));
+		default:
+			return writePromptNames(prompt, shared);
+	}
+}
+
 export const ALIBABA: ProviderModule = Object.freeze({
 	describe(): CatalogProvider {
 		return PROVIDER;
@@ -1148,7 +1175,9 @@ export const ALIBABA: ProviderModule = Object.freeze({
 
 	readError: readAlibabaError,
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const image = IMAGE_SPECS.get(request.model);
 		if (image) {
 			return imageCheck(image, request, media);

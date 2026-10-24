@@ -724,7 +724,7 @@ test('the catalog declares FLUX 3 Image and five FLUX.2 models as image models i
 	const none = { min: 0, max: 0 };
 	for (const model of images) {
 		assert.deepEqual({ ...model.modes[0].inputs, images: none }, { startFrame: 'none', endFrame: 'none', images: none, videos: none, audios: none, source: 'none' }, `${model.id} takes images only`);
-		assert.ok(model.description && /image 1/.test(model.description), `${model.id} says how the prompt names its images`);
+		assert.ok(model.description && !/image 1/i.test(model.description), `${model.id} leaves the names of its images to the module (D74)`);
 		assert.ok(model.parameters.every(parameter => typeof parameter.tooltip === 'string' && parameter.tooltip.length > 0), `${model.id} explains every setting`);
 	}
 	const settings = (id: string) => images.find(model => model.id === id)!.parameters.map(({ tooltip: _tooltip, ...parameter }) => parameter);

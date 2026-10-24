@@ -8,22 +8,9 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
-import type { ProviderModule, VideoLocation } from './module.ts';
-import type {
-	CatalogMode,
-	CatalogModel,
-	CatalogParameter,
-	CatalogProvider,
-	CheckLimit,
-	CheckRequest,
-	CheckResult,
-	ModeId,
-	ModeInputs,
-	ModeLimits,
-	PollState,
-	SubmitRequest,
-	TaskRef
-} from './types.ts';
+import type { ModuleCheckResult, ProviderModule, VideoLocation } from './module.ts';
+import { promptLanguage, referenceNumber, sharedPromptName } from './prompt.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckLimit, CheckRequest, ModeId, ModeInputs, ModeLimits, PollState, PromptInput, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * PixVerse's video models on its own API (D59; docs/specs/video-providers/pixverse.md,
@@ -576,12 +563,13 @@ function createBody(model: PixVerseModel, route: Route, request: SubmitRequest, 
 			break;
 		case 'fusion':
 			body.aspect_ratio = params.ratio;
+			// Each reference has the name the prompt mentions it by (D74).
 			if (ids.images.length) {
-				body.image_references = ids.images.map(id => ({ img_id: id }));
+				body.image_references = ids.images.map((id, index) => ({ img_id: id, ref_name: referenceName({ input: 'images', index }) }));
 			}
 			if (ids.videos.length) {
 				// Video references run in the Omni mode, whose video is as long as the longest reference.
-				body.video_references = ids.videos.map(id => ({ video_media_id: id }));
+				body.video_references = ids.videos.map((id, index) => ({ video_media_id: id, ref_name: referenceName({ input: 'videos', index }) }));
 				body.reference_mode = 'omni';
 				body.duration = 0;
 			}
@@ -699,6 +687,30 @@ function fileProblems(measured: readonly MeasuredItem[]): string[] {
 
 // --- the module ---------------------------------------------------------------------------------
 
+/** The `ref_name` of a reference: `image1`, `video1`, in the order of its list, unique in the request. */
+function referenceName(input: PromptInput): string {
+	return `${input.input === 'videos' ? 'video' : 'image'}${referenceNumber(input)}`;
+}
+
+/**
+ * The names of the inputs in a prompt (D74; PixVerse, "Names in the
+ * prompt"): a reference is mentioned as `@` and its `ref_name`, followed by
+ * a space. PixVerse names no frame and no clip, which take the shared names.
+ */
+function writePrompt(prompt: readonly PromptPart[]): string {
+	const language = promptLanguage(prompt);
+	return prompt.map((part, index) => {
+		if (typeof part === 'string') {
+			return part;
+		}
+		if (part.input !== 'images' && part.input !== 'videos') {
+			return sharedPromptName(part, language);
+		}
+		const next = prompt[index + 1];
+		return `@${referenceName(part)}${typeof next === 'string' && /^\s/.test(next) ? '' : ' '}`;
+	}).join('');
+}
+
 export const PIXVERSE: ProviderModule = Object.freeze({
 	describe(): CatalogProvider {
 		return PROVIDER;
@@ -711,7 +723,9 @@ export const PIXVERSE: ProviderModule = Object.freeze({
 
 	readError: readPixVerseError,
 
-	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
+	writePrompt,
+
+	async check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 		const model = modelOf(request.model);
 		const counts = countsOf(request.inputs);
 		const measured = await measureItems(request.inputs, media);

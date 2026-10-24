@@ -6,7 +6,8 @@
 import type { ProviderErrorReading } from './failure.ts';
 import type { ProviderHttp } from './http.ts';
 import type { MediaInspector } from './media.ts';
-import type { CatalogProvider, CheckRequest, CheckResult, OutputFormat, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { PromptContext } from './prompt.ts';
+import type { CatalogProvider, CheckRequest, CheckResult, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * One provider on its own API, with its image and video models (D59, D64,
@@ -73,6 +74,18 @@ export interface ProviderModule {
 	readError?(status: number, body: unknown): ProviderErrorReading | undefined;
 
 	/**
+	 * Writes the prompt as the provider's model reads it (D74; providers,
+	 * "Names in the prompt"): the text as it is, and each mention of a planned
+	 * input as the name its documentation gives that input, for the model and
+	 * the mode. The commands have made sure that every mention names an input
+	 * the request sends. What it writes is the prompt that the declarations,
+	 * `check`, and `submit` see, and that `check` answers. Without it, the
+	 * commands write the shared names (`writeSharedPromptNames` of
+	 * `prompt.ts`).
+	 */
+	writePrompt?(prompt: readonly PromptPart[], request: PromptContext): string;
+
+	/**
 	 * The problems of a planned generation that the declarations cannot
 	 * express, in order, as plain sentences. The commands have
 	 * already checked the request against the model's declarations (the inputs
@@ -81,7 +94,7 @@ export interface ProviderModule {
 	 * the rules between parameters and the provider's own input rules (formats,
 	 * the size of the whole request), reading the files through `media`.
 	 */
-	check(request: CheckRequest, media: MediaInspector): Promise<CheckResult>;
+	check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult>;
 
 	/**
 	 * Sends the request once through `http.create` and answers the provider's
@@ -126,6 +139,9 @@ export interface ProviderModule {
 	 */
 	cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean>;
 }
+
+/** What a module's `check` answers: the contract's answer without the prompt, which the commands wrote. */
+export type ModuleCheckResult = Omit<CheckResult, 'prompt'>;
 
 /** The answer of `submit` when the provider answers the request with its files instead of a task. */
 export interface AnsweredAtOnce {

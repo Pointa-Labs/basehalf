@@ -855,7 +855,7 @@ test('the catalog declares Gen-4 Image and Gen-4 Image Turbo as image models in 
 		{ id: 'gen4_image_turbo', label: 'Gen-4 Image Turbo', sentAs: { global: 'gen4_image_turbo' }, prompt: { required: 'always', maxLength: 1000 }, outputFormat: 'png', answersAtOnce: undefined, modes: mode(1), deprecated: undefined }
 	]);
 	for (const model of images) {
-		assert.ok(model.description?.includes('@image1, @image2, and @image3'), `${model.id} says how the prompt names the references`);
+		assert.ok(!model.description?.includes('@image1'), `${model.id} leaves the names of its references to the module (D74)`);
 		assert.ok(model.parameters.every(parameter => typeof parameter.tooltip === 'string' && parameter.tooltip.length > 0), `${model.id} explains every setting`);
 		assert.deepEqual(model.parameters.map(({ tooltip: _tooltip, ...parameter }) => parameter), [
 			{ name: 'resolution', label: 'Resolution', kind: 'choice', options: [{ value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }], default: '1080p' },

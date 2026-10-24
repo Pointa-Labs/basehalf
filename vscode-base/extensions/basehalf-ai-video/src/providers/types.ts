@@ -219,6 +219,24 @@ export interface PlannedMedia {
 	readonly source?: Media;
 }
 
+/** Where an input is in a request: a frame, the clip, or the n-th reference image, video, or sound (D74). */
+export type PromptInputSlot = 'startFrame' | 'endFrame' | 'source' | 'images' | 'videos' | 'audios';
+
+/** A mention in the prompt as the window sends it: the place in the request of the input it names (providers, "Names in the prompt"). */
+export interface PromptInput {
+	readonly input: PromptInputSlot;
+	/** From 0, among `images`, `videos`, or `audios`; absent for a frame and the clip. */
+	readonly index?: number;
+}
+
+/** A part of the prompt as the window sends it: text, or a mention of a planned input, which the provider module names. */
+export type PromptPart = string | PromptInput;
+
+/**
+ * A check as a provider module receives it: the prompt written, its mentions
+ * named as the model reads them (D74). The window sends it as a
+ * {@link CheckPayload}.
+ */
 export interface CheckRequest {
 	readonly provider: string;
 	readonly region: string;
@@ -232,9 +250,16 @@ export interface CheckRequest {
 	readonly inputs: PlannedMedia;
 }
 
+/** A check as the window sends it: the prompt in parts, text inputs included. The window's `IBaseHalfVideoCheckRequest` is this shape. */
+export interface CheckPayload extends Omit<CheckRequest, 'prompt'> {
+	readonly prompt: readonly PromptPart[];
+}
+
 export interface CheckResult {
 	/** Plain sentences, the first being what blocks the generation. Empty when it can run. */
 	readonly problems: readonly string[];
+	/** The prompt as the provider module writes it: what is checked and sent (D74). */
+	readonly prompt: string;
 	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
 	readonly providerModel?: string;
 	/**
@@ -253,6 +278,7 @@ export interface CheckLimit {
 	readonly reason: string;
 }
 
+/** A request as a provider module receives it: the prompt written as the model reads it (D74). The window sends it as a {@link SubmitPayload}. */
 export interface SubmitRequest extends ProviderAccess {
 	readonly model: string;
 	readonly mode: ModeId;
@@ -265,6 +291,11 @@ export interface SubmitRequest extends ProviderAccess {
 	 * written there under the checks of a download.
 	 */
 	readonly targets?: readonly string[];
+}
+
+/** A request as the window sends it: the prompt in parts. The window's `IBaseHalfVideoSubmitRequest` is this shape. */
+export interface SubmitPayload extends Omit<SubmitRequest, 'prompt'> {
+	readonly prompt: readonly PromptPart[];
 }
 
 /** The format of a file a generation made. */
