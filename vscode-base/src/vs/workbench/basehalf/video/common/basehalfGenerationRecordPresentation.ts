@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
+import type { VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import {
 	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
 	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
+	BaseHalfModelKind,
 	BaseHalfVideoCatalogState,
 	BaseHalfVideoInputKind,
 	baseHalfVideoRecordedSettingsSummary,
@@ -15,13 +17,15 @@ import {
 	planBaseHalfVideoInputs
 } from './basehalfVideoCatalog.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from './basehalfGenerationInfo.js';
+import { baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
 
 /**
- * What the panel of a card with its file draws (D67, generation cards, "The
- * panel of a card with its file"): what its `made.yaml` says made it, the
- * inputs that record names as they are on disk now, and the names of the
- * model catalog when it has them. Pure, like the presentation of a draft's
- * panel; nothing it draws changes the card.
+ * What the panel of a card with its file draws (D67, D78, generation cards,
+ * "The panel of a card with its file"): what its `made.yaml` says made it,
+ * the inputs that record names as they are on disk now, and the names of the
+ * model catalog, or of the provider's last list of voices, when they have
+ * them. Pure, like the presentation of a draft's panel; nothing it draws
+ * changes the card.
  */
 
 export interface IBaseHalfGenerationRecordState {
@@ -31,6 +35,8 @@ export interface IBaseHalfGenerationRecordState {
 	/** The inputs the record names, resolved now, in its order. */
 	readonly inputs: readonly IBaseHalfVideoInputSource[];
 	readonly catalog: BaseHalfVideoCatalogState;
+	/** The provider's last list of voices in a region, which names a voice the catalog does not (D78). */
+	readonly voices?: (provider: string, region: string) => VoicesResult | undefined;
 }
 
 export interface IBaseHalfGenerationRecordInput {
@@ -50,12 +56,14 @@ export interface IBaseHalfGenerationRecordPresentation {
 	readonly inputs: readonly IBaseHalfGenerationRecordInput[];
 	/** The prompt it was made with, as it was sent; empty when there was none. */
 	readonly prompt: string;
-	/** Which image of how many it is, or that it is a copy. */
+	/** Which image or song of how many it is, or that it is a copy. */
 	readonly line?: string;
 	/** The model's name, or its recorded id. */
 	readonly model: string;
 	/** The model with its provider and region. */
 	readonly modelTitle: string;
+	/** The voice a speech model spoke in: its name from the catalog or the provider's last list, or its recorded id. */
+	readonly voice?: string;
 	/** Such as `Frames · 720p · 5s · Sound`. */
 	readonly settings: string;
 	/** Every value it was made with, the advanced ones too. */
@@ -96,14 +104,16 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 	const line = made.copyOf !== undefined
 		? localize('basehalf.generation.record.copy', "A copy. This is what made the original.")
 		: made.output !== undefined && made.outputs !== undefined && made.outputs > 1
-			? state.kind === 'image'
-				? localize('basehalf.generation.record.imageOf', "Image {0} of {1}", made.output, made.outputs)
-				: localize('basehalf.generation.record.videoOf', "Video {0} of {1}", made.output, made.outputs)
+			? outputLine(state.kind, made.output, made.outputs)
 			: undefined;
 	const region = ref?.provider.regions.find(candidate => candidate.id === made.region);
 	const recorded = () => [made.mode, ...Object.entries(made.params).map(([name, value]) => `${name} ${String(value)}`)];
 	const settings = ref ? baseHalfVideoRecordedSettingsSummary(ref.model, made.mode, made.params) : recorded();
 	const everySetting = ref ? baseHalfVideoRecordedSettingsSummary(ref.model, made.mode, made.params, true) : recorded();
+	// The voice a speech model spoke in, as it was sent (D78); without the catalog it is among the recorded values.
+	const voiceParameter = ref ? baseHalfVoiceParameter(ref.model) : undefined;
+	const spokenIn = voiceParameter ? made.params[voiceParameter.name] : undefined;
+	const voice = typeof spokenIn === 'string' && spokenIn ? baseHalfVoiceLabel(voiceParameter, spokenIn, state.voices?.(made.provider, made.region)) : undefined;
 	return Object.freeze({
 		readable: true,
 		inputs: Object.freeze(inputs),
@@ -115,7 +125,17 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 				? localize('basehalf.generation.record.modelOnRegion', "Made with {0} on {1}, {2}", ref.model.label, ref.provider.label, region?.label ?? made.region)
 				: localize('basehalf.generation.record.modelOn', "Made with {0} on {1}", ref.model.label, ref.provider.label)
 			: localize('basehalf.generation.record.modelIds', "Made with {0} on {1}, {2}", made.model, made.provider, made.region),
+		...(voice !== undefined ? { voice } : {}),
 		settings: settings.join(' · '),
 		settingsTitle: localize('basehalf.generation.record.settings', "Made with: {0}", everySetting.join(' · '))
 	});
+}
+
+/** Which output of how many a file is, by what the card makes: "Image 2 of 4", "Song 1 of 2". */
+function outputLine(kind: BaseHalfModelKind, output: number, outputs: number): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.generation.record.imageOf', "Image {0} of {1}", output, outputs);
+		case 'audio': return localize('basehalf.generation.record.songOf', "Song {0} of {1}", output, outputs);
+		case 'video': return localize('basehalf.generation.record.videoOf', "Video {0} of {1}", output, outputs);
+	}
 }

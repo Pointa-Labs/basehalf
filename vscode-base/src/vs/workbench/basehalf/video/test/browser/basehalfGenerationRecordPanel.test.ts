@@ -18,9 +18,11 @@ import { ILogService, NullLogService } from '../../../../../platform/log/common/
 import { INotification, INotificationHandle, INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { IWorkspaceContextService, toWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
+import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../browser/basehalfGenerationRecordPanel.js';
-import { IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
-import { BaseHalfVideoCatalogState, baseHalfVideoInputKindOfPath } from '../../common/basehalfVideoCatalog.js';
+import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationVoiceService, IBaseHalfVoices } from '../../common/basehalfGenerationVoices.js';
+import { BaseHalfModelKind, BaseHalfVideoCatalogState, baseHalfVideoInputKindOfPath } from '../../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
@@ -29,9 +31,13 @@ import {
 	IBaseHalfVideoResolvedInput
 } from '../../common/basehalfVideoGeneration.js';
 import { TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { TEST_AUDIO_CATALOG } from '../common/basehalfGenerationAudioCatalogFixture.js';
 
 const WORKSPACE = URI.file('/workspace');
 const CARD = URI.joinPath(WORKSPACE, 'shots', 'shot.mp4');
+const SOUND = URI.joinPath(WORKSPACE, 'shots', 'audio.mp3');
+/** The kind of an audio card (D78). */
+const AUDIO = 'audio' as BaseHalfModelKind as BaseHalfGenerationKind;
 const MADE: IBaseHalfGenerationMade = {
 	id: '20261023T080000-made0001',
 	startedAt: '2026-10-23T08:00:00.000Z',
@@ -69,6 +75,9 @@ suite('BaseHalfGenerationRecordPanel', () => {
 	let hovers: Map<HTMLElement, () => string>;
 	let host: IBaseHalfGenerationRecordPanelHost & { cardFocused: number; drafts: string[] };
 	let mounted: HTMLElement[];
+	/** The provider's last lists of voices, by provider and region (D78). */
+	let lists: Map<string, VoicesResult>;
+	let listed: Emitter<void>;
 
 	setup(() => {
 		instantiationService = disposables.add(new TestInstantiationService());
@@ -104,6 +113,15 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			}
 		});
 		instantiationService.stub(IBaseHalfVideoCatalogService, { onDidChange: Event.None, get state() { return catalogState; }, load: () => { } });
+		lists = new Map();
+		listed = disposables.add(new Emitter<void>());
+		instantiationService.stub(IBaseHalfGenerationVoiceService, {
+			onDidChangeVoices: listed.event,
+			voices: (provider: string, region: string): IBaseHalfVoices => {
+				const list = lists.get(`${provider}/${region}`);
+				return { loading: false, ...(list ? { list } : {}) };
+			}
+		});
 		instantiationService.stub(IFileService, { onDidFilesChange: Event.None });
 		instantiationService.stub(IWorkspaceContextService, { getWorkspaceFolder: () => toWorkspaceFolder(WORKSPACE) });
 		instantiationService.set(INotificationService, notifications);
@@ -126,8 +144,8 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		}
 	});
 
-	async function createPanel(): Promise<BaseHalfGenerationRecordPanel> {
-		const panel = disposables.add(instantiationService.createInstance(BaseHalfGenerationRecordPanel, CARD, host));
+	async function createPanel(resource = CARD): Promise<BaseHalfGenerationRecordPanel> {
+		const panel = disposables.add(instantiationService.createInstance(BaseHalfGenerationRecordPanel, resource, host));
 		mainWindow.document.body.appendChild(panel.element);
 		mounted.push(panel.element);
 		await settle();
@@ -234,5 +252,25 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		changed.fire(CARD);
 		await settle();
 		assert.deepStrictEqual([texts(panel, '.bh-record-panel-model'), panel.element.querySelectorAll('.bh-input-tile.dimmed').length], [['Acme Motion 2'], 0]);
+	});
+
+	test('names the voice a speech model spoke in between the model and the settings, as the provider\'s last list names it once it comes, and says which song of how many it is (D78)', async () => {
+		catalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dulcet', region: 'main', model: 'dulcet-speech-2', providerModel: 'speech-2-260101', mode: 'reference', params: { voice: 'narrator-7', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
+		snapshot = { resource: SOUND, path: 'shots/audio.mp3', kind: AUDIO, hasFile: true, info: { prompt: '' }, infoReadable: true, made: spoken, upstream: [] };
+		const panel = await createPanel(SOUND);
+		const footer = () => [...panel.element.querySelector<HTMLElement>('.bh-video-panel-footer')!.children].filter(child => !(child as HTMLElement).hidden).map(child => child.textContent);
+		const byId = { footer: footer(), voice: panel.element.querySelector('.bh-record-panel-voice')?.getAttribute('aria-label'), label: panel.element.getAttribute('aria-label') };
+		lists.set('dulcet/main', { voices: [{ id: 'narrator-7', label: 'My Narrator', own: true }] });
+		listed.fire();
+		const byList = footer();
+		snapshot = { ...snapshot, made: { ...spoken, provider: 'ember', region: 'north', model: 'ember-song-9', providerModel: 'song-9-n', mode: 'lyrics', params: { count: 2 }, output: 1, outputs: 2 } };
+		changed.fire(SOUND);
+		await settle();
+		assert.deepStrictEqual({ byId, byList, song: { line: texts(panel, '.bh-record-panel-line'), voice: texts(panel, '.bh-record-panel-voice') } }, {
+			byId: { footer: ['Dulcet Speech 2', 'narrator-7', 'Speech · Speed 1', '', 'New Version'], voice: 'Voice: narrator-7', label: 'What made the sound audio.mp3' },
+			byList: ['Dulcet Speech 2', 'My Narrator', 'Speech · Speed 1', '', 'New Version'],
+			song: { line: ['Song 1 of 2'], voice: [] }
+		});
 	});
 });

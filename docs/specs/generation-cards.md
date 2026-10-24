@@ -745,7 +745,8 @@ From top to bottom:
      opens a menu of the two buttons' actions. The other inputs follow. Until the card has a
      model, an image card shows its inputs as references mode does, since
      every image model takes references, a video card as frames mode
-     does, and an audio card as references mode does.
+     does, and an audio card as an audio model's references mode does,
+     with its images and sounds as references.
    - **Pointing at a tile** shows a larger look at the input above it: the
      picture, or a video's first frame, in its own shape, at most
      176 × 132 px, with its file's name under it, and why, for an input that
@@ -864,7 +865,8 @@ From top to bottom:
      reference images it takes, such as "4K · Up to 4 images · 14
      references"; for an audio model what it makes, Speech, Music, or Sound
      Effects, then for speech the most characters its prompt takes, and
-     otherwise its modes when it has more than one, its longest duration,
+     otherwise its modes when it has more than one, its longest duration
+     ("Up to 22s", or "30s" when it makes that length alone),
      how many songs one generation can make when that is more than one, and
      how many reference images and sounds it takes, such as "Speech · Up to
      10,000 characters" and "Music · From a Description · From Lyrics · Up
@@ -886,7 +888,9 @@ From top to bottom:
      tooltip is "Voice". Its menu, as wide as the model menu, holds:
      - a search field at its top, which has the keyboard when the menu
        opens; typing keeps the voices whose name or description holds what
-       was typed;
+       was typed, without regard to case or spaces, since Space plays a
+       sample there; with nothing found, it says "No voice here has that
+       name or description.";
      - **Your Voices**, the voices of the user's account that the provider
        lists, the voices the user cloned, designed, or saved in the
        provider's app, when it lists any;
@@ -898,26 +902,39 @@ From top to bottom:
        and puts the keyboard back where it was.
      - **The play button** fetches the sample through the provider service
        and plays it in the window, the sound coming up and going down as a
-       card's does ([The player](#the-player)). While it plays, the button
-       stops it. One sound plays at a time: playing another sample, closing
+       card's does ([The player](#the-player)): the window decodes the
+       bytes and plays them itself, since it plays no address of a
+       provider. While the sample loads or plays, the button stops it. One
+       sound plays at a time: playing another sample, closing
        the menu, or a card's video or sound that starts stops it, and a
-       sample that starts pauses what plays on the canvas.
+       sample that starts pauses what plays on the canvas. A sample that
+       cannot be fetched or played says why under the search field, "The
+       sample of <voice> could not be played: <reason>", until another one
+       is played. The window's sound output for samples stops 5 s after the
+       last one stopped.
      - The menu asks the provider for the voices each time it opens, and
        shows the last list it has meanwhile, or the catalog's voices with
        "Loading voices…" when it has none yet. When the provider is not set
        up, it shows the catalog's voices and "Set up <provider> to choose
        from all of its voices and your own." with **Set Up**, which opens
        Providers at the provider. When the list cannot be loaded, it shows
-       the catalog's voices, the reason, and **Try Again**. When the provider
+       the last list it has, or else the catalog's voices, with "The voices
+       could not be loaded: <reason>" and **Try Again**. When the provider
        had more voices than BaseHalf lists, a line at the end says "Showing
-       the first 2,000 voices."
+       the first 2,000 voices." A model whose `voice` is not `listed` has
+       the catalog's voices alone: the menu asks nothing and has no line.
      - A voice that the card has and that no list names, as one of another
        account or one deleted since, shows at the top of Voices by its id,
-       with "Not among the voices of this account." on its second line, and
-       is sent as it is; the provider says whether it knows it.
+       and is sent as it is; the provider says whether it knows it. Once a
+       list of the account has come, its second line says "Not among the
+       voices of this account."; before, it has none, since the account may
+       have it.
      - Up and Down move through the voices from the search field, Enter
-       chooses the current one, Space plays its sample, and Escape closes the
-       menu.
+       chooses the current one, Space plays its sample or stops it, and
+       Escape closes the menu. The menu starts at the card's voice, and a
+       search at the first voice it finds. Tab goes from the search field
+       to Set Up or Try Again and back with Shift+Tab; past them, it leaves
+       the menu, which closes and gives the keyboard back.
    - The settings button sums up the settings: the mode, then the value of
      every parameter that is not advanced, such as "Frames · 720p · 5s ·
      Sound". Its popover is 300 px wide and holds the settings above; every
@@ -1725,8 +1742,16 @@ job, so that a name in history still finds its file.
   (`browser/basehalfGenerationPromptEditor.ts`: the text with its chips, its
   own undo and Select All, and the caret), and a draft's panel opens the reference menu
   (`browser/basehalfGenerationReferenceMenu.ts`) and the voice menu
-  (`browser/basehalfGenerationVoiceMenu.ts`), which asks the provider
-  service for the voices and plays their samples. The name follower
+  (`browser/basehalfGenerationVoiceMenu.ts`). The voice menu draws the rows
+  of `common/basehalfGenerationVoices.ts` (pure: a voice's name, the
+  sections, the search, and the lines it shows), and the window's voice
+  service, in the same module, asks the provider service for the voices
+  with the provider's access, keeps the last list per provider and region
+  for the window, which both panels name voices from, and plays the
+  samples through an audio graph of its own. A sample takes its turn with
+  the canvas's media through `playBaseHalfCanvasSoundInTurn` of
+  `canvas/browser/basehalfCanvasCardMedia.ts`, which keeps one video or
+  sound playing at a time. The name follower
   (`browser/basehalfGenerationNameFollower.contribution.ts`) takes part in the reference
   edits of drafts and writes the names of their prompts, as a participant of
   the reference edit service ([reference graph](reference-graph.md#undo)). The canvas
@@ -2182,13 +2207,20 @@ Audio cards (D78)
   `basehalfGenerationPromptEditor.test.ts`).
 - Unit tests for D78: the audio kind, its extensions, and a draft's
   extension from the model (`basehalfGenerationInfo.test.ts`); the prompt
-  that is spoken or sung, the placeholder, the model menu's line, and the
-  summary without the voice (`basehalfVideoCatalog.test.ts`); the voice
-  button and its menu with a fake provider service: the sections, search,
-  a sample that plays and stops, the provider not set up, a list that
-  fails, and a voice no list names (`basehalfGenerationVoiceMenu.test.ts`);
-  New Audio (`basehalfGenerationCardActions.test.ts`); several songs and a
-  sound that lands (`basehalfVideoGenerationService.test.ts`).
+  that is spoken or sung and the summary without the voice
+  (`basehalfVideoCatalog.test.ts`); the placeholder, the model menu's line,
+  the voice button, and the settings without the voice
+  (`basehalfVideoNodePanelPresentation.test.ts`, `basehalfVideoNodePanel.test.ts`);
+  the voice menu with a fake provider service and a test audio graph: the
+  sections, search, choosing, a sample that plays and stops, another
+  sample or closing the menu stopping it, a video on the canvas that it
+  pauses and that stops it, the provider not set up, a list that fails, a
+  list cut at 2,000, a voice no list names, and the keyboard
+  (`basehalfGenerationVoiceMenu.test.ts`); the voice and "Song 1 of 2" in
+  the panel of a card with its file (`basehalfGenerationRecordPresentation.test.ts`,
+  `basehalfGenerationRecordPanel.test.ts`); New Audio
+  (`basehalfGenerationCardActions.test.ts`); several songs and a sound that
+  lands (`basehalfVideoGenerationService.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
   42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 73 to 76, and 78, against the local test provider through the ByteDance module, and
