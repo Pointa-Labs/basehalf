@@ -566,7 +566,7 @@ write, and what the panel shows as a chip with the file's name
   anyway. A mention whose path no entry of the list names is a mention of a
   file that is not connected: the panel shows it so, and Generate does not
   run while the prompt holds it.
-- **When the prompt is sent**, the window gives AI Video the prompt's text
+- **When the prompt is sent**, the window gives the provider service the prompt's text
   and, in place of each mention of an image, a video, or a sound, the place
   of that input in the request: the start frame, the end frame, the clip, or
   the n-th reference image, video, or sound. The provider module writes each
@@ -835,7 +835,7 @@ From top to bottom:
      listed only for a card that uses one. The menu ends with **Providers…**.
    - While the catalog loads, the model button says so and its menu holds
      only **Providers…**; when it could not be loaded, the menu says why. The
-     window asks AI Video for the catalog once and keeps it; a failed request
+     window asks the provider service for the catalog once and keeps it; a failed request
      is tried once more a second later, and again when a panel or the
      Providers page opens.
    - The settings button sums up the settings: the mode, then the value of
@@ -1194,11 +1194,11 @@ version of it first and generates that draft ([Agents](#agents)).
 7. Check the claim again, since another window may have written its record
    while this one prepared, and stop as in step 5 when that record keeps a
    card. Then write the request record and the state `submitting`.
-8. Send the request through the AI Video extension. When the provider returns
+8. Send the request through the provider service
+   ([providers, Requests](providers.md#requests)). When the provider returns
    its task id, write it and the state `running`. When it answers with the
-   files at once, continue at step 10. Nothing was sent only when AI Video has
-   not registered the command, so it did not run; any other refusal of the
-   call, such as AI Video stopping while it ran it, leaves the outcome
+   files at once, continue at step 10. A call that does not reach the
+   service, or one whose service stopped while it ran it, leaves the outcome
    unknown.
 9. Ask the provider about the task every 5 seconds, the first time after 3
    seconds, and show the phase and progress on the cards.
@@ -1241,13 +1241,13 @@ BaseHalf that is still being followed is let finish, up to 10 seconds:
 4. Write in the record what is being landed: the path, the size, and the
    SHA-256 of the file.
 5. Put the file in place without ever replacing anything there and with
-   nothing partial in the card's folder at any moment: AI Video gives the
+   nothing partial in the card's folder at any moment: the provider service gives the
    complete partial download the card's name by a hard link, which fails when
    the name is taken, and then removes the partial download
    ([providers, Requests](providers.md#requests), `place`). When the name is
    taken, the file goes beside it as in step 3. Where the file system cannot
    link there (the workspace folder and its `.bh/cache/` on different
-   volumes, or a file system without hard links), AI Video copies the bytes
+   volumes, or a file system without hard links), the provider service copies the bytes
    straight to the name by an exclusive create instead; in that rare case
    alone, a crash during the copy can leave a partial file in the card's
    folder.
@@ -1641,20 +1641,21 @@ job, so that a name in history still finds its file.
   lists drafts through the card store; the reference graph, the mirror
   cascade, and following moved items treat `generation.yaml` and `made.yaml`
   as card information and drafts as items.
-- The built-in AI Video extension owns the catalog and the provider modules
-  and answers the commands of [Requests](providers.md#requests). The
-  workbench passes the credentials with each call; the extension keeps
-  nothing.
-- The extension API `vscode.basehalf.inspectGenerationCard(uri)`
-  (`workbench/api/`, through the card store) answers
+- The provider service, in the shared process, owns the catalog and the
+  provider modules and answers the calls of [Requests](providers.md#requests)
+  (D75). The workbench passes the credentials with each call; the service
+  keeps nothing.
+- What Video Sequence learns of a generation card
+  ([Video Sequence](video-sequence.md)), through the card store, is
   `{ kind, hasFile, generationId? }` for a generation card of an open
   workspace folder: `image` or `video`, whether its file exists, and the
-  `id` of its `made.yaml` when it has one that can be read. It answers
-  `undefined` for every other path: a file without generation information,
+  `id` of its `made.yaml` when it has one that can be read. It learns
+  nothing for every other path: a file without generation information,
   a draft whose folder is not on this computer, a path outside the open
   workspace folders or under `.bh/`, and one that is or passes through a
-  symbolic link. Only an admitted extension may call it, and it writes
-  nothing.
+  symbolic link. Nothing is written. The extension API
+  `vscode.basehalf.inspectGenerationCard(uri)` answers the same and stays
+  with the frozen platform; since D75 no admitted extension calls it.
 
 ## Acceptance criteria
 
@@ -1993,7 +1994,7 @@ Mentions (D74)
   `basehalfVideoCatalog.test.ts`); of the card store with drafts, renames,
   copies, deletes, undo, conflict markers, and field-by-field writes; of the
   task record store with two followers, claims, and stale heartbeats; of the
-  services with a fake extension and a test catalog, including a provider that
+  services with a fake provider service and a test catalog, including a provider that
   answers at once, a crash during landing, and several images; of the panel
   drawn from that catalog; of the reference index and edit service with
   drafts; of the mirror cascade and following moved items with

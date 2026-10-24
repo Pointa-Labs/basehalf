@@ -6,8 +6,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the Runway module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/runway.ts`): the
+This specification owns the Runway module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/runway.ts`): the
 catalog entry it declares, the requests it sends, and how it reads Runway's
 answers. What is the same for every provider (the commands, checks from the
 declarations, retries, the download, plain messages) is owned by the parent
@@ -90,10 +90,10 @@ Runway's own video models only (`guides/models.md`):
   must not exceed 8000px"); the explanation under it says "less than
   8000px".
 - Aleph 2.0 clips "must be 2–30 seconds and 30 FPS or lower", and Aleph
-  keeps their resolution up to 1080p. AI Video does not read a clip's frame
+  keeps their resolution up to 1080p. BaseHalf does not read a clip's frame
   rate; Runway refuses a faster one (`INPUT_VALIDATION.VIDEO.UNSUPPORTED_FPS`).
-  AI Video measures MP4 and MOV clips, so those are the clips it sends.
-- Runway's upload takes files of 512 bytes to 200 MB. AI Video sends at most
+  BaseHalf measures MP4 and MOV clips, so those are the clips it sends.
+- Runway's upload takes files of 512 bytes to 200 MB. BaseHalf sends at most
   128 MiB in one request, and the upload's form fields need room, so an
   uploaded file is at most 127 MiB (`imageMaxBytes`, `videoMaxBytes`). With
   files, `check` reports a clip of less than 512 bytes.
@@ -297,7 +297,7 @@ of a rolling 24 hours answers 429. Requests per minute are not limited.
   not in the API reference.
 - **Seeds above 2147483647**: outside the shared seed.
 - **Inputs as HTTPS addresses**, and `promptImage` as a list with
-  `position`, which takes only `first`: AI Video sends its files itself.
+  `position`, which takes only `first`: BaseHalf sends its files itself.
 - **Model Routers, recipes, workflows, Characters, avatar videos, and
   upscaling, frame rate, and HDR** (`/v1/generate/video`, `/v1/recipes/*`,
   `/v1/workflows`, `/v1/realtime_sessions`, `/v1/avatar_videos`,
@@ -326,7 +326,7 @@ of a rolling 24 hours answers 429. Requests per minute are not limited.
 
 ## Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/runway.test.ts` runs the
+`vscode-base/src/vs/platform/basehalfProviders/test/node/runway.test.ts` runs the
 module through the provider commands against local servers that answer like
 Runway's API, its storage, and its CDN; `test/providerHttp.test.ts` covers
 `ProviderHttp.retry`. No test calls Runway or uses a real key.
@@ -473,7 +473,7 @@ header.
   the videos give ([Left out](#left-out)).
 - **Untagged references**: every reference is tagged, so that the prompt can
   name each one.
-- **Inputs as HTTPS addresses**: AI Video sends its files itself.
+- **Inputs as HTTPS addresses**: BaseHalf sends its files itself.
 
 ### Not confirmed for the image models
 

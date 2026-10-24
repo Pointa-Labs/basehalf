@@ -2,8 +2,10 @@
 
 > **Paused.** Plugin publishing is frozen
 > ([D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)).
-> BaseHalf admits no reviewed plugin. The contribution points on this page
-> are still what the built-in AI Video uses.
+> BaseHalf admits no reviewed plugin. Since
+> [D75](../decisions.md#d75--ai-video-is-basehalfs-own-code-not-an-extension-new-2026-10-24)
+> no extension uses the contribution points on this page: AI Video is
+> BaseHalf's own code.
 
 > **Removed by D58 and D63.** Recipes, recipe executors, the reviewed model
 > and provider connection catalogs, connection validators, and model service

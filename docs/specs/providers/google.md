@@ -4,7 +4,7 @@ Status: implemented (D59; image models D64, 2026-10-22; names in the prompt D74,
 [providers and the model catalog](../providers.md), which defines
 the catalog, the requests, and the rules every provider follows.
 
-Implemented in `extensions/basehalf-ai-video/src/providers/google.ts`. The
+Implemented in `src/vs/platform/basehalfProviders/node/google.ts`. The
 module declares Google's video model, Gemini Omni Flash, which runs in the
 background, and Google's image models, Nano Banana, which answer each request
 with its image ([Image models](#image-models)). Both use the same region, key,
@@ -234,10 +234,10 @@ is read up to 384 MiB:
 | `failed` | failed, with the interaction's `errors` (or the output step's error) |
 | `cancelled` | cancelled |
 | `incomplete` | failed: "Google ended the generation without a complete video." |
-| `requires_action` | failed: the interaction waits for an action AI Video cannot take |
+| `requires_action` | failed: the interaction waits for an action BaseHalf cannot take |
 | `budget_exceeded` | failed |
 
-Any other status is an answer AI Video cannot read. Google reports no
+Any other status is an answer BaseHalf cannot read. Google reports no
 progress.
 
 ## Result
@@ -505,6 +505,6 @@ free-tier project is answered with the paid-tier message.
 
 ### Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/google.test.ts` runs the image
+`vscode-base/src/vs/platform/basehalfProviders/test/node/google.test.ts` runs the image
 models through the provider commands against a local server that answers
 like the Interactions API. No test calls Google or uses a real key.

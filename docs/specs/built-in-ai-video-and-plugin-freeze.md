@@ -1,9 +1,11 @@
 # Built-in AI Video and the frozen plugin platform
 
-Status: Active (2026-10-11)
-Decision: [D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)
+Status: Active (2026-10-11), revised 2026-10-24
+Decision: [D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11),
+[D75](../decisions.md#d75--ai-video-is-basehalfs-own-code-not-an-extension-new-2026-10-24)
 Related: [plugin architecture](../plugin-architecture.md),
-[AI Video domain contract](../../vscode-base/extensions/basehalf-ai-video/docs/product-contract.md),
+[Video Sequence](video-sequence.md),
+[providers and the model catalog](providers.md),
 [architecture invariants](../harness/architecture-invariants.md)
 
 ## Problem
@@ -31,6 +33,9 @@ Three things were true on 2026-10-11.
 - BaseHalf makes no request to the plugin registry or the publishing portal.
 - Nothing can publish or sign a plugin without a person starting it.
 - The freeze can be lifted without rebuilding what exists.
+- Since D75: AI Video is BaseHalf's own code. No extension of its own is
+  built, packaged, started, or admitted, and nothing of it waits for the
+  extension host.
 
 ## Non-goals
 
@@ -49,31 +54,37 @@ Three things were true on 2026-10-11.
 
 ## Terms
 
-- **Built-in copy.** The AI Video extension in the application's own
-  extensions folder. It ships with the application and is replaced when the
-  application is updated.
+- **Provider service.** The part of BaseHalf that holds the provider modules
+  and sends their requests. It runs in the shared process, the background
+  process that the application starts once for all of its windows
+  ([providers and the model catalog](providers.md#requests)).
 - **Profile copy.** An AI Video extension that an earlier build recorded in a
   user's extension profile, from the bundled payload or from the catalog.
 - **Admitted.** Allowed to contribute templates, card projections,
-  structural cleanups, and agent capabilities. Since D58, AI Video also
-  answers the provider commands of generation cards; recipes and the
-  reviewed model catalogs that plugins declared are gone.
+  structural cleanups, and agent capabilities through the frozen platform's
+  contribution points. Until D75 only the built-in AI Video extension was;
+  since D75 no extension is. BaseHalf's own Video Sequence and starter
+  template register with the same registries directly.
 - **Plugin surface.** The Plugins item in the Activity Bar, the Plugins page
   in the center, the Manage Plugins command with its menu entry, and links
   that open a plugin.
 
 ## Required behavior
 
-### AI Video is built in
+### AI Video is BaseHalf's own code
 
-1. A packaged build carries AI Video among its built-in extensions. The
-   separate payload folder that the installer read from is gone.
-2. The built-in copy is admitted in packaged and in development builds, and
-   only at the application's own extensions folder. An extension with the same
-   identity anywhere else is not admitted.
+1. AI Video ships as BaseHalf's own code, not as an extension (D75). The
+   provider service runs in the shared process. The Video Sequence document,
+   its view, its commands, its agent capability, and the starter template are
+   registered by the workbench ([Video Sequence](video-sequence.md)). A
+   packaged build has no AI Video extension and no separate payload folder.
+2. No extension is admitted to the frozen platform's contribution points, in
+   packaged and in development builds, whatever its identity or location.
 3. On the first start of a fresh profile, with no network and no user action,
-   AI Video's starter template, Sequence view, agent capabilities, and the
-   provider commands of generation cards are available.
+   the starter template, the Sequence view, the Sequence capability for
+   agents, and the providers of generation cards are available. A window
+   asks the provider service for the catalog as soon as it needs it, and
+   waits for no extension.
 4. AI Video has the version that the application ships. It has no update,
    restore, enable, disable, or uninstall of its own.
 5. Every way into AI Video works without the plugin surface: the starter
@@ -102,10 +113,10 @@ Three things were true on 2026-10-11.
 11. BaseHalf makes no network request to `registry.basehalf.com` or
     `plugins.basehalf.com`. The product configuration names neither, and no
     catalog cache is read at start.
-12. The only extension admitted in a normal window is the built-in copy of
-    AI Video. No grant from a catalog exists, so no reviewed plugin is
-    admitted, and nothing can install one. No location alone admits an
-    extension, and no folder is installable by itself.
+12. No extension is admitted in a normal window. No grant from a catalog
+    exists, so no reviewed plugin is admitted, and nothing can install one.
+    No location alone admits an extension, and no folder is installable by
+    itself.
 13. The rule for an Extension Development Host is unchanged: an unpublished
     extension contributes only there, and only from the exact location that
     host was started with.
@@ -121,29 +132,27 @@ Three things were true on 2026-10-11.
     is never admitted and does not run: a profile copy of AI Video, and any
     plugin installed from the catalog. BaseHalf neither removes nor migrates
     it. Files such plugins wrote into workspaces are not touched.
-16. The built-in copy of AI Video is the one that runs. A profile copy with
-    the same or a lower version does not replace it.
+16. No AI Video extension runs, from the application or from a profile.
+    What earlier builds' copies registered, the `basehalf.video.provider.*`
+    commands among it, is not called by BaseHalf.
 17. The catalog state that earlier builds stored on the machine is not read.
     Install receipts from earlier builds admit nothing, because no catalog
     grant exists for them to match.
-18. If the Plugins library of an earlier build left AI Video disabled,
-    BaseHalf enables it at start without asking, because nothing in the
-    product can turn it back on. An extension that the product itself holds
-    back is left as it is.
+18. A profile in which an earlier build left AI Video disabled needs
+    nothing: there is no AI Video extension to enable. Until D75 BaseHalf
+    enabled it at start.
 
 ## Failure and recovery
 
-- **The built-in copy does not load,** for example because the application is
-  damaged. A generation card cannot generate: its generation fails with a
-  message that AI Video could not start and that reinstalling BaseHalf
-  repairs it, as does an unfinished template setup. The rest of BaseHalf
-  works.
-- **A profile copy of AI Video has a higher version than the built-in copy.**
-  The extension scanner then prefers the profile copy, which is not admitted,
-  so AI Video is unavailable as in the case above. No distributed build can
-  produce this: the catalog stopped at 0.4.0, below every built-in copy. It
-  can happen only on a development machine that runs an older build after a
-  newer one, and it is not handled.
+- **The provider service does not answer,** because the shared process
+  stopped or a window lost its connection to it. A call that does not reach
+  the service fails as one whose service stopped while it ran
+  ([providers and the model catalog](providers.md#requests)): the models do
+  not load and the page offers **Try Again**, and a generation fails or, for
+  a request that may have reached the provider, has an unknown outcome. The
+  application starts the shared process again; the rest of BaseHalf works.
+- **A profile copy of AI Video** from an earlier build stays on disk, not
+  admitted and not run. Nothing of BaseHalf depends on it.
 - **No network.** Nothing changes; no part of this depends on it.
 
 ## Outside the desktop client
@@ -182,15 +191,18 @@ Services:
   an ordinary folder ([generation cards](generation-cards.md#non-goals)).
 - A profile that an earlier build installed AI Video into keeps that copy on
   disk, unused. No profile data is changed or removed.
+- The credentials of providers, the settings of the Providers page, and the
+  last used models stay where they are: the window kept them before D75 and
+  keeps them now.
 - Builds that are already distributed keep reading the registry and keep
   showing their catalog error until they are updated.
 
 ## Acceptance criteria
 
-1. A packaged build, started offline on a fresh profile, offers AI Video's
-   starter template on the canvas and opens a sequence file in the Sequence
-   view, with no step in between.
-2. The packaged application contains AI Video in its built-in extensions
+1. A packaged build, started offline on a fresh profile, offers the starter
+   template on the canvas and opens a sequence file in the Sequence view,
+   with no step in between.
+2. The packaged application contains no AI Video extension in its extensions
    folder and no separate plugin payload folder.
 3. The Activity Bar has exactly three items: Files, Git, and Search.
 4. The Command Palette lists no command that opens Plugins or manages a
@@ -199,28 +211,27 @@ Services:
 6. The product configuration contains neither registry nor portal address,
    and a session that starts, idles, and uses AI Video makes no request to
    either host.
-7. Admission accepts the built-in copy in a packaged build, rejects an
-   extension with the same identity at any other location, and rejects any
-   extension that depends on a catalog grant.
-8. A profile copy of AI Video is not admitted, also when it is recorded at
-   the built-in copy's own path, and the built-in copy is admitted beside
-   it.
+7. Admission rejects every extension: one with AI Video's identity at the
+   application's extensions folder or anywhere else, and one that depends on
+   a catalog grant.
+8. A profile copy of AI Video is not admitted and does not run, also when it
+   is recorded at the path where the built-in copy was.
 9. No user-visible text names Plugins, installing a plugin, or the catalog.
 10. The promotion workflow has no schedule trigger.
 11. The generation card flows of the smoke pass on a fresh fixture profile
-    with no install step.
-12. A profile in which an earlier build disabled AI Video starts with it
-    enabled.
+    with no install step, their requests sent by the provider service in the
+    shared process.
+12. No compiled module of the workbench calls a `basehalf.video.provider.*`
+    command, and the extension host of a window that generates has no AI
+    Video extension.
 
 ## Verification
 
 - Unit tests for admission (criteria 7 and 8) and for the product
-  configuration (criterion 6, first half). That a profile copy with the same
-  or a lower version does not replace the built-in copy is the extension
-  scanner's own rule; it was read in the code and is not exercised end to end.
-- A unit test for the start-up check that enables AI Video (criterion 12),
-  and one that scans every compiled module for an import of the frozen
-  surface.
+  configuration (criterion 6, first half).
+- A unit test that scans every compiled module for an import of the frozen
+  surface and for a call of a provider command (criterion 12, first half).
+  The smoke reads the extension host's log for the second half.
 - The smoke asserts the three Activity Bar items and the missing command, and
   runs the generation card flows on a fresh profile (criteria 3, 4, and 11).
 - A packaged macOS arm64 build for criteria 1 and 2:
@@ -236,15 +247,18 @@ Services:
 
 Paths are under `vscode-base/` unless they start with a dot.
 
-- Built-in capabilities and their location:
-  `src/vs/workbench/basehalf/plugins/common/basehalfBuiltInCapabilities.ts`.
-  `isAllowedContributor` in `basehalfPluginAdmissionService.ts` admits such a
-  capability only as the built-in copy at that location. AI Video is
-  deliberately not in the profile's list of extensions that are allowed by
-  id. `browser/basehalfBuiltInCapabilities.contribution.ts` enables it at
-  start when an earlier build left it disabled.
-- Packaging: `build/gulpfile.vscode.ts` ships AI Video with the built-in
-  extensions and copies no payload folder.
+- AI Video's own code since D75: the provider service under
+  `src/vs/platform/basehalfProviders/` (its interface and shared types in
+  `common/`, the provider modules in `node/`, the service in the shared
+  process in `electron-utility/`, and the window's connection in
+  `electron-browser/`), and the Video Sequence and starter template under
+  `src/vs/workbench/basehalf/sequence/`. The shared process registers the
+  service in `src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts`.
+- Admission: `isAllowedContributor` in `basehalfPluginAdmissionService.ts`
+  admits no extension; the list of built-in capabilities is empty, and AI
+  Video is not in the profile's list of extensions that are allowed by id.
+- Packaging: `build/gulpfile.vscode.ts` ships no AI Video and copies no
+  payload folder.
 - No plugin surface: `electron-browser/basehalfPluginPlatform.contribution.ts`
   loads only the credential store, which keeps the keys of the providers
   (D58, D64). The catalog service, the plugin state store, the
@@ -258,9 +272,7 @@ Paths are under `vscode-base/` unless they start with a dot.
   does ([reference graph](reference-graph.md#templates)): it refuses a
   `nodes` list, a draft whose path has no generation extension, and a folder
   that holds a draft and no file.
-  An activation event must name something the manifest declares, with one
-  exception: the official AI Video may activate on the four provider
-  commands of the host, which it answers without declaring them.
+  An activation event must name something the manifest declares.
   `npm run basehalf:plugin:fixture` exercises these checks.
 - Sidebar: `BASEHALF_PRIMARY_VIEW_CONTAINERS` in
   `basehalfWorkbenchProfile.ts`.

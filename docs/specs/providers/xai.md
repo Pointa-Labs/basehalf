@@ -6,8 +6,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the xAI module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/xai.ts`): the Grok
+This specification owns the xAI module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/xai.ts`): the Grok
 Imagine video models and image models it declares, the requests it sends, and
 how it reads xAI's answers. What is the same for every provider (the commands,
 the checks from the declarations, retries, the download, plain messages) is
@@ -87,7 +87,7 @@ task.
   Modes"). `grok-imagine-video` needs one in References, Edit, and Extend,
   which `check` reports. xAI states no longest prompt (a prompt that is too
   long fails as `invalid_argument`), so the catalog bounds it at 1,048,576
-  characters, the most AI Video takes.
+  characters, the most BaseHalf takes.
 
 ## Modes and inputs
 
@@ -126,7 +126,7 @@ and `video/mp4` for the clip. xAI takes images and videos that way ("Public
 URL or base64-encoded data URL"), so nothing is uploaded: the Files API
 (`POST /v1/files`) would keep a copy on the user's account until it expires,
 bill its storage, and is blocked for teams with Zero Data Retention. xAI
-states no largest request; AI Video sends at most 128 MiB, and `check`
+states no largest request; BaseHalf sends at most 128 MiB, and `check`
 reports a request whose inputs, encoded, would be larger.
 
 **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
@@ -173,7 +173,7 @@ on), except the duration: xAI's is 8 seconds, the catalog's 5.
 | Grok Imagine Video | References, Edit, and Extend need a prompt | the API reference: the prompt is required for reference to video, editing, and extension |
 
 `check` then reports a clip that is not an MP4, and a request larger than
-AI Video sends.
+BaseHalf sends.
 
 ## Requests
 
@@ -226,7 +226,7 @@ while it runs, with `status` and, while pending, `progress` from 0 to 99.
 | --- | --- |
 | `pending`, `progress` 0 or absent | `pending` |
 | `pending`, `progress` 1 to 99 | `running`, with the progress |
-| HTTP 202 with no status AI Video can read or knows | `pending`: 202 says the generation still runs |
+| HTTP 202 with no status BaseHalf can read or knows | `pending`: 202 says the generation still runs |
 | `done` with `video.url` | `succeeded` with that address |
 | `done` with `video.respect_moderation: false` (no address) | `failed`: xAI's moderation withheld the video, and xAI still charges for it |
 | `failed` | `failed` with `error.message` and `error.code` (`invalid_argument`, `permission_denied`, `failed_precondition`, `service_unavailable`, `internal_error`) |
@@ -320,7 +320,7 @@ as a failed task with one of the codes above.
 
 ## Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/xai.test.ts` runs the module
+`vscode-base/src/vs/platform/basehalfProviders/test/node/xai.test.ts` runs the module
 through the provider commands against local servers that answer like xAI's
 API and its video host. No test calls xAI or uses a real key.
 
@@ -423,7 +423,7 @@ is the page's own "Last updated".
 | --- | --- | --- |
 | both | a ratio other than Adaptive needs no reference image or at least two: the edit of one image takes that image's shape | the edit reference: "For single image editing, do not set this. It will always auto-detect from the input image." |
 
-`check` then reports a request larger than AI Video sends.
+`check` then reports a request larger than BaseHalf sends.
 
 ### Requests
 
@@ -459,7 +459,7 @@ as JSON, and always with `deferred: true`.
 | xAI answer | State |
 | --- | --- |
 | `pending` (HTTP 202) | `pending`, or `running` with the progress should the answer give one, as for video |
-| HTTP 202 with no status AI Video can read or knows | `pending` |
+| HTTP 202 with no status BaseHalf can read or knows | `pending` |
 | `done` with `data` | `succeeded`, one output per entry in xAI's order: its `url`, or refused when the entry has no address or says `respect_moderation: false` |
 | `done` without `data` | the answer cannot be read |
 | `failed` | `failed` with `error.message` and `error.code` |

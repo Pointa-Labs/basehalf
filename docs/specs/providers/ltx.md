@@ -5,8 +5,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the LTX module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/ltx.ts`): the
+This specification owns the LTX module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/ltx.ts`): the
 catalog entry it declares for Lightricks' LTX video models, the requests it
 sends, and how it reads LTX's answers. What is the same for every provider
 (the commands, the checks from the declarations, retries, the download, plain
@@ -115,8 +115,8 @@ mode and the inputs of a generation choose the endpoint.
   the contract, so no `imageFormats` is declared; at most 15 MiB
   (`imageMaxBytes: 15728640`; "images are capped at 15 MB" when used in a
   generation). LTX states no limits on image sizes in pixels.
-- Audio, in References: WAV, MP3, or M4A, the formats whose length AI Video
-  reads (LTX also takes OGG, which AI Video cannot measure, so it is
+- Audio, in References: WAV, MP3, or M4A, the formats whose length BaseHalf
+  reads (LTX also takes OGG, which BaseHalf cannot measure, so it is
   refused); at most 32 MiB (`audioMaxBytes`), the size LTX states for audio
   sent by address; at most the model's longest audio, `audioTotalSeconds` 20
   on LTX-2.5 Fast and LTX-2.3 Pro and 10 on LTX-2.5 Pro. At 1440p and 4K every
@@ -124,11 +124,11 @@ mode and the inputs of a generation choose the endpoint.
 - Clips, in Edit and Extend: MP4 or MOV (LTX also takes MKV, which a Video
   node does not connect); at most 32 MiB for Edit (video input "is capped at
   32 MB on most endpoints") and 100 MiB for Extend (`videoMaxBytes`). Both
-  endpoints need at least 73 frames, "around 3 seconds at 24fps"; AI Video
+  endpoints need at least 73 frames, "around 3 seconds at 24fps"; BaseHalf
   does not count frames, so `check` asks for 3 seconds. LTX
   states no longest clip, so no `videoSeconds` is declared, and `check`
   itself refuses a clip whose length it cannot read. Clips may be up to 4K,
-  and Extend takes 16:9 and 9:16 clips only; AI Video does not measure a
+  and Extend takes 16:9 and 9:16 clips only; BaseHalf does not measure a
   video's size, and LTX refuses another.
 - The sizes are LTX's "MB" read as MiB, as its own upload header writes
   200 MB as `0,209715200`.
@@ -223,7 +223,7 @@ supported". `check` measures lengths only and cannot tell.
   answer without `upload_url` or `storage_uri`, or whose `required_headers`
   holds anything but header names with text values, cannot be read, and the
   input is refused. `Content-Length`, `Host`, `Connection`, and
-  `Transfer-Encoding`, which AI Video sets itself, are not taken from
+  `Transfer-Encoding`, which BaseHalf sets itself, are not taken from
   `required_headers`.
 - HTTPS addresses, LTX's third way, are never sent.
 
@@ -337,7 +337,7 @@ A 429 that asks to wait (`Retry-After`) says the wait, as the contract has it.
   LTX's upload, never as public addresses.
 - **LTX-2** (`ltx-2-fast`, `ltx-2-pro`): removed on 2026-08-15.
 - **The V1 endpoints**: synchronous, and gone after 2026-10-26.
-- **`x-request-id`**: AI Video logs only the method, path, status, and time
+- **`x-request-id`**: BaseHalf logs only the method, path, status, and time
   of a request.
 
 ## Facts not confirmed
@@ -379,7 +379,7 @@ A 429 that asks to wait (`Retry-After`) says the wait, as the contract has it.
 
 ## Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/ltx.test.ts` runs the module
+`vscode-base/src/vs/platform/basehalfProviders/test/node/ltx.test.ts` runs the module
 through the provider commands against local servers that answer like LTX's
 API, its upload storage, and the address of a video. No test calls LTX or
 uses a real key.

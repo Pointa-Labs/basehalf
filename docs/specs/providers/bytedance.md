@@ -6,7 +6,7 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-Implemented in `extensions/basehalf-ai-video/src/providers/bytedance.ts`:
+Implemented in `src/vs/platform/basehalfProviders/node/bytedance.ts`:
 the Seedance video models, and the Seedream image models
 ([Image models](#image-models)).
 The video facts below follow these official pages, read on 2026-10-18 and
@@ -109,7 +109,7 @@ always a reference task).
 **Task states.** `GET /contents/generations/tasks/{id}`: `queued` is pending,
 `running` running, `succeeded` succeeded with `content.video_url`, `failed`
 failed with `error.message`, `expired` failed with "The task expired before it
-finished.", and `cancelled` cancelled. Any other status is an answer AI Video
+finished.", and `cancelled` cancelled. Any other status is an answer BaseHalf
 cannot read. The video address is valid for 24 hours (Seedance 2.5: at most
 100 downloads); BaseHalf downloads it once.
 
@@ -281,7 +281,7 @@ most 300 Chinese characters or 600 English words); the catalog bounds it at
 - `url`: an address valid for 24 hours, on the provider's file host, which the
   window downloads without the key. Addresses are asked for rather than
   `b64_json`, because a set of 15 PNGs at 4K as base64 could exceed the
-  256 MiB AI Video reads of an answer.
+  256 MiB BaseHalf reads of an answer.
 - `b64_json`: the image itself, as a relay may answer; it is written to the
   image's target.
 - `error` (`code`, `message`): that image was refused on its own, such as by
@@ -325,7 +325,7 @@ them).
    a server error, and a dropped connection map as described, and the request
    is sent once.
 
-**Verification.** `extensions/basehalf-ai-video/test/bytedance.test.ts`
+**Verification.** `src/vs/platform/basehalfProviders/test/node/bytedance.test.ts`
 generates through the local test provider
 (`scripts/basehalf-video-mock-provider.mts`), which answers
 `POST /api/v3/images/generations` like Ark with small PNGs, as addresses it

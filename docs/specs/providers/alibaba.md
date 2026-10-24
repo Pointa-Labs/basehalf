@@ -7,8 +7,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 Related: [providers and the model catalog](../providers.md),
 [generation cards](../generation-cards.md)
 
-This specification owns the provider module `alibaba` of the AI Video
-extension (`extensions/basehalf-ai-video/src/providers/alibaba.ts`): the Wan
+This specification owns the provider module `alibaba` of the provider service
+(`src/vs/platform/basehalfProviders/node/alibaba.ts`): the Wan
 and HappyHorse video models and the Qwen-Image and Wan image models of
 Alibaba Cloud Model Studio (DashScope), their declarations in the catalog,
 and the requests that run them. The sections up to
@@ -200,16 +200,16 @@ Rules between parameters and inputs, reported by `check`:
   another format, such as a GIF, to PNG first. Videos are MP4 or MOV; audio
   is WAV or MP3, and an M4A clip is refused.
 - The providers also limit video resolution (240–4,096 px a side) and frame
-  rate (at least 16 fps for Wan 3.0 references); AI Video does not measure
+  rate (at least 16 fps for Wan 3.0 references); BaseHalf does not measure
   them, and the provider refuses such a video.
 - Wan reference images are documented as "PNG without an alpha channel".
-  AI Video sends a PNG as it is; what the provider does with transparency is
+  BaseHalf sends a PNG as it is; what the provider does with transparency is
   its answer.
 
 ## Inputs and the temporary upload
 
 - Images are sent inline as `data:<type>;base64,…`, the type read from the
-  bytes. A request carries at most 128 MiB (AI Video's limit); `check`
+  bytes. A request carries at most 128 MiB (BaseHalf's limit); `check`
   refuses images whose encoding is larger.
 - Videos and audio are taken only as addresses. In China (Beijing) they go
   through Alibaba's temporary upload: for each file,
@@ -423,9 +423,9 @@ published.
 - A mention of the n-th image is written `image n`, or `图n` in a Chinese
   prompt: "the first image is "image 1", the second is "image 2""
   (Qwen-Image editing and Wan image editing guides, 2026-10-11).
-- Wan's pages document PNG "without an alpha channel"; AI Video sends a PNG
+- Wan's pages document PNG "without an alpha channel"; BaseHalf sends a PNG
   as it is, as for the video models.
-- `check` refuses images whose encoding is larger than the 128 MiB AI Video
+- `check` refuses images whose encoding is larger than the 128 MiB BaseHalf
   sends in one request.
 
 ### Image parameters
@@ -547,7 +547,7 @@ is square without one. The size sent, `parameters.size`:
    without `X-DashScope-Async`, its references as data URLs before the text,
    and the size of the table; Adaptive sends Wan's level and Qwen's size of
    the last reference image.
-3. The answer's images are the outputs in order, an address AI Video does not
+3. The answer's images are the outputs in order, an address BaseHalf does not
    take is refused on its own, and an image downloads without the key.
 4. A refused key answers `auth`, too many requests `rateLimited` with the
    model's limit, an empty balance `balance`, a refused content `rejected`,
@@ -557,7 +557,7 @@ is square without one. The size sent, `parameters.size`:
 
 ## Verification
 
-`extensions/basehalf-ai-video/test/alibaba.test.ts` runs the module through
+`src/vs/platform/basehalfProviders/test/node/alibaba.test.ts` runs the module through
 the provider commands against local servers that answer like DashScope and
 OSS: the task each mode and set of inputs routes to, as `check` answers it
 and as the create sends it; the body and headers of every task; the sizes of

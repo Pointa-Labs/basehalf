@@ -11,7 +11,7 @@ This specification owns the MiniMax provider of the catalog: its regions,
 the models it declares with each one's modes, inputs, limits, and
 parameters, and how its requests are made and its tasks read.
 It is implemented in
-`vscode-base/extensions/basehalf-ai-video/src/providers/minimax.ts`; the
+`vscode-base/src/vs/platform/basehalfProviders/node/minimax.ts`; the
 contract every provider follows is in
 [providers and the model catalog](../providers.md).
 
@@ -225,7 +225,7 @@ upload creates no task.
   1026 and 1027 (sensitive input or output), and any code with `Fail`, end
   the task as failed with MiniMax's message and code. Any other code is about
   the query itself and is read as [Errors](#errors) says.
-- Any other status is an answer AI Video cannot read. Neither API reports
+- Any other status is an answer BaseHalf cannot read. Neither API reports
   progress.
 
 ## Result
@@ -295,7 +295,7 @@ success; any other code is an error, read as follows:
 
 ## Verification
 
-`extensions/basehalf-ai-video/test/minimax.test.ts` runs the module through
+`src/vs/platform/basehalfProviders/test/node/minimax.test.ts` runs the module through
 the provider commands against local servers that answer like MiniMax:
 
 - the catalog entry with its regions, models, modes, limits, and parameters;
@@ -432,7 +432,7 @@ and sends nothing. The HTTP statuses and MiniMax's codes map as in
 
 ### Verification
 
-`extensions/basehalf-ai-video/test/minimax.test.ts` also runs the image
+`src/vs/platform/basehalfProviders/test/node/minimax.test.ts` also runs the image
 models against a local server that answers like MiniMax's image API: the
 catalog entries, the body of each model with and without a reference and in
 each region, the answers as base64 and as addresses with withheld images,

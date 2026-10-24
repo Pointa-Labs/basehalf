@@ -5,8 +5,8 @@ Decisions: [D64](../../decisions.md#d64--basehalf-generates-images-with-the-same
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the OpenAI module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/openai.ts`): the GPT
+This specification owns the OpenAI module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/openai.ts`): the GPT
 Image models it declares, the requests it sends, and how it reads OpenAI's
 answers. What is the same for every provider (the commands, the checks from
 the declarations, retries, the download, plain messages) is owned by the
@@ -112,7 +112,7 @@ Rules that `check` reports:
   image made from the prompt alone; with references, `check` asks to set
   Moderation to Auto or to disconnect them. Auto with references sends
   nothing, which is OpenAI's default.
-- The request with its images is at most what AI Video sends (128 MiB).
+- The request with its images is at most what BaseHalf sends (128 MiB).
 
 ## Requests
 
@@ -140,7 +140,7 @@ Rules that `check` reports:
 
 - `b64_json`: the image itself, written straight to its target;
 - `url`, as a relay may answer: an address to download;
-- an entry with neither is refused with "OpenAI answered an image AI Video
+- an entry with neither is refused with "OpenAI answered an image BaseHalf
   cannot read."
 
 An answer without `data` leaves the outcome unknown. Fewer images than asked
@@ -194,7 +194,7 @@ false and sends nothing.
 
 ## Verification
 
-`extensions/basehalf-ai-video/test/openai.test.ts` runs the module through
+`src/vs/platform/basehalfProviders/test/node/openai.test.ts` runs the module through
 the provider commands against a local server that answers like OpenAI, as the
 [parent specification](../providers.md#verification) requires: the catalog
 entry, the JSON body of a generation and the multipart form of an edit with

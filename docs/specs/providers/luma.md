@@ -6,8 +6,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the Luma module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/luma.ts`): the
+This specification owns the Luma module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/luma.ts`): the
 catalog entry it declares, the requests it sends, and how it reads Luma's
 answers. What is the same for every provider (the commands, checks from the
 declarations, retries, the download, plain messages) is owned by the parent
@@ -151,8 +151,8 @@ edit the automatic controls Luma recommends as the default.
 | A looping video has no end frame | Frames | `loop` "rejected with … `end_frame`" |
 
 `check` then reports a Frames request whose JSON with its images in base64
-would be larger than the 128 MiB AI Video sends, and an Edit clip larger than
-128 MiB, the most AI Video sends in one request (the clip's upload).
+would be larger than the 128 MiB BaseHalf sends, and an Edit clip larger than
+128 MiB, the most BaseHalf sends in one request (the clip's upload).
 
 ## Requests
 
@@ -254,7 +254,7 @@ files larger than an inline request and checks them before the generation:
    answers the file.
 4. While the file's `state` is `pending`, `GET /files/{id}` every 2 seconds,
    at most 60 times (2 minutes). `ready` goes on to the generation; `failed`
-   (with `failure_reason`), `deleted`, a state AI Video does not know, or
+   (with `failure_reason`), `deleted`, a state BaseHalf does not know, or
    still `pending` refuses it, and nothing is created.
 
 Each step is retried as uploads are. A file Luma does not know (404) while it
@@ -352,7 +352,7 @@ that is a list of field errors is read as each field's path and message.
   [Which API](#which-api). The image models are in
   [Image models](#image-models).
 - **Inline clips** (`source.data`): Luma advises inline data "only for small
-  media files"; the Files API carries any clip AI Video sends.
+  media files"; the Files API carries any clip BaseHalf sends.
 - **`user_id`** and request ids: they attribute usage among a partner's own
   users, which BaseHalf does not have.
 
@@ -388,7 +388,7 @@ that is a list of field errors is read as each field's path and message.
 
 ## Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/luma.test.ts` runs the module
+`vscode-base/src/vs/platform/basehalfProviders/test/node/luma.test.ts` runs the module
 through the provider commands against a local server that answers like the
 Agents API and its storage. No test calls Luma or uses a real key.
 
@@ -478,7 +478,7 @@ Rules that `check` reports after the declarations' checks:
 | Rule | Source |
 | --- | --- |
 | Without images, Manga takes a portrait ratio (2:3, 9:16, 1:2, 1:3) or Adaptive | "`style: "manga"` only permits portrait ratios … rejected with HTTP 422"; the rule "applies to `type: "image"` only" |
-| The request with its images in base64 is at most 128 MiB | the most AI Video sends in one request |
+| The request with its images in base64 is at most 128 MiB | the most BaseHalf sends in one request |
 
 ### Requests of the image models
 

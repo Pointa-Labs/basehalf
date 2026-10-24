@@ -6,8 +6,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the Kling module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/kling.ts`): the
+This specification owns the Kling module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/kling.ts`): the
 catalog entry it declares, the requests it sends, and how it reads Kling's
 answers, for its video models and, in [Image models](#image-models), its
 image models. What is the same for every provider (the commands, checks from
@@ -132,7 +132,7 @@ The defaults are Kling's own.
 | 2.5 Turbo | start and end frames only at 1080p | 2.5 Turbo image to video; capability map |
 
 `check` then reports a request whose JSON with its images in base64 would be
-larger than the 128 MiB AI Video sends.
+larger than the 128 MiB BaseHalf sends.
 
 ## Requests
 
@@ -333,7 +333,7 @@ limit. Only the capability map shows a date.
   counted in the order of `image_list`. Kling Image 3.0 takes one image,
   which no page names: the shared names are written.
 - `check` reports a request whose JSON with its images in base64 would be
-  larger than the 128 MiB AI Video sends.
+  larger than the 128 MiB BaseHalf sends.
 
 ### Image parameters
 
@@ -436,7 +436,7 @@ Rules between parameters and inputs, reported by `check`:
 
 ## Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/kling.test.ts` runs the module
+`vscode-base/src/vs/platform/basehalfProviders/test/node/kling.test.ts` runs the module
 through the provider commands against a local server that answers like Kling,
 for the video models and the image models
 ([Image acceptance criteria](#image-acceptance-criteria)). No test calls Kling

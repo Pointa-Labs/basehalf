@@ -189,20 +189,24 @@ specifications, and the relevant records under `private-docs/decisions/`.
 The first two points are owned by
 [built-in AI Video and the frozen plugin platform](../specs/built-in-ai-video-and-plugin-freeze.md).
 
-- AI Video is built in. It ships inside the application as a built-in
-  extension, is admitted only as that copy, and has no install, update, or
-  removal of its own (D45).
+- AI Video is BaseHalf's own code, not an extension (D75). Its provider
+  service runs in the shared process, which every window calls directly;
+  requests to providers are Node's requests there with VS Code's proxy
+  agent, one connection each and never sent again by themselves, never
+  through the window. Video Sequence and the starter template are workbench
+  code. It has no install, update, or removal of its own (D45), and no
+  extension is admitted to the frozen platform's contribution points.
 - The plugin platform is frozen. Do not register its interface, fetch its
   catalog, add a product configuration entry that names the registry or the
   publishing portal, or write a message that sends the user to Plugins. Its
   code, tooling, and documents are kept and must keep compiling and passing
   their tests. Changing or deleting them is a separate decision.
 - The shell is fixed. The host owns the sidebar, canvas, navigation,
-  reference semantics, node lifecycle, credentials, and Agent Area. AI Video
-  adds a template, a file-specific Card Detail projection, structural
-  cleanup, and the provider commands of generation cards. This boundary is
-  internal, so both sides may change together. AI Video's project file
-  transitions and structural cleanups may not change any upstream value.
+  reference semantics, node lifecycle, credentials, and Agent Area. Video
+  Sequence adds a template, a file-specific Card Detail projection, and its
+  commands through the host's registries, and the provider service answers
+  the calls of generation cards. Sequence's project file transitions may not
+  change any upstream value.
 - The initial extension ecosystem is curated around Git, GitHub,
   GitHub Authentication, Codex, and Claude rather than a general marketplace.
 - Workflow output is ordinary local user-owned data. Domain truth does not
@@ -223,10 +227,11 @@ The first two points are owned by
   sends a request again by itself and continues after a restart
   ([generation cards](../specs/generation-cards.md)).
 
-See public decisions D26–D28, D33, D45, D58, D63, D64, and D67.
+See public decisions D26–D28, D33, D45, D58, D63, D64, D67, and D75.
 [plugin-architecture.md](../plugin-architecture.md) and
 [plugin-development.md](../plugin-development.md) describe the frozen platform
-(D25, D29–D32) and the contribution points that AI Video still uses.
+(D25, D29–D32) and its contribution points, which no extension uses since
+D75.
 
 ## Completion standard
 

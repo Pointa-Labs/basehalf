@@ -5,8 +5,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the PixVerse module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/pixverse.ts`): the
+This specification owns the PixVerse module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/pixverse.ts`): the
 catalog entry it declares, the uploads and requests it sends, and how it reads
 PixVerse's answers. What is the same for every provider (the commands, checks
 from the declarations, retries, the download, plain messages) is owned by the
@@ -103,8 +103,8 @@ choose the endpoint, so `check` answers no `providerModel`.
 - Extend continues one source video of at most 30 seconds
   (`videoTotalSeconds: 30`) and 50 MB (`videoMaxBytes: 52428800`); the source
   and the seconds added are together at most 40 seconds.
-- Videos go as MP4 or MOV, whose length AI Video reads. Upload Media also
-  takes WebM, whose length AI Video cannot read; such a video is refused.
+- Videos go as MP4 or MOV, whose length BaseHalf reads. Upload Media also
+  takes WebM, whose length BaseHalf cannot read; such a video is refused.
 - No mode takes audio: no endpoint here takes any.
 
 ## Parameters
@@ -148,7 +148,7 @@ choose the endpoint, so `check` answers no `providerModel`.
 | V6 | without a reference video, at most 7 reference images | Fusion |
 | V6 | in Extend, the source video and the seconds added together at most 40 seconds, when the source's length is measured: answered as a limit of `duration`, up to 40 seconds minus the source's length, rounded down (D70); a source that leaves no room for the shortest duration is a problem | Video Extend |
 
-`check` also refuses a reference video too large for AI Video to upload in
+`check` also refuses a reference video too large for BaseHalf to upload in
 one request: the 128 MiB a request carries, less 64 KiB for the form around
 the file.
 
@@ -329,6 +329,6 @@ and plan; the console shows it.
 
 ## Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/pixverse.test.ts` runs the
+`vscode-base/src/vs/platform/basehalfProviders/test/node/pixverse.test.ts` runs the
 module through the provider commands against a local server that answers like
 PixVerse. No test calls PixVerse or uses a real key.

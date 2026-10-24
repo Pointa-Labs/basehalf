@@ -6,8 +6,8 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
-This specification owns the Black Forest Labs module of AI Video
-(`vscode-base/extensions/basehalf-ai-video/src/providers/bfl.ts`): the
+This specification owns the Black Forest Labs module of the provider service
+(`vscode-base/src/vs/platform/basehalfProviders/node/bfl.ts`): the
 catalog entry it declares for FLUX 3 and its image models, the requests it
 sends, and how it reads the answers. What is the same for every provider (the
 commands, checks from the declarations, retries, the download, plain
@@ -112,7 +112,7 @@ No mode takes reference images, reference videos, or audio.
 - Edit: the clip is "an HTTP(S) URL or a base64-encoded mp4, up to 15 seconds
   and 50 MiB. Each side at least 160 pixels, and at least 17 frames after
   normalization to 24 fps, about 0.7 seconds": `videoSeconds: [0.7, 15]` and
-  `videoMaxBytes: 52428800`. AI Video does not measure the sides of a video;
+  `videoMaxBytes: 52428800`. BaseHalf does not measure the sides of a video;
   BFL fails a clip with a side under 160 px. The edit takes no images ("image
   input … not supported").
 - Extend: the API reference states no limit for `start_video`. The cookbook
@@ -122,7 +122,7 @@ No mode takes reference images, reference videos, or audio.
 - A clip is MP4: every page names mp4 only. `check` refuses a MOV clip, which
   the declarations' video checks would let through.
 - `check` refuses a request whose JSON, its inputs as data URLs included, is
-  larger than the 128 MiB AI Video sends.
+  larger than the 128 MiB BaseHalf sends.
 
 ## Parameters
 
@@ -162,7 +162,7 @@ Rules that `check` reports after the declarations' checks:
 | Extend | the duration is at most 15 seconds, or Auto | API reference, release notes of 2026-08-17 |
 | Edit | the prompt, without surrounding spaces, is at most 4,096 characters | edit API reference |
 | Edit, Extend | the clip is an MP4, not a MOV | every page names mp4 |
-| every mode | the request with its inputs is at most 128 MiB | AI Video's limit |
+| every mode | the request with its inputs is at most 128 MiB | BaseHalf's limit |
 
 ## Requests
 
@@ -245,7 +245,7 @@ value:
 | `Error`, and `Failed`, which the integration guide's example also checks | `failed` with BFL's explanation in `details.error` |
 | `No Card Generated` | `failed`; the status is in the OpenAPI document's list without an explanation |
 | `Task not found` | `notFound`: the task does not exist or has expired |
-| any other | an answer AI Video cannot read |
+| any other | an answer BaseHalf cannot read |
 
 `progress` is reported when it is a number from 0 to 1; BFL does not document
 its scale, so another value is not shown.
@@ -329,7 +329,7 @@ tasks"), a sign to wait for a running task.
 
 1. The catalog has the provider `bfl` with the region `global`, one API key,
    and the model `flux-3` with exactly the modes, inputs, limits, and
-   parameters above; AI Video ships the module.
+   parameters above; BaseHalf ships the module.
 2. Each mode sends the body above once to its route with the key in `x-key`;
    `check` answers that route as `providerModel`.
 3. A task is asked about at its polling address on the endpoint's origin or
@@ -346,7 +346,7 @@ tasks"), a sign to wait for a running task.
 
 ## Verification
 
-`vscode-base/extensions/basehalf-ai-video/test/bfl.test.ts` runs the module
+`vscode-base/src/vs/platform/basehalfProviders/test/node/bfl.test.ts` runs the module
 through the provider commands against local servers that answer like BFL's
 API and its delivery host. No test calls Black Forest Labs or uses a real
 key.
@@ -423,7 +423,7 @@ are PNG, JPEG, or WebP, and the window draws any other image to PNG.
 - Images go inline as plain base64, the form BFL's samples send: FLUX 3 Image
   in `images`, a list in the order of the inputs; FLUX.2 in `input_image`,
   `input_image_2`, and so on. `check` refuses a request larger than the 128
-  MiB AI Video sends.
+  MiB BaseHalf sends.
 
 ### Parameters of the image models
 
@@ -489,7 +489,7 @@ Rules that `check` reports after the declarations' checks:
 | Rule | Models | Source |
 | --- | --- | --- |
 | each image is at most 16 megapixels | FLUX 3 Image | "`400` A reference image is larger than 16 megapixels" |
-| the request with its images in base64 is at most 128 MiB | all | the most AI Video sends in one request |
+| the request with its images in base64 is at most 128 MiB | all | the most BaseHalf sends in one request |
 
 ### Requests of the image models
 

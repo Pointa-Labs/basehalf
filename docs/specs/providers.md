@@ -42,9 +42,10 @@ key.
 
 ## Goals
 
-- One source of truth: each provider module in the AI Video extension
+- One source of truth: each provider module of the provider service
   declares its models and calls its API. Nothing in the window knows a
-  provider or a model.
+  provider or a model. The catalog and every request and answer have one
+  definition, which the window and the service share (D75).
 - Every model runs with exactly the options its provider accepts, and the
   panel offers nothing else.
 - Users set up a provider once: a region, their own credentials, and, when
@@ -93,11 +94,9 @@ key.
 
 ## The catalog
 
-The AI Video extension builds the catalog from its provider modules and
-answers it to the window through the internal command
-`basehalf.video.provider.catalog` (the internal commands keep the names they
-had before image models). The window asks once per window and
-keeps the answer; it changes only when the extension changes. The same
+The provider service builds the catalog from its provider modules and
+answers it to the window ([Requests](#requests)). The window asks once per
+window and keeps the answer; it changes only when the application changes. The same
 catalog reaches agents through `basehalf --list-capabilities`
 ([generation cards, Agents](generation-cards.md#agents)). Labels,
 descriptions, and tooltips are in the window's display language.
@@ -226,8 +225,8 @@ the provider has one of its own.
   the ratio of a model whose video takes the frame's shape. While the
   planned inputs have a start frame, the window shows it as set by the start
   frame, and nothing is sent or recorded for it; the card keeps its value for
-  when no start frame is connected. AI Video drops it from a request with a
-  start frame before the provider module sees it.
+  when no start frame is connected. The provider service drops it from a
+  request with a start frame before the provider module sees it.
 - `advanced` parameters are shown under **More** in the settings.
 - `display` is a hint: `ratio` draws ratio shapes, `slider` a slider.
 - `auto` adds a choice that lets the provider decide.
@@ -335,20 +334,42 @@ at most 16 KiB.
 
 ## Requests
 
-The window calls the AI Video extension through internal commands. Each
-answers `{ok: true, value}` or `{ok: false, error: {code, message}}` and keeps
-no state between calls. Requests run in the extension host: providers do not
-answer cross-origin requests from the window.
+The window calls BaseHalf's provider service (D75). The service runs in the
+shared process, the background process that the application starts once for
+all of its windows, and every window calls it directly. Each call answers
+`{ok: true, value}` or `{ok: false, error: {code, message}}`, and the
+service keeps no state between calls: the window passes the credentials with
+every call that needs them.
 
-| Command | Does |
+- Requests are Node's own, one connection each, and none is sent again by
+  itself, so that a create reaches the provider once. VS Code's proxy agent
+  applies the system's proxy settings, a proxy auto-configuration,
+  `http.proxy`, `http.noProxy`, and the certificates the system trusts, as it
+  did in the extension host; the main process resolves the system's proxy
+  with the session that every window uses. A proxy that asks for a password
+  is not answered. The cross-origin rules of a window do not apply:
+  providers do not answer cross-origin requests from a window, which is why
+  requests never run there. Chromium's network stack, which the shared
+  process's own requests use, is not used: it sends a request again by
+  itself when a kept-alive connection fails before the answer.
+- A call that does not reach the service, because the shared process stopped
+  or the window lost its connection to it, fails as a call whose service
+  stopped while it ran: `submit` has an unknown outcome, since the request
+  may have left, and any other call failed for the network. The application
+  starts the shared process again, and the next call reaches it.
+- Before D75 the service was the AI Video extension, and the window called it
+  through the commands `basehalf.video.provider.*` in the extension host.
+  Those commands are gone.
+
+| Call | Does |
 | --- | --- |
-| `basehalf.video.provider.catalog` | answers the catalog |
-| `basehalf.video.provider.check` | validates a planned generation |
-| `basehalf.video.provider.submit` | sends the request once and answers the provider's task id, or the outputs when the provider answers with them at once |
-| `basehalf.video.provider.poll` | asks the provider about a task once |
-| `basehalf.video.provider.download` | downloads one output to a given file |
-| `basehalf.video.provider.cancel` | asks the provider to cancel a task, where it can |
-| `basehalf.video.provider.place` | puts a received file into its card's place, never replacing anything |
+| `catalog` | answers the catalog |
+| `check` | validates a planned generation |
+| `submit` | sends the request once and answers the provider's task id, or the outputs when the provider answers with them at once |
+| `poll` | asks the provider about a task once |
+| `download` | downloads one output to a given file |
+| `cancel` | asks the provider to cancel a task, where it can |
+| `place` | puts a received file into its card's place, never replacing anything |
 
 - `check` takes the provider, region, model, mode, parameters, the prompt in
   parts ([Names in the prompt](#names-in-the-prompt)), and the planned inputs
@@ -386,13 +407,13 @@ answer cross-origin requests from the window.
   address. When the provider's answer holds the files themselves, `poll`
   writes them to the targets the window names with the task, as `submit`
   does.
-- Each output is kept on its own. An output AI Video cannot keep (not a file
+- Each output is kept on its own. An output BaseHalf cannot keep (not a file
   of the model's kind, too large, an address it does not download from, or a
   file it cannot write) is answered like a refusal, with the reason, and the
   others land. Outputs beyond the targets are dropped. An address that needs
-  headers of its own is downloaded into its target while the command runs,
-  since the headers never leave the extension. A provider that answers with
-  the files themselves when the window named no target fails the command:
+  headers of its own is downloaded into its target while the call runs,
+  since the headers never leave the service. A provider that answers with
+  the files themselves when the window named no target fails the call:
   `submit` with an unknown outcome, since the files were made, and `poll` as
   refused.
 - `submit` is never retried. A request whose answer does not come back, whose
@@ -418,7 +439,7 @@ answer cross-origin requests from the window.
 - `place` takes `from`, a `.part` file directly in a `.bh/cache/generation/`
   folder, and `to`, a name in the same workspace folder, outside `.bh/`; both
   are absolute, and anything else is refused. The window cannot call the file
-  system's calls itself, so AI Video puts each landing file in place
+  system's calls itself, so the provider service puts each landing file in place
   ([generation cards, Landing](generation-cards.md#landing)): `to` becomes a
   hard link of the complete `from`, which fails when the name is taken, so it
   never replaces a file and nothing partial is ever at `to`; then `from` is
@@ -438,7 +459,8 @@ answer cross-origin requests from the window.
   land.
 - Inputs travel the provider's way: inline base64 or a data URL where the
   provider takes it, otherwise the provider's upload endpoint. Files are read
-  from the workspace by the extension; nothing is uploaded anywhere else.
+  from the workspace by the provider service; nothing is uploaded anywhere
+  else.
 - Errors are plain text of at most 1,000 characters, without the credentials,
   markup, or request bodies: wrong credentials (`auth`, 401 and 403), refused
   input (`rejected`, any other 4xx, and 404 for a request that creates a
@@ -449,11 +471,10 @@ answer cross-origin requests from the window.
   video (`notVideo`), not an image (`notImage`), or too large (`tooLarge`), and
   a name that a file already has (`exists`, from `place`). A provider module
   reads the provider's own error codes where they say more than the status.
-- Nothing is logged except, in the extension's log (the **BaseHalf AI
-  Video** output channel), the method, the path without query, the status,
-  and the time of each call, and how many outputs beyond the targets were
-  dropped.
-- The extension checks every request against the model's declarations
+- Nothing is logged except, in the shared process's log **BaseHalf
+  Providers**, the method, the path without query, the status, and the time
+  of each call, and how many outputs beyond the targets were dropped.
+- The provider service checks every request against the model's declarations
   (the inputs the mode takes, the prompt rule, each parameter's value, and
   the mode's limits) before the provider module adds the rules
   between parameters and the provider's own input rules.
@@ -476,9 +497,9 @@ module writes the names:
   the notes' texts follow under their names. A prompt that mentions nothing
   may be sent as one string.
 - A mention of an input that the request does not send is refused, and so is
-  a part AI Video cannot read; nothing is sent then.
+  a part BaseHalf cannot read; nothing is sent then.
 - The module writes each mention as its provider's documentation names that
-  input, for the model and the mode (`writePrompt`), and the commands join
+  input, for the model and the mode (`writePrompt`), and the service joins
   the parts. A module whose provider documents no names writes the shared
   ones: a reference by its kind and its number among the references of its
   kind in the request, from 1, `Image 2`, `Video 1`, `Audio 1`; the start and
@@ -587,11 +608,30 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     `@image1` and its `ref_name` for PixVerse, `<IMAGE_0>` for xAI,
     `<FIRST_FRAME>` and `<IMAGE_REF_0>` for Gemini Omni, and the shared names
     where a provider documents none (D74).
+11. The catalog and each request and answer are defined once, under the
+    provider service's common folder, and the window uses that definition:
+    no second definition of them is left in the window (D75).
+12. A generation's requests are sent by the provider service in the shared
+    process: a window that generates has no AI Video extension in its
+    extension host, a create whose connection the provider drops reaches it
+    once, and the requests reach the provider through the proxy that is set.
+13. A call that does not reach the provider service fails as one whose
+    service stopped while it ran: a `submit` with an unknown outcome, any
+    other call for the network, and the catalog with **Try Again**.
 
 ## Verification
 
 - Unit tests of the catalog contract, of the window's drawing and planning
   from declarations, and of each provider module.
 - The smoke runs the generation card steps against the local test provider
-  through the ByteDance module, for a video and for an image.
+  through the ByteDance module, for a video and for an image, and reads the
+  extension host's log for criterion 12.
+- A unit test of the window's answer when a call does not reach the service
+  (criterion 13).
+- The smoke's step of a dropped create counts the creates its provider
+  received (criterion 12, second part).
+- The proxy part of criterion 12 was checked by hand, with `http.proxy` set
+  to a local proxy that logs what passes it. That the system's settings
+  reach the agent through the main process's session was read in the code.
+- A search of the window's code for criterion 11.
 - No real provider is called by tests.

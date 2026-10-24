@@ -96,7 +96,7 @@ with a marquee, the set of several selected cards with its box (moving it,
 arranging it, undo), Tidy Canvas with its question that keeps or reverts,
 the sidebar showing exactly Files, Git, and Search with no plugin command,
 the button of the sidebar at the left end of the title bar and none in Card
-Detail, and the generation card flows of the built-in AI Video. Extend its
+Detail, and the generation card flows against the local test provider. Extend its
 acceptance coverage when a changed workbench flow is not represented there.
 
 The broader VS Code-base suite is:

@@ -2747,3 +2747,73 @@ numbers the mentions only when it sends; a node-graph tool rewrites
 - The authoring contract of `generation.yaml` is version 7.
 - Prompts written before name inputs as text, such as 图片1, and are sent as
   they are: the product has not launched, and nothing is converted.
+
+## D75 — AI Video is BaseHalf's own code, not an extension (NEW, 2026-10-24)
+
+**Decision.** AI Video stops being an extension. The provider modules and
+what they share run in the shared process, the background process that the
+application starts once for all of its windows, as a BaseHalf service that
+every window calls directly. The Video Sequence document, its view, its
+commands, and its agent capability, and the starter template, are the
+workbench's own. The extension `pointa.basehalf-ai-video` and its folder
+are gone, and the frozen plugin platform admits no extension at all.
+Requests to providers are Node's own, one connection each and never sent
+again by themselves, with VS Code's proxy agent, as they were in the
+extension host: the system's proxy settings and certificates apply, and the
+cross-origin rules of a window do not. What the user sees does not change. See
+[built-in AI Video and the frozen plugin platform](specs/built-in-ai-video-and-plugin-freeze.md),
+[providers and the model catalog](specs/providers.md#requests), and
+[Video Sequence](specs/video-sequence.md).
+
+**Why.** D45 made AI Video built in but kept the package of a plugin, and no
+user sees that package any more. What it left is a seam that every change
+crossed twice. The window and the extension each defined the catalog and
+every answer, the window read each answer again, and the two could be out of
+step in a development window. AI Video was compiled and tested apart, and a
+package built without its compiled extension had no AI Video at all. A
+window waited for the extension host and for AI Video's activation before it
+could show a model: on 2026-10-24, in a development build, AI Video
+activated 2.9 seconds after the application started, 1.5 seconds after the
+extension host did. And AI Video's requests, polls, and downloads shared the
+one thread of the extension host with Git, GitHub, and the agents'
+extensions. The extension existed for one reason: providers do not answer
+cross-origin requests from a window, so the requests had to run outside it.
+The shared process runs outside every window too, and VS Code already does
+its own background work there.
+
+**What was set aside.**
+- Requests from the window, with cross-origin headers that the main process
+  adds for each provider: that weakens what isolates the window, and a
+  preflight request would still fail where a provider does not answer it.
+- The main process: it carries the messages of every window, and a large
+  download and its checks would share it.
+- A process of AI Video's own, as the terminal has its pty host: more parts
+  to start, connect, and restart, for an isolation that nothing asks for yet.
+- Chromium's network stack, which the shared process's own requests use. It
+  sends a request again by itself when a kept-alive connection fails before
+  the answer, and a create sent twice can be charged twice: the first build
+  of this change did so when the smoke's provider dropped a create on
+  2026-10-24. Node's requests open a connection each and never send again;
+  VS Code's proxy agent gives them the system's proxy and certificates, as
+  it did in the extension host.
+- Keeping the extension and only starting it earlier: the seam stays.
+
+**Consequences.**
+- Revises D45: AI Video is no built-in extension, and no extension is
+  admitted to the frozen platform's contribution points, whose code and
+  tests stay. Revises how D28 packages AI Video.
+- The `basehalf.video.provider.*` commands are gone. The window calls the
+  provider service, whose answers keep their form, `{ok: true, value}` or
+  `{ok: false, error}`. The catalog and each request and answer have one
+  definition, which the window and the service share.
+- The ids of the Sequence commands, its view, and its agent capability stay,
+  so Sequence files, agents, and the skill are unchanged.
+- Messages that named AI Video as what did something name BaseHalf. "AI
+  Video is not running" goes away: a call that does not reach the service
+  fails as one whose service stopped while it ran.
+- The log of the exchanges with providers is the shared process's log
+  **BaseHalf Providers**.
+- The main process resolves a proxy for a caller without a window, the
+  provider service, with the session that every window uses.
+- A release builds no AI Video of its own, and the check of a packaged
+  layout no longer looks for it.

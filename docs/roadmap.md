@@ -15,7 +15,9 @@ See also:
 - [decisions.md D23](decisions.md#d23--module-complete-migration-not-mvp-or-intermediate-shell-new-2026-06-30)
   for the quality bar: module-complete migration, not an MVP shell.
 - [decisions.md D45](decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)
-  for built-in AI Video and the frozen plugin platform.
+  for built-in AI Video and the frozen plugin platform, and
+  [D75](decisions.md#d75--ai-video-is-basehalfs-own-code-not-an-extension-new-2026-10-24)
+  for AI Video as BaseHalf's own code.
 
 ## Product Direction
 
@@ -37,8 +39,9 @@ BaseHalf's own product layer remains canvas-first:
 - The right side is BaseHalf's Agent Area, unifying TUI agents, extension agents,
   and plain terminals.
 - The left sidebar exposes exactly Files, Git, and Search.
-- AI Video is a built-in capability on the main canvas. There is no plugin
-  surface, and the plugin platform is frozen (D45).
+- AI Video is a built-in capability on the main canvas and BaseHalf's own
+  code, not an extension (D75). There is no plugin surface, and the plugin
+  platform is frozen (D45).
 
 ## Quality Bar
 
@@ -297,8 +300,9 @@ The owning specification is
 
 Done means:
 
-- A packaged build carries AI Video among its built-in extensions and admits
-  only that copy.
+- A packaged build carries AI Video as BaseHalf's own code and admits no
+  extension (D75; until then it carried AI Video among its built-in
+  extensions and admitted only that copy).
 - The Activity Bar shows exactly Files, Git, and Search. No command, link, or
   message leads to Plugins.
 - BaseHalf makes no request to the plugin registry or the publishing portal.

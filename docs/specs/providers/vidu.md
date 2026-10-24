@@ -6,9 +6,9 @@ Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integratio
 [D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Owner: [Providers and the model catalog](../providers.md), which
 this page details for the provider `vidu`
-Module: `vscode-base/extensions/basehalf-ai-video/src/providers/vidu.ts`
+Module: `vscode-base/src/vs/platform/basehalfProviders/node/vidu.ts`
 
-This page records what the Vidu module of AI Video declares and sends: its
+This page records what the Vidu module of the provider service declares and sends: its
 regions and credentials, its models with their modes, inputs, parameters, and
 rules, how a request is built, and how a task is followed and cancelled. The
 sections up to [Image models](#image-models) are about the video models.
@@ -449,7 +449,7 @@ Read on 2026-10-22; no page shows a date. The pages are the same under
 
 ## Verification
 
-`extensions/basehalf-ai-video/test/vidu.test.ts` runs the module through the
+`src/vs/platform/basehalfProviders/test/node/vidu.test.ts` runs the module through the
 provider commands against a local server that answers like Vidu, for the
 video models and the image models
 ([Image acceptance criteria](#image-acceptance-criteria)). No test calls

@@ -25,7 +25,8 @@ per feature:
 | `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5 |
 | `agentArea/` | The Agent Area, its terminal, the agent skill, and the selection agents can see | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | Generation cards of images and videos: their drafts and generation information, the task records, the model catalog as the window receives it, the providers' settings, and the Providers page | [Generation cards](../specs/generation-cards.md), [providers and the model catalog](../specs/providers.md) |
-| `plugins/` | The frozen plugin platform, the extension points that AI Video uses, and the extension allowlist | [Built-in AI Video and the frozen plugin platform](../specs/built-in-ai-video-and-plugin-freeze.md) |
+| `sequence/` | Video Sequence: the Sequence document, its view in Card Detail, its commands and its capability for agents, and the starter template | [Video Sequence](../specs/video-sequence.md) |
+| `plugins/` | The frozen plugin platform, its contribution points, and the extension allowlist | [Built-in AI Video and the frozen plugin platform](../specs/built-in-ai-video-and-plugin-freeze.md) |
 
 Inside a feature folder, files are in VS Code's layer folders: `common/`,
 `browser/`, and `electron-browser/`. Tests are in `test/<layer>/` of the same
@@ -61,6 +62,13 @@ history still finds its file.
   `platform/terminal/`, the gallery policy under `platform/extensionManagement/`,
   and the two halves of the extension host API, `mainThreadBaseHalf.ts` and
   `extHostBaseHalf.ts`, under `workbench/api/`.
+- A service of BaseHalf's own that runs outside the window has a platform
+  folder of its own, named with a `basehalf` prefix and split into VS Code's
+  layers as its services are: the provider service of generation cards is
+  `platform/basehalfProviders/`, with its interface and the definitions it
+  shares with the window in `common/`, the provider modules in `node/`, the
+  service that the shared process runs in `electron-utility/`, and the
+  window's connection to it in `electron-browser/` (D75).
 
 ## What may import what
 

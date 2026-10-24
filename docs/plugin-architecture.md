@@ -8,7 +8,9 @@ says what the product does now. The Plugin Library, the signed catalog, the
 publishing control plane, the release infrastructure, and the developer entry
 point below describe the frozen platform, not current product behavior. The
 runtime layers, the D34 implementation map, the manifest and host API, and
-the local data and workflow rules still apply to the built-in AI Video.
+the local data and workflow rules applied to the built-in AI Video until
+[D75](decisions.md#d75--ai-video-is-basehalfs-own-code-not-an-extension-new-2026-10-24)
+made it BaseHalf's own code; since then no extension uses them.
 
 > **Removed by D58 and D63.** Recipes, recipe executors, the reviewed model
 > and provider connection catalogs, connection validators, and model service
@@ -260,8 +262,9 @@ supply-chain risk but does not turn executable code into sandboxed code.
 
 `scripts/basehalf-plugin-release.mts` handles arbitrary approved plugin jobs,
 immutable asset paths, catalog creation, withdrawal/rollback, and HTTP/CDN
-verification. Official AI Video uses the same generic release path as a
-reviewed community plugin.
+verification. Official AI Video used the same generic release path as a
+reviewed community plugin until D75; it is no longer released apart from
+the application.
 
 `.github/workflows/publish-plugins.yml` publishes official releases.
 `.github/workflows/promote-reviewed-plugin.yml` leases reviewed jobs. Both
