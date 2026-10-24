@@ -71,12 +71,13 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 	readonly lastPaneConnectionCancellationAt: RefObject<number | undefined>;
 	readonly paneDoubleClickStartedOnPane: RefObject<boolean>;
 	readonly nodesRef: RefObject<BaseHalfCanvasFlowNode[]>;
+	readonly edgesRef: RefObject<BaseHalfCanvasFlowEdge[]>;
 	readonly requestSelection: (selection: IBaseHalfCanvasSceneSelection) => Promise<boolean>;
 }) {
 	const { vendor, host, delegate } = environment;
 	const {
 		sceneKeyRef, structuralEpochRef, viewportRef, lastPaneConnectionCancellationAt,
-		paneDoubleClickStartedOnPane, nodesRef, requestSelection
+		paneDoubleClickStartedOnPane, nodesRef, edgesRef, requestSelection
 	} = scene;
 
 	const showContextMenu = vendor.useCallback((request: BaseHalfCanvasSceneContextMenuRequest) => {
@@ -105,9 +106,15 @@ export function useBaseHalfCanvasSceneMouse(environment: IBaseHalfCanvasSceneEnv
 		event.stopPropagation();
 		host.focus({ preventScroll: true });
 		const anchor = contextMenuAnchor(event, host);
-		void requestSelection({ edgeId: flowEdge.id }).then(selected => {
-			if (selected) {
-				showContextMenu({ kind: 'edge', edge, anchor });
+		// The menu of a selected connection acts on every selected connection;
+		// another connection is selected alone first.
+		const selection = edgesRef.current.some(candidate => candidate.id === flowEdge.id && candidate.selected)
+			? edgesRef.current.filter(candidate => candidate.selected)
+			: [flowEdge];
+		void requestSelection({ edgeIds: selection.map(candidate => candidate.id) }).then(selected => {
+			const edges = selection.flatMap(candidate => candidate.data?.edge ? [candidate.data.edge] : []);
+			if (selected && edges.length > 0) {
+				showContextMenu({ kind: 'edge', edges, anchor });
 			}
 		});
 	}, [contextMenuAnchor, requestSelection, showContextMenu]);

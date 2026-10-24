@@ -67,7 +67,7 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 		const keyChanged = sceneKeyRef.current !== snapshot.key;
 		const structureChanged = structuralEpochRef.current !== snapshot.structuralEpoch;
 		const identityChanged = keyChanged || structureChanged;
-		const selectionControlledByHost = snapshot.selectedCardPaths !== undefined || snapshot.selectedEdgeId !== undefined;
+		const selectionControlledByHost = snapshot.selectedCardPaths !== undefined || snapshot.selectedEdgeIds !== undefined;
 		if (!identityChanged && snapshot.revision < snapshotRef.current.revision) {
 			return;
 		}
@@ -149,7 +149,7 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 					projected,
 					snapshot.key,
 					snapshot.structuralEpoch,
-					selectionControlledByHost ? projected.id === snapshot.selectedEdgeId : current?.selected ?? false
+					selectionControlledByHost ? snapshot.selectedEdgeIds?.includes(projected.id) ?? false : current?.selected ?? false
 				));
 		}
 		if (!identityChanged) {

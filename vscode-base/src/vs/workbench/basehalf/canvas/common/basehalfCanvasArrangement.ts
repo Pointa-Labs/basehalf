@@ -7,7 +7,11 @@ import {
 	BASEHALF_CANVAS_DEFAULT_WIDTH,
 	BASEHALF_CANVAS_GRID_COLUMN_GAP,
 	BASEHALF_CANVAS_GRID_ROW_GAP,
-	baseHalfCanvasPlainGridColumns
+	BaseHalfCanvasAnchor,
+	baseHalfCanvasAnchorPoint,
+	baseHalfCanvasEdgeCurve,
+	baseHalfCanvasPlainGridColumns,
+	IBaseHalfCanvasPosition
 } from './basehalfCanvasModel.js';
 
 /**
@@ -35,6 +39,15 @@ export interface IBaseHalfCanvasArrangeConnection {
 	readonly to: string;
 }
 
+/** The line of a connection: from an anchor of one card rectangle to an anchor of another. */
+export interface IBaseHalfCanvasArrangeLine {
+	readonly id: string;
+	readonly from: IBaseHalfCanvasArrangeRect;
+	readonly fromAnchor: BaseHalfCanvasAnchor;
+	readonly to: IBaseHalfCanvasArrangeRect;
+	readonly toAnchor: BaseHalfCanvasAnchor;
+}
+
 /** The place that an arrangement or a tidy gives a card. */
 export interface IBaseHalfCanvasArrangePlace {
 	readonly path: string;
@@ -44,7 +57,7 @@ export interface IBaseHalfCanvasArrangePlace {
 
 export type BaseHalfCanvasArrangement = 'grid' | 'row' | 'column';
 
-export type BaseHalfCanvasSelectionState = 'nothing' | 'card' | 'set' | 'connection';
+export type BaseHalfCanvasSelectionState = 'nothing' | 'card' | 'set' | 'connections';
 
 /** The distance between the columns of a group and between the blocks of a tidied canvas. */
 export const BASEHALF_CANVAS_TIDY_WIDE_GAP = 120;
@@ -56,14 +69,14 @@ const BASEHALF_CANVAS_TIDY_ROW_WIDTH = BASEHALF_CANVAS_DEFAULT_WIDTH;
  * The state of a selection. It follows from what is selected alone, never from
  * how it was selected.
  */
-export function baseHalfCanvasSelectionState(cardCount: number, connectionSelected: boolean): BaseHalfCanvasSelectionState {
+export function baseHalfCanvasSelectionState(cardCount: number, connectionCount: number): BaseHalfCanvasSelectionState {
 	if (cardCount >= 2) {
 		return 'set';
 	}
 	if (cardCount === 1) {
 		return 'card';
 	}
-	return connectionSelected ? 'connection' : 'nothing';
+	return connectionCount > 0 ? 'connections' : 'nothing';
 }
 
 /** Whether two rectangles share any area. Rectangles that only touch share none. */
@@ -83,6 +96,93 @@ export function baseHalfCanvasCardsInMarquee(cards: readonly IBaseHalfCanvasArra
 		}
 	}
 	return paths;
+}
+
+/** The straight pieces a line is cut into when it is tested against a marquee. */
+const BASEHALF_CANVAS_LINE_PIECES = 64;
+
+/**
+ * The ids of the lines that a marquee crosses, in the order of `lines`. A line
+ * is crossed when a point of the curve the canvas draws for it lies in the
+ * marquee or on its border, also when that point is one of its ends.
+ */
+export function baseHalfCanvasLinesInMarquee(lines: readonly IBaseHalfCanvasArrangeLine[], marquee: IBaseHalfCanvasArrangeRect): string[] {
+	const ids: string[] = [];
+	for (const line of lines) {
+		const curve = baseHalfCanvasEdgeCurve(
+			baseHalfCanvasAnchorPoint(line.from, line.fromAnchor),
+			line.fromAnchor,
+			baseHalfCanvasAnchorPoint(line.to, line.toAnchor),
+			line.toAnchor
+		);
+		if (curveCrossesRect(curve, marquee)) {
+			ids.push(line.id);
+		}
+	}
+	return ids;
+}
+
+function curveCrossesRect(curve: readonly IBaseHalfCanvasPosition[], rect: IBaseHalfCanvasArrangeRect): boolean {
+	// The curve lies inside the rectangle that holds its four points.
+	const xs = curve.map(point => point.x);
+	const ys = curve.map(point => point.y);
+	if (Math.max(...xs) < rect.x || Math.min(...xs) > rect.x + rect.width
+		|| Math.max(...ys) < rect.y || Math.min(...ys) > rect.y + rect.height) {
+		return false;
+	}
+	let previous = curve[0];
+	for (let piece = 1; piece <= BASEHALF_CANVAS_LINE_PIECES; piece++) {
+		const point = cubicPoint(curve, piece / BASEHALF_CANVAS_LINE_PIECES);
+		if (segmentCrossesRect(previous, point, rect)) {
+			return true;
+		}
+		previous = point;
+	}
+	return false;
+}
+
+function cubicPoint(curve: readonly IBaseHalfCanvasPosition[], t: number): IBaseHalfCanvasPosition {
+	const u = 1 - t;
+	const a = u * u * u;
+	const b = 3 * u * u * t;
+	const c = 3 * u * t * t;
+	const d = t * t * t;
+	return {
+		x: a * curve[0].x + b * curve[1].x + c * curve[2].x + d * curve[3].x,
+		y: a * curve[0].y + b * curve[1].y + c * curve[2].y + d * curve[3].y
+	};
+}
+
+/** Whether a straight piece has a point in a rectangle or on its border (Liang–Barsky). */
+function segmentCrossesRect(start: IBaseHalfCanvasPosition, end: IBaseHalfCanvasPosition, rect: IBaseHalfCanvasArrangeRect): boolean {
+	const dx = end.x - start.x;
+	const dy = end.y - start.y;
+	let low = 0;
+	let high = 1;
+	const sides: readonly (readonly [number, number])[] = [
+		[-dx, start.x - rect.x],
+		[dx, rect.x + rect.width - start.x],
+		[-dy, start.y - rect.y],
+		[dy, rect.y + rect.height - start.y]
+	];
+	for (const [direction, room] of sides) {
+		if (direction === 0) {
+			if (room < 0) {
+				return false;
+			}
+			continue;
+		}
+		const t = room / direction;
+		if (direction < 0) {
+			low = Math.max(low, t);
+		} else {
+			high = Math.min(high, t);
+		}
+		if (low > high) {
+			return false;
+		}
+	}
+	return true;
 }
 
 /** The smallest rectangle that holds all of `rects`. */

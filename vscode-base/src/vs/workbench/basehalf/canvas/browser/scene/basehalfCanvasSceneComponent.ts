@@ -284,7 +284,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			delegate.didChangeSelection(sceneKeyRef.current, structuralEpochRef.current, JSON.parse(selectedCardPathsKey) as string[]);
 		}, [selectedCardPathsKey]);
 
-		const [edges, setEdges] = vendor.useState<BaseHalfCanvasFlowEdge[]>(() => initialSnapshot.edges.map(edge => makeEdge(edge, initialSnapshot.key, initialSnapshot.structuralEpoch, edge.id === initialSnapshot.selectedEdgeId)));
+		const [edges, setEdges] = vendor.useState<BaseHalfCanvasFlowEdge[]>(() => initialSnapshot.edges.map(edge => makeEdge(edge, initialSnapshot.key, initialSnapshot.structuralEpoch, initialSnapshot.selectedEdgeIds?.includes(edge.id) ?? false)));
 		const edgesRef = vendor.useRef(edges);
 		const setLiveEdges = vendor.useCallback((next: BaseHalfCanvasFlowEdge[]) => {
 			edgesRef.current = next;
@@ -396,7 +396,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			sceneKeyRef, structuralEpochRef, flowRef, selectionIntents, pendingSelectionRequest,
 			connectionStoreController, nodeDragState, nodeDragToken, suppressNodeDragChrome,
 			settleNodeDragChrome, revealNodeDragChrome, beginInteraction, endInteraction, nodesRef,
-			requestSelection, applyNodesChange, reportViewport
+			edgesRef, requestSelection, applyNodesChange, reportViewport
 		});
 
 		const { beginConnection, optimisticConnect, finishPointerConnect, finishClickConnect, removeEdges, edgeInteraction } = useBaseHalfCanvasSceneConnections(environment, {
@@ -421,7 +421,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 
 		const { onNodeContextMenu, onEdgeContextMenu, onPaneContextMenu, onNodeClick, onNodeDoubleClick } = useBaseHalfCanvasSceneMouse(environment, {
 			sceneKeyRef, structuralEpochRef, viewportRef, lastPaneConnectionCancellationAt,
-			paneDoubleClickStartedOnPane, nodesRef, requestSelection
+			paneDoubleClickStartedOnPane, nodesRef, edgesRef, requestSelection
 		});
 
 		const videoInputPickGesturePolicy = baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive);
@@ -456,7 +456,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			},
 			onEdgeClick: (_event, edge) => {
 				host.focus({ preventScroll: true });
-				void requestSelection({ edgeId: edge.id });
+				void requestSelection({ edgeIds: [edge.id] });
 			},
 			onInit: flow => {
 				flowRef.current = flow;

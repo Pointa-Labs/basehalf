@@ -22,7 +22,7 @@ import {
 import { baseHalfGenerationGeneratingInputsRefusal, baseHalfGenerationMadeInputsRefusal, IBaseHalfGenerationInputChange } from '../../../video/common/basehalfVideoGeneration.js';
 import { baseHalfCanvasResolveSiblingUpstream } from '../../../references/common/basehalfCanvasUpstream.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
-import { IBaseHalfReferenceEditResult } from '../../../references/common/basehalfReferenceEdit.js';
+import { IBaseHalfReferenceEditResult, IBaseHalfReferenceStoreEdit } from '../../../references/common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexState, IBaseHalfUpstreamView } from '../../../references/common/basehalfReferenceIndex.js';
 import { baseHalfUpstreamStoreKind } from '../../../references/common/basehalfReferenceStore.js';
 import { IBaseHalfUpstreamActionContext, IBaseHalfUpstreamActionNode } from '../../../references/browser/basehalfUpstreamActions.js';
@@ -474,21 +474,59 @@ export class BaseHalfCanvasConnections {
 		this.view.requestRender();
 	}
 
-	/** Disconnect on the canvas: removes `from` from `to`'s store. The anchor row is kept. */
-	async removeEdgeFromScene(sceneKey: string, _structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void> {
+	/**
+	 * Disconnect on the canvas: removes each edge's `from` from its `to`'s
+	 * store, all of them in one canvas undo step. The entries that leave one
+	 * store leave it in one write. A store whose inputs cannot change keeps
+	 * its entries and says why, once; the others are still disconnected. The
+	 * anchor rows are kept.
+	 */
+	async removeEdgesFromScene(sceneKey: string, _structuralEpoch: number, edges: readonly IBaseHalfCanvasSceneEdge[]): Promise<void> {
+		if (edges.length === 0) {
+			return;
+		}
 		const folder = this.view.folderForSceneMutation(sceneKey);
-		await this.view.resolveLiveCanvasNodes(sceneKey, folder, [
+		await this.view.resolveLiveCanvasNodes(sceneKey, folder, edges.flatMap(edge => [
 			{ path: edge.from, kind: edge.fromKind },
 			{ path: edge.to, kind: edge.toKind }
-		]);
-		const target = this.view.workspaceNode(folder.workspaceFolder, edge.to, edge.toKind);
-		const refusal = await this.inputRefusal(target, { remove: edge.from });
-		if (refusal) {
-			this.refuseConnection(refusal);
+		]));
+		const entriesByTarget = new Map<string, { readonly target: IBaseHalfUpstreamActionNode; readonly entries: string[] }>();
+		for (const edge of edges) {
+			let group = entriesByTarget.get(edge.to);
+			if (!group) {
+				group = { target: this.view.workspaceNode(folder.workspaceFolder, edge.to, edge.toKind), entries: [] };
+				entriesByTarget.set(edge.to, group);
+			}
+			group.entries.push(edge.from);
+		}
+		const edits: IBaseHalfReferenceStoreEdit[] = [];
+		const changed: IBaseHalfUpstreamActionNode[] = [];
+		let refusal: string | undefined;
+		for (const { target, entries } of entriesByTarget.values()) {
+			const refused = await this.inputRefusal(target, { remove: entries[0] });
+			if (refused) {
+				refusal ??= refused;
+				continue;
+			}
+			changed.push(target);
+			edits.push({
+				node: target,
+				operation: entries.length === 1 ? { kind: 'remove', entry: entries[0] } : { kind: 'removeEntries', entries }
+			});
+		}
+		if (changed.length === 0) {
+			if (refusal) {
+				this.refuseConnection(refusal);
+			}
 			return;
 		}
 		const label = localize('basehalf.canvas.disconnect.undo', "Disconnect canvas nodes");
-		await this.runCanvasReferenceOperation(folder, target, label, () => this.view.referenceEditService.remove(target, edge.from, { label }));
+		await this.runCanvasReferenceOperation(folder, changed[0], label, () => this.view.referenceEditService.apply(edits, { label }));
+		// A render clears the warnings it does not draw: the refusal waits for
+		// the render after the write, or that render would take it away.
+		if (refusal) {
+			this.view.queueCanvasWarning(refusal);
+		}
 		this.view.requestRender();
 	}
 }

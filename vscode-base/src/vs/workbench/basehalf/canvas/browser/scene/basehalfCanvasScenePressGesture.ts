@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCanvasScenePressGesture.css';
-import { BaseHalfCanvasArrangement, baseHalfCanvasArrange, baseHalfCanvasCardsInMarquee } from '../../common/basehalfCanvasArrangement.js';
+import { BaseHalfCanvasArrangement, baseHalfCanvasArrange, baseHalfCanvasCardsInMarquee, baseHalfCanvasLinesInMarquee, IBaseHalfCanvasArrangeLine, IBaseHalfCanvasArrangeRect } from '../../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneSelection } from '../../common/basehalfCanvasScene.js';
 import type { NodeChange, ReactFlowInstance, Viewport } from '@xyflow/react';
 import type { RefObject } from 'react';
@@ -34,6 +34,8 @@ interface IBaseHalfCanvasScenePressGesture {
 	released: boolean;
 	startFlow: { readonly x: number; readonly y: number } | undefined;
 	boxed: ReadonlySet<string>;
+	/** The connections whose lines the marquee crosses while it touches no card. */
+	boxedLines: ReadonlySet<string>;
 	drag: IBaseHalfCanvasNodeDragState | undefined;
 	panned: boolean;
 	frame: number | undefined;
@@ -78,6 +80,8 @@ const CANVAS_PRESS_CLICK_DISTANCE = 4;
 const CANVAS_AUTO_PAN_EDGE = 40;
 /** The furthest the canvas moves in one frame, in screen pixels. */
 const CANVAS_AUTO_PAN_SPEED = 15;
+/** Marks a connection whose line a marquee crosses, before it is selected. */
+const MARQUEE_SELECTED_LINE_ATTRIBUTE = 'data-marquee-selected';
 /** With Shift held, a press on one of these still belongs to it and begins no marquee. */
 const CANVAS_SHIFT_MARQUEE_BLOCKED_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .basehalf-canvas-adjacent-chrome, .basehalf-canvas-card-connect-handle, .basehalf-canvas-card[data-note-editing="true"]';
 
@@ -101,6 +105,7 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 	readonly beginInteraction: () => void;
 	readonly endInteraction: () => void;
 	readonly nodesRef: RefObject<BaseHalfCanvasFlowNode[]>;
+	readonly edgesRef: RefObject<BaseHalfCanvasFlowEdge[]>;
 	readonly requestSelection: (selection: IBaseHalfCanvasSceneSelection) => Promise<boolean>;
 	readonly applyNodesChange: (changes: NodeChange<BaseHalfCanvasFlowNode>[], disableSnap: boolean, reason?: BaseHalfCanvasSceneGeometryReason) => void;
 	readonly reportViewport: (sceneKey: string, viewport: Viewport, final: boolean) => void;
@@ -110,7 +115,7 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 		sceneKeyRef, structuralEpochRef, flowRef, selectionIntents, pendingSelectionRequest,
 		connectionStoreController, nodeDragState, nodeDragToken, suppressNodeDragChrome,
 		settleNodeDragChrome, revealNodeDragChrome, beginInteraction, endInteraction, nodesRef,
-		requestSelection, applyNodesChange, reportViewport
+		edgesRef, requestSelection, applyNodesChange, reportViewport
 	} = scene;
 
 	const toggleSetCardAt = vendor.useCallback((clientX: number, clientY: number): void => {
@@ -196,20 +201,50 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 				}
 			}
 		};
+		// A line is marked by an attribute that the canvas library never
+		// writes, so a render of the connection during the marquee keeps it.
+		const showBoxedLines = (next: ReadonlySet<string>, previous: ReadonlySet<string>): void => {
+			if (next.size === 0 && previous.size === 0) {
+				return;
+			}
+			for (const element of host.querySelectorAll<SVGElement>('.react-flow__edge')) {
+				const id = element.dataset.id;
+				element.toggleAttribute(MARQUEE_SELECTED_LINE_ATTRIBUTE, id !== undefined && next.has(id));
+			}
+		};
+		const linesInMarquee = (rect: IBaseHalfCanvasArrangeRect): Set<string> => {
+			const rectOf = new Map(nodesRef.current.map(node => [node.id, flowNodeRect(node)]));
+			const lines: IBaseHalfCanvasArrangeLine[] = [];
+			for (const flowEdge of edgesRef.current) {
+				const edge = flowEdge.data?.edge;
+				const from = rectOf.get(flowEdge.source);
+				const to = rectOf.get(flowEdge.target);
+				if (edge && from && to) {
+					lines.push({ id: flowEdge.id, from, fromAnchor: edge.from_anchor, to, toAnchor: edge.to_anchor });
+				}
+			}
+			return new Set(baseHalfCanvasLinesInMarquee(lines, rect));
+		};
 		const drawMarquee = (current: IBaseHalfCanvasScenePressGesture): void => {
 			const flow = flowRef.current;
 			if (!flow || !current.startFlow) {
 				return;
 			}
 			const pointer = flow.screenToFlowPosition({ x: current.clientX, y: current.clientY });
-			const next = new Set(baseHalfCanvasCardsInMarquee(nodesRef.current.map(flowNodeRect), {
+			const rect = {
 				x: Math.min(current.startFlow.x, pointer.x),
 				y: Math.min(current.startFlow.y, pointer.y),
 				width: Math.abs(pointer.x - current.startFlow.x),
 				height: Math.abs(pointer.y - current.startFlow.y)
-			}));
+			};
+			const next = new Set(baseHalfCanvasCardsInMarquee(nodesRef.current.map(flowNodeRect), rect));
 			showBoxed(next, current.boxed);
 			current.boxed = next;
+			// Connections only while no card is touched: cards and connections
+			// are never selected together.
+			const nextLines = next.size === 0 ? linesInMarquee(rect) : new Set<string>();
+			showBoxedLines(nextLines, current.boxedLines);
+			current.boxedLines = nextLines;
 			// The point of the press stays where it was on the canvas.
 			const start = flow.flowToScreenPosition(current.startFlow);
 			const bounds = host.getBoundingClientRect();
@@ -285,12 +320,16 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 			}
 			if (current.kind === 'marquee') {
 				const boxed = current.boxed;
+				const boxedLines = current.boxedLines;
 				showBoxed(new Set(), boxed);
+				showBoxedLines(new Set(), boxedLines);
 				marquee.hidden = true;
 				const selects = current.phase === 'active' && !cancelled;
 				endInteraction();
 				if (selects) {
-					void sceneGesture.current.requestSelection({ cardPaths: nodesRef.current.filter(node => boxed.has(node.id)).map(node => node.id) });
+					void sceneGesture.current.requestSelection(boxed.size > 0 || boxedLines.size === 0
+						? { cardPaths: nodesRef.current.filter(node => boxed.has(node.id)).map(node => node.id) }
+						: { edgeIds: edgesRef.current.filter(edge => boxedLines.has(edge.id)).map(edge => edge.id) });
 					host.focus({ preventScroll: true });
 				}
 			} else {
@@ -395,6 +434,7 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 				released: false,
 				startFlow: undefined,
 				boxed: new Set(),
+				boxedLines: new Set(),
 				drag: undefined,
 				panned: false,
 				frame: undefined

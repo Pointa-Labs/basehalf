@@ -949,15 +949,27 @@ export function baseHalfCanvasAnchorPoint(bounds: IBaseHalfCanvasBounds, anchor:
 	}
 }
 
+/**
+ * The cubic curve of an edge: its two ends and, between them, the control
+ * points that leave each end at a right angle to its card's side.
+ */
+export function baseHalfCanvasEdgeCurve(
+	from: IBaseHalfCanvasPosition,
+	fromAnchor: IBaseHalfCanvasEdge['from_anchor'],
+	to: IBaseHalfCanvasPosition,
+	toAnchor: IBaseHalfCanvasEdge['to_anchor']
+): readonly [IBaseHalfCanvasPosition, IBaseHalfCanvasPosition, IBaseHalfCanvasPosition, IBaseHalfCanvasPosition] {
+	const distance = Math.min(220, Math.max(48, (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) / 2));
+	return [from, controlPoint(from, fromAnchor, distance), controlPoint(to, toAnchor, distance), to];
+}
+
 export function baseHalfCanvasEdgePath(
 	from: IBaseHalfCanvasPosition,
 	fromAnchor: IBaseHalfCanvasEdge['from_anchor'],
 	to: IBaseHalfCanvasPosition,
 	toAnchor: IBaseHalfCanvasEdge['to_anchor']
 ): string {
-	const distance = Math.min(220, Math.max(48, (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) / 2));
-	const fromControl = controlPoint(from, fromAnchor, distance);
-	const toControl = controlPoint(to, toAnchor, distance);
+	const [, fromControl, toControl] = baseHalfCanvasEdgeCurve(from, fromAnchor, to, toAnchor);
 	return [
 		'M',
 		formatCanvasNumber(from.x),

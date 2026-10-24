@@ -49,6 +49,9 @@ export type BaseHalfReferenceEditOperation =
 	| { readonly kind: 'add'; readonly entry: string }
 	/** Removes every item naming the entry (disconnect, ×). */
 	| { readonly kind: 'remove'; readonly entry: string }
+	/** Removes every item naming any of the entries, in one write (Delete of
+	 * several selected connections that end at one card). */
+	| { readonly kind: 'removeEntries'; readonly entries: readonly string[] }
 	/** Replaces the entry in place (source-end reconnect, Relink). */
 	| { readonly kind: 'replace'; readonly from: string; readonly to: string }
 	/** Replaces several entries in place in one write (rename refactor, Relink

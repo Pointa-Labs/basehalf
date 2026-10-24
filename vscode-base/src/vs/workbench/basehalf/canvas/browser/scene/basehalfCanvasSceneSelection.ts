@@ -83,17 +83,18 @@ export function useBaseHalfCanvasSceneSelection(environment: IBaseHalfCanvasScen
 		const sceneKey = sceneKeyRef.current;
 		const structuralEpoch = structuralEpochRef.current;
 		const selectedCards = new Set(selection.cardPaths ?? []);
-		const selectedEdgeId = selection.edgeId;
-		const requestKey = JSON.stringify({ sceneKey, structuralEpoch, cards: [...selectedCards].sort(), edge: selectedEdgeId });
+		const selectedEdges = new Set(selection.edgeIds ?? []);
+		const requestKey = JSON.stringify({ sceneKey, structuralEpoch, cards: [...selectedCards].sort(), edges: [...selectedEdges].sort() });
 		const pending = pendingSelectionRequest.current;
 		if (pending?.key === requestKey) {
 			return pending.promise;
 		}
 		const currentCards = nodesRef.current.filter(node => node.selected).map(node => node.id);
-		const currentEdgeId = edgesRef.current.find(edge => edge.selected)?.id;
+		const currentEdges = edgesRef.current.filter(edge => edge.selected).map(edge => edge.id);
 		if (currentCards.length === selectedCards.size
 			&& currentCards.every(path => selectedCards.has(path))
-			&& currentEdgeId === selectedEdgeId) {
+			&& currentEdges.length === selectedEdges.size
+			&& currentEdges.every(id => selectedEdges.has(id))) {
 			selectionIntents.current.invalidate();
 			pendingSelectionRequest.current = undefined;
 			return Promise.resolve(true);
@@ -105,7 +106,7 @@ export function useBaseHalfCanvasSceneSelection(environment: IBaseHalfCanvasScen
 					return false;
 				}
 				setLiveNodes(nodesRef.current.map(node => ({ ...node, selected: selectedCards.has(node.id) })));
-				setLiveEdges(edgesRef.current.map(edge => ({ ...edge, selected: edge.id === selectedEdgeId })));
+				setLiveEdges(edgesRef.current.map(edge => ({ ...edge, selected: selectedEdges.has(edge.id) })));
 				return true;
 			}
 		).catch(error => {
@@ -146,7 +147,7 @@ export function useBaseHalfCanvasSceneSelection(environment: IBaseHalfCanvasScen
 			const batch = pendingSelectionChanges.current;
 			batch.scheduled = false;
 			const selectedCards = new Set(nodesRef.current.filter(node => node.selected).map(node => node.id));
-			let selectedEdgeId = edgesRef.current.find(edge => edge.selected)?.id;
+			const selectedEdges = new Set(edgesRef.current.filter(edge => edge.selected).map(edge => edge.id));
 			for (const [id, selected] of batch.nodes) {
 				if (selected) {
 					selectedCards.add(id);
@@ -156,14 +157,17 @@ export function useBaseHalfCanvasSceneSelection(environment: IBaseHalfCanvasScen
 			}
 			for (const [id, selected] of batch.edges) {
 				if (selected) {
-					selectedEdgeId = id;
-				} else if (selectedEdgeId === id) {
-					selectedEdgeId = undefined;
+					// The library selects a connection by a click or a key on
+					// it, and that selects it alone.
+					selectedEdges.clear();
+					selectedEdges.add(id);
+				} else {
+					selectedEdges.delete(id);
 				}
 			}
 			if (batch.lastPositive === 'node' && selectedCards.size > 0) {
-				selectedEdgeId = undefined;
-			} else if (batch.lastPositive === 'edge' && selectedEdgeId) {
+				selectedEdges.clear();
+			} else if (batch.lastPositive === 'edge' && selectedEdges.size > 0) {
 				selectedCards.clear();
 			}
 			batch.nodes.clear();
@@ -171,7 +175,7 @@ export function useBaseHalfCanvasSceneSelection(environment: IBaseHalfCanvasScen
 			batch.lastPositive = undefined;
 			void requestSelection({
 				cardPaths: [...selectedCards],
-				...(selectedEdgeId ? { edgeId: selectedEdgeId } : {})
+				...(selectedEdges.size > 0 ? { edgeIds: [...selectedEdges] } : {})
 			});
 		});
 	}, [requestSelection]);

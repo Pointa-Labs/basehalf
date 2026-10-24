@@ -12,8 +12,10 @@
 	transition: stroke 150ms cubic-bezier(0.16, 1, 0.3, 1), stroke-width 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* A line that a marquee crosses looks selected before it is. */
 .monaco-workbench .basehalf-canvas-edge-path.hover,
-.monaco-workbench .basehalf-canvas-edge-path.selected {
+.monaco-workbench .basehalf-canvas-edge-path.selected,
+.monaco-workbench .react-flow__edge[data-marquee-selected] .basehalf-canvas-edge-path {
 	stroke: var(--bh-canvas-geometry-strong);
 	stroke-width: 2px;
 }

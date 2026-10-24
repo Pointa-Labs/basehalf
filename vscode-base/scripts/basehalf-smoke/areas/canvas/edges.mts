@@ -7,6 +7,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import process from 'process';
 import { AGENT_CREATED_CARD_CONTENT, AGENT_CREATED_CARD_PATH } from './agents.mts';
 import { agentNoteWithUpstream } from './badges.mts';
 import {
@@ -654,6 +655,46 @@ export async function assertCanvasEdgeHalfReconnect(page) {
 	await assertCanvasEdgeVisible(page, 'docs', note);
 	await waitUntil(() => readWorkspaceFile(note) === connected, 'the restored target-end reconnect to write the note\'s upstream list again');
 	await waitUntil(() => !fs.existsSync(srcUpstreamPath), 'the emptied src upstream.yaml to be removed');
+}
+
+// Canvas connection handles, dragging an end of a connection: either half let
+// go on empty canvas removes the connection at once and opens no menu, and one
+// undo brings the entry back.
+export async function assertCanvasEdgeLetGoOnEmptyCanvas(page) {
+	const note = AGENT_CREATED_CARD_PATH;
+	const connected = agentNoteWithUpstream(['docs']);
+	const connectedEdgeId = `docs${String.fromCharCode(0)}${note}`;
+	const card = cardPath => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`);
+	await frameCanvasCardsForConnection(page, [card('docs'), card('src'), card('README.md'), card(note)]);
+	if (readWorkspaceFile(note) !== connected) {
+		throw new Error(`${note} must hold the docs connection before its line is let go on empty canvas`);
+	}
+	const undoKey = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
+	for (const [half, end] of [['secondHalf', 'target'], ['firstHalf', 'source']]) {
+		const geometry = await canvasEdgeGestureGeometry(page, 'docs', note);
+		const blank = await canvasReconnectBlankPoint(page, geometry[half]);
+		const atBlank = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('react-flow__pane') ?? false, blank);
+		if (!atBlank) {
+			throw new Error(`The point where the ${end} end is let go must be empty canvas: ${JSON.stringify(blank)}`);
+		}
+		await page.mouse.move(geometry[half].x, geometry[half].y);
+		await page.mouse.down();
+		await page.mouse.move(blank.x, blank.y, { steps: 8 });
+		await page.waitForFunction(([edgeId, expected]) => {
+			const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+				.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+			return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === expected;
+		}, [connectedEdgeId, end], { timeout: 10_000 });
+		await page.mouse.up();
+		await assertCanvasEdgeGone(page, 'docs', note);
+		await waitUntil(() => readWorkspaceFile(note) === AGENT_CREATED_CARD_CONTENT, `the ${end} end let go on empty canvas to remove docs from the note's list`);
+		if (await page.locator('.context-view.monaco-menu-container').isVisible().catch(() => false)) {
+			throw new Error(`Letting go of the ${end} end on empty canvas opened a menu`);
+		}
+		await page.keyboard.press(undoKey);
+		await waitUntil(() => readWorkspaceFile(note) === connected, `one undo to bring back the connection whose ${end} end was let go`);
+		await assertCanvasEdgeVisible(page, 'docs', note);
+	}
 }
 
 // The screen geometry of the `from`→`to` edge. `firstHalf` and `secondHalf`
