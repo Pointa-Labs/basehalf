@@ -990,11 +990,13 @@ The panel asks the provider module for the problems of the planned
 generation a quarter of a second after the model, mode, values, prompt,
 inputs, or the inputs' files change, also before the provider is set up, and
 keeps the last answer for the same model until the new one arrives. It asks
-with the files a generation would send: images in a format the mode takes,
-or drawn to PNG as a generation draws them, and videos and audio as they
-are, so sizes, lengths, and formats are reported before Generate. An input
-that is missing, a draft, or not a file on this computer is reported by
-name instead, and nothing is asked.
+with what a generation would send: the values and the prompt as
+[Starting](#starting) builds them, so that a prompt that is spoken or sung is
+checked with its notes' text in place of their names, and the files, images
+in a format the mode takes, or drawn to PNG as a generation draws them, and
+videos and audio as they are, so sizes, lengths, and formats are reported
+before Generate. An input that is missing, a draft, or not a file on this
+computer is reported by name instead, and nothing is asked.
 
 **While the draft generates**, the panel shows what is being generated, and
 none of it can be changed: the prompt is read only and can be selected and
@@ -1224,6 +1226,12 @@ whose Import File… is its one way to add a file (D71). Above a generation
 card with its file the toolbar shows **Reveal in Finder** (Explorer on
 Windows, the file manager elsewhere) and **Open**, and on a video **Capture
 Frame**, with First Frame, Current Frame, and Last Frame.
+
+For assistive technology the toolbar and the draft's panel name the card's
+kind as the card itself does, and as New Image, New Video, and New Audio do:
+Image, Video, or Audio ("Audio actions for <card>", "Audio panel for
+<name>"). The panel of a card with its file and Card Detail, which name the
+file of an audio card, call it a sound ("What made the sound <name>").
 
 - **Capture Frame** writes a PNG of that frame into the card's folder, named
   after the card and the frame (`shot first frame.png`, `shot last
@@ -2152,7 +2160,7 @@ Audio cards (D78)
     prompt `@[notes/intro.md]` with a note that says `Welcome to the coast.`
     is sent as `Welcome to the coast.`; a second connected note that the
     prompt does not mention follows after a blank line, also without its
-    name.
+    name. The panel asks `check` with that same prompt.
 87. A music model with Lyrics mode shows From a Description and From Lyrics
     in its settings, the mode first; From Lyrics shows Style among the
     settings, and sends the prompt as the lyrics and Style as the style.
@@ -2226,8 +2234,9 @@ Audio cards (D78)
   that is spoken or sung, the model menu's line, the voice ids a listed
   voice takes, and the summary without the voice
   (`basehalfVideoCatalog.test.ts`); the placeholder, the model menu, the
-  voice button, the settings without the voice, and the draft renamed to its
-  model's format and back (`basehalfVideoNodePanelPresentation.test.ts`, `basehalfVideoNodePanel.test.ts`);
+  voice button, a voice of the account, the settings without the voice, the
+  prompt `check` is asked with, and the draft renamed to its model's format
+  and back (`basehalfVideoNodePanelPresentation.test.ts`, `basehalfVideoNodePanel.test.ts`);
   the voice menu with a fake provider service and a test audio graph: the
   sections, search, choosing, a sample that plays and stops, another
   sample or closing the menu stopping it, a video on the canvas that it
@@ -2236,9 +2245,10 @@ Audio cards (D78)
   (`basehalfGenerationVoiceMenu.test.ts`); the voice and "Song 1 of 2" in
   the panel of a card with its file (`basehalfGenerationRecordPresentation.test.ts`,
   `basehalfGenerationRecordPanel.test.ts`); New Audio
-  (`basehalfGenerationCardActions.test.ts`); several songs and a sound that
-  lands (`basehalfVideoGenerationService.test.ts`). The audio models of
-  these tests are the test catalog's one provider of audio models
+  (`basehalfGenerationCardActions.test.ts`); several songs, a sound that
+  lands, and the panel's `check` asked with what Generate checks and sends
+  (`basehalfVideoGenerationService.test.ts`). The audio models of these
+  tests are the test catalog's one provider of audio models
   (`basehalfVideoCatalogFixture.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,

@@ -1578,6 +1578,30 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('a voice of the account that the catalog does not declare is saved as the card\'s, named on the button as the provider\'s list names it, and checked as it is sent (D78)', async () => {
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
+		voices.answer('dunlin', 'main', { voices: [{ id: 'own-narrator', label: 'My Narrator', description: 'Cloned', own: true }] });
+		await settle();
+		const voice = find<HTMLButtonElement>(panel, '.bh-video-panel-voice');
+		voice.click();
+		const listed = findAll(panel, '.bh-voice-menu-option').map(option => option.querySelector('.bh-voice-menu-name')?.textContent);
+		findAll(panel, '.bh-voice-menu-option').find(option => option.querySelector('.bh-voice-menu-name')?.textContent === 'My Narrator')!.click();
+		await settle();
+		assert.deepStrictEqual({
+			listed,
+			saved: store.info.params,
+			button: [voice.textContent, voice.getAttribute('aria-label')],
+			summary: find(panel, '.bh-video-panel-settings').textContent,
+			checked: catalog.checks.at(-1)?.params
+		}, {
+			listed: ['My Narrator', 'Ember', 'Pike', 'Sable'],
+			saved: { voice: 'own-narrator', speed: 1 },
+			button: ['My Narrator', 'Voice: My Narrator'],
+			summary: 'From Text · Speed 1',
+			checked: { voice: 'own-narrator', speed: 1 }
+		});
+	});
+
 	test('the voice button names its voice as the catalog does, and opens nothing while the draft generates (D78)', async () => {
 		generation.generating = true;
 		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });

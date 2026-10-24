@@ -63,6 +63,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				setUp: !(options.notSetUp ?? ['borealis']).includes(provider.id)
 			}),
 			...(options.check ? { check: options.check } : {}),
+			...(options.voices ? { voices: options.voices } : {}),
 			generating: options.generating ?? false,
 			prompt: options.prompt ?? 'A slow push in.'
 		});
@@ -630,6 +631,43 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			summary: 'From Text · Speed 1',
 			placeholder: 'Write what the voice says. Type @ to mention an input.',
 			others: [undefined, undefined]
+		});
+	});
+
+	test('a voice of the account that the catalog does not declare stays the card\'s: its button names it as the provider\'s list does, and it is what check is asked with (D78)', () => {
+		const own = { ...speech, params: { voice: 'own-narrator', speed: 1 } };
+		const list = { voices: [{ id: 'own-narrator', label: 'My Narrator', own: true }] };
+		const listed = present({ kind: 'audio', catalog: audio, generation: own, inputs: [], notSetUp: [], voices: (provider, region) => provider === 'dunlin' && region === 'main' ? list : undefined });
+		const unlisted = present({ kind: 'audio', catalog: audio, generation: own, inputs: [], notSetUp: [] });
+		assert.deepStrictEqual({
+			button: [listed.voice?.value, listed.voice?.label, unlisted.voice?.label],
+			params: listed.params,
+			asked: listed.checkRequest?.params,
+			summary: listed.settingsView?.summary
+		}, {
+			button: ['own-narrator', 'My Narrator', 'own-narrator'],
+			params: { voice: 'own-narrator', speed: 1 },
+			asked: { voice: 'own-narrator', speed: 1 },
+			summary: 'From Text · Speed 1'
+		});
+	});
+
+	test('check is asked with the prompt as a generation sends it: a note of a prompt that is spoken or sung is its text alone (D78)', () => {
+		const notes: IBaseHalfVideoInputSource[] = [
+			{ path: 'notes/intro.md', kind: 'text', available: true },
+			{ path: 'notes/outro.md', kind: 'text', available: true }
+		];
+		const texts = new Map([['notes/intro.md', 'Welcome to the coast.'], ['notes/outro.md', 'Thank you for listening.']]);
+		const asked = (generation: IBaseHalfVideoGenerationChoice) => present({ kind: 'audio', catalog: audio, generation, inputs: notes, texts, prompt: '@[notes/intro.md]', notSetUp: [] }).checkRequest?.prompt;
+		assert.deepStrictEqual({
+			spoken: asked(speech),
+			sung: asked(song),
+			// Music from a description is not sung: its notes are named, as in an image's or a video's prompt.
+			described: asked({ ...song, mode: 'reference' })
+		}, {
+			spoken: ['Welcome to the coast.\n\nThank you for listening.'],
+			sung: ['Welcome to the coast.\n\nThank you for listening.'],
+			described: ['"intro"\n\nintro:\nWelcome to the coast.\n\noutro:\nThank you for listening.']
 		});
 	});
 

@@ -330,10 +330,11 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 				ref: toolbarRef,
 				className: `basehalf-video-context-toolbar basehalf-video-result-toolbar${frameMenu ? ' menu-open' : ''} basehalf-canvas-note-toolbar basehalf-canvas-note-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel`,
 				role: 'toolbar',
+				// Named by the card's kind, as the card and its panel are (generation cards, "The toolbar").
 				'aria-label': media === 'image'
 					? localize('basehalf.canvas.image.actions', "Image actions for {0}", node.id)
 					: media === 'audio'
-						? localize('basehalf.canvas.audio.actions', "Sound actions for {0}", node.id)
+						? localize('basehalf.canvas.audio.actions', "Audio actions for {0}", node.id)
 						: localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
 				'data-node-path': node.id,
 				'data-media': media,

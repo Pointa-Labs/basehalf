@@ -52,6 +52,7 @@ import {
 	IBaseHalfVideoModelRef,
 	IBaseHalfVideoNumberParameter,
 	IBaseHalfVideoProviderSetup,
+	isBaseHalfSpokenOrSungPrompt,
 	isBaseHalfVideoModelBlocker,
 	normalizeBaseHalfVideoParams,
 	planBaseHalfVideoInputs
@@ -316,8 +317,9 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const modeId = mode?.id ?? generation?.mode ?? baseHalfDefaultModeId(state.kind);
 	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs);
 	const startFrame = plan.some(item => item.use === 'start-frame');
-	// The prompt in parts, as a generation sends it: each mention as its input's place in the request (D74).
-	const prompt = buildBaseHalfPromptParts(state.prompt, plan, item => state.texts?.get(item.path));
+	// The prompt in parts, as a generation sends it: each mention as its input's place in the request (D74),
+	// and in a prompt that is spoken or sung each note as its text alone (D78), so that `check` sees what is sent.
+	const prompt = buildBaseHalfPromptParts(state.prompt, plan, item => state.texts?.get(item.path), { spokenOrSung: isBaseHalfSpokenOrSungPrompt(ref?.model, mode?.id) });
 	const checkRequest = ref && mode && region && baseHalfVideoRegionOffersModel(ref.model, region.id)
 		? Object.freeze<Omit<IBaseHalfVideoCheckRequest, 'inputs'>>({
 			provider: ref.provider.id,

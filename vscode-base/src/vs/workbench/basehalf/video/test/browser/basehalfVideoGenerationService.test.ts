@@ -28,6 +28,7 @@ import {
 	BaseHalfVideoGenerationService,
 	closedWhileAnsweringMessage,
 	orphanedSubmissionMessage,
+	readBaseHalfVideoTextInput,
 	unknownOutcomeMessage
 } from '../../browser/basehalfVideoGenerationService.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
@@ -52,8 +53,9 @@ import {
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../../common/basehalfGenerationInfo.js';
-import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoCheckRequest, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
+import { createBaseHalfVideoPanelPresentation } from '../../common/basehalfVideoNodePanelPresentation.js';
 import { ACME, BOREALIS, CORVID, DUNLIN, TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import {
 	BaseHalfTestFileSystemProvider,
@@ -510,6 +512,45 @@ suite('BaseHalfVideoGenerationService', () => {
 			calls: [CATALOG, CHECK, SUBMIT, PLACE],
 			lastUsed: [{ provider: 'dunlin', model: 'dunlin-voice', mode: 'reference', params: { voice: 'own-narrator', speed: 1.25 } }, undefined, undefined]
 		});
+		harness.dispose();
+	}));
+
+	test('the panel asks check with what Generate checks and sends: a note connected to a speech draft is said without its name (D78, criterion 86)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness({ catalogProviders: WITH_AUDIO });
+		await harness.write('notes/intro.md', '---\nupstream: []\n---\nWelcome to the coast.\n');
+		await harness.write('notes/outro.md', 'Thank you for listening.\n');
+		const speech = await harness.card('voice/audio.mp3', SPEECH, ['notes/intro.md', 'notes/outro.md']);
+		const { service, cards, commands } = harness.first;
+		// The draft's panel: the card, its inputs, and the text of its notes as the panel reads them.
+		const snapshot = await cards.read(speech);
+		const inputs = await cards.resolveInputs(snapshot);
+		const texts = new Map<string, string>();
+		for (const input of inputs) {
+			if (input.kind === 'text' && input.available && input.file) {
+				texts.set(input.path, await readBaseHalfVideoTextInput(harness.fileService, input.file));
+			}
+		}
+		const panel = createBaseHalfVideoPanelPresentation({
+			info: snapshot.info,
+			kind: snapshot.kind,
+			inputs,
+			texts,
+			catalog: { kind: 'ready', catalog: TEST_AUDIO_CATALOG },
+			setup: provider => harness.providers.getStatus(provider),
+			generating: false,
+			prompt: snapshot.info.prompt
+		});
+		commands.submit = async request => ({ ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_MP3)] } });
+		await service.generate(speech);
+		await until(() => !service.isGenerating(speech));
+		const { inputs: _files, ...checked } = commands.calls.find(call => call.id === CHECK)?.argument as IBaseHalfVideoCheckRequest;
+		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		assert.deepStrictEqual({ panel: panel.checkRequest, sent: submitted.prompt }, {
+			// Apart from the files, which the panel adds when it asks, the panel asks what Generate checks.
+			panel: checked,
+			sent: ['Welcome to the coast.\n\nThank you for listening.']
+		});
+		assert.deepStrictEqual(checked.prompt, submitted.prompt);
 		harness.dispose();
 	}));
 
