@@ -56,9 +56,10 @@ export async function assertCanvasDoubleClickCreateMenu(page) {
 }
 
 /**
- * Generation cards, "Creating a generation card" and criterion 2: the Create
- * menu offers New Note, New Image, New Video, New File..., and New Folder...,
- * with no submenu of nodes. New Image and New Video each make a draft in the
+ * Generation cards, "Creating a generation card" and criterion 2, and canvas
+ * Create menu, criteria 1 and 2: the Create menu offers New Note, New Image,
+ * New Video, and New Folder, with no New File and no submenu of nodes, and
+ * then Paste and Import Files.... New Image and New Video each make a draft in the
  * folder of the canvas: a card, selected, with its panel and its prompt
  * focused, and a `generation.yaml` with an empty prompt (no generation ran on
  * this computer), and no file. Each is one step of the canvas undo stack.
@@ -74,9 +75,8 @@ export async function assertCanvasCreateMenuMakesDrafts(page) {
 		throw new Error('The README card must be drawn before the drafts are made');
 	}
 	const menu = await readCanvasCreateMenu(page);
-	const firstGroup = menu.slice(0, menu.indexOf('|') < 0 ? menu.length : menu.indexOf('|'));
-	if (JSON.stringify(firstGroup) !== JSON.stringify(['New Note', 'New Image', 'New Video', 'New File...', 'New Folder...']) || menu.some(item => /New Media|Node/.test(item))) {
-		throw new Error(`The Create menu must offer New Note, New Image, New Video, New File..., and New Folder... first, and no node submenu: ${JSON.stringify(menu)}`);
+	if (JSON.stringify(menu) !== JSON.stringify(['New Note', 'New Image', 'New Video', 'New Folder', '|', 'Paste', 'Import Files...'])) {
+		throw new Error(`The Create menu must offer New Note, New Image, New Video, and New Folder, then Paste and Import Files..., and nothing else: ${JSON.stringify(menu)}`);
 	}
 	const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
 	const canvasPath = mirror('canvas.yaml');
@@ -256,15 +256,22 @@ export async function assertCanvasNumericFolderNames(page) {
 	const cardFor = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
 	await page.keyboard.press('Escape');
 
+	// Each folder is made by New Folder and renamed on its card (canvas Create menu).
+	const isFolder = name => fs.existsSync(path.join(workspacePath, name)) && fs.statSync(path.join(workspacePath, name)).isDirectory();
 	for (const name of ['09', '2024']) {
-		await clickCanvasCreateAction(page, 'New Folder...');
-		const input = page.locator('.basehalf-canvas-inline-create-card input');
+		await clickCanvasCreateAction(page, 'New Folder');
+		await waitUntil(() => isFolder('untitled folder'), 'canvas New Folder to create untitled folder');
+		const untitled = cardFor('untitled folder');
+		await untitled.waitFor({ state: 'visible', timeout: 10_000 });
+		await waitForCanvasCardSelection(page, 'untitled folder');
+		await untitled.focus();
+		await page.keyboard.press('F2');
+		const input = untitled.locator('.basehalf-canvas-inline-name-input input');
 		await input.waitFor({ state: 'visible', timeout: 10_000 });
 		await input.fill(name);
 		await input.press('Enter');
-		await waitUntil(() => fs.existsSync(path.join(workspacePath, name)) && fs.statSync(path.join(workspacePath, name)).isDirectory(), `canvas New Folder to create the folder ${name}`);
+		await waitUntil(() => isFolder(name) && !fs.existsSync(path.join(workspacePath, 'untitled folder')), `the rename of untitled folder to ${name}`);
 		await cardFor(name).waitFor({ state: 'visible', timeout: 10_000 });
-		await waitForCanvasCardSelection(page, name);
 		await waitUntil(() => savedGeometry(name) !== undefined, `the position of the folder ${name} to be saved`);
 	}
 
@@ -306,19 +313,7 @@ export async function assertCanvasNumericFolderNames(page) {
 		await page.keyboard.press('Escape');
 		// Each card is shown before it is clicked: the view went to the one that moved.
 		await centerCanvasCards(page, [cardFor(name)]);
-		await cardFor(name).click({ button: 'right' });
-		const deleteAction = page.locator('.context-view.monaco-menu-container .action-label')
-			.filter({ hasText: /^Delete\.\.\.$/ })
-			.filter({ visible: true })
-			.last();
-		await deleteAction.waitFor({ state: 'visible', timeout: 10_000 });
-		await page.waitForTimeout(150);
-		await deleteAction.click();
-		const dialog = page.locator('.monaco-dialog-box', { hasText: `'${name}'` }).first();
-		await dialog.waitFor({ state: 'visible', timeout: 10_000 });
-		await dialog.locator('.monaco-button', { hasText: /^(Delete Permanently|Move to Trash)$/ }).click();
-		await waitUntil(() => !fs.existsSync(path.join(workspacePath, name)), `the folder ${name} to be deleted`);
-		await cardFor(name).waitFor({ state: 'hidden', timeout: 10_000 });
+		await deleteCanvasCardFromItsMenu(page, name);
 		await waitUntil(() => savedGeometry(name) === undefined, `the row of the folder ${name} to leave canvas.yaml`);
 	}
 
@@ -338,45 +333,20 @@ export async function assertCanvasNumericFolderNames(page) {
 	await panCanvasCardTo(page, anchor, anchorBefore);
 }
 
-export async function assertCanvasCreateNoteFileAndFolder(page) {
+/**
+ * New Note from Card Detail and from the Create menu, and the editing of an
+ * empty note. The canvas makes no file from a typed name (canvas Create
+ * menu): the data file comes as an agent or Files adds it, and the empty
+ * note is a New Note beside it, renamed on its card.
+ */
+export async function assertCanvasCreateNote(page) {
 	const createButton = page.locator('.basehalf-canvas-create-button');
 	await createButton.waitFor({ state: 'visible', timeout: 10_000 });
 
-	await clickCanvasCreateAction(page, 'New File...');
-	let input = page.locator('.basehalf-canvas-inline-create-card input');
-	await input.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await input.inputValue() !== '' || await input.getAttribute('placeholder') !== 'filename.ext') {
-		throw new Error('New File did not start with an empty exact-name input');
-	}
-	await input.fill('smoke-data.json');
-	await input.press('Enter');
-	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-data.json')), 'canvas New File to create the exact extension');
+	fs.writeFileSync(path.join(workspacePath, 'smoke-data.json'), '', 'utf8');
 	const dataCard = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"]');
 	await dataCard.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
-		throw new Error('Canvas New File opened Card Detail instead of staying on the canvas');
-	}
-	await waitForCanvasCardSelection(page, 'smoke-data.json');
-	if (fs.existsSync(path.join(workspacePath, 'smoke-data.json.md'))) {
-		throw new Error('Canvas New File appended .md to an explicitly named JSON file');
-	}
-
-	await clickCanvasCreateAction(page, 'New Folder...');
-	input = page.locator('.basehalf-canvas-inline-create-card input');
-	await input.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await input.inputValue() !== '' || await input.getAttribute('placeholder') !== 'Folder name') {
-		throw new Error('New Folder did not start with an empty folder-name input');
-	}
-	await input.fill('smoke-folder');
-	await input.press('Enter');
-	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-folder')) && fs.statSync(path.join(workspacePath, 'smoke-folder')).isDirectory(), 'canvas New Folder to create a real folder');
-	const folderCard = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-folder"]');
-	await folderCard.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
-		throw new Error('Canvas New Folder navigated away from its parent canvas');
-	}
-	await waitForCanvasCardSelection(page, 'smoke-folder');
-
+	await centerCanvasCards(page, [dataCard]);
 	await dataCard.dblclick();
 	await assertCardDetail(page, 'smoke-data.json');
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+N' : 'Control+N');
@@ -409,23 +379,28 @@ export async function assertCanvasCreateNoteFileAndFolder(page) {
 	fs.rmSync(path.join(workspacePath, 'untitled.md'), { force: true });
 	await untitledNote.waitFor({ state: 'hidden', timeout: 10_000 });
 
-	// File intent remains distinct from Note intent even when the exact filename
-	// is Markdown: select the card, but do not enter its inline editor.
-	await clickCanvasCreateAction(page, 'New File...');
-	input = page.locator('.basehalf-canvas-inline-create-card input');
-	await input.waitFor({ state: 'visible', timeout: 10_000 });
-	await input.fill('smoke-note.md');
-	await input.press('Enter');
-	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-note.md')), 'canvas New File to create an exact Markdown filename');
+	// The empty note: a New Note with the data card in the middle of the view
+	// goes to the nearest open place beside it, so that both are in sight
+	// together below. Escape leaves it empty, and it is renamed on its card.
+	await centerCanvasCards(page, [dataCard]);
+	await clickCanvasCreateAction(page, 'New Note');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'untitled.md')), 'New Note beside the data card');
+	const besideEditor = await waitForCanvasNoteInlineEditor(page, 'untitled.md');
+	await page.keyboard.press('Escape');
+	await besideEditor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	await untitledNote.focus();
+	await page.keyboard.press('F2');
+	const noteName = untitledNote.locator('.basehalf-canvas-inline-name-input input');
+	await noteName.waitFor({ state: 'visible', timeout: 10_000 });
+	await noteName.fill('smoke-note');
+	await noteName.press('Enter');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-note.md')) && !fs.existsSync(path.join(workspacePath, 'untitled.md')), 'the new note to be renamed smoke-note');
 	const emptyNote = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]');
 	await emptyNote.waitFor({ state: 'visible', timeout: 10_000 });
-	await waitForCanvasCardSelection(page, 'smoke-note.md');
-	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
-		throw new Error('Canvas New File treated an exact Markdown filename as an automatic Card Detail open');
+	if (fs.statSync(path.join(workspacePath, 'smoke-note.md')).size !== 0) {
+		throw new Error('A New Note that was left with Escape must stay empty');
 	}
-	if (await canvasNoteInlineEditor(page, 'smoke-note.md').host.count() !== 0) {
-		throw new Error('Canvas New File treated an exact Markdown file as the New Note editing intent');
-	}
+
 	await centerCanvasCards(page, [emptyNote]);
 	const emptyNotePlaceholder = emptyNote.locator('.basehalf-canvas-note-empty', { hasText: 'Double-click to edit' });
 	await emptyNotePlaceholder.waitFor({ state: 'visible', timeout: 10_000 });
@@ -752,7 +727,9 @@ export async function assertCanvasCreateNoteFileAndFolder(page) {
 	);
 	await closeCardDetailIfOpen(page);
 	await page.locator('.basehalf-canvas-cards').waitFor({ state: 'visible', timeout: 15_000 });
-	await centerCanvasCards(page, [emptyNote]);
+	// The data card, beside the note, is selected below while a format command
+	// waits: both are in sight first.
+	await centerCanvasCards(page, [emptyNote, dataCard]);
 	await emptyNote.locator('.bh-md-preview h2', { hasText: projectionTokens.paragraph }).waitFor({ state: 'visible', timeout: 15_000 });
 
 	await emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.dividerTail }).dblclick();
@@ -761,7 +738,7 @@ export async function assertCanvasCreateNoteFileAndFolder(page) {
 	await page.keyboard.press('Escape');
 	await selectionExitEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
 	await emptyNoteToolbar.getByRole('button', { name: 'Heading 1', exact: true }).click();
-	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"]').click();
+	await dataCard.click();
 	await selectionExitEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
 	await emptyNote.locator('.bh-md-preview h1', { hasText: projectionTokens.dividerTail }).waitFor({ state: 'visible', timeout: 15_000 });
 	await waitUntil(
@@ -797,14 +774,182 @@ export async function assertCanvasCreateNoteFileAndFolder(page) {
 		throw new Error('Inline Note editing exposed an explicit Save action');
 	}
 
-	for (const relativePath of ['smoke-data.json', 'smoke-folder', 'smoke-note.md']) {
-		fs.rmSync(path.join(workspacePath, relativePath), { recursive: true, force: true });
+	// The data file has a row that BaseHalf placed: it is deleted on the
+	// canvas, so that its row goes with it. The note's row, from New Note, is
+	// the user's and stays when the file goes.
+	await page.keyboard.press('Escape');
+	await centerCanvasCards(page, [dataCard]);
+	await deleteCanvasCardFromItsMenu(page, 'smoke-data.json');
+	fs.rmSync(path.join(workspacePath, 'smoke-note.md'), { force: true });
+	await emptyNote.waitFor({ state: 'detached', timeout: 10_000 });
+}
+
+/**
+ * Deletes an item with Delete... in its card's menu, as a user does. Its row
+ * leaves the layout with it at once; a file removed from disk would leave a
+ * row that BaseHalf placed, removed a minute later in a write of its own.
+ */
+async function deleteCanvasCardFromItsMenu(page, name) {
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+	await card.click({ button: 'right' });
+	await clickCanvasMenuAction(page, 'Delete...');
+	const dialog = page.locator('.monaco-dialog-box', { hasText: `'${name}'` }).first();
+	await dialog.waitFor({ state: 'visible', timeout: 10_000 });
+	await dialog.locator('.monaco-button', { hasText: /^(Delete Permanently|Move to Trash)$/ }).click();
+	await waitUntil(() => !fs.existsSync(path.join(workspacePath, name)), `${name} to be deleted`);
+	await card.waitFor({ state: 'hidden', timeout: 10_000 });
+}
+
+/** Runs an action of the canvas menu that is open. */
+async function clickCanvasMenuAction(page, label) {
+	const action = page.locator('.context-view.monaco-menu-container .action-label')
+		.filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })
+		.filter({ visible: true })
+		.last();
+	await action.waitFor({ state: 'visible', timeout: 10_000 });
+	// The menu takes a click only after its guard against the press that opened it.
+	await page.waitForTimeout(150);
+	await action.click();
+}
+
+/** A point of empty canvas with room for a card of `width` by `height` right of and below it. */
+async function roomyCanvasPoint(page, width, height) {
+	const point = await page.evaluate(([cardWidth, cardHeight]) => {
+		const pane = document.querySelector('.basehalf-canvas-cards .react-flow__pane');
+		if (!(pane instanceof HTMLElement)) {
+			return undefined;
+		}
+		const box = pane.getBoundingClientRect();
+		// The caption stands above a card: keep room for it too.
+		for (let y = box.top + 60; y + cardHeight < box.bottom - 24; y += 24) {
+			for (let x = box.left + 24; x + cardWidth < box.right - 24; x += 24) {
+				const corners = [[0, -40], [cardWidth, -40], [0, cardHeight], [cardWidth, cardHeight], [cardWidth / 2, cardHeight / 2]];
+				if (corners.every(([dx, dy]) => pane.ownerDocument.elementFromPoint(x + dx, y + dy) === pane)) {
+					return { x, y };
+				}
+			}
+		}
+		return undefined;
+	}, [width, height]);
+	if (!point) {
+		throw new Error(`The canvas has no empty room of ${width} by ${height}`);
 	}
-	await page.waitForFunction(() => !document.querySelector(
-		'.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"],'
-		+ '.basehalf-canvas-card[data-basehalf-card-path="smoke-folder"],'
-		+ '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]'
-	), null, { timeout: 10_000 });
+	return point;
+}
+
+/**
+ * Canvas Create menu, criteria 3 to 8: New Folder makes `untitled folder` at
+ * once, with no box, field, or message in any frame, at the point of the
+ * secondary click, selected, and the canvas stays. The Create button makes
+ * `untitled folder 2`, in sight. A double click on the name opens the rename
+ * editor with the whole name selected. One undo on the canvas removes the
+ * folder and its card, and redo makes it again. The step hands the view back
+ * as it found it.
+ */
+export async function assertCanvasNewFolder(page) {
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const readmeBefore = await readme.boundingBox();
+	if (!readmeBefore) {
+		throw new Error('The README card must be drawn before New Folder');
+	}
+	const isFolder = name => fs.existsSync(path.join(workspacePath, name)) && fs.statSync(path.join(workspacePath, name)).isDirectory();
+	const cardFor = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+	const undo = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
+	const redo = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y';
+	await page.keyboard.press('Escape');
+
+	// Every frame from the click on: a box, a field, or a message for a name.
+	await page.evaluate(() => {
+		const watch = { running: true, frames: 0, named: 0 };
+		globalThis.basehalfNewFolderWatch = watch;
+		const tick = () => {
+			if (!watch.running) {
+				return;
+			}
+			watch.frames++;
+			if (document.querySelector('.basehalf-canvas-inline-create-card, .basehalf-canvas-inline-name-editor, .basehalf-canvas-surface .monaco-inputbox, .context-view .monaco-inputbox-container')) {
+				watch.named++;
+			}
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+	const point = await roomyCanvasPoint(page, 260, 200);
+	await page.mouse.click(point.x, point.y, { button: 'right' });
+	await clickCanvasMenuAction(page, 'New Folder');
+	await waitUntil(() => isFolder('untitled folder'), 'New Folder to make untitled folder');
+	const first = cardFor('untitled folder');
+	await first.waitFor({ state: 'visible', timeout: 10_000 });
+	await waitForCanvasCardSelection(page, 'untitled folder');
+	await page.waitForTimeout(300);
+	const watch = await page.evaluate(() => {
+		const state = globalThis.basehalfNewFolderWatch;
+		state.running = false;
+		return { frames: state.frames, named: state.named };
+	});
+	const node = await page.locator('.react-flow__node[data-id="untitled folder"]').boundingBox();
+	if (watch.frames < 5 || watch.named !== 0 || !node || Math.abs(node.x - point.x) > 1 || Math.abs(node.y - point.y) > 1) {
+		throw new Error(`New Folder must make its card at the point with nothing to fill in: ${JSON.stringify({ watch, point, node })}`);
+	}
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false) || await page.locator('.quick-input-widget').isVisible()) {
+		throw new Error('New Folder opened Card Detail or Quick Input instead of staying on the canvas');
+	}
+
+	// The Create button: the next free name, in sight.
+	await clickCanvasCreateAction(page, 'New Folder');
+	await waitUntil(() => isFolder('untitled folder 2'), 'the second New Folder to make untitled folder 2');
+	const second = cardFor('untitled folder 2');
+	await second.waitFor({ state: 'visible', timeout: 10_000 });
+	await waitForCanvasCardSelection(page, 'untitled folder 2');
+	await page.waitForTimeout(300);
+	const secondBox = await second.boundingBox();
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	if (!secondBox || !canvasBox || secondBox.x < canvasBox.x || secondBox.y < canvasBox.y
+		|| secondBox.x + secondBox.width > canvasBox.x + canvasBox.width || secondBox.y + secondBox.height > canvasBox.y + canvasBox.height) {
+		throw new Error(`New Folder from the Create button must make a card in sight: ${JSON.stringify({ secondBox, canvasBox })}`);
+	}
+
+	// The name is changed on the card: the whole name is selected.
+	const label = first.locator('.basehalf-canvas-card-label');
+	const labelBox = await label.boundingBox();
+	await page.mouse.click(labelBox.x + 8, labelBox.y + labelBox.height / 2);
+	await page.waitForTimeout(200);
+	await page.mouse.click(labelBox.x + 8, labelBox.y + labelBox.height / 2, { clickCount: 2 });
+	const input = first.locator('.basehalf-canvas-inline-name-input input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(() => {
+		const field = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="untitled folder"] .basehalf-canvas-inline-name-input input');
+		return field instanceof HTMLInputElement && document.activeElement === field && field.value === 'untitled folder'
+			&& field.selectionStart === 0 && field.selectionEnd === 'untitled folder'.length;
+	}, null, { timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await input.waitFor({ state: 'detached', timeout: 10_000 });
+
+	// One undo on the canvas takes the last folder back; redo makes it again.
+	await page.waitForFunction(() => document.activeElement?.closest('.basehalf-canvas-cards') !== null, null, { timeout: 10_000 });
+	await page.keyboard.press(undo);
+	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'untitled folder 2')), 'one undo on the canvas to remove untitled folder 2');
+	await second.waitFor({ state: 'detached', timeout: 10_000 });
+	if (!isFolder('untitled folder')) {
+		throw new Error('One undo must take back only the last New Folder');
+	}
+	await page.keyboard.press(redo);
+	await waitUntil(() => isFolder('untitled folder 2'), 'redo on the canvas to make untitled folder 2 again');
+	await second.waitFor({ state: 'visible', timeout: 10_000 });
+
+	// Two more undos take both folders back, the last first, and their rows
+	// with them: a folder removed from disk would leave the row that BaseHalf
+	// gave the folder that redo made, removed a minute later in a write of its own.
+	for (const name of ['untitled folder 2', 'untitled folder']) {
+		await page.waitForFunction(() => document.activeElement?.closest('.basehalf-canvas-cards') !== null, null, { timeout: 10_000 });
+		await page.keyboard.press(undo);
+		await waitUntil(() => !fs.existsSync(path.join(workspacePath, name)), `undo on the canvas to remove ${name}`);
+		await cardFor(name).waitFor({ state: 'detached', timeout: 10_000 });
+	}
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	await waitUntil(() => ['untitled folder', 'untitled folder 2'].every(name => readCanvasCardGeometry(fs.readFileSync(canvasPath, 'utf8'), name) === undefined), 'the rows of the folders that undo removed to leave canvas.yaml');
+	await page.keyboard.press('Escape');
+	await panCanvasCardTo(page, readme, { x: readmeBefore.x, y: readmeBefore.y });
 }
 
 export async function centerCanvasCards(page, cards) {

@@ -2883,3 +2883,40 @@ to tell them apart first.
   does nothing else.
 - Builds that are already distributed keep reading the registry for as long
   as it is online.
+
+## D77 — New Folder makes a folder at once, and the canvas has no New File (NEW, 2026-10-25)
+
+**Decision.** The canvas's menu offers New Note, New Image, New Video, and
+New Folder. New Folder makes the folder `untitled folder`, or the first free
+`untitled folder 2`, `untitled folder 3`, …, at once, with nothing to fill
+in. Its card is placed and selected as any card the user creates, and one
+undo on the canvas takes the folder back. The menu has no New File. See
+[canvas Create menu](specs/canvas-create-menu.md).
+
+**Why.** On 2026-10-25 the user called the box that New Folder opened ugly:
+a framed field with a glyph over the canvas, empty, with a message under it
+while they typed. They asked that New Folder make a folder with a default
+name, and that the menu not offer New File, since a user who wants a file
+makes it in Files. Since
+[D55](#d55--a-note-is-named-without-its-extension-new-2026-10-13) a name is
+changed on the card itself, so the box was a second name editor, there
+before the item existed. New File asked for an exact file name with its
+extension; the files of a canvas come from New Note, from a generation, or
+from Import Files..., a drop, a paste, or an agent.
+
+**What was set aside.**
+- Opening the card's rename editor at once, as the system's file manager
+  does: the user asked for the folder with its default name, and the name is
+  a double click away.
+- Naming a folder as a new note is named (`untitled`, `untitled-1`): a
+  folder and a note would show the same name side by side.
+- Undo in Files only, as before: a folder made with one click is taken back
+  where it was made, as New Image and New Video are.
+
+**Consequences.**
+- Revises the internal decision of 2026-08-10 that canvas creation stays on
+  the canvas, which kept a typed name for New File and New Folder. The rest
+  of it holds: a create selects its card and opens nothing.
+- The box for the name of a new item is gone. The rename editor on a card is
+  the canvas's only name editor.
+- New Note is unchanged, also in how it is undone.

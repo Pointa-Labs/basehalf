@@ -69,10 +69,9 @@ suite('BaseHalf canvas context menu', () => {
 		]);
 	});
 
-	test('registers pane creation commands: New Note, New Image, New Video, and no submenu of empty nodes', () => {
+	test('registers pane creation commands: New Note, New Image, New Video, New Folder, no New File, and no submenu of empty nodes', () => {
 		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_PANE_CONTEXT_MENU), [
 			['5_transfer', 'basehalf.canvas.importFiles'],
-			['1_new', 'basehalf.canvas.newFile'],
 			['1_new', 'basehalf.canvas.newFolder'],
 			['1_new', 'basehalf.canvas.newImage'],
 			['1_new', 'basehalf.canvas.newNote'],
@@ -80,17 +79,18 @@ suite('BaseHalf canvas context menu', () => {
 			['5_transfer', 'basehalf.canvas.paste']
 		]);
 		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU).filter(isISubmenuItem), []);
-		// New Image and New Video follow New Note.
+		// The canvas makes no file from a typed name (canvas Create menu).
+		assert.strictEqual(CommandsRegistry.getCommand('basehalf.canvas.newFile'), undefined);
+		// New Image and New Video follow New Note, and New Folder, which asks for nothing, has no ellipsis.
 		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU)
 			.filter(isIMenuItem)
 			.filter(item => item.group === '1_new')
 			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-			.map(item => item.command.id), [
-			'basehalf.canvas.newNote',
-			'basehalf.canvas.newImage',
-			'basehalf.canvas.newVideo',
-			'basehalf.canvas.newFile',
-			'basehalf.canvas.newFolder'
+			.map(item => [item.command.id, typeof item.command.title === 'string' ? item.command.title : item.command.title.value]), [
+			['basehalf.canvas.newNote', 'New Note'],
+			['basehalf.canvas.newImage', 'New Image'],
+			['basehalf.canvas.newVideo', 'New Video'],
+			['basehalf.canvas.newFolder', 'New Folder']
 		]);
 	});
 
@@ -104,7 +104,6 @@ suite('BaseHalf canvas context menu', () => {
 			.map(item => item.command.id));
 		for (const commandId of [
 			BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID,
-			'basehalf.canvas.newFile',
 			'basehalf.canvas.newFolder',
 			...resultCommands.map(([commandId]) => commandId)
 		]) {

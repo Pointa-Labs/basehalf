@@ -339,8 +339,6 @@ export class BaseHalfCanvasRenderer {
 				return;
 			}
 			clearNode(this.view.canvasOverlay);
-			clearNode(this.view.inlineEditLayer);
-			this.view.inlineEditListeners.clear();
 			this.view.inlineEdit = undefined;
 			this.view.creation.releaseEndedInlineRenameEditor();
 			this.view.renderedBadges = new Map();
@@ -388,8 +386,6 @@ export class BaseHalfCanvasRenderer {
 				return;
 			}
 			clearNode(this.view.canvasOverlay);
-			clearNode(this.view.inlineEditLayer);
-			this.view.inlineEditListeners.clear();
 			this.view.renderedBadges = new Map();
 			this.view.renderedBadgeProblems = new Map();
 			this.renderedRelationships = new Map();
@@ -622,8 +618,6 @@ export class BaseHalfCanvasRenderer {
 			}
 		}
 		clearNode(this.view.canvasOverlay);
-		clearNode(this.view.inlineEditLayer);
-		this.view.inlineEditListeners.clear();
 		const previousRenderedCards = this.view.renderedCardsByPath;
 		this.view.renderedBadges = badgeRead.badges;
 		this.view.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
@@ -744,7 +738,6 @@ export class BaseHalfCanvasRenderer {
 		if (pendingSelection && this.view.pendingCanvasSelection === pendingSelectionRequest) {
 			this.view.pendingCanvasSelection = undefined;
 		}
-		this.view.creation.renderInlineCreateEditor(folder);
 		if (items.length === 0) {
 			this.renderCanvasEmptyState(folder);
 		} else {

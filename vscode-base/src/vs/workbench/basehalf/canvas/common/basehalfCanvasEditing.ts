@@ -13,8 +13,8 @@ import { IBaseHalfCanvasActionContext } from './basehalfCanvasActionContext.js';
 export const BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID = 'basehalf.canvas.newNote';
 export const BASEHALF_CANVAS_UNDO_REDO_SOURCE = new UndoRedoSource();
 
-/** What the canvas creates: a note, a draft of an image or a video (generation cards, "Creating a generation card"), or a file or folder the user names. */
-export type BaseHalfCanvasCreateKind = 'note' | 'image' | 'video' | 'file' | 'folder';
+/** What the canvas creates: a note, a draft of an image or a video (generation cards, "Creating a generation card"), or a folder (canvas Create menu). */
+export type BaseHalfCanvasCreateKind = 'note' | 'image' | 'video' | 'folder';
 
 export const IBaseHalfCanvasEditingService = createDecorator<IBaseHalfCanvasEditingService>('baseHalfCanvasEditingService');
 

@@ -8,9 +8,10 @@ import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndCon
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
 import {
 	assertCanvasCreateMenuMakesDrafts,
-	assertCanvasCreateNoteFileAndFolder,
+	assertCanvasCreateNote,
 	assertCanvasDoubleClickCreateMenu,
 	assertCanvasNewFilesGoToTheEnd,
+	assertCanvasNewFolder,
 	assertCanvasNumericFolderNames
 } from './areas/canvas/creation.mts';
 import { assertCanvasEdgeFollowsCardDragLive, assertCanvasEdgeHalfReconnect, assertEdgeDeleteRemovesReference, assertEdgeDeleteScopedToCanvas } from './areas/canvas/edges.mts';
@@ -147,7 +148,8 @@ async function runCanvasSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 	await step('canvas-create-menu-makes-drafts', () => assertCanvasCreateMenuMakesDrafts(page));
-	await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
+	await step('canvas-new-folder', () => assertCanvasNewFolder(page));
+	await step('canvas-create-note', () => assertCanvasCreateNote(page));
 	await step('canvas-note-selection-controls', () => assertCanvasNoteInlineWysiwygEditor(page));
 	await step('canvas-numeric-folder-names', () => assertCanvasNumericFolderNames(page));
 	await step('canvas-inline-rename', () => assertCanvasInlineRename(page));

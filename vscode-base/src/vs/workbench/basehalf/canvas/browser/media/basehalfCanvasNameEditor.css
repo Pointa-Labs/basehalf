@@ -3,21 +3,6 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-.monaco-workbench .basehalf-canvas-inline-create-card {
-	position: absolute;
-	display: flex;
-	align-items: center;
-	box-sizing: border-box;
-	width: min(280px, calc(100% - 24px));
-	height: 44px;
-	padding: 7px 9px;
-	background: var(--bh-card-surface);
-	border: 1px solid var(--bh-canvas-intent);
-	border-radius: 6px;
-	box-shadow: 0 4px 14px rgb(7 8 9 / 42%);
-	pointer-events: auto;
-}
-
 .monaco-workbench .basehalf-canvas-inline-name-editor {
 	display: flex;
 	flex: 1;
@@ -31,21 +16,9 @@
 }
 
 /* The input takes the place of the name. The glyph of the card stays where it
- * is, so the editor's own glyph is for an item that has no card yet. */
-.monaco-workbench .basehalf-canvas-card.inline-editing .basehalf-canvas-card-label,
-.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-icon {
+ * is. */
+.monaco-workbench .basehalf-canvas-card.inline-editing .basehalf-canvas-card-label {
 	display: none;
-}
-
-.monaco-workbench .basehalf-canvas-inline-name-editor,
-.monaco-workbench .basehalf-canvas-inline-create-card {
-	gap: 7px;
-}
-
-.monaco-workbench .basehalf-canvas-inline-name-icon {
-	flex: none;
-	color: var(--bh-card-text-secondary);
-	font-size: 16px;
 }
 
 .monaco-workbench .basehalf-canvas-inline-name-input {

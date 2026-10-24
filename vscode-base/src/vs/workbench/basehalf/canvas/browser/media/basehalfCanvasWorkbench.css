@@ -263,13 +263,6 @@
 	min-height: 0;
 }
 
-.monaco-workbench .basehalf-canvas-inline-edit-layer {
-	position: absolute;
-	inset: 0;
-	z-index: 5;
-	pointer-events: none;
-}
-
 /*
  * The scene host is a keyboard-event sink, not a selectable canvas object.
  * Keep it programmatically focusable without inheriting the workbench-wide
