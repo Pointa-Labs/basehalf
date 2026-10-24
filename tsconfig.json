@@ -3,8 +3,6 @@
   "files": [],
   "references": [
     { "path": "./packages/core" },
-    { "path": "./packages/desktop" },
-    { "path": "./packages/plugin-sdk" },
-    { "path": "./packages/plugin-cli" }
+    { "path": "./packages/desktop" }
   ]
 }
