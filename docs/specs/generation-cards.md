@@ -649,11 +649,13 @@ From top to bottom:
    - **A tile** is a 48 px square with rounded corners. An image shows its
      picture and a video its first frame, filling the square; audio, text,
      other kinds, and an input without its file show their glyph, and a text
-     input its name under it. An input with a name shows the number of its
-     name at its top left: 1 for 图片1, 2 for 视频2. A video and a sound show
-     their length at the bottom left, such as 6.8s, once their file tells
-     it, since a model's limits count it (D70). An input that cannot be used
-     is dimmed.
+     input its name under it. A tile shows no number (D71): numbers by kind
+     read as out of order in a row of several kinds, and as a part of a
+     file's name; the name of an input, such as 图片2, is in its look, on its
+     chip in the prompt, with its picture, and in the reference menu. A video
+     and a sound show their length at the bottom left, such as 6.8s, once
+     their file tells it, since a model's limits count it (D70). An input
+     that cannot be used is dimmed.
    - **Frames mode** shows the start and the end frame first, joined by a
      swap arrow, as far as the model takes frames, each marked Start or End
      at its foot; an empty frame is a tile with a plus and its mark, which
@@ -924,8 +926,8 @@ where a draft's panel has the same parts. Nothing in it can be changed. From
 top to bottom:
 
 1. **Inputs**, when it had any: the card's inputs in order, as the tiles of
-   a draft's input row, with the numbers and the Start and End marks the
-   mode that made it gave them, without the buttons, a cross, an `@`, a swap
+   a draft's input row, with the Start and End marks the mode that made it
+   gave them, without the buttons, a cross, an `@`, a swap
    arrow, or dragging. Pointing at a tile shows its larger look. An input
    that is gone shows its glyph, and its look says it is gone.
 2. **Prompt**: the prompt it was made with, as text that can be selected and
@@ -1794,7 +1796,7 @@ References and names (D68)
 
 49. With three images, a video, and a note connected to a draft in
     references mode, the input row shows five tiles in the order of the
-    list, numbered 1, 2, 3, 1, and none; a connection drawn on the canvas
+    list, none with a number (D71); a connection drawn on the canvas
     adds its tile at the end, and a connection removed on the canvas takes
     its tile away.
 50. The cross of a tile removes its connection from the canvas, and undo

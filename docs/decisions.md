@@ -2556,7 +2556,9 @@ so the tiles keep their room. An empty frame still opens a menu of the two.
 Import File… is a draft's one upload: its toolbar no longer offers Upload
 Image or Upload Video, so a selected draft has no toolbar. Its icon is a
 paperclip, not a cloud: nothing is uploaded anywhere, the file is copied
-into the card's folder. The reference menu lists notes: a connected
+into the card's folder. A tile shows no number: the name of an input, such
+as 图片2, is in its look, on its chip in the prompt, and in the reference
+menu, and the prompt's names stay as the models expect them. The reference menu lists notes: a connected
 note under Connected, and **Notes** under On This Canvas. Choosing a note
 connects it; a note has no name, so the `@` is taken out and nothing takes
 its place, and its text is sent after the prompt as every connected note's
@@ -2586,6 +2588,14 @@ to a cloud. The two did different things, one put a file in the draft's
 place and the other connects one to it, and read as one button twice. No
 other kind of card shows an upload or a cloud.
 
+Then the user found the numbers of the tiles wrong: in a row of videos, an
+image, and notes they read 1, none, 2, 1, none, none, 3, 4. A number was the
+number of the input's name by its kind, as the models count inputs, and a
+note has no name. Asked whether the tiles should count every input by kind
+with the kind on the badge, or count all inputs in one row with the names
+following, the user answered that the tiles need no number at all, which
+is also easy to take for a part of a file's name, such as `video-2.mp4`.
+
 The blink: the row compared what it draws by a key in which a file's address
 carried the fields it caches. The check reads a file's path, which adds one,
 and a save reads the inputs again, which drops it: two redraws half a second
@@ -2602,12 +2612,17 @@ apart, each building the look anew with a picture to decode.
 - Keeping Upload above a draft, which put the chosen file in the draft's
   place: a file the user already has goes on the canvas by a drop, and the
   draft is deleted.
+- Numbering the tiles by kind with the kind on the badge, or in one row with
+  the prompt's names following and changed back for the models when sent:
+  the user chose no number.
 
 **Consequences.**
 - The input row has no plus; the smoke starts picking with the button.
 - A note can be connected from the prompt as a card is, by `@`.
 - Revises D67: no file is uploaded into a draft, so the draft's toolbar,
   its Upload, and the service behind it are gone.
+- Revises D68: a tile shows no number; the names in the prompt are as they
+  were.
 
 ## D72 — The title bar has no control of the panel (NEW, 2026-10-24)
 
