@@ -150,9 +150,13 @@ Three things were true on 2026-10-11.
   stopped or a window lost its connection to it. A call that does not reach
   the service fails as one whose service stopped while it ran
   ([providers and the model catalog](providers.md#requests)): the models do
-  not load and the page offers **Try Again**, and a generation fails or, for
-  a request that may have reached the provider, has an unknown outcome. The
-  application starts the shared process again; the rest of BaseHalf works.
+  not load and the page offers **Try Again**, a request that may have
+  reached the provider has an unknown outcome, and a generation that waits
+  for its provider asks again at its interval. The application does not
+  start a shared process that stopped again, as VS Code does not for its own
+  background work: every window is told at once, and VS Code asks the user to
+  restart, after which the window goes on with the generations it was
+  following.
 - **A profile copy of AI Video** from an earlier build stays on disk, not
   admitted and not run. Nothing of BaseHalf depends on it.
 - **No network.** Nothing changes; no part of this depends on it.

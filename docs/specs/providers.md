@@ -343,24 +343,37 @@ every call that needs them.
 
 - Requests are Node's own, one connection each, and none is sent again by
   itself, so that a create reaches the provider once. VS Code's proxy agent
-  applies the system's proxy settings, a proxy auto-configuration,
-  `http.proxy`, `http.noProxy`, and the certificates the system trusts, as it
-  did in the extension host; the main process resolves the system's proxy
-  with the session that every window uses, and loads the certificates for
-  every window unless `http.systemCertificatesNode` asks for Node's own. A
-  proxy that asks for authentication gets a Kerberos ticket, or the name and
-  password that the main process asks the user for once, as for a window's
-  own requests; BaseHalf keeps them for that proxy while it runs. A loopback
-  address is always reached directly. The cross-origin rules of a window do
-  not apply: providers do not answer cross-origin requests from a window,
-  which is why requests never run there. Chromium's network stack, which the
-  shared process's own requests use, is not used: it sends a request again
-  by itself when a kept-alive connection fails before the answer.
-- A call that does not reach the service, because the shared process stopped
-  or the window lost its connection to it, fails as a call whose service
+  applies the system's proxy settings, a proxy auto-configuration, the proxy
+  variables of the user's login shell (`https_proxy`, `http_proxy`,
+  `no_proxy`), `http.proxy`, `http.noProxy`, and the certificates the system
+  trusts, as it did in the extension host; the main process resolves the
+  system's proxy with the session that every window uses, and loads the
+  certificates for every window unless `http.systemCertificatesNode` asks
+  for Node's own. A proxy that asks for authentication gets a Kerberos
+  ticket, or the name and password that the main process asks the user for
+  once, as for a window's own requests; BaseHalf keeps them for that proxy
+  while it runs. `localhost`, `127.0.0.1`, and `::1` are always reached
+  directly. The certificates go with each request, also with
+  `http.experimental.systemCertificatesV2` on. The cross-origin rules of a
+  window do not apply: providers do not answer cross-origin requests from a
+  window, which is why requests never run there. Chromium's network stack,
+  which the shared process's own requests use, is not used: it sends a
+  request again by itself when a kept-alive connection fails before the
+  answer.
+- A call belongs to the window that made it. When that window closes or
+  reloads, the call's requests stop, nothing more is written for it, and a
+  partial download it leaves is removed only while it is still its own file:
+  the window that goes on with the generation downloads under the same name.
+- A call that does not reach the service fails as a call whose service
   stopped while it ran: `submit` has an unknown outcome, since the request
-  may have left, and any other call failed for the network. The application
-  starts the shared process again, and the next call reaches it.
+  may have left, and any other call failed for the network; a poll is asked
+  again at its interval, as after a network error. The application does not
+  start a shared process that stopped again, as VS Code does not: every
+  window is told, a call waiting for it fails at once and so does every later
+  one, and VS Code asks the user to restart. After the restart, the window
+  goes on with the generations it was following.
+- A call that reaches the service but cannot send, because BaseHalf could
+  not load its network modules, fails for the network: nothing was sent.
 - Before D75 the service was the AI Video extension, and the window called it
   through the commands `basehalf.video.provider.*` in the extension host.
   Those commands are gone.
@@ -621,7 +634,11 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     once, and the requests reach the provider through the proxy that is set.
 13. A call that does not reach the provider service fails as one whose
     service stopped while it ran: a `submit` with an unknown outcome, any
-    other call for the network, and the catalog with **Try Again**.
+    other call for the network, and the catalog with **Try Again**. When the
+    shared process stops, a call waiting for it fails at once in every
+    window, and so does every later call.
+14. When the window that made a call closes or reloads, the call's requests
+    stop, and a download it leaves removes only the file it made.
 
 ## Verification
 
@@ -630,8 +647,13 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
 - The smoke runs the generation card steps against the local test provider
   through the ByteDance module, for a video and for an image, and reads the
   extension host's log for criterion 12.
-- A unit test of the window's answer when a call does not reach the service
-  (criterion 13).
+- A unit test of the window's answer when a call does not reach the service,
+  and of the window's connection, which fails every waiting and later call
+  once the shared process stopped (criterion 13).
+- Unit tests of the provider service's channel, which passes each call's
+  cancellation to the service, of a call's requests that stop when it is
+  cancelled, and of a download that, failing, leaves another download's file
+  under its name (criterion 14).
 - The smoke's step of a dropped create counts the creates its provider
   received (criterion 12, second part).
 - The proxy part of criterion 12 was checked by hand in the window on
@@ -639,8 +661,10 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   proxy that logs what passes it, and the provider's endpoint on a host that
   only a proxy could reach, a generation's request arrived at the proxy. A
   loopback address is always reached directly, so the check needs such a
-  host. That each request has a connection of its own, directly and through
-  a proxy, was measured in Node with the transport and the proxy agent. That
+  host. That each request has a connection of its own was measured in Node
+  with the transport and the proxy agent: directly to `[::1]`, which the
+  agent's patch treats as it treats a provider's host, and through a proxy,
+  three requests had three connections, each with `Connection: close`. That
   the system's settings reach the agent through the main process's session,
   and that a proxy's authentication is asked of the main process, was read in
   the code.
