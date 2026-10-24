@@ -23,6 +23,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IContextMenuService, IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
+import { IBaseHalfDocumentCoverService } from '../../documents/browser/basehalfDocumentCovers.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
@@ -55,7 +56,7 @@ import { BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from 
 import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } from '../common/basehalfCanvasActionContext.js';
 import { BaseHalfCanvasViewportPersister, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
+import { IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
@@ -264,12 +265,14 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	agentSelectionCards: { readonly sceneKey: string; readonly paths: readonly string[] } = { sceneKey: '', paths: [] };
 	/** Text selected in the note being edited on its card. */
 	agentSelectionCardText: IBaseHalfAgentSelectionText | undefined;
-	/** Text selected in each projection of Card Detail; the one shown counts. */
-	readonly agentSelectionDetailText = new Map<BaseHalfCardDetailProjection, IBaseHalfAgentSelectionText>();
+	/** Text selected in each projection of Card Detail, in a note, a PDF, or a book; the one shown counts. */
+	readonly agentSelectionDetailText = new Map<BaseHalfCardDetailProjection, IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText>();
 	pendingCanvasNoteFocus: IBaseHalfPendingCanvasNoteFocus | undefined;
 	pendingCreatedCanvasNoteActivation: IBaseHalfPendingCreatedCanvasNoteActivation | undefined;
 	readonly canvasNotePreviewMounts = new WeakMap<HTMLElement, IBaseHalfCanvasNotePreviewMount>();
 	renderedNoteBackgrounds: ReadonlyMap<string, BaseHalfCanvasNoteBackground> = new Map();
+	/** The paths of the cards of PDFs and books whose cover is hidden, as the last drawing read them. */
+	renderedHiddenCovers: ReadonlySet<string> = new Set();
 	readonly canvasNoteFormatStates = new Map<string, IBaseHalfCanvasNoteFormatState>();
 	readonly pendingCanvasNoteFormatCommands: IBaseHalfPendingCanvasNoteFormatCommand[] = [];
 	pendingCanvasNoteNavigationGuard: IBaseHalfPendingCanvasNoteNavigationGuard | undefined;
@@ -321,7 +324,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IBaseHalfGenerationCardActions public readonly generationCardActions: IBaseHalfGenerationCardActions,
 		@IBaseHalfVideoCatalogService public readonly videoCatalogService: IBaseHalfVideoCatalogService,
 		@IContextKeyService public readonly contextKeyService: IContextKeyService,
-		@IAccessibilityService public readonly accessibilityService: IAccessibilityService
+		@IAccessibilityService public readonly accessibilityService: IAccessibilityService,
+		@IBaseHalfDocumentCoverService public readonly documentCoverService: IBaseHalfDocumentCoverService
 	) {
 		super();
 		// An item that was moved outside BaseHalf: the open canvas and the open

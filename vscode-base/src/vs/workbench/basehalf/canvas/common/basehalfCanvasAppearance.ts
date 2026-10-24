@@ -22,6 +22,19 @@ const APPEARANCE_MAX_BYTES = 4 * 1024;
 const APPEARANCE_PATCH_MAX_ATTEMPTS = 3;
 const BACKGROUNDS = new Set<BaseHalfCanvasNoteBackground>(['default', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple']);
 
+/** Whether the card of a PDF or a book shows its cover (PDFs and books, "Hiding and showing the cover"). */
+export type BaseHalfCanvasDocumentCover = 'shown' | 'hidden';
+
+const COVERS = new Set<BaseHalfCanvasDocumentCover>(['shown', 'hidden']);
+
+/**
+ * What a card's `appearance.yaml` holds, one field: the background of a
+ * note's card, or whether the card of a PDF or a book shows its cover.
+ */
+export type BaseHalfCanvasAppearance =
+	| { readonly field: 'background'; readonly background: BaseHalfCanvasNoteBackground }
+	| { readonly field: 'cover'; readonly cover: BaseHalfCanvasDocumentCover };
+
 export interface IBaseHalfCanvasAppearanceProblem {
 	readonly relativePath: string;
 	readonly resource: URI;
@@ -30,6 +43,8 @@ export interface IBaseHalfCanvasAppearanceProblem {
 
 export interface IBaseHalfCanvasAppearanceReadResult {
 	readonly backgrounds: ReadonlyMap<string, BaseHalfCanvasNoteBackground>;
+	/** The paths of the cards of PDFs and books whose cover is hidden. */
+	readonly hiddenCovers: ReadonlySet<string>;
 	readonly problems: readonly IBaseHalfCanvasAppearanceProblem[];
 }
 
@@ -37,12 +52,14 @@ export interface IBaseHalfCanvasAppearanceService {
 	readonly _serviceBrand: undefined;
 	readAll(workspaceFolder: URI): Promise<IBaseHalfCanvasAppearanceReadResult>;
 	setBackground(workspaceFolder: URI, relativePath: string, background: BaseHalfCanvasNoteBackground): Promise<void>;
+	/** Shows or hides the cover of the card of a PDF or a book. */
+	setCover(workspaceFolder: URI, relativePath: string, cover: BaseHalfCanvasDocumentCover): Promise<void>;
 	appearanceResource(workspaceFolder: URI, relativePath: string): URI;
 }
 
 interface IBaseHalfAppearanceReadState {
 	readonly contents: VSBuffer | null;
-	readonly background: BaseHalfCanvasNoteBackground;
+	readonly appearance: BaseHalfCanvasAppearance | undefined;
 }
 
 export class BaseHalfCanvasAppearanceService implements IBaseHalfCanvasAppearanceService {
@@ -56,12 +73,15 @@ export class BaseHalfCanvasAppearanceService implements IBaseHalfCanvasAppearanc
 
 	async readAll(workspaceFolder: URI): Promise<IBaseHalfCanvasAppearanceReadResult> {
 		const backgrounds = new Map<string, BaseHalfCanvasNoteBackground>();
+		const hiddenCovers = new Set<string>();
 		const problems: IBaseHalfCanvasAppearanceProblem[] = [];
 		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, APPEARANCE_FILE_NAME)) {
 			try {
-				const state = await this.readState(workspaceFolder, entry.relativePath, entry.resource);
-				if (state.background !== 'default') {
-					backgrounds.set(entry.relativePath, state.background);
+				const { appearance } = await this.readState(workspaceFolder, entry.relativePath, entry.resource);
+				if (appearance?.field === 'background' && appearance.background !== 'default') {
+					backgrounds.set(entry.relativePath, appearance.background);
+				} else if (appearance?.field === 'cover' && appearance.cover === 'hidden') {
+					hiddenCovers.add(entry.relativePath);
 				}
 			} catch (error) {
 				problems.push({
@@ -71,19 +91,30 @@ export class BaseHalfCanvasAppearanceService implements IBaseHalfCanvasAppearanc
 				});
 			}
 		}
-		return { backgrounds, problems };
+		return { backgrounds, hiddenCovers, problems };
 	}
 
 	setBackground(workspaceFolder: URI, relativePath: string, background: BaseHalfCanvasNoteBackground): Promise<void> {
 		if (!BACKGROUNDS.has(background)) {
 			return Promise.reject(new RangeError(`Unsupported Canvas card background: ${background}`));
 		}
+		return this.write(workspaceFolder, relativePath, `background: ${background}\n`);
+	}
+
+	setCover(workspaceFolder: URI, relativePath: string, cover: BaseHalfCanvasDocumentCover): Promise<void> {
+		if (!COVERS.has(cover)) {
+			return Promise.reject(new RangeError(`Unsupported Canvas card cover: ${cover}`));
+		}
+		return this.write(workspaceFolder, relativePath, `cover: ${cover}\n`);
+	}
+
+	private write(workspaceFolder: URI, relativePath: string, line: string): Promise<void> {
 		return this.workspaceMutationCoordinator.runExclusive(workspaceFolder, () => {
 			const resource = this.appearanceResource(workspaceFolder, relativePath);
 			return this.mutex.runExclusive(resource.toString(), async () => {
 				for (let attempt = 0; attempt < APPEARANCE_PATCH_MAX_ATTEMPTS; attempt++) {
 					const current = await this.readState(workspaceFolder, relativePath, resource);
-					const contents = VSBuffer.fromString(`background: ${background}\n`);
+					const contents = VSBuffer.fromString(line);
 					if (current.contents?.equals(contents)) {
 						return;
 					}
@@ -119,33 +150,36 @@ export class BaseHalfCanvasAppearanceService implements IBaseHalfCanvasAppearanc
 			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 			return {
 				contents: content.value,
-				background: parseAppearance(content.value.toString(), resource, relativePath)
+				appearance: parseAppearance(content.value.toString(), resource, relativePath)
 			};
 		} catch (error) {
 			if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
-				return { contents: null, background: 'default' };
+				return { contents: null, appearance: undefined };
 			}
 			throw error;
 		}
 	}
 }
 
-export function parseBaseHalfCanvasAppearance(raw: string): BaseHalfCanvasNoteBackground {
+export function parseBaseHalfCanvasAppearance(raw: string): BaseHalfCanvasAppearance {
 	return parseAppearance(raw, URI.parse('basehalf://appearance'), '');
 }
 
-function parseAppearance(raw: string, resource: URI, relativePath: string): BaseHalfCanvasNoteBackground {
+function parseAppearance(raw: string, resource: URI, relativePath: string): BaseHalfCanvasAppearance {
 	const meaningful = raw.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0 && !line.startsWith('#'));
 	if (meaningful.length !== 1) {
-		throw new Error(`Invalid appearance metadata for '${relativePath}' at ${resource.toString()}: expected one background field.`);
+		throw new Error(`Invalid appearance metadata for '${relativePath}' at ${resource.toString()}: expected one field.`);
 	}
-	const match = /^background:\s*([a-z]+)$/.exec(meaningful[0]);
-	const background = match?.[1] as BaseHalfCanvasNoteBackground | undefined;
-	if (!background || !BACKGROUNDS.has(background)) {
-		throw new Error(`Invalid appearance metadata for '${relativePath}' at ${resource.toString()}: unsupported background.`);
+	const match = /^(?<field>background|cover):\s*(?<value>[a-z]+)$/.exec(meaningful[0]);
+	const value = match?.groups?.value;
+	if (match?.groups?.field === 'background' && BACKGROUNDS.has(value as BaseHalfCanvasNoteBackground)) {
+		return { field: 'background', background: value as BaseHalfCanvasNoteBackground };
 	}
-	return background;
+	if (match?.groups?.field === 'cover' && COVERS.has(value as BaseHalfCanvasDocumentCover)) {
+		return { field: 'cover', cover: value as BaseHalfCanvasDocumentCover };
+	}
+	throw new Error(`Invalid appearance metadata for '${relativePath}' at ${resource.toString()}: unsupported ${match?.groups?.field ?? 'field'}.`);
 }
 
 function isAppearanceConflict(error: unknown): boolean {

@@ -78,7 +78,8 @@ they grow from it beside it and an agent in the Agent Area.
 - **Document**: a PDF or a book.
 - **Cover**: the picture of a document. For a PDF it is its first page. For
   a book it is the picture its file names as its cover; for a comic book
-  archive, its first picture in name order.
+  archive, its first picture in natural name order, in which `2.jpg` comes
+  before `10.jpg`.
 - **Grey face**: what the card of a file without a picture shows: the
   glyph of its kind above a short line, on the card's own surface.
 - **Book reader**: the page of Card Detail that shows a book.
@@ -88,10 +89,17 @@ they grow from it beside it and an agent in the Agent Area.
 | Format | Names | Cover |
 | --- | --- | --- |
 | PDF | `.pdf` | the first page |
-| EPUB 2 and 3 | `.epub` | the manifest's item with the property `cover-image`; otherwise the item that `<meta name="cover">` names; otherwise the first picture of the page that the guide names as the cover |
+| EPUB 2 and 3 | `.epub` | the manifest's item with the property `cover-image`; otherwise the item that `<meta name="cover">` names; otherwise the first picture of the page that the guide names as the cover; otherwise a picture of the manifest whose id or name holds "cover" |
 | Kindle (Mobipocket and KF8) | `.mobi`, `.azw3`, `.azw` | the picture the book's header names as the cover, otherwise as the thumbnail |
 | FictionBook | `.fb2`, `.fbz` | the picture of the book's `coverpage` |
-| Comic book archive | `.cbz` | the first picture in name order |
+| Comic book archive | `.cbz` | the first picture in natural name order, leaving out the hidden files of the system that packed it |
+
+A book has DRM when its file says it is encrypted: a Kindle book whose
+header names an encryption, and an EPUB whose `META-INF/encryption.xml`
+encrypts more than its fonts (the obfuscation of fonts that EPUB defines
+is no DRM). An `.azw` file of the older Topaz kind and a KFX file are no
+format BaseHalf reads; their card shows the grey face, and Card Detail
+says that the book could not be opened.
 
 The kinds are one list with the images, sounds, and videos
 (`platform/protocol/common/basehalfMediaFiles.ts`): the card and Card Detail
@@ -256,7 +264,10 @@ show the same files ([architecture invariants](../harness/architecture-invariant
 - A PDF over 512 MB has no cover, so that a cover never needs half a
   gigabyte of memory. Card Detail still opens it.
 - A FictionBook over 64 MB has no cover: its picture is inside its text,
-  which has to be read whole.
+  which has to be read whole. For an `.fbz` the limit is the size of the
+  FictionBook inside it.
+- A cover picture over 20 MB is not read, and the book shows its grey face,
+  as one without a cover does.
 
 ## Acceptance criteria
 

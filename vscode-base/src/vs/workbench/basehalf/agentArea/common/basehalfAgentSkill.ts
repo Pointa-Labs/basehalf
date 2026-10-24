@@ -13,7 +13,7 @@ export const BASEHALF_AGENT_SKILL_NAME = 'basehalf';
 export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** Changes whenever the skill text changes, so that an installed copy of an
  * earlier text is offered an update. */
-export const BASEHALF_AGENT_SKILL_VERSION = '8';
+export const BASEHALF_AGENT_SKILL_VERSION = '9';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -40,6 +40,7 @@ export const BASEHALF_AGENT_SELECTION_SECTION: readonly string[] = [
 	'  - `card`: the file or folder at `path`. It is the selected card, the note the user is editing with no text selected, or the card open in Card Detail;',
 	'  - `cards`: two or more cards, listed under `paths`;',
 	'  - `text`: text in the note at `path`, on lines `first_line` to `last_line` of the file, counted from 1 with the frontmatter. `text` is the selected text as the note shows it, without Markdown marks. `text_is_cut: true` means the selection was longer and the text is cut; the lines are complete.',
+	'  - `text` in a PDF or a book: `path` is the PDF or the book. A PDF\'s text is on pages `first_page` to `last_page`, counted from 1. A book\'s text begins in the chapter of its contents named by `chapter`, which is missing when the book names none there. `text` is the text as BaseHalf\'s reader shows it.',
 	'- Paths are relative to the workspace folder and use forward slashes. The workspace folder itself is `.`.'
 ];
 

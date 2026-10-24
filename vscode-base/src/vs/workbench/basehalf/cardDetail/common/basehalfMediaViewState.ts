@@ -3,11 +3,20 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+/**
+ * How the user zoomed a PDF: a scale, or one of the viewer's fits. A PDF that
+ * the user has not zoomed opens at the width of Card Detail, at most 125 %
+ * (PDFs and books, "The PDF reader").
+ */
+export type BaseHalfPdfZoom = number | 'fit-width' | 'fit-page';
+
 export interface IBaseHalfPdfViewState {
 	readonly page: number;
-	readonly zoom: number;
-	readonly fitWidth: boolean;
+	readonly zoom?: BaseHalfPdfZoom;
 }
+
+/** The largest zoom of a PDF that the user has not zoomed. */
+export const BASEHALF_PDF_AUTOMATIC_ZOOM_MAX = 1.25;
 
 export interface IBaseHalfPdfViewStateMessage {
 	readonly type: 'basehalf.pdf.viewState';
@@ -25,6 +34,16 @@ export interface IBaseHalfPdfCreateBranchMessage {
 	readonly selection: IBaseHalfPdfSelection;
 }
 
+/**
+ * The text selected in a PDF, 30 ms after it stops changing, and none when
+ * the selection ends: what agents can see (PDFs and books, "What agents can
+ * see").
+ */
+export interface IBaseHalfPdfSelectionChangedMessage {
+	readonly type: 'basehalf.pdf.selectionChanged';
+	readonly selection?: IBaseHalfPdfSelection;
+}
+
 export interface IBaseHalfPdfUserInteractionMessage {
 	readonly type: 'basehalf.pdf.userInteraction';
 }
@@ -39,13 +58,12 @@ export interface IBaseHalfMediaEscapeMessage {
 	readonly type: 'basehalf.media.escape';
 }
 
-export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage | IBaseHalfPdfUserInteractionMessage | IBaseHalfMediaEscapeMessage;
+export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage | IBaseHalfPdfSelectionChangedMessage | IBaseHalfPdfUserInteractionMessage | IBaseHalfMediaEscapeMessage;
 
-export const DEFAULT_BASEHALF_PDF_VIEW_STATE: IBaseHalfPdfViewState = Object.freeze({
-	page: 1,
-	zoom: 1,
-	fitWidth: true
-});
+/** The longest text the page sends of a selection: one character more than the record of agents keeps. */
+export const BASEHALF_PDF_SELECTION_TEXT_LIMIT = 10_001;
+
+export const DEFAULT_BASEHALF_PDF_VIEW_STATE: IBaseHalfPdfViewState = Object.freeze({ page: 1 });
 
 /** Normalize both persisted state and messages received from an isolated webview. */
 export function normalizeBaseHalfPdfViewState(value: unknown): IBaseHalfPdfViewState {
@@ -53,14 +71,12 @@ export function normalizeBaseHalfPdfViewState(value: unknown): IBaseHalfPdfViewS
 		return DEFAULT_BASEHALF_PDF_VIEW_STATE;
 	}
 
-	const candidate = value as Partial<IBaseHalfPdfViewState>;
-	return {
-		page: Number.isInteger(candidate.page) && candidate.page! >= 1 ? candidate.page! : 1,
-		zoom: typeof candidate.zoom === 'number' && Number.isFinite(candidate.zoom)
-			? Math.min(5, Math.max(0.25, candidate.zoom))
-			: 1,
-		fitWidth: typeof candidate.fitWidth === 'boolean' ? candidate.fitWidth : true
-	};
+	const candidate = value as Partial<Record<keyof IBaseHalfPdfViewState, unknown>>;
+	const page = Number.isInteger(candidate.page) && (candidate.page as number) >= 1 ? candidate.page as number : 1;
+	const zoom = typeof candidate.zoom === 'number' && Number.isFinite(candidate.zoom)
+		? Math.min(5, Math.max(0.25, candidate.zoom))
+		: candidate.zoom === 'fit-width' || candidate.zoom === 'fit-page' ? candidate.zoom : undefined;
+	return zoom === undefined ? { page } : { page, zoom };
 }
 
 export function baseHalfPdfViewStateFromMessage(value: unknown): IBaseHalfPdfViewState | undefined {
@@ -77,18 +93,14 @@ export function baseHalfPdfViewStateFromMessage(value: unknown): IBaseHalfPdfVie
 }
 
 /** Keep the webview boundary deliberately small: text plus one-based pages. */
-export function baseHalfPdfSelectionFromMessage(value: unknown): IBaseHalfPdfSelection | undefined {
-	if (!value || typeof value !== 'object' || (value as Partial<IBaseHalfPdfCreateBranchMessage>).type !== 'basehalf.pdf.createBranch') {
-		return undefined;
-	}
-
-	const selection = (value as Partial<IBaseHalfPdfCreateBranchMessage>).selection;
+function pdfSelectionOf(value: unknown, textLimit: number, trim: boolean): IBaseHalfPdfSelection | undefined {
+	const selection = value as Partial<IBaseHalfPdfSelection> | null | undefined;
 	if (!selection || typeof selection !== 'object' || typeof selection.text !== 'string') {
 		return undefined;
 	}
 
-	const text = selection.text.trim().slice(0, 50_000);
-	if (!text || !Array.isArray(selection.pages)) {
+	const text = (trim ? selection.text.trim() : selection.text).slice(0, textLimit);
+	if (!text.trim() || !Array.isArray(selection.pages)) {
 		return undefined;
 	}
 
@@ -101,6 +113,23 @@ export function baseHalfPdfSelectionFromMessage(value: unknown): IBaseHalfPdfSel
 	}
 
 	return { text, pages };
+}
+
+/** The passage that Grow branch makes a note of. */
+export function baseHalfPdfSelectionFromMessage(value: unknown): IBaseHalfPdfSelection | undefined {
+	if (!value || typeof value !== 'object' || (value as Partial<IBaseHalfPdfCreateBranchMessage>).type !== 'basehalf.pdf.createBranch') {
+		return undefined;
+	}
+	return pdfSelectionOf((value as Partial<IBaseHalfPdfCreateBranchMessage>).selection, 50_000, true);
+}
+
+/** The text selected in a PDF, or a selection that ended; undefined for any other message. */
+export function baseHalfPdfSelectionChangeFromMessage(value: unknown): { readonly selection?: IBaseHalfPdfSelection } | undefined {
+	if (!value || typeof value !== 'object' || (value as Partial<IBaseHalfPdfSelectionChangedMessage>).type !== 'basehalf.pdf.selectionChanged') {
+		return undefined;
+	}
+	const selection = pdfSelectionOf((value as Partial<IBaseHalfPdfSelectionChangedMessage>).selection, BASEHALF_PDF_SELECTION_TEXT_LIMIT, false);
+	return selection ? { selection } : {};
 }
 
 export function isBaseHalfPdfUserInteractionMessage(value: unknown): value is IBaseHalfPdfUserInteractionMessage {

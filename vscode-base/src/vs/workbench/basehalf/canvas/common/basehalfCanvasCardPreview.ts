@@ -5,10 +5,10 @@
 
 import { URI } from '../../../../base/common/uri.js';
 
-/** A media file that a card shows: an image, a video, audio, or a PDF. */
+/** A media file that a card shows: an image, a video, audio, a PDF, or a book. */
 export interface IBaseHalfCanvasMediaPreview {
 	readonly text: string;
-	readonly mediaKind: 'image' | 'video' | 'audio' | 'pdf';
+	readonly mediaKind: 'image' | 'video' | 'audio' | 'pdf' | 'book';
 	readonly resource: URI;
 }
 

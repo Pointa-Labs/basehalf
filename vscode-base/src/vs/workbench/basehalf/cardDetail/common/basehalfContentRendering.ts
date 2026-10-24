@@ -7,7 +7,7 @@ import { extname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { BASEHALF_MEDIA_FILE_EXTENSIONS } from '../../../../platform/protocol/common/basehalfMediaFiles.js';
 
-export type BaseHalfRenderableContentKind = 'image' | 'pdf' | 'audio' | 'video';
+export type BaseHalfRenderableContentKind = 'image' | 'pdf' | 'book' | 'audio' | 'video';
 
 const CONTENT_EXTENSIONS: Readonly<Record<BaseHalfRenderableContentKind, readonly string[]>> = BASEHALF_MEDIA_FILE_EXTENSIONS;
 
@@ -19,7 +19,7 @@ const CONTENT_KIND_BY_EXTENSION = new Map<string, BaseHalfRenderableContentKind>
 	)
 );
 
-/** Classifies the files that BaseHalf shows as an image, a PDF, a sound, or a video, on the canvas and in Card Detail. */
+/** Classifies the files that BaseHalf shows as an image, a PDF, a book, a sound, or a video, on the canvas and in Card Detail. */
 export function baseHalfRenderableContentKind(resource: URI): BaseHalfRenderableContentKind | undefined {
 	return CONTENT_KIND_BY_EXTENSION.get(extname(resource).toLowerCase());
 }

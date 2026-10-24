@@ -23,6 +23,11 @@ export const BASEHALF_CANVAS_PICTURE_CARD_SHORT_SIDE = 300;
 export const BASEHALF_CANVAS_PICTURE_CARD_MAX_RATIO = 3;
 /** The ratio, width to height, of a picture that is not known yet, and of a draft whose settings choose none. */
 export const BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO: Readonly<Record<'image' | 'video', number>> = Object.freeze({ image: 1, video: 16 / 9 });
+/**
+ * The ratio of the card of a PDF or a book, a card of a picture whose shape is
+ * always 3:4: its cover is drawn inside it (PDFs and books, "The card").
+ */
+export const BASEHALF_CANVAS_DOCUMENT_CARD_RATIO = 3 / 4;
 export const BASEHALF_CANVAS_MIN_CARD_WIDTH = 140;
 export const BASEHALF_CANVAS_MIN_CARD_HEIGHT = 48;
 export const BASEHALF_CANVAS_DEFAULT_WIDTH = 2400;
@@ -834,21 +839,38 @@ export function baseHalfCanvasPictureKind(item: BaseHalfCanvasShapedItem): 'imag
 	return kind === 'image' || kind === 'video' ? kind : undefined;
 }
 
+/** Whether the card of an item is the card of a PDF or a book, which shows its cover (PDFs and books, "The card"). */
+export function baseHalfCanvasShowsDocument(item: BaseHalfCanvasShapedItem): boolean {
+	if (item.kind !== 'file' || item.generation) {
+		return false;
+	}
+	const kind = baseHalfRenderableContentKind(item.stat.resource);
+	return kind === 'pdf' || kind === 'book';
+}
+
 /**
  * Whether the user resizes the card of an item: the card of a note, of
- * another text or code file, of a PDF, of another file, and of a folder. The
- * card of an image, a video, or a sound keeps its shape (canvas card resize,
- * "Which cards resize").
+ * another text or code file, of another file, and of a folder. The card of
+ * an image, a video, a sound, a PDF, or a book keeps its shape (canvas card
+ * resize, "Which cards resize").
  */
 export function baseHalfCanvasCardResizes(item: BaseHalfCanvasShapedItem): boolean {
 	return baseHalfCanvasPictureKind(item) === undefined
+		&& !baseHalfCanvasShowsDocument(item)
 		&& !(item.kind === 'file' && baseHalfRenderableContentKind(item.stat.resource) === 'audio');
 }
 
-/** The size at which the card of an item is drawn when it appears and the shape of its picture is not known: the ratio of its kind for a picture. */
+/**
+ * The size at which the card of an item is drawn when it appears and the
+ * shape of its picture is not known: the ratio of its kind for a picture, and
+ * 300 × 400 for a PDF or a book.
+ */
 export function baseHalfCanvasNewCardSize(item: BaseHalfCanvasShapedItem): IBaseHalfCanvasSize {
 	const picture = baseHalfCanvasPictureKind(item);
-	return picture ? baseHalfCanvasGenerationCardSize(picture) : baseHalfCanvasDefaultCardSize(item.kind);
+	if (picture) {
+		return baseHalfCanvasGenerationCardSize(picture);
+	}
+	return baseHalfCanvasShowsDocument(item) ? baseHalfCanvasPictureCardSize(BASEHALF_CANVAS_DOCUMENT_CARD_RATIO) : baseHalfCanvasDefaultCardSize(item.kind);
 }
 
 /** The version every draft's made-up stat has: a draft has no file whose content could change. */

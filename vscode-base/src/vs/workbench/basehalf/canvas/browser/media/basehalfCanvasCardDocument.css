@@ -1,0 +1,58 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The card of a PDF or a book (PDFs and books, "The card"): its cover inside
+ * the card, 14 from each edge, as a sheet of paper on the card's surface; the
+ * grey face of a file card while the cover is hidden or cannot be drawn; and
+ * the surface alone until the cover is drawn. */
+
+.monaco-workbench .basehalf-canvas-card-document-frame {
+	position: absolute;
+	inset: 14px;
+	container-type: size;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-document-cover {
+	display: block;
+	/* The whole cover, as large as the frame allows, in its own shape. */
+	width: min(100cqw, calc(100cqh * var(--bh-document-cover-ratio, 0.75)));
+	height: auto;
+	aspect-ratio: var(--bh-document-cover-ratio, 0.75);
+	border-radius: 3px;
+	background: #fff;
+	box-shadow: 0 1px 2px rgb(0 0 0 / 26%), 0 6px 18px rgb(0 0 0 / 22%);
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-document:not([data-cover="cover"]) .basehalf-canvas-card-document-frame {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-card-document:not([data-cover="face"]) .basehalf-canvas-card-document-face {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-document-title {
+	display: -webkit-box;
+	max-width: 100%;
+	overflow: hidden;
+	color: var(--bh-card-text-secondary);
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.35;
+	text-align: center;
+	overflow-wrap: anywhere;
+	-webkit-line-clamp: 4;
+	-webkit-box-orient: vertical;
+}
+
+.monaco-workbench .basehalf-canvas-card-document-title[hidden] {
+	display: none;
+}

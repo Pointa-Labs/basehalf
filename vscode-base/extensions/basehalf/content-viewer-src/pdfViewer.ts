@@ -14,10 +14,11 @@ import EmbedPDF, {
 	type DeepPartial,
 	type EmbedPdfContainer,
 	type PluginRegistry,
-	type ThemeColors
+	type ThemeColors,
+	type ZoomLevel
 } from '@embedpdf/snippet';
 import { FontCharset } from '@embedpdf/models';
-import type { BaseHalfPdfWebviewMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
+import { BASEHALF_PDF_AUTOMATIC_ZOOM_MAX, BASEHALF_PDF_SELECTION_TEXT_LIMIT, type BaseHalfPdfWebviewMessage, type BaseHalfPdfZoom, type IBaseHalfPdfSelection, type IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
 
 interface VsCodeApi {
 	postMessage(message: BaseHalfPdfWebviewMessage): void;
@@ -44,8 +45,13 @@ const statusMessage = requiredElement<HTMLElement>('basehalf-pdf-status-message'
 const vscode = acquireVsCodeApi();
 const initialization: { timeout?: number } = {};
 
+/** When the user last pressed, typed, or scrolled in the page: a zoom right after it is the user's. */
+let lastUserInput = 0;
 for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
-	window.addEventListener(type, () => vscode.postMessage({ type: 'basehalf.pdf.userInteraction' }), {
+	window.addEventListener(type, () => {
+		lastUserInput = Date.now();
+		vscode.postMessage({ type: 'basehalf.pdf.userInteraction' });
+	}, {
 		capture: true,
 		passive: true
 	});
@@ -87,8 +93,16 @@ const source = requiredDatasetValue('source');
 const wasmUrl = requiredDatasetValue('wasm');
 
 let page = positiveInteger(root.dataset.page, 1);
-let zoom = boundedNumber(root.dataset.zoom, 1, 0.25, 5);
-let fitWidth = root.dataset.fitWidth !== 'false';
+/** How the user zoomed; none while the PDF fits the width of Card Detail, at most 125 % (PDFs and books, "The PDF reader"). */
+let zoom = storedZoom(root.dataset.zoom);
+/** The zoom that this page asked the viewer for, whose change is not the user's. */
+let automaticRequest: ZoomLevel | undefined;
+/**
+ * The viewer shows a document once it has worked out a fit, and never for a
+ * scale it starts at: a PDF opens at a fit, and then at the scale the user
+ * chose for it.
+ */
+let restoredZoom = typeof zoom === 'number' ? zoom : undefined;
 let ready = false;
 let viewer: EmbedPdfContainer | undefined;
 let pdfiumObjectUrl: string | undefined;
@@ -201,7 +215,7 @@ async function initializeViewer(): Promise<void> {
 		},
 		i18n: { defaultLocale: root.dataset.locale || 'en' },
 		zoom: {
-			defaultZoomLevel: fitWidth ? ZoomMode.FitWidth : zoom,
+			defaultZoomLevel: zoom === 'fit-page' ? ZoomMode.FitPage : ZoomMode.FitWidth,
 			minZoom: 0.25,
 			maxZoom: 5,
 			zoomStep: 0.15
@@ -264,14 +278,45 @@ async function initializeRegistry(registry: PluginRegistry): Promise<void> {
 		page = event.pageNumber;
 		emitViewState();
 	});
+	const zoomScope = zoomCapability.forDocument(DOCUMENT_ID);
+	const requestAutomaticZoom = (level: ZoomLevel) => {
+		automaticRequest = level;
+		zoomScope.requestZoom(level);
+	};
 	zoomCapability.onZoomChange(event => {
 		if (event.documentId !== DOCUMENT_ID) {
 			return;
 		}
-		zoom = boundedNumber(String(event.newZoom), 1, 0.25, 5);
-		fitWidth = event.level === ZoomMode.FitWidth;
+		if (restoredZoom !== undefined) {
+			// The first fit shows the document: now the scale the user chose, at their page.
+			const level = restoredZoom;
+			restoredZoom = undefined;
+			requestAutomaticZoom(level);
+			window.requestAnimationFrame(() => scroll.forDocument(DOCUMENT_ID).scrollToPage({ pageNumber: page, behavior: 'instant', alignY: 0 }));
+			return;
+		}
+		// A zoom that this page asked for, or the viewer's own fit to a new width, is not the user's.
+		const requested = automaticRequest !== undefined && event.level === automaticRequest;
+		automaticRequest = undefined;
+		if (zoom === undefined && (requested || Date.now() - lastUserInput > 1000)) {
+			// The width of Card Detail, but at most 125 %, until the user zooms.
+			if (event.newZoom > BASEHALF_PDF_AUTOMATIC_ZOOM_MAX + 0.001) {
+				requestAutomaticZoom(BASEHALF_PDF_AUTOMATIC_ZOOM_MAX);
+			}
+			return;
+		}
+		zoom = event.level === ZoomMode.FitWidth || event.level === ZoomMode.Automatic ? 'fit-width'
+			: event.level === ZoomMode.FitPage ? 'fit-page'
+				: boundedNumber(String(event.newZoom), 1, 0.25, 5);
 		emitViewState();
 	});
+	// While the PDF fits the width of Card Detail, it follows the width.
+	new ResizeObserver(() => {
+		if (zoom === undefined && ready) {
+			requestAutomaticZoom(ZoomMode.FitWidth);
+		}
+	}).observe(root);
+	observeSelection(registry);
 
 	const documentState = documentManager.getDocumentState(DOCUMENT_ID);
 	if (documentState?.status === 'loaded') {
@@ -362,9 +407,62 @@ function showError(message: string): void {
 function emitViewState(): void {
 	const message: IBaseHalfPdfViewStateMessage = {
 		type: 'basehalf.pdf.viewState',
-		state: { page, zoom, fitWidth }
+		state: zoom === undefined ? { page } : { page, zoom }
 	};
 	vscode.postMessage(message);
+}
+
+/**
+ * The text selected in the PDF, 30 ms after it stops changing, with its
+ * pages, and nothing when the selection ends: what agents can see (PDFs and
+ * books, "What agents can see").
+ */
+function observeSelection(registry: PluginRegistry): void {
+	const selection = registry.getPlugin<SelectionPlugin>(SelectionPlugin.id)?.provides();
+	if (!selection) {
+		return;
+	}
+	let settling: number | undefined;
+	let sent = false;
+	let run = 0;
+	selection.onSelectionChange(event => {
+		if (event.documentId !== DOCUMENT_ID) {
+			return;
+		}
+		window.clearTimeout(settling);
+		settling = window.setTimeout(async () => {
+			const current = ++run;
+			const scope = selection.forDocument(DOCUMENT_ID);
+			const pages = [...new Set(scope.getFormattedSelection().map(item => item.pageIndex + 1))].sort((left, right) => left - right);
+			let text = '';
+			if (pages.length > 0) {
+				try {
+					text = (await scope.getSelectedText().toPromise()).join('\n\n');
+				} catch (error) {
+					console.error('[BaseHalf] failed to read the PDF selection', error);
+				}
+			}
+			if (current !== run) {
+				return;
+			}
+			if (!text.trim()) {
+				if (sent) {
+					sent = false;
+					vscode.postMessage({ type: 'basehalf.pdf.selectionChanged' });
+				}
+				return;
+			}
+			sent = true;
+			vscode.postMessage({ type: 'basehalf.pdf.selectionChanged', selection: { text: text.slice(0, BASEHALF_PDF_SELECTION_TEXT_LIMIT), pages } });
+		}, 30);
+	});
+}
+
+function storedZoom(value: string | undefined): BaseHalfPdfZoom | undefined {
+	if (value === 'fit-width' || value === 'fit-page') {
+		return value;
+	}
+	return value ? boundedNumber(value, 1, 0.25, 5) : undefined;
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {

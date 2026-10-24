@@ -22,7 +22,7 @@ import { BaseHalfReferenceIndexState } from '../../../references/common/basehalf
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CARD_IS_DRAFT, IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
+import { IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionDocumentText, IBaseHalfAgentSelectionText } from '../../../agentArea/common/basehalfAgentSelection.js';
 import { BaseHalfCanvasSceneContextMenuRequest, BaseHalfCanvasSceneSelectionAction } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfCanvasCardPick, IBaseHalfCanvasCardPickCard } from '../../common/basehalfCanvasCardPick.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from '../basehalfCanvasContextMenu.js';
@@ -881,7 +881,8 @@ export class BaseHalfCanvasSelectionActions {
 			.sort((a, b) => a.isFolder !== b.isFolder ? (a.isFolder ? -1 : 1) : a.name.localeCompare(b.name))
 			// A draft is recorded by the path its file will have, and says it is one.
 			.map(({ path, isFolder, caption, draft }) => ({ path, isFolder, caption, ...(draft ? { draft: true as const } : {}) }));
-		let text: IBaseHalfAgentSelectionText | undefined;
+		// Text in a note on its card, or in the note, the PDF, or the book of Card Detail.
+		let text: IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText | undefined;
 		if (detail) {
 			const detailText = this.view.activeDetailProjection ? this.view.agentSelectionDetailText.get(this.view.activeDetailProjection) : undefined;
 			text = detailText?.path === detail.relativePath ? detailText : undefined;

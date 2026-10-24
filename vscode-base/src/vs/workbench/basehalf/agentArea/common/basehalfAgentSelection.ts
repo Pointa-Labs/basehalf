@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../../base/common/event.js';
+import { hasKey } from '../../../../base/common/types.js';
 import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
@@ -43,6 +44,18 @@ export interface IBaseHalfAgentSelectionText {
 	readonly text: string;
 }
 
+/** Text selected in a PDF or a book in Card Detail (PDFs and books, "What agents can see"). */
+export interface IBaseHalfAgentSelectionDocumentText {
+	/** The PDF or the book, relative to the workspace folder. */
+	readonly path: string;
+	/** The first and last page of a PDF that hold the selection, from 1. */
+	readonly pages?: { readonly first: number; readonly last: number };
+	/** The entry of a book's contents that the selection begins in, when the book has one there. */
+	readonly chapter?: string;
+	/** The selected text as the reader shows it. */
+	readonly text: string;
+}
+
 /**
  * What a window knows of the user's selection. Paths are relative to
  * `workspaceFolder`, with forward slashes; the workspace folder itself is `.`.
@@ -57,8 +70,8 @@ export interface IBaseHalfAgentSelectionInput {
 	readonly cards: readonly IBaseHalfAgentSelectionCard[];
 	/** The card that Card Detail shows, while it is open. */
 	readonly detail?: IBaseHalfAgentSelectionCard;
-	/** Text selected in the note being edited, on its card or in Card Detail. */
-	readonly text?: IBaseHalfAgentSelectionText;
+	/** Text selected in the note being edited, on its card or in Card Detail, or in the PDF or the book Card Detail shows. */
+	readonly text?: IBaseHalfAgentSelectionText | IBaseHalfAgentSelectionDocumentText;
 }
 
 /** What is recorded (the selection agents can see, "What is recorded"). */
@@ -66,7 +79,20 @@ export type BaseHalfAgentSelection =
 	| { readonly selected: 'folder'; readonly path: string; readonly name: string }
 	| { readonly selected: 'card'; readonly path: string; readonly isFolder: boolean; readonly caption?: IBaseHalfAgentSelectionCaption; readonly draft?: true }
 	| { readonly selected: 'cards'; readonly paths: readonly string[] }
-	| { readonly selected: 'text'; readonly path: string; readonly firstLine: number; readonly lastLine: number; readonly text: string; readonly cut: boolean };
+	| {
+		readonly selected: 'text';
+		readonly path: string;
+		/** The lines of a note's file. */
+		readonly firstLine?: number;
+		readonly lastLine?: number;
+		/** The pages of a PDF. */
+		readonly firstPage?: number;
+		readonly lastPage?: number;
+		/** The chapter of a book. */
+		readonly chapter?: string;
+		readonly text: string;
+		readonly cut: boolean;
+	};
 
 /**
  * The rule: selected text wins, then the card Card Detail shows, then the
@@ -78,11 +104,16 @@ export function baseHalfAgentSelectionFor(input: IBaseHalfAgentSelectionInput): 
 		const cut = input.text.text.length > BASEHALF_AGENT_SELECTION_TEXT_LIMIT;
 		// A cut never splits a character in two.
 		const limit = /[\ud800-\udbff]/.test(input.text.text.charAt(BASEHALF_AGENT_SELECTION_TEXT_LIMIT - 1)) ? BASEHALF_AGENT_SELECTION_TEXT_LIMIT - 1 : BASEHALF_AGENT_SELECTION_TEXT_LIMIT;
+		const place = hasKey(input.text, { firstLine: true })
+			? { firstLine: input.text.firstLine, lastLine: input.text.lastLine }
+			: {
+				...(input.text.pages ? { firstPage: input.text.pages.first, lastPage: input.text.pages.last } : {}),
+				...(input.text.chapter ? { chapter: input.text.chapter } : {})
+			};
 		return {
 			selected: 'text',
 			path: input.text.path,
-			firstLine: input.text.firstLine,
-			lastLine: input.text.lastLine,
+			...place,
 			text: cut ? input.text.text.slice(0, limit) : input.text.text,
 			cut
 		};
@@ -132,12 +163,18 @@ export function serializeBaseHalfAgentSelection(selection: BaseHalfAgentSelectio
 			lines.push('paths:', ...selection.paths.map(path => `  - ${quote(path)}`));
 			break;
 		case 'text':
-			lines.push(
-				`path: ${quote(selection.path)}`,
-				`first_line: ${selection.firstLine}`,
-				`last_line: ${selection.lastLine}`,
-				`text: ${quote(selection.text)}`
-			);
+			lines.push(`path: ${quote(selection.path)}`);
+			// A note's text is on lines, a PDF's on pages, and a book's in a chapter.
+			if (selection.firstLine !== undefined && selection.lastLine !== undefined) {
+				lines.push(`first_line: ${selection.firstLine}`, `last_line: ${selection.lastLine}`);
+			}
+			if (selection.firstPage !== undefined && selection.lastPage !== undefined) {
+				lines.push(`first_page: ${selection.firstPage}`, `last_page: ${selection.lastPage}`);
+			}
+			if (selection.chapter !== undefined) {
+				lines.push(`chapter: ${quote(selection.chapter)}`);
+			}
+			lines.push(`text: ${quote(selection.text)}`);
 			if (selection.cut) {
 				lines.push('text_is_cut: true');
 			}
@@ -155,7 +192,7 @@ function quote(value: string): string {
 }
 
 /** The icon of an item's kind, as the caption of its card draws it. */
-export type BaseHalfItemKindIcon = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic';
+export type BaseHalfItemKindIcon = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'book' | 'code' | 'generic';
 
 /** The icon of the status bar entry: an item's kind, a node's kind, several cards, or selected text. */
 export type BaseHalfAgentSelectionIcon = BaseHalfItemKindIcon | 'presentation' | 'file' | 'cards' | 'selectedText';
@@ -215,6 +252,9 @@ export function baseHalfItemIcon(name: string, isFolder: boolean): BaseHalfItemK
 	}
 	if (ext === 'pdf') {
 		return 'pdf';
+	}
+	if (['epub', 'mobi', 'azw', 'azw3', 'fb2', 'fbz', 'cbz'].includes(ext)) {
+		return 'book';
 	}
 	if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'rs', 'go', 'java', 'rb', 'c', 'cpp', 'h', 'cs', 'php', 'swift', 'kt', 'json', 'yaml', 'yml', 'toml', 'css', 'scss', 'html', 'xml', 'sh', 'sql', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'ini', 'conf', 'cfg', 'env', 'properties', 'lock', 'lua', 'pl', 'r', 'gradle', 'vue', 'svelte', 'astro', 'graphql', 'gql', 'proto'].includes(ext) || ['dockerfile', 'makefile', 'gemfile', 'rakefile', 'procfile', 'jenkinsfile', 'vagrantfile'].includes(base)) {
 		return 'code';
