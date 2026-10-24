@@ -1256,8 +1256,8 @@ version of it first and generates that draft ([Agents](#agents)).
    waits up to 30 seconds for the catalog while it loads. An agent's request
    whose values the model does not accept stops with the first such value
    instead of making them legal.
-4. Decide the cards the generation lands on: the draft itself, and for an
-   image `count` above 1, that many cards in all
+4. Decide the cards the generation lands on: the draft itself, and for a
+   `count` of an image or a music model above 1, that many cards in all
    ([Several images](#several-images-from-one-generation)).
 5. Write the task record as `preparing`, naming those cards, and claim them:
    when another record that is not ended names one of them, the record that
@@ -1302,7 +1302,10 @@ BaseHalf that is still being followed is let finish, up to 10 seconds:
 
 1. Download the file to `.bh/cache/generation/<task id>-<n>.part`, never into
    the user's folder. Check it: a video is an MP4 of at most 512 MiB; an image
-   is a PNG, JPEG, or WebP of at most 64 MiB. A file the provider answered with
+   is a PNG, JPEG, or WebP of at most 64 MiB; a sound is an MP3, a WAV, a
+   FLAC, an Ogg, or an M4A of at most 256 MiB, each told by its first bytes,
+   and an ISO media file, which is an MP4 on a video card, is an M4A on an
+   audio card (D78). A file the provider answered with
    at once is checked the same way. Write its size and SHA-256 in the record
    as soon as it is received in full, so that a window that takes the record
    over lands it without downloading it again; the files a provider answered
