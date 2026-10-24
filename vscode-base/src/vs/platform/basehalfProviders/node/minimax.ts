@@ -7,12 +7,12 @@ import { countsOf, measureItems, type MeasuredItem, type PlannedCounts } from '.
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.js';
 import type { HttpAnswer, ProviderHttp } from './http.js';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.js';
-import type { AnsweredAtOnce, ModuleCheckResult, OutputLocation, ProviderModule, VideoLocation } from './module.js';
+import type { AnsweredAtOnce, ModuleCheckResult, ModuleVoices, OutputLocation, ProviderModule, VideoLocation } from './module.js';
 import { promptLanguage, referenceNumber, sharedPromptName, writePromptNames, type PromptContext } from './prompt.js';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, ListedVoice, Params, ParamValue, PollState, PromptPart, SubmitRequest, TaskRef, VoicesRequest } from '../common/basehalfProviderTypes.js';
 
 /**
- * MiniMax's video and image models on MiniMax's own API, in China
+ * MiniMax's video, image, and speech models on MiniMax's own API, in China
  * (`api.minimax.cn`) and internationally (`api.minimax.io`), with a key of the
  * region (`docs/specs/providers/minimax.md`). MiniMax H3 and H3 Max run on the
  * V2 API, which takes a `content` list of text, frames, and references;
@@ -20,7 +20,10 @@ import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, Chec
  * (`mm_file://`). The Hailuo models run on the V1 API, which takes frames as
  * data URLs and reports its errors in `base_resp` of an HTTP 200 answer. The
  * image models answer `POST /v1/image_generation` with the images, as base64,
- * and report their errors in `base_resp` as V1 does.
+ * and report their errors in `base_resp` as V1 does. The speech models answer
+ * `POST /v1/t2a_v2` with the speech, as the hex of an MP3, and report their
+ * errors the same way; their voices, MiniMax's and the account's, come from
+ * `POST /v1/get_voice` (D78).
  */
 
 type MediaKind = 'image' | 'video' | 'audio';
@@ -34,7 +37,76 @@ const MODEL_TEXTS: Readonly<Record<string, { readonly label: string; readonly de
 	'hailuo-2.3-fast': { label: 'Hailuo 2.3 Fast', description: 'A faster Hailuo 2.3 that brings a start frame to life: 6 or 10 seconds at 768P, or 6 seconds at 1080P.' },
 	'hailuo-02': { label: 'Hailuo 02', description: '6 or 10 seconds at 768P, or 6 seconds at 1080P, from a prompt, a start frame, or a start and an end frame; 512P from a start frame alone.' },
 	'image-01': { label: 'MiniMax Image-01', description: 'Up to 9 images at about 1K from a prompt, or from a prompt and one reference image of a person.' },
-	'image-01-live': { label: 'MiniMax Image-01 Live', description: 'Image-01 with drawing styles (comic, lively, medieval, watercolor): up to 9 images from a prompt, or from a prompt and one reference image of a person. Offered in China.' }
+	'image-01-live': { label: 'MiniMax Image-01 Live', description: 'Image-01 with drawing styles (comic, lively, medieval, watercolor): up to 9 images from a prompt, or from a prompt and one reference image of a person. Offered in China.' },
+	'speech-2.8-hd': { label: 'Speech 2.8 HD', description: 'MiniMax\'s most lifelike speech, which also reads interjections such as (laughs) and (sighs) in the text: up to 9,999 characters in 40 languages.' },
+	'speech-2.8-turbo': { label: 'Speech 2.8 Turbo', description: 'A faster Speech 2.8 with a natural flow, which also reads interjections such as (laughs) and (sighs): up to 9,999 characters in 40 languages.' },
+	'speech-2.6-hd': { label: 'Speech 2.6 HD', description: 'Natural speech with low latency, which can also speak fluently or whisper: up to 9,999 characters in 40 languages.' },
+	'speech-2.6-turbo': { label: 'Speech 2.6 Turbo', description: 'A faster Speech 2.6, which can also speak fluently or whisper: up to 9,999 characters in 40 languages.' }
+});
+
+/** MiniMax's emotions (`voice_setting.emotion`), by the catalog's values: the seven every speech model takes, then the two of Speech 2.6. */
+const EMOTION_LABELS: Readonly<Record<string, string>> = Object.freeze({
+	happy: 'Happy',
+	sad: 'Sad',
+	angry: 'Angry',
+	fearful: 'Fearful',
+	disgusted: 'Disgusted',
+	surprised: 'Surprised',
+	calm: 'Calm',
+	fluent: 'Fluent',
+	whisper: 'Whisper'
+});
+
+/** MiniMax's languages (`language_boost`), its values in its order, with their names. */
+const LANGUAGE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+	'Chinese': 'Chinese',
+	'Chinese,Yue': 'Cantonese',
+	'English': 'English',
+	'Arabic': 'Arabic',
+	'Russian': 'Russian',
+	'Spanish': 'Spanish',
+	'French': 'French',
+	'Portuguese': 'Portuguese',
+	'German': 'German',
+	'Turkish': 'Turkish',
+	'Dutch': 'Dutch',
+	'Ukrainian': 'Ukrainian',
+	'Vietnamese': 'Vietnamese',
+	'Indonesian': 'Indonesian',
+	'Japanese': 'Japanese',
+	'Italian': 'Italian',
+	'Korean': 'Korean',
+	'Thai': 'Thai',
+	'Polish': 'Polish',
+	'Romanian': 'Romanian',
+	'Greek': 'Greek',
+	'Czech': 'Czech',
+	'Finnish': 'Finnish',
+	'Hindi': 'Hindi',
+	'Bulgarian': 'Bulgarian',
+	'Danish': 'Danish',
+	'Hebrew': 'Hebrew',
+	'Malay': 'Malay',
+	'Persian': 'Persian',
+	'Slovak': 'Slovak',
+	'Swedish': 'Swedish',
+	'Croatian': 'Croatian',
+	'Filipino': 'Filipino',
+	'Hungarian': 'Hungarian',
+	'Norwegian': 'Norwegian',
+	'Slovenian': 'Slovenian',
+	'Catalan': 'Catalan',
+	'Nynorsk': 'Nynorsk',
+	'Tamil': 'Tamil',
+	'Afrikaans': 'Afrikaans'
+});
+
+/** MiniMax's sound effects (`voice_modify.sound_effects`), by the catalog's values. */
+const SOUND_EFFECT_LABELS: Readonly<Record<string, string>> = Object.freeze({
+	spacious_echo: 'Spacious Echo',
+	auditorium_echo: 'Auditorium Echo',
+	lofi_telephone: 'Lo-Fi Telephone',
+	robotic: 'Robotic'
 });
 
 const TEXT = Object.freeze({
@@ -72,6 +144,52 @@ const TEXT = Object.freeze({
 		seed: 'Seed',
 		seedTooltip: 'The same seed with the same request gives similar images. Leave it empty for a new one each time.',
 		watermarkTooltip: 'Marks the images as made by AI. Offered in the China region only.'
+	},
+	speech: {
+		mode: 'Speech',
+		voice: 'Voice',
+		speed: 'Speed',
+		speedTooltip: 'How fast the voice speaks: 1 is its own pace.',
+		volume: 'Volume',
+		volumeTooltip: 'How loud the voice is: 1 is its own volume.',
+		pitch: 'Pitch',
+		pitchTooltip: 'Raises or lowers the voice by semitones: 0 is its own pitch.',
+		emotion: 'Emotion',
+		emotionTooltip: 'The feeling the voice speaks with. Auto lets MiniMax choose the one that fits the text.',
+		auto: 'Auto',
+		emotions: EMOTION_LABELS,
+		language: 'Language',
+		languageTooltip: 'The language of the text, so that MiniMax reads it as that language, such as Cantonese. Auto lets MiniMax detect it.',
+		languages: LANGUAGE_LABELS,
+		deepen: 'Deepen / Brighten',
+		deepenTooltip: 'Below 0 deepens the voice, above 0 brightens it.',
+		stronger: 'Stronger / Softer',
+		strongerTooltip: 'Below 0 makes the voice stronger, above 0 softer.',
+		nasal: 'Nasal / Crisp',
+		nasalTooltip: 'Below 0 makes the voice fuller, above 0 crisper.',
+		soundEffect: 'Sound Effect',
+		soundEffectTooltip: 'An effect MiniMax adds to the voice.',
+		soundEffects: SOUND_EFFECT_LABELS,
+		/** The catalog's voice: a system voice of both regions. */
+		defaultVoice: { label: 'Graceful Lady', description: 'English' },
+		noInputs: (label: string) => `${label} cannot be sent: MiniMax's speech models take text only.`,
+		noSpeech: 'MiniMax accepted the request but answered no speech BaseHalf can read.',
+		unreadable: 'MiniMax answered a sound BaseHalf cannot read.',
+		noTask: (model: string) => `${model} answers with its speech at once: there is no task to ask about.`,
+		rateLimits: 'MiniMax takes 60 requests a minute for speech models.',
+		/** What MiniMax's codes of a speech request mean (its error code page), after MiniMax's words and code. */
+		codes: Object.freeze<Record<number, string>>({
+			1026: 'MiniMax\'s content check refused the text.',
+			1027: 'MiniMax\'s content check stopped the speech.',
+			1042: 'More than a tenth of the text is characters MiniMax cannot read.',
+			2054: 'MiniMax does not know this voice for this key: choose another voice.',
+			20132: 'MiniMax does not know this voice for this key: choose another voice.',
+			2042: 'The voice belongs to another MiniMax account: choose one of this account\'s voices.',
+			2043: 'This model does not speak in this voice: choose another voice or another model.',
+			2061: 'The MiniMax plan of this key does not include this model.',
+			2068: 'The MiniMax plan of this key does not include this model.'
+		}),
+		notSpeech: (model: string) => `${model} speaks in no voice that MiniMax lists.`
 	},
 	imageReferenceOnly: (label: string) => `${label} cannot be sent: MiniMax's image models take one reference image only.`,
 	imageBlocked: 'MiniMax\'s content check stopped this image.',
@@ -145,13 +263,25 @@ interface ImageModel {
 	readonly styles: boolean;
 }
 
-type MiniMaxModel = H3Model | HailuoModel | ImageModel;
+/** The speech models, which `POST /v1/t2a_v2` answers at once (D78). */
+interface SpeechModel {
+	readonly api: 'speech';
+	readonly id: string;
+	readonly providerModel: string;
+	/** The values of `voice_setting.emotion` it takes. */
+	readonly emotions: readonly string[];
+}
+
+type MiniMaxModel = H3Model | HailuoModel | ImageModel | SpeechModel;
 
 /** The ratios of Image-01, in the order the panel shows them, with the sizes MiniMax makes: 16:9 is 1280 × 720, 21:9 is 1344 × 576. */
 const IMAGE_RATIOS = Object.freeze(['16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16', '21:9']);
 
 /** The drawing styles of Image-01 Live, by the catalog's values: MiniMax's own words. */
 const STYLES: Readonly<Record<keyof typeof TEXT.image.styles, string>> = Object.freeze({ comic: '漫画', lively: '元气', medieval: '中世纪', watercolor: '水彩' });
+
+/** The emotions every speech model takes; Speech 2.6 also takes `fluent` and `whisper`, which the reference names for 2.6 only. */
+const EMOTIONS = Object.freeze(['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm']);
 
 const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 	{
@@ -216,7 +346,11 @@ const MODELS_IN_ORDER: readonly MiniMaxModel[] = Object.freeze<MiniMaxModel[]>([
 		// 21:9 is Image-01's only.
 		ratios: IMAGE_RATIOS.filter(ratio => ratio !== '21:9'),
 		styles: true
-	}
+	},
+	{ api: 'speech', id: 'speech-2.8-hd', providerModel: 'speech-2.8-hd', emotions: EMOTIONS },
+	{ api: 'speech', id: 'speech-2.8-turbo', providerModel: 'speech-2.8-turbo', emotions: EMOTIONS },
+	{ api: 'speech', id: 'speech-2.6-hd', providerModel: 'speech-2.6-hd', emotions: [...EMOTIONS, 'fluent', 'whisper'] },
+	{ api: 'speech', id: 'speech-2.6-turbo', providerModel: 'speech-2.6-turbo', emotions: [...EMOTIONS, 'fluent', 'whisper'] }
 ]);
 
 const MODELS: ReadonlyMap<string, MiniMaxModel> = new Map(MODELS_IN_ORDER.map(model => [model.id, model]));
@@ -255,8 +389,18 @@ const IMAGE_MODEL_MAX_BYTES: Readonly<Record<MediaKind, number>> = Object.freeze
 const IMAGE_MODEL_LIMITS = Object.freeze({ imageFormats: ['png', 'jpeg'] as const, imageMaxBytes: IMAGE_REFERENCE_MAX_BYTES });
 /** The most images one request makes (`n`). */
 const MAX_IMAGES = 9;
+/** "Must be less than 10,000 characters." */
+const SPEECH_MAX_LENGTH = 9999;
+/** The voice the catalog declares: a system voice that both regions' lists name, and the reference among the latest English voices. */
+const DEFAULT_VOICE = 'English_Graceful_Lady';
+/** The emotion that lets MiniMax choose: nothing is sent for it. */
+const AUTO = 'auto';
 
 function modesOf(model: MiniMaxModel): CatalogMode[] {
+	if (model.api === 'speech') {
+		// The prompt is what the voice says; the mode takes no inputs.
+		return [{ id: 'reference', label: TEXT.speech.mode, inputs: { startFrame: 'none', endFrame: 'none', images: NONE, videos: NONE, audios: NONE, source: 'none' }, limits: {} }];
+	}
 	if (model.api === 'image') {
 		return [{
 			id: 'reference',
@@ -357,8 +501,61 @@ function imageParametersOf(model: ImageModel): CatalogParameter[] {
 	return parameters;
 }
 
+/** A voice effect of `voice_modify`: a whole number from -100 to 100, 0 leaving the voice as it is. */
+function voiceEffect(name: string, label: string, tooltip: string): CatalogParameter {
+	return { name: `voice_modify.${name}`, label, tooltip, kind: 'integer', min: -100, max: 100, step: 1, default: 0, advanced: true };
+}
+
+/**
+ * The settings of a speech model (minimax.md, "Speech models"): the voice,
+ * the shared Speed, then MiniMax's own fields under their names, the voice
+ * effects of `voice_modify` among the advanced ones.
+ */
+function speechParametersOf(model: SpeechModel): CatalogParameter[] {
+	const labels = TEXT.speech;
+	return [
+		{ name: 'voice', label: labels.voice, kind: 'voice', options: [{ value: DEFAULT_VOICE, ...labels.defaultVoice }], default: DEFAULT_VOICE, listed: true },
+		{ name: 'speed', label: labels.speed, tooltip: labels.speedTooltip, kind: 'number', min: 0.5, max: 2, step: 0.05, default: 1 },
+		// "(0, 10]": the volume starts at its first step.
+		{ name: 'vol', label: labels.volume, tooltip: labels.volumeTooltip, kind: 'number', min: 0.1, max: 10, step: 0.1, default: 1 },
+		{ name: 'pitch', label: labels.pitch, tooltip: labels.pitchTooltip, kind: 'integer', min: -12, max: 12, step: 1, default: 0 },
+		{
+			name: 'emotion',
+			label: labels.emotion,
+			tooltip: labels.emotionTooltip,
+			kind: 'choice',
+			options: [{ value: AUTO, label: labels.auto }, ...model.emotions.map(value => ({ value, label: labels.emotions[value] }))],
+			default: AUTO
+		},
+		{
+			name: 'language_boost',
+			label: labels.language,
+			tooltip: labels.languageTooltip,
+			kind: 'choice',
+			options: [{ value: AUTO, label: labels.auto }, ...Object.entries(labels.languages).map(([value, label]) => ({ value, label }))],
+			optional: true,
+			advanced: true
+		},
+		voiceEffect('pitch', labels.deepen, labels.deepenTooltip),
+		voiceEffect('intensity', labels.stronger, labels.strongerTooltip),
+		voiceEffect('timbre', labels.nasal, labels.nasalTooltip),
+		{
+			name: 'voice_modify.sound_effects',
+			label: labels.soundEffect,
+			tooltip: labels.soundEffectTooltip,
+			kind: 'choice',
+			options: Object.entries(labels.soundEffects).map(([value, label]) => ({ value, label })),
+			optional: true,
+			advanced: true
+		}
+	];
+}
+
 function parametersOf(model: MiniMaxModel): CatalogParameter[] {
 	const labels = TEXT.parameters;
+	if (model.api === 'speech') {
+		return speechParametersOf(model);
+	}
 	if (model.api === 'image') {
 		return imageParametersOf(model);
 	}
@@ -404,6 +601,22 @@ function parametersOf(model: MiniMaxModel): CatalogParameter[] {
 
 function catalogModel(model: MiniMaxModel): CatalogModel {
 	const text = TEXT.models[model.id];
+	if (model.api === 'speech') {
+		return {
+			id: model.id,
+			kind: 'audio',
+			makes: 'speech',
+			label: text.label,
+			description: text.description,
+			// MiniMax serves each model under the same id in both regions.
+			providerModels: { cn: model.providerModel, intl: model.providerModel },
+			prompt: { required: 'always', maxLength: SPEECH_MAX_LENGTH },
+			modes: modesOf(model),
+			parameters: parametersOf(model),
+			outputFormat: 'mp3',
+			answersAtOnce: true
+		};
+	}
 	if (model.api === 'image') {
 		return {
 			id: model.id,
@@ -520,6 +733,10 @@ function imageRules(request: CheckRequest): string[] {
 
 async function check(request: CheckRequest, media: MediaInspector): Promise<ModuleCheckResult> {
 	const model = modelOf(request.model);
+	if (model.api === 'speech') {
+		// No rule joins the settings of a speech model; its declarations say the rest.
+		return { problems: [] };
+	}
 	if (model.api === 'image') {
 		return { problems: imageRules(request) };
 	}
@@ -535,14 +752,16 @@ async function check(request: CheckRequest, media: MediaInspector): Promise<Modu
 /** MiniMax's codes (its error code page), by what they mean for a request. */
 const RATE_LIMIT_CODES: ReadonlySet<number> = new Set([1002, 1039, 1041, 2045, 2056]);
 const AUTH_CODES: ReadonlySet<number> = new Set([1004, 2049]);
-const BALANCE_CODE = 1008;
+/** Insufficient balance, insufficient credit, and a usage limit reached with credit auto consumption off. */
+const BALANCE_CODES: ReadonlySet<number> = new Set([1008, 2053, 2067]);
 /** Unknown error, timeout, internal error, system error: the request may have been carried out. */
 const SERVER_CODES: ReadonlySet<number> = new Set([1000, 1001, 1024, 1033]);
 /** Sensitive input or output: a task that failed. */
 const SENSITIVE_CODES: ReadonlySet<number> = new Set([1026, 1027]);
 const INVALID_PARAMETERS_CODE = 2013;
 
-type V1Call = 'create' | 'query' | 'retrieve' | 'upload';
+/** What a `base_resp` answers: a create of a task or an image, a query, a file, an upload, a speech request, or the list of voices. */
+type V1Call = 'create' | 'query' | 'retrieve' | 'upload' | 'speech' | 'voices';
 
 function textOf(value: unknown): string | undefined {
 	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -571,26 +790,45 @@ function baseRespOf(object: Record<string, unknown>): { readonly code: number; r
 	return code === undefined ? undefined : { code, message: textOf(base.status_msg) };
 }
 
+/** The limits a rate limit of a call names: the speech models' for a speech request, none for the list of voices, whose limit MiniMax does not state. */
+function rateLimitsOf(call: V1Call): string {
+	return call === 'speech' ? TEXT.speech.rateLimits : call === 'voices' ? '' : TEXT.rateLimits;
+}
+
 /** The failure a nonzero code of `base_resp` stands for, which MiniMax answers with HTTP 200. */
 function codeFailure(code: number, message: string | undefined, call: V1Call): ProviderFailure {
 	const words = withCode(message, code);
 	if (RATE_LIMIT_CODES.has(code)) {
-		return new ProviderFailure('rateLimited', `${words} ${TEXT.rateLimits}`);
+		return new ProviderFailure('rateLimited', `${words} ${rateLimitsOf(call)}`.trim());
 	}
 	if (AUTH_CODES.has(code)) {
 		return new ProviderFailure('auth', words);
 	}
-	if (code === BALANCE_CODE) {
+	if (BALANCE_CODES.has(code)) {
 		return new ProviderFailure('balance', words);
 	}
 	if (SERVER_CODES.has(code)) {
-		return call === 'create' ? unknownOutcome(words) : new ProviderFailure('network', words);
+		return call === 'create' || call === 'speech' ? unknownOutcome(words) : new ProviderFailure('network', words);
 	}
 	if (code === INVALID_PARAMETERS_CODE && call === 'query') {
 		// The task id is the one parameter of a query.
 		return new ProviderFailure('notFound', words);
 	}
-	return rejected(words);
+	// A speech request says what its codes mean: sensitive text, a voice MiniMax does not know, one the key may not use.
+	const meaning = call === 'speech' ? TEXT.speech.codes[code] : undefined;
+	return rejected(meaning ? `${words} ${meaning}` : words);
+}
+
+/**
+ * A failure of an HTTP answer to a speech request or to the list of voices,
+ * whose rate limit names the limits of that call: `readError`, which does
+ * not know the call, names those of the video and image models.
+ */
+function withLimitsOf(error: unknown, call: V1Call): unknown {
+	if (error instanceof ProviderFailure && error.code === 'rateLimited' && error.message.includes(TEXT.rateLimits)) {
+		return new ProviderFailure('rateLimited', error.message.replace(TEXT.rateLimits, rateLimitsOf(call)).replace(/\s{2,}/g, ' ').trim(), error.status);
+	}
+	return error;
 }
 
 function throwOnBaseResp(object: Record<string, unknown>, call: V1Call): void {
@@ -622,7 +860,7 @@ function readError(status: number, body: unknown): ProviderErrorReading | undefi
 	if (/invalid task_?id/i.test(words)) {
 		return { message: words, code: 'notFound' };
 	}
-	if (type === 'insufficient_balance_error' || code === BALANCE_CODE) {
+	if (type === 'insufficient_balance_error' || (code !== undefined && BALANCE_CODES.has(code))) {
 		return { message: words, code: 'balance' };
 	}
 	if (status === 429 || type === 'rate_limit_error' || (code !== undefined && RATE_LIMIT_CODES.has(code))) {
@@ -659,6 +897,8 @@ const V1_CREATE = '/v1/video_generation';
 const V1_QUERY = '/v1/query/video_generation';
 const V1_RETRIEVE = '/v1/files/retrieve';
 const UPLOAD = '/v1/files/upload';
+const SPEECH_CREATE = '/v1/t2a_v2';
+const VOICES = '/v1/get_voice';
 
 /** The path of a V2 task under the path of its kind of request. */
 function v2TaskPath(base: string, remoteId: string): string {
@@ -908,9 +1148,85 @@ function imageOutputs(object: Record<string, unknown>): OutputLocation[] {
 	];
 }
 
+/** The voice effects of `voice_modify`, when one of them is set: the three numbers, and the sound effect when one is chosen. */
+function voiceModifyOf(params: Params): Record<string, unknown> | undefined {
+	const effect = (name: string) => typeof params[`voice_modify.${name}`] === 'number' ? params[`voice_modify.${name}`] as number : 0;
+	const [pitch, intensity, timbre] = [effect('pitch'), effect('intensity'), effect('timbre')];
+	const sound = params['voice_modify.sound_effects'];
+	if (!pitch && !intensity && !timbre && typeof sound !== 'string') {
+		return undefined;
+	}
+	return { pitch, intensity, timbre, ...(typeof sound === 'string' ? { sound_effects: sound } : {}) };
+}
+
+/**
+ * The body of a speech request (minimax.md, "Speech models"): the prompt as
+ * the text, the voice and MiniMax's settings of it, and MP3 at MiniMax's best
+ * as hex. The parameters arrive checked and with their defaults.
+ */
+function speechBody(model: SpeechModel, request: SubmitRequest): Record<string, unknown> {
+	const params = request.params;
+	const emotion = params.emotion !== AUTO ? params.emotion : undefined;
+	const voiceModify = voiceModifyOf(params);
+	return {
+		model: model.providerModel,
+		text: request.prompt,
+		stream: false,
+		// The file itself in the answer, rather than an address that expires in 24 hours.
+		output_format: 'hex',
+		voice_setting: {
+			voice_id: params.voice,
+			speed: params.speed,
+			vol: params.vol,
+			pitch: params.pitch,
+			...(emotion !== undefined ? { emotion } : {})
+		},
+		// The highest sample rate and bitrate MiniMax offers, in its default one channel.
+		audio_setting: { format: 'mp3', sample_rate: 44100, bitrate: 256000, channel: 1 },
+		...(params.language_boost !== undefined ? { language_boost: params.language_boost } : {}),
+		...(voiceModify ? { voice_modify: voiceModify } : {})
+	};
+}
+
+/** The speech of an answer: the hex of an MP3, or an address as a relay may answer. */
+function speechOutput(object: Record<string, unknown>): OutputLocation {
+	const audio = isRecord(object.data) && typeof object.data.audio === 'string' ? object.data.audio.trim() : '';
+	if (!audio) {
+		throw unknownOutcome(TEXT.speech.noSpeech);
+	}
+	if (/^https?:\/\//i.test(audio)) {
+		return { url: audio };
+	}
+	if (audio.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(audio)) {
+		return { refused: TEXT.speech.unreadable };
+	}
+	return { bytes: Buffer.from(audio, 'hex'), format: 'mp3' };
+}
+
+/** Sends a speech request once and answers its speech, which MiniMax answers with the request. */
+async function submitSpeech(model: SpeechModel, request: SubmitRequest, http: ProviderHttp): Promise<AnsweredAtOnce> {
+	const [item] = plannedItems(request.inputs);
+	if (item) {
+		// The one mode takes no inputs.
+		throw rejected(TEXT.speech.noInputs(item.label));
+	}
+	let answer: HttpAnswer;
+	try {
+		answer = await http.create({ method: 'POST', path: SPEECH_CREATE, body: { kind: 'json', value: speechBody(model, request) } });
+	} catch (error) {
+		throw withLimitsOf(error, 'speech');
+	}
+	const object = answer.object();
+	throwOnBaseResp(object, 'speech');
+	return { outputs: [speechOutput(object)] };
+}
+
 async function submit(request: SubmitRequest, http: ProviderHttp): Promise<string | AnsweredAtOnce> {
 	const model = modelOf(request.model);
 	const label = TEXT.models[model.id].label;
+	if (model.api === 'speech') {
+		return submitSpeech(model, request, http);
+	}
 	if (model.api === 'image') {
 		return submitImage(model, request, http);
 	}
@@ -993,11 +1309,14 @@ function hailuoState(object: Record<string, unknown>): PollState {
 	}
 }
 
-/** The video model of a task; an image model answered with its images and has no task to ask about. */
+/** The video model of a task; an image or a speech model answered with its files and has no task to ask about. */
 function videoModelOf(ref: TaskRef): H3Model | HailuoModel {
 	const model = modelOf(ref.model);
 	if (model.api === 'image') {
 		throw rejected(TEXT.noImageTask(TEXT.models[model.id].label));
+	}
+	if (model.api === 'speech') {
+		throw rejected(TEXT.speech.noTask(TEXT.models[model.id].label));
 	}
 	return model;
 }
@@ -1038,8 +1357,8 @@ async function videoLocation(ref: TaskRef, http: ProviderHttp): Promise<VideoLoc
 
 async function cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean> {
 	const model = modelOf(ref.model);
-	if (model.api === 'v1' || model.api === 'image') {
-		// The V1 API cannot cancel a task, and an image model answered with its images.
+	if (model.api === 'v1' || model.api === 'image' || model.api === 'speech') {
+		// The V1 API cannot cancel a task, and an image or a speech model answered with its files.
 		return false;
 	}
 	// Only a queued task can be cancelled; a DELETE on a task that ended deletes its record.
@@ -1066,12 +1385,52 @@ async function cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean> {
 	return action !== 'deleted';
 }
 
+// --- voices ------------------------------------------------------------------------------------
+
+/** The voices of one list of `get_voice`'s answer: each its `voice_id`, named by its `voice_name`, described by the texts of its `description`. */
+function voicesIn(list: unknown, own: boolean): ListedVoice[] {
+	const voices: ListedVoice[] = [];
+	for (const entry of Array.isArray(list) ? list : []) {
+		if (!isRecord(entry) || typeof entry.voice_id !== 'string') {
+			continue;
+		}
+		const texts = Array.isArray(entry.description) ? entry.description : [entry.description];
+		const description = texts.map(textOf).filter((text): text is string => text !== undefined).join(' ');
+		// A cloned or designed voice has no name; the service names it by its id.
+		voices.push({ id: entry.voice_id, label: textOf(entry.voice_name) ?? '', ...(description ? { description } : {}), own });
+	}
+	return voices;
+}
+
+/**
+ * The voices of a speech model (minimax.md, "Speech models", "Voices"): one
+ * `get_voice` of every type, whose cloned and designed voices are the
+ * account's, then MiniMax's system voices. MiniMax gives no samples.
+ */
+async function listVoices(request: VoicesRequest, http: ProviderHttp, limit: number): Promise<ModuleVoices> {
+	const model = modelOf(request.model);
+	if (model.api !== 'speech') {
+		throw rejected(TEXT.speech.notSpeech(TEXT.models[model.id].label));
+	}
+	let answer: HttpAnswer;
+	try {
+		answer = await http.request({ method: 'POST', path: VOICES, body: { kind: 'json', value: { voice_type: 'all' } } });
+	} catch (error) {
+		throw withLimitsOf(error, 'voices');
+	}
+	const object = answer.object();
+	throwOnBaseResp(object, 'voices');
+	const voices = [...voicesIn(object.voice_cloning, true), ...voicesIn(object.voice_generation, true), ...voicesIn(object.system_voice, false)];
+	return voices.length > limit ? { voices: voices.slice(0, limit), truncated: true } : { voices };
+}
+
 /**
  * The names of the inputs in a prompt (D74; MiniMax, "Names in the prompt").
  * The V2 guide calls its references "reference image 1", "reference video 1",
  * and "reference audio 1", 参考图1, 参考视频1, and 参考音频1, counted by kind
  * in the order of `content`. The frames, the V1 Hailuo models, and the image
- * models have no names there and take the shared ones.
+ * models have no names there and take the shared ones; a speech model takes
+ * no inputs to name.
  */
 function writePrompt(prompt: readonly PromptPart[], request: PromptContext): string {
 	const language = promptLanguage(prompt);
@@ -1099,5 +1458,6 @@ export const MINIMAX: ProviderModule = Object.freeze({
 	submit,
 	poll,
 	videoLocation,
-	cancel
+	cancel,
+	listVoices
 });

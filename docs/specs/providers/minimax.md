@@ -1,9 +1,10 @@
 # MiniMax (Hailuo)
 
-Status: Active (2026-10-19); image models Draft (2026-10-22); names in the prompt (2026-10-24)
+Status: Active (2026-10-19); image models Draft (2026-10-22); names in the prompt (2026-10-24); speech models Draft (2026-10-25)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
-[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
+[D78](../../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)
 Related: [Providers and the model catalog](../providers.md),
 [generation cards](../generation-cards.md#a-generation)
 
@@ -261,7 +262,7 @@ success; any other code is an error, read as follows:
 | --- | --- | --- |
 | 1002, 1039, 1041, 2045, 2056 | rate, token, connection, growth, or usage limit | `rateLimited` |
 | 1004, 2049 | not authorized, invalid API key | `auth` |
-| 1008 | insufficient balance | `balance` |
+| 1008, 2053, 2067 | insufficient balance, insufficient credit, usage limit reached with credit auto consumption off | `balance` |
 | 1000, 1001, 1024, 1033 | unknown, timeout, internal, or system error | `unknownOutcome` for a create, `network` otherwise |
 | 1026, 1027 | sensitive input or output | `rejected` for a create; for a query, the task failed |
 | 2013 | invalid parameters | `rejected`; for a query, `notFound` (its one parameter is the task id) |
@@ -274,7 +275,9 @@ success; any other code is an error, read as follows:
   outcome.
 - A rate limit names MiniMax's limits: 20 requests a minute for the Hailuo
   series; 300 requests a minute and 30 tasks at a time for H3; 10 requests a
-  minute for the image models ([Image models](#image-models)).
+  minute for the image models ([Image models](#image-models)). A rate limit
+  of a speech request names the speech models' 60 requests a minute
+  instead ([Speech models](#speech-models)).
 
 ## Left out
 
@@ -438,3 +441,210 @@ catalog entries, the body of each model with and without a reference and in
 each region, the answers as base64 and as addresses with withheld images,
 the codes of `base_resp`, refused keys, too many requests, an empty balance,
 a dropped connection, and the rules of `check`.
+
+## Speech models
+
+MiniMax's speech models run on the same regions, keys, and base URLs as its
+video and image models (D78). Their API answers the request with the
+speech: there is no task to poll or cancel. MiniMax's music is not offered
+(D78).
+
+### Sources
+
+Read on 2026-10-25; no page carries a date. On the international site
+(`https://platform.minimax.io/docs/`): `api-reference/speech-t2a-http` and
+the file it is drawn from (`api-reference/speech/t2a/api/openapi.json`),
+`guides/speech-t2a-websocket` (the guide of synchronous speech: its models,
+languages, and hosts), `api-reference/voice-management-get` and
+`api-reference/speech/voice-management/api/openapi.json`,
+`faq/system-voice-id`, `faq/about-apis`, `faq/models`,
+`api-reference/errorcode`, and `guides/rate-limits`. On the China site
+(`https://platform.minimax.cn/docs/`): the same two OpenAPI files, which name
+`https://api.minimax.cn` as their server, `faq/system-voice-id`, and
+`api-reference/errorcode`.
+
+### Models
+
+| Model | Label | Id sent | Regions | Emotions |
+| --- | --- | --- | --- | --- |
+| `speech-2.8-hd` | Speech 2.8 HD | `speech-2.8-hd` | `cn`, `intl` | the seven every model takes |
+| `speech-2.8-turbo` | Speech 2.8 Turbo | `speech-2.8-turbo` | `cn`, `intl` | the seven |
+| `speech-2.6-hd` | Speech 2.6 HD | `speech-2.6-hd` | `cn`, `intl` | the seven, Fluent, and Whisper |
+| `speech-2.6-turbo` | Speech 2.6 Turbo | `speech-2.6-turbo` | `cn`, `intl` | the seven, Fluent, and Whisper |
+
+- Each is of kind `audio`, makes `speech`, answers at once
+  (`answersAtOnce`), and delivers MP3 (`outputFormat: mp3`).
+- The one mode is Speech (`reference`), which takes no inputs. The prompt is
+  what the voice says: required, and "less than 10,000 characters", so at
+  most 9,999.
+- The 2.8 models read interjections in the text, such as `(laughs)` and
+  `(sighs)`, and every model reads pauses written `<#0.5#>` and
+  pronunciations in parentheses: they are the text's, and are sent as
+  written.
+- The guide calls Speech 2.8 HD "ultra-realistic", Speech 2.8 Turbo fast
+  with a natural flow, Speech 2.6 HD natural with low latency, and Speech
+  2.6 Turbo faster; each description says so. Both regions list the same
+  ids. No retirement dates are published.
+
+### Voices
+
+- The voice is `voice_setting.voice_id`, a parameter of kind `voice` that
+  is listed. The catalog declares one voice, the default
+  `English_Graceful_Lady` (**Graceful Lady**, "English"): a system voice
+  that the system voice lists of both sites name, and that the reference
+  names among MiniMax's latest English voices. Each list's first voice is
+  missing from the other list (`English_expressive_narrator`,
+  `male-qn-qingse`).
+- `voices` asks `POST /v1/get_voice` with `{"voice_type": "all"}`, one
+  request without pages, retried as a poll is. The answer's
+  `voice_cloning` (voices the user cloned) and `voice_generation` (voices
+  the user designed) are the account's own, in that order; its
+  `system_voice` are MiniMax's. A voice is its `voice_id`, named by its
+  `voice_name` (a cloned or designed voice has none, and the service names
+  it by its id), and described by the texts of its `description` list,
+  joined by spaces. MiniMax gives no samples.
+- A cloned or designed voice is listed only after it has been used for
+  speech once (the voice management reference), and MiniMax deletes one
+  that is not used within 7 days of its making (`faq/about-apis`); a card
+  that sends such a voice gets MiniMax's answer ([Errors](#errors-1)).
+- A nonzero `base_resp` of the list maps as in [Errors](#errors) for a
+  request that creates nothing: an unknown or internal error is a network
+  failure, and any other code not named there is `rejected`. A rate limit
+  of the list names no limit: MiniMax states none for it.
+- More than 2,000 voices answer the first 2,000, with `truncated`.
+
+### Parameters
+
+| Parameter | Label | Kind | Values | Default | MiniMax's field |
+| --- | --- | --- | --- | --- | --- |
+| `voice` | Voice | voice, listed | `English_Graceful_Lady` in the catalog, and every voice `voices` lists | `English_Graceful_Lady` | `voice_setting.voice_id` |
+| `speed` | Speed | number, 0.5 to 2, step 0.05 | | 1 | `voice_setting.speed` |
+| `vol` | Volume | number, 0.1 to 10, step 0.1 | | 1 | `voice_setting.vol` |
+| `pitch` | Pitch | whole number, −12 to 12 semitones | | 0 | `voice_setting.pitch` |
+| `emotion` | Emotion | choice | Auto (`auto`), Happy (`happy`), Sad (`sad`), Angry (`angry`), Fearful (`fearful`), Disgusted (`disgusted`), Surprised (`surprised`), Calm (`calm`), and on Speech 2.6 Fluent (`fluent`) and Whisper (`whisper`) | Auto | `voice_setting.emotion`; nothing for Auto |
+| `language_boost` | Language | choice, optional, advanced | Auto (`auto`), then MiniMax's 40 languages in its order, Chinese (`Chinese`), Cantonese (`Chinese,Yue`), English, … Afrikaans | unset: nothing sent | `language_boost` |
+| `voice_modify.pitch` | Deepen / Brighten | whole number, −100 to 100, advanced | | 0 | `voice_modify.pitch` |
+| `voice_modify.intensity` | Stronger / Softer | whole number, −100 to 100, advanced | | 0 | `voice_modify.intensity` |
+| `voice_modify.timbre` | Nasal / Crisp | whole number, −100 to 100, advanced | | 0 | `voice_modify.timbre` |
+| `voice_modify.sound_effects` | Sound Effect | choice, optional, advanced | Spacious Echo (`spacious_echo`), Auditorium Echo (`auditorium_echo`), Lo-Fi Telephone (`lofi_telephone`), Robotic (`robotic`) | unset: none | `voice_modify.sound_effects` |
+
+- `speed` is the shared name, and MiniMax's range is the shared one
+  ("[0.5, 2]"). The others are MiniMax's own and named as its fields, the
+  voice effects with their object, `voice_modify.`; the effects are labeled
+  as the sliders of MiniMax's own page ("Deepen/Brighten",
+  "Stronger/Softer", "Nasal/Crisp").
+- The volume is "(0, 10]", so the catalog starts it at 0.1.
+- "By default, the model automatically selects the most natural emotion
+  based on text": Auto sends no emotion. The reference says that `fluent`
+  and `whisper` are "only available for" the 2.6 models, and also that the
+  2.8 models "do not support `whisper`". Whether 2.8 takes `fluent` is not
+  clear, so the catalog offers both on 2.6 only.
+- The language "controls whether recognition for specific minority
+  languages and dialects is enhanced. Default is `null`": unset sends
+  nothing, and Auto lets MiniMax detect the language. The 2.6 and 2.8
+  models take all 40 (the reference names Persian, Filipino, and Tamil as
+  missing from the 01 and 02 models only).
+- The voice effects are sent only when one of them is set: then the three
+  numbers, and the sound effect when one is chosen.
+- No rule joins these parameters, so `check` adds no problem for a speech
+  model.
+
+### Requests and answers
+
+`POST /v1/t2a_v2`, sent once, with:
+
+```json
+{
+	"model": "speech-2.8-hd",
+	"text": "<the prompt>",
+	"stream": false,
+	"output_format": "hex",
+	"voice_setting": { "voice_id": "English_Graceful_Lady", "speed": 1, "vol": 1, "pitch": 0, "emotion": "calm" },
+	"audio_setting": { "format": "mp3", "sample_rate": 44100, "bitrate": 256000, "channel": 1 },
+	"language_boost": "auto",
+	"voice_modify": { "pitch": 0, "intensity": -20, "timbre": 0, "sound_effects": "spacious_echo" }
+}
+```
+
+- `emotion`, `language_boost`, and `voice_modify` are sent only when set.
+- The speech is asked for as MP3 at MiniMax's best: 44,100 Hz, the highest
+  of its sample rates, and 256,000 bps, the highest of its bitrates, in one
+  channel, its default (its FAQ calls mono the clearer for speech). No plan
+  is documented to limit them.
+- The speech is asked for as hex (`output_format: hex`, MiniMax's default)
+  rather than as an address valid for 24 hours: the file comes in the
+  answer, and nothing is downloaded from MiniMax's file host. The longest
+  speech of 9,999 characters stays within what an answer at once may be.
+- The answer holds `data.audio`, the hex of the MP3, written to the
+  request's one target under the checks of a download; `base_resp`, whose
+  code other than 0 fails the request ([Errors](#errors-1)); and
+  `extra_info`, which is not read. An address in `data.audio`, as a relay
+  may answer, is downloaded as an image's address is. Text that is not hex
+  is refused as the output: "MiniMax answered a sound BaseHalf cannot
+  read." An answer without `data.audio` leaves the outcome unknown.
+- Not sent: `stream_options`, `pronunciation_dict`, `timbre_weights`,
+  `text_normalization_mode`, `subtitle_enable`, `subtitle_type`,
+  `latex_read`, and `aigc_watermark`.
+
+A speech model has no task: `poll` refuses it, and `cancel` answers false
+and sends nothing.
+
+### Errors
+
+The HTTP statuses and MiniMax's codes map as in [Errors](#errors). A speech
+request says more about these codes, which are `rejected`, after MiniMax's
+words and code:
+
+| Code | MiniMax's words | BaseHalf adds |
+| --- | --- | --- |
+| 1026 | input new_sensitive | MiniMax's content check refused the text. |
+| 1027 | output new_sensitive | MiniMax's content check stopped the speech. |
+| 1042 | invisible character ratio limit | More than a tenth of the text is characters MiniMax cannot read. |
+| 2054, 20132 | voice id not exist; invalid samples or voice_id | MiniMax does not know this voice for this key: choose another voice. |
+| 2042 | You don't have access to this voice_id | The voice belongs to another MiniMax account: choose one of this account's voices. |
+| 2043 | The model does not support this voice_id | This model does not speak in this voice: choose another voice or another model. |
+| 2061, 2068 | the plan does not support the model | The MiniMax plan of this key does not include this model. |
+
+A rate limit names MiniMax's 60 requests a minute for the speech models
+(`guides/rate-limits`), in place of the video and image models' limits.
+
+### Left out
+
+- Streaming, the speech WebSockets, and the asynchronous API for long texts
+  (`/v1/t2a_async_v2`), which runs as a task.
+- `speech-02-hd` and `speech-02-turbo`, the older models of the model list,
+  and `speech-01-hd` and `speech-01-turbo`, which only the request's list
+  names.
+- Cloning and designing a voice, which the user does in MiniMax's own app
+  (D78), and mixing voices (`timbre_weights`).
+- Pronunciation rules, subtitles, text normalization, reading LaTeX, and
+  the China region's `aigc_watermark`, an audio mark at the end of the
+  speech.
+- The US West host `https://api-uw.minimax.io`, which a user can enter as
+  the endpoint.
+- MiniMax's music (D78).
+
+### Acceptance criteria
+
+1. Speech 2.8 HD, Speech 2.8 Turbo, Speech 2.6 HD, and Speech 2.6 Turbo are
+   listed under Audio in both regions, each making speech in MP3 at once.
+2. A request sends the prompt as `text`, the voice, Speed, Volume, Pitch,
+   and an Emotion other than Auto in `voice_setting`, MP3 at 44,100 Hz and
+   256,000 bps as hex, the Language when it is set, and the voice effects
+   only when one is set.
+3. The hex answered lands on the target as an MP3.
+4. `voices` lists the account's cloned and designed voices as its own, then
+   MiniMax's system voices, without samples.
+5. A nonzero `base_resp`, the HTTP errors, and a dropped connection map as
+   for video, with plain words for sensitive text, an unknown voice, and a
+   voice or model the key may not use, and the request is sent once.
+
+### Verification
+
+`src/vs/platform/basehalfProviders/test/node/minimax.test.ts` also runs the
+speech models against a local server that answers like MiniMax's speech
+API: the catalog entries, the body of each model in each region with the
+defaults and with every setting, the speech answered as hex and as an
+address, the voices of an account through `voices`, the codes of
+`base_resp`, refused keys, too many requests, a dropped connection, the
+rules of `check`, and that a speech model has no task.
