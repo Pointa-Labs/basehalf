@@ -15,6 +15,7 @@ import {
 	assertSameCanvasView,
 	canonicalJson,
 	canvasCard,
+	canvasCardPointOnTop,
 	captureCardFrame,
 	cardInformationFiles,
 	cardVideoControlBox,
@@ -41,9 +42,11 @@ import {
 	openSettings,
 	pickInputOnCanvas,
 	playCardVideo,
+	pointAtCanvasCard,
 	readCanvasLayout,
 	readCardRow,
 	readCardToolbar,
+	readCanvasPick,
 	readCardVideoPlayer,
 	readCursorAt,
 	readGenerationCard,
@@ -66,6 +69,7 @@ import {
 	selectGenerationCard,
 	showCardOnCanvas,
 	START_IMAGE,
+	startPickOnCanvas,
 	statesOf,
 	taskRecordOf,
 	TASK_RECORD_FOLDER,
@@ -152,8 +156,8 @@ const smoke = { provider: undefined, models: undefined, notOffered: undefined, s
 
 // --- Generation cards (D63, D64, D67, docs/specs/generation-cards.md) ------------------------------
 //
-// Acceptance criteria 1 to 8, 13 to 29, 32 to 38, 42, 43, and the canvas's
-// part of 45 and 46 of generation cards, through the window and against the
+// Acceptance criteria 1 to 8, 13 to 29, 32 to 38, 42, 43, the canvas's part
+// of 45 and 46, and 59 and 60 of generation cards, through the window and against the
 // local test provider with its test key, reached through the provider module
 // of SMOKE_PROVIDER; no paid provider is called. Criterion 30, Sequence, is
 // in workflowTemplate.mts. The steps run in order, each where the one before
@@ -169,6 +173,7 @@ export async function runGenerationCardSteps(page) {
 	await step('video-provider-key-stays-secret', () => assertProviderKeyStaysSecret(page));
 	await step('video-image-model-menu', () => assertImageModelMenu(page));
 	await step('video-panel-inputs-and-names', () => assertPanelInputsAndNames(page));
+	await step('video-pick-on-canvas', () => assertPickOnCanvas(page));
 	await step('video-panel-placement', () => assertPanelPlacement(page));
 	await step('video-prompt-and-agent-write-together', () => assertPromptAndAgentWriteTogether(page));
 	await step('video-generate-lands-video', () => assertGenerateLandsVideo(page));
@@ -982,6 +987,112 @@ async function assertPanelInputsAndNames(page) {
 	}
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME && seen.generate?.disabled === false && seen.reason === null, 'Generate to be enabled again once the prompt no longer sets --rs');
 	await waitUntil(() => readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt with the name to be saved', 10_000);
+}
+
+// D69, criteria 59 and 60: Pick on Canvas stays on until Escape. The bar
+// over the canvas says what a click does, and so does each card: the pointing
+// hand over a card that a click connects or removes, over its name as well,
+// and the not-allowed pointer over the draft and over a video, which the
+// model takes none of; the label beside the pointer says what a click does or
+// why not; a connected card is darkened with a check mark. A click connects a
+// card at the end of the list, or removes a connected one with its names,
+// each one step of undo; a click on the draft, on the video, or on the blank
+// canvas, and a drag, change nothing. An image and a video beside the cards
+// are the cards a click connects and refuses; the image draft lies under the
+// panel of the video draft, which a card's panel may cover.
+async function assertPickOnCanvas(page) {
+	const still = `${GENERATION_FOLDER}/still.png`;
+	const take = `${GENERATION_FOLDER}/take.mp4`;
+	fs.writeFileSync(workspaceFile(still), solidPng(640, 360, [16, 185, 129]));
+	fs.writeFileSync(workspaceFile(take), (await videoSmokeProvider()).video);
+	for (const cardPath of [still, take]) {
+		const card = canvasCard(page, cardPath);
+		await card.waitFor({ state: 'attached', timeout: 15_000 });
+		// A new card's place is checked again when its row is written, and the card can move once then.
+		await waitUntil(() => readCardRow(cardPath) !== undefined, `the card of ${cardPath} to get a place`, 15_000);
+		await waitForReading(async () => {
+			const before = await card.boundingBox();
+			await page.waitForTimeout(500);
+			const after = await card.boundingBox();
+			return !!before && !!after && Math.abs(before.x - after.x) < 0.5 && Math.abs(before.y - after.y) < 0.5;
+		}, settled => settled, `the card of ${cardPath} to stay where it is drawn`);
+	}
+	let panel = await selectGenerationCard(page, VIDEO);
+	const connected = [START_IMAGE, END_IMAGE, SCENE_NOTE];
+	if (JSON.stringify(readUpstreamSidecar(VIDEO)) !== JSON.stringify(connected) || readGenerationInfo(VIDEO)?.prompt !== VIDEO_PROMPT_WITH_NAME) {
+		throw new Error(`The step starts where the inputs and names left ${VIDEO}: ${JSON.stringify({ upstream: readUpstreamSidecar(VIDEO), info: readGenerationInfo(VIDEO) })}`);
+	}
+	await startPickOnCanvas(page, panel);
+	const bar = await readCanvasPick(page);
+	if (bar?.title !== 'Click cards to connect them to video.mp4, or a connected card to remove it.' || bar.done !== 'Done') {
+		throw new Error(`The bar over the canvas must say what a click does, with Done: ${JSON.stringify(bar)}`);
+	}
+	// Each card in sight, as the user points at it: its body, its name, and the label.
+	const pointed = {};
+	for (const cardPath of [still, take, START_IMAGE, VIDEO]) {
+		await showCardOnCanvas(page, cardPath);
+		pointed[cardPath] = { ...await pointAtCanvasCard(page, cardPath), action: (await readCanvasPick(page))?.cards[cardPath] ?? null };
+	}
+	const expected = {
+		[still]: { onTop: true, cursor: 'pointer', label: 'Connect still.png', checked: false, overName: 'pointer', action: 'connect' },
+		[take]: { onTop: true, cursor: 'not-allowed', label: 'Seedance 2.5 takes no videos.', checked: false, overName: 'not-allowed', action: 'refused' },
+		[START_IMAGE]: { onTop: true, cursor: 'pointer', label: 'Remove start.png', checked: true, overName: 'pointer', action: 'remove' },
+		[VIDEO]: { onTop: true, cursor: 'not-allowed', label: null, checked: false, overName: 'not-allowed', action: 'self' }
+	};
+	if (canonicalJson(pointed) !== canonicalJson(expected)) {
+		throw new Error(`While picking, each card must show what a click on it does: ${JSON.stringify({ pointed, expected })}`);
+	}
+
+	// A click on the video the model refuses, on the draft, and on the blank canvas, and a drag of a card, change nothing.
+	const stillRow = readCardRow(still);
+	await showCardOnCanvas(page, take);
+	await clickCanvasCardOnTop(page, take);
+	await showCardOnCanvas(page, VIDEO);
+	await clickCanvasCardOnTop(page, VIDEO);
+	const blank = await emptyCanvasPoint(page);
+	await page.mouse.click(blank.x, blank.y);
+	await showCardOnCanvas(page, still);
+	const [pressX, pressY] = await canvasCardPointOnTop(page, still);
+	await page.mouse.move(pressX, pressY);
+	await page.mouse.down();
+	// Let go on the card itself: a press that moved is no click either.
+	await page.mouse.move(pressX + 30, pressY + 16, { steps: 8 });
+	await page.mouse.up();
+	await page.waitForTimeout(600);
+	const unchanged = { upstream: readUpstreamSidecar(VIDEO), row: readCardRow(still), picking: !!(await readCanvasPick(page))?.title };
+	if (JSON.stringify(unchanged) !== JSON.stringify({ upstream: connected, row: stillRow, picking: true })) {
+		throw new Error(`A click on a refused card, the draft, or the blank canvas, and a drag, must change nothing and leave picking on: ${JSON.stringify({ unchanged, stillRow })}`);
+	}
+	await waitForCanvasCardSelection(page, VIDEO);
+
+	// Two clicks in a row: the image is connected at the end, and start.png is removed with its name.
+	await clickCanvasCardOnTop(page, still);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]), `a click to connect ${still} at the end of the list`, 10_000);
+	await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[still] === 'remove', `picking to stay on and show ${still} as connected`);
+	await showCardOnCanvas(page, START_IMAGE);
+	await clickCanvasCardOnTop(page, START_IMAGE);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([END_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === `${VIDEO_PROMPT} Image 1`, `a click on the connected ${START_IMAGE} to remove it and rename Image 2 in the prompt`, 10_000);
+	await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[START_IMAGE] === 'connect', `picking to stay on and show ${START_IMAGE} as one a click connects`);
+
+	// Escape ends picking; the draft keeps its selection and its panel.
+	await page.keyboard.press('Escape');
+	await waitForReading(() => readCanvasPick(page), seen => seen === null, 'Escape to end picking and take away the bar and the looks of the cards');
+	panel = await waitForGenerationPanel(page, VIDEO);
+	if (await panel.locator('.bh-input-row.picking').count() !== 0) {
+		throw new Error('The input row must stop saying that the draft picks once Escape ended it');
+	}
+	await waitForCanvasCardSelection(page, VIDEO);
+
+	// Each click was one step of undo.
+	await clickBlankCanvas(page);
+	await page.keyboard.press(UNDO);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_NAME, `one undo to bring back ${START_IMAGE} and the name Image 2`, 10_000);
+	await page.keyboard.press(UNDO);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify(connected), `a second undo to take away the connection of ${still}`, 10_000);
+	for (const cardPath of [still, take]) {
+		fs.rmSync(workspaceFile(cardPath), { force: true });
+		await canvasCard(page, cardPath).waitFor({ state: 'detached', timeout: 15_000 });
+	}
 }
 
 // Criterion 16: opening the panel moves the canvas neither way; it sits 10

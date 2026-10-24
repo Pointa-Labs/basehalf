@@ -398,6 +398,11 @@ export function generationPanel(page, cardPath) {
 // card can lie over part of it. Not its name, whose double click edits it,
 // and not the controls of its player.
 export async function clickCanvasCardOnTop(page, cardPath) {
+	await page.mouse.click(...await canvasCardPointOnTop(page, cardPath));
+}
+
+/** A point of the card's body that nothing else covers, such as a panel, as `[x, y]`. */
+export async function canvasCardPointOnTop(page, cardPath) {
 	const point = await page.evaluate(path => {
 		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
 		const rect = card?.getBoundingClientRect();
@@ -416,7 +421,7 @@ export async function clickCanvasCardOnTop(page, cardPath) {
 	if (!point) {
 		throw new Error(`No part of the card ${cardPath} is on top to click`);
 	}
-	await page.mouse.click(point.x, point.y);
+	return [point.x, point.y];
 }
 
 export async function clickBlankCanvas(page) {
@@ -866,16 +871,87 @@ export async function drawCanvasConnectionInto(page, sourcePath, targetPath) {
 	await page.mouse.up();
 }
 
-/** Connects `sourcePath` to the card of the panel with Pick on Canvas, from a plus of its input row. */
-export async function pickInputOnCanvas(page, panel, sourcePath, plus = 'button.bh-input-row-add') {
+/** Chooses Pick on Canvas from a plus of the panel's input row; the panel and the bar over the canvas say what a click does (D69). */
+export async function startPickOnCanvas(page, panel, plus = 'button.bh-input-row-add') {
 	await panel.locator(plus).click();
 	const addMenu = panel.locator('.bh-video-panel-menu.add');
 	await addMenu.waitFor({ state: 'visible', timeout: 10_000 });
 	await addMenu.locator('.bh-video-panel-menu-item[data-key="pick"]').click();
-	// The panel says what the next click does.
 	await panel.locator('.bh-input-row.picking .bh-input-row-hint[role="status"]').waitFor({ state: 'visible', timeout: 10_000 });
+	await page.locator('.basehalf-canvas-pick-bar').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/**
+ * Connects `sourcePath` to the card of the panel with Pick on Canvas, from a
+ * plus of its input row: picking stays on and shows the card as connected,
+ * and Done ends it (D69).
+ */
+export async function pickInputOnCanvas(page, panel, sourcePath, plus = 'button.bh-input-row-add') {
+	await startPickOnCanvas(page, panel, plus);
 	await clickCanvasCardOnTop(page, sourcePath);
+	await waitForReading(() => readCanvasPick(page), seen => seen?.cards[sourcePath] === 'remove', `Pick on Canvas to show ${sourcePath} as connected`);
+	await page.locator('.basehalf-canvas-pick-done').click();
 	await panel.locator('.bh-input-row.picking').waitFor({ state: 'detached', timeout: 10_000 });
+	await page.locator('.basehalf-canvas-pick-bar').waitFor({ state: 'detached', timeout: 10_000 });
+}
+
+/**
+ * What Pick on Canvas shows (D69): the bar over the canvas, what a click on
+ * each card drawn does, and the label beside the pointer; null while it is off.
+ */
+export function readCanvasPick(page) {
+	return page.evaluate(() => {
+		const bar = document.querySelector('.basehalf-canvas-pick-bar');
+		const marked = document.querySelectorAll('.basehalf-canvas-card[data-basehalf-pick]');
+		if (!bar && !marked.length) {
+			return null;
+		}
+		const cards = {};
+		for (const card of document.querySelectorAll('.basehalf-canvas-card[data-basehalf-card-path]')) {
+			cards[card.getAttribute('data-basehalf-card-path')] = card.getAttribute('data-basehalf-pick');
+		}
+		const label = document.querySelector('.basehalf-canvas-pick-label');
+		return {
+			title: bar?.querySelector('.basehalf-canvas-pick-title')?.textContent ?? null,
+			done: bar?.querySelector('.basehalf-canvas-pick-done')?.textContent ?? null,
+			cards,
+			label: label instanceof HTMLElement && !label.hidden ? label.textContent : null
+		};
+	});
+}
+
+/**
+ * Moves the pointer over the card at `cardPath` and reads what the window
+ * shows there: the pointer over its body and over its name, the label beside
+ * the pointer, and whether the card is darkened with a check mark.
+ */
+export async function pointAtCanvasCard(page, cardPath) {
+	const name = await page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const rect = card?.querySelector('.basehalf-canvas-card-label')?.getBoundingClientRect();
+		return rect ? { x: rect.left + Math.min(8, rect.width / 2), y: rect.top + rect.height / 2 } : undefined;
+	}, cardPath);
+	if (!name) {
+		throw new Error(`The card ${cardPath} has no name to point at`);
+	}
+	await page.mouse.move(name.x, name.y, { steps: 4 });
+	const overName = await page.evaluate(([x, y]) => getComputedStyle(document.elementFromPoint(x, y)).cursor, [name.x, name.y]);
+	const [x, y] = await canvasCardPointOnTop(page, cardPath);
+	const point = { x, y };
+	await page.mouse.move(point.x, point.y, { steps: 4 });
+	return page.evaluate(([path, x, y]) => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const hit = document.elementFromPoint(x, y);
+		const label = document.querySelector('.basehalf-canvas-pick-label');
+		const mark = card ? getComputedStyle(card, '::before').content : 'none';
+		const shade = card ? getComputedStyle(card, '::after').backgroundColor : '';
+		return {
+			onTop: !!card && !!hit && card.contains(hit),
+			cursor: hit ? getComputedStyle(hit).cursor : null,
+			label: label instanceof HTMLElement && !label.hidden ? label.textContent : null,
+			checked: mark.includes('\u2713') && shade !== 'rgba(0, 0, 0, 0)' && shade !== ''
+		};
+	}, [cardPath, point.x, point.y]).then(seen => ({ ...seen, overName }));
 }
 
 // --- the player -----------------------------------------------------------------------------------
