@@ -350,8 +350,6 @@ async function cancel(): Promise<boolean> {
 // --- voices ------------------------------------------------------------------------------------
 
 const VOICES_PAGE_SIZE = 100;
-/** More pages than 2,000 voices take, the first page's Default voices included. */
-const MAX_VOICE_PAGES = 22;
 /** The labels a voice's description is made of, in order; `descriptive` was `description` before. */
 const DESCRIBING_LABELS: readonly (readonly string[])[] = Object.freeze([['gender'], ['age'], ['accent'], ['descriptive', 'description'], ['use_case']]);
 
@@ -399,7 +397,9 @@ async function listVoices(_request: VoicesRequest, http: ProviderHttp, limit: nu
 	const voices: ListedVoice[] = [];
 	const tokens = new Set<string>();
 	let token: string | undefined;
-	for (let page = 0; page < MAX_VOICE_PAGES; page++) {
+	// More pages than `limit` voices take: every page but the last holds 100, and the first may hold more.
+	const pages = Math.ceil((limit + 1) / VOICES_PAGE_SIZE) + 1;
+	for (let page = 0; page < pages; page++) {
 		const answer = (await http.request({
 			method: 'GET',
 			path: '/v2/voices',
