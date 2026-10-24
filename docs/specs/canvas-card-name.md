@@ -377,6 +377,11 @@ card.
     ends with `.png`, and the name of another draft of the folder, are not
     accepted for it. On a generation card with its file, Enter renames the
     file.
+28. Right after a file is renamed on the canvas, Undo on the canvas gives it
+    its old name back, and the entries and the mentions that named it name
+    it again; Redo renames it again. A rename in the title of Card Detail is
+    a step of the same undo once Card Detail is closed. Undo in Files undoes
+    neither, as it undoes no delete made on the canvas.
 
 The name that is shown
 
@@ -432,6 +437,14 @@ The editor in place
 - Criterion 27 is part of criterion 5 of
   [generation cards](generation-cards.md#acceptance-criteria), whose smoke
   renames a draft on the canvas.
+- Criterion 28: `canvas-inline-rename` undoes and redoes its rename on the
+  canvas, `card-detail-rename-is-canvas-undo` renames a note in the title of
+  Card Detail and undoes it on the canvas, and
+  `video-mentions-follow-renames` checks the entries and the mention of a
+  draft's prompt after the Undo and the Redo (criterion 73 of generation
+  cards). Until 2026-10-24 a file renamed on the canvas or in
+  Card Detail went to the undo of Files: Undo on the canvas did nothing, or
+  took back an older step of the canvas.
 
 ### Seen in the real window (2026-10-13)
 
