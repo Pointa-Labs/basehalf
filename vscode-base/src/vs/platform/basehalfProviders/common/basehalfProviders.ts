@@ -5,7 +5,7 @@
 
 import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
-import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderResponse, SubmitPayload, SubmitResult, TaskRef } from './basehalfProviderTypes.js';
+import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderResponse, SubmitPayload, SubmitResult, TaskRef, VoicePreviewRequest, VoicePreviewResult, VoicesRequest, VoicesResult } from './basehalfProviderTypes.js';
 
 /** The channel of the provider service in the shared process. */
 export const BASEHALF_PROVIDERS_CHANNEL = 'basehalfProviders';
@@ -45,4 +45,8 @@ export interface IBaseHalfProviderService {
 	cancel(task: TaskRef, token?: CancellationToken): Promise<ProviderResponse<CancelResult>>;
 	/** Puts a received file into its card's place, never replacing anything. */
 	place(request: PlaceRequest): Promise<ProviderResponse<PlaceResult>>;
+	/** Lists the voices of a speech model's provider and of the user's account (D78). */
+	voices(request: VoicesRequest, token?: CancellationToken): Promise<ProviderResponse<VoicesResult>>;
+	/** Fetches the sample of a listed voice, for the window to play (D78). */
+	voicePreview(request: VoicePreviewRequest, token?: CancellationToken): Promise<ProviderResponse<VoicePreviewResult>>;
 }

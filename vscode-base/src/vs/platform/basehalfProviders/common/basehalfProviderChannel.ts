@@ -7,7 +7,7 @@ import { CancellationToken } from '../../../base/common/cancellation.js';
 import { Event } from '../../../base/common/event.js';
 import { IServerChannel } from '../../../base/parts/ipc/common/ipc.js';
 import { IBaseHalfProviderService } from './basehalfProviders.js';
-import type { CheckPayload, DownloadRequest, PlaceRequest, SubmitPayload, TaskRef } from './basehalfProviderTypes.js';
+import type { CheckPayload, DownloadRequest, PlaceRequest, SubmitPayload, TaskRef, VoicePreviewRequest, VoicesRequest } from './basehalfProviderTypes.js';
 
 /**
  * The channel of the provider service in the shared process (D75). Unlike one
@@ -35,6 +35,8 @@ export class BaseHalfProviderChannel implements IServerChannel<string> {
 			case 'download': return await this.service.download(argument as DownloadRequest, token) as T;
 			case 'cancel': return await this.service.cancel(argument as TaskRef, token) as T;
 			case 'place': return await this.service.place(argument as PlaceRequest) as T;
+			case 'voices': return await this.service.voices(argument as VoicesRequest, token) as T;
+			case 'voicePreview': return await this.service.voicePreview(argument as VoicePreviewRequest, token) as T;
 		}
 		throw new Error(`The provider service has no call '${command}'.`);
 	}

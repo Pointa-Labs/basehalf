@@ -10,15 +10,20 @@
  * `src/vs/workbench/basehalf/video/common/basehalfVideoCatalog.ts` gives them.
  */
 
+import type { VSBuffer } from '../../../base/common/buffer.js';
+
 // --- The catalog ------------------------------------------------------------------------------
 
-/** How a mode uses the node's inputs (video providers, "Modes and inputs"). */
-export type ModeId = 'frames' | 'reference' | 'extend' | 'edit';
+/** How a mode uses the node's inputs (video providers, "Modes and inputs"). `lyrics`: the prompt is what a song sings (D78). */
+export type ModeId = 'frames' | 'reference' | 'extend' | 'edit' | 'lyrics';
 
 export type SlotUse = 'none' | 'optional' | 'required';
 
-/** What a model makes (D64). */
-export type ModelKind = 'image' | 'video';
+/** What a model makes (D64, D78). */
+export type ModelKind = 'image' | 'video' | 'audio';
+
+/** What an audio model makes (D78): a voice that says the prompt, a song or an instrumental, or sound effects. */
+export type AudioMakes = 'speech' | 'music' | 'sound';
 
 export interface Catalog {
 	/** Changes when the shape of the catalog changes. */
@@ -67,8 +72,10 @@ export interface CatalogModel {
 	readonly deprecated?: boolean;
 	/** What the model makes. */
 	readonly kind: ModelKind;
-	/** For an image model: the format its module asks the provider for, which a draft's extension follows. */
-	readonly outputFormat?: ImageFormat;
+	/** For an audio model: what it makes (D78). */
+	readonly makes?: AudioMakes;
+	/** For an image or an audio model: the format its module asks the provider for, which a draft's extension follows. */
+	readonly outputFormat?: ImageFormat | AudioFormat;
 	/** The provider answers the request with the files instead of a task (providers, "Requests"). */
 	readonly answersAtOnce?: boolean;
 	/** The regions that retire the model when not all of them do; it is deprecated only there. */
@@ -100,6 +107,9 @@ export interface ModeInputs {
 
 /** An image format a provider takes. */
 export type ImageFormat = 'png' | 'jpeg' | 'webp';
+
+/** The format an audio model delivers (D78, providers, "Audio format"). */
+export type AudioFormat = 'mp3' | 'wav';
 
 /** Checked by `check` before anything is sent. Any may be absent. */
 export interface ModeLimits {
@@ -176,11 +186,35 @@ export interface TextParameter extends ParameterBase {
 	readonly multiline?: boolean;
 }
 
+/** A voice the catalog declares for a speech model (D78, providers, "Voices"). */
+export interface CatalogVoiceOption {
+	/** The provider's voice id: what the card stores and sends. */
+	readonly value: string;
+	readonly label: string;
+	/** A few words from the provider's labels, such as its gender, accent, or style. */
+	readonly description?: string;
+}
+
+/**
+ * The voice of a speech model (D78). Its options are the voices every account
+ * of the provider has, at least the default; `listed` says that the
+ * provider also lists voices through the `voices` call: its own and the
+ * account's. A value that is not an option is accepted for a listed
+ * parameter when it is at most 256 characters without control characters.
+ */
+export interface VoiceParameter extends ParameterBase {
+	readonly kind: 'voice';
+	readonly options: readonly CatalogVoiceOption[];
+	readonly default: string;
+	readonly listed?: boolean;
+}
+
 export type CatalogParameter =
 	| ChoiceParameter
 	| NumberParameter
 	| BooleanParameter
-	| TextParameter;
+	| TextParameter
+	| VoiceParameter;
 
 // --- The provider commands ---------------------------------------------------------------------
 
@@ -287,8 +321,11 @@ export interface SubmitPayload extends Omit<SubmitRequest, 'prompt'> {
 	readonly prompt: readonly PromptPart[];
 }
 
-/** The format of a file a generation made. */
-export type OutputFormat = ImageFormat | 'mp4';
+/** The format of a file a generation made: the format its bytes start like. */
+export type OutputFormat = ImageFormat | 'mp4' | AudioOutputFormat;
+
+/** The formats a sound is kept in (providers, "Requests"): an MP3, a WAV, a FLAC, an Ogg, or an M4A. */
+export type AudioOutputFormat = AudioFormat | 'flac' | 'ogg' | 'm4a';
 
 /** One file of a generation: an address to download, a target already written, or why the provider refused it alone. */
 export type Output =
@@ -334,6 +371,46 @@ export interface CancelResult {
 	readonly cancelled: boolean;
 }
 
+/** Asks for the voices of a speech model's provider and of the user's account (D78, providers, "Voices"). */
+export interface VoicesRequest extends ProviderAccess {
+	/** A model whose `voice` parameter is listed. */
+	readonly model: string;
+}
+
+/** A voice the provider lists. */
+export interface ListedVoice {
+	/** The provider's voice id. */
+	readonly id: string;
+	/** The name the provider gives it. */
+	readonly label: string;
+	/** A few words from the provider's labels, such as its gender, age, accent, language, or style. */
+	readonly description?: string;
+	/** A voice of the account (cloned, designed, or saved), not one of the provider's own. */
+	readonly own: boolean;
+	/** The address of a short recording of it, for `voicePreview`. */
+	readonly sample?: string;
+}
+
+export interface VoicesResult {
+	/** At most 2,000, the account's own first. */
+	readonly voices: readonly ListedVoice[];
+	/** The provider listed more voices than were kept. */
+	readonly truncated?: boolean;
+}
+
+/** Fetches the sample of a listed voice for the window to play (D78). */
+export interface VoicePreviewRequest extends ProviderAccess {
+	readonly model: string;
+	/** The `sample` address of a listed voice. */
+	readonly sample: string;
+}
+
+export interface VoicePreviewResult {
+	/** The sample itself, at most 5 MiB, starting like a sound. */
+	readonly bytes: VSBuffer;
+	readonly format: AudioOutputFormat;
+}
+
 /**
  * A file a generation received, to put into its card's place (generation
  * cards, "Landing"): `from` is a `.part` file directly in a
@@ -360,6 +437,7 @@ export type ProviderErrorCode =
 	| 'notFound'
 	| 'notVideo'
 	| 'notImage'
+	| 'notAudio'
 	| 'tooLarge'
 	| 'unknownProvider'
 	/** Putting a file in place: a file already has the name. */

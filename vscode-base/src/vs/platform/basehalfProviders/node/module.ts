@@ -7,7 +7,7 @@ import type { ProviderErrorReading } from './failure.js';
 import type { ProviderHttp } from './http.js';
 import type { MediaInspector } from './media.js';
 import type { PromptContext } from './prompt.js';
-import type { CatalogProvider, CheckRequest, CheckResult, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef } from '../common/basehalfProviderTypes.js';
+import type { CatalogProvider, CheckRequest, CheckResult, ListedVoice, OutputFormat, PollState, PromptPart, SubmitRequest, TaskRef, VoicesRequest } from '../common/basehalfProviderTypes.js';
 
 /**
  * One provider on its own API, with its image and video models (D59, D64,
@@ -138,6 +138,22 @@ export interface ProviderModule {
 	 * it took the cancellation.
 	 */
 	cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean>;
+
+	/**
+	 * Lists the voices of a speech model whose `voice` parameter is `listed`
+	 * (D78, providers, "Voices"): the provider's own and those of the user's
+	 * account, through the provider's list calls (`http.request`), as many
+	 * pages as it takes and no more than `limit` voices, the account's own
+	 * first. A module without listed voices leaves it out.
+	 */
+	listVoices?(request: VoicesRequest, http: ProviderHttp, limit: number): Promise<ModuleVoices>;
+}
+
+/** What a module's `listVoices` answers. */
+export interface ModuleVoices {
+	readonly voices: readonly ListedVoice[];
+	/** The provider had more voices than `limit`. */
+	readonly truncated?: boolean;
 }
 
 /** What a module's `check` answers: the contract's answer without the prompt, which the commands wrote. */
