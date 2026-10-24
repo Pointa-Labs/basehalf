@@ -2634,3 +2634,35 @@ panel's icon never showed the Agent Area open. One part has one control
 **Consequences.**
 - Revises the scope of D56, which left the panel's control as it was.
 - Customize Layout, in the command palette, still lists the panel.
+
+## D73 — A click on the title bar's location opens the search (NEW, 2026-10-24)
+
+**Decision.** In the box in the middle of the title bar, a click anywhere
+opens the search, except on a folder of the path, which opens that folder's
+canvas, and on "…", which lists the folders it stands for. A press on the
+box leaves the keyboard where it was, and shortcuts work while the keyboard
+is in the box. See [the location in the title bar](specs/title-bar-location.md).
+
+**Why.** On 2026-10-24 the user asked whether the Quick Input at the top had
+a bug, since a click on it seemed to do nothing. Since 2026-07-12 the box
+took a click only on its magnifier and on the folders of its path; at the
+root of a workspace that was 16 of its 600 px. Everything else about it said
+it was one button: it lit up under the pointer, the pointer was the
+pointing hand over all of it, and its hover said "Search …". VS Code's
+command center, which the box is, opens the search on a click anywhere. A
+press also moved the keyboard into the box, and the box held every key so
+that Enter on a folder would not also open the search; no shortcut worked
+until the user clicked somewhere else. No decision or specification had set
+the box apart from the command center; the rule was in the code and in a
+smoke step.
+
+**What was set aside.**
+- Keeping the box passive and taking away its button look: the box would
+  still be the widest control of the window that does nothing.
+- A field to type in, in the box: the search is VS Code's Quick Open, and
+  it already takes the box's place when it opens.
+
+**Consequences.**
+- Revises the rule of 2026-07-12 that a click on the current place, on a
+  chevron, or on the box's free room did nothing.
+- A press on the box no longer takes the keyboard. Tab still reaches it.
