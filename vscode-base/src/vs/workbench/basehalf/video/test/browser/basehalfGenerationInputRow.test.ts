@@ -149,6 +149,46 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		}, { image: true, clip: true, clipLoads: true, left: false, back: true });
 	});
 
+	test('a video and a sound show their length once their file tells it, and keep it when the row is drawn again (D70)', () => {
+		const clip = tile('shots/clip.mp4', { kind: 'video', number: 1, label: '视频1', file: URI.file('/work/shots/clip.mp4') });
+		const sound = tile('sounds/rain.mp3', { kind: 'audio', number: 1, label: '音频1', file: URI.file('/work/sounds/rain.mp3') });
+		const draft = tile('shots/next.mp4', { kind: 'video', number: 2, label: '视频2' });
+		const row = create({ tiles: [clip, sound, draft], editable: true });
+		const lengths = () => [...row.element.querySelectorAll<HTMLElement>('.bh-input-tile')].map(element => {
+			const label = element.querySelector<HTMLElement>('.bh-input-tile-length');
+			return `${element.dataset.path}: ${label ? label.hidden ? 'waits' : label.textContent : 'none'} (${element.getAttribute('aria-label')})`;
+		});
+		const tell = (media: HTMLMediaElement | null, seconds: number) => {
+			Object.defineProperty(media, 'duration', { value: seconds, configurable: true });
+			media?.dispatchEvent(new Event('loadedmetadata'));
+		};
+		const before = lengths();
+		tell(row.element.querySelector('video'), 6.84);
+		tell(row.element.querySelector('audio'), 12);
+		const told = lengths();
+		row.update({ tiles: [sound], editable: true });
+		row.update({ tiles: [clip, sound, draft], editable: true });
+		assert.deepStrictEqual({ before, told, back: lengths() }, {
+			before: [
+				'shots/clip.mp4: waits (视频1, clip.mp4)',
+				'sounds/rain.mp3: waits (音频1, rain.mp3)',
+				// A draft has no file to tell it.
+				'shots/next.mp4: none (视频2, next.mp4)'
+			],
+			told: [
+				'shots/clip.mp4: 6.8s (视频1, clip.mp4, 6.8 seconds)',
+				'sounds/rain.mp3: 12.0s (音频1, rain.mp3, 12.0 seconds)',
+				'shots/next.mp4: none (视频2, next.mp4)'
+			],
+			// The clip left and came back, as by undo: its picture and its length show at once.
+			back: [
+				'shots/clip.mp4: 6.8s (视频1, clip.mp4, 6.8 seconds)',
+				'sounds/rain.mp3: 12.0s (音频1, rain.mp3, 12.0 seconds)',
+				'shots/next.mp4: none (视频2, next.mp4)'
+			]
+		});
+	});
+
 	test('read only, the row has no plus, cross, @, or swap, and its tiles still show their numbers', () => {
 		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP], editable: false });
 		assert.deepStrictEqual(drawn(row), [

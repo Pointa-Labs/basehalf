@@ -114,6 +114,10 @@ export class BaseHalfGenerationInputRow extends Disposable {
 	 * undo, shows its picture at once.
 	 */
 	private readonly gonePictures = new Map<string, { readonly element: HTMLElement; readonly store: DisposableStore }>();
+	/** How long each video and sound lasts, as its file told it, by picture key (D70). */
+	private readonly lengths = new Map<string, number>();
+	/** The length labels of the tiles drawn last, by picture key, to fill in when a file tells its length. */
+	private lengthLabels = new Map<string, { readonly tile: HTMLElement; readonly label: HTMLElement; readonly data: IBaseHalfInputTile }>();
 	private readonly lookStore = this._register(new DisposableStore());
 	private readonly dragStore = this._register(new DisposableStore());
 	private list: HTMLElement | undefined;
@@ -180,6 +184,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		clearNode(this.element);
 		this.list = undefined;
 		this.drawnPictures.clear();
+		this.lengthLabels = new Map();
 		this.element.hidden = !model;
 		if (!model) {
 			this.dropUndrawnPictures();
@@ -277,6 +282,14 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		if (tile.kind === 'text' || tile.kind === 'other') {
 			append(element, $('span.bh-input-tile-caption')).textContent = tile.fileName;
 		}
+		if ((tile.kind === 'video' || tile.kind === 'audio') && tile.file) {
+			// Its length, which a model's limits count (D70), once its file tells it.
+			const label = append(element, $('span.bh-input-tile-length'));
+			label.setAttribute('aria-hidden', 'true');
+			const key = pictureKey(tile);
+			this.lengthLabels.set(key, { tile: element, label, data: tile });
+			this.showLength(key);
+		}
 		if (tile.number !== undefined) {
 			append(element, $('span.bh-input-tile-number')).textContent = String(tile.number);
 		}
@@ -355,15 +368,30 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		this.rowStore.add(addDisposableListener(swap, 'click', () => this.delegate.swap()));
 	}
 
+	/** Shows the length of the tile at `key`, once its file has told it. */
+	private showLength(key: string): void {
+		const drawn = this.lengthLabels.get(key);
+		const seconds = this.lengths.get(key);
+		if (!drawn) {
+			return;
+		}
+		drawn.label.hidden = seconds === undefined;
+		drawn.label.textContent = seconds === undefined ? '' : formatLength(seconds);
+		drawn.tile.setAttribute('aria-label', tileLabel(drawn.data, seconds));
+	}
+
 	/** The picture of a tile: the one drawn before for the same file, while there is one. */
 	private picture(tile: IBaseHalfInputTile): HTMLElement {
-		const key = `${tile.path}\0${tile.kind}\0${tile.file?.toString() ?? ''}`;
+		const key = pictureKey(tile);
 		this.drawnPictures.add(key);
 		let kept = this.pictures.get(key) ?? this.gonePictures.get(key);
 		if (!kept) {
 			const element = $('.bh-input-tile-picture');
 			const store = new DisposableStore();
-			this.renderPicture(element, tile, false, store);
+			this.renderPicture(element, tile, false, store, seconds => {
+				this.lengths.set(key, seconds);
+				this.showLength(key);
+			});
 			kept = { element, store };
 		}
 		this.gonePictures.delete(key);
@@ -385,14 +413,38 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			}
 			kept.store.dispose();
 			this.gonePictures.delete(key);
+			this.lengths.delete(key);
 		}
 	}
 
-	private renderPicture(container: HTMLElement, tile: IBaseHalfInputTile, large: boolean, store: DisposableStore): void {
+	private renderPicture(container: HTMLElement, tile: IBaseHalfInputTile, large: boolean, store: DisposableStore, onLength?: (seconds: number) => void): void {
 		const glyph = () => {
 			clearNode(container);
 			container.append(renderGlyph(glyphOf(tile.kind)));
 		};
+		const length = (media: HTMLMediaElement) => {
+			if (onLength) {
+				media.addEventListener('loadedmetadata', () => {
+					if (Number.isFinite(media.duration) && media.duration > 0) {
+						onLength(media.duration);
+					}
+				}, { once: true });
+			}
+		};
+		if (tile.kind === 'audio' && tile.file && onLength) {
+			// A sound shows its glyph; its file, which draws nothing without controls, is read for its length alone.
+			glyph();
+			const sound = append(container, $<HTMLAudioElement>('audio'));
+			sound.preload = 'metadata';
+			sound.setAttribute('aria-hidden', 'true');
+			length(sound);
+			sound.src = FileAccess.uriToBrowserUri(tile.file).toString(true);
+			store.add(toDisposable(() => {
+				sound.removeAttribute('src');
+				sound.load();
+			}));
+			return;
+		}
 		if (!tile.file || (tile.kind !== 'image' && tile.kind !== 'video')) {
 			glyph();
 			return;
@@ -420,6 +472,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		if (large) {
 			video.addEventListener('loadedmetadata', () => this.fitLook(video.videoWidth, video.videoHeight), { once: true });
 		}
+		length(video);
 		// The first frame stands for the video.
 		video.src = `${source}#t=0.1`;
 		store.add(toDisposable(() => {
@@ -756,11 +809,24 @@ export class BaseHalfGenerationInputRow extends Disposable {
 	}
 }
 
-function tileLabel(tile: IBaseHalfInputTile): string {
+/** What identifies a tile's picture: its input and its file. */
+function pictureKey(tile: IBaseHalfInputTile): string {
+	return `${tile.path}\0${tile.kind}\0${tile.file?.toString() ?? ''}`;
+}
+
+/** A length as a tile shows it: 6.8s. */
+function formatLength(seconds: number): string {
+	return localize('basehalf.generation.inputRow.length', "{0}s", seconds.toFixed(1));
+}
+
+function tileLabel(tile: IBaseHalfInputTile, seconds?: number): string {
 	const name = tile.label ?? tile.fileName;
 	const parts = [tile.frame ? `${name}, ${frameMark(tile.frame)}` : name];
 	if (tile.label) {
 		parts.push(tile.fileName);
+	}
+	if (seconds !== undefined) {
+		parts.push(localize('basehalf.generation.inputRow.lengthSpoken', "{0} seconds", seconds.toFixed(1)));
 	}
 	if (tile.note) {
 		parts.push(tile.note);
