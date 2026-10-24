@@ -18,6 +18,7 @@ import {
 	assertNoCanvasFocusRing,
 	emptyCanvasPoint,
 	panCanvasCardTo,
+	panCanvasToward,
 	readCanvasCardGeometry,
 	startCanvasConnectionDrag,
 	waitForCanvasCardSelection
@@ -430,6 +431,19 @@ export async function clickBlankCanvas(page) {
 	await waitForReading(() => page.locator('.react-flow__node.selected').count(), count => count === 0, 'a click on the blank canvas to end the selection');
 }
 
+/** Pans the canvas, as the user does, until no card is in sight: the cards lie above the visible part of the canvas. */
+export async function panBelowTheCards(page) {
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	for (let attempt = 0; attempt < 12; attempt++) {
+		const lowest = await page.evaluate(() => Math.max(...Array.from(document.querySelectorAll('.react-flow__node')).map(node => node.getBoundingClientRect().bottom)));
+		if (lowest < canvasBox.y - 20) {
+			return;
+		}
+		await panCanvasToward(page, canvasBox, 0, -(lowest - canvasBox.y + 40));
+	}
+	throw new Error('The canvas did not move to a part of it where no card is');
+}
+
 /**
  * Pans the canvas, as the user does, until the card is inside it, when it is
  * not, or always with `always`: then the card is at the top, in the middle.
@@ -579,6 +593,7 @@ export function readGenerationPanel(panel) {
 		const reason = element.querySelector('.bh-video-panel-reason');
 		const action = element.querySelector('.bh-video-panel-reason-action');
 		const notice = element.querySelector('.bh-video-panel-notice');
+		const voice = element.querySelector('button.bh-video-panel-voice');
 		return {
 			kind: element.getAttribute('data-kind'),
 			state: element.getAttribute('data-state'),
@@ -587,8 +602,12 @@ export function readGenerationPanel(panel) {
 			reason: reason && !reason.hidden ? { text: reason.querySelector('.bh-video-panel-reason-text')?.textContent ?? null, action: action && !action.hidden ? action.textContent : null } : null,
 			prompt: prompt ? storedText(prompt) : null,
 			promptFocused: !!prompt && element.ownerDocument.activeElement === prompt,
+			// What the empty prompt says it is (D78).
+			placeholder: prompt?.getAttribute('data-placeholder') ?? null,
 			model: text('.bh-video-panel-model-label'),
 			modelOutlined: element.querySelector('.bh-video-panel-model')?.classList.contains('outlined') ?? false,
+			// The voice button of a model that speaks (D78): the voice's name, and its accessible name.
+			voice: voice && !voice.hidden ? { label: voice.querySelector('.bh-video-panel-voice-label')?.textContent ?? null, name: voice.getAttribute('aria-label') } : null,
 			settings: text('.bh-video-panel-settings-label'),
 			generate: generate ? {
 				disabled: generate.getAttribute('aria-disabled') === 'true',
@@ -618,8 +637,9 @@ export function readGenerationPanel(panel) {
  * The panel of a card with its file (D67): what made it, read only. Its
  * inputs as its tiles name them (`Start: start.png`, a text input by its
  * file's name), the gone ones among them, the prompt with its chips as their
- * mentions (D74), the line under it, the model and the settings as text, its
- * buttons, and how many of its parts take typing.
+ * mentions (D74), the line under it, the model, the voice a speech model
+ * spoke in (D78), and the settings as text, its buttons, and how many of its
+ * parts take typing.
  */
 export function readRecordPanel(panel) {
 	return panel.evaluate(element => {
@@ -647,6 +667,7 @@ export function readRecordPanel(panel) {
 			promptEmpty: promptText === null ? null : promptText === '',
 			line: shown('.bh-record-panel-line'),
 			model: shown('.bh-record-panel-model'),
+			voice: shown('.bh-record-panel-voice-text'),
 			settings: shown('.bh-record-panel-settings'),
 			buttons: Array.from(element.querySelectorAll('button')).filter(button => !button.closest('[hidden]')).map(button => button.textContent?.trim() ?? ''),
 			fields: element.querySelectorAll('textarea, input, [contenteditable="true"], [contenteditable=""]').length
@@ -743,6 +764,60 @@ export async function chooseModel(page, panel, cardPath, provider, model) {
 	await openModelMenu(panel);
 	await clickModel(page, panel, provider, model);
 	return waitForReading(() => readGenerationInfo(cardPath), info => info?.provider === provider && info.model === model, `${cardPath} to store the model ${model}`, 10_000);
+}
+
+/**
+ * The voice menu of the panel, when it is open (D78): whether its search
+ * field has the keyboard and what it holds; the line under it and its action;
+ * the line of a sample that could not be played; each section by its title,
+ * with its voices: the id, the name, the second line, whether it is the
+ * card's voice and the current one, and its sample, `stopped`, `loading`, or
+ * `playing`, or `null` without a play button; and the notes at the end.
+ */
+export function readVoiceMenu(panel) {
+	return panel.evaluate(element => {
+		const menu = element.querySelector('.bh-video-panel-menu.voice');
+		if (!menu) {
+			return null;
+		}
+		const search = menu.querySelector('.bh-voice-menu-search input');
+		const status = menu.querySelector('.bh-voice-menu-status:not(.sample)');
+		const action = status?.querySelector('.bh-voice-menu-status-action');
+		const failure = menu.querySelector('.bh-voice-menu-status.sample');
+		const voiceOf = option => {
+			const play = option.querySelector('button.bh-voice-menu-play');
+			return {
+				id: (option.getAttribute('data-key') ?? '').replace(/^voice:/, ''),
+				label: option.querySelector('.bh-voice-menu-name')?.textContent ?? null,
+				description: option.querySelector('.bh-voice-menu-description')?.textContent ?? null,
+				checked: option.getAttribute('aria-checked') === 'true',
+				active: option.classList.contains('active'),
+				sample: play ? play.classList.contains('loading') ? 'loading' : play.classList.contains('playing') ? 'playing' : 'stopped' : null
+			};
+		};
+		return {
+			searchFocused: element.ownerDocument.activeElement === search,
+			query: search?.value ?? null,
+			status: status && !status.hidden ? { text: status.querySelector('.bh-voice-menu-status-text')?.textContent ?? null, action: action && !action.hidden ? action.textContent : null } : null,
+			sampleFailure: failure && !failure.hidden ? failure.textContent : null,
+			sections: Array.from(menu.querySelectorAll('.bh-voice-menu-group')).map(group => ({
+				title: group.getAttribute('aria-label'),
+				voices: Array.from(group.querySelectorAll('.bh-voice-menu-option')).map(voiceOf)
+			})),
+			notes: Array.from(menu.querySelectorAll('.bh-voice-menu-note')).map(note => note.textContent)
+		};
+	}, undefined, { timeout: 2_000 });
+}
+
+/** The voice named `label` in a reading of the voice menu, whichever section lists it. */
+export function voiceInMenu(menu, label) {
+	return menu?.sections.flatMap(section => section.voices).find(voice => voice.label === label);
+}
+
+/** Opens the voice menu with its button, and waits for its search field to have the keyboard. */
+export async function openVoiceMenu(panel) {
+	await panel.locator('button.bh-video-panel-voice').click();
+	return waitForReading(() => readVoiceMenu(panel), seen => seen !== null && seen.searchFocused, 'the voice menu to open with the keyboard in its search field');
 }
 
 // What the settings popover draws: its parameters, their choices, and what is chosen.
@@ -1151,7 +1226,8 @@ export function playCardVideo(page, cardPath) {
 }
 
 // The card's video player: whether it is the one marked `kept`, whether it
-// plays and with sound, where it is, and whether its controls show.
+// plays and with sound, where it is, and whether its controls show; and
+// whether it plays a sound (D78), with the glyph of a sound for its picture.
 export function readCardVideoPlayer(page, cardPath) {
 	return page.evaluate(path => {
 		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
@@ -1161,6 +1237,8 @@ export function readCardVideoPlayer(page, cardPath) {
 			return null;
 		}
 		return {
+			media: player.classList.contains('sound') ? 'sound' : 'video',
+			glyph: (player.querySelector('.basehalf-canvas-video-player-picture')?.childElementCount ?? 0) > 0,
 			kept: video.dataset.smokePlayer === 'kept',
 			selected: card.closest('.react-flow__node')?.classList.contains('selected') === true,
 			paused: video.paused,

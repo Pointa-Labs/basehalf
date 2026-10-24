@@ -40,6 +40,7 @@ import {
 	PARTIAL_FILE_NAME,
 	partialFilesSeenInCardFolders,
 	openSettings,
+	panBelowTheCards,
 	pickInputOnCanvas,
 	playCardVideo,
 	pointAtCanvasCard,
@@ -97,7 +98,6 @@ import {
 	clickCanvasCreateAction,
 	emptyCanvasPoint,
 	panCanvasCardTo,
-	panCanvasToward,
 	readCanvasCardGeometry,
 	readCanvasView,
 	setCanvasZoomPercent,
@@ -303,19 +303,6 @@ async function createDraftFromMenu(page, label) {
 	const panel = await waitForGenerationPanel(page, cardPath);
 	await waitForReading(() => readGenerationPanel(panel), seen => seen.promptFocused, `the prompt of ${cardPath} to have the keyboard focus`);
 	return { cardPath, panel };
-}
-
-/** Pans the canvas, as the user does, until no card is in sight: the cards lie above the visible part of the canvas. */
-async function panBelowTheCards(page) {
-	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
-	for (let attempt = 0; attempt < 12; attempt++) {
-		const lowest = await page.evaluate(() => Math.max(...Array.from(document.querySelectorAll('.react-flow__node')).map(node => node.getBoundingClientRect().bottom)));
-		if (lowest < canvasBox.y - 20) {
-			return;
-		}
-		await panCanvasToward(page, canvasBox, 0, -(lowest - canvasBox.y + 40));
-	}
-	throw new Error('The canvas did not move to a part of it where no card is');
 }
 
 /**

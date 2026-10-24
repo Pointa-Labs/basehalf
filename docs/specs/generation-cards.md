@@ -2237,7 +2237,8 @@ Audio cards (D78)
 - Unit tests for D78: the audio kind, its extensions, and a draft's
   extension from the model (`basehalfGenerationInfo.test.ts`); the prompt
   that is spoken or sung, the model menu's line, the voice ids a listed
-  voice takes, and the summary without the voice
+  voice takes, a voice that a model of another provider does not keep, and
+  the summary without the voice
   (`basehalfVideoCatalog.test.ts`); the placeholder, the model menu, the
   voice button, a voice of the account, the settings without the voice, the
   prompt `check` is asked with, and the draft renamed to its model's format
@@ -2258,10 +2259,16 @@ Audio cards (D78)
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
   42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 73 to 76, and 78, against the local test provider through the ByteDance module, and
-  for criteria 80, 83, 84, 86, 87, 88, and 89 through the ElevenLabs and
-  Mureka modules, with a test key; no paid provider is called. The test provider answers every task
-  and image with a file of its own, as a real provider does, so that a file
-  moved outside BaseHalf is told from another by its content. After a
+  for criteria 80 to 89 through the ElevenLabs and Mureka modules
+  (`audioCards.mts`; the canvas suite checks that the Create menu offers New
+  Audio and makes an audio draft from Create from Connection), with a test
+  key; no paid provider is called. The test provider answers every task, image, and sound with a
+  file of its own, as a real provider does, so that a file moved outside
+  BaseHalf is told from another by its content. A voice's sample is checked
+  by what the window shows of it, not by what the speakers play: its play
+  button turns to stop while it plays, it pauses a video that the pointer
+  plays on the canvas, and a menu opened again after closing shows none
+  playing. After a
   reload, the smoke has the new window take a generation over at once by
   writing its task record as it is when the window that followed it last said
   it was alive two minutes before, and it stands for a delete to the Trash by
