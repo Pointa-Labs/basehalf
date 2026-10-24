@@ -112,6 +112,10 @@ const TEXT = Object.freeze({
 		noTask: (model: string) => `${model} answers with its speech at once: there is no task to ask about.`,
 		/** Without the speech, with Google's reason (a finish reason such as `SAFETY`) and its words when it gives them. */
 		noSpeech: (reason: string | undefined, said: string | undefined) => `Google finished the generation without the speech${reason ? ` (${reason})` : ''}${said ? `: ${said}` : '.'}`,
+		/** Speech that Google cut off at the most it makes in one answer (`MAX_TOKENS`, `CONTINUATION`). */
+		cutOff: (reason: string) => `Google cut the speech off at its output limit, before the end of the text (${reason}). A shorter text helps.`,
+		/** Speech that Google ended for another reason than its natural stop, with its words when it gives them. */
+		unfinished: (reason: string, said: string | undefined) => `Google ended the speech before it was finished (${reason})${said ? `: ${said}` : '.'}`,
 		blocked: (reason: string) => `Google blocked the text (${reason}).`,
 		freeQuota: 'Google\'s free tier lets the project of this API key use this model only so much, and that is used up for now. Wait and try again, or set up billing for the project in Google AI Studio for higher limits.',
 		freeTierUnavailable: 'Google\'s free tier is not available to the project of this API key. Set up billing for the project in Google AI Studio, or use the key of a project that has it.'
@@ -724,7 +728,18 @@ function speechAudio(data: string, mimeType: string | undefined): OutputLocation
 	return layout ? { bytes: pcmToWav(bytes, layout), format: 'wav' } : { bytes };
 }
 
-/** The speech of a `generateContent` answer: the last audio part of its first candidate, or the reason it has none. */
+/** The finish reasons of a candidate that ended where the speech ends: its natural stop, and the default that Google says it does not use. */
+const FINISHED_SPEECH: ReadonlySet<string> = new Set(['STOP', 'FINISH_REASON_UNSPECIFIED']);
+/** The finish reasons of a candidate cut off at the most Google makes in one answer. */
+const CUT_OFF_SPEECH: ReadonlySet<string> = new Set(['MAX_TOKENS', 'CONTINUATION']);
+
+/**
+ * The speech of a `generateContent` answer: the last audio part of its first
+ * candidate, or the reason it has none. Speech whose candidate ended for
+ * another reason than its natural stop, such as at the output limit, is
+ * refused: it does not say the whole text. A candidate without a finish
+ * reason is taken as finished.
+ */
 function speechOutput(response: Record<string, unknown>): OutputLocation {
 	const candidates = Array.isArray(response.candidates) ? response.candidates : [];
 	const candidate = isRecord(candidates[0]) ? candidates[0] : undefined;
@@ -747,6 +762,13 @@ function speechOutput(response: Record<string, unknown>): OutputLocation {
 		}
 	}
 	if (audio) {
+		const reason = words(candidate?.finishReason);
+		if (reason && CUT_OFF_SPEECH.has(reason)) {
+			return { refused: TEXT.speech.cutOff(reason) };
+		}
+		if (reason && !FINISHED_SPEECH.has(reason)) {
+			return { refused: TEXT.speech.unfinished(reason, words(candidate?.finishMessage)) };
+		}
 		return speechAudio(audio.data, audio.mimeType);
 	}
 	const blocked = isRecord(response.promptFeedback) ? words(response.promptFeedback.blockReason) : undefined;

@@ -6,10 +6,11 @@
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { isAbsolute } from '../../../base/common/path.js';
+import { MAX_SAMPLE_ADDRESS_LENGTH } from '../common/basehalfProviderVoices.js';
 import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, fitParams, keptLimits, measureItems, outputCount, resolveParams } from './check.js';
 import { downloadAddress, downloadFile, fetchSample, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.js';
 import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.js';
-import { BoundHttp, boundToCall, isAllowedAddress, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
+import { BoundHttp, boundToCall, isSampleAddress, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
 import { createMediaInspector, type MediaInspector } from './media.js';
 import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.js';
 import { checkPlace, placeFile, type PlaceFileSystem } from './place.js';
@@ -258,7 +259,7 @@ export class VideoProviderCommands {
 				throw rejected(`${resolved.provider.label} lists no voices of ${resolved.model.label}.`);
 			}
 			http = this.http(resolved.module, request, token);
-			return keptVoices(await resolved.module.listVoices(request, http, MAX_LISTED_VOICES));
+			return keptVoices(await resolved.module.listVoices(request, http, MAX_LISTED_VOICES), http.endpoint);
 		}, undefined, () => http?.secretValues);
 	}
 
@@ -799,21 +800,27 @@ export function parseVoicesRequest(value: unknown): VoicesRequest {
 
 /**
  * A request for the sample of a listed voice: the access, the model, and the
- * sample's address, which is `https://`, or `http://` on this computer.
+ * sample's address, which is `https://`, or `http://` on this computer only
+ * for an endpoint on this computer (`isSampleAddress`).
  */
 export function parseVoicePreviewRequest(value: unknown): VoicePreviewRequest {
 	if (!isRecord(value)) {
 		throw cannotRead('a request for a sample');
 	}
-	const sample = field(value, 'sample', 'a request for a sample', MAX_ADDRESS_LENGTH);
-	let url: URL | undefined;
+	const access = parseAccess(value, 'a request for a sample');
+	const sample = field(value, 'sample', 'a request for a sample', MAX_SAMPLE_ADDRESS_LENGTH);
+	// An endpoint that is no address is refused where the request is sent; here it is on no computer.
+	const url = addressOrUndefined(sample);
+	if (!url || !isSampleAddress(url, addressOrUndefined(access.endpoint))) {
+		throw rejected('BaseHalf fetches a sample only from an https:// address, or from an http:// address on this computer for an endpoint on this computer.');
+	}
+	return { ...access, model: field(value, 'model', 'a request for a sample', 64), sample };
+}
+
+function addressOrUndefined(value: string): URL | undefined {
 	try {
-		url = new URL(sample);
+		return new URL(value);
 	} catch {
-		url = undefined;
+		return undefined;
 	}
-	if (!url || !isAllowedAddress(url)) {
-		throw rejected('BaseHalf fetches a sample only from an https:// address, or an http:// address on this computer.');
-	}
-	return { ...parseAccess(value, 'a request for a sample'), model: field(value, 'model', 'a request for a sample', 64), sample };
 }

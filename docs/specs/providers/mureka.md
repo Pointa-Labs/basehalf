@@ -89,7 +89,11 @@ the quick start names, in the platform's own app
   itself refuses a shorter song or uses it as it is; `check` refuses it.
   The size is the mode's `audioMaxBytes`; the format and the length are the
   module's rules, since the declarations name no audio formats and a range
-  of seconds has an end that Mureka does not have.
+  of seconds has an end that Mureka does not have. The format is the one
+  `check` reads of an input ([providers, Requests](../providers.md#requests)):
+  an M4A is also one under a general brand, such as the `mp42` that
+  `afconvert -f mp4f` and the recorders of phones write, whose tracks hold
+  sound alone.
 - The prompt is required in both modes (`always`). The catalog's limit is
   5,000 characters, that of the lyrics. In From a Description, Mureka takes
   at most 2,000 characters, and at most 1,024 with Instrumental on; `check`

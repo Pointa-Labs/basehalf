@@ -246,6 +246,16 @@ export function isAllowedAddress(url: URL): boolean {
 		&& (url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname)));
 }
 
+/**
+ * An address the sample of a voice is fetched from (providers, "Requests"):
+ * `https://`, and `http://` on this computer only for an endpoint on this
+ * computer, as the local test provider is. A provider elsewhere never has
+ * BaseHalf ask a service of this computer for its samples.
+ */
+export function isSampleAddress(url: URL, endpoint: URL | undefined): boolean {
+	return isAllowedAddress(url) && (url.protocol === 'https:' || (endpoint !== undefined && isLoopbackHost(endpoint.hostname)));
+}
+
 /** The endpoint of a command, checked: `https://`, or `http://` on this computer, without query or fragment. */
 export function parseEndpoint(value: string): URL {
 	let url: URL;

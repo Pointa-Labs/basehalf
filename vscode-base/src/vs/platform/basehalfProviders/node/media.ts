@@ -258,7 +258,9 @@ export async function measure(source: ByteSource): Promise<Omit<MediaFacts, 'nam
 	}
 	if (ISO_TOP_LEVEL_BOXES.has(head.toString('latin1', 4, 8))) {
 		const brand = head.toString('latin1', 4, 8) === 'ftyp' ? head.toString('latin1', 8, 12) : '';
-		const format: MediaFormat = brand === 'qt  ' ? 'mov' : brand === 'M4A ' || brand === 'M4B ' ? 'm4a' : 'mp4';
+		const format: MediaFormat = brand === 'qt  ' ? 'mov'
+			: AUDIO_BRANDS.has(brand) || (GENERAL_ISO_BRANDS.has(brand) && await holdsSoundAlone(source)) ? 'm4a'
+				: 'mp4';
 		return { format, ...optionalSeconds(await isoSeconds(source)) };
 	}
 	const mp3 = await mp3Seconds(source, head);
@@ -363,23 +365,28 @@ async function jpegSize(source: ByteSource): Promise<{ format: MediaFormat; widt
 /** Boxes an MP4, MOV, or M4A file may start with. */
 const ISO_TOP_LEVEL_BOXES: ReadonlySet<string> = new Set(['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide', 'pnot']);
 
+/** The general brands of ISO media files, under which a file may hold a video or sound alone. */
+const GENERAL_ISO_BRANDS: ReadonlySet<string> = new Set(['isom', 'iso2', 'mp41', 'mp42']);
+
 interface IsoBox {
+	readonly type: string;
 	readonly contentStart: number;
 	readonly end: number;
 }
 
-async function findBox(source: ByteSource, start: number, end: number, type: string): Promise<IsoBox | undefined> {
+/** The boxes from `start` to `end`, in order, at most 4,096; the walk ends at a box it cannot read. */
+async function* isoBoxes(source: ByteSource, start: number, end: number): AsyncGenerator<IsoBox> {
 	let offset = start;
 	for (let boxes = 0; boxes < 4096 && offset + 8 <= end; boxes++) {
 		const header = await source.read(offset, 16);
 		if (header.byteLength < 8) {
-			return undefined;
+			return;
 		}
 		let size = header.readUInt32BE(0);
 		let headerSize = 8;
 		if (size === 1) {
 			if (header.byteLength < 16) {
-				return undefined;
+				return;
 			}
 			size = Number(header.readBigUInt64BE(8));
 			headerSize = 16;
@@ -387,14 +394,48 @@ async function findBox(source: ByteSource, start: number, end: number, type: str
 			size = end - offset;
 		}
 		if (size < headerSize) {
-			return undefined;
+			return;
 		}
-		if (header.toString('latin1', 4, 8) === type) {
-			return { contentStart: offset + headerSize, end: Math.min(end, offset + size) };
-		}
+		yield { type: header.toString('latin1', 4, 8), contentStart: offset + headerSize, end: Math.min(end, offset + size) };
 		offset += size;
 	}
+}
+
+async function findBox(source: ByteSource, start: number, end: number, type: string): Promise<IsoBox | undefined> {
+	for await (const box of isoBoxes(source, start, end)) {
+		if (box.type === type) {
+			return box;
+		}
+	}
 	return undefined;
+}
+
+/**
+ * Whether an ISO media file holds sound alone (providers, "Requests"): a
+ * track of sound (the handler `soun` of its `mdia`) and none of video
+ * (`vide`), as the M4A that `afconvert -f mp4f` or the recorder of a phone
+ * writes under a general brand. A track that names no handler is neither.
+ */
+async function holdsSoundAlone(source: ByteSource): Promise<boolean> {
+	const movie = await findBox(source, 0, source.size, 'moov');
+	if (!movie) {
+		return false;
+	}
+	let sound = false;
+	for await (const track of isoBoxes(source, movie.contentStart, movie.end)) {
+		if (track.type !== 'trak') {
+			continue;
+		}
+		const media = await findBox(source, track.contentStart, track.end, 'mdia');
+		const handler = media ? await findBox(source, media.contentStart, media.end, 'hdlr') : undefined;
+		// A full box: version and flags, pre_defined, then the handler type.
+		const type = handler && handler.end - handler.contentStart >= 12 ? (await source.read(handler.contentStart + 8, 4)).toString('latin1') : '';
+		if (type === 'vide') {
+			return false;
+		}
+		sound ||= type === 'soun';
+	}
+	return sound;
 }
 
 /** The length an MP4, MOV, or M4A file gives in its movie header (`mvhd`). */

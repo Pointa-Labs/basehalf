@@ -532,7 +532,7 @@ serves for each page:
 | --- | --- |
 | Text-to-speech with `generateContent` (`gemini-api/docs/generate-content/speech-generation`) | the request (`responseModalities`, `speechConfig.voiceConfig`, `responseFormat.audio`); the answer's `inlineData`; a WAV at 24 kHz, mono, 16-bit by default for a request that is not streamed, where earlier models answered raw samples; the 30 prebuilt voices and their one-word descriptions; up to two speakers |
 | Text-to-speech with the Interactions API (`gemini-api/docs/speech-generation`) | the same models through `/interactions`, with `generation_config.speech_config` |
-| `generateContent` reference (`api/generate-content`) | `SpeechConfig`, `VoiceConfig` (`prebuiltVoiceConfig.voiceName`, or `voice`), `ResponseFormatConfig.audio`, `PromptFeedback.blockReason`, `Candidate.finishReason` |
+| `generateContent` reference (`api/generate-content`) | `SpeechConfig`, `VoiceConfig` (`prebuiltVoiceConfig.voiceName`, or `voice`), `ResponseFormatConfig.audio`, `PromptFeedback.blockReason`, `Candidate.finishReason` and `finishMessage`, and the `FinishReason` values: `STOP` for the natural stop, `MAX_TOKENS` and `CONTINUATION` for the output limit, the others for filters, and "If empty, the model has not stopped generating tokens" |
 | Interactions API reference (`api/interactions-api`) and its OpenAPI document | the speech configuration named `structured_speech_config` |
 | Interactions API overview | "While it is now considered legacy, the original `generateContent` API remains fully supported" |
 | Model pages of `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` | text in, audio out; 8,192 input tokens and 16,384 output tokens; 130 and 101 languages |
@@ -628,12 +628,29 @@ serves for each page:
 
 | Answer | Output |
 | --- | --- |
-| a part of the first candidate with `inlineData` | its bytes, decoded from base64 and written to the request's target: a WAV as it is; raw samples (`audio/L16` or `audio/pcm`, at the type's `rate=`, 24,000 Hz without one, mono, 16-bit little-endian, as Google describes its raw samples) written as a WAV first (`pcmToWav`); the bytes decide the format |
+| a part of the first candidate with `inlineData`, and the finish reason `STOP` or none | its bytes, decoded from base64 and written to the request's target: a WAV as it is; raw samples (`audio/L16` or `audio/pcm`, at the type's `rate=`, 24,000 Hz without one, mono, 16-bit little-endian, as Google describes its raw samples) written as a WAV first (`pcmToWav`); the bytes decide the format |
+| speech whose candidate stopped at the output limit, `MAX_TOKENS`, or `CONTINUATION` | refused: "Google cut the speech off at its output limit, before the end of the text (MAX_TOKENS). A shorter text helps." |
+| speech whose candidate ended for any other reason, such as `SAFETY` or `OTHER` | refused: "Google ended the speech before it was finished (OTHER).", with the candidate's `finishMessage` when it has one |
 | `promptFeedback.blockReason` and no speech | refused: "Google blocked the text (SAFETY)." with Google's reason |
 | a candidate without speech | refused: "Google finished the generation without the speech (SAFETY).", with the candidate's `finishMessage` or text when it has them |
 | no candidate | refused: "Google finished the generation without the speech." |
 
 - The last part with `inlineData` is the speech.
+- Speech lands only when its candidate finished at its natural stop
+  (`STOP`): the reference names `MAX_TOKENS` for "the maximum number of
+  tokens … was reached" and `CONTINUATION` for a response that "reached the
+  per-request token limit, but generation is not yet complete", and the
+  others for a candidate stopped by a filter or for no stated reason.
+  Speech cut off there does not say the whole text, and the models answer
+  at most 16,384 output tokens, which a long text can reach within the
+  8,192 characters the prompt takes. It is refused as an output, as a song
+  that Lyria did not finish is ([Music models, Answer](#answer-2)): the card
+  says why and keeps its draft.
+- A candidate without a finish reason, and one with
+  `FINISH_REASON_UNSPECIFIED`, which the reference calls a default that is
+  not used, lands. The reference says an empty finish reason means that the
+  model has not stopped, which describes a stream that goes on; the answer
+  of a request that is not streamed is whole when it comes.
 - A speech model has no task: `poll` refuses it, and `cancel` answers false
   and sends nothing.
 
@@ -677,6 +694,11 @@ tier.
 3. A WAV answered lands as it is, and raw samples land as a WAV of their
    rate; a blocked text, an answer without the speech, and one without a
    candidate are refused outputs with Google's reason.
+3a. Speech whose candidate stopped at the output limit (`MAX_TOKENS`,
+   `CONTINUATION`) is a refused output that says the speech was cut off and
+   that a shorter text helps; speech that ended for another reason than
+   `STOP` is a refused output with Google's reason; nothing of either is
+   written. Speech without a finish reason lands.
 4. A voice other than the 30 is refused by `check`, and `voices` is
    refused; nothing is sent then.
 5. A used-up free quota answers `rateLimited` and a project without a free
@@ -689,7 +711,8 @@ tier.
 `google.test.ts` also runs the speech models against a local server that
 answers like `generateContent`: the catalog entries, the body of each
 model, a WAV and raw samples answered, a blocked text and an answer without
-the speech, the voices `check` takes, the free tier, the errors, and that a
+the speech, speech cut off at the output limit or ended before its natural
+stop, the voices `check` takes, the free tier, the errors, and that a
 speech model has no task.
 
 ## Music models

@@ -3,10 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { isVoiceId } from '../common/basehalfProviderVoices.js';
-import { MAX_ADDRESS_LENGTH } from './download.js';
+import { isVoiceId, MAX_SAMPLE_ADDRESS_LENGTH } from '../common/basehalfProviderVoices.js';
 import { isRecord, unreadable } from './failure.js';
-import { isAllowedAddress } from './http.js';
+import { isSampleAddress } from './http.js';
 import type { CatalogModel, ListedVoice, VoiceParameter, VoicesResult } from '../common/basehalfProviderTypes.js';
 
 /**
@@ -33,18 +32,20 @@ export function voiceParameterOf(model: CatalogModel): VoiceParameter | undefine
  *   is an entry that is not a voice;
  * - a label and a description are plain text on one line, at most 200 and 300
  *   characters; a voice without a label is named by its id;
- * - a sample is kept only at an `https://` address, or an `http://` one on
- *   this computer, of at most 8,192 characters;
+ * - a sample is kept only at an address that `voicePreview` fetches from for
+ *   the call's `endpoint` (`isSampleAddress`: `https://`, or `http://` on
+ *   this computer only for an endpoint on this computer), of at most 8,192
+ *   characters;
  * - the account's own voices come first, each group in the module's order,
  *   and a voice listed twice is kept once, its first time;
  * - at most {@link MAX_LISTED_VOICES}, with `truncated` when the module said
  *   the provider had more or listed more.
  */
-export function keptVoices(listed: unknown): VoicesResult {
+export function keptVoices(listed: unknown, endpoint: URL): VoicesResult {
 	if (!isRecord(listed) || !Array.isArray(listed.voices)) {
 		throw unreadable('The provider answered voices BaseHalf cannot read.');
 	}
-	const voices = listed.voices.map(keptVoice).filter((voice): voice is ListedVoice => voice !== undefined);
+	const voices = listed.voices.map(value => keptVoice(value, endpoint)).filter((voice): voice is ListedVoice => voice !== undefined);
 	const seen = new Set<string>();
 	const unique: ListedVoice[] = [];
 	for (const voice of [...voices.filter(voice => voice.own), ...voices.filter(voice => !voice.own)]) {
@@ -57,13 +58,13 @@ export function keptVoices(listed: unknown): VoicesResult {
 	return { voices: unique.slice(0, MAX_LISTED_VOICES), ...(truncated ? { truncated: true } : {}) };
 }
 
-function keptVoice(value: unknown): ListedVoice | undefined {
+function keptVoice(value: unknown, endpoint: URL): ListedVoice | undefined {
 	if (!isRecord(value) || typeof value.id !== 'string' || !isVoiceId(value.id)) {
 		return undefined;
 	}
 	const label = typeof value.label === 'string' ? oneLine(value.label, MAX_LABEL_LENGTH) : '';
 	const description = typeof value.description === 'string' ? oneLine(value.description, MAX_DESCRIPTION_LENGTH) : '';
-	const sample = typeof value.sample === 'string' && isSampleAddress(value.sample) ? value.sample : undefined;
+	const sample = typeof value.sample === 'string' && isKeptSample(value.sample, endpoint) ? value.sample : undefined;
 	return {
 		id: value.id,
 		label: label || oneLine(value.id, MAX_LABEL_LENGTH),
@@ -80,12 +81,12 @@ function oneLine(value: string, max: number): string {
 	return characters.length > max ? `${characters.slice(0, max - 1).join('').trimEnd()}…` : text;
 }
 
-function isSampleAddress(value: string): boolean {
-	if (value.length > MAX_ADDRESS_LENGTH) {
+function isKeptSample(value: string, endpoint: URL): boolean {
+	if (value.length > MAX_SAMPLE_ADDRESS_LENGTH) {
 		return false;
 	}
 	try {
-		return isAllowedAddress(new URL(value));
+		return isSampleAddress(new URL(value), endpoint);
 	} catch {
 		return false;
 	}

@@ -14,6 +14,13 @@
 /** The most characters of a voice's id. */
 export const MAX_VOICE_ID_LENGTH = 256;
 
+/**
+ * The longest address of a voice's sample (providers, "Requests"): what
+ * `voices` keeps, what the window takes from its answer, and what
+ * `voicePreview` fetches.
+ */
+export const MAX_SAMPLE_ADDRESS_LENGTH = 8192;
+
 const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/;
 
 /** Whether a value can be the id of a voice: 1 to 256 characters, not only spaces, without control characters. */

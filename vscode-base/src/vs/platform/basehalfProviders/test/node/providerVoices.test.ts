@@ -17,6 +17,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { VideoProviderCommands } from '../../node/commands.js';
 import { MAX_VOICE_SAMPLE_BYTES } from '../../node/download.js';
 import { ProviderFailure } from '../../node/failure.js';
+import { DEFAULT_HTTP_OPTIONS, type ProviderTransport } from '../../node/http.js';
 import type { ListedVoice, VoicePreviewResult } from '../../common/basehalfProviderTypes.js';
 import { error, isoMedia, listVoicesAgainst, routed, sendJson, serveFiles, startServer, testAccess, testAudioModule, tinyMp3, tinyWav, value, type Received, type TestProviderVoice, type TestRoute } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
@@ -117,19 +118,28 @@ suite('BaseHalf providers: providerVoices', () => {
 			{ id: 'script', label: 'Script', own: false, sample: 'javascript:alert(1)' },
 			{ id: 'twice', label: 'Twice, the provider\'s', own: false },
 			{ id: 'twice', label: 'Twice, the account\'s', own: true },
-			{ id: '声音-1', label: '声音', own: false }
+			{ id: '声音-1', label: '声音', own: false },
+			{ id: 'signed', label: 'Signed', own: false, sample: `https://cdn.example.com/signed.mp3?X-Signature=${'s'.repeat(8100)}` }
 		];
-		const answered = value(await commands({ listVoices: async () => ({ voices: listed as ListedVoice[] }) }).voices({ ...access('https://api.example.com'), model: 'speech-1' }));
-		assert.deepEqual(answered, {
-			voices: [
-				{ id: 'long', label: `${'L'.repeat(199)}…`, description: `${'d'.repeat(299)}…`, own: true },
-				{ id: 'twice', label: 'Twice, the account\'s', own: true },
-				{ id: 'plain', label: 'Plain Name', description: 'Warm, calm', own: false },
-				{ id: 'unnamed', label: 'unnamed', own: false, sample: 'https://cdn.example.com/unnamed.mp3' },
-				{ id: 'local', label: 'Local', own: false, sample: 'http://127.0.0.1:9/local.mp3' },
-				{ id: 'script', label: 'Script', own: false },
-				{ id: '声音-1', label: '声音', own: false }
-			]
+		const providers = commands({ listVoices: async () => ({ voices: listed as ListedVoice[] }) });
+		const answered = value(await providers.voices({ ...access('https://api.example.com'), model: 'speech-1' }));
+		// A provider on this computer, as the local test provider is, may give samples there.
+		const local = value(await providers.voices({ ...access('http://127.0.0.1:9'), model: 'speech-1' }));
+		assert.deepEqual({ answered, local: local.voices.find(voice => voice.id === 'local') }, {
+			answered: {
+				voices: [
+					{ id: 'long', label: `${'L'.repeat(199)}…`, description: `${'d'.repeat(299)}…`, own: true },
+					{ id: 'twice', label: 'Twice, the account\'s', own: true },
+					{ id: 'plain', label: 'Plain Name', description: 'Warm, calm', own: false },
+					{ id: 'unnamed', label: 'unnamed', own: false, sample: 'https://cdn.example.com/unnamed.mp3' },
+					// A provider elsewhere never has BaseHalf fetch from a service of this computer.
+					{ id: 'local', label: 'Local', own: false },
+					{ id: 'script', label: 'Script', own: false },
+					{ id: '声音-1', label: '声音', own: false },
+					{ id: 'signed', label: 'Signed', own: false, sample: `https://cdn.example.com/signed.mp3?X-Signature=${'s'.repeat(8100)}` }
+				]
+			},
+			local: { id: 'local', label: 'Local', own: false, sample: 'http://127.0.0.1:9/local.mp3' }
 		});
 	});
 
@@ -346,7 +356,7 @@ suite('BaseHalf providers: providerVoices', () => {
 		try {
 			const providers = commands();
 			const refused = async (overrides: Record<string, unknown>) => error(await providers.voicePreview({ ...access(server.url), model: 'speech-1', sample: `${server.url}/v1/sample.mp3`, ...overrides }));
-			const notHttps = { code: 'rejected', message: 'BaseHalf fetches a sample only from an https:// address, or an http:// address on this computer.' };
+			const notHttps = { code: 'rejected', message: 'BaseHalf fetches a sample only from an https:// address, or from an http:// address on this computer for an endpoint on this computer.' };
 			assert.deepEqual({
 				plainHttp: await refused({ sample: 'http://cdn.example.com/aria.mp3' }),
 				withPassword: await refused({ sample: 'https://user:secret@cdn.example.com/aria.mp3' }),
@@ -375,6 +385,35 @@ suite('BaseHalf providers: providerVoices', () => {
 			]);
 		} finally {
 			await server.close();
+		}
+	});
+
+	test('voicePreview fetches over http from this computer only for an endpoint on this computer: for a provider elsewhere, such an address is refused, also as a redirect, and nothing is asked of the service there (D78)', async () => {
+		const service = await startServer(routed(serveFiles({ '/private/sample.mp3': tinyMp3() })));
+		// The CDN of a provider elsewhere, which sends its sample on to a service of this computer.
+		const cdn = await startServer((request, response) => {
+			response.writeHead(302, { Location: `${service.url}/private/sample.mp3` });
+			response.end();
+		});
+		try {
+			// `https://cdn.example.com` is answered by the CDN above.
+			const transport: ProviderTransport = (url, options, onResponse) => DEFAULT_HTTP_OPTIONS.transport(url.hostname === 'cdn.example.com' ? new URL(`${cdn.url}${url.pathname}${url.search}`) : url, options, onResponse);
+			const providers = new VideoProviderCommands([testAudioModule()], { http: { sleep: async () => undefined, transport } });
+			const elsewhere = access('https://api.example.com');
+			const direct = error(await providers.voicePreview({ ...elsewhere, model: 'speech-1', sample: `${service.url}/private/sample.mp3` }));
+			const redirected = error(await providers.voicePreview({ ...elsewhere, model: 'speech-1', sample: 'https://cdn.example.com/aria.mp3' }));
+			const here = sampleOf(await providers.voicePreview({ ...access(service.url), model: 'speech-1', sample: `${service.url}/private/sample.mp3` }));
+			assert.deepEqual({ direct, redirected, cdnAsked: cdn.received.map(entry => entry.path), here, serviceAsked: service.received.map(entry => entry.path) }, {
+				direct: { code: 'rejected', message: 'BaseHalf fetches a sample only from an https:// address, or from an http:// address on this computer for an endpoint on this computer.' },
+				redirected: { code: 'invalidResponse', message: 'The provider gave a sample address that does not start with https://.' },
+				cdnAsked: ['/aria.mp3'],
+				here: { format: 'mp3', bytes: tinyMp3() },
+				// Only the provider on this computer reached the service there.
+				serviceAsked: ['/private/sample.mp3']
+			});
+		} finally {
+			await cdn.close();
+			await service.close();
 		}
 	});
 });
