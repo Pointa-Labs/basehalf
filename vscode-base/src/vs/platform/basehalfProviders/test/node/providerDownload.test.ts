@@ -7,11 +7,11 @@ import { strict as assert } from 'assert';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from '../../../../base/common/path.js';
-import { downloadFile, MAX_IMAGE_DOWNLOAD_BYTES } from '../../node/download.js';
+import { downloadFile, MAX_AUDIO_DOWNLOAD_BYTES, MAX_IMAGE_DOWNLOAD_BYTES } from '../../node/download.js';
 import { ProviderFailure } from '../../node/failure.js';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { BoundHttp, boundToCall, parseEndpoint, resolveHttpOptions } from '../../node/http.js';
-import { gifHeader, isoMedia, recordingSleep, routed, sendJson, serveFiles, startServer, tinyJpeg, tinyPng, webpHeader } from './providerTestKit.js';
+import { flacHeader, gifHeader, isoMedia, mp3, oggHeader, recordingSleep, routed, sendJson, serveFiles, startServer, tinyJpeg, tinyMp3, tinyPng, tinyWav, webpHeader } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
 suite('BaseHalf providers: providerDownload', () => {
@@ -239,6 +239,144 @@ suite('BaseHalf providers: providerDownload', () => {
 		} finally {
 			await files.close();
 		}
+	});
+
+	/** The sounds a provider may answer, by a path of its CDN, each of another format. */
+	const SOUNDS: Readonly<Record<string, Buffer>> = {
+		'/id3.mp3': mp3(4, { id3: true }),
+		'/frames.mp3': tinyMp3(),
+		'/speech.wav': tinyWav(),
+		'/song.flac': flacHeader(),
+		'/sample.ogg': oggHeader('opus'),
+		'/song.m4a': isoMedia(2, { brand: 'M4A ', compatible: ['M4A ', 'mp42', 'isom'] }),
+		// The bytes decide, not the name.
+		'/named.mp3': tinyWav()
+	};
+
+	/** AAC in ADTS, which is not among the formats a sound is kept in. */
+	const ADTS = Buffer.concat([Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x02, 0x1f, 0xfc]), Buffer.alloc(100)]);
+
+	test('a sound download keeps an MP3, a WAV, a FLAC, an Ogg, or an M4A, answers the format its bytes start like, and sends the key to no CDN (D78)', async () => {
+		const cdn = await startServer(routed(serveFiles(SOUNDS)));
+		try {
+			const http = bound('https://api.example.com/v1');
+			const kept: Record<string, unknown> = {};
+			for (const [path, bytes] of Object.entries(SOUNDS)) {
+				const target = partPath();
+				const { size, format } = await downloadFile(http, { url: `${cdn.url}${path}?sig=1` }, target, 'audio');
+				kept[path] = [format, size === bytes.byteLength, readFileSync(target).equals(bytes)];
+			}
+			assert.deepEqual({ kept, keySent: cdn.received.some(entry => entry.headers.authorization !== undefined), accept: cdn.received[0].headers.accept }, {
+				kept: {
+					'/id3.mp3': ['mp3', true, true],
+					'/frames.mp3': ['mp3', true, true],
+					'/speech.wav': ['wav', true, true],
+					'/song.flac': ['flac', true, true],
+					'/sample.ogg': ['ogg', true, true],
+					'/song.m4a': ['m4a', true, true],
+					'/named.mp3': ['wav', true, true]
+				},
+				keySent: false,
+				accept: 'audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/mp4,application/octet-stream;q=0.9,*/*;q=0.5'
+			});
+		} finally {
+			await cdn.close();
+		}
+	});
+
+	test('a sound download refuses a video, an ISO file of general brands, an Ogg video, AAC without a container, a page, and a file too short to tell, stops at 256 MiB, and leaves no file (D78)', async () => {
+		const files = await startServer(routed(
+			serveFiles({
+				'/video.mp4': isoMedia(2),
+				'/general.m4a': isoMedia(2, { brand: 'mp42', compatible: ['mp42', 'isom'] }),
+				'/video.ogg': oggHeader('theora'),
+				'/song.aac': ADTS,
+				'/page.html': Buffer.from('<html>expired</html>'.repeat(4)),
+				'/short.wav': tinyWav().subarray(0, 40)
+			}),
+			(request, response) => {
+				if (request.path === '/huge.wav') {
+					// Announced larger than BaseHalf keeps: refused before a byte is read.
+					response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': String(MAX_AUDIO_DOWNLOAD_BYTES + 1) });
+					response.flushHeaders();
+					return true;
+				}
+				if (request.path === '/chunked.mp3') {
+					response.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+					response.write(tinyMp3());
+					response.end(tinyMp3());
+					return true;
+				}
+				return false;
+			}
+		));
+		try {
+			const http = bound('https://api.example.com/v1');
+			const outcome = async (path: string, maxBytes?: number) => {
+				const target = partPath();
+				const failed = await failure(downloadFile(http, { url: `${files.url}${path}` }, target, 'audio', maxBytes !== undefined ? { maxBytes } : {}));
+				return [failed.code, failed.message, existsSync(target)];
+			};
+			const unlike = ['notAudio', 'The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.', false];
+			assert.deepEqual({
+				video: await outcome('/video.mp4'),
+				general: await outcome('/general.m4a'),
+				oggVideo: await outcome('/video.ogg'),
+				aac: await outcome('/song.aac'),
+				page: await outcome('/page.html'),
+				short: await outcome('/short.wav'),
+				huge: await outcome('/huge.wav'),
+				streamed: await outcome('/chunked.mp3', tinyMp3().byteLength + 10),
+				gone: await outcome('/missing.mp3')
+			}, {
+				video: unlike,
+				general: unlike,
+				oggVideo: unlike,
+				aac: unlike,
+				page: unlike,
+				short: ['notAudio', 'The file is too short to be an MP3, WAV, FLAC, Ogg, or M4A sound.', false],
+				huge: ['tooLarge', `The sound is ${MAX_AUDIO_DOWNLOAD_BYTES + 1} bytes, more than the ${MAX_AUDIO_DOWNLOAD_BYTES} bytes BaseHalf downloads.`, false],
+				streamed: ['tooLarge', `The sound is larger than the ${tinyMp3().byteLength + 10} bytes BaseHalf downloads.`, false],
+				gone: ['notFound', 'The sound is no longer at the address the provider gave (HTTP 404); the address may have expired.', false]
+			});
+			assert.equal(MAX_AUDIO_DOWNLOAD_BYTES, 256 * 1024 * 1024);
+		} finally {
+			await files.close();
+		}
+	});
+
+	test('a sound the provider answered inline is written under the checks of a download: the bytes decide its format, and what is not a sound or is too large leaves no file (D78)', async () => {
+		// An endpoint nothing listens on: an inline file is never requested.
+		const http = bound('https://api.example.com/v1');
+		const kept: Record<string, unknown> = {};
+		for (const [path, bytes] of Object.entries(SOUNDS)) {
+			const target = partPath();
+			// A module may say another format than the bytes have; the bytes decide.
+			kept[path] = { ...await downloadFile(http, { bytes, format: 'mp3' }, target, 'audio'), same: readFileSync(target).equals(bytes) };
+		}
+		const outcome = async (bytes: Uint8Array) => {
+			const target = partPath();
+			const failed = await failure(downloadFile(http, { bytes }, target, 'audio'));
+			return [failed.code, failed.message, existsSync(target)];
+		};
+		// Larger than the 256 MiB BaseHalf keeps, starting like a WAV.
+		const huge = Buffer.allocUnsafe(MAX_AUDIO_DOWNLOAD_BYTES + 1);
+		tinyWav().copy(huge);
+		assert.deepEqual({
+			formats: Object.values(kept).map(entry => (entry as { format: string }).format),
+			same: Object.values(kept).every(entry => (entry as { same: boolean }).same),
+			video: await outcome(isoMedia(2)),
+			image: await outcome(tinyPng()),
+			short: await outcome(tinyMp3().subarray(0, 20)),
+			huge: await outcome(huge)
+		}, {
+			formats: ['mp3', 'mp3', 'wav', 'flac', 'ogg', 'm4a', 'wav'],
+			same: true,
+			video: ['notAudio', 'The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.', false],
+			image: ['notAudio', 'The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.', false],
+			short: ['notAudio', 'The file is too short to be an MP3, WAV, FLAC, Ogg, or M4A sound.', false],
+			huge: ['tooLarge', `The sound is ${MAX_AUDIO_DOWNLOAD_BYTES + 1} bytes, more than the ${MAX_AUDIO_DOWNLOAD_BYTES} bytes BaseHalf downloads.`, false]
+		});
 	});
 
 	test('an image the provider answered inline is written under the checks of a download, and the bytes decide its format', async () => {

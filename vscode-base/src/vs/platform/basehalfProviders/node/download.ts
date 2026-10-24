@@ -7,7 +7,7 @@ import { open, stat, unlink } from 'fs/promises';
 import { isAbsolute } from '../../../base/common/path.js';
 import { ProviderFailure, rejected, unreadable } from './failure.js';
 import { isAllowedAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, USER_AGENT, type BoundHttp, type ProviderTransport, type TransportRequest, type TransportResponse } from './http.js';
-import { IMAGE_SIGNATURE_BYTES, imageFormatOf } from './media.js';
+import { AUDIO_SIGNATURE_BYTES, audioFormatOf, IMAGE_SIGNATURE_BYTES, imageFormatOf } from './media.js';
 import type { InlineOutput, OutputAddress } from './module.js';
 import type { ModelKind, OutputFormat, ProviderErrorCode } from '../common/basehalfProviderTypes.js';
 
@@ -15,6 +15,8 @@ import type { ModelKind, OutputFormat, ProviderErrorCode } from '../common/baseh
 export const MAX_VIDEO_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 /** The largest image kept (providers, "Requests"). */
 export const MAX_IMAGE_DOWNLOAD_BYTES = 64 * 1024 * 1024;
+/** The largest sound kept (providers, "Requests"). */
+export const MAX_AUDIO_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 /** The longest address of a file that the window can hand back to `download`. */
 export const MAX_ADDRESS_LENGTH = 8192;
 const MAX_REDIRECTS = 5;
@@ -34,7 +36,7 @@ export interface KeptFile {
 
 /** What a file of each kind must be to be kept, and how messages name it. */
 interface FileRule {
-	readonly noun: 'image' | 'video';
+	readonly noun: 'image' | 'video' | 'sound';
 	/** The noun with its article, as a sentence uses it. */
 	readonly aNoun: string;
 	readonly maxBytes: number;
@@ -46,6 +48,16 @@ interface FileRule {
 	readonly tooShort: string;
 	readonly accept: string;
 }
+
+/** What a sound must be to be kept (D78). */
+const SOUND = Object.freeze({
+	headBytes: AUDIO_SIGNATURE_BYTES,
+	formatOf: audioFormatOf,
+	notThis: 'notAudio',
+	unlike: 'The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.',
+	tooShort: 'The file is too short to be an MP3, WAV, FLAC, Ogg, or M4A sound.',
+	accept: 'audio/mpeg,audio/wav,audio/flac,audio/ogg,audio/mp4,application/octet-stream;q=0.9,*/*;q=0.5'
+} as const);
 
 const RULES: Readonly<Record<ModelKind, FileRule>> = Object.freeze({
 	video: {
@@ -69,7 +81,8 @@ const RULES: Readonly<Record<ModelKind, FileRule>> = Object.freeze({
 		unlike: 'The file does not start like a PNG, JPEG, or WebP image.',
 		tooShort: 'The file is too short to be a PNG, JPEG, or WebP image.',
 		accept: 'image/png,image/jpeg,image/webp,application/octet-stream;q=0.9,*/*;q=0.5'
-	}
+	},
+	audio: { noun: 'sound', aNoun: 'a sound', maxBytes: MAX_AUDIO_DOWNLOAD_BYTES, ...SOUND }
 });
 
 /** A failure after which the whole download starts again, with the wait the provider asked for. */
@@ -86,7 +99,10 @@ class RetryableDownload extends Error {
 
 /** The address of a file of `kind`, checked: complete, and `https://` or `http://` on this computer, without credentials. */
 export function downloadAddress(value: string, kind: ModelKind): URL {
-	const rule = RULES[kind];
+	return addressOf(value, RULES[kind]);
+}
+
+function addressOf(value: string, rule: FileRule): URL {
 	let url: URL;
 	try {
 		url = new URL(value);
@@ -107,12 +123,13 @@ function isMp4(head: Buffer): boolean {
  * Downloads a file of `kind` to `targetFsPath`, a new file whose name ends in
  * `.part`: at most five redirects, the credentials only to the endpoint's own
  * origin (never to a CDN), and only a file of the kind: a video that starts
- * like an MP4 (`notVideo`) of at most 512 MiB, or an image that starts like a
- * PNG, JPEG, or WebP (`notImage`) of at most 64 MiB (`tooLarge`). A network
- * error, or HTTP 408, 429, 500, 502, 503, or 504, starts it again, as
- * `ProviderHttp.request` does. A download that fails leaves no file. A file
- * the provider answered inline is written under the same checks. Answers the
- * size and the format the bytes start like.
+ * like an MP4 (`notVideo`) of at most 512 MiB, an image that starts like a
+ * PNG, JPEG, or WebP (`notImage`) of at most 64 MiB, or a sound that starts
+ * like an MP3, WAV, FLAC, Ogg, or M4A (`notAudio`, `audioFormatOf`) of at most
+ * 256 MiB (`tooLarge`). A network error, or HTTP 408, 429, 500, 502, 503, or
+ * 504, starts it again, as `ProviderHttp.request` does. A download that fails
+ * leaves no file. A file the provider answered inline is written under the
+ * same checks. Answers the size and the format the bytes start like.
  */
 export async function downloadFile(http: BoundHttp, location: OutputAddress | InlineOutput, targetFsPath: string, kind: ModelKind, options: DownloadOptions = {}): Promise<KeptFile> {
 	const rule = RULES[kind];
@@ -127,10 +144,19 @@ export async function downloadFile(http: BoundHttp, location: OutputAddress | In
 	for (const value of Object.values(location.headers ?? {})) {
 		http.secretValues.add(value);
 	}
+	return retried(http, () => downloadOnce(http, location, rule, maxBytes, timeoutMs, fileSink(targetFsPath, rule)));
+}
+
+function isInline(location: OutputAddress | InlineOutput): location is InlineOutput {
+	return (location as { readonly bytes?: unknown }).bytes instanceof Uint8Array;
+}
+
+/** Runs a download again after a failure that starts it again: as many times, and after the same waits, as `ProviderHttp.request`. */
+async function retried<T>(http: BoundHttp, run: () => Promise<T>): Promise<T> {
 	const delays = http.options.retryDelaysMs;
 	for (let attempt = 0; ; attempt++) {
 		try {
-			return await downloadOnce(http, location, targetFsPath, rule, kind, maxBytes, timeoutMs);
+			return await run();
 		} catch (error) {
 			if (!(error instanceof RetryableDownload)) {
 				throw error;
@@ -142,10 +168,6 @@ export async function downloadFile(http: BoundHttp, location: OutputAddress | In
 			await http.options.sleep(wait);
 		}
 	}
-}
-
-function isInline(location: OutputAddress | InlineOutput): location is InlineOutput {
-	return (location as { readonly bytes?: unknown }).bytes instanceof Uint8Array;
 }
 
 /** Writes a file the provider answered inline: at most `limit` bytes, of the rule's kind, and no file left when it fails. */
@@ -187,8 +209,47 @@ async function removeOwnFile(handle: Awaited<ReturnType<typeof open>>, targetFsP
 	}
 }
 
-async function downloadOnce(http: BoundHttp, location: OutputAddress, targetFsPath: string, rule: FileRule, kind: ModelKind, maxBytes: number, timeoutMs: number): Promise<KeptFile> {
-	let url = downloadAddress(location.url, kind);
+/** Where the bytes of one try of a download go, and what it answers once they all came and are of the rule's kind. */
+interface DownloadSink<T> {
+	/** Before the first byte. Throws when it cannot take them, such as a file that cannot be created. */
+	open(): Promise<void>;
+	write(chunk: Buffer): Promise<void>;
+	finish(size: number, format: OutputFormat): Promise<T>;
+	/** The try failed: nothing of it is left. */
+	discard(): Promise<void>;
+}
+
+/** A new file whose name ends in `.part`, created with the first byte and removed when the try fails, while it is still its own. */
+function fileSink(targetFsPath: string, rule: FileRule): DownloadSink<KeptFile> {
+	let handle: Awaited<ReturnType<typeof open>> | undefined;
+	return {
+		async open() {
+			try {
+				handle = await open(targetFsPath, 'wx');
+			} catch (error) {
+				throw rejected(`BaseHalf could not create the download file: ${networkDetail(error)}`);
+			}
+		},
+		async write(chunk) {
+			if (!handle) {
+				throw new Error(`The ${rule.noun} file is not open.`);
+			}
+			await handle.write(chunk);
+		},
+		async finish(size, format) {
+			await handle?.close();
+			return { size, format };
+		},
+		async discard() {
+			if (handle) {
+				await removeOwnFile(handle, targetFsPath);
+			}
+		}
+	};
+}
+
+async function downloadOnce<T>(http: BoundHttp, location: OutputAddress, rule: FileRule, maxBytes: number, timeoutMs: number, sink: DownloadSink<T>): Promise<T> {
+	let url = addressOf(location.url, rule);
 	for (let redirects = 0; ; redirects++) {
 		const ownOrigin = url.origin === http.endpoint.origin;
 		const headers: Record<string, string> = {
@@ -206,7 +267,7 @@ async function downloadOnce(http: BoundHttp, location: OutputAddress, targetFsPa
 			if (redirects >= MAX_REDIRECTS) {
 				throw unreadable(`The ${rule.noun} address redirected more than five times.`);
 			}
-			url = downloadAddress(new URL(response.headers.location, url).href, kind);
+			url = addressOf(new URL(response.headers.location, url).href, rule);
 			continue;
 		}
 		if (status < 200 || status >= 300) {
@@ -223,7 +284,7 @@ async function downloadOnce(http: BoundHttp, location: OutputAddress, targetFsPa
 			}
 			throw new ProviderFailure('network', `The ${rule.noun} download answered with HTTP ${status}.`, status);
 		}
-		return write(request, response, targetFsPath, rule, maxBytes);
+		return receive(request, response, rule, maxBytes, sink);
 	}
 }
 
@@ -252,20 +313,20 @@ function openGet(transport: ProviderTransport, url: URL, headers: Record<string,
 	});
 }
 
-async function write(request: TransportRequest, response: TransportResponse, targetFsPath: string, rule: FileRule, limit: number): Promise<KeptFile> {
+/** Reads the body of an answer into the sink: at most `limit` bytes, of the rule's kind, and nothing left when it fails. */
+async function receive<T>(request: TransportRequest, response: TransportResponse, rule: FileRule, limit: number, sink: DownloadSink<T>): Promise<T> {
 	const declared = Number(response.headers['content-length']);
 	if (Number.isFinite(declared) && declared > limit) {
 		response.resume();
 		request.destroy();
 		throw new ProviderFailure('tooLarge', `The ${rule.noun} is ${declared} bytes, more than the ${limit} bytes BaseHalf downloads.`);
 	}
-	let handle: Awaited<ReturnType<typeof open>>;
 	try {
-		handle = await open(targetFsPath, 'wx');
+		await sink.open();
 	} catch (error) {
 		response.resume();
 		request.destroy();
-		throw rejected(`BaseHalf could not create the download file: ${networkDetail(error)}`);
+		throw error;
 	}
 	let size = 0;
 	let head = Buffer.alloc(0);
@@ -285,7 +346,7 @@ async function write(request: TransportRequest, response: TransportResponse, tar
 					}
 				}
 			}
-			await handle.write(chunk);
+			await sink.write(chunk);
 		}
 		if (!response.complete) {
 			throw new RetryableDownload(new ProviderFailure('network', `The ${rule.noun} download was cut off.`));
@@ -293,11 +354,10 @@ async function write(request: TransportRequest, response: TransportResponse, tar
 		if (!format) {
 			throw new ProviderFailure(rule.notThis, rule.tooShort);
 		}
-		await handle.close();
-		return { size, format };
+		return await sink.finish(size, format);
 	} catch (error) {
 		request.destroy();
-		await removeOwnFile(handle, targetFsPath);
+		await sink.discard();
 		if (error instanceof ProviderFailure || error instanceof RetryableDownload) {
 			throw error;
 		}

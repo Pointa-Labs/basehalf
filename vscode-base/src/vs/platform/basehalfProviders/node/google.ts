@@ -82,6 +82,7 @@ const TEXT = Object.freeze({
 	imageFormat: (label: string) => `${label} is not a PNG, JPEG, WebP, or GIF image.`,
 	videoFormat: (label: string) => `${label} is not an MP4 or MOV video.`,
 	noAudio: (label: string) => `${label} cannot be sent: Gemini Omni 1.1 Flash takes no audio references.`,
+	noLyrics: 'Gemini Omni 1.1 Flash makes videos; it has no Lyrics mode.',
 	imagesOnly: (label: string) => `${label} cannot be sent: Google's image models take reference images only.`,
 	notOffered: (model: string) => `Google does not offer "${model}" in this region.`,
 	noTaskId: 'Google accepted the request but gave no interaction id BaseHalf can read.',
@@ -347,6 +348,9 @@ function taskOf(mode: ModeId, startFrame: boolean): string {
 			return 'edit';
 		case 'extend':
 			return 'extend';
+		case 'lyrics':
+			// A mode of music models; the commands send a module only a mode its model declares.
+			throw rejected(TEXT.noLyrics);
 	}
 }
 

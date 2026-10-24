@@ -199,6 +199,16 @@ lyrics also offers `lyrics`, labeled **From Lyrics**, and then labels
 `reference` **From a Description**: in it the provider writes the lyrics, or
 makes an instrumental when `instrumental` is on.
 
+The catalog holds these rules, and is not built when a module breaks one:
+an audio model offers only `reference` and `lyrics`, whose inputs are images
+and sounds, without frames, videos, or a clip; `lyrics` is a mode of a music
+model only, which also offers `reference` and takes a prompt
+(`prompt.required` is not `never`). In `lyrics` mode the prompt is required,
+whatever `prompt.required` says, since it is what the song sings, and it is
+counted as it is sent, as in every mode: `check` answers "Write the lyrics:
+<model> sings them in From Lyrics mode." when it is empty, also with a
+reference song.
+
 ```json
 {
 	"id": "frames",
@@ -252,7 +262,17 @@ makes an instrumental when `instrumental` is on.
   account. A value that is not among the options is accepted for a listed
   parameter when it is at most 256 characters without control characters,
   since it may be a voice of the account; for one that is not listed, only
-  an option is.
+  an option is. Such a value is the id of a voice: 1 to 256 characters,
+  counted as Unicode characters, not only spaces, and without control
+  characters (`isVoiceId` of the provider service's common folder, which
+  the window can use too).
+- The kind `voice` is only that of the parameter named `voice`, and only a
+  speech model has it, never optional. Its default is among its options,
+  each option's value is the id of a voice and is declared once, and a
+  description has 1 to 300 characters. A model whose voice is `listed`
+  needs a module that lists voices (`listVoices`); the catalog is not built
+  otherwise.
+- `count` is a parameter of an image model or a music model only.
 - `default` is used when the card has no value. `optional` parameters may be
   left unset, and nothing is sent for them.
 - `modes` limits a parameter to some modes; without it the parameter applies
@@ -312,9 +332,10 @@ under the extension of its format
 An audio model has no format parameter either. Its module asks for MP3, at
 the best quality that every plan of the provider allows, since an MP3 plays
 everywhere and is small enough for a folder that git keeps; a provider that
-gives only WAV, or only raw samples, which the module writes as WAV, delivers
-WAV. The model declares the result as `outputFormat`, and a file that arrives
-in another format lands under the extension of its format, as an image does.
+gives only WAV, or only raw samples, which the module writes as WAV
+(`pcmToWav` of the provider service), delivers WAV. The model declares the
+result as `outputFormat`, and a file that arrives in another format lands
+under the extension of its format, as an image does.
 
 ### Voices
 
@@ -532,6 +553,24 @@ every call that needs them.
   module where it can find one, and an output that has an address needs no
   task id, since a provider that answers at once gives none. It answers the size and the
   format the bytes start like, which decides the file's extension.
+- What a sound starts like is told from its first 64 bytes (`audioFormatOf`,
+  one function for a downloaded sound, a sound answered with the file, and a
+  voice's sample); a shorter file is too short to be a sound:
+  - an MP3: an ID3v2 tag (`ID3`, a version from 2 to 4, and a size whose four
+    bytes are each below 128), or the header of an MPEG audio frame of
+    Layer III, of MPEG 1, 2, or 2.5, whose bit rate and sample rate are not
+    reserved;
+  - a WAV: a RIFF file of the `WAVE` form;
+  - a FLAC: `fLaC`, followed by its first metadata block, STREAMINFO;
+  - an Ogg: the first page of a stream (version 0, the page that begins
+    it) whose first packet begins Opus, Vorbis, or FLAC; an Ogg of a video
+    is not a sound;
+  - an M4A: an ISO media file whose first box is `ftyp` with an audio brand,
+    `M4A ` or `M4B `, as its major brand or among the brands it lists in
+    those bytes. A file of general brands alone, such as `isom` or `mp42`,
+    may hold a video, and is not taken for a sound.
+
+  AAC without a container, a video, and anything else is `notAudio`.
 - `place` takes `from`, a `.part` file directly in a `.bh/cache/generation/`
   folder, and `to`, a name in the same workspace folder, outside `.bh/`; both
   are absolute, and anything else is refused. The window cannot call the file

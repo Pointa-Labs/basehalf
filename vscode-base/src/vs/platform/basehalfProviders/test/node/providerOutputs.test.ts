@@ -393,7 +393,7 @@ suite('BaseHalf providers: providerOutputs', () => {
 				videoOfImageModel: error(await providers.download(image('/1.png', { kind: 'video' }))),
 				imageOfVideoModel: error(await providers.download(image('/1.png', { model: 'clip-1' }))),
 				withoutAddress: error(await providers.download(image('/1.png', { url: undefined }))),
-				oddKind: error(await providers.download(image('/1.png', { kind: 'audio' }))).code,
+				oddKind: error(await providers.download(image('/1.png', { kind: 'text' }))).code,
 				pollWithoutTaskId: error(await providers.poll({ ...taskRef(endpoint), remoteId: undefined })).code
 			};
 			assert.deepEqual({ outcomes, keySent: cdn.received.some(entry => entry.headers.authorization !== undefined) }, {

@@ -17,7 +17,8 @@ import { LTX } from './ltx.js';
 import { BFL } from './bfl.js';
 import { OPENAI } from './openai.js';
 import type { ProviderModule } from './module.js';
-import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from '../common/basehalfProviderTypes.js';
+import { isVoiceId } from '../common/basehalfProviderVoices.js';
+import type { AudioFormat, AudioMakes, Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId, ModelKind } from '../common/basehalfProviderTypes.js';
 
 /**
  * The provider modules of BaseHalf, in the order the window lists them. A
@@ -26,12 +27,15 @@ import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvi
  */
 export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, RUNWAY, XAI, LTX, BFL, OPENAI]);
 
-/** The most files one request makes: the largest `count` an image model may declare. */
+/** The most files one request makes: the largest `count` an image or a music model may declare. */
 export const MAX_OUTPUTS = 16;
 
-const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
+const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit', 'lyrics']);
+const MODEL_KINDS: ReadonlySet<string> = new Set<ModelKind>(['image', 'video', 'audio']);
+const AUDIO_MAKES: ReadonlySet<string> = new Set<AudioMakes>(['speech', 'music', 'sound']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
 const IMAGE_FORMATS: ReadonlySet<string> = new Set<ImageFormat>(['png', 'jpeg', 'webp']);
+const AUDIO_FORMATS: ReadonlySet<string> = new Set<AudioFormat>(['mp3', 'wav']);
 const ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
 
@@ -39,12 +43,16 @@ const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
 export function buildCatalog(modules: readonly ProviderModule[] = PROVIDER_MODULES): Catalog {
 	const providers = modules.map(module => module.describe());
 	const ids = new Set<string>();
-	for (const provider of providers) {
+	for (const [index, provider] of providers.entries()) {
 		const at = `provider ${provider.id}`;
 		check(ID.test(provider.id), `${at}: the id must be lowercase letters, digits, dots, dashes, or underscores`);
 		check(!ids.has(provider.id), `${at}: declared twice`);
 		ids.add(provider.id);
 		validateProvider(provider);
+		for (const model of provider.models) {
+			const listed = model.parameters.some(parameter => parameter.kind === 'voice' && parameter.listed === true);
+			check(!listed || typeof modules[index].listVoices === 'function', `${at}, model ${model.id}: a voice the provider lists needs the module's listVoices`);
+		}
 	}
 	return deepFreeze({ schema: 1, providers: structuredClone(providers) });
 }
@@ -90,12 +98,22 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 		check(typeof providerModel === 'string' && /^\S{1,256}$/.test(providerModel), `${at}: the id sent in ${region} must be one word`);
 	}
 	const kind = model.kind ?? 'video';
-	check(kind === 'image' || kind === 'video', `${at}: kind must be image or video`);
+	check(MODEL_KINDS.has(kind), `${at}: kind must be image, video, or audio`);
+	check(kind === 'audio' || model.makes === undefined, `${at}: only an audio model declares what it makes`);
 	if (kind === 'image') {
 		check(model.outputFormat !== undefined && IMAGE_FORMATS.has(model.outputFormat), `${at}: an image model declares its outputFormat, png, jpeg, or webp`);
 		check(model.modes.every(mode => mode.id === 'reference' && mode.inputs.startFrame === 'none' && mode.inputs.endFrame === 'none' && mode.inputs.videos.max === 0 && mode.inputs.audios.max === 0 && mode.inputs.source === 'none'), `${at}: an image model offers the one mode reference, with images only`);
+	} else if (kind === 'audio') {
+		check(model.makes !== undefined && AUDIO_MAKES.has(model.makes), `${at}: an audio model declares what it makes, speech, music, or sound`);
+		check(model.outputFormat !== undefined && AUDIO_FORMATS.has(model.outputFormat), `${at}: an audio model declares its outputFormat, mp3 or wav`);
+		check(model.modes.every(mode => (mode.id === 'reference' || mode.id === 'lyrics') && mode.inputs.startFrame === 'none' && mode.inputs.endFrame === 'none' && mode.inputs.videos.max === 0 && mode.inputs.source === 'none'), `${at}: an audio model offers the modes reference and lyrics, with images and sounds only`);
 	} else {
-		check(model.outputFormat === undefined, `${at}: only an image model declares an outputFormat`);
+		check(model.outputFormat === undefined, `${at}: only an image or an audio model declares an outputFormat`);
+	}
+	if (model.modes.some(mode => mode.id === 'lyrics')) {
+		check(kind === 'audio' && model.makes === 'music', `${at}: only a music model offers lyrics mode`);
+		check(model.modes.some(mode => mode.id === 'reference'), `${at}: a music model with lyrics mode also offers reference mode, where the provider writes the lyrics`);
+		check(model.prompt.required !== 'never', `${at}: a music model with lyrics mode takes the lyrics as its prompt, so prompt.required cannot be never`);
 	}
 	check(model.answersAtOnce === undefined || typeof model.answersAtOnce === 'boolean', `${at}: answersAtOnce must be true or false`);
 	if (model.deprecatedIn !== undefined) {
@@ -103,14 +121,15 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 	}
 	const count = model.parameters.find(parameter => parameter.name === 'count');
 	if (count) {
-		check(kind === 'image' && count.kind === 'integer' && count.min >= 1 && count.max <= MAX_OUTPUTS && count.step === 1, `${at}: count is a whole number from 1 to at most ${MAX_OUTPUTS}, on an image model`);
+		const makesSeveral = kind === 'image' || (kind === 'audio' && model.makes === 'music');
+		check(makesSeveral && count.kind === 'integer' && count.min >= 1 && count.max <= MAX_OUTPUTS && count.step === 1, `${at}: count is a whole number from 1 to at most ${MAX_OUTPUTS}, on an image or a music model`);
 	}
 	check(['always', 'withoutMedia', 'never'].includes(model.prompt.required), `${at}: prompt.required must be always, withoutMedia, or never`);
 	check(Number.isInteger(model.prompt.maxLength) && model.prompt.maxLength > 0, `${at}: prompt.maxLength must be a positive whole number`);
 	check(model.modes.length > 0, `${at}: at least one mode is needed`);
 	const modes = new Set<string>();
 	for (const mode of model.modes) {
-		check(MODE_IDS.has(mode.id), `${at}, mode ${mode.id}: the id must be frames, reference, extend, or edit`);
+		check(MODE_IDS.has(mode.id), `${at}, mode ${mode.id}: the id must be frames, reference, extend, edit, or lyrics`);
 		check(!modes.has(mode.id), `${at}, mode ${mode.id}: declared twice`);
 		modes.add(mode.id);
 		validateMode(mode, `${at}, mode ${mode.id}`);
@@ -127,6 +146,9 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 		check(PARAMETER_NAME.test(parameter.name), `${where}: the name must be letters, digits, dots, or underscores`);
 		check(!names.has(parameter.name), `${where}: declared twice`);
 		names.add(parameter.name);
+		if (parameter.kind === 'voice' || parameter.name === 'voice') {
+			check(parameter.kind === 'voice' && parameter.name === 'voice' && kind === 'audio' && model.makes === 'speech', `${where}: the voice of a speech model is its parameter named voice, of kind voice, and only a speech model has one`);
+		}
 		validateParameter(parameter, modes, where);
 		if (parameter.setByStartFrame !== undefined) {
 			check(typeof parameter.setByStartFrame === 'boolean', `${where}: setByStartFrame must be true or false`);
@@ -226,14 +248,29 @@ function validateParameter(parameter: CatalogParameter, modes: ReadonlySet<strin
 			check(Number.isInteger(parameter.maxLength) && parameter.maxLength > 0, `${at}: maxLength must be a positive whole number`);
 			check(parameter.default === undefined || (typeof parameter.default === 'string' && [...parameter.default].length <= parameter.maxLength), `${at}: the default is longer than maxLength`);
 			break;
+		case 'voice': {
+			check(parameter.optional !== true, `${at}: a voice is never optional; a draft speaks in its default`);
+			check(parameter.options.length > 0, `${at}: a voice needs options, the voices every account of the provider has`);
+			const values = new Set<string>();
+			for (const option of parameter.options) {
+				check(typeof option.value === 'string' && isVoiceId(option.value), `${at}: the voice ${String(option.value)} must be the id of a voice, 1 to 256 characters without control characters`);
+				check(!values.has(option.value), `${at}: the voice ${option.value} is declared twice`);
+				values.add(option.value);
+				text(option.label, `${at}: the label of voice ${option.value}`);
+				check(option.description === undefined || (typeof option.description === 'string' && option.description.trim().length > 0 && [...option.description].length <= 300), `${at}: the description of voice ${option.value} must be text of 1 to 300 characters`);
+			}
+			check(typeof parameter.default === 'string' && values.has(parameter.default), `${at}: the default ${String(parameter.default)} is not one of the voices`);
+			check(parameter.listed === undefined || typeof parameter.listed === 'boolean', `${at}: listed must be true or false`);
+			break;
+		}
 		default:
-			throw new Error(`${at}: the kind must be choice, integer, number, boolean, or text`);
+			throw new Error(`${at}: the kind must be choice, integer, number, boolean, text, or voice`);
 	}
 }
 
 function check(condition: boolean, message: string): asserts condition {
 	if (!condition) {
-		throw new Error(`Invalid video catalog: ${message}.`);
+		throw new Error(`Invalid catalog: ${message}.`);
 	}
 }
 

@@ -9,9 +9,9 @@ import { tmpdir } from 'os';
 import { join } from '../../../../base/common/path.js';
 import { checkCounts, checkLimits, checkParams, checkPrompt, fitParams, keptLimits, measureItems, resolveParams } from '../../node/check.js';
 import { ProviderFailure } from '../../node/failure.js';
-import { bufferSource, createMediaInspector, dataUrlOf, imageFormatOf, measure, plannedItems, readMedia } from '../../node/media.js';
+import { audioFormatOf, bufferSource, createMediaInspector, dataUrlOf, imageFormatOf, measure, pcmToWav, plannedItems, readMedia } from '../../node/media.js';
 import type { CatalogModel, Media, PlannedMedia } from '../../common/basehalfProviderTypes.js';
-import { gifHeader, isoMedia, jpegHeader, mp3, png, testProvider, tinyJpeg, tinyPng, wav, webpHeader } from './providerTestKit.js';
+import { flacHeader, gifHeader, isoMedia, jpegHeader, mp3, oggHeader, png, testProvider, tinyJpeg, tinyMp3, tinyPng, tinyWav, wav, webpHeader } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
 suite('BaseHalf providers: providerMedia', () => {
@@ -94,6 +94,90 @@ suite('BaseHalf providers: providerMedia', () => {
 			['mp3', 3.396],
 			['mp3', 26.122]
 		]);
+	});
+
+	test('a generated sound is told from its first bytes: an MP3, a WAV, a FLAC, an Ogg of a sound, or an M4A of an audio brand (D78)', async () => {
+		// A frame header of MPEG audio, then enough of the frame to read.
+		const frame = (header: readonly number[]) => Buffer.concat([Buffer.from(header), Buffer.alloc(60)]);
+		assert.deepEqual({
+			id3: audioFormatOf(mp3(2, { id3: true })),
+			mpeg1: audioFormatOf(tinyMp3()),
+			mpeg2: audioFormatOf(frame([0xff, 0xf3, 0x84, 0xc4])),
+			mpeg25: audioFormatOf(frame([0xff, 0xe3, 0x18, 0xc4])),
+			wav: audioFormatOf(tinyWav()),
+			flac: audioFormatOf(flacHeader()),
+			opus: audioFormatOf(oggHeader('opus')),
+			vorbis: audioFormatOf(oggHeader('vorbis')),
+			oggFlac: audioFormatOf(oggHeader('flac')),
+			m4a: audioFormatOf(isoMedia(2, { brand: 'M4A ' })),
+			m4b: audioFormatOf(isoMedia(2, { brand: 'M4B ', compatible: ['M4B ', 'isom'] })),
+			listsM4a: audioFormatOf(isoMedia(2, { brand: 'mp42', compatible: ['isom', 'M4A '] }))
+		}, {
+			id3: 'mp3',
+			mpeg1: 'mp3',
+			mpeg2: 'mp3',
+			mpeg25: 'mp3',
+			wav: 'wav',
+			flac: 'flac',
+			opus: 'ogg',
+			vorbis: 'ogg',
+			oggFlac: 'ogg',
+			m4a: 'm4a',
+			m4b: 'm4a',
+			listsM4a: 'm4a'
+		});
+		assert.deepEqual({
+			// General ISO brands alone may be a video.
+			mp4: audioFormatOf(isoMedia(2)),
+			mp42: audioFormatOf(isoMedia(2, { brand: 'mp42', compatible: ['mp42', 'isom'] })),
+			theora: audioFormatOf(oggHeader('theora')),
+			// AAC in ADTS has the sync of MPEG audio and the layer bits 00, which MPEG audio reserves.
+			adts: audioFormatOf(frame([0xff, 0xf1, 0x50, 0x80])),
+			layerTwo: audioFormatOf(frame([0xff, 0xfd, 0x90, 0x44])),
+			freeBitRate: audioFormatOf(frame([0xff, 0xfb, 0x00, 0x44])),
+			id3Text: audioFormatOf(Buffer.from('ID3 tags are what many MP3 files start with.')),
+			webp: audioFormatOf(webpHeader('VP8 ', 4, 4)),
+			png: audioFormatOf(png(4, 4)),
+			page: audioFormatOf(Buffer.from('<html>expired</html>')),
+			empty: audioFormatOf(new Uint8Array(0))
+		}, {
+			mp4: undefined,
+			mp42: undefined,
+			theora: undefined,
+			adts: undefined,
+			layerTwo: undefined,
+			freeBitRate: undefined,
+			id3Text: undefined,
+			webp: undefined,
+			png: undefined,
+			page: undefined,
+			empty: undefined
+		});
+		// The tiny sounds of the test kit are what they say.
+		assert.deepEqual({ mp3: await measure(bufferSource(tinyMp3())), wav: await measure(bufferSource(tinyWav())), sizes: [tinyMp3().byteLength, tinyWav().byteLength, flacHeader().byteLength] }, {
+			mp3: { format: 'mp3', seconds: 4 * 1152 / 44100 },
+			wav: { format: 'wav', seconds: 0.01 },
+			sizes: [1670, 220, 78]
+		});
+	});
+
+	test('raw samples written as a WAV start like a sound and last as long as the samples do (D78)', async () => {
+		// 1.5 seconds of 16-bit mono at 24 kHz.
+		const written = pcmToWav(Buffer.alloc(72_000), { sampleRate: 24_000, channels: 1, bitsPerSample: 16 });
+		const odd = pcmToWav(Buffer.alloc(3), { sampleRate: 8000, channels: 1, bitsPerSample: 8 });
+		assert.deepEqual({
+			format: audioFormatOf(written),
+			measured: await measure(bufferSource(written)),
+			size: written.byteLength,
+			// An odd count of bytes is padded to an even chunk, as RIFF asks.
+			odd: [odd.byteLength, odd.readUInt32LE(4), odd.readUInt32LE(40)]
+		}, {
+			format: 'wav',
+			measured: { format: 'wav', seconds: 1.5 },
+			size: 44 + 72_000,
+			odd: [48, 40, 3]
+		});
+		assert.throws(() => pcmToWav(Buffer.alloc(2), { sampleRate: 0, channels: 1, bitsPerSample: 16 }), /a positive sample rate/);
 	});
 
 	test('what is not an image, a video, or audio has no format, and a missing file is refused', async () => {

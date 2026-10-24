@@ -22,6 +22,8 @@ import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, Chec
  */
 
 type XaiModelId = 'grok-imagine-video-1.5' | 'grok-imagine-video-1.5-lite' | 'grok-imagine-video';
+/** The modes of xAI's models. xAI has no music model, so no Lyrics mode (D78). */
+type XaiMode = Exclude<ModeId, 'lyrics'>;
 type XaiImageModelId = 'grok-imagine-image-2.0' | 'grok-imagine-image';
 type Resolution = '480p' | '720p' | '1080p';
 type ImageResolution = '1k' | '2k';
@@ -34,7 +36,8 @@ const TEXT = Object.freeze({
 	provider: 'xAI',
 	region: 'Global',
 	apiKey: 'API Key',
-	modes: Object.freeze<Record<ModeId, string>>({ frames: 'Frames', reference: 'References', edit: 'Edit', extend: 'Extend' }),
+	modes: Object.freeze<Record<XaiMode, string>>({ frames: 'Frames', reference: 'References', edit: 'Edit', extend: 'Extend' }),
+	noLyrics: 'xAI has no model that sings lyrics.',
 	resolution: 'Resolution',
 	ratio: 'Ratio',
 	duration: 'Duration',
@@ -335,12 +338,20 @@ function offered(model: string, region: string): boolean {
 // --- requests -----------------------------------------------------------------------------------
 
 /** The endpoint of each mode: the generations share one, editing and extension have their own. */
-const CREATE_PATHS: Readonly<Record<ModeId, string>> = Object.freeze({
+const CREATE_PATHS: Readonly<Record<XaiMode, string>> = Object.freeze({
 	frames: '/videos/generations',
 	reference: '/videos/generations',
 	edit: '/videos/edits',
 	extend: '/videos/extensions'
 });
+
+/** The mode of a request among xAI's modes; the commands send a module only a mode its model declares. */
+function xaiMode(mode: ModeId): XaiMode {
+	if (mode === 'lyrics') {
+		throw rejected(TEXT.noLyrics);
+	}
+	return mode;
+}
 
 /** An input as xAI takes it: a data URL, with the slot it fills. */
 interface SentMedia {
@@ -349,7 +360,7 @@ interface SentMedia {
 }
 
 /** The path and the JSON of the request that creates the task (xai.md, "Requests"). */
-function createRequest(model: XaiModel, mode: ModeId, params: Params, prompt: string, media: readonly SentMedia[]): { readonly path: string; readonly value: Record<string, unknown> } {
+function createRequest(model: XaiModel, mode: XaiMode, params: Params, prompt: string, media: readonly SentMedia[]): { readonly path: string; readonly value: Record<string, unknown> } {
 	const value: Record<string, unknown> = { model: model.id };
 	if (prompt.trim()) {
 		value.prompt = prompt;
@@ -628,7 +639,7 @@ function ruleProblems(model: XaiModel, request: CheckRequest, counts: PlannedCou
 		problems.push(`${label} makes a video from reference images at 480p or 720p.`);
 	}
 	if (model.promptBeyondFrames && request.mode !== 'frames' && !request.prompt.trim()) {
-		problems.push(`Write a prompt: ${label} needs one in ${TEXT.modes[request.mode]} mode.`);
+		problems.push(`Write a prompt: ${label} needs one in ${TEXT.modes[xaiMode(request.mode)]} mode.`);
 	}
 	return problems;
 }
@@ -659,7 +670,7 @@ function fileProblems(model: XaiModel, request: CheckRequest, measured: readonly
 		}
 		media.push({ slot: item.slot, url: '' });
 	}
-	const { value } = createRequest(model, request.mode, request.params, request.prompt, media);
+	const { value } = createRequest(model, xaiMode(request.mode), request.params, request.prompt, media);
 	return [...problems, ...sizeProblems(value, measured)];
 }
 
@@ -735,7 +746,7 @@ export const XAI: ProviderModule = Object.freeze({
 		for (const item of items) {
 			media.push({ slot: item.slot, url: await dataUrlFor(item) });
 		}
-		const { path, value } = createRequest(model, request.mode, request.params, request.prompt, media);
+		const { path, value } = createRequest(model, xaiMode(request.mode), request.params, request.prompt, media);
 		return requestIdOf(await http.create({ method: 'POST', path, body: { kind: 'json', value } }));
 	},
 

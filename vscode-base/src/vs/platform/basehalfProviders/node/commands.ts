@@ -63,18 +63,20 @@ export interface VideoProviderCommandOptions {
 	readonly files?: PlaceFileSystem;
 }
 
-const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
-const OUTPUT_FORMATS: ReadonlySet<string> = new Set<OutputFormat>(['png', 'jpeg', 'webp', 'mp4']);
+const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit', 'lyrics']);
+const MODEL_KINDS: ReadonlySet<string> = new Set<ModelKind>(['image', 'video', 'audio']);
+const OUTPUT_FORMATS: ReadonlySet<string> = new Set<OutputFormat>(['png', 'jpeg', 'webp', 'mp4', 'mp3', 'wav', 'flac', 'ogg', 'm4a']);
 const MAX_PROMPT_CHARACTERS = 1024 * 1024;
 /** The most parts a prompt is sent in: its text and its mentions (D74). */
 const MAX_PROMPT_PARTS = 4096;
 const PROMPT_INPUT_SLOTS: ReadonlySet<string> = new Set<PromptInputSlot>(['startFrame', 'endFrame', 'source', 'images', 'videos', 'audios']);
 const MAX_PATH_LENGTH = 4096;
 
-/** What an output the provider refused without a word says, by the kind of the model. */
-const REFUSED_WITHOUT_REASON: Readonly<Record<ModelKind, string>> = Object.freeze({
-	image: 'The provider refused this image.',
-	video: 'The provider refused this video.'
+/** How messages name the files of each kind of model: one, several, and one the provider refused without a word. */
+const KIND_TEXT: Readonly<Record<ModelKind, { readonly aNoun: string; readonly plural: string; readonly refused: string }>> = Object.freeze({
+	image: { aNoun: 'an image', plural: 'images', refused: 'The provider refused this image.' },
+	video: { aNoun: 'a video', plural: 'videos', refused: 'The provider refused this video.' },
+	audio: { aNoun: 'a sound', plural: 'sounds', refused: 'The provider refused this sound.' }
 });
 
 interface Resolved {
@@ -168,10 +170,10 @@ export class VideoProviderCommands {
 	}
 
 	/**
-	 * Downloads one output to its target: an image from its address, a video
-	 * from its address or, without one, from where the provider module finds
-	 * it. Only a file of the model's kind is kept; the answer gives its size and
-	 * the format its bytes start like.
+	 * Downloads one output to its target: an image or a sound from its
+	 * address, a video from its address or, without one, from where the
+	 * provider module finds it. Only a file of the model's kind is kept; the
+	 * answer gives its size and the format its bytes start like.
 	 */
 	download(argument: unknown, token: CancellationToken = CancellationToken.None): Promise<ProviderResponse<DownloadResult>> {
 		const secrets = secretsOf(argument);
@@ -182,11 +184,11 @@ export class VideoProviderCommands {
 			const kind = request.kind ?? 'video';
 			const modelKind = resolved.model.kind ?? 'video';
 			if (kind !== modelKind) {
-				throw rejected(`${resolved.model.label} makes ${modelKind === 'image' ? 'images' : 'videos'}; BaseHalf downloads only a file of that kind for it.`);
+				throw rejected(`${resolved.model.label} makes ${KIND_TEXT[modelKind].plural}; BaseHalf downloads only a file of that kind for it.`);
 			}
-			const address = kind === 'image' ? request.url : request.url ?? request.videoUrl;
-			if (kind === 'image' && address === undefined) {
-				throw rejected('BaseHalf downloads an image only from the address the provider gave.');
+			const address = kind === 'video' ? request.url ?? request.videoUrl : request.url;
+			if (kind !== 'video' && address === undefined) {
+				throw rejected(`BaseHalf downloads ${KIND_TEXT[kind].aNoun} only from the address the provider gave.`);
 			}
 			http = this.http(resolved.module, request, token);
 			let location: OutputAddress | VideoLocation;
@@ -232,7 +234,7 @@ export class VideoProviderCommands {
 		const module = this.modules.get(request.provider);
 		const provider = this.catalogValue.providers.find(entry => entry.id === request.provider);
 		if (!module || !provider) {
-			throw new ProviderFailure('unknownProvider', `BaseHalf has no video provider "${request.provider}".`);
+			throw new ProviderFailure('unknownProvider', `BaseHalf has no provider "${request.provider}".`);
 		}
 		const region = provider.regions.find(entry => entry.id === request.region);
 		if (!region) {
@@ -371,13 +373,13 @@ export class VideoProviderCommands {
 	 * cannot be kept is answered as refused, with the reason.
 	 */
 	private async keepOutput(location: OutputLocation, target: string | undefined, kind: ModelKind, http: BoundHttp, secrets: readonly string[]): Promise<Output> {
-		const plain = (message: string) => plainMessage(message, [...secrets, ...http.secretValues]) || REFUSED_WITHOUT_REASON[kind];
+		const plain = (message: string) => plainMessage(message, [...secrets, ...http.secretValues]) || KIND_TEXT[kind].refused;
 		if (isRefusal(location)) {
 			return { refused: plain(location.refused) };
 		}
 		if (isAddress(location) && !location.headers) {
 			if (location.url.length > MAX_ADDRESS_LENGTH) {
-				return { refused: plain(`The provider gave ${kind === 'image' ? 'an image' : 'a video'} address longer than BaseHalf takes.`) };
+				return { refused: plain(`The provider gave ${KIND_TEXT[kind].aNoun} address longer than BaseHalf takes.`) };
 			}
 			try {
 				downloadAddress(location.url, kind);
@@ -702,7 +704,7 @@ export function parseDownloadRequest(value: unknown): DownloadRequest {
 	const url = parseAddress(value.url);
 	const videoUrl = parseAddress(value.videoUrl);
 	const kind = value.kind;
-	if ((kind !== undefined && kind !== 'image' && kind !== 'video') || typeof value.targetFsPath !== 'string' || value.targetFsPath.length > MAX_PATH_LENGTH) {
+	if ((kind !== undefined && (typeof kind !== 'string' || !MODEL_KINDS.has(kind))) || typeof value.targetFsPath !== 'string' || value.targetFsPath.length > MAX_PATH_LENGTH) {
 		throw cannotRead('a download');
 	}
 	const ref = parseTaskRef(value, url !== undefined || videoUrl !== undefined);
