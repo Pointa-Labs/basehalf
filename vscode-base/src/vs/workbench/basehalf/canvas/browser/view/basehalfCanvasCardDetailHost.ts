@@ -463,10 +463,12 @@ export class BaseHalfCanvasCardDetailHost {
 			this.pendingDetailNameEditResourceKey = undefined;
 			this.pendingDetailEditorFocusResourceKey = target.toString();
 			try {
+				// A step of the canvas's undo, as a rename on the canvas is.
 				await this.view.explorerService.applyBulkEdit([new ResourceFileEdit(cardDetail.resource, target)], {
 					undoLabel: localize('basehalf.cardDetail.rename.undo', "Rename {0} to {1}", fileName, name),
 					progressLabel: localize('basehalf.cardDetail.rename.progress', "Renaming {0}", fileName),
-					confirmBeforeUndo: this.view.creation.confirmExplorerUndo()
+					confirmBeforeUndo: this.view.creation.confirmExplorerUndo(),
+					undoRedoSource: this.view.canvasUndoRedoSource
 				});
 			} catch (error) {
 				this.pendingDetailEditorFocusResourceKey = undefined;

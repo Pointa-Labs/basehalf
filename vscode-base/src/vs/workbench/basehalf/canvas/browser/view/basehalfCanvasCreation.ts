@@ -1008,10 +1008,12 @@ export class BaseHalfCanvasCreation {
 				throw new Error(gone);
 			}
 			const fileName = basename(edit.resource);
+			// A step of the canvas's undo, as a delete on the canvas is.
 			await this.view.explorerService.applyBulkEdit([new ResourceFileEdit(edit.resource, target)], {
 				undoLabel: localize('basehalf.canvas.rename.undo', "Rename {0} to {1}", fileName, name),
 				progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", fileName),
-				confirmBeforeUndo: this.confirmExplorerUndo()
+				confirmBeforeUndo: this.confirmExplorerUndo(),
+				undoRedoSource: this.view.canvasUndoRedoSource
 			});
 			return;
 		}
