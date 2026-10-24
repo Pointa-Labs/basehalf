@@ -273,7 +273,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.deepStrictEqual({ ...cards, authoring: undefined }, {
 			fileExtensions: {
 				image: BASEHALF_GENERATION_EXTENSIONS.image.map(extension => `.${extension}`),
-				video: BASEHALF_GENERATION_EXTENSIONS.video.map(extension => `.${extension}`)
+				video: BASEHALF_GENERATION_EXTENSIONS.video.map(extension => `.${extension}`),
+				audio: BASEHALF_GENERATION_EXTENSIONS.audio.map(extension => `.${extension}`)
 			},
 			generationFile: '.bh/mirror/<path>/generation.yaml',
 			inputsFile: '.bh/mirror/<path>/upstream.yaml',

@@ -483,11 +483,13 @@ function isCapabilityDiscoveryGenerationCards(value: unknown): boolean {
 	if (!isRecord(value)
 		|| !hasOnlyKeys(value, ['fileExtensions', 'generationFile', 'inputsFile', 'hostOwned', 'generateCommand', 'authoring'])
 		|| !isRecord(value.fileExtensions)
-		|| !hasOnlyKeys(value.fileExtensions, ['image', 'video'])
+		|| !hasOnlyKeys(value.fileExtensions, ['image', 'video', 'audio'])
 		|| !Array.isArray(value.fileExtensions.image)
 		|| !arraysEqual(value.fileExtensions.image, BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS.image)
 		|| !Array.isArray(value.fileExtensions.video)
 		|| !arraysEqual(value.fileExtensions.video, BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS.video)
+		|| !Array.isArray(value.fileExtensions.audio)
+		|| !arraysEqual(value.fileExtensions.audio, BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS.audio)
 		|| value.generationFile !== BASEHALF_AGENT_DISCOVERY_GENERATION_FILE
 		|| value.inputsFile !== BASEHALF_AGENT_DISCOVERY_INPUTS_FILE
 		|| !Array.isArray(value.hostOwned)
