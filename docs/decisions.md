@@ -2544,3 +2544,51 @@ seconds, a request the provider refuses.
   Imagine Video's References and Extend are limits now, not problems.
 - A problem `check` still reports, such as a prompt that sets a value the
   settings own, shows only on Generate's tooltip.
+
+## D71 — Adding an input is two buttons at the panel's top right, and notes are in the reference menu (NEW, 2026-10-24)
+
+**Decision.** The plus at the end of a draft's input row gives way to two
+icon buttons at the panel's top right, at the row's right end: **Pick on
+Canvas**, which is highlighted with the accent while the draft picks and
+ends picking when it is clicked again, and **Import File…**. While the
+draft picks, the row's hint is read by assistive technology and not shown,
+so the tiles keep their room. An empty frame still opens a menu of the two. The reference menu lists notes: a connected
+note under Connected, and **Notes** under On This Canvas. Choosing a note
+connects it; a note has no name, so the `@` is taken out and nothing takes
+its place, and its text is sent after the prompt as every connected note's
+is. The pointer over a tile is the arrow. The input row draws again only
+when what it shows changes, and the look at a tile stays while its input
+stays. See [generation cards](specs/generation-cards.md#the-panel).
+
+**Why.** On 2026-10-24 the user asked for a Note entry in the reference
+menu; found that clicking a tile's `@` made its look blink twice; said the
+grab hand over a tile was wrong; and asked for the plus to become two
+buttons at the top right of the input box, Pick highlighted while picking.
+In the first of the two canvas products for media work, the input box has
+an upload button and a canvas reference button above its tiles, and the
+canvas reference button is highlighted while picking; its `@` menu lists
+text beside images, videos, audio, and assets, and choosing a text puts
+nothing in the prompt, where an image puts its name. Its pointer over a
+tile's picture is the pointing hand, since a click there moves the view to
+the card; a click on a tile does nothing in BaseHalf, where the user moves
+the view ([D50](#d50--a-place-the-user-points-at-is-taken-as-it-is-new-2026-10-12)),
+so the arrow. The second starts picking from an empty frame's plus, which
+stays highlighted while it picks.
+
+The blink: the row compared what it draws by a key in which a file's address
+carried the fields it caches. The check reads a file's path, which adds one,
+and a save reads the inputs again, which drops it: two redraws half a second
+apart, each building the look anew with a picture to decode.
+
+**What was set aside.**
+- The two buttons in a line of their own above the tiles, as the first
+  product has them: the panel grows by a line, and the user asked for the
+  top right.
+- Labels beside the icons: two labels take the room of four tiles in the
+  row; the tooltip and the accessible name say them.
+- A name for a note in the prompt, such as Note 1: a note's text is sent
+  after the prompt, so a name there would point the provider at nothing.
+
+**Consequences.**
+- The input row has no plus; the smoke starts picking with the button.
+- A note can be connected from the prompt as a card is, by `@`.

@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -10,7 +10,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23),
 [D68](../decisions.md#d68--a-cards-references-are-its-connections-and-a-name-in-its-prompt-follows-its-input-new-2026-10-24),
 [D69](../decisions.md#d69--pick-on-canvas-stays-on-and-shows-what-a-click-does-new-2026-10-24),
-[D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24)
+[D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
+[D71](../decisions.md#d71--adding-an-input-is-two-buttons-at-the-panels-top-right-and-notes-are-in-the-reference-menu-new-2026-10-24)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -492,7 +493,7 @@ Every input of a draft is sent; none is left out without a word.
   connection into a draft whose model uses the source in none of its modes,
   as a video into a model that takes no video, a fourth image into a model
   that takes three, or a PDF, is refused with the reason, on the canvas and
-  from the plus of the panel: "<model> takes no videos.", "<model> takes at
+  from the panel's buttons: "<model> takes no videos.", "<model> takes at
   most 3 images.", or "An image or video card cannot use <name>." A draft
   without a model, or whose model the catalog does not have yet, accepts
   images, videos, audio, and text. Create from Connection makes its draft
@@ -639,7 +640,8 @@ panel; the canvas scene places it ([Placement](#placement)).
 From top to bottom:
 
 1. **Input row**, when the card has inputs or its mode takes any: the card's
-   connections as tiles, in the order of its `upstream` list, then a plus.
+   connections as tiles, in the order of its `upstream` list, and at its
+   right end, the panel's top right, the two buttons that add an input (D71).
    The row and the connections on the canvas are one list. A connection made
    or removed anywhere adds or takes away its tile at once; removing a tile
    removes its connection; and every way the row adds an input draws its
@@ -656,7 +658,7 @@ From top to bottom:
    - **Frames mode** shows the start and the end frame first, joined by a
      swap arrow, as far as the model takes frames, each marked Start or End
      at its foot; an empty frame is a tile with a plus and its mark, which
-     opens the plus's menu. The other inputs follow. Until the card has a
+     opens a menu of the two buttons' actions. The other inputs follow. Until the card has a
      model, an image card shows its inputs as references mode does, since
      every image model takes references, and a video card as frames mode
      does.
@@ -667,7 +669,9 @@ From top to bottom:
      used; audio, text, and other kinds show the names alone. The look opens
      below the row when there is no room above it inside the canvas, and
      goes when the pointer leaves the tile. It is BaseHalf's own, as every
-     hover is.
+     hover is. The row is drawn again only when what it shows changes, and
+     the look stays while its input stays, so that nothing blinks when the
+     prompt changes, is checked, or is saved (D71).
    - Pointing at a tile also shows a cross at its top right, which removes
      the connection, and on an input with a name an `@` at its bottom right,
      which puts its name into the prompt at the caret, or at the end when the
@@ -677,13 +681,18 @@ From top to bottom:
      the list. The numbers, the start and the end frame, and the names in the
      prompt follow it ([Names follow their inputs](#names-follow-their-inputs)),
      as one step of undo. A press that moves less than 4 px is a click. A
-     drag of a tile never moves the card or the canvas. The swap arrow
-     exchanges the two frames' entries in `upstream`.
-   - The plus offers **Pick on Canvas** (clicking cards of the canvas
-     connects them, [Pick on Canvas](#pick-on-canvas)) and **Import File…**
-     (copies a file into the card's folder and connects it). A card or a
-     file that the model cannot use is refused with the reason, as a
-     connection on the canvas is, and Import File… copies nothing then.
+     drag of a tile never moves the card or the canvas. The pointer over a
+     tile is the arrow, also while it is dragged, since a tile is no card
+     that moves; over its cross and its `@` it is the pointing hand (D71).
+     The swap arrow exchanges the two frames' entries in `upstream`.
+   - **The two buttons** at the top right are **Pick on Canvas**, which
+     starts and ends picking, where clicking cards of the canvas connects
+     them ([Pick on Canvas](#pick-on-canvas)), and is highlighted while the
+     draft picks; and **Import File…**, which copies a file into the card's
+     folder and connects it. Each is an icon whose name is its tooltip and
+     its accessible name. A card or a file that the model cannot use is
+     refused with the reason, as a connection on the canvas is, and Import
+     File… copies nothing then.
    - A connection made or removed changes the row at once. The tiles that
      stay keep their pictures and a video's first frame, so drawing the row
      again blinks nothing, and an input that comes back soon, as by undo or a
@@ -694,8 +703,8 @@ From top to bottom:
      File…, or a tile's cross, and its undo and redo, draws the canvas at
      once, as a line drawn on the canvas does, and does not wait for the
      canvas to learn of it from the file.
-   - The tiles scroll sideways when they do not fit, and the plus follows
-     them.
+   - The tiles scroll sideways when they do not fit; the two buttons stay at
+     the right.
 2. **Prompt**: a text field that grows to five lines and then scrolls.
    - **Names are chips.** Each name in it of an input the card has (图片1,
      Image 1, 视频2…) shows as a chip: the input's picture, 14 px, or its
@@ -713,26 +722,30 @@ From top to bottom:
      the prompt, a space, or anything that is not a Latin letter or digit, so
      that an e-mail address does not; a full-width `＠` opens it too. The
      keyboard moves into the menu's search field.
-     - The menu lists **Connected**: the card's inputs that have a name, in
-       the order of the list, each with its picture, its file's name, and its
-       name at the right; and **On This Canvas**: **Images**, **Videos**, and
-       **Audio**, each opening the list of the cards of that kind on the
-       canvas of the card's folder, drafts too, by name, apart from the card
-       itself. A
-       card that is connected shows its name at the right. A card that the
-       draft's model cannot use is dimmed with the reason and cannot be
-       chosen, and so is a kind of which the model takes none.
+     - The menu lists **Connected**: the card's inputs that have a name and
+       its notes, in the order of the input row, each with its picture or glyph,
+       its file's name, and its name at the right, for an input that has
+       one; and **On This Canvas**: **Images**, **Videos**, **Audio**, and
+       **Notes** (D71), each opening the list of the cards of that kind on
+       the canvas of the card's folder, drafts too, by name, apart from the
+       card itself. A card that is connected shows its name at the right, and
+       a connected note says Connected. A card that the draft's model cannot
+       use is dimmed with the reason and cannot be chosen, and so is a kind
+       of which the model takes none.
      - Typing in the search field shows, in place of the two parts, the
        connected inputs and the cards of the canvas whose name or file name
        holds what was typed, under Connected and their kinds. With nothing
        found, it says "Nothing here has that name."; with nothing to list,
-       "Connect an image, a video, or audio, or add one to this canvas, to
-       name it here."
+       "Connect an image, a video, audio, or a note, or add one to this
+       canvas."
      - Choosing a connected input puts its name in place of the `@`, as a
        chip with a space after it. Choosing a card that is not connected
        connects it, so its tile and its connection appear, and then puts its
        new name there; when the connection is refused, the reason is shown
-       and the `@` stays.
+       and the `@` stays. Choosing a note connects it when it is not
+       connected, as a card is; a note has no name, so the `@` is taken out
+       and nothing takes its place, and the note's text is sent after the
+       prompt, as the text of every connected note is.
      - Up and Down move through the items, and the first item is current
        when the menu opens. Right or Enter on a kind opens its list, and Left
        goes back. Enter chooses. Escape, or a click outside the menu, closes
@@ -825,7 +838,7 @@ name instead, and nothing is asked.
 
 **While the draft generates**, the panel shows what is being generated, and
 none of it can be changed: the prompt is read only and can be selected and
-copied, and `@` opens nothing; the input row has no plus, no cross, no `@`,
+copied, and `@` opens nothing; the input row has no buttons, no cross, no `@`,
 no swap arrow, and no dragging; the model and
 settings buttons show their values and open nothing; Generate is the stop
 square; and Pick on Canvas ends. When the generation fails or is stopped, the card is a draft again
@@ -851,8 +864,8 @@ chosen with the mouse leaves no ring on the model button.
 
 ### Pick on Canvas
 
-**Pick on Canvas**, from the plus of the input row, connects cards of the
-canvas to the draft by clicking them (D69). It stays on until it is ended,
+**Pick on Canvas**, the first of the two buttons at the panel's top right,
+connects cards of the canvas to the draft by clicking them (D69). It stays on until it is ended,
 and a click on a connected card removes it again. A card with its file and a
 draft that generates do not offer it.
 
@@ -860,8 +873,9 @@ While the draft picks:
 
 - **A bar** at the top of the canvas says what a click does: "Click cards to
   connect them to <name>, or a connected card to remove it." It has **Done**
-  at its right. The plus is shown pressed, and the input row says "Click
-  cards on the canvas. Escape or Done ends."
+  at its right. The button is highlighted with the accent, and the input
+  row tells assistive technology "Click cards on the canvas. Escape or Done
+  ends." without showing it, so that the tiles keep their room (D71).
 - **The pointer** over a card is the pointing hand when a click connects or
   removes it, and the not-allowed pointer over a card that cannot be an
   input: the draft itself, a folder, or a card the model cannot use. It is
@@ -896,7 +910,7 @@ of undo; the card, its line, and the row change at once, and picking goes
 on. A click on a card that cannot be an input, on the draft, or on the blank
 canvas changes nothing.
 
-Escape, Done, or the plus ends picking, and so does whatever takes the panel
+Escape, Done, or the button ends picking, and so does whatever takes the panel
 away or locks it: the draft no longer being selected, starting to generate,
 moved, or deleted. In the panel, Escape first closes a menu that is open
 there.
@@ -909,7 +923,7 @@ top to bottom:
 
 1. **Inputs**, when it had any: the card's inputs in order, as the tiles of
    a draft's input row, with the numbers and the Start and End marks the
-   mode that made it gave them, without a plus, a cross, an `@`, a swap
+   mode that made it gave them, without the buttons, a cross, an `@`, a swap
    arrow, or dragging. Pointing at a tile shows its larger look. An input
    that is gone shows its glyph, and its look says it is gone.
 2. **Prompt**: the prompt it was made with, as text that can be selected and
@@ -1768,7 +1782,7 @@ A draft and a card with its file (D67)
     of a card with its file; a file that lands beside its card has only its
     `made.yaml`.
 44. While a draft generates, its prompt is read only, its input row has no
-    plus, no cross, and no swap arrow, its model and settings buttons open
+    buttons, no cross, and no swap arrow, its model and settings buttons open
     nothing, and its stop square stops it; after a failure the card is a
     draft that can be changed.
 45. A connection from a video card into a draft whose model takes no video
@@ -1861,6 +1875,23 @@ Ranges, lengths, and Generate (D70)
 68. A reason the panel fixes, such as a problem `check` reports for the
     prompt, dims Generate with the reason as its tooltip and shows no line;
     a provider that is not set up shows its line with Set Up.
+
+Adding inputs and notes (D71)
+
+69. A draft's panel has Pick on Canvas and Import File… as two icon buttons
+    at its top right, at the end of the input row, with their names as
+    tooltips, and no plus; a click on Pick on Canvas starts picking and
+    highlights it with the accent, and a second click ends picking.
+70. The reference menu lists Notes under On This Canvas with the notes of
+    the card's folder; choosing one connects it, so its tile and its line
+    appear, and takes the `@` out; a connected note is listed under
+    Connected and says Connected in the list of Notes.
+71. The pointer over a tile is the arrow, and over its cross and its `@` the
+    pointing hand.
+72. Clicking the `@` of a tile while pointing at it puts its name in the
+    prompt, and for two seconds after, through the check and the save of the
+    prompt, the row is not drawn again: the tile, its picture, the look, and
+    the look's picture stay the same elements.
 
 ## Verification
 
