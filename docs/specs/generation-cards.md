@@ -1957,10 +1957,10 @@ Adding inputs and notes (D71)
 
 Mentions (D74)
 
-73. Renaming a connected image in Files, and moving it to another folder,
-    writes its new path into the mention of the draft's prompt, and its chip
-    shows the new name; undoing the rename puts both back. A rename outside
-    BaseHalf that BaseHalf follows does the same.
+73. Renaming a connected image on the canvas or in Files, and moving it to
+    another folder, writes its new path into the mention of the draft's
+    prompt, and its chip shows the new name; renaming it back puts both
+    back. A rename outside BaseHalf that BaseHalf follows does the same.
 74. A mention of a file that is not connected, as an agent may write it or
     a copy of a draft keeps it, shows as a chip with the file's glyph and
     name and a warning underline, and Generate is dimmed with "The prompt
