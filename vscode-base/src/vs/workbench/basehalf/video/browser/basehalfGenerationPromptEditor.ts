@@ -518,6 +518,18 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 	private render(text: string, selection: IBaseHalfPromptSelection | undefined): void {
 		this.text = text;
 		const document = this.element.ownerDocument;
+		// A chip drawn again shows what it showed: its picture stays loaded, and nothing blinks.
+		const kept = new Map<string, HTMLElement[]>();
+		for (const child of this.element.childNodes) {
+			if (isHTMLElement(child) && child.dataset.chipKey) {
+				let chips = kept.get(child.dataset.chipKey);
+				if (!chips) {
+					chips = [];
+					kept.set(child.dataset.chipKey, chips);
+				}
+				chips.push(child);
+			}
+		}
 		clearNode(this.element);
 		let offset = 0;
 		for (const token of findBaseHalfVideoLabelTokens(text)) {
@@ -527,7 +539,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 			const name = text.slice(token.start, token.end);
 			const chip = this.options.chipOf(token);
 			if (chip) {
-				this.element.append(renderChip(name, chip));
+				this.element.append(kept.get(chipKey(name, chip))?.shift() ?? renderChip(name, chip));
 				const next = text.charAt(token.end);
 				if (next === '' || next === '\n') {
 					this.element.append(document.createTextNode(CARET_HOLDER));
@@ -679,9 +691,15 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 	//#endregion
 }
 
+/** What a chip shows: two chips with the same key look the same. */
+function chipKey(name: string, chip: IBaseHalfPromptChip): string {
+	return `${name}\0${chip.kind}\0${chip.picture ?? ''}`;
+}
+
 function renderChip(name: string, chip: IBaseHalfPromptChip): HTMLElement {
 	const element = $('span.bh-prompt-chip');
 	element.contentEditable = 'false';
+	element.dataset.chipKey = chipKey(name, chip);
 	element.dataset.name = name;
 	element.dataset.kind = chip.kind;
 	if (chip.picture) {

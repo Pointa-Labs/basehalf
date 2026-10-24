@@ -347,6 +347,15 @@ suite('BaseHalfGenerationPromptEditor (D68)', () => {
 		assert.deepStrictEqual({ value: editor.value, drawn: drawn(editor) }, { value: '图片1 at dawn', drawn: ['chip 图片1 with picture', 'text  at dawn'] });
 	});
 
+	test('a chip drawn again keeps its picture, so it does not blink', () => {
+		const editor = create();
+		editor.setValue('图片1 and 图片2');
+		const before = editor.element.querySelector('img.bh-prompt-chip-picture');
+		editor.refreshChips();
+		editor.replace(0, 0, 'Look: ');
+		assert.deepStrictEqual([before !== null, editor.element.querySelector('img.bh-prompt-chip-picture') === before, editor.value], [true, true, 'Look: 图片1 and 图片2']);
+	});
+
 	test('replace puts a name in place of what was typed and the caret after it', () => {
 		const editor = create();
 		editor.setValue('look at @');

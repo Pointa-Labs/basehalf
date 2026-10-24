@@ -127,6 +127,28 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		assert.deepStrictEqual({ drawn: drawn(row), calls }, { drawn: ['add', 'hint Add images as references'], calls: ['add menu'] });
 	});
 
+	test('drawing the row again keeps the pictures of the inputs that stay, so nothing blinks; an input that leaves and comes back gets its picture back', () => {
+		const image = tile('shots/a.png', { number: 1, label: '图片1', file: URI.file('/work/shots/a.png') });
+		const clip = tile('shots/clip.mp4', { kind: 'video', number: 1, label: '视频1', file: URI.file('/work/shots/clip.mp4') });
+		const other = tile('shots/b.png', { number: 2, label: '图片2', file: URI.file('/work/shots/b.png') });
+		const row = create({ tiles: [image, clip, other], editable: true });
+		const media = () => new Map([...row.element.querySelectorAll<HTMLElement>('.bh-input-tile')].map(element => [element.dataset.path, element.querySelector('img, video')]));
+		const before = media();
+		// The plus waits for a click, and b.png's connection is removed.
+		row.update({ tiles: [image, clip], editable: true, picking: true });
+		const after = media();
+		// Connected again, as by a second click of Pick on Canvas or by undo.
+		row.update({ tiles: [image, clip, other], editable: true });
+		const back = media();
+		assert.deepStrictEqual({
+			image: after.get('shots/a.png') === before.get('shots/a.png'),
+			clip: after.get('shots/clip.mp4') === before.get('shots/clip.mp4'),
+			clipLoads: after.get('shots/clip.mp4')?.getAttribute('src')?.endsWith('#t=0.1'),
+			left: after.has('shots/b.png'),
+			back: back.get('shots/b.png') === before.get('shots/b.png')
+		}, { image: true, clip: true, clipLoads: true, left: false, back: true });
+	});
+
 	test('read only, the row has no plus, cross, @, or swap, and its tiles still show their numbers', () => {
 		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP], editable: false });
 		assert.deepStrictEqual(drawn(row), [

@@ -82,6 +82,8 @@ export const BASEHALF_INPUT_LOOK_MAX_WIDTH = 176;
 export const BASEHALF_INPUT_LOOK_MAX_HEIGHT = 132;
 /** A press that moves less than this, in screen pixels, is a click. */
 const DRAG_THRESHOLD = 4;
+/** How many pictures of inputs that left the row are kept for their coming back. */
+const KEPT_GONE_PICTURES = 4;
 const LOOK_GAP = 8;
 const LOOK_MARGIN = 12;
 
@@ -99,6 +101,19 @@ export class BaseHalfGenerationInputRow extends Disposable {
 	readonly element: HTMLElement;
 
 	private readonly rowStore = this._register(new DisposableStore());
+	/**
+	 * The pictures of the tiles, kept while their inputs are in the row:
+	 * drawing the row again, as after a connection is made or removed, then
+	 * decodes no picture and loads no video again, and nothing blinks.
+	 */
+	private readonly pictures = new Map<string, { readonly element: HTMLElement; readonly store: DisposableStore }>();
+	private readonly drawnPictures = new Set<string>();
+	/**
+	 * The pictures of the last inputs that left the row, the latest last: an
+	 * input connected again, as by a second click of Pick on Canvas or by
+	 * undo, shows its picture at once.
+	 */
+	private readonly gonePictures = new Map<string, { readonly element: HTMLElement; readonly store: DisposableStore }>();
 	private readonly lookStore = this._register(new DisposableStore());
 	private readonly dragStore = this._register(new DisposableStore());
 	private list: HTMLElement | undefined;
@@ -119,6 +134,13 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		this.element = $('.bh-input-row');
 		this.element.setAttribute('role', 'group');
 		this.element.setAttribute('aria-label', localize('basehalf.generation.inputRow', "Inputs"));
+		this._register(toDisposable(() => {
+			for (const kept of [...this.pictures.values(), ...this.gonePictures.values()]) {
+				kept.store.dispose();
+			}
+			this.pictures.clear();
+			this.gonePictures.clear();
+		}));
 		this._register(addDisposableListener(this.element, 'keydown', event => this.onKeyDown(event)));
 		this._register(addDisposableListener(this.element, 'focusin', event => {
 			const target = event.target;
@@ -151,12 +173,16 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		this.renderedKey = key;
 		this.model = model;
 		const focused = this.focusedKey();
+		// The tiles scrolled sideways stay where they were.
+		const scrolled = this.list?.scrollLeft ?? 0;
 		this.hideLook();
 		this.rowStore.clear();
 		clearNode(this.element);
 		this.list = undefined;
+		this.drawnPictures.clear();
 		this.element.hidden = !model;
 		if (!model) {
+			this.dropUndrawnPictures();
 			return;
 		}
 		this.element.classList.toggle('editable', model.editable);
@@ -199,6 +225,8 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				text.setAttribute('role', 'status');
 			}
 		}
+		this.dropUndrawnPictures();
+		list.scrollLeft = scrolled;
 		this.updateTabStop();
 		if (focused) {
 			this.findByKey(focused)?.focus({ preventScroll: true });
@@ -242,8 +270,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		if (tile.frame) {
 			element.dataset.frame = tile.frame;
 		}
-		const picture = append(element, $('.bh-input-tile-picture'));
-		this.renderPicture(picture, tile, false);
+		element.append(this.picture(tile));
 		if (tile.kind === 'text' || tile.kind === 'other') {
 			append(element, $('span.bh-input-tile-caption')).textContent = tile.fileName;
 		}
@@ -325,7 +352,40 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		this.rowStore.add(addDisposableListener(swap, 'click', () => this.delegate.swap()));
 	}
 
-	private renderPicture(container: HTMLElement, tile: IBaseHalfInputTile, large: boolean): void {
+	/** The picture of a tile: the one drawn before for the same file, while there is one. */
+	private picture(tile: IBaseHalfInputTile): HTMLElement {
+		const key = `${tile.path}\0${tile.kind}\0${tile.file?.toString() ?? ''}`;
+		this.drawnPictures.add(key);
+		let kept = this.pictures.get(key) ?? this.gonePictures.get(key);
+		if (!kept) {
+			const element = $('.bh-input-tile-picture');
+			const store = new DisposableStore();
+			this.renderPicture(element, tile, false, store);
+			kept = { element, store };
+		}
+		this.gonePictures.delete(key);
+		this.pictures.set(key, kept);
+		return kept.element;
+	}
+
+	/** Lets go of the pictures of the inputs that left the row. */
+	private dropUndrawnPictures(): void {
+		for (const [key, kept] of this.pictures) {
+			if (!this.drawnPictures.has(key)) {
+				this.pictures.delete(key);
+				this.gonePictures.set(key, kept);
+			}
+		}
+		for (const [key, kept] of this.gonePictures) {
+			if (this.gonePictures.size <= KEPT_GONE_PICTURES) {
+				break;
+			}
+			kept.store.dispose();
+			this.gonePictures.delete(key);
+		}
+	}
+
+	private renderPicture(container: HTMLElement, tile: IBaseHalfInputTile, large: boolean, store: DisposableStore): void {
 		const glyph = () => {
 			clearNode(container);
 			container.append(renderGlyph(glyphOf(tile.kind)));
@@ -335,7 +395,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			return;
 		}
 		const source = FileAccess.uriToBrowserUri(tile.file).toString(true);
-		const store = large ? this.lookStore : this.rowStore;
 		if (tile.kind === 'image') {
 			const image = append(container, $<HTMLImageElement>('img'));
 			image.alt = '';
@@ -386,7 +445,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			// A 16:9 frame until the picture says its shape.
 			picture.style.width = `${BASEHALF_INPUT_LOOK_MAX_WIDTH}px`;
 			picture.style.height = `${Math.round(BASEHALF_INPUT_LOOK_MAX_WIDTH * 9 / 16)}px`;
-			this.renderPicture(picture, tile, true);
+			this.renderPicture(picture, tile, true, this.lookStore);
 		}
 		const names = append(look, $('.bh-input-look-names'));
 		if (tile.label) {
