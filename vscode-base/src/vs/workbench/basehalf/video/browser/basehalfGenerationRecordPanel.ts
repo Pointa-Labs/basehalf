@@ -25,6 +25,8 @@ import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlain
 import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH } from '../common/basehalfGenerationInfo.js';
 import { IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { createBaseHalfGenerationRecordPresentation, IBaseHalfGenerationRecordInput, IBaseHalfGenerationRecordPresentation } from '../common/basehalfGenerationRecordPresentation.js';
+import { BaseHalfModelKind } from '../common/basehalfVideoCatalog.js';
+import { IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
 import {
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
@@ -61,10 +63,10 @@ const HOVER_GROUP = 'basehalf-video-panel';
  * panel of a card with its file"): what made the file, from its `made.yaml`,
  * where a draft's panel has the same parts. The inputs in order as the tiles
  * of a draft's input row, and the prompt with its names as chips (D68), both
- * read only; the prompt can be selected and copied. Then which image of how
- * many it is or that it is a copy, and a footer with the model and the
- * settings as text and New Version where a draft has Generate. Nothing in it
- * changes the card.
+ * read only; the prompt can be selected and copied. Then which image or song
+ * of how many it is or that it is a copy, and a footer with the model, the
+ * voice a speech model spoke in, and the settings as text, and New Version
+ * where a draft has Generate. Nothing in it changes the card.
  *
  * The workbench creates one for the only selected card with its file, gives
  * the scene its {@link element} and {@link height}, and disposes it.
@@ -86,6 +88,9 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 	private readonly notice: HTMLElement;
 	private readonly footer: HTMLElement;
 	private readonly modelLabel: HTMLElement;
+	/** The voice a speech model spoke in (D78). */
+	private readonly voiceLabel: HTMLElement;
+	private readonly voiceText: HTMLElement;
 	private readonly settingsLabel: HTMLElement;
 	private readonly newVersionButton: HTMLButtonElement;
 
@@ -111,6 +116,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		@IBaseHalfGenerationCardStore private readonly store: IBaseHalfGenerationCardStore,
 		@IBaseHalfGenerationCardActions private readonly cardActions: IBaseHalfGenerationCardActions,
 		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
+		@IBaseHalfGenerationVoiceService private readonly voiceService: IBaseHalfGenerationVoiceService,
 		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IHoverService private readonly hoverService: IHoverService,
@@ -166,6 +172,10 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 
 		this.footer = append(this.element, $('.bh-video-panel-footer'));
 		this.modelLabel = append(this.footer, $('span.bh-record-panel-model'));
+		this.voiceLabel = append(this.footer, $('span.bh-record-panel-voice'));
+		this.voiceLabel.hidden = true;
+		this.voiceLabel.append(renderCodicon(Codicon.voiceMode, 'bh-record-panel-voice-icon'));
+		this.voiceText = append(this.voiceLabel, $('span.bh-record-panel-voice-text'));
 		this.settingsLabel = append(this.footer, $('span.bh-record-panel-settings'));
 		append(this.footer, $('.bh-video-panel-footer-space'));
 		this.newVersionButton = append(this.footer, $<HTMLButtonElement>('button.bh-record-panel-new-version'));
@@ -175,6 +185,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		const newVersionTitle = localize('basehalf.generation.record.newVersionTitle', "Make a new draft beside this card from what made it.");
 		this.newVersionButton.setAttribute('aria-description', newVersionTitle);
 		this._register(this.hoverService.setupDelayedHover(this.modelLabel, () => ({ content: this.presentation?.modelTitle ?? '' }), { groupId: HOVER_GROUP }));
+		this._register(this.hoverService.setupDelayedHover(this.voiceLabel, () => ({ content: this.voiceLabel.getAttribute('aria-label') ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.settingsLabel, () => ({ content: this.presentation?.settingsTitle ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.newVersionButton, () => ({ content: newVersionTitle }), { groupId: HOVER_GROUP }));
 
@@ -265,6 +276,8 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			}
 		}));
 		this._register(this.catalogService.onDidChange(() => this.render()));
+		// The voice it spoke in is named as the provider's last list names it.
+		this._register(this.voiceService.onDidChangeVoices(() => this.render()));
 		this._register(addDisposableListener(this.element, BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, (event: CustomEvent<IBaseHalfCanvasSceneVideoPanelLayout | undefined>) => {
 			if (event.detail) {
 				this.didLayout(event.detail);
@@ -324,16 +337,14 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			kind: snapshot.kind,
 			...(snapshot.made ? { made: snapshot.made } : {}),
 			inputs: this.inputs,
-			catalog: this.catalogService.state
+			catalog: this.catalogService.state,
+			voices: (provider, region) => this.voiceService.voices(provider, region).list
 		});
 		// The card was read; whether its record could be is a state of its own.
 		this.element.dataset.state = 'ready';
 		this.element.dataset.record = presentation.readable ? 'readable' : 'unreadable';
 		this.element.dataset.kind = snapshot.kind;
-		const name = basename(this.resource);
-		this.element.setAttribute('aria-label', snapshot.kind === 'image'
-			? localize('basehalf.generation.record.imageLabel', "What made the image {0}", name)
-			: localize('basehalf.generation.record.videoLabel', "What made the video {0}", name));
+		this.element.setAttribute('aria-label', recordLabel(snapshot.kind, basename(this.resource)));
 		// A record that cannot be read is left as it is; the panel says so and offers nothing to make from it.
 		this.notice.hidden = presentation.readable;
 		this.notice.textContent = presentation.readable ? '' : localize('basehalf.generation.record.unreadable', "BaseHalf could not read what made this file.");
@@ -345,6 +356,9 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this.line.textContent = presentation.line ?? '';
 		this.modelLabel.textContent = presentation.model;
 		this.modelLabel.setAttribute('aria-label', localize('basehalf.generation.record.model', "Model: {0}", presentation.model));
+		this.voiceLabel.hidden = presentation.voice === undefined;
+		this.voiceText.textContent = presentation.voice ?? '';
+		this.voiceLabel.setAttribute('aria-label', presentation.voice !== undefined ? localize('basehalf.generation.record.voice', "Voice: {0}", presentation.voice) : '');
 		this.settingsLabel.textContent = presentation.settings;
 		this.settingsLabel.setAttribute('aria-label', localize('basehalf.generation.record.settingsLabel', "Settings: {0}", presentation.settings));
 		this.newVersionButton.setAttribute('aria-disabled', String(this.making));
@@ -437,6 +451,15 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this.currentHeight = height;
 		this.element.style.height = `${height}px`;
 		this._onDidChangeHeight.fire(height);
+	}
+}
+
+/** The panel's name for assistive technology, by what the card makes. */
+function recordLabel(kind: BaseHalfModelKind, name: string): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.generation.record.imageLabel', "What made the image {0}", name);
+		case 'audio': return localize('basehalf.generation.record.soundLabel', "What made the sound {0}", name);
+		case 'video': return localize('basehalf.generation.record.videoLabel', "What made the video {0}", name);
 	}
 }
 
