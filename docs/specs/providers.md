@@ -725,7 +725,7 @@ images and videos:
 | Fish Audio | `https://api.fish.audio` | API key, `Authorization: Bearer` | speech (Drama 3, S2.1 Pro, S2 Pro), answered at once | none | yes, with samples |
 | Mureka | `https://api.mureka.ai` | API key, `Authorization: Bearer` | music (Mureka 9.5, Mureka O2), tasks | a reference song, by upload | – |
 | MiniMax | as above | as above | speech (Speech 2.8 HD and Turbo, Speech 2.6 HD and Turbo), answered at once | none | yes, without samples |
-| Google | as above | as above | speech (Gemini 3.8 Flash TTS and Flash-Lite TTS), answered at once; music (Lyria 3.5, Lyria 3 Clip), interactions | images, inline (music) | no: 30 voices in the catalog |
+| Google | as above | as above | speech (Gemini 3.8 Flash TTS and Flash-Lite TTS), answered at once through `generateContent`; music (Lyria 3.5, Lyria 3 Clip), answered at once through the Interactions API | images, inline (music) | no: 30 voices in the catalog |
 
 The video facts were read from each provider's documentation on 2026-10-18,
 the image facts on 2026-10-22, and the audio facts on 2026-10-25; each
