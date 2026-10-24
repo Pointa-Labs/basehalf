@@ -20,10 +20,11 @@ import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalf
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfGenerationKind } from '../common/basehalfGenerationInfo.js';
 
-/** The size a new card of each kind is drawn at (generation cards, "Creating a generation card"). */
+/** The size a new card of each kind is drawn at (generation cards, "Creating a generation card"): a sound has the size of a file card. */
 export const BASEHALF_GENERATION_CARD_SIZE: Readonly<Record<BaseHalfGenerationKind, { readonly width: number; readonly height: number }>> = Object.freeze({
 	image: Object.freeze({ width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT }),
-	video: Object.freeze({ width: 720, height: 405 })
+	video: Object.freeze({ width: 720, height: 405 }),
+	audio: Object.freeze({ width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT })
 });
 
 /** A card to place, by its workspace-relative path, at the size it is drawn. */

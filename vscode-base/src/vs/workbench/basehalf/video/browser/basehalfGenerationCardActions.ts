@@ -17,13 +17,13 @@ import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvas
 import {
 	BaseHalfGenerationKind,
 	baseHalfGenerationDefaultBaseName,
+	baseHalfGenerationDraftExtension,
 	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationNameParts,
 	IBaseHalfGenerationInfo,
 	setBaseHalfGenerationChoice
 } from '../common/basehalfGenerationInfo.js';
 import {
-	baseHalfModelFileExtension,
 	baseHalfVideoChoiceRatio,
 	baseHalfVideoInitialGeneration,
 	baseHalfVideoAddedInputRefusal,
@@ -91,9 +91,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 				}
 			}
 		}
-		await this.pushUndo(kind === 'image'
-			? localize('basehalf.generation.actions.newImage', "New Image")
-			: localize('basehalf.generation.actions.newVideo', "New Video"), 'basehalf.generation.newDraft', [draft], { kind: 'made', drafts: [draft] });
+		await this.pushUndo(newDraftLabel(kind), 'basehalf.generation.newDraft', [draft], { kind: 'made', drafts: [draft] });
 		return draft;
 	}
 
@@ -192,7 +190,8 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 
 	newDraftRatio(kind: BaseHalfGenerationKind): number | undefined {
 		const state = this.catalogService.state;
-		if (state.kind !== 'ready') {
+		// A sound has no picture: its card has the size of a file card.
+		if (state.kind !== 'ready' || kind === 'audio') {
 			return undefined;
 		}
 		const choice = baseHalfVideoInitialGeneration(this.providerSettings.getLastUsed(kind), state.catalog, kind, provider => this.providerSettings.getStatus(provider).region.id);
@@ -202,7 +201,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 	/**
 	 * What a new draft of a kind starts with: an empty prompt and the last
 	 * values of that kind made legal for the catalog, and the extension of its
-	 * model's output (`png` for an image without a model).
+	 * model's output (`png` for an image and `mp3` for a sound without a model).
 	 */
 	private async newDraftStart(kind: BaseHalfGenerationKind): Promise<{ readonly info: IBaseHalfGenerationInfo; readonly extension: string }> {
 		const state = this.catalogService.state;
@@ -220,8 +219,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 				this.logService.warn('[BaseHalf generation] The last values used could not start a new card', error);
 			}
 		}
-		const extension = kind === 'video' ? 'mp4' : ref?.model.kind === 'image' ? baseHalfModelFileExtension(ref.model) : 'png';
-		return { info, extension };
+		return { info, extension: baseHalfGenerationDraftExtension(kind, ref?.model) };
 	}
 
 	private async pushUndo(label: string, code: string, cards: readonly URI[], change: BaseHalfDraftUndoChange): Promise<void> {
@@ -250,6 +248,15 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 			isGenerating: card => this.generationService.isGenerating(card),
 			read: card => this.cardStore.read(card)
 		};
+	}
+}
+
+/** The name of the step of undo that makes a new draft of a kind: New Image, New Video, or New Audio. */
+function newDraftLabel(kind: BaseHalfGenerationKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.generation.actions.newImage', "New Image");
+		case 'video': return localize('basehalf.generation.actions.newVideo', "New Video");
+		case 'audio': return localize('basehalf.generation.actions.newAudio', "New Audio");
 	}
 }
 

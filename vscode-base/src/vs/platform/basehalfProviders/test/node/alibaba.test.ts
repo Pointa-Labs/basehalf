@@ -988,6 +988,8 @@ suite('BaseHalf providers: alibaba', () => {
 				return `${name} = ${parameter.default}`;
 			case 'text':
 				return `${name}: text ${parameter.maxLength}`;
+			case 'voice':
+				return `${name}: voice ${parameter.options.map(option => option.value).join(' ')} = ${parameter.default}`;
 		}
 	}
 

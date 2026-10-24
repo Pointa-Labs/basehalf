@@ -19,6 +19,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -31,10 +32,10 @@ import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlain
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import {
 	BASEHALF_VIDEO_IMAGE_FORMATS,
+	BaseHalfModelKind,
 	BaseHalfVideoImageFormat,
 	BaseHalfVideoModeId,
 	BaseHalfVideoParamValue,
-	baseHalfModelFileExtension,
 	baseHalfVideoAddedInputRefusal,
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
@@ -63,7 +64,7 @@ import {
 import {
 	BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
 	baseHalfGenerationChoice,
-	baseHalfGenerationExtensionMatchesFormat,
+	baseHalfGenerationDraftRenameExtension,
 	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationNameParts,
 	IBaseHalfGenerationInfo,
@@ -74,6 +75,7 @@ import { baseHalfUpstreamSidecarResource } from '../../references/common/basehal
 import {
 	BaseHalfVideoPanelControl,
 	baseHalfVideoPanelInputFileName,
+	baseHalfVideoPanelPlaceholder,
 	createBaseHalfVideoPanelPresentation,
 	IBaseHalfVideoPanelAuto,
 	IBaseHalfVideoPanelChoice,
@@ -82,9 +84,11 @@ import {
 } from '../common/basehalfVideoNodePanelPresentation.js';
 import { baseHalfPromptMention, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { BaseHalfReferenceMenuKind, IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
+import { baseHalfVoiceNeedsList, IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
 import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
+import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from './basehalfGenerationVoiceMenu.js';
 import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
 import {
 	BASEHALF_VIDEO_PANEL_MAX_HEIGHT,
@@ -124,9 +128,9 @@ export interface IBaseHalfVideoNodePanelHost {
 	 */
 	didGenerateInNode?(resource: URI): void;
 	/**
-	 * The draft was renamed, as a model of another image format renames it
-	 * (generation cards, "Creating a generation card"). The workbench shows the
-	 * panel of the card at its new name.
+	 * The draft was renamed, as a model that delivers another format renames
+	 * an image or an audio draft (generation cards, "Creating a generation
+	 * card"). The workbench shows the panel of the card at its new name.
 	 */
 	didRenameCard?(resource: URI): void;
 }
@@ -158,7 +162,8 @@ const PROMPT_LINE_HEIGHT = 20;
 const PROMPT_PADDING = 4;
 const PROMPT_MIN_LINES = 3;
 const PROMPT_MAX_LINES = 5;
-const MENU_WIDTHS = { add: 200, model: 300, settings: 300 } as const;
+/** The voice menu is as wide as the model menu (D78). */
+const MENU_WIDTHS = { add: 200, model: 300, voice: 300, settings: 300 } as const;
 const HOVER_GROUP = 'basehalf-video-panel';
 
 type BaseHalfVideoPanelMenuKind = keyof typeof MENU_WIDTHS;
@@ -178,6 +183,8 @@ interface IOpenMenu {
 	readonly byPointer: boolean;
 	/** What the items show, so they are drawn again only when it changes. */
 	contentKey?: string;
+	/** The voice menu, which draws its own rows and keeps its search while the panel changes. */
+	voice?: BaseHalfGenerationVoiceMenu;
 }
 
 /** A check the panel asks with the files a generation would send. */
@@ -189,12 +196,13 @@ interface IPendingCheck {
 }
 
 /**
- * The panel under a selected generation card (D63, D64, generation cards,
- * "The panel"): the card's inputs, its prompt, and a footer with the model of
- * the card's kind, the settings, and Generate, all drawn from the model
- * catalog. It reads and writes the card's generation information through the
- * card store, edits its connections through the reference edit service, and
- * generates and stops through the generation service. It keeps its element
+ * The panel under a selected generation card (D63, D64, D78, generation
+ * cards, "The panel"): the card's inputs, its prompt, and a footer with the
+ * model of the card's kind, the voice of a model that speaks, the settings,
+ * and Generate, all drawn from the model catalog. It reads and writes the
+ * card's generation information through the card store, edits its
+ * connections through the reference edit service, and generates and stops
+ * through the generation service. It keeps its element
  * and its prompt for as long as it lives: updates never replace the prompt
  * while the user types in it, so the text, the selection, and an input method
  * keep their state.
@@ -223,6 +231,9 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private readonly reasonAction: HTMLButtonElement;
 	private readonly modelButton: HTMLButtonElement;
 	private readonly modelLabel: HTMLElement;
+	/** The voice of a model that speaks, after the model (D78). */
+	private readonly voiceButton: HTMLButtonElement;
+	private readonly voiceLabel: HTMLElement;
 	private readonly settingsButton: HTMLButtonElement;
 	private readonly settingsLabel: HTMLElement;
 	private readonly generateButton: HTMLButtonElement;
@@ -297,12 +308,14 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfVideoGenerationService private readonly generationService: IBaseHalfVideoGenerationService,
 		@IBaseHalfGenerationCardActions private readonly cardActions: IBaseHalfGenerationCardActions,
+		@IBaseHalfGenerationVoiceService private readonly voiceService: IBaseHalfGenerationVoiceService,
 		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IFileService private readonly fileService: IFileService,
 		@IHoverService private readonly hoverService: IHoverService,
 		@INotificationService private readonly notificationService: INotificationService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -358,7 +371,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.promptBox = append(this.element, $('.bh-video-panel-prompt'));
 		this.editor = this._register(new BaseHalfGenerationPromptEditor({
 			ariaLabel: localize('basehalf.video.panel.prompt', "Prompt"),
-			placeholder: placeholderOf(options?.snapshot?.kind ?? 'video'),
+			placeholder: baseHalfVideoPanelPlaceholder(options?.snapshot?.kind ?? 'video'),
 			maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
 			chipOf: mention => this.chipOf(mention)
 		}));
@@ -397,6 +410,14 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.modelButton.setAttribute('aria-expanded', 'false');
 		this.modelLabel = append(this.modelButton, $('span.bh-video-panel-model-label'));
 		this.modelButton.append(renderCodicon(Codicon.chevronDown, 'bh-video-panel-chevron'));
+		// The glyph of a voice and the voice's name, for a model that has one (D78).
+		this.voiceButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-voice'));
+		this.voiceButton.type = 'button';
+		this.voiceButton.hidden = true;
+		this.voiceButton.setAttribute('aria-haspopup', 'dialog');
+		this.voiceButton.setAttribute('aria-expanded', 'false');
+		this.voiceButton.append(renderCodicon(Codicon.voiceMode, 'bh-video-panel-voice-icon'));
+		this.voiceLabel = append(this.voiceButton, $('span.bh-video-panel-voice-label'));
 		this.settingsButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-settings'));
 		this.settingsButton.type = 'button';
 		this.settingsButton.setAttribute('aria-haspopup', 'dialog');
@@ -408,6 +429,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.generateButton.setAttribute('aria-keyshortcuts', isMacintosh ? 'Meta+Enter' : 'Control+Enter');
 		this.generateIcon = append(this.generateButton, renderCodicon(Codicon.arrowUp));
 		this._register(this.hoverService.setupDelayedHover(this.modelButton, () => ({ content: this.presentation?.model.title ?? '' }), { groupId: HOVER_GROUP }));
+		this._register(this.hoverService.setupDelayedHover(this.voiceButton, () => ({ content: this.presentation?.voice?.title ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.settingsButton, () => ({ content: this.settingsTitle() }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.generateButton, () => ({ content: this.generateTitle() }), { groupId: HOVER_GROUP }));
 
@@ -518,7 +540,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (inputs) {
 			this.inputs = inputs;
 		}
-		this.editor.element.dataset.placeholder = placeholderOf(snapshot.kind);
 		const prompt = snapshot.info.prompt;
 		if (firstRead) {
 			this.savedPrompt = prompt;
@@ -667,6 +688,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.scheduleRefresh();
 		}));
 		this._register(this.providerSettings.onDidChange(() => this.render()));
+		// The voice button names the voice as the provider's last list does.
+		this._register(this.voiceService.onDidChangeVoices(() => this.render()));
 		this._register(this.generationService.onDidChangeProgress(resource => {
 			if (isEqual(resource, this.resource)) {
 				this.render();
@@ -695,6 +718,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this._register(addDisposableListener(this.editor.element, 'keydown', event => this.onPromptKeyDown(event)));
 
 		this._register(addDisposableListener(this.modelButton, 'click', event => this.toggleMenu('model', this.modelButton, clickedByPointer(event))));
+		this._register(addDisposableListener(this.voiceButton, 'click', event => this.toggleMenu('voice', this.voiceButton, clickedByPointer(event))));
 		this._register(addDisposableListener(this.settingsButton, 'click', event => this.toggleMenu('settings', this.settingsButton, clickedByPointer(event))));
 		this._register(addDisposableListener(this.generateButton, 'click', () => { void this.generate(); }));
 		this._register(addDisposableListener(this.reasonAction, 'click', () => {
@@ -807,6 +831,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			texts: this.texts,
 			catalog,
 			setup: provider => this.providerSettings.getStatus(provider),
+			voices: (provider, region) => this.voiceService.voices(provider, region).list,
 			...(this.lastCheck && this.lastCheck.model === modelKey ? { check: this.lastCheck.result } : {}),
 			generating: this.generationService.isGenerating(this.resource),
 			prompt: this.editor.value
@@ -815,10 +840,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.element.dataset.state = 'ready';
 		this.element.dataset.catalog = catalog.kind;
 		this.element.dataset.kind = snapshot.kind;
-		const name = basename(this.resource);
-		this.element.setAttribute('aria-label', snapshot.kind === 'image'
-			? localize('basehalf.video.panel.imageLabel', "Image panel for {0}", name)
-			: localize('basehalf.video.panel.label', "Video panel for {0}", name));
+		// What the prompt is follows the kind, what the model makes, and the mode that is used (D78).
+		if (this.editor.element.dataset.placeholder !== this.presentation.placeholder) {
+			this.editor.element.dataset.placeholder = this.presentation.placeholder;
+		}
+		this.element.setAttribute('aria-label', panelLabel(snapshot.kind, basename(this.resource)));
 		this.renderNotice();
 		// While the draft generates, what it generates cannot be changed (D67).
 		const locked = this.isLocked();
@@ -842,6 +868,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				this.pickKey = key;
 				this._onDidChangePick.fire();
 			}
+		}
+		// A voice that only the provider's list names, as one of the account, even before the voice menu opened in this window (D78).
+		const { ref, region, voice } = this.presentation;
+		if (ref && region && voice && baseHalfVoiceNeedsList(voice.parameter, voice.value)) {
+			void this.voiceService.askOnce(ref.provider, ref.model, region.id);
 		}
 	}
 
@@ -927,9 +958,18 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.modelButton.setAttribute('aria-label', presentation.model.outlined
 			? localize('basehalf.video.panel.modelProblem', "Model: {0}. {1}", presentation.model.label, presentation.model.title)
 			: localize('basehalf.video.panel.modelLabel', "Model: {0}", presentation.model.label));
-		// While the draft generates, the model and the settings show their values and open nothing (D67).
+		// The voice of a model that speaks: the name the catalog or the provider's last list gives it, or its id (D78).
+		const voice = presentation.voice;
+		this.voiceButton.hidden = !voice;
+		if (this.voiceLabel.textContent !== (voice?.label ?? '')) {
+			this.voiceLabel.textContent = voice?.label ?? '';
+		}
+		this.voiceButton.setAttribute('aria-label', voice
+			? localize('basehalf.video.panel.voiceLabel', "Voice: {0}", voice.label)
+			: localize('basehalf.video.panel.voice', "Voice"));
+		// While the draft generates, the model, the voice, and the settings show their values and open nothing (D67).
 		const locked = this.isLocked();
-		for (const button of [this.modelButton, this.settingsButton]) {
+		for (const button of [this.modelButton, this.voiceButton, this.settingsButton]) {
 			button.classList.toggle('locked', locked);
 			if (locked) {
 				button.setAttribute('aria-disabled', 'true');
@@ -1226,6 +1266,16 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.showMenu(menu.kind, replacement, menu.byPointer);
 			return;
 		}
+		if (menu.kind === 'voice') {
+			// The voice menu keeps its search and draws its own rows: it learns the card's voice and model.
+			const target = this.voiceTarget();
+			if (target) {
+				menu.voice?.update(target);
+			} else {
+				this.closeMenu(false);
+			}
+			return;
+		}
 		if (this.menuContentKey(menu.kind) === menu.contentKey) {
 			return;
 		}
@@ -1251,6 +1301,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		switch (menu.kind) {
 			case 'add': return this.fillAddMenu(menu.element);
 			case 'model': return this.fillModelMenu(menu.element);
+			case 'voice': return this.fillVoiceMenu(menu);
 			case 'settings': return this.fillSettings(menu.element);
 		}
 	}
@@ -1288,7 +1339,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			return undefined;
 		}
 		const rect = trigger.getBoundingClientRect();
-		if (kind !== 'model' && kind !== 'settings') {
+		if (kind !== 'model' && kind !== 'voice' && kind !== 'settings') {
 			return rect;
 		}
 		const panel = this.element.getBoundingClientRect();
@@ -1307,7 +1358,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private onMenuKeyDown(event: KeyboardEvent, menu: IOpenMenu): void {
-		if (menu.kind === 'settings') {
+		// The settings follow their controls, and the voice menu its search field.
+		if (menu.kind === 'settings' || menu.kind === 'voice') {
 			return;
 		}
 		const items = this.menuItems(menu.element);
@@ -1356,6 +1408,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	 * settings focus their first control.
 	 */
 	private focusFirstMenuItem(menu: IOpenMenu): void {
+		if (menu.voice) {
+			// The search field has the keyboard, with the card's voice current.
+			menu.voice.focus();
+			return;
+		}
 		const items = this.menuItems(menu.element);
 		const checked = items.find(item => item.getAttribute('aria-checked') === 'true');
 		if (!checked && menu.byPointer && items.length > 0) {
@@ -1476,6 +1533,39 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}, { key: 'providers', icon: Codicon.settingsGear });
 	}
 
+	/**
+	 * The voice menu (D78): the voices of the card's model, which it asks the
+	 * provider for each time it opens. Choosing one saves it as any value of
+	 * the settings is saved, closes the menu, and gives the keyboard back.
+	 */
+	private fillVoiceMenu(menu: IOpenMenu): void {
+		const target = this.voiceTarget();
+		if (!target) {
+			return;
+		}
+		menu.voice = menu.content.add(this.instantiationService.createInstance(BaseHalfGenerationVoiceMenu, menu.element, target, {
+			choose: voice => {
+				this.closeMenu(true);
+				this.changeParam(target.parameter.name, voice);
+			},
+			dismiss: () => this.closeMenu(true),
+			layout: () => {
+				if (this.openMenu === menu) {
+					this.placeMenu(menu);
+				}
+			}
+		}));
+	}
+
+	/** What the voice menu lists from: the card's model and its voice, while the model speaks. */
+	private voiceTarget(): IBaseHalfVoiceMenuTarget | undefined {
+		const presentation = this.presentation;
+		const voice = presentation?.voice;
+		return presentation?.ref && voice
+			? Object.freeze({ provider: presentation.ref.provider, model: presentation.ref.model, parameter: voice.parameter, voice: voice.value })
+			: undefined;
+	}
+
 	/** Chooses a model of the catalog: every value it accepts is kept, the others take its defaults. */
 	private chooseModel(providerId: string, modelId: string): void {
 		const catalog = this.catalogService.state;
@@ -1488,20 +1578,20 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	/**
 	 * A draft's extension follows its model (generation cards, "Creating a
-	 * generation card"): an image model that delivers another format renames
-	 * the draft to that format's extension at once, with the next free number
-	 * when that name is taken, as a rename does.
+	 * generation card"): an image or an audio model that delivers another
+	 * format renames the draft to that format's extension at once, with the
+	 * next free number when that name is taken, as a rename does.
 	 */
 	private async followModelFormat(model: IBaseHalfVideoCatalogModel): Promise<void> {
 		const snapshot = this.snapshot;
-		if (this.disposed || !snapshot || snapshot.hasFile || snapshot.made || snapshot.kind !== 'image' || model.kind !== 'image' || !model.outputFormat
-			|| baseHalfGenerationExtensionMatchesFormat(snapshot.path, model.outputFormat)) {
+		const extension = !this.disposed && snapshot && !snapshot.hasFile && !snapshot.made ? baseHalfGenerationDraftRenameExtension(snapshot.path, snapshot.kind, model) : undefined;
+		if (extension === undefined) {
 			return;
 		}
 		const name = basename(this.resource);
 		const folder = dirname(this.resource);
 		try {
-			const next = await this.store.nextFreeName(folder, baseHalfGenerationNameParts(name).base, baseHalfModelFileExtension(model), baseHalfGenerationNameOrdinal(name));
+			const next = await this.store.nextFreeName(folder, baseHalfGenerationNameParts(name).base, extension, baseHalfGenerationNameOrdinal(name));
 			const target = joinPath(folder, next);
 			await this.draftOperations.move(this.resource, target);
 			this.host.didRenameCard?.(target);
@@ -2360,11 +2450,13 @@ function isReferenceMenuKind(kind: BaseHalfVideoInputKind): kind is BaseHalfRefe
 	return kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'text';
 }
 
-/** What the empty prompt of a card of a kind says. */
-function placeholderOf(kind: 'image' | 'video'): string {
-	return kind === 'image'
-		? localize('basehalf.video.panel.imagePromptPlaceholder', "Describe the image. Type @ to mention an input.")
-		: localize('basehalf.video.panel.promptPlaceholder', "Describe the video. Type @ to mention an input.");
+/** The panel's name for assistive technology, by the card's kind. */
+function panelLabel(kind: BaseHalfModelKind, name: string): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.video.panel.imageLabel', "Image panel for {0}", name);
+		case 'audio': return localize('basehalf.video.panel.audioLabel', "Audio panel for {0}", name);
+		case 'video': return localize('basehalf.video.panel.label', "Video panel for {0}", name);
+	}
 }
 
 /** A click of the mouse or a touch. A click that Enter or Space makes on a button has no count. */

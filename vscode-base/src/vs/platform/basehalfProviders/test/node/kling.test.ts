@@ -620,6 +620,8 @@ suite('BaseHalf providers: kling', () => {
 				return `${name} = ${parameter.default}${tooltip}`;
 			case 'text':
 				return `${name}: text ${parameter.maxLength}${tooltip}`;
+			case 'voice':
+				return `${name}: voice ${parameter.options.map(option => option.value).join(' ')} = ${parameter.default}${tooltip}`;
 		}
 	}
 

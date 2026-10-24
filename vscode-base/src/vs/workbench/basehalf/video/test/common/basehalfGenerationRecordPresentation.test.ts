@@ -5,10 +5,13 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
+import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
 import { createBaseHalfGenerationRecordPresentation } from '../../common/basehalfGenerationRecordPresentation.js';
-import { BaseHalfVideoCatalogState, IBaseHalfVideoInputSource } from '../../common/basehalfVideoCatalog.js';
-import { TEST_GENERATION_CATALOG } from './basehalfVideoCatalogFixture.js';
+import { BaseHalfModelKind, BaseHalfVideoCatalogState, IBaseHalfVideoInputSource } from '../../common/basehalfVideoCatalog.js';
+import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from './basehalfVideoCatalogFixture.js';
+
+/** The kind of an audio card (D78). */
+const AUDIO = 'audio' as BaseHalfModelKind as BaseHalfGenerationKind;
 
 suite('BaseHalfGenerationRecordPresentation', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -85,5 +88,33 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 		assert.strictEqual(one.line, undefined);
 		const unreadable = createBaseHalfGenerationRecordPresentation({ kind: 'image', inputs: [], catalog: ready });
 		assert.deepStrictEqual([unreadable.readable, unreadable.inputs.length, unreadable.model], [false, 0, '']);
+	});
+
+	test('names the voice a speech model spoke in by the catalog, the provider\'s last list, or its recorded id, apart from the settings, and says which song of how many it is (D78)', () => {
+		const audio: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'vx-pike', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
+		const voices = (provider: string, region: string) => provider === 'dunlin' && region === 'main'
+			? { voices: [{ id: 'rachel', label: 'Rachel', own: false }, { id: 'vx-pike', label: 'Pike of the account', own: false }] }
+			: undefined;
+		const present = (made: IBaseHalfGenerationMade, catalog: BaseHalfVideoCatalogState = audio) => createBaseHalfGenerationRecordPresentation({ kind: AUDIO, made, inputs: [], catalog, voices });
+		const byCatalog = present(spoken);
+		const song = present({ ...spoken, model: 'dunlin-song', mode: 'lyrics', params: { count: 3 }, output: 2, outputs: 3 });
+		assert.deepStrictEqual({
+			byCatalog: [byCatalog.model, byCatalog.voice, byCatalog.settings, byCatalog.settingsTitle],
+			byList: present({ ...spoken, params: { voice: 'rachel' } }).voice,
+			byId: present({ ...spoken, params: { voice: 'gone-since' } }).voice,
+			// Without the catalog it is not known to be a voice: it is among the values it was made with.
+			withoutCatalog: [present(spoken, { kind: 'loading' }).voice, present(spoken, { kind: 'loading' }).settings],
+			song: [song.line, song.voice],
+			one: present({ ...spoken, output: 1, outputs: 1 }).line
+		}, {
+			// The voice is named apart, once: neither the summary nor the whole list of values has it.
+			byCatalog: ['Dunlin Voice', 'Pike', 'From Text · Speed 1', 'Made with: From Text · Speed 1'],
+			byList: 'Rachel',
+			byId: 'gone-since',
+			withoutCatalog: [undefined, 'reference · voice vx-pike · speed 1'],
+			song: ['Song 2 of 3', undefined],
+			one: undefined
+		});
 	});
 });

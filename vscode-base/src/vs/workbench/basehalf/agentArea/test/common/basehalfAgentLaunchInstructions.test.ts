@@ -55,7 +55,7 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'BaseHalf updates them when it sees the move',
 			'list those files under the new note\'s `upstream`',
 			'basehalf --list-capabilities',
-			'A generation card is an image or a video file; a draft is one whose file does not exist yet.',
+			'A generation card is an image, a video, or a sound file; a draft is one whose file does not exist yet.',
 			'never write `made.yaml`',
 			'leave its `upstream.yaml` alone',
 			'A draft\'s inputs are the entries of its `upstream.yaml`, in order, and every one is sent',

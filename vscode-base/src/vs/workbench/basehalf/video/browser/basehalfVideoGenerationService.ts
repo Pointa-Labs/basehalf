@@ -104,6 +104,7 @@ import {
 	IBaseHalfVideoSubmitResult,
 	IBaseHalfVideoTaskRef,
 	baseHalfModelOutputCount,
+	isBaseHalfSpokenOrSungPrompt,
 	normalizeBaseHalfVideoParams,
 	parseBaseHalfVideoCheckResult,
 	planBaseHalfVideoInputs,
@@ -171,9 +172,12 @@ const DIRECT_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.p
 const DIRECT_IMAGE_FORMATS: Readonly<Record<string, BaseHalfVideoImageFormat>> = Object.freeze({ '.png': 'png', '.jpg': 'jpeg', '.jpeg': 'jpeg', '.webp': 'webp' });
 const RASTER_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp' });
 const VIDEO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v', '.webm': 'video/webm' });
-const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac' });
+const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.flac': 'audio/flac' });
 
-const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'balance', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'notImage', 'tooLarge', 'unknownProvider', 'exists']);
+const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'balance', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'notImage', 'notAudio', 'tooLarge', 'unknownProvider', 'exists']);
+
+/** The formats of a file the provider service received, as it answers them (providers, "Requests"). */
+const OUTPUT_FORMATS: ReadonlySet<BaseHalfVideoOutputFormat> = new Set(['png', 'jpeg', 'webp', 'mp4', 'mp3', 'wav', 'flac', 'ogg', 'm4a']);
 
 /** Draws an image that providers do not take (SVG, GIF, AVIF, BMP) to a PNG data URL. */
 export type BaseHalfVideoImageRasterizer = (bytes: VSBuffer, mimeType: string) => Promise<string>;
@@ -478,8 +482,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 
 	/**
-	 * Step 4: the draft itself, and for an image `count` above 1, that many
-	 * cards in all, the further ones named like it with the next free numbers.
+	 * Step 4: the draft itself, and for a `count` of an image or a music model
+	 * above 1, that many cards in all, the further ones named like it with the
+	 * next free numbers.
 	 */
 	private async planCards(snapshot: IBaseHalfGenerationCardSnapshot, ref: IBaseHalfVideoModelRef, modeId: BaseHalfVideoModeId, params: BaseHalfVideoParams): Promise<IPlannedCards> {
 		const parent = dirname(snapshot.resource);
@@ -626,8 +631,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 				throwIfCancelled(token);
 			}
 		}
-		// The prompt in parts: each mention as its input's place in the request, which the provider module names (D74).
-		const prompt = buildBaseHalfPromptParts(info.prompt, plan, (_item, index) => texts.get(index));
+		// The prompt in parts: each mention as its input's place in the request, which the provider module names (D74);
+		// a prompt that is spoken or sung says the text of its notes without their names (D78).
+		const prompt = buildBaseHalfPromptParts(info.prompt, plan, (_item, index) => texts.get(index), { spokenOrSung: isBaseHalfSpokenOrSungPrompt(ref.model, mode.id) });
 		if (prompt.unconnected !== undefined) {
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'unconnectedMention', path: prompt.unconnected }));
 		}
@@ -1121,9 +1127,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const task = this.taskStore.get(follow.taskId)!;
 		const part = this.taskStore.partFile(task, index);
 		if (!source) {
-			await this.failCard(follow, index, follow.kind === 'image'
-				? localize('basehalf.video.generation.fewerImages', "The provider made fewer images than asked.")
-				: localize('basehalf.video.generation.noFile', "The provider answered without the file."));
+			await this.failCard(follow, index, fewerFilesMessage(follow.kind, task.cards.length));
 			return 'failed';
 		}
 		if (source.kind === 'refused') {
@@ -1202,7 +1206,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		await this.deleteQuietly(part);
 		const detail = errorDetail(answer.error, follow.secrets());
-		if (!answer.unavailable && (answer.error.code === 'notVideo' || answer.error.code === 'notImage' || answer.error.code === 'tooLarge')) {
+		if (!answer.unavailable && (answer.error.code === 'notVideo' || answer.error.code === 'notImage' || answer.error.code === 'notAudio' || answer.error.code === 'tooLarge')) {
 			await this.failCard(follow, index, notAcceptedMessage(follow.kind, detail));
 			return 'failed';
 		}
@@ -1225,7 +1229,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		} catch (error) {
 			return { problem: receiveFailedMessage(follow.kind, error) };
 		}
-		const format = baseHalfGenerationFileFormat(head);
+		const format = baseHalfGenerationFileFormat(head, follow.kind);
 		if (!format || !isBaseHalfGenerationFileAccepted(follow.kind, format, size)) {
 			return {
 				problem: notAcceptedMessage(follow.kind, size > BASEHALF_GENERATION_MAX_FILE_BYTES[follow.kind]
@@ -2158,8 +2162,8 @@ function parseOutputs(value: unknown): readonly BaseHalfVideoOutput[] | undefine
 		}
 		if (typeof output.url === 'string' && output.url) {
 			outputs.push({ url: output.url });
-		} else if (typeof output.written === 'string' && typeof output.size === 'number' && (output.format === 'png' || output.format === 'jpeg' || output.format === 'webp' || output.format === 'mp4')) {
-			outputs.push({ written: output.written, size: output.size, format: output.format });
+		} else if (typeof output.written === 'string' && typeof output.size === 'number' && OUTPUT_FORMATS.has(output.format as BaseHalfVideoOutputFormat)) {
+			outputs.push({ written: output.written, size: output.size, format: output.format as BaseHalfVideoOutputFormat });
 		} else if (typeof output.refused === 'string') {
 			outputs.push({ refused: output.refused });
 		} else {
@@ -2177,7 +2181,7 @@ function parseDownloadResult(value: unknown): IBaseHalfVideoDownloadResult | und
 	if (!isRecord(value) || typeof value.size !== 'number' || !Number.isSafeInteger(value.size) || value.size < 0) {
 		return undefined;
 	}
-	const format = value.format === 'png' || value.format === 'jpeg' || value.format === 'webp' || value.format === 'mp4' ? value.format : undefined;
+	const format = OUTPUT_FORMATS.has(value.format as BaseHalfVideoOutputFormat) ? value.format as BaseHalfVideoOutputFormat : undefined;
 	return { size: value.size, ...(format ? { format } : {}) };
 }
 
@@ -2233,23 +2237,45 @@ export function closedWhileAnsweringMessage(): string {
 
 /** Receiving a file failed: downloading it, reading it, or checking it. */
 function receiveFailedMessage(kind: BaseHalfGenerationKind, error: unknown): string {
-	return kind === 'image'
-		? localize('basehalf.video.generation.receiveFailedImage', "BaseHalf could not receive the image from the provider: {0}", plainDetail(getErrorMessage(error), []))
-		: localize('basehalf.video.generation.receiveFailed', "BaseHalf could not receive the video from the provider: {0}", plainDetail(getErrorMessage(error), []));
+	const detail = plainDetail(getErrorMessage(error), []);
+	switch (kind) {
+		case 'image': return localize('basehalf.video.generation.receiveFailedImage', "BaseHalf could not receive the image from the provider: {0}", detail);
+		case 'video': return localize('basehalf.video.generation.receiveFailed', "BaseHalf could not receive the video from the provider: {0}", detail);
+		case 'audio': return localize('basehalf.video.generation.receiveFailedSound', "BaseHalf could not receive the sound from the provider: {0}", detail);
+	}
 }
 
 /** The file was received, but could not be put into the card's folder, however often it was tried. */
 function placeFailedMessage(kind: BaseHalfGenerationKind, detail: string): string {
-	return kind === 'image'
-		? localize('basehalf.video.generation.placeFailedImage', "BaseHalf received the image but could not put it into its folder: {0}", detail)
-		: localize('basehalf.video.generation.placeFailed', "BaseHalf received the video but could not put it into its folder: {0}", detail);
+	switch (kind) {
+		case 'image': return localize('basehalf.video.generation.placeFailedImage', "BaseHalf received the image but could not put it into its folder: {0}", detail);
+		case 'video': return localize('basehalf.video.generation.placeFailed', "BaseHalf received the video but could not put it into its folder: {0}", detail);
+		case 'audio': return localize('basehalf.video.generation.placeFailedSound', "BaseHalf received the sound but could not put it into its folder: {0}", detail);
+	}
 }
 
 /** The file is in its folder; the record of how it was made could not be written. */
 function recordFailedMessage(kind: BaseHalfGenerationKind, error: Error): string {
-	return kind === 'image'
-		? localize('basehalf.video.generation.recordFailedImage', "The image is in its folder, but BaseHalf could not record how it was made: {0}", plainDetail(error.message, []))
-		: localize('basehalf.video.generation.recordFailed', "The video is in its folder, but BaseHalf could not record how it was made: {0}", plainDetail(error.message, []));
+	const detail = plainDetail(error.message, []);
+	switch (kind) {
+		case 'image': return localize('basehalf.video.generation.recordFailedImage', "The image is in its folder, but BaseHalf could not record how it was made: {0}", detail);
+		case 'video': return localize('basehalf.video.generation.recordFailed', "The video is in its folder, but BaseHalf could not record how it was made: {0}", detail);
+		case 'audio': return localize('basehalf.video.generation.recordFailedSound', "The sound is in its folder, but BaseHalf could not record how it was made: {0}", detail);
+	}
+}
+
+/**
+ * Why a card of a generation got no file because the provider made fewer
+ * than asked (generation cards, "Several images from one generation"): fewer
+ * images, or fewer songs, or no file at all for a generation of one.
+ */
+function fewerFilesMessage(kind: BaseHalfGenerationKind, cards: number): string {
+	if (kind === 'image') {
+		return localize('basehalf.video.generation.fewerImages', "The provider made fewer images than asked.");
+	}
+	return kind === 'audio' && cards > 1
+		? localize('basehalf.video.generation.fewerSongs', "The provider made fewer songs than asked.")
+		: localize('basehalf.video.generation.noFile', "The provider answered without the file.");
 }
 
 /** A received file that is gone before it was put in place. */
@@ -2271,15 +2297,19 @@ function closedWhileSavingMessage(): string {
 }
 
 function tooLongMessage(kind: BaseHalfGenerationKind): string {
-	return kind === 'image'
-		? localize('basehalf.video.generation.tooLongImage', "The provider did not finish the image within two hours.")
-		: localize('basehalf.video.generation.tooLong', "The provider did not finish the video within two hours.");
+	switch (kind) {
+		case 'image': return localize('basehalf.video.generation.tooLongImage', "The provider did not finish the image within two hours.");
+		case 'video': return localize('basehalf.video.generation.tooLong', "The provider did not finish the video within two hours.");
+		case 'audio': return localize('basehalf.video.generation.tooLongSound', "The provider did not finish the sound within two hours.");
+	}
 }
 
 function notAcceptedMessage(kind: BaseHalfGenerationKind, detail: string): string {
-	return kind === 'image'
-		? localize('basehalf.video.generation.notImage', "The provider's file is not a PNG, JPEG, or WebP image of at most 64 MiB: {0}", detail)
-		: localize('basehalf.video.generation.notVideo', "The provider's file is not an MP4 video of at most 512 MiB: {0}", detail);
+	switch (kind) {
+		case 'image': return localize('basehalf.video.generation.notImage', "The provider's file is not a PNG, JPEG, or WebP image of at most 64 MiB: {0}", detail);
+		case 'video': return localize('basehalf.video.generation.notVideo', "The provider's file is not an MP4 video of at most 512 MiB: {0}", detail);
+		case 'audio': return localize('basehalf.video.generation.notAudio', "The provider's file is not an MP3, WAV, FLAC, Ogg, or M4A sound of at most 256 MiB: {0}", detail);
+	}
 }
 
 function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: false }>, secrets: readonly string[]): string {

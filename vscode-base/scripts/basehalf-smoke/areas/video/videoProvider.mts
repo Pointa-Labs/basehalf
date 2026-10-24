@@ -4,11 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * What the smoke's generation card steps (D63, D64, generation cards,
+ * What the smoke's generation card steps (D63, D64, D78, generation cards,
  * "Verification") need beside the window: the local test provider of
  * `basehalf-video-mock-provider.mts`, which answers like ByteDance's ModelArk
- * API for videos and images, small PNG images, and a search of the workspace
- * for the test key. Nothing here talks to a real provider.
+ * API for videos and images, and like ElevenLabs' and Mureka's APIs for
+ * sounds, small PNG images, and a search of the workspace for the test key.
+ * Nothing here talks to a real provider.
  */
 
 import fs from 'node:fs';
@@ -16,13 +17,16 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import type { AddressInfo, Socket } from 'node:net';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { MOCK_JPEG_FIXTURE_URL, MOCK_VIDEO_FIXTURE_URL, startMockVideoProvider, type MockVideoProvider, type MockVideoProviderRequest } from '../../../basehalf-video-mock-provider.mts';
+import { MOCK_JPEG_FIXTURE_URL, MOCK_VIDEO_FIXTURE_URL, mockSoundTag, startMockVideoProvider, type MockVideoProvider, type MockVideoProviderRequest } from '../../../basehalf-video-mock-provider.mts';
 
 export interface VideoSmokeProvider {
-	/** The test provider; `requests` lists the create requests it received. */
+	/** The test provider; `requests` lists the requests it received that create a task, images, or a sound, and the uploads. */
 	readonly mock: MockVideoProvider;
-	/** The endpoint the smoke enters for its provider: the relay, at the path of the provider's own API. */
+	/** The endpoint the smoke enters for ByteDance: the relay, at the path of ModelArk's own API. */
 	readonly endpoint: string;
+	/** The endpoints the smoke enters for ElevenLabs and Mureka: the relay, at the paths where the provider answers like each. */
+	readonly elevenLabsEndpoint: string;
+	readonly murekaEndpoint: string;
 	readonly key: string;
 	/** The fixture video, which the provider serves with a box of its own for each task. */
 	readonly video: Buffer;
@@ -30,14 +34,19 @@ export interface VideoSmokeProvider {
 	isVideo(bytes: Buffer): boolean;
 	/** Whether the bytes are an image the provider served for a prompt with `[mock:jpeg]`: the fixture JPEG, with a comment naming it. */
 	isJpeg(bytes: Buffer): boolean;
-	/** The create requests received since `count` of them had arrived. */
+	/** The tag that names a sound the provider made, such as `speech-…` or `song-<task>-<index>`; `undefined` for other bytes. */
+	soundTag(bytes: Buffer): string | undefined;
+	/** The requests received since `count` of them had arrived. */
 	requestsSince(count: number): readonly MockVideoProviderRequest[];
-	/** When the relay received each request that creates a task or images, in milliseconds since the epoch, oldest first. */
+	/** When the relay received each request that creates a task, images, or a sound, in milliseconds since the epoch, oldest first. */
 	readonly creates: readonly number[];
-	/** How long the relay holds each request that creates a task or images from now on. */
+	/** How long the relay holds each request that creates a task, images, or a sound from now on. */
 	holdCreates(milliseconds: number): void;
 	close(): Promise<void>;
 }
+
+/** The requests that create a task, images answered at once, or a sound: of ModelArk, of ElevenLabs, and of Mureka. */
+const CREATE_PATH = /\/contents\/generations\/tasks$|\/videos$|\/images\/generations$|\/elevenlabs\/v1\/(?:text-to-speech\/[^/]+|sound-generation)$|\/mureka\/v1\/(?:song\/(?:easy-)?generate|instrumental\/generate)$/;
 
 /**
  * Starts the test provider behind a relay on 127.0.0.1, answering files of
@@ -45,11 +54,11 @@ export interface VideoSmokeProvider {
  * provider's do, so that BaseHalf can tell one moved file from another by its
  * content. The relay passes
  * every request on unchanged, and holds a request that creates a task, or
- * images answered at once, for `holdCreateMs` first: on this computer the
- * provider answers within a few milliseconds, and the hold leaves the card
- * `submitting` long enough to be read. A connection the provider drops
- * without an answer is dropped the same way, so an unknown outcome stays
- * unknown.
+ * images or a sound answered at once, for `holdCreateMs` first: on this
+ * computer the provider answers within a few milliseconds, and the hold
+ * leaves the card `submitting` long enough to be read. A connection the
+ * provider drops without an answer is dropped the same way, so an unknown
+ * outcome stays unknown.
  */
 export async function startVideoSmokeProvider(options: { readonly durationMs: number; readonly holdCreateMs: number }): Promise<VideoSmokeProvider> {
 	const mock = await startMockVideoProvider({ durationMs: options.durationMs, uniqueFiles: true });
@@ -82,7 +91,7 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 				upstream.end(body);
 			};
 			const pathname = new URL(request.url ?? '/', mock.url).pathname;
-			if (request.method === 'POST' && /\/contents\/generations\/tasks$|\/videos$|\/images\/generations$/.test(pathname)) {
+			if (request.method === 'POST' && CREATE_PATH.test(pathname)) {
 				creates.push(receivedAt);
 				const timer = setTimeout(() => {
 					timers.delete(timer);
@@ -106,10 +115,13 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 	return {
 		mock,
 		endpoint: `http://127.0.0.1:${port}/api/v3`,
+		elevenLabsEndpoint: `http://127.0.0.1:${port}/elevenlabs`,
+		murekaEndpoint: `http://127.0.0.1:${port}/mureka`,
 		key: mock.key,
 		video,
 		isVideo: bytes => bytes.byteLength > video.byteLength && bytes.subarray(0, video.byteLength).equals(video) && bytes.toString('latin1', video.byteLength + 4, video.byteLength + 8) === 'free',
 		isJpeg: bytes => bytes.byteLength > jpeg.byteLength && bytes.readUInt16BE(0) === 0xffd8 && bytes.readUInt16BE(2) === 0xfffe && bytes.subarray(bytes.byteLength - jpeg.byteLength + 2).equals(jpeg.subarray(2)),
+		soundTag: mockSoundTag,
 		requestsSince: count => mock.requests.slice(count),
 		creates,
 		holdCreates: milliseconds => {

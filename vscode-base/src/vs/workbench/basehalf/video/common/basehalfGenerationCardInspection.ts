@@ -8,12 +8,12 @@ import { dirname, extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { baseHalfGenerationKindOfPath } from './basehalfGenerationInfo.js';
+import { BaseHalfGenerationKind, baseHalfGenerationKindOfPath } from './basehalfGenerationInfo.js';
 import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore } from './basehalfVideoGeneration.js';
 
 /** What a generation card is, to code that is not the card's own. */
 export interface IBaseHalfGenerationCardState {
-	readonly kind: 'image' | 'video';
+	readonly kind: BaseHalfGenerationKind;
 	readonly hasFile: boolean;
 	/** The `id` of its `made.yaml`. */
 	readonly generationId?: string;

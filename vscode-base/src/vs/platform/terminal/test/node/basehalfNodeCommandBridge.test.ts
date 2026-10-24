@@ -426,6 +426,9 @@ suite('BaseHalfNodeCommandServer', () => {
 			{ ...current, host: { ...host, generationCards: { ...cards, hostOwned: ['.bh/cache/generation/'] } } },
 			{ ...current, host: { ...host, generationCards: { ...cards, generateCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>' } } },
 			{ ...current, host: { ...host, generationCards: { ...cards, fileExtensions: { ...cards.fileExtensions, video: ['.mp4', '.bhnode'] } } } },
+			// The extensions of every kind are stated, sounds among them (D78).
+			{ ...current, host: { ...host, generationCards: { ...cards, fileExtensions: { image: cards.fileExtensions.image, video: cards.fileExtensions.video } } } },
+			{ ...current, host: { ...host, generationCards: { ...cards, fileExtensions: { ...cards.fileExtensions, audio: ['.mp3', '.opus'] } } } },
 			{ ...current, host: { ...host, generationCards: { ...cards, authoring: { ...cards.authoring, contractVersion: 4 } } } },
 			{ ...current, host: { ...host, generationCards: { ...cards, authoring: { ...cards.authoring, hostOwnedFields: ['task', 'result'] } } } },
 			{ ...current, host: { ...host, generationCards: { ...cards, authoring: { ...cards.authoring, rules: [] } } } },

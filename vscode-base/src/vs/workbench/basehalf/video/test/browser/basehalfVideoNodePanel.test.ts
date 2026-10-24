@@ -26,7 +26,9 @@ import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCan
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../../canvas/common/basehalfCanvasScene.js';
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceUndoElementOptions } from '../../../references/common/basehalfReferenceEdit.js';
 import {
+	BaseHalfModelKind,
 	BaseHalfVideoCatalogState,
+	baseHalfVideoChangeParam,
 	BaseHalfVideoMedia,
 	baseHalfVideoInputKindOfPath,
 	findBaseHalfVideoRegion,
@@ -55,13 +57,18 @@ import {
 	IBaseHalfVideoProviderStatus,
 	IBaseHalfVideoResolvedInput
 } from '../../common/basehalfVideoGeneration.js';
-import { BaseHalfGenerationKind, IBaseHalfGenerationInfo } from '../../common/basehalfGenerationInfo.js';
-import { TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { baseHalfGenerationChoice, BaseHalfGenerationKind, IBaseHalfGenerationInfo, setBaseHalfGenerationChoice } from '../../common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationVoiceService, IBaseHalfVoices, IBaseHalfVoiceSample, IBaseHalfVoiceSampleFailure } from '../../common/basehalfGenerationVoices.js';
+import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
+import { DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
 const WORKSPACE = URI.file('/workspace');
 const NODE_PATH = 'shots/shot.mp4';
 const NODE = URI.joinPath(WORKSPACE, 'shots', 'shot.mp4');
 const READY: IBaseHalfVideoGenerationChoice = { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
+/** The kind of an audio card (D78). */
+const AUDIO = 'audio' as BaseHalfModelKind as BaseHalfGenerationKind;
+const SPEECH: IBaseHalfVideoGenerationChoice = { provider: 'dunlin', model: 'dunlin-voice', mode: 'reference', params: { voice: 'vx-ember', speed: 1 } };
 
 /**
  * A card store over one card: what its `generation.yaml` and `upstream.yaml`
@@ -324,6 +331,47 @@ class RecordingNotificationService extends TestNotificationService {
 	}
 }
 
+/** The voices of the window as a panel reads them: the last list per provider and region, and what the menu and the panel asked for (D78). */
+class FakeVoiceService extends Disposable implements IBaseHalfGenerationVoiceService {
+	declare readonly _serviceBrand: undefined;
+	private readonly voicesChanged = this._register(new Emitter<void>());
+	readonly onDidChangeVoices = this.voicesChanged.event;
+	private readonly sampleChanged = this._register(new Emitter<void>());
+	readonly onDidChangeSample = this.sampleChanged.event;
+	readonly sample: IBaseHalfVoiceSample | undefined = undefined;
+	readonly sampleFailure: IBaseHalfVoiceSampleFailure | undefined = undefined;
+	readonly refreshed: string[] = [];
+	/** What the panel had the window ask for once, to name a voice only a list names, each once. */
+	readonly askedOnce = new Set<string>();
+	stops = 0;
+	private readonly lists = new Map<string, VoicesResult>();
+
+	voices(provider: string, region: string): IBaseHalfVoices {
+		const list = this.lists.get(`${provider}/${region}`);
+		return { loading: false, ...(list ? { list } : {}) };
+	}
+
+	async refresh(provider: IBaseHalfVideoCatalogProvider, model: { readonly id: string }): Promise<void> {
+		this.refreshed.push(`${provider.id}/${model.id}`);
+	}
+
+	async askOnce(provider: IBaseHalfVideoCatalogProvider, model: { readonly id: string }, region: string): Promise<void> {
+		this.askedOnce.add(`${provider.id}/${region}/${model.id}`);
+	}
+
+	async playSample(): Promise<void> { }
+
+	stopSample(): void {
+		this.stops++;
+	}
+
+	/** The provider answered a list. */
+	answer(provider: string, region: string, list: VoicesResult): void {
+		this.lists.set(`${provider}/${region}`, list);
+		this.voicesChanged.fire();
+	}
+}
+
 suite('BaseHalfVideoNodePanel', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
@@ -333,6 +381,7 @@ suite('BaseHalfVideoNodePanel', () => {
 	let catalog: FakeCatalogService;
 	let providers: FakeProviderSettings;
 	let generation: FakeGenerationService;
+	let voices: FakeVoiceService;
 	let notifications: RecordingNotificationService;
 	let hovers: Map<HTMLElement, () => string>;
 	let connections: { readonly added: string[]; readonly removed: string[]; undoSteps: number };
@@ -352,6 +401,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		catalog = disposables.add(new FakeCatalogService());
 		providers = disposables.add(new FakeProviderSettings());
 		generation = disposables.add(new FakeGenerationService(store));
+		voices = disposables.add(new FakeVoiceService());
 		notifications = new RecordingNotificationService();
 		hovers = new Map();
 		connections = { added: [], removed: [], undoSteps: 0 };
@@ -381,6 +431,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		instantiationService.set(IBaseHalfVideoCatalogService, catalog);
 		instantiationService.set(IBaseHalfVideoProviderSettingsService, providers);
 		instantiationService.set(IBaseHalfVideoGenerationService, generation);
+		instantiationService.set(IBaseHalfGenerationVoiceService, voices);
 		instantiationService.set(INotificationService, notifications);
 		instantiationService.set(ILogService, new NullLogService());
 		instantiationService.stub(IBaseHalfReferenceEditService, {
@@ -717,7 +768,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			connected: { action: 'remove', label: 'Remove a.png' },
 			image: { action: 'connect', label: 'Connect c.png' },
 			video: { action: 'refused', label: 'Acme Motion 2 takes one video at most.' },
-			unusable: { action: 'refused', label: 'An image or video card cannot use brief.pdf.' },
+			unusable: { action: 'refused', label: 'An image, video, or audio card cannot use brief.pdf.' },
 			folder: { action: 'refused', label: 'A folder cannot be an input.' },
 			pressed: 'true',
 			hint: 'Click cards on the canvas. Escape or Done ends.'
@@ -1410,7 +1461,7 @@ suite('BaseHalfVideoNodePanel', () => {
 				return element.scrollWidth > element.clientWidth;
 			};
 			const outer = panel.element.getBoundingClientRect();
-			// What the footer holds: the model, the settings, and Generate, and no price (video node, acceptance criterion 22).
+			// What the footer holds: the model, the voice of a model that speaks, the settings, and Generate, and no price (video node, acceptance criterion 22).
 			const footerHolds = Array.from(find(panel, '.bh-video-panel-footer').children).map(child => child.classList[0]);
 			// The controls of the footer that show, from left to right.
 			const shownInFooter = ['.bh-video-panel-model', '.bh-video-panel-settings', '.bh-video-panel-generate']
@@ -1450,7 +1501,7 @@ suite('BaseHalfVideoNodePanel', () => {
 				reported: 188,
 				modelClipped: false,
 				settingsClipped: false,
-				footerHolds: ['bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
+				footerHolds: ['bh-video-panel-model', 'bh-video-panel-voice', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
 				footerInOrder: true,
 				footerInside: true,
 				slotsInside: true,
@@ -1473,5 +1524,237 @@ suite('BaseHalfVideoNodePanel', () => {
 		store.writeFromElsewhere({ prompt: 'Rain', provider: 'borealis', model: 'borealis-one' });
 		await settle();
 		assert.deepStrictEqual({ withRow, withoutRow: panel.height, heights }, { withRow: 188, withoutRow: 132, heights: [132] });
+	});
+
+	/** The panel of an audio draft, at `shots/audio.mp3` unless `path` says otherwise, with the audio models of the catalog and every provider set up (D78). */
+	async function createAudioPanel(info: IBaseHalfGenerationInfo, upstream: readonly string[] = [], path = 'shots/audio.mp3'): Promise<BaseHalfVideoNodePanel> {
+		catalog.state = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+		providers.notSetUp = new Set();
+		store.kind = AUDIO;
+		store.path = path;
+		store.info = info;
+		store.upstream = upstream;
+		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, store.resource, host, { checkDelay: 0 }));
+		mainWindow.document.body.appendChild(panel.element);
+		mounted.push(panel.element);
+		await settle();
+		return panel;
+	}
+
+	test('a speech model\'s panel has the voice button between the model and the settings, with its voice\'s name; its menu saves a chosen voice as any setting is saved, and the settings leave the voice out (D78)', async () => {
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
+		const footer = Array.from(find(panel, '.bh-video-panel-footer').children).filter(child => !(child as HTMLElement).hidden).map(child => child.classList[0]);
+		const voice = find<HTMLButtonElement>(panel, '.bh-video-panel-voice');
+		const shown = { footer, label: voice.textContent, name: voice.getAttribute('aria-label'), tooltip: hovers.get(voice)?.(), summary: find(panel, '.bh-video-panel-settings').textContent };
+		// The panel's settings: the voice is not among them.
+		find(panel, '.bh-video-panel-settings').click();
+		const settings = findAll(panel, '.bh-video-panel-menu.settings .bh-video-panel-setting-label').map(label => label.textContent);
+		press(mainWindow.document.activeElement as HTMLElement, 'Escape');
+		voice.click();
+		const search = find<HTMLInputElement>(panel, '.bh-voice-menu-search input');
+		const opened = {
+			focused: mainWindow.document.activeElement === search,
+			asked: [...voices.refreshed],
+			voices: findAll(panel, '.bh-voice-menu-option').map(option => `${option.querySelector('.bh-voice-menu-name')?.textContent}${option.getAttribute('aria-checked') === 'true' ? '*' : ''}`),
+			width: find(panel, '.bh-video-panel-menu.voice').style.width,
+			expanded: voice.getAttribute('aria-expanded')
+		};
+		const before = store.info;
+		findAll(panel, '.bh-voice-menu-option').find(option => option.querySelector('.bh-voice-menu-name')?.textContent === 'Pike')!.click();
+		await settle();
+		assert.deepStrictEqual({
+			shown,
+			settings,
+			opened,
+			closed: { menus: findAll(panel, '.bh-video-panel-menu').length, focused: mainWindow.document.activeElement === voice, sampleStopped: voices.stops > 0 },
+			// The choice goes the way of every value of the settings: made legal for the model and saved at once.
+			saved: store.info
+		}, {
+			shown: {
+				footer: ['bh-video-panel-model', 'bh-video-panel-voice', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
+				label: 'Ember',
+				name: 'Voice: Ember',
+				tooltip: 'Voice',
+				summary: 'From Text · Speed 1'
+			},
+			settings: ['Speed'],
+			opened: { focused: true, asked: ['dunlin/dunlin-voice'], voices: ['Ember*', 'Pike', 'Sable'], width: '300px', expanded: 'true' },
+			closed: { menus: 0, focused: true, sampleStopped: true },
+			saved: setBaseHalfGenerationChoice(before, baseHalfVideoChangeParam(baseHalfGenerationChoice(before), DUNLIN_VOICE, 'voice', 'vx-pike', 'reference'))
+		});
+	});
+
+	test('a voice of the account that the catalog does not declare is saved as the card\'s, named on the button as the provider\'s list names it, and checked as it is sent (D78)', async () => {
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
+		voices.answer('dunlin', 'main', { voices: [{ id: 'own-narrator', label: 'My Narrator', description: 'Cloned', own: true }] });
+		await settle();
+		const voice = find<HTMLButtonElement>(panel, '.bh-video-panel-voice');
+		voice.click();
+		const listed = findAll(panel, '.bh-voice-menu-option').map(option => option.querySelector('.bh-voice-menu-name')?.textContent);
+		findAll(panel, '.bh-voice-menu-option').find(option => option.querySelector('.bh-voice-menu-name')?.textContent === 'My Narrator')!.click();
+		await settle();
+		assert.deepStrictEqual({
+			listed,
+			saved: store.info.params,
+			button: [voice.textContent, voice.getAttribute('aria-label')],
+			summary: find(panel, '.bh-video-panel-settings').textContent,
+			checked: catalog.checks.at(-1)?.params
+		}, {
+			listed: ['My Narrator', 'Ember', 'Pike', 'Sable'],
+			saved: { voice: 'own-narrator', speed: 1 },
+			button: ['My Narrator', 'Voice: My Narrator'],
+			summary: 'From Text · Speed 1',
+			checked: { voice: 'own-narrator', speed: 1 }
+		});
+	});
+
+	test('a voice that only the provider\'s list names has the window ask for that list once, in the region in use, before the voice menu opens; a voice of the catalog asks nothing (D78)', async () => {
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH, params: { voice: 'own-narrator', speed: 1 } });
+		const voice = find(panel, '.bh-video-panel-voice');
+		const ofAccount = { asked: [...voices.askedOnce], label: voice.textContent, menus: voices.refreshed.length };
+		voices.answer('dunlin', 'main', { voices: [{ id: 'own-narrator', label: 'My Narrator', own: true }] });
+		await settle();
+		const named = voice.textContent;
+		voices.askedOnce.clear();
+		store.writeFromElsewhere({ prompt: 'Welcome to the coast.', ...SPEECH, params: { voice: 'vx-pike', speed: 1 } });
+		await settle();
+		assert.deepStrictEqual({ ofAccount, named, ofCatalog: { asked: [...voices.askedOnce], label: voice.textContent } }, {
+			// By its id until the list comes, which the voice menu has not asked for.
+			ofAccount: { asked: ['dunlin/main/dunlin-voice'], label: 'own-narrator', menus: 0 },
+			named: 'My Narrator',
+			ofCatalog: { asked: [], label: 'Pike' }
+		});
+	});
+
+	test('the voice button names its voice as the catalog does, and opens nothing while the draft generates (D78)', async () => {
+		generation.generating = true;
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
+		voices.answer('dunlin', 'main', { voices: [{ id: 'vx-ember', label: 'Ember of the account', own: false }] });
+		await settle();
+		const voice = find(panel, '.bh-video-panel-voice');
+		voice.click();
+		assert.deepStrictEqual({ label: voice.textContent, disabled: voice.getAttribute('aria-disabled'), menus: findAll(panel, '.bh-video-panel-menu').length }, {
+			label: 'Ember',
+			disabled: 'true',
+			menus: 0
+		});
+	});
+
+	test('the prompt says what it is by what the model makes and the mode that is used, and an audio card without a model describes the sound (D78)', async () => {
+		const panel = await createAudioPanel({ prompt: '' });
+		const placeholder = () => promptOf(panel).dataset.placeholder;
+		const said: Record<string, string | undefined> = { none: placeholder() };
+		for (const [name, choice] of [
+			['speech', SPEECH],
+			['music', { provider: 'dunlin', model: 'dunlin-song', mode: 'reference' }],
+			['lyrics', { provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics' }],
+			['sound', { provider: 'dunlin', model: 'dunlin-foley', mode: 'reference' }]
+		] as const) {
+			store.writeFromElsewhere({ prompt: '', ...choice });
+			await settle();
+			said[name] = placeholder();
+		}
+		assert.deepStrictEqual({ said, voiceShown: !find(panel, '.bh-video-panel-voice').hidden }, {
+			said: {
+				none: 'Describe the sound. Type @ to mention an input.',
+				speech: 'Write what the voice says. Type @ to mention an input.',
+				music: 'Describe the music. Type @ to mention an input.',
+				lyrics: 'Write the lyrics. Type @ to mention an input.',
+				sound: 'Describe the sound. Type @ to mention an input.'
+			},
+			// A sound-effect model speaks in no voice.
+			voiceShown: false
+		});
+	});
+
+	test('an audio card lists the audio models, each with what it makes first on its second line, and a model of another format renames the draft, and back (D78)', async () => {
+		const renamed: string[] = [];
+		host.didRenameCard = resource => renamed.push(resource.path);
+		const menuItem = (panel: BaseHalfVideoNodePanel, model: string) => findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === model)!;
+		const speech = await createAudioPanel({ prompt: 'Welcome.', ...SPEECH });
+		find(speech, '.bh-video-panel-model').click();
+		const items = findAll(speech, '.bh-video-panel-menu-item').map(item => `${menuLabel(item)}${item.querySelector('.bh-video-panel-menu-detail') ? ` (${item.querySelector('.bh-video-panel-menu-detail')?.textContent})` : ''}`);
+		// Dunlin Song delivers WAV.
+		menuItem(speech, 'Dunlin Song').click();
+		await settle();
+		const labels = [speech.element.getAttribute('aria-label')];
+		speech.dispose();
+		// The workbench shows the panel of the card at its new name; a model that delivers MP3 renames it back.
+		const song = await createAudioPanel(store.info, [], 'shots/audio.wav');
+		labels.push(song.element.getAttribute('aria-label'));
+		find(song, '.bh-video-panel-model').click();
+		menuItem(song, 'Dunlin Voice').click();
+		await settle();
+		assert.deepStrictEqual({ items, moves: drafts.moves, renamed, labels }, {
+			items: [
+				'Dunlin Voice (Speech · Up to 10,000 characters)',
+				'Dunlin Song (Music · From a Description · From Lyrics · Up to 3 songs · 1 reference image · 1 reference sound)',
+				'Dunlin Foley (Sound Effects · Up to 22s)',
+				'Providers…'
+			],
+			// The draft takes the extension of the format its model delivers (criterion 81).
+			moves: ['/workspace/shots/audio.mp3 -> /workspace/shots/audio.wav', '/workspace/shots/audio.wav -> /workspace/shots/audio.mp3'],
+			renamed: ['/workspace/shots/audio.wav', '/workspace/shots/audio.mp3'],
+			labels: ['Audio panel for audio.mp3', 'Audio panel for audio.wav']
+		});
+	});
+
+	test('the voice button and its menu lay out with nothing clipped: the footer in one row, and the menu as wide as the model menu, its search field on top and its voices scrolling (D78)', async () => {
+		const frame = mainWindow.document.createElement('div');
+		frame.className = 'monaco-workbench';
+		frame.style.cssText = 'position: absolute; left: 0; top: 0; width: 512px; --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;';
+		mainWindow.document.body.appendChild(frame);
+		mounted.push(frame);
+		voices.answer('dunlin', 'main', {
+			voices: Array.from({ length: 40 }, (_value, index) => ({ id: `voice-${index}`, label: `Voice with a rather long name ${index}`, description: 'Warm, calm, and slow, with a deep and even tone', own: index < 3, sample: `https://cdn.dunlin.example/${index}.mp3` }))
+		});
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
+		frame.replaceChildren(panel.element);
+		await settle();
+		const box = (selector: string) => find(panel, selector).getBoundingClientRect();
+		const outer = panel.element.getBoundingClientRect();
+		const footer = ['.bh-video-panel-model', '.bh-video-panel-voice', '.bh-video-panel-settings', '.bh-video-panel-generate'].map(box);
+		const label = find(panel, '.bh-video-panel-voice-label');
+		find(panel, '.bh-video-panel-voice').click();
+		const menu = box('.bh-video-panel-menu.voice');
+		const search = box('.bh-voice-menu-search');
+		const list = find(panel, '.bh-voice-menu-list');
+		const options = findAll(panel, '.bh-voice-menu-option');
+		const play = options.map(option => option.querySelector('.bh-voice-menu-play')?.getBoundingClientRect()).find(rect => !!rect)!;
+		const checked = options.find(option => option.getAttribute('aria-checked') === 'true')!;
+		assert.deepStrictEqual({
+			footerInOrder: footer.every((rect, index) => index === 0 || footer[index - 1].right <= rect.left) && footer[footer.length - 1].right <= outer.right - 12,
+			footerInOneRow: footer.every(rect => Math.abs(rect.top + rect.height / 2 - (footer[0].top + footer[0].height / 2)) < 1),
+			labelClipped: label.scrollWidth > label.clientWidth,
+			menuWidth: menu.width,
+			searchOnTop: search.top >= menu.top && search.bottom <= list.getBoundingClientRect().top,
+			scrolls: list.scrollHeight > list.clientHeight,
+			insideWindow: menu.bottom <= mainWindow.innerHeight,
+			rowsInside: options.every(option => option.getBoundingClientRect().right <= list.getBoundingClientRect().right && option.scrollWidth <= option.clientWidth),
+			play: [play.width, play.height],
+			checkInside: checked.querySelector('.bh-voice-menu-check')!.getBoundingClientRect().right <= checked.getBoundingClientRect().right
+		}, {
+			footerInOrder: true,
+			footerInOneRow: true,
+			labelClipped: false,
+			menuWidth: 300,
+			searchOnTop: true,
+			scrolls: true,
+			insideWindow: true,
+			rowsInside: true,
+			play: [24, 24],
+			checkInside: true
+		});
+	});
+
+	test('an audio card without a model shows its sounds and images as references, as an audio model does (D78)', async () => {
+		const panel = await createAudioPanel({ prompt: '' }, ['refs/theme.mp3', 'refs/cover.png', 'notes/lyrics.md']);
+		assert.deepStrictEqual({
+			tiles: findAll(panel, '.bh-input-tile').map(tile => `${tile.getAttribute('aria-label')}${tile.classList.contains('dimmed') ? ' (dimmed)' : ''}`),
+			frames: findAll(panel, '.bh-input-tile.empty').length
+		}, {
+			tiles: ['theme.mp3', 'cover.png', 'lyrics'],
+			frames: 0
+		});
 	});
 });

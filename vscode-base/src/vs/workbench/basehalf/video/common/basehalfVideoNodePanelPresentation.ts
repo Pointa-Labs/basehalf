@@ -5,10 +5,11 @@
 
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
+import type { VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import {
-	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
-	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
+	baseHalfDefaultModeId,
+	baseHalfDefaultModeInputs,
 	BaseHalfVideoCatalogParameter,
 	BaseHalfVideoCatalogState,
 	BaseHalfVideoGenerateBlocker,
@@ -39,6 +40,7 @@ import {
 	formatBaseHalfVideoNumber,
 	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalogMode,
+	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoCatalogRegion,
 	IBaseHalfVideoCheckLimit,
@@ -50,21 +52,24 @@ import {
 	IBaseHalfVideoModelRef,
 	IBaseHalfVideoNumberParameter,
 	IBaseHalfVideoProviderSetup,
+	isBaseHalfSpokenOrSungPrompt,
 	isBaseHalfVideoModelBlocker,
 	normalizeBaseHalfVideoParams,
 	planBaseHalfVideoInputs
 } from './basehalfVideoCatalog.js';
 import { buildBaseHalfPromptParts } from './basehalfGenerationMentions.js';
 import { baseHalfGenerationChoice, IBaseHalfGenerationInfo } from './basehalfGenerationInfo.js';
+import { baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
 
 /**
  * Everything the panel under a selected generation card draws (D63, D64,
- * generation cards, "The panel" and "Settings"), computed from the card's
- * generation information and kind, its resolved inputs, the model catalog,
- * how each provider is set up, the last answer of `check`, and whether it
- * generates. Pure: the panel renders it and the tests check it without a
- * document. What the panel shows is what the generation service sends,
- * because both use the rules of `basehalfVideoCatalog.ts`.
+ * D78, generation cards, "The panel" and "Settings"), computed from the
+ * card's generation information and kind, its resolved inputs, the model
+ * catalog, how each provider is set up, the provider's last list of voices,
+ * the last answer of `check`, and whether it generates. Pure: the panel
+ * renders it and the tests check it without a document. What the panel shows
+ * is what the generation service sends, because both use the rules of
+ * `basehalfVideoCatalog.ts`.
  */
 
 export interface IBaseHalfVideoPanelState {
@@ -78,6 +83,8 @@ export interface IBaseHalfVideoPanelState {
 	readonly texts?: ReadonlyMap<string, string>;
 	readonly catalog: BaseHalfVideoCatalogState;
 	readonly setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup;
+	/** The provider's last list of voices in a region, which names a voice the catalog does not (D78). */
+	readonly voices?: (provider: string, region: string) => VoicesResult | undefined;
 	/** The last answer of `check` for the card's model. */
 	readonly check?: IBaseHalfVideoCheckResult;
 	/** The card generates, in this window or in another one of this computer. */
@@ -128,6 +135,18 @@ export interface IBaseHalfVideoPanelModelButton {
 	readonly chosen: boolean;
 	/** The model or its provider keeps the card from generating. */
 	readonly outlined: boolean;
+	readonly title: string;
+}
+
+/** The voice button of a model that speaks (D78; generation cards, "The panel"). */
+export interface IBaseHalfVideoPanelVoiceButton {
+	/** The model's voice, whose options are the catalog's voices. */
+	readonly parameter: VoiceParameter;
+	/** The card's voice, or the model's default voice. */
+	readonly value: string;
+	/** The voice's name: the catalog's, or the provider's last list's, or its id. */
+	readonly label: string;
+	/** `Voice` */
 	readonly title: string;
 }
 
@@ -266,6 +285,10 @@ export interface IBaseHalfVideoPanelPresentation {
 	readonly inputRow?: IBaseHalfVideoPanelInputRow;
 	readonly model: IBaseHalfVideoPanelModelButton;
 	readonly modelMenu: IBaseHalfVideoPanelModelMenu;
+	/** Present while the card's model speaks in a voice. */
+	readonly voice?: IBaseHalfVideoPanelVoiceButton;
+	/** What the empty prompt says, by the card's kind, what its model makes, and the mode that is used. */
+	readonly placeholder: string;
 	/** Absent until the catalog has the card's model. */
 	readonly settingsView?: IBaseHalfVideoPanelSettingsView;
 	readonly generate: IBaseHalfVideoPanelGenerateButton;
@@ -289,13 +312,14 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const mode = ref ? baseHalfVideoModeThatIsUsed(ref.model, generation?.mode, state.inputs) : undefined;
 	const region = ref ? state.setup(ref.provider).region : undefined;
 	const params = ref && mode ? normalizeBaseHalfVideoParams(ref.model, mode.id, generation?.params) : Object.freeze({ ...generation?.params });
-	// Without a model, an image card takes references, as every image model does, and a video card frames.
-	const modeInputs = mode?.inputs ?? (state.kind === 'image' ? BASEHALF_IMAGE_DEFAULT_MODE_INPUTS : BASEHALF_VIDEO_DEFAULT_MODE_INPUTS);
-	const modeId = mode?.id ?? generation?.mode ?? (state.kind === 'image' ? 'reference' : 'frames');
+	// Without a model, a video card takes frames, and an image or an audio card references, as every model of its kind does.
+	const modeInputs = mode?.inputs ?? baseHalfDefaultModeInputs(state.kind);
+	const modeId = mode?.id ?? generation?.mode ?? baseHalfDefaultModeId(state.kind);
 	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs);
 	const startFrame = plan.some(item => item.use === 'start-frame');
-	// The prompt in parts, as a generation sends it: each mention as its input's place in the request (D74).
-	const prompt = buildBaseHalfPromptParts(state.prompt, plan, item => state.texts?.get(item.path));
+	// The prompt in parts, as a generation sends it: each mention as its input's place in the request (D74),
+	// and in a prompt that is spoken or sung each note as its text alone (D78), so that `check` sees what is sent.
+	const prompt = buildBaseHalfPromptParts(state.prompt, plan, item => state.texts?.get(item.path), { spokenOrSung: isBaseHalfSpokenOrSungPrompt(ref?.model, mode?.id) });
 	const checkRequest = ref && mode && region && baseHalfVideoRegionOffersModel(ref.model, region.id)
 		? Object.freeze<Omit<IBaseHalfVideoCheckRequest, 'inputs'>>({
 			provider: ref.provider.id,
@@ -323,6 +347,9 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const modeLabel = mode?.label ?? localize('basehalf.video.panel.thisMode', "this mode");
 	const items = plan.map((item, index) => inputItem(item, index, modeInputs, modelLabel, modeLabel, state.kind));
 	const row = inputRow(modeId, modeInputs, items);
+	// The voice of a model that speaks has its own button, not a setting (D78).
+	const voiceParameter = ref && mode ? baseHalfVoiceParameter(ref.model, mode.id) : undefined;
+	const voice = ref && region && voiceParameter ? voiceButton(voiceParameter, params, state.voices?.(ref.provider.id, region.id)) : undefined;
 	return Object.freeze({
 		...(ref ? { ref } : {}),
 		...(mode ? { mode } : {}),
@@ -332,6 +359,8 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 		...(row ? { inputRow: row } : {}),
 		model: modelButton(state, ref, region, blocker, blockerText),
 		modelMenu: modelMenu(state),
+		...(voice ? { voice } : {}),
+		placeholder: baseHalfVideoPanelPlaceholder(state.kind, ref?.model, mode?.id),
 		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, checkRequest ? state.check?.limits : undefined) } : {}),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
@@ -381,6 +410,43 @@ export function baseHalfVideoPanelGenerateKeyLabel(): string {
 	return isMacintosh ? '⌘Enter' : 'Ctrl+Enter';
 }
 
+/**
+ * What the empty prompt says it is (generation cards, "The panel"), by the
+ * card's kind, what its model makes, and the mode that is used: what the
+ * voice says for a speech model, the lyrics in Lyrics mode, and otherwise
+ * what to describe. An audio card without a model describes the sound.
+ */
+export function baseHalfVideoPanelPlaceholder(kind: BaseHalfModelKind, model?: IBaseHalfVideoCatalogModel, modeId?: BaseHalfVideoModeId): string {
+	if (kind === 'image') {
+		return localize('basehalf.video.panel.imagePromptPlaceholder', "Describe the image. Type @ to mention an input.");
+	}
+	if (kind === 'video') {
+		return localize('basehalf.video.panel.promptPlaceholder', "Describe the video. Type @ to mention an input.");
+	}
+	const makes = model?.kind === 'audio' ? model.makes : undefined;
+	if (makes === 'speech') {
+		return localize('basehalf.video.panel.speechPromptPlaceholder', "Write what the voice says. Type @ to mention an input.");
+	}
+	if (modeId === 'lyrics') {
+		return localize('basehalf.video.panel.lyricsPromptPlaceholder', "Write the lyrics. Type @ to mention an input.");
+	}
+	return makes === 'music'
+		? localize('basehalf.video.panel.musicPromptPlaceholder', "Describe the music. Type @ to mention an input.")
+		: localize('basehalf.video.panel.soundPromptPlaceholder', "Describe the sound. Type @ to mention an input.");
+}
+
+/** The voice button: the card's voice, made legal for the model, by the name the catalog or the provider's last list gives it. */
+function voiceButton(parameter: VoiceParameter, params: BaseHalfVideoParams, list: VoicesResult | undefined): IBaseHalfVideoPanelVoiceButton {
+	const stored = params[parameter.name];
+	const value = typeof stored === 'string' && stored ? stored : parameter.default;
+	return Object.freeze({
+		parameter,
+		value,
+		label: baseHalfVoiceLabel(parameter, value, list),
+		title: localize('basehalf.video.panel.voice', "Voice")
+	});
+}
+
 // --- inputs --------------------------------------------------------------------------------------
 
 function inputItem(item: IBaseHalfVideoInputPlanItem, index: number, inputs: IBaseHalfVideoModeInputs, modelLabel: string, modeLabel: string, kind: BaseHalfModelKind): IBaseHalfVideoPanelInputItem {
@@ -419,7 +485,9 @@ function unusedReason(item: IBaseHalfVideoInputPlanItem, inputs: IBaseHalfVideoM
 		case 'kind':
 			return kind === 'image'
 				? localize('basehalf.video.panel.unused.kindImage', "Not used: this kind of file cannot be sent to an image model.")
-				: localize('basehalf.video.panel.unused.kind', "Not used: this kind of file cannot be sent to a video model.");
+				: kind === 'audio'
+					? localize('basehalf.video.panel.unused.kindAudio', "Not used: this kind of file cannot be sent to an audio model.")
+					: localize('basehalf.video.panel.unused.kind', "Not used: this kind of file cannot be sent to a video model.");
 		case 'mode':
 			return item.kind === 'image'
 				? localize('basehalf.video.panel.unused.noImages', "Not used: {0} takes no images in {1}.", modelLabel, modeLabel)
@@ -574,7 +642,9 @@ function modelMenu(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelModelMen
 		...(groups.length === 0 ? {
 			message: state.kind === 'image'
 				? localize('basehalf.video.panel.noImageModels', "BaseHalf offers no image models.")
-				: localize('basehalf.video.panel.noModels', "BaseHalf offers no video models.")
+				: state.kind === 'audio'
+					? localize('basehalf.video.panel.noAudioModels', "BaseHalf offers no audio models.")
+					: localize('basehalf.video.panel.noModels', "BaseHalf offers no video models.")
 		} : {}),
 		groups: Object.freeze(groups),
 		settingsLabel
@@ -600,8 +670,9 @@ function settingsView(
 	// A value beyond a range the inputs narrow shows as what is sent: the end of the range (D70).
 	const fitted = fitBaseHalfVideoParams(ref.model, params, limits);
 	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, fitted, startFrame);
-	const parameters = baseHalfVideoModeParameters(ref.model, mode.id);
-	const shown = (parameter: BaseHalfVideoCatalogParameter) => startFrame && parameter.setByStartFrame
+	// The voice is not among the settings: it has its own button (D78).
+	const parameters = baseHalfVideoModeParameters(ref.model, mode.id).filter(isSetting);
+	const shown = (parameter: BaseHalfVideoSetting) => startFrame && parameter.setByStartFrame
 		? Object.freeze({ name: parameter.name, label: parameter.label, ...(parameter.tooltip ? { tooltip: parameter.tooltip } : {}), kind: 'fixed' as const, text: localize('basehalf.video.panel.setByStartFrame', "Set by the start frame") })
 		: control(parameter, fitted[parameter.name], limits?.[parameter.name]);
 	return Object.freeze({
@@ -637,7 +708,14 @@ function modeCannotUse(mode: IBaseHalfVideoCatalogMode, inputs: readonly IBaseHa
 	return localize('basehalf.video.panel.modeCannotUse', "{0} cannot use {1}.", mode.label, name);
 }
 
-function control(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue | undefined, limit?: IBaseHalfVideoCheckLimit): BaseHalfVideoPanelControl {
+/** A parameter the settings popover draws: every kind but the voice, which has its own button. */
+type BaseHalfVideoSetting = Exclude<BaseHalfVideoCatalogParameter, VoiceParameter>;
+
+function isSetting(parameter: BaseHalfVideoCatalogParameter): parameter is BaseHalfVideoSetting {
+	return parameter.kind !== 'voice';
+}
+
+function control(parameter: BaseHalfVideoSetting, value: BaseHalfVideoParamValue | undefined, limit?: IBaseHalfVideoCheckLimit): BaseHalfVideoPanelControl {
 	const base = { name: parameter.name, label: parameter.label, ...(parameter.tooltip ? { tooltip: parameter.tooltip } : {}) };
 	switch (parameter.kind) {
 		case 'choice': {

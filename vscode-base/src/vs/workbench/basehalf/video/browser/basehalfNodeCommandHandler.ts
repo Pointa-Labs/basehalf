@@ -57,8 +57,8 @@ const MODEL_CATALOG_WAIT = 10_000;
 
 /**
  * Answers the commands of `basehalf` in an Agent Area terminal (D63,
- * generation cards, "Agents"): `--generate` starts a generation of an image
- * or video card exactly as Generate does, without a question, and answers
+ * generation cards, "Agents"): `--generate` starts a generation of an image,
+ * video, or audio card exactly as Generate does, without a question, and answers
  * with every card it lands on once its task record is `submitting`.
  * `--list-capabilities` and `--run-operation` describe and run what BaseHalf
  * and its features offer; the description includes what an agent may
@@ -298,7 +298,7 @@ export class BaseHalfNodeCommandHandler {
 
 	/**
 	 * The card a `--generate` names: a portable path relative to the workspace
-	 * folder of the command directory, with an image or video extension, whose
+	 * folder of the command directory, with an image, video, or audio extension, whose
 	 * folder is a real folder of that workspace folder, whose file, when it
 	 * has one, is a regular file there, and that the card store knows as a
 	 * generation card: a draft, or a file with generation information. A card
@@ -313,7 +313,7 @@ export class BaseHalfNodeCommandHandler {
 			throw new Error('The card path must be a portable path relative to the workspace folder, outside .bh.');
 		}
 		if (!baseHalfGenerationKindOfPath(request.relativePath)) {
-			throw new Error(`'${request.relativePath}' is not an image or video card: its name has no image or video extension.`);
+			throw new Error(`'${request.relativePath}' is not an image, video, or audio card: its name has no image, video, or audio extension.`);
 		}
 		const { workspaceFolder } = await this.resolveCommandWorkspace(request.cwd);
 		const resource = URI.joinPath(workspaceFolder.uri, ...request.relativePath.split('/'));
@@ -355,7 +355,7 @@ export class BaseHalfNodeCommandHandler {
 		}
 		if (!await this.generationCardStore.isGenerationCard(resource)) {
 			throw new Error(itemStat
-				? `'${workspaceRelativePath}' is not an image or video card: it has no prompt or settings. Write its .bh/mirror/${workspaceRelativePath}/generation.yaml first.`
+				? `'${workspaceRelativePath}' is not an image, video, or audio card: it has no prompt or settings. Write its .bh/mirror/${workspaceRelativePath}/generation.yaml first.`
 				: `'${workspaceRelativePath}' names no file and no draft. Write .bh/mirror/${workspaceRelativePath}/generation.yaml to make a draft there.`);
 		}
 		return {

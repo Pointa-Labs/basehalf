@@ -19,6 +19,7 @@ import {
 	IBaseHalfCanvasItemRelationships,
 	isBaseHalfCanvasEntry
 } from '../../common/basehalfCanvasModel.js';
+import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
 import { baseHalfGenerationGeneratingInputsRefusal, baseHalfGenerationMadeInputsRefusal, IBaseHalfGenerationInputChange } from '../../../video/common/basehalfVideoGeneration.js';
 import { baseHalfCanvasResolveSiblingUpstream } from '../../../references/common/basehalfCanvasUpstream.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
@@ -262,9 +263,9 @@ export class BaseHalfCanvasConnections {
 					resolve(false);
 				});
 			};
-			// An image or a video draft takes any source as its first input; the
-			// panel says how a generation uses it (reference graph, "Creating
-			// connected nodes").
+			// An image, a video, or an audio draft takes any source as its first
+			// input; the panel says how a generation uses it (reference graph,
+			// "Creating connected nodes").
 			const actions: IAction[] = [
 				toAction({
 					id: 'basehalf.canvas.createFromConnection.note',
@@ -281,6 +282,11 @@ export class BaseHalfCanvasConnections {
 					id: 'basehalf.canvas.createFromConnection.video',
 					label: localize('basehalf.canvas.createFromConnection.video', "Video"),
 					run: run(() => this.createDraftFromConnection(sceneKey, structuralEpoch, drop, 'video'))
+				}),
+				toAction({
+					id: 'basehalf.canvas.createFromConnection.audio',
+					label: localize('basehalf.canvas.createFromConnection.audio', "Audio"),
+					run: run(() => this.createDraftFromConnection(sceneKey, structuralEpoch, drop, 'audio'))
 				})
 			];
 
@@ -346,17 +352,17 @@ export class BaseHalfCanvasConnections {
 	}
 
 	/**
-	 * Image or Video from Connection: a draft named `image` or `video` that lists
-	 * the source as its first input, at the point where the line was released
-	 * and not moved from there, selected with its prompt focused. Making it is
-	 * one step of the canvas undo stack, which removes the draft with its card
-	 * information, its card, and its edge together.
+	 * Image, Video, or Audio from Connection: a draft named `image`, `video`,
+	 * or `audio` that lists the source as its first input, at the point where
+	 * the line was released and not moved from there, selected with its prompt
+	 * focused. Making it is one step of the canvas undo stack, which removes the
+	 * draft with its card information, its card, and its edge together.
 	 */
 	private async createDraftFromConnection(
 		sceneKey: string,
 		structuralEpoch: number,
 		drop: IBaseHalfCanvasSceneConnectionDrop,
-		kind: 'image' | 'video'
+		kind: BaseHalfGenerationKind
 	): Promise<void> {
 		const folder = this.view.folderForSceneMutation(sceneKey);
 		if (!this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch)) || !this.view.isCurrentSceneKey(sceneKey)) {
@@ -368,7 +374,7 @@ export class BaseHalfCanvasConnections {
 		const draft = await this.view.generationCardActions.createDraft(folder.resource, kind, [drop.from]);
 		const path = baseHalfCanvasChildPath(folder.relativePath, basename(draft));
 		const toAnchor = baseHalfCanvasOppositeAnchor(drop.fromAnchor);
-		// The shape of the ratio the new draft's values choose (canvas card placement).
+		// The shape of the ratio the new draft's values choose, and the size of a file card for a sound (canvas card placement).
 		const size = baseHalfCanvasGenerationCardSize(kind, this.view.generationCardActions.newDraftRatio(kind));
 		// The user pointed: the side the line enters is centered on the release point.
 		const canvasPosition = baseHalfCanvasConnectionTargetOrigin(drop.position, toAnchor, size);

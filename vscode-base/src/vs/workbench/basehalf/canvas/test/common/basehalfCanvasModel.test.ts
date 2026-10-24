@@ -19,6 +19,7 @@ import {
 	baseHalfCanvasDraftStat,
 	baseHalfCanvasEndPlace,
 	baseHalfCanvasFolderWithDrafts,
+	baseHalfCanvasGenerationCardSize,
 	baseHalfCanvasItemsFromStat,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
@@ -448,6 +449,7 @@ suite('BaseHalfCanvasModel', () => {
 		const withDrafts = baseHalfCanvasFolderWithDrafts(shots, [
 			{ resource: URI.file('/workspace/shots/video.mp4'), name: 'video.mp4' },
 			{ resource: URI.file('/workspace/shots/image.png'), name: 'image.png' },
+			{ resource: URI.file('/workspace/shots/audio.mp3'), name: 'audio.mp3' },
 			// An item that has the name is no draft.
 			{ resource: URI.file('/workspace/shots/HERO.png'), name: 'HERO.png' }
 		]);
@@ -457,10 +459,13 @@ suite('BaseHalfCanvasModel', () => {
 			generationCards: new Map([
 				['shots/video.mp4', { kind: 'video', draft: true }],
 				['shots/image.png', { kind: 'image', draft: true }],
+				['shots/audio.mp3', { kind: 'audio', draft: true }],
 				['shots/hero.png', { kind: 'image', draft: false }]
 			])
 		});
 		assert.deepStrictEqual(model.items.map(item => [item.path, item.stat.isFile, item.generation, item.card?.width, item.card?.height]), [
+			// A sound has no picture: its draft has the size of a file card (D78).
+			['shots/audio.mp3', true, { kind: 'audio', draft: true }, 300, 220],
 			['shots/brief.md', true, undefined, 300, 220],
 			['shots/hero.png', true, { kind: 'image', draft: false }, 300, 300],
 			['shots/image.png', true, { kind: 'image', draft: true }, 300, 300],
@@ -507,12 +512,14 @@ suite('BaseHalfCanvasModel', () => {
 	});
 
 	test('only the cards of an image, a video, and a sound keep their shape; every other card resizes', () => {
-		const item = (path: string, kind: 'file' | 'folder' = 'file', generation?: { readonly kind: 'image' | 'video'; readonly draft: boolean }) => ({ kind, stat: { resource: URI.file(`/workspace/${path}`) }, ...(generation ? { generation } : {}) });
+		const item = (path: string, kind: 'file' | 'folder' = 'file', generation?: { readonly kind: 'image' | 'video' | 'audio'; readonly draft: boolean }) => ({ kind, stat: { resource: URI.file(`/workspace/${path}`) }, ...(generation ? { generation } : {}) });
 		assert.deepStrictEqual(
-			[item('note.md'), item('code.ts'), item('paper.pdf'), item('data.bin'), item('shots', 'folder'), item('still.PNG'), item('take.mov'), item('take.mkv'), item('voice.wav'), item('video.mp4', 'file', { kind: 'video', draft: true })]
+			[item('note.md'), item('code.ts'), item('paper.pdf'), item('data.bin'), item('shots', 'folder'), item('still.PNG'), item('take.mov'), item('take.mkv'), item('voice.wav'), item('video.mp4', 'file', { kind: 'video', draft: true }), item('audio.mp3', 'file', { kind: 'audio', draft: true })]
 				.map(entry => [baseHalfCanvasCardResizes(entry), baseHalfCanvasPictureKind(entry)]),
-			[[true, undefined], [true, undefined], [true, undefined], [true, undefined], [true, undefined], [false, 'image'], [false, 'video'], [false, 'video'], [false, undefined], [false, 'video']]
+			[[true, undefined], [true, undefined], [true, undefined], [true, undefined], [true, undefined], [false, 'image'], [false, 'video'], [false, 'video'], [false, undefined], [false, 'video'], [false, undefined]]
 		);
+		// A sound's card keeps the size of a file card, whatever ratio is asked (D78).
+		assert.deepStrictEqual([baseHalfCanvasGenerationCardSize('audio', 16 / 9), baseHalfCanvasGenerationCardSize('video')], [{ width: 300, height: 220 }, { width: 533, height: 300 }]);
 	});
 
 	test('the card of a picture has its picture\'s shape where it is, as large as the room at its corner allows up to the full shape', () => {

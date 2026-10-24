@@ -28,6 +28,7 @@ import {
 	BaseHalfVideoGenerationService,
 	closedWhileAnsweringMessage,
 	orphanedSubmissionMessage,
+	readBaseHalfVideoTextInput,
 	unknownOutcomeMessage
 } from '../../browser/basehalfVideoGenerationService.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
@@ -52,14 +53,18 @@ import {
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../../common/basehalfGenerationInfo.js';
-import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogProvider, IBaseHalfVideoCheckRequest, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
-import { ACME, BOREALIS, CORVID, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { createBaseHalfVideoPanelPresentation } from '../../common/basehalfVideoNodePanelPresentation.js';
+import { ACME, BOREALIS, CORVID, DUNLIN, TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import {
 	BaseHalfTestFileSystemProvider,
+	FAKE_FLAC,
 	FAKE_JPEG,
+	FAKE_MP3,
 	FAKE_MP4,
 	FAKE_PNG,
+	FAKE_WAV,
 	fakeWrittenPrompt,
 	FakeDraftOperations,
 	FakeMovedItemsService,
@@ -78,10 +83,15 @@ const { catalog: CATALOG, check: CHECK, submit: SUBMIT, poll: POLL, download: DO
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgo=';
 const KEY = 'acme-test-key-0123';
 const CORVID_KEY = 'corvid-test-key-4567';
-const [ACME_PROVIDER, , CORVID_PROVIDER] = TEST_GENERATION_CATALOG.providers;
+const DUNLIN_KEY = 'dunlin-test-key-8901';
+const [ACME_PROVIDER, , CORVID_PROVIDER, DUNLIN_PROVIDER] = TEST_AUDIO_CATALOG.providers;
 
 const VIDEO: IBaseHalfGenerationInfo = { prompt: 'A rider passes along the sea.', provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
 const IMAGE: IBaseHalfGenerationInfo = { prompt: 'A heron at dawn.', provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: { resolution: '1k', count: 1 } };
+/** A speech model that answers at once, and a music model with tasks that delivers WAV (D78). */
+const SPEECH: IBaseHalfGenerationInfo = { prompt: '@[notes/intro.md]', provider: 'dunlin', model: 'dunlin-voice', mode: 'reference', params: { voice: 'own-narrator', speed: 1.25 } };
+const SONGS: IBaseHalfGenerationInfo = { prompt: '@[notes/lyrics.md]', provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics', params: { count: 3, style: 'sea shanty' } };
+const WITH_AUDIO = [ACME, BOREALIS, CORVID, DUNLIN];
 const REQUEST: IBaseHalfGenerationRequest = {
 	provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: 'Rain.', inputs: []
 };
@@ -148,6 +158,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		const providers = owner.add(new BaseHalfVideoProviderSettingsService(storage, credentials, settingsCommands, new NullLogService()));
 		await providers.setCredential(ACME_PROVIDER, 'apiKey', KEY);
 		await providers.setCredential(CORVID_PROVIDER, 'apiKey', CORVID_KEY);
+		await providers.setCredential(DUNLIN_PROVIDER, 'apiKey', DUNLIN_KEY);
 		const window = (): IWindow => {
 			const commands = new FakeProviderCommands(fileService);
 			commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [...(options.catalogProviders ?? [ACME, BOREALIS, CORVID])] } });
@@ -469,6 +480,185 @@ suite('BaseHalfVideoGenerationService', () => {
 			made: !!parseBaseHalfGenerationMade((await harness.read('.bh/mirror/shots/image.jpg/made.yaml'))!),
 			draftLeft: await harness.exists('.bh/mirror/shots/image.png')
 		}, { moves: ['shots/image.png -> shots/image.jpg'], inTheLandingLease: [true], png: false, jpg: true, made: true, draftLeft: false });
+		harness.dispose();
+	}));
+
+	test('a sound lands under its draft\'s name with its made.yaml, a script in a note is spoken without its name, and the last values of a sound are kept apart (D78)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness({ catalogProviders: WITH_AUDIO });
+		await harness.write('notes/intro.md', '---\nupstream: []\n---\nWelcome to the coast.\n');
+		await harness.write('notes/outro.md', 'Thank you for listening.\n');
+		const speech = await harness.card('voice/audio.mp3', SPEECH, ['notes/intro.md', 'notes/outro.md']);
+		const { service, commands } = harness.first;
+		commands.submit = async request => ({ ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_MP3)] } });
+		const cards = await service.generate(speech);
+		await until(() => !service.isGenerating(speech));
+		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		const made = parseBaseHalfGenerationMade((await harness.read('.bh/mirror/voice/audio.mp3/made.yaml'))!);
+		assert.deepStrictEqual({
+			cards: cards.map(card => card.path),
+			file: (await harness.read('voice/audio.mp3')) === FAKE_MP3.toString(),
+			// Criterion 86: the mentioned note is what the voice says, and the other one follows after a blank line.
+			sent: { prompt: submitted.prompt, params: submitted.params, model: submitted.model },
+			made: { mode: made?.mode, params: made?.params, prompt: made?.prompt, inputs: made?.inputs },
+			draftLeft: await harness.exists('.bh/mirror/voice/audio.mp3/generation.yaml'),
+			calls: commands.calls.map(call => call.id),
+			lastUsed: [harness.providers.getLastUsed('audio'), harness.providers.getLastUsed('image'), harness.providers.getLastUsed('video')]
+		}, {
+			cards: ['/workspace/voice/audio.mp3'],
+			file: true,
+			sent: { prompt: ['Welcome to the coast.\n\nThank you for listening.'], params: { voice: 'own-narrator', speed: 1.25 }, model: 'dunlin-voice' },
+			made: { mode: 'reference', params: { voice: 'own-narrator', speed: 1.25 }, prompt: '@[notes/intro.md]', inputs: ['notes/intro.md', 'notes/outro.md'] },
+			draftLeft: false,
+			calls: [CATALOG, CHECK, SUBMIT, PLACE],
+			lastUsed: [{ provider: 'dunlin', model: 'dunlin-voice', mode: 'reference', params: { voice: 'own-narrator', speed: 1.25 } }, undefined, undefined]
+		});
+		harness.dispose();
+	}));
+
+	test('the panel asks check with what Generate checks and sends: a note connected to a speech draft is said without its name (D78, criterion 86)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness({ catalogProviders: WITH_AUDIO });
+		await harness.write('notes/intro.md', '---\nupstream: []\n---\nWelcome to the coast.\n');
+		await harness.write('notes/outro.md', 'Thank you for listening.\n');
+		const speech = await harness.card('voice/audio.mp3', SPEECH, ['notes/intro.md', 'notes/outro.md']);
+		const { service, cards, commands } = harness.first;
+		// The draft's panel: the card, its inputs, and the text of its notes as the panel reads them.
+		const snapshot = await cards.read(speech);
+		const inputs = await cards.resolveInputs(snapshot);
+		const texts = new Map<string, string>();
+		for (const input of inputs) {
+			if (input.kind === 'text' && input.available && input.file) {
+				texts.set(input.path, await readBaseHalfVideoTextInput(harness.fileService, input.file));
+			}
+		}
+		const panel = createBaseHalfVideoPanelPresentation({
+			info: snapshot.info,
+			kind: snapshot.kind,
+			inputs,
+			texts,
+			catalog: { kind: 'ready', catalog: TEST_AUDIO_CATALOG },
+			setup: provider => harness.providers.getStatus(provider),
+			generating: false,
+			prompt: snapshot.info.prompt
+		});
+		commands.submit = async request => ({ ok: true, value: { outputs: [await commands.write(request.targets![0], FAKE_MP3)] } });
+		await service.generate(speech);
+		await until(() => !service.isGenerating(speech));
+		const { inputs: _files, ...checked } = commands.calls.find(call => call.id === CHECK)?.argument as IBaseHalfVideoCheckRequest;
+		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		assert.deepStrictEqual({ panel: panel.checkRequest, sent: submitted.prompt }, {
+			// Apart from the files, which the panel adds when it asks, the panel asks what Generate checks.
+			panel: checked,
+			sent: ['Welcome to the coast.\n\nThank you for listening.']
+		});
+		assert.deepStrictEqual(checked.prompt, submitted.prompt);
+		harness.dispose();
+	}));
+
+	test('several songs make their drafts in a row to the right before sending, land one song on each, sing a note\'s lyrics, and fail the songs the provider did not make (D78)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness({ catalogProviders: WITH_AUDIO });
+		harness.canvas.place('songs', { path: 'songs/audio.wav', kind: 'file', x: 0, y: 0, width: 300, height: 220 });
+		await harness.write('notes/lyrics.md', 'The tide comes in,\nthe tide goes out.\n');
+		const songs = await harness.card('songs/audio.wav', SONGS, ['notes/lyrics.md']);
+		const { service, commands } = harness.first;
+		let draftsWhenSent: boolean[] = [];
+		commands.submit = async () => {
+			draftsWhenSent = await Promise.all(['audio-2.wav', 'audio-3.wav'].map(name => harness.exists(`.bh/mirror/songs/${name}/generation.yaml`)));
+			return { ok: true, value: { remoteId: 'song-task-1' } };
+		};
+		// The provider made two of the three songs it was asked for.
+		commands.poll = () => ({ ok: true, value: { state: 'succeeded', outputs: [{ url: 'https://cdn.dunlin.example/one.wav' }, { url: 'https://cdn.dunlin.example/two.wav' }] } });
+		commands.download = async request => {
+			await harness.fileService.writeFile(URI.file(request.targetFsPath), FAKE_WAV);
+			return { ok: true, value: { size: FAKE_WAV.byteLength, format: 'wav' } };
+		};
+		const cards = await service.generate(songs);
+		await until(async () => (await harness.records()).some(task => task.state === 'failed'));
+		const record = (await harness.records())[0];
+		const madeOf = async (name: string) => {
+			const made = parseBaseHalfGenerationMade((await harness.read(`.bh/mirror/songs/${name}/made.yaml`)) ?? '');
+			return made ? `${made.id.slice(-2)} ${made.output}/${made.outputs} ${made.mode}` : undefined;
+		};
+		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		const downloads = commands.calls.filter(call => call.id === DOWNLOAD).map(call => (call.argument as IBaseHalfVideoDownloadRequest).kind);
+		assert.deepStrictEqual({
+			cards: cards.map(card => card.path.slice('/workspace/'.length)),
+			draftsWhenSent,
+			targets: submitted.targets?.length,
+			// Lyrics mode sings the note's text, without its name.
+			sung: submitted.prompt,
+			downloads,
+			files: await Promise.all(['audio.wav', 'audio-2.wav', 'audio-3.wav'].map(name => harness.exists(`songs/${name}`))),
+			made: [await madeOf('audio.wav'), await madeOf('audio-2.wav'), await madeOf('audio-3.wav')],
+			record: [record.kind, record.state, record.cards.map(card => `${card.path}:${card.state}${card.error ? `: ${card.error}` : ''}`)],
+			// A sound keeps the size of a file card.
+			rows: harness.canvas.layouts.get('songs')?.map(card => `${card.path} ${card.x},${card.y} ${card.width}x${card.height}`),
+			undoSteps: harness.undo.elements.map(element => element.label),
+			lastUsed: harness.providers.getLastUsed('audio')?.model
+		}, {
+			cards: ['songs/audio.wav', 'songs/audio-2.wav', 'songs/audio-3.wav'],
+			draftsWhenSent: [true, true],
+			targets: 3,
+			sung: ['The tide comes in,\nthe tide goes out.'],
+			downloads: ['audio', 'audio'],
+			files: [true, true, false],
+			made: ['-1 1/3 lyrics', '-2 2/3 lyrics', undefined],
+			record: ['audio', 'failed', [
+				'songs/audio.wav:landed',
+				'songs/audio-2.wav:landed',
+				'songs/audio-3.wav:failed: The provider made fewer songs than asked.'
+			]],
+			rows: [
+				'songs/audio.wav 0,0 300x220',
+				'songs/audio-2.wav 340,0 300x220',
+				'songs/audio-3.wav 680,0 300x220'
+			],
+			undoSteps: ['Generate'],
+			lastUsed: 'dunlin-song'
+		});
+		harness.dispose();
+	}));
+
+	test('a sound that arrives in another format lands under that format\'s extension, and a file that is no sound is refused on its card (D78)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness({ catalogProviders: WITH_AUDIO });
+		await harness.write('notes/intro.md', 'Welcome to the coast.');
+		const flac = await harness.card('voice/audio.mp3', SPEECH, ['notes/intro.md']);
+		const picture = await harness.card('voice/greeting.mp3', SPEECH, ['notes/intro.md']);
+		const { service, commands, drafts } = harness.first;
+		// The first answer is a FLAC for the MP3 draft, the second a picture.
+		const answers = [FAKE_FLAC, FAKE_PNG];
+		commands.submit = async request => ({ ok: true, value: { outputs: [await commands.write(request.targets![0], answers.shift()!)] } });
+		await service.generate(flac);
+		await until(async () => await harness.exists('.bh/mirror/voice/audio.flac/made.yaml'));
+		await service.generate(picture);
+		await until(async () => (await harness.records()).some(task => task.state === 'failed'));
+		const failed = (await harness.records()).find(task => task.state === 'failed');
+		assert.deepStrictEqual({
+			moves: drafts.moves,
+			flac: (await harness.read('voice/audio.flac')) === FAKE_FLAC.toString(),
+			mp3: await harness.exists('voice/audio.mp3'),
+			refused: failed?.cards.map(card => `${card.path}:${card.state}: ${card.error}`),
+			picture: await harness.exists('voice/greeting.mp3')
+		}, {
+			moves: ['voice/audio.mp3 -> voice/audio.flac'],
+			flac: true,
+			mp3: false,
+			refused: ['voice/greeting.mp3:failed: The provider\'s file is not an MP3, WAV, FLAC, Ogg, or M4A sound of at most 256 MiB: png'],
+			picture: false
+		});
+		harness.dispose();
+	}));
+
+	test('a download that the provider service refuses as no sound fails its card with the reason (D78)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness({ catalogProviders: WITH_AUDIO });
+		const song = await harness.card('songs/audio.wav', { ...SONGS, prompt: 'The tide comes in.', params: { count: 1 } });
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'succeeded', outputs: [{ url: 'https://cdn.dunlin.example/one.wav' }] } });
+		commands.download = () => ({ ok: false, error: { code: 'notAudio', message: 'The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.' } });
+		await service.generate(song);
+		await until(async () => (await harness.records()).some(task => task.state === 'failed'));
+		assert.deepStrictEqual((await harness.records())[0].cards.map(card => `${card.state}: ${card.error}`), [
+			'failed: The provider\'s file is not an MP3, WAV, FLAC, Ogg, or M4A sound of at most 256 MiB: The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.'
+		]);
 		harness.dispose();
 	}));
 
@@ -1289,7 +1479,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		await harness.write('frames/start.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
 		await harness.write('frames/end.png', FAKE_PNG);
 		const input = (path: string, file = harness.resource(path)): IBaseHalfVideoResolvedInput => ({ path, kind: 'image', available: true, file });
-		const frames = TEST_GENERATION_CATALOG.providers[0].models[0].modes[0];
+		const frames = TEST_AUDIO_CATALOG.providers[0].models[0].modes[0];
 		const prepare = (inputs: IBaseHalfVideoResolvedInput[]) => harness.first.service.prepareInputMedia(planBaseHalfVideoInputs(frames.inputs, inputs), inputs, ['png', 'jpeg', 'webp']);
 		const planned = [input('frames/start.svg'), input('frames/end.png')];
 		const first = await prepare(planned);

@@ -12,7 +12,7 @@ import { localize } from '../../../../../nls.js';
 import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
 import { findValidPasteFileTargetForResource, incrementFileName } from '../../../../contrib/files/browser/fileActions.js';
-import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
+import { baseHalfGenerationDraftNameRule, BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeNode } from '../../../references/common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasDamage, IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
@@ -192,7 +192,7 @@ export type BaseHalfCanvasInlineEdit = {
 	 */
 	readonly extension: string;
 	/** The item is a draft of this kind: renaming it moves its card information, and its name keeps an extension of its kind. */
-	readonly draft?: 'image' | 'video';
+	readonly draft?: BaseHalfGenerationKind;
 	readonly initialValue: string;
 	value: string;
 	selectionPending: boolean;
@@ -270,13 +270,8 @@ export function badgeType(label: string, isFolder: boolean): BaseHalfItemKindIco
  * Why a draft cannot take a name: a draft keeps its kind, so its name ends
  * with an extension of that kind (canvas card name, "The editor in place").
  */
-export function baseHalfCanvasDraftNameProblem(name: string, kind: 'image' | 'video'): string | undefined {
-	if (baseHalfGenerationKindOfPath(name) === kind) {
-		return undefined;
-	}
-	return kind === 'image'
-		? localize('basehalf.canvas.name.imageDraft', "An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.")
-		: localize('basehalf.canvas.name.videoDraft', "A video card needs a name that ends in .mp4, .mov, .m4v, or .webm.");
+export function baseHalfCanvasDraftNameProblem(name: string, kind: BaseHalfGenerationKind): string | undefined {
+	return baseHalfGenerationKindOfPath(name) === kind ? undefined : baseHalfGenerationDraftNameRule(kind);
 }
 
 /**

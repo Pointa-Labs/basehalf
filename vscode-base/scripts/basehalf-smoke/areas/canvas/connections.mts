@@ -393,11 +393,11 @@ async function connectionCreateMenuAction(page, release, label) {
 }
 
 // Create from Connection: each item creates a card that lists the source as
-// upstream (D37), draws the edge, and leaves the source unchanged. Image and
-// Video make a draft (generation cards, criterion 2): its generation.yaml, its
-// upstream.yaml with the source, and no file. A created draft, its card, and
-// its edge go away in one canvas undo step. The card is where the line was
-// released, and the view stays where it is.
+// upstream (D37), draws the edge, and leaves the source unchanged. Image,
+// Video, and Audio make a draft (generation cards, criteria 2 and 80): its
+// generation.yaml, its upstream.yaml with the source, and no file. A created
+// draft, its card, and its edge go away in one canvas undo step. The card is
+// where the line was released, and the view stays where it is.
 export async function assertCanvasCreateFromConnection(page) {
 	const source = 'README.md';
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
@@ -416,7 +416,7 @@ export async function assertCanvasCreateFromConnection(page) {
 		return Object.fromEntries(shown.map(cardPath => [cardPath, readCanvasCardGeometry(raw, cardPath)]));
 	};
 
-	for (const [label, kind, pattern] of [['Image', 'image', /^image(-\d+)?\.png$/], ['Video', 'video', /^video(-\d+)?\.mp4$/]]) {
+	for (const [label, kind, pattern] of [['Image', 'image', /^image(-\d+)?\.png$/], ['Video', 'video', /^video(-\d+)?\.mp4$/], ['Audio', 'audio', /^audio(-\d+)?\.mp3$/]]) {
 		// A new draft takes the first default name that no file, folder, or draft has.
 		const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
 		const drafts = () => fs.readdirSync(path.join(workspacePath, '.bh', 'mirror')).filter(name => pattern.test(name) && fs.existsSync(path.join(mirror(name), 'generation.yaml')));

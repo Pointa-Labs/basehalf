@@ -1,14 +1,17 @@
 # Google (Gemini API)
 
-Status: implemented (D59; image models D64, 2026-10-22; names in the prompt D74, 2026-10-24). Part of
+Status: implemented (D59; image models D64, 2026-10-22; names in the prompt D74, 2026-10-24; speech and music models D78, 2026-10-25). Part of
 [providers and the model catalog](../providers.md), which defines
 the catalog, the requests, and the rules every provider follows.
 
 Implemented in `src/vs/platform/basehalfProviders/node/google.ts`. The
 module declares Google's video model, Gemini Omni Flash, which runs in the
-background, and Google's image models, Nano Banana, which answer each request
-with its image ([Image models](#image-models)). Both use the same region, key,
-endpoint, and error reading.
+background; Google's image models, Nano Banana, which answer each request
+with its image ([Image models](#image-models)); its speech models, Gemini
+3.8 TTS, which answer each request with the speech
+([Speech models](#speech-models)); and its music models, Lyria, which answer
+each request with the song ([Music models](#music-models)). All use the same
+region, key, endpoint, and error reading.
 
 The facts about the video model follow Google's official pages, read on 2026-10-19 (those
 also saved on 2026-10-18 had not changed), with the date each page gives as
@@ -79,10 +82,12 @@ for the spend limits, `RESOURCE_EXHAUSTED`).
 | --- | --- | --- | --- |
 | `global` | Gemini API | `https://generativelanguage.googleapis.com/v1beta` | `https://aistudio.google.com/api-keys` |
 
-The pricing page lists Gemini Omni Flash, and every image model, for the paid
-tier only ("Not available" on the free tier). A refusal that names the free
-tier is answered with a plain message that the key needs a paid tier
-([Errors](#errors)).
+The pricing page lists Gemini Omni Flash, every image model, and both Lyria
+models for the paid tier only ("Not available" on the free tier). A refusal
+that names the free tier is answered with a plain message that the key needs
+a paid tier ([Errors](#errors)). The speech models are offered on both
+tiers, and a refusal that names the free tier says what it means for them
+([Speech models](#speech-models)).
 
 ## Models
 
@@ -284,7 +289,9 @@ credits depleted) is `balance`, `rate_limit_exceeded`, `quota_exceeded`, and
 refused create or a failed interaction with Google's message.
 
 **A key of a free-tier project.** No model of this module is offered on the
-free tier (Pricing), and the pages do not say how Google words the refusal.
+free tier (Pricing) but the speech models, whose refusals their own part
+reads ([Speech models](#speech-models)), and the pages do not say how Google
+words the refusal.
 Any error answer (4xx) whose error names the free tier (`free tier`,
 `free_tier`, or `FreeTier`, as in a quota of `limit: 0` for
 `generate_content_free_tier_requests`, or "free tier is not available in your
@@ -508,3 +515,370 @@ free-tier project is answered with the paid-tier message.
 `vscode-base/src/vs/platform/basehalfProviders/test/node/google.test.ts` runs the image
 models through the provider commands against a local server that answers
 like the Interactions API. No test calls Google or uses a real key.
+
+## Speech models
+
+Google makes speech with its Gemini 3.8 TTS models under the same key,
+endpoint, and errors (D78). A speech request is created and answered in one
+call to `generateContent`: there is no task to poll or cancel, and both
+models declare `answersAtOnce`.
+
+### Sources
+
+Google's official pages, read on 2026-10-25 in the Markdown form Google
+serves for each page:
+
+| Page | What this part takes from it |
+| --- | --- |
+| Text-to-speech with `generateContent` (`gemini-api/docs/generate-content/speech-generation`) | the request (`responseModalities`, `speechConfig.voiceConfig`, `responseFormat.audio`); the answer's `inlineData`; a WAV at 24 kHz, mono, 16-bit by default for a request that is not streamed, where earlier models answered raw samples; the 30 prebuilt voices and their one-word descriptions; up to two speakers |
+| Text-to-speech with the Interactions API (`gemini-api/docs/speech-generation`) | the same models through `/interactions`, with `generation_config.speech_config` |
+| `generateContent` reference (`api/generate-content`) | `SpeechConfig`, `VoiceConfig` (`prebuiltVoiceConfig.voiceName`, or `voice`), `ResponseFormatConfig.audio`, `PromptFeedback.blockReason`, `Candidate.finishReason` and `finishMessage`, and the `FinishReason` values: `STOP` for the natural stop, `MAX_TOKENS` and `CONTINUATION` for the output limit, the others for filters, and "If empty, the model has not stopped generating tokens" |
+| Interactions API reference (`api/interactions-api`) and its OpenAPI document | the speech configuration named `structured_speech_config` |
+| Interactions API overview | "While it is now considered legacy, the original `generateContent` API remains fully supported" |
+| Model pages of `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` | text in, audio out; 8,192 input tokens and 16,384 output tokens; 130 and 101 languages |
+| Tokens (`gemini-api/docs/tokens`) | "a token is equivalent to about 4 characters", and a token can be a single character |
+| Deprecations and changelog | both released on 2026-09-22, without a shutdown date; the earlier TTS previews shut down on 2026-11-17 |
+| Pricing | read only for the tiers: both models are offered on the free tier |
+| Troubleshooting | a project that is not eligible for the free tier must be upgraded to the paid tier |
+
+### Models
+
+| Catalog id | Label | Sent as (`global`) | Prompt |
+| --- | --- | --- | --- |
+| `gemini-3.8-flash-tts` | Gemini 3.8 Flash TTS | `gemini-3.8-flash-tts` | 8,192 |
+| `gemini-3.8-flash-lite-tts` | Gemini 3.8 Flash-Lite TTS | `gemini-3.8-flash-lite-tts` | 8,192 |
+
+- Each is of kind `audio`, makes `speech`, answers at once, and delivers
+  WAV (`outputFormat: wav`): Google's speech is uncompressed samples, which
+  come as a WAV, and samples that come raw are written as one
+  ([Answer](#answer-1)).
+- One mode, Speech (`reference`), without inputs: "TTS models accept
+  text-only inputs".
+- The prompt is the verbatim transcript, required, and bounded at 8,192
+  characters: the models take 8,192 input tokens, a token is about four
+  characters and can be one, so as many characters as tokens keeps a usual
+  text within the limit, as for the image models. Google states no other
+  limit.
+- Gemini 3.8 Flash TTS is the flagship ("maximum acoustic fidelity, nuanced
+  acting, and expressive control", 130 languages); Flash-Lite is the fast
+  one for everyday speech (101 languages). Each description says so.
+- Tags such as `<laugh>`, `<sigh>`, and `<short pause>` are the text's, and
+  are sent as written.
+- **Left out.** `gemini-3.1-flash-tts-preview`,
+  `gemini-2.5-flash-preview-tts`, and `gemini-2.5-pro-preview-tts`, which
+  shut down on 2026-11-17 with the 3.8 models as their replacements.
+
+### Voices
+
+- The voice (`voice`, of kind `voice`, not listed) is one of the 30
+  prebuilt voices, which the catalog declares with Google's one-word
+  descriptions, in the order of the guide's table: Zephyr (Bright), Puck
+  (Upbeat), Charon (Informative), Kore (Firm), Fenrir (Excitable), Leda
+  (Youthful), Orus (Firm), Aoede (Breezy), Callirrhoe (Easy-going), Autonoe
+  (Bright), Enceladus (Breathy), Iapetus (Clear), Umbriel (Easy-going),
+  Algieba (Smooth), Despina (Smooth), Erinome (Clear), Algenib (Gravelly),
+  Rasalgethi (Informative), Laomedeia (Upbeat), Achernar (Soft), Alnilam
+  (Firm), Schedar (Even), Gacrux (Mature), Pulcherrima (Forward), Achird
+  (Friendly), Zubenelgenubi (Casual), Vindemiatrix (Gentle), Sadachbia
+  (Lively), Sadaltager (Knowledgeable), and Sulafat (Warm). Kore, which the
+  guide's examples speak in, is the default.
+- The voice is not listed, so a card chooses among these 30, and `voices`
+  is refused for these models. **Open:** Google does list voices,
+  `GET /v1beta/voices`: an Extended Voice Library of hundreds of prebuilt
+  voices, then the project's own designed and replicated voices
+  (`voice_…`), in pages of up to 1,000. They are not offered in this phase
+  ([providers](../providers.md#providers): "no: 30 voices in the catalog").
+  Offering them would make the voice listed, with a `listVoices` that reads
+  those pages; samples come only with a single designed voice, not in the
+  list.
+
+### Request
+
+`POST /models/{model}:generateContent`, sent once:
+
+```json
+{
+  "contents": [{ "role": "user", "parts": [{ "text": "<the prompt>" }] }],
+  "generationConfig": {
+    "responseModalities": ["AUDIO"],
+    "responseFormat": { "audio": { "mimeType": "AUDIO_WAV" } },
+    "speechConfig": { "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": "Kore" } } }
+  }
+}
+```
+
+- `generateContent`, not the Interactions API of the module's other models:
+  Google documents both for these models and calls `generateContent`
+  legacy but fully supported, and its reference and guide agree on every
+  field this request sends, while the Interactions reference names the
+  speech configuration `structured_speech_config` where its guide sends
+  `speech_config`.
+- `AUDIO_WAV` asks for the default of a request that is not streamed: a
+  WAV, 24 kHz, mono, 16-bit. No sample rate is sent: 24,000 Hz is the
+  default and the highest the guide names.
+- `prebuiltVoiceConfig.voiceName` names a prebuilt voice, as the guide's
+  requests for two speakers do; `voiceConfig.voice`, which also takes
+  designed and replicated voices, is not needed for these.
+- Not sent: `speech_metadata` (a style or a speaker for a turn),
+  `multiSpeakerVoiceConfig` (dialogue is later, D78), `languageCode` ("The
+  TTS models detect the input language automatically"), and
+  `systemInstruction`.
+
+### Answer
+
+| Answer | Output |
+| --- | --- |
+| a part of the first candidate with `inlineData`, and the finish reason `STOP` or none | its bytes, decoded from base64 and written to the request's target: a WAV as it is; raw samples (`audio/L16` or `audio/pcm`, at the type's `rate=`, 24,000 Hz without one, mono, 16-bit little-endian, as Google describes its raw samples) written as a WAV first (`pcmToWav`); the bytes decide the format |
+| speech whose candidate stopped at the output limit, `MAX_TOKENS`, or `CONTINUATION` | refused: "Google cut the speech off at its output limit, before the end of the text (MAX_TOKENS). A shorter text helps." |
+| speech whose candidate ended for any other reason, such as `SAFETY` or `OTHER` | refused: "Google ended the speech before it was finished (OTHER).", with the candidate's `finishMessage` when it has one |
+| `promptFeedback.blockReason` and no speech | refused: "Google blocked the text (SAFETY)." with Google's reason |
+| a candidate without speech | refused: "Google finished the generation without the speech (SAFETY).", with the candidate's `finishMessage` or text when it has them |
+| no candidate | refused: "Google finished the generation without the speech." |
+
+- The last part with `inlineData` is the speech.
+- Speech lands only when its candidate finished at its natural stop
+  (`STOP`): the reference names `MAX_TOKENS` for "the maximum number of
+  tokens … was reached" and `CONTINUATION` for a response that "reached the
+  per-request token limit, but generation is not yet complete", and the
+  others for a candidate stopped by a filter or for no stated reason.
+  Speech cut off there does not say the whole text, and the models answer
+  at most 16,384 output tokens, which a long text can reach within the
+  8,192 characters the prompt takes. It is refused as an output, as a song
+  that Lyria did not finish is ([Music models, Answer](#answer-2)): the card
+  says why and keeps its draft.
+- A candidate without a finish reason, and one with
+  `FINISH_REASON_UNSPECIFIED`, which the reference calls a default that is
+  not used, lands. The reference says an empty finish reason means that the
+  model has not stopped, which describes a stream that goes on; the answer
+  of a request that is not streamed is whole when it comes.
+- A speech model has no task: `poll` refuses it, and `cancel` answers false
+  and sends nothing.
+
+### Errors
+
+As for the other models ([Errors](#errors)), except for a key of a free-tier
+project: both speech models are offered on the free tier (Pricing), so a
+refusal that names the free tier does not mean that the model needs a paid
+tier.
+
+- With HTTP 429, the project's free quota of the model is used up, and the
+  answer is `rateLimited`: "Google's free tier lets the project of this API
+  key use this model only so much, and that is used up for now. Wait and
+  try again, or set up billing for the project in Google AI Studio for
+  higher limits."
+- With another status, such as a project that is not eligible for the free
+  tier, or a country where the free tier is not available, the answer is
+  `auth`: "Google's free tier is not available to the project of this API
+  key. Set up billing for the project in Google AI Studio, or use the key of
+  a project that has it."
+
+### Facts not confirmed
+
+- The `inlineData.mimeType` of a 3.8 model's WAV (the guide shows none);
+  the module reads the bytes.
+- That `responseFormat` with `AUDIO_WAV` is taken with `responseModalities`
+  (the guide's example of a format sets `AUDIO_L16`).
+- How Google words the refusal of a free-tier quota for these models.
+- How `generateContent` answers a key that is not valid: the pages name
+  invalid keys among the errors of 400, 402, and 403 without saying which.
+  The status decides, as for the other models: 401 and 403 are `auth`, and
+  a 400 is `rejected` with Google's words.
+
+### Acceptance criteria
+
+1. The catalog lists Gemini 3.8 Flash TTS and Gemini 3.8 Flash-Lite TTS
+   under Audio, each making speech in WAV at once from a prompt of at most
+   8,192 characters, in one of the 30 prebuilt voices, Kore by default.
+2. A request sends the prompt as the one text part to `generateContent`
+   once, with the audio modality, WAV, and the prebuilt voice.
+3. A WAV answered lands as it is, and raw samples land as a WAV of their
+   rate; a blocked text, an answer without the speech, and one without a
+   candidate are refused outputs with Google's reason.
+3a. Speech whose candidate stopped at the output limit (`MAX_TOKENS`,
+   `CONTINUATION`) is a refused output that says the speech was cut off and
+   that a shorter text helps; speech that ended for another reason than
+   `STOP` is a refused output with Google's reason; nothing of either is
+   written. Speech without a finish reason lands.
+4. A voice other than the 30 is refused by `check`, and `voices` is
+   refused; nothing is sent then.
+5. A used-up free quota answers `rateLimited` and a project without a free
+   tier `auth`, each with its message; a project denied access, too many
+   requests, a server error, and a dropped connection map as for the other
+   models, and the request is sent once.
+
+### Verification
+
+`google.test.ts` also runs the speech models against a local server that
+answers like `generateContent`: the catalog entries, the body of each
+model, a WAV and raw samples answered, a blocked text and an answer without
+the speech, speech cut off at the output limit or ended before its natural
+stop, the voices `check` takes, the free tier, the errors, and that a
+speech model has no task.
+
+## Music models
+
+Google makes music with Lyria through the same Interactions API, endpoint,
+key, and errors as its video and image models (D78). A music interaction is
+created and answered in one call, as an image interaction is: BaseHalf
+sends the request once and receives the song inside the answer, so both
+music models declare `answersAtOnce`.
+
+### Sources
+
+Google's official pages, read on 2026-10-25 in the Markdown form Google
+serves for each page:
+
+| Page | What this part takes from it |
+| --- | --- |
+| Generate music with Lyria 3.5 (`gemini-api/docs/music-generation`) | the two models and their lengths; the Interactions API; text and up to 10 images inline; MP3 by default; the steps of the answer, with audio blocks and text blocks of lyrics or structure; custom lyrics with section tags; instrumental tracks asked for in the prompt; the limitations |
+| Lyria prompt guide (`gemini-api/docs/lyria-prompt-guide`) | "Include your lyrics directly in the prompt beneath a `Lyrics:` header", for Lyria 3.5 |
+| Model pages of `lyria-3.5` and `lyria-3-clip-preview` | text and images in, MP3 and text out; 131,072 input tokens |
+| Background execution | names standard Gemini models and managed agents, not Lyria |
+| Deprecations and changelog | `lyria-3.5` stable since 2026-09-03, `lyria-3-clip-preview` a preview since 2026-03-25, neither with a shutdown date; `lyria-3.5` replaces `lyria-3-pro-preview` |
+| Pricing | read only for the tiers: neither model is offered on the free tier |
+| Interactions API reference and its OpenAPI document | audio content (`data`, `uri`, `mime_type`) |
+
+### Models
+
+| Catalog id | Label | Sent as (`global`) | Modes | Length |
+| --- | --- | --- | --- | --- |
+| `lyria-3.5` | Lyria 3.5 | `lyria-3.5` | From a Description, From Lyrics | "a couple of minutes", set by the prompt |
+| `lyria-3-clip-preview` | Lyria 3 Clip | `lyria-3-clip-preview` | From a Description | 30 seconds |
+
+- Each is of kind `audio`, makes `music`, answers at once, and delivers MP3
+  ("By default, the Lyria 3.5 models generate audio in MP3 format"; both
+  model pages name MP3). One song a request: no `count`.
+- The prompt is required when no image is sent (`withoutMedia`): the models
+  make music "from text prompts or from images". It is bounded at 131,072
+  characters, as many as the models take input tokens, as for the image
+  models.
+- No Duration: Lyria 3 Clip "always generates a 30-second clip", and the
+  length of a Lyria 3.5 song follows the prompt ("create a 2-minute song",
+  or timestamps).
+- **Left out.** `lyria-3-pro-preview`, which `lyria-3.5` replaces;
+  `lyria-realtime-exp`, a stream without an end (D78); and
+  `lyria-3.5-clip-preview` and `lyria-3.5-pro-preview`, which have model
+  pages that neither the guide, the pricing page, nor the deprecations
+  name.
+
+### Modes and inputs
+
+- **From a Description** (`reference`): the prompt describes the music, and
+  0 to 10 images are references: "the model will compose music inspired by
+  the visual content".
+- **From Lyrics** (`lyrics`), Lyria 3.5 only: the prompt is the lyrics,
+  which the prompt guide puts "directly in the prompt beneath a `Lyrics:`
+  header", with section tags such as `[Verse]` and `[Chorus]`; Style is the
+  music's direction before them. Images are references as in From a
+  Description. Lyria 3 Clip has no From Lyrics: Google documents lyrics of
+  one's own for Lyria 3.5 only ("Lyria 3.5 generates vocal tracks with
+  lyrics by default. You can provide your own lyrics").
+- Images travel inline as base64, each `{"type": "image", "mime_type",
+  "data"}` with the type its bytes show, after the text, in the plan's
+  order; PNG, JPEG, and WebP (the window draws any other image to PNG). A
+  request whose inputs as base64 would pass 100 MB is refused, as for the
+  other models.
+- The guide states "up to 10 images" in its part on Lyria 3.5; the catalog
+  takes the same number for Lyria 3 Clip.
+
+### Parameters
+
+| Name | Label | Kind | Default | Models | Modes | Sent as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `instrumental` | Instrumental | boolean | off | both | From a Description | "Instrumental only, no vocals." after the prompt and a blank line |
+| `style` | Style | text, optional, at most 1,000 characters | none | Lyria 3.5 | From Lyrics | before the lyrics, a blank line between |
+
+- Both are shared names ([providers](../providers.md#parameters)). Google
+  has no fields for them: its guide asks for an instrumental in the
+  prompt's words ("Instrumental only, no vocals."), and puts the musical
+  direction apart from the lyrics ("Separate lyrics from instructions").
+- No seed, negative prompt, or count: the guide documents none for Lyria.
+
+### Request
+
+`POST /interactions`, sent once and not in the background:
+
+```json
+{
+  "model": "lyria-3.5",
+  "input": [
+    { "type": "text", "text": "Slow folk, a woman sings over a fingerpicked guitar.\n\nLyrics:\n\n[Verse]\nTide comes in, tide goes out" },
+    { "type": "image", "mime_type": "image/png", "data": "<base64>" }
+  ]
+}
+```
+
+- `input` is the text, then the images, as the guide's example with an
+  image lists them; without a text (an image alone) there is no text part.
+- From a Description sends the prompt; with Instrumental on, "Instrumental
+  only, no vocals." follows after a blank line, or stands alone without a
+  prompt.
+- From Lyrics sends the Style, a blank line, `Lyrics:`, a blank line, and
+  the lyrics; without a Style, it starts at `Lyrics:`. `check` counts and
+  answers the lyrics as the prompt, and the module writes this form when it
+  sends them ([providers](../providers.md#acceptance-criteria), criterion
+  18).
+- Not sent: `background` (no page says that Lyria runs in the background,
+  and a song is made within one request: the create waits up to ten
+  minutes for it), `response_format` (MP3 is the default, and the guide's
+  requests send none), `store` (Google's default), and `delivery` (inline is
+  the default).
+
+### Answer
+
+As for an image model (the answer of [Image models](#image-models)), with
+the song in place of the image:
+
+| Status | Output |
+| --- | --- |
+| `completed` with audio in a `model_output` step | the last audio block (the SDK's `output_audio` is "the last generated audio block"), its bytes written to the request's target, with the format its `mime_type` names (`audio/mp3`, `audio/mpeg`, `audio/wav`); the bytes decide |
+| `completed` without audio | refused: "Google finished the generation without a song", with the model's text or the interaction's errors when it has them |
+| `failed` | refused with the interaction's errors, or the output step's error |
+| `cancelled`, `requires_action`, `budget_exceeded` | refused, with the words of the video model's states |
+| `incomplete` | refused: "Google ended the generation before the song was finished." |
+| `queued`, `in_progress` | Google did not finish the interaction within its answer: its `id` is followed as a task, and the song of the completed interaction lands on the targets named with the task |
+| any other | the outcome is unknown: the song may have been made |
+
+- Text blocks, the lyrics or a JSON description of the song's structure,
+  are not outputs.
+- A song answered as an address (`uri`) instead of base64 is answered as
+  that address, as an image's is.
+
+### Errors
+
+As for the video and image models ([Errors](#errors)): neither music model
+is offered on the free tier (Pricing), so a refusal that names the free
+tier is answered with the paid-tier message.
+
+### Facts not confirmed
+
+- Whether Lyria runs in the background; BaseHalf does not ask for it.
+- How long a full song takes to make; one request of at most ten minutes
+  is assumed.
+- Up to 10 images for Lyria 3 Clip, and whether it sings lyrics of one's
+  own.
+- That an image alone, without a text, makes music: the pages say that the
+  models make music from images, and no example shows one without text.
+- The `mime_type` of Lyria's audio blocks (the guide shows none); the bytes
+  decide.
+
+### Acceptance criteria
+
+1. The catalog lists Lyria 3.5, with From a Description and From Lyrics,
+   and Lyria 3 Clip, with From a Description, under Audio, each making
+   music in MP3 at once from a prompt or 0 to 10 images.
+2. A request sends the text, then the images inline, once and without
+   `background`; Instrumental adds Google's words, and From Lyrics sends
+   the Style and the lyrics beneath `Lyrics:`.
+3. A completed answer writes its last audio block to the target; one
+   without a song, a failed one, and an unfinished one are refused outputs
+   with Google's words; an answer still running is followed by its id until
+   its song lands.
+4. A key of a free-tier project answers `auth` with the paid-tier message.
+
+### Verification
+
+`google.test.ts` also runs the music models against a local server that
+answers like the Interactions API: the catalog entries, the body of each
+model and mode, the songs answered, followed, and refused, the free tier,
+and the rules of `check`.

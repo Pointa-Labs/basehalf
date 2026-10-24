@@ -7,7 +7,7 @@ import { Event } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { localize } from '../../../nls.js';
 import { IBaseHalfProviderService } from './basehalfProviders.js';
-import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderResponse, SubmitPayload, SubmitResult, TaskRef } from './basehalfProviderTypes.js';
+import type { CancelResult, Catalog, CheckPayload, CheckResult, DownloadRequest, DownloadResult, PlaceRequest, PlaceResult, PollState, ProviderResponse, SubmitPayload, SubmitResult, TaskRef, VoicePreviewRequest, VoicePreviewResult, VoicesRequest, VoicesResult } from './basehalfProviderTypes.js';
 
 /**
  * A window's connection to the provider service of the shared process (D75;
@@ -63,6 +63,14 @@ export class BaseHalfProviderConnection extends Disposable implements IBaseHalfP
 
 	place(request: PlaceRequest): Promise<ProviderResponse<PlaceResult>> {
 		return this.call(service => service.place(request));
+	}
+
+	voices(request: VoicesRequest): Promise<ProviderResponse<VoicesResult>> {
+		return this.call(service => service.voices(request));
+	}
+
+	voicePreview(request: VoicePreviewRequest): Promise<ProviderResponse<VoicePreviewResult>> {
+		return this.call(service => service.voicePreview(request));
 	}
 
 	private call<T>(run: (service: Omit<IBaseHalfProviderService, '_serviceBrand'>) => Promise<T>): Promise<T> {

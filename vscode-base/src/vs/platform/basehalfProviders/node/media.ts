@@ -6,7 +6,7 @@
 import { open, readFile, stat } from 'fs/promises';
 import { basename, isAbsolute } from '../../../base/common/path.js';
 import { rejected } from './failure.js';
-import type { ImageFormat, Media, PlannedMedia } from '../common/basehalfProviderTypes.js';
+import type { AudioOutputFormat, ImageFormat, Media, PlannedMedia } from '../common/basehalfProviderTypes.js';
 
 /**
  * The inputs of a generation as bytes: a workspace file or a data URL the
@@ -258,7 +258,9 @@ export async function measure(source: ByteSource): Promise<Omit<MediaFacts, 'nam
 	}
 	if (ISO_TOP_LEVEL_BOXES.has(head.toString('latin1', 4, 8))) {
 		const brand = head.toString('latin1', 4, 8) === 'ftyp' ? head.toString('latin1', 8, 12) : '';
-		const format: MediaFormat = brand === 'qt  ' ? 'mov' : brand === 'M4A ' || brand === 'M4B ' ? 'm4a' : 'mp4';
+		const format: MediaFormat = brand === 'qt  ' ? 'mov'
+			: AUDIO_BRANDS.has(brand) || (GENERAL_ISO_BRANDS.has(brand) && await holdsSoundAlone(source)) ? 'm4a'
+				: 'mp4';
 		return { format, ...optionalSeconds(await isoSeconds(source)) };
 	}
 	const mp3 = await mp3Seconds(source, head);
@@ -363,23 +365,28 @@ async function jpegSize(source: ByteSource): Promise<{ format: MediaFormat; widt
 /** Boxes an MP4, MOV, or M4A file may start with. */
 const ISO_TOP_LEVEL_BOXES: ReadonlySet<string> = new Set(['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide', 'pnot']);
 
+/** The general brands of ISO media files, under which a file may hold a video or sound alone. */
+const GENERAL_ISO_BRANDS: ReadonlySet<string> = new Set(['isom', 'iso2', 'mp41', 'mp42']);
+
 interface IsoBox {
+	readonly type: string;
 	readonly contentStart: number;
 	readonly end: number;
 }
 
-async function findBox(source: ByteSource, start: number, end: number, type: string): Promise<IsoBox | undefined> {
+/** The boxes from `start` to `end`, in order, at most 4,096; the walk ends at a box it cannot read. */
+async function* isoBoxes(source: ByteSource, start: number, end: number): AsyncGenerator<IsoBox> {
 	let offset = start;
 	for (let boxes = 0; boxes < 4096 && offset + 8 <= end; boxes++) {
 		const header = await source.read(offset, 16);
 		if (header.byteLength < 8) {
-			return undefined;
+			return;
 		}
 		let size = header.readUInt32BE(0);
 		let headerSize = 8;
 		if (size === 1) {
 			if (header.byteLength < 16) {
-				return undefined;
+				return;
 			}
 			size = Number(header.readBigUInt64BE(8));
 			headerSize = 16;
@@ -387,14 +394,48 @@ async function findBox(source: ByteSource, start: number, end: number, type: str
 			size = end - offset;
 		}
 		if (size < headerSize) {
-			return undefined;
+			return;
 		}
-		if (header.toString('latin1', 4, 8) === type) {
-			return { contentStart: offset + headerSize, end: Math.min(end, offset + size) };
-		}
+		yield { type: header.toString('latin1', 4, 8), contentStart: offset + headerSize, end: Math.min(end, offset + size) };
 		offset += size;
 	}
+}
+
+async function findBox(source: ByteSource, start: number, end: number, type: string): Promise<IsoBox | undefined> {
+	for await (const box of isoBoxes(source, start, end)) {
+		if (box.type === type) {
+			return box;
+		}
+	}
 	return undefined;
+}
+
+/**
+ * Whether an ISO media file holds sound alone (providers, "Requests"): a
+ * track of sound (the handler `soun` of its `mdia`) and none of video
+ * (`vide`), as the M4A that `afconvert -f mp4f` or the recorder of a phone
+ * writes under a general brand. A track that names no handler is neither.
+ */
+async function holdsSoundAlone(source: ByteSource): Promise<boolean> {
+	const movie = await findBox(source, 0, source.size, 'moov');
+	if (!movie) {
+		return false;
+	}
+	let sound = false;
+	for await (const track of isoBoxes(source, movie.contentStart, movie.end)) {
+		if (track.type !== 'trak') {
+			continue;
+		}
+		const media = await findBox(source, track.contentStart, track.end, 'mdia');
+		const handler = media ? await findBox(source, media.contentStart, media.end, 'hdlr') : undefined;
+		// A full box: version and flags, pre_defined, then the handler type.
+		const type = handler && handler.end - handler.contentStart >= 12 ? (await source.read(handler.contentStart + 8, 4)).toString('latin1') : '';
+		if (type === 'vide') {
+			return false;
+		}
+		sound ||= type === 'soun';
+	}
+	return sound;
 }
 
 /** The length an MP4, MOV, or M4A file gives in its movie header (`mvhd`). */
@@ -546,4 +587,105 @@ async function mp3Seconds(source: ByteSource, head: Buffer): Promise<number | un
 		offset += next.length;
 	}
 	return samples / frame.sampleRate;
+}
+
+// --- sounds -------------------------------------------------------------------------------------
+
+/** The bytes {@link audioFormatOf} reads to tell every format it knows. */
+export const AUDIO_SIGNATURE_BYTES = 64;
+
+/** The brands of an ISO media file that say it holds sound alone: Apple's M4A, and its audiobook form. */
+const AUDIO_BRANDS: ReadonlySet<string> = new Set(['M4A ', 'M4B ']);
+
+/** How the first packet of an Ogg stream of Opus, Vorbis, or FLAC starts: the codecs a window plays. */
+const OGG_AUDIO_CODECS: readonly Buffer[] = Object.freeze(['OpusHead', '\x01vorbis', '\x7FFLAC'].map(codec => Buffer.from(codec, 'latin1')));
+
+/**
+ * The format of a sound some bytes start like, from their first
+ * {@link AUDIO_SIGNATURE_BYTES} bytes: the formats a generated sound and a
+ * voice's sample are kept in (providers, "Requests").
+ *
+ * - `mp3`: an ID3v2 tag (`ID3`, a version from 2 to 4, and a size of four
+ *   bytes below 128 each), or an MPEG audio frame header of Layer III, of
+ *   MPEG 1, 2, or 2.5, whose bit rate and sample rate are not reserved;
+ * - `wav`: a RIFF file of the `WAVE` form;
+ * - `flac`: `fLaC` followed by its first metadata block, STREAMINFO;
+ * - `ogg`: the first page of an Ogg stream (version 0, beginning a stream)
+ *   whose first packet starts Opus, Vorbis, or FLAC;
+ * - `m4a`: an ISO media file whose first box is `ftyp` with an audio brand,
+ *   `M4A ` or `M4B `, as its major brand or among the brands it lists within
+ *   the bytes read. A file of general brands alone, such as `isom` or `mp42`,
+ *   may hold a video and is not taken for a sound.
+ *
+ * Undefined for anything else, such as AAC without a container, or a video.
+ */
+export function audioFormatOf(head: Uint8Array): AudioOutputFormat | undefined {
+	const bytes = Buffer.from(head.buffer, head.byteOffset, Math.min(head.byteLength, AUDIO_SIGNATURE_BYTES));
+	const text = (start: number, end: number) => bytes.toString('latin1', start, end);
+	if (bytes.byteLength >= 10 && text(0, 3) === 'ID3' && bytes[3] >= 2 && bytes[3] <= 4 && bytes[4] !== 0xff && bytes.subarray(6, 10).every(byte => byte < 0x80)) {
+		return 'mp3';
+	}
+	if (mp3Frame(bytes, 0) && ((bytes[1] >> 1) & 0x3) === 1) {
+		return 'mp3';
+	}
+	if (bytes.byteLength >= 12 && text(0, 4) === 'RIFF' && text(8, 12) === 'WAVE') {
+		return 'wav';
+	}
+	if (bytes.byteLength >= 8 && text(0, 4) === 'fLaC' && (bytes[4] & 0x7f) === 0) {
+		return 'flac';
+	}
+	if (bytes.byteLength >= 27 && text(0, 4) === 'OggS') {
+		// After the page header of 27 bytes and its table of segment lengths comes the first packet.
+		const packet = 27 + bytes[26];
+		const audio = bytes[4] === 0 && (bytes[5] & 0x02) !== 0
+			&& OGG_AUDIO_CODECS.some(codec => bytes.byteLength >= packet + codec.byteLength && bytes.subarray(packet, packet + codec.byteLength).equals(codec));
+		return audio ? 'ogg' : undefined;
+	}
+	if (bytes.byteLength >= 12 && text(4, 8) === 'ftyp') {
+		// The major brand, then the minor version, then the compatible brands to the end of the box.
+		const end = Math.min(bytes.byteLength, bytes.readUInt32BE(0));
+		const brands = [text(8, 12)];
+		for (let offset = 16; offset + 4 <= end; offset += 4) {
+			brands.push(text(offset, offset + 4));
+		}
+		return brands.some(brand => AUDIO_BRANDS.has(brand)) ? 'm4a' : undefined;
+	}
+	return undefined;
+}
+
+/** How raw samples are laid out: little-endian integers, interleaved by channel. */
+export interface PcmLayout {
+	readonly sampleRate: number;
+	readonly channels: number;
+	readonly bitsPerSample: 8 | 16 | 24 | 32;
+}
+
+/**
+ * A WAV file of raw PCM samples (providers, "Audio format"): a module whose
+ * provider answers only samples, such as 16-bit samples at 24 kHz, writes
+ * them as WAV with this and declares `wav` as its model's `outputFormat`.
+ */
+export function pcmToWav(samples: Uint8Array, layout: PcmLayout): Buffer {
+	const { sampleRate, channels, bitsPerSample } = layout;
+	if (!Number.isInteger(sampleRate) || sampleRate <= 0 || !Number.isInteger(channels) || channels < 1 || channels > 16 || ![8, 16, 24, 32].includes(bitsPerSample)) {
+		throw new Error(`Raw samples need a positive sample rate, 1 to 16 channels, and 8, 16, 24, or 32 bits a sample: ${sampleRate} Hz, ${channels}, ${bitsPerSample}.`);
+	}
+	const blockAlign = channels * bitsPerSample / 8;
+	const padding = samples.byteLength % 2;
+	const header = Buffer.alloc(44);
+	header.write('RIFF', 0, 'latin1');
+	header.writeUInt32LE(36 + samples.byteLength + padding, 4);
+	header.write('WAVE', 8, 'latin1');
+	header.write('fmt ', 12, 'latin1');
+	header.writeUInt32LE(16, 16);
+	// PCM, with the channels, the rate, the bytes a second, the bytes a frame, and the bits a sample.
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(channels, 22);
+	header.writeUInt32LE(sampleRate, 24);
+	header.writeUInt32LE(sampleRate * blockAlign, 28);
+	header.writeUInt16LE(blockAlign, 32);
+	header.writeUInt16LE(bitsPerSample, 34);
+	header.write('data', 36, 'latin1');
+	header.writeUInt32LE(samples.byteLength, 40);
+	return Buffer.concat([header, samples, Buffer.alloc(padding)]);
 }

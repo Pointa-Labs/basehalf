@@ -18,9 +18,11 @@ import { ILogService, NullLogService } from '../../../../../platform/log/common/
 import { INotification, INotificationHandle, INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { IWorkspaceContextService, toWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
+import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../browser/basehalfGenerationRecordPanel.js';
-import { IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
-import { BaseHalfVideoCatalogState, baseHalfVideoInputKindOfPath } from '../../common/basehalfVideoCatalog.js';
+import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from '../../common/basehalfGenerationInfo.js';
+import { IBaseHalfGenerationVoiceService, IBaseHalfVoices } from '../../common/basehalfGenerationVoices.js';
+import { BaseHalfModelKind, BaseHalfVideoCatalogState, baseHalfVideoInputKindOfPath, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, parseBaseHalfVideoCatalog } from '../../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
@@ -28,10 +30,13 @@ import {
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoResolvedInput
 } from '../../common/basehalfVideoGeneration.js';
-import { TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { DUNLIN, DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
 const WORKSPACE = URI.file('/workspace');
 const CARD = URI.joinPath(WORKSPACE, 'shots', 'shot.mp4');
+const SOUND = URI.joinPath(WORKSPACE, 'shots', 'audio.mp3');
+/** The kind of an audio card (D78). */
+const AUDIO = 'audio' as BaseHalfModelKind as BaseHalfGenerationKind;
 const MADE: IBaseHalfGenerationMade = {
 	id: '20261023T080000-made0001',
 	startedAt: '2026-10-23T08:00:00.000Z',
@@ -69,6 +74,11 @@ suite('BaseHalfGenerationRecordPanel', () => {
 	let hovers: Map<HTMLElement, () => string>;
 	let host: IBaseHalfGenerationRecordPanelHost & { cardFocused: number; drafts: string[] };
 	let mounted: HTMLElement[];
+	/** The provider's last lists of voices, by provider and region (D78). */
+	let lists: Map<string, VoicesResult>;
+	let listed: Emitter<void>;
+	/** What the panel had the window ask for once, to name a voice only a list names, each once. */
+	let askedOnce: Set<string>;
 
 	setup(() => {
 		instantiationService = disposables.add(new TestInstantiationService());
@@ -104,6 +114,19 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			}
 		});
 		instantiationService.stub(IBaseHalfVideoCatalogService, { onDidChange: Event.None, get state() { return catalogState; }, load: () => { } });
+		lists = new Map();
+		listed = disposables.add(new Emitter<void>());
+		askedOnce = new Set();
+		instantiationService.stub(IBaseHalfGenerationVoiceService, {
+			onDidChangeVoices: listed.event,
+			voices: (provider: string, region: string): IBaseHalfVoices => {
+				const list = lists.get(`${provider}/${region}`);
+				return { loading: false, ...(list ? { list } : {}) };
+			},
+			askOnce: async (provider: IBaseHalfVideoCatalogProvider, model: IBaseHalfVideoCatalogModel, region: string) => {
+				askedOnce.add(`${provider.id}/${region}/${model.id}`);
+			}
+		});
 		instantiationService.stub(IFileService, { onDidFilesChange: Event.None });
 		instantiationService.stub(IWorkspaceContextService, { getWorkspaceFolder: () => toWorkspaceFolder(WORKSPACE) });
 		instantiationService.set(INotificationService, notifications);
@@ -126,8 +149,8 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		}
 	});
 
-	async function createPanel(): Promise<BaseHalfGenerationRecordPanel> {
-		const panel = disposables.add(instantiationService.createInstance(BaseHalfGenerationRecordPanel, CARD, host));
+	async function createPanel(resource = CARD): Promise<BaseHalfGenerationRecordPanel> {
+		const panel = disposables.add(instantiationService.createInstance(BaseHalfGenerationRecordPanel, resource, host));
 		mainWindow.document.body.appendChild(panel.element);
 		mounted.push(panel.element);
 		await settle();
@@ -234,5 +257,90 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		changed.fire(CARD);
 		await settle();
 		assert.deepStrictEqual([texts(panel, '.bh-record-panel-model'), panel.element.querySelectorAll('.bh-input-tile.dimmed').length], [['Acme Motion 2'], 0]);
+	});
+
+	test('names the voice a speech model spoke in between the model and the settings, as the provider\'s last list names it once it comes, and says which song of how many it is (D78)', async () => {
+		catalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'narrator-7', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
+		snapshot = { resource: SOUND, path: 'shots/audio.mp3', kind: AUDIO, hasFile: true, info: { prompt: '' }, infoReadable: true, made: spoken, upstream: [] };
+		const panel = await createPanel(SOUND);
+		const footer = () => [...panel.element.querySelector<HTMLElement>('.bh-video-panel-footer')!.children].filter(child => !(child as HTMLElement).hidden).map(child => child.textContent);
+		const byId = { footer: footer(), voice: panel.element.querySelector('.bh-record-panel-voice')?.getAttribute('aria-label'), label: panel.element.getAttribute('aria-label') };
+		lists.set('dunlin/main', { voices: [{ id: 'narrator-7', label: 'My Narrator', own: true }] });
+		listed.fire();
+		const byList = footer();
+		snapshot = { ...snapshot, made: { ...spoken, model: 'dunlin-song', providerModel: 'song-1', mode: 'lyrics', params: { count: 2 }, output: 1, outputs: 2 } };
+		changed.fire(SOUND);
+		await settle();
+		assert.deepStrictEqual({ byId, byList, song: { line: texts(panel, '.bh-record-panel-line'), voice: texts(panel, '.bh-record-panel-voice') } }, {
+			// The voice is named once, beside the model, and the summary of the settings leaves it out.
+			byId: { footer: ['Dunlin Voice', 'narrator-7', 'From Text · Speed 1', '', 'New Version'], voice: 'Voice: narrator-7', label: 'What made the sound audio.mp3' },
+			byList: ['Dunlin Voice', 'My Narrator', 'From Text · Speed 1', '', 'New Version'],
+			song: { line: ['Song 1 of 2'], voice: [] }
+		});
+	});
+
+	test('has the window ask once for the voices of the region it was made in, to name a voice that only the provider lists, and asks nothing for a voice of the catalog (D78)', async () => {
+		catalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'narrator-7', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
+		snapshot = { resource: SOUND, path: 'shots/audio.mp3', kind: AUDIO, hasFile: true, info: { prompt: '' }, infoReadable: true, made: spoken, upstream: [] };
+		await createPanel(SOUND);
+		const ofAccount = [...askedOnce];
+		askedOnce.clear();
+		snapshot = { ...snapshot, made: { ...spoken, params: { voice: 'vx-pike', speed: 1 } } };
+		changed.fire(SOUND);
+		await settle();
+		const ofCatalog = [...askedOnce];
+		// Until the catalog has the model, the value is not known to be a voice.
+		catalogState = { kind: 'loading' };
+		snapshot = { ...snapshot, made: spoken };
+		changed.fire(SOUND);
+		await settle();
+		assert.deepStrictEqual({ ofAccount, ofCatalog, withoutCatalog: [...askedOnce] }, {
+			ofAccount: ['dunlin/main/dunlin-voice'],
+			ofCatalog: [],
+			withoutCatalog: []
+		});
+	});
+
+	test('keeps the voice\'s name whole up to its width, as the model\'s, where the summary of the settings gives way first (D78)', async () => {
+		// A speech model whose voice is tuned, as some providers' are: its summary takes more room than the footer has.
+		const tuned: IBaseHalfVideoCatalogModel = {
+			...DUNLIN_VOICE,
+			parameters: [
+				...DUNLIN_VOICE.parameters,
+				{ name: 'stability', label: 'Stability', kind: 'number', min: 0, max: 1, step: 0.05, default: 0.5 },
+				{ name: 'similarity_boost', label: 'Similarity', kind: 'number', min: 0, max: 1, step: 0.05, default: 0.75 }
+			]
+		};
+		catalogState = { kind: 'ready', catalog: parseBaseHalfVideoCatalog({ schema: 1, providers: [{ ...DUNLIN, models: [tuned] }] }).catalog };
+		lists.set('dunlin/main', { voices: [{ id: 'sea-captain', label: 'Sea Captain', own: true }] });
+		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'sea-captain', speed: 1, stability: 0.5, similarity_boost: 0.75 }, prompt: 'Ahoy.', inputs: [] };
+		snapshot = { resource: SOUND, path: 'shots/audio.mp3', kind: AUDIO, hasFile: true, info: { prompt: '' }, infoReadable: true, made: spoken, upstream: [] };
+		const frame = mainWindow.document.createElement('div');
+		frame.className = 'monaco-workbench';
+		frame.style.cssText = 'position: absolute; left: 0; top: 0; width: 512px; --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;';
+		mainWindow.document.body.appendChild(frame);
+		mounted.push(frame);
+		const panel = await createPanel(SOUND);
+		frame.append(panel.element);
+		const part = (selector: string) => panel.element.querySelector<HTMLElement>(selector)!;
+		const clipped = (selector: string) => part(selector).scrollWidth > part(selector).clientWidth;
+		const footer = () => ({
+			voice: part('.bh-record-panel-voice-text').textContent,
+			voiceClipped: clipped('.bh-record-panel-voice-text'),
+			modelClipped: clipped('.bh-record-panel-model'),
+			settingsClipped: clipped('.bh-record-panel-settings'),
+			newVersionInside: part('.bh-record-panel-new-version').getBoundingClientRect().right <= part('.bh-video-panel-footer').getBoundingClientRect().right
+		});
+		const whole = footer();
+		lists.set('dunlin/main', { voices: [{ id: 'sea-captain', label: 'Captain of the Northern Sea Shanty Choir', own: true }] });
+		listed.fire();
+		assert.deepStrictEqual({ settings: part('.bh-record-panel-settings').textContent, whole, long: { ...footer(), width: part('.bh-record-panel-voice').getBoundingClientRect().width } }, {
+			settings: 'From Text · Speed 1 · Stability 0.5 · Similarity 0.75',
+			whole: { voice: 'Sea Captain', voiceClipped: false, modelClipped: false, settingsClipped: true, newVersionInside: true },
+			// A longer name ends in an ellipsis at the voice's width, 148 px and its padding.
+			long: { voice: 'Captain of the Northern Sea Shanty Choir', voiceClipped: true, modelClipped: false, settingsClipped: true, newVersionInside: true, width: 156 }
+		});
 	});
 });

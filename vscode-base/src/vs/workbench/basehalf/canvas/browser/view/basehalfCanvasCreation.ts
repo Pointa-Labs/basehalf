@@ -39,10 +39,10 @@ import {
 } from '../../common/basehalfCanvasModel.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
-import { baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
+import { BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { planBaseHalfMarkdownUpstreamEdit } from '../../../references/common/basehalfReferenceStore.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
-import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest } from '../../common/basehalfCanvasEditing.js';
+import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, isBaseHalfCanvasDraftCreateKind } from '../../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { IBaseHalfPdfSelection } from '../../../cardDetail/common/basehalfMediaViewState.js';
@@ -251,7 +251,7 @@ export class BaseHalfCanvasCreation {
 			);
 			return;
 		}
-		if (request.createKind === 'image' || request.createKind === 'video') {
+		if (isBaseHalfCanvasDraftCreateKind(request.createKind)) {
 			if (!this.view.isCanvasPostCreateOwnerCurrent(requestOwner)) {
 				return;
 			}
@@ -332,7 +332,7 @@ export class BaseHalfCanvasCreation {
 
 	/** The size of a card of a kind the user creates, a draft with the ratio its values will choose. */
 	private createSize(kind: BaseHalfCanvasCreateKind): { readonly width: number; readonly height: number } {
-		return canvasCreateSize(kind, kind === 'image' || kind === 'video' ? this.view.generationCardActions.newDraftRatio(kind) : undefined);
+		return canvasCreateSize(kind, isBaseHalfCanvasDraftCreateKind(kind) ? this.view.generationCardActions.newDraftRatio(kind) : undefined);
 	}
 
 	/**
@@ -536,16 +536,16 @@ export class BaseHalfCanvasCreation {
 	}
 
 	/**
-	 * New Image and New Video (generation cards, "Creating a generation card"):
-	 * a draft of the folder of the canvas, placed as a card the user creates is
-	 * placed, selected, and with its prompt focused when its panel shows. The
-	 * draft is one step of the canvas undo stack.
+	 * New Image, New Video, and New Audio (generation cards, "Creating a
+	 * generation card"): a draft of the folder of the canvas, placed as a card
+	 * the user creates is placed, selected, and with its prompt focused when
+	 * its panel shows. The draft is one step of the canvas undo stack.
 	 */
 	private async createDraftCard(
 		folder: IBaseHalfCanvasFolderState,
 		context: IBaseHalfCanvasActionContext,
 		canvasPosition: { readonly x: number; readonly y: number },
-		kind: 'image' | 'video',
+		kind: BaseHalfGenerationKind,
 		postCreateOwner: IBaseHalfCanvasPostCreateOwner,
 		reveal: boolean
 	): Promise<void> {
@@ -920,7 +920,7 @@ export class BaseHalfCanvasCreation {
 	 * of a file or a folder is; a draft of `draftKind` keeps a name of its kind
 	 * (canvas card name, "The editor in place").
 	 */
-	async validateCanvasEntryName(parent: URI, name: string, current?: URI, draftKind?: 'image' | 'video'): Promise<{ readonly content: string; readonly type: MessageType } | undefined> {
+	async validateCanvasEntryName(parent: URI, name: string, current?: URI, draftKind?: BaseHalfGenerationKind): Promise<{ readonly content: string; readonly type: MessageType } | undefined> {
 		if (name.length === 0 || /^\s+$/.test(name)) {
 			return { content: localize('basehalf.canvas.name.empty', "A file or folder name is required."), type: MessageType.ERROR };
 		}
@@ -1329,14 +1329,15 @@ export class BaseHalfCanvasCreation {
 
 /**
  * The size at which a card of a kind the user creates on the canvas is placed,
- * before it is drawn: for a draft the shape of `ratio`, the ratio its values
- * choose (canvas card placement, "The card of an image or a video has its
- * picture's shape").
+ * before it is drawn: for a draft of an image or a video the shape of
+ * `ratio`, the ratio its values choose, and for a draft of a sound the size
+ * of a file card (canvas card placement, "The card of an image or a video
+ * has its picture's shape").
  */
 function canvasCreateSize(kind: BaseHalfCanvasCreateKind, ratio?: number): { readonly width: number; readonly height: number } {
 	return kind === 'folder'
 		? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
-		: kind === 'image' || kind === 'video'
+		: isBaseHalfCanvasDraftCreateKind(kind)
 			? baseHalfCanvasGenerationCardSize(kind, ratio)
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
 }

@@ -13,5 +13,5 @@ export const SUITE_LIST = [
 	{ name: 'canvas', description: 'The canvas: creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, and snapping.' },
 	{ name: 'cardDetail', description: 'Card Detail and its projections: the rich Markdown editor, source, media, and PDF; back and forward from it.' },
 	{ name: 'navigation', description: 'Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace.' },
-	{ name: 'video', description: 'Generation cards of images and videos: drafts, the panel, generations against the local test provider, Providers, the starter template, and Sequence.' }
+	{ name: 'video', description: 'Generation cards of images, videos, and sounds: drafts, the panel, the voice menu, generations against the local test provider, Providers, the starter template, and Sequence.' }
 ];

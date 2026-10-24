@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { YamlMapNode, YamlNode } from '../../../../base/common/yaml.js';
+import { localize } from '../../../../nls.js';
 import {
 	baseHalfMirrorYamlAbsent,
 	baseHalfMirrorYamlBoolean,
@@ -16,7 +17,19 @@ import {
 	baseHalfParseMirrorYaml,
 	BaseHalfMirrorYamlUnreadable
 } from '../../workspace/common/basehalfMirrorYaml.js';
-import { BASEHALF_VIDEO_MODE_IDS, BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH, BaseHalfVideoModeId, BaseHalfVideoOutputFormat, BaseHalfVideoParams, BaseHalfVideoParamValue, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
+import {
+	BASEHALF_MODEL_KINDS,
+	BASEHALF_VIDEO_MODE_IDS,
+	BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH,
+	baseHalfModelFileExtension,
+	BaseHalfModelKind,
+	BaseHalfVideoModeId,
+	BaseHalfVideoOutputFormat,
+	BaseHalfVideoParams,
+	BaseHalfVideoParamValue,
+	IBaseHalfVideoCatalogModel,
+	IBaseHalfVideoGenerationChoice
+} from './basehalfVideoCatalog.js';
 
 /**
  * The generation information of a card (D63, generation cards): what its next
@@ -29,14 +42,21 @@ import { BASEHALF_VIDEO_MODE_IDS, BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH, BaseHal
 
 // --- kinds and names -------------------------------------------------------------------------
 
-/** What a generation card makes. */
-export type BaseHalfGenerationKind = 'image' | 'video';
+/** What a generation card makes: an image, a video, or a sound (D64, D78). A card offers the models of its kind. */
+export type BaseHalfGenerationKind = BaseHalfModelKind;
 
-/** The extensions a card of each kind may have, lower case, without the dot. */
+/**
+ * The extensions a card of each kind may have, lower case, without the dot.
+ * A sound's are those BaseHalf lands a generated sound under and plays.
+ */
 export const BASEHALF_GENERATION_EXTENSIONS: Readonly<Record<BaseHalfGenerationKind, readonly string[]>> = Object.freeze({
 	image: Object.freeze(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp']),
-	video: Object.freeze(['mp4', 'mov', 'm4v', 'webm'])
+	video: Object.freeze(['mp4', 'mov', 'm4v', 'webm']),
+	audio: Object.freeze(['mp3', 'wav', 'flac', 'm4a', 'ogg'])
 });
+
+/** The kinds of generation cards, in the order the canvas offers them. */
+export const BASEHALF_GENERATION_KINDS: readonly BaseHalfGenerationKind[] = BASEHALF_MODEL_KINDS;
 
 /** The card information file that holds what the next generation uses. */
 export const BASEHALF_GENERATION_INFO_FILE = 'generation.yaml';
@@ -79,18 +99,52 @@ export function baseHalfGenerationExtension(path: string): string | undefined {
 /** The kind of a generation card at `path`, from its extension; `undefined` when it has no generation extension. */
 export function baseHalfGenerationKindOfPath(path: string): BaseHalfGenerationKind | undefined {
 	const extension = baseHalfGenerationExtension(path);
-	if (!extension) {
-		return undefined;
-	}
-	if (BASEHALF_GENERATION_EXTENSIONS.image.includes(extension)) {
-		return 'image';
-	}
-	return BASEHALF_GENERATION_EXTENSIONS.video.includes(extension) ? 'video' : undefined;
+	return extension ? BASEHALF_GENERATION_KINDS.find(kind => BASEHALF_GENERATION_EXTENSIONS[kind].includes(extension)) : undefined;
 }
 
-/** The name a new draft of the kind starts from, before its extension and number. */
+/** The name a new draft of the kind starts from, before its extension and number: `image`, `video`, or `audio`. */
 export function baseHalfGenerationDefaultBaseName(kind: BaseHalfGenerationKind): string {
 	return kind;
+}
+
+/**
+ * The extension of a new draft of a kind (generation cards, "Creating a
+ * generation card"): its model's format when the model is of the card's kind,
+ * and otherwise `png` for an image, `mp4` for a video, and `mp3` for a sound.
+ */
+export function baseHalfGenerationDraftExtension(kind: BaseHalfGenerationKind, model?: IBaseHalfVideoCatalogModel): string {
+	if (model?.kind === kind) {
+		return baseHalfModelFileExtension(model);
+	}
+	return kind === 'image' ? 'png' : kind === 'video' ? 'mp4' : 'mp3';
+}
+
+/**
+ * The extension a draft at `path` of a kind is renamed to when the user
+ * chooses `model` (generation cards, "A draft's extension follows its
+ * model"): the extension of the format an image or an audio model declares,
+ * when the draft's name does not end with it already; `undefined` when the
+ * draft keeps its name, as for a video, a model of another kind, or a name
+ * that names the format already.
+ */
+export function baseHalfGenerationDraftRenameExtension(path: string, kind: BaseHalfGenerationKind, model: IBaseHalfVideoCatalogModel): string | undefined {
+	if (kind === 'video' || model.kind !== kind || !model.outputFormat || baseHalfGenerationExtensionMatchesFormat(path, model.outputFormat)) {
+		return undefined;
+	}
+	return baseHalfModelFileExtension(model);
+}
+
+/**
+ * Why a draft cannot take a name: a draft keeps its kind, so its name ends
+ * with an extension of that kind (generation cards, "Moving, renaming,
+ * copying, and undo").
+ */
+export function baseHalfGenerationDraftNameRule(kind: BaseHalfGenerationKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.generation.name.imageDraft', "An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.");
+		case 'video': return localize('basehalf.generation.name.videoDraft', "A video card needs a name that ends in .mp4, .mov, .m4v, or .webm.");
+		case 'audio': return localize('basehalf.generation.name.audioDraft', "An audio card needs a name that ends in .mp3, .wav, .flac, .m4a, or .ogg.");
+	}
 }
 
 /**
@@ -150,16 +204,18 @@ export function baseHalfGenerationWithExtension(path: string, extension: string)
 /** The largest file a generation of each kind lands (generation cards, "Landing"). */
 export const BASEHALF_GENERATION_MAX_FILE_BYTES: Readonly<Record<BaseHalfGenerationKind, number>> = Object.freeze({
 	image: 64 * 1024 * 1024,
-	video: 512 * 1024 * 1024
+	video: 512 * 1024 * 1024,
+	audio: 256 * 1024 * 1024
 });
 
 /** The formats a generated file of each kind may have. */
 const LANDING_FORMATS: Readonly<Record<BaseHalfGenerationKind, readonly BaseHalfVideoOutputFormat[]>> = Object.freeze({
 	image: Object.freeze(['png', 'jpeg', 'webp'] as const),
-	video: Object.freeze(['mp4'] as const)
+	video: Object.freeze(['mp4'] as const),
+	audio: Object.freeze(['mp3', 'wav', 'flac', 'ogg', 'm4a'] as const)
 });
 
-/** The extension a generated file of a format takes: `png`, `jpg`, `webp`, or `mp4`. */
+/** The extension a generated file of a format takes: `png`, `jpg`, `webp`, `mp4`, `mp3`, `wav`, `flac`, `ogg`, or `m4a`. */
 export function baseHalfGenerationFormatExtension(format: BaseHalfVideoOutputFormat): string {
 	return format === 'jpeg' ? 'jpg' : format;
 }
@@ -171,10 +227,12 @@ export function baseHalfGenerationExtensionMatchesFormat(path: string, format: B
 }
 
 /**
- * The format the first bytes of a file start like: a PNG, a JPEG, a WebP, or
- * an MP4 (an ISO media file with its `ftyp` box first); `undefined` otherwise.
+ * The format the first bytes of a file start like (providers, "Requests"): a
+ * PNG, a JPEG, or a WebP; an ISO media file with its `ftyp` box first, which
+ * is an MP4 and, on an audio card, an M4A; an MP3, with an ID3 tag or an MPEG
+ * audio frame first; a WAV, a FLAC, or an Ogg; `undefined` otherwise.
  */
-export function baseHalfGenerationFileFormat(head: Uint8Array): BaseHalfVideoOutputFormat | undefined {
+export function baseHalfGenerationFileFormat(head: Uint8Array, kind?: BaseHalfGenerationKind): BaseHalfVideoOutputFormat | undefined {
 	const ascii = (start: number, end: number) => head.length >= end ? String.fromCharCode(...head.subarray(start, end)) : '';
 	if (head.length >= 8 && head[0] === 0x89 && ascii(1, 4) === 'PNG' && head[4] === 0x0D && head[5] === 0x0A && head[6] === 0x1A && head[7] === 0x0A) {
 		return 'png';
@@ -182,13 +240,30 @@ export function baseHalfGenerationFileFormat(head: Uint8Array): BaseHalfVideoOut
 	if (head.length >= 3 && head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF) {
 		return 'jpeg';
 	}
-	if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') {
-		return 'webp';
+	if (ascii(0, 4) === 'RIFF') {
+		return ascii(8, 12) === 'WEBP' ? 'webp' : ascii(8, 12) === 'WAVE' ? 'wav' : undefined;
 	}
-	return ascii(4, 8) === 'ftyp' ? 'mp4' : undefined;
+	if (ascii(4, 8) === 'ftyp') {
+		return kind === 'audio' ? 'm4a' : 'mp4';
+	}
+	if (ascii(0, 4) === 'fLaC') {
+		return 'flac';
+	}
+	if (ascii(0, 4) === 'OggS') {
+		return 'ogg';
+	}
+	// An MP3 starts with its ID3 tag, or with the sync of an MPEG audio frame whose layer is set: an AAC stream's is not.
+	if (ascii(0, 3) === 'ID3' || (head.length >= 2 && head[0] === 0xFF && (head[1] & 0xE0) === 0xE0 && (head[1] & 0x06) !== 0)) {
+		return 'mp3';
+	}
+	return undefined;
 }
 
-/** Whether a file of a format and size may land on a card of a kind: a video is an MP4 of at most 512 MiB, an image a PNG, JPEG, or WebP of at most 64 MiB. */
+/**
+ * Whether a file of a format and size may land on a card of a kind: a video
+ * is an MP4 of at most 512 MiB, an image a PNG, JPEG, or WebP of at most
+ * 64 MiB, and a sound an MP3, WAV, FLAC, Ogg, or M4A of at most 256 MiB.
+ */
 export function isBaseHalfGenerationFileAccepted(kind: BaseHalfGenerationKind, format: BaseHalfVideoOutputFormat | undefined, size: number): boolean {
 	return format !== undefined && LANDING_FORMATS[kind].includes(format) && size > 0 && size <= BASEHALF_GENERATION_MAX_FILE_BYTES[kind];
 }
@@ -472,13 +547,13 @@ export interface IBaseHalfGenerationRequest {
 
 /** The record of the generation that made a card's file, in `made.yaml`. */
 export interface IBaseHalfGenerationMade extends IBaseHalfGenerationRequest {
-	/** Unique to this file: the task id, with `-<n>` for the n-th image of several. */
+	/** Unique to this file: the task id, with `-<n>` for the n-th image or song of several. */
 	readonly id: string;
 	readonly startedAt: string;
 	readonly finishedAt: string;
 	/** The provider's task id, when it gave one. */
 	readonly remoteId?: string;
-	/** Which image of how many, for a generation that made several. */
+	/** Which image or song of how many, for a generation that made several. */
 	readonly output?: number;
 	readonly outputs?: number;
 	/** The `id` of the record of the file this one is a copy of. */
@@ -662,7 +737,7 @@ export interface IBaseHalfGenerationLanding {
 	readonly sha256: string;
 }
 
-/** One card a generation lands on: the card itself, or one per image. */
+/** One card a generation lands on: the card itself, or one per image or song. */
 export interface IBaseHalfGenerationTaskCard {
 	/** Workspace-relative path of the card. Every move or rename of the card writes its new path here. */
 	readonly path: string;
@@ -956,9 +1031,9 @@ export function normalizeBaseHalfGenerationTask(value: unknown): IBaseHalfGenera
 	if (candidate.version !== 1) {
 		throw error('task.version must be 1.');
 	}
-	const kind = candidate.kind;
-	if (kind !== 'image' && kind !== 'video') {
-		throw error('task.kind must be image or video.');
+	const kind = candidate.kind as BaseHalfGenerationKind;
+	if (!BASEHALF_GENERATION_KINDS.includes(kind)) {
+		throw error('task.kind must be image, video, or audio.');
 	}
 	const state = candidate.state as BaseHalfGenerationTaskState;
 	if (!['preparing', 'submitting', 'running', 'landing', 'failed', 'stopped'].includes(state)) {

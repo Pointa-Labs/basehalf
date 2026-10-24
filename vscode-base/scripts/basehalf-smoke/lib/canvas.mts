@@ -296,7 +296,7 @@ export async function emptyCanvasPoint(page) {
 }
 
 // Runs an action of the canvas's Create menu, the plus at its corner: New
-// Note, New Image, New Video, or New Folder.
+// Note, New Image, New Video, New Audio, or New Folder.
 export async function clickCanvasCreateAction(page, label) {
 	const createButton = page.locator('.basehalf-canvas-create-button');
 	await createButton.focus();

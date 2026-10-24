@@ -99,6 +99,8 @@ suite('BaseHalf providers: vidu', () => {
 				return `${name} = ${parameter.default}`;
 			case 'text':
 				return `${name}: text`;
+			case 'voice':
+				return `${name}: voice ${parameter.options.map(option => option.value).join('|')} = ${parameter.default}`;
 		}
 	}
 

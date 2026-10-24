@@ -58,6 +58,7 @@ import {
 } from './areas/cardDetail/richEditor.mts';
 import { assertCanvasBreadcrumbsRemoved, assertCanvasContainsCard, assertMarkdownRichRevealsText } from './areas/navigation/navigation.mts';
 import { assertExplorerRenameCascadesMirror, assertMigrationMovesSeededLegacyPair } from './areas/navigation/workspaceFiles.mts';
+import { runAudioCardSteps } from './areas/video/audioCards.mts';
 import { assertLandingLeftNoPartialFile, runGenerationCardSteps } from './areas/video/generationCards.mts';
 import { assertProviderRequestsFromSharedProcess } from './areas/video/providerService.mts';
 import { assertNoPluginSurface, assertSequenceAddsGeneratedVideo, assertVideoWorkflowTemplate } from './areas/video/workflowTemplate.mts';
@@ -266,12 +267,13 @@ async function runNavigationSuite(page) {
 	await step('nothing-installed-after-session', () => assertWorkspaceOpenInstallsNothing());
 }
 
-/** Generation cards of images and videos: drafts, the panel, generations against the local test provider, Providers, the starter template, and Sequence. */
+/** Generation cards of images, videos, and sounds: drafts, the panel, the voice menu, generations against the local test provider, Providers, the starter template, and Sequence. */
 async function runVideoSuite(page) {
 	await step('no-plugin-surface', () => assertNoPluginSurface(page));
 	await step('video-workflow-template', () => assertVideoWorkflowTemplate(page));
 	await runGenerationCardSteps(page);
 	await step('video-sequence-adds-generated-video', () => assertSequenceAddsGeneratedVideo(page));
+	await runAudioCardSteps(page);
 	await step('video-landing-leaves-no-partial-file', () => assertLandingLeftNoPartialFile());
 	await step('video-requests-from-provider-service', () => assertProviderRequestsFromSharedProcess());
 }

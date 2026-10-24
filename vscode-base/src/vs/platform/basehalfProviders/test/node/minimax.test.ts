@@ -11,8 +11,8 @@ import { join } from '../../../../base/common/path.js';
 import { VideoProviderCommands } from '../../node/commands.js';
 import { MINIMAX } from '../../node/minimax.js';
 import { buildCatalog } from '../../node/registry.js';
-import type { CatalogModel, CatalogParameter, Output, PollState } from '../../common/basehalfProviderTypes.js';
-import { remoteIdIn, error, gifHeader, isoMedia, jpegHeader, partTargets, plannedFiles, png, recordingSleep, routed, sendJson, serveFiles, startServer, tinyJpeg, tinyPng, remoteIdOf, value, wav, webpHeader, type Received } from './providerTestKit.js';
+import type { CatalogModel, CatalogParameter, Output, Params, PollState } from '../../common/basehalfProviderTypes.js';
+import { answerAudioAtOnce, audioRequest, remoteIdIn, error, gifHeader, isoMedia, jpegHeader, listVoicesAgainst, partTargets, plannedFiles, png, recordingSleep, routed, sendJson, serveFiles, startServer, testAccess, tinyJpeg, tinyMp3, tinyPng, remoteIdOf, value, wav, webpHeader, type AudioRequestOptions, type Received, type TestRoute } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
 suite('BaseHalf providers: minimax', () => {
@@ -1020,6 +1020,388 @@ suite('BaseHalf providers: minimax', () => {
 			const ref = { ...access(server.url, 'cn'), model: 'image-01-live', remoteId: '03ff3cd0820949eb8a410056b5f21d38' };
 			assert.deepEqual({ poll: error(await providers.poll(ref)), cancel: value(await providers.cancel(ref)), sent: server.received.length }, {
 				poll: { code: 'rejected', message: 'MiniMax Image-01 Live answers with its images at once: there is no task to ask about.' },
+				cancel: { cancelled: false },
+				sent: 0
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	// --- the speech models (D78) --------------------------------------------------------------------
+
+	const SPEECH_TEXT = 'The tide comes in at six (sighs), and the harbour wakes.';
+	/** A voice of the account, as MiniMax names a cloned one: any id of a voice passes, since MiniMax lists them. */
+	const OWN_VOICE = 'moss_audio_c1a6a3ac-7be6-11f0-8e8e-36b92fbb4f95';
+	/** MiniMax's languages (`language_boost`), in the order of its reference. */
+	const LANGUAGES = ['Chinese', 'Chinese,Yue', 'English', 'Arabic', 'Russian', 'Spanish', 'French', 'Portuguese', 'German', 'Turkish', 'Dutch', 'Ukrainian', 'Vietnamese', 'Indonesian', 'Japanese', 'Italian', 'Korean', 'Thai', 'Polish', 'Romanian', 'Greek', 'Czech', 'Finnish', 'Hindi', 'Bulgarian', 'Danish', 'Hebrew', 'Malay', 'Persian', 'Slovak', 'Swedish', 'Croatian', 'Filipino', 'Hungarian', 'Norwegian', 'Slovenian', 'Catalan', 'Nynorsk', 'Tamil', 'Afrikaans'];
+	const SPEECH_LIMITS = 'MiniMax takes 60 requests a minute for speech models.';
+	const AUDIO_SETTING = { format: 'mp3', sample_rate: 44100, bitrate: 256000, channel: 1 };
+
+	/** A speech request of a model in a region, as the window sends it, with one new target. */
+	function speechRequest(endpoint: string, model: string, options: AudioRequestOptions = {}, region = 'intl') {
+		return audioRequest(testAccess(MINIMAX, endpoint, { apiKey: KEY }, region), model, { prompt: SPEECH_TEXT, ...options });
+	}
+
+	/** MiniMax's answer of a speech request, with the speech as `audio`: hex, or an address. */
+	function speechAnswer(audio: string): Record<string, unknown> {
+		return {
+			data: { audio, status: 2 },
+			extra_info: { audio_length: 104, audio_sample_rate: 44100, audio_size: tinyMp3().byteLength, bitrate: 256000, word_count: 56, invisible_character_ratio: 0, usage_characters: 56, audio_format: 'mp3', audio_channel: 1 },
+			trace_id: '01b8bf9bb7433cc75c18eee6cfa8fe21',
+			base_resp: { status_code: 0, status_msg: 'success' }
+		};
+	}
+
+	/** The JSON bodies of the speech requests a server received, in order. */
+	function speechBodies(received: readonly Received[]): Record<string, unknown>[] {
+		return received.filter(entry => entry.method === 'POST' && entry.path === '/v1/t2a_v2').map(entry => JSON.parse(entry.body.toString('utf8')));
+	}
+
+	/** MiniMax's list of voices, `POST /v1/get_voice`, answering `answer` with `status`. */
+	function voiceList(answer: unknown, status = 200): TestRoute {
+		return (request, response) => {
+			if (request.method !== 'POST' || request.path !== '/v1/get_voice') {
+				return false;
+			}
+			sendJson(response, status, answer);
+			return true;
+		};
+	}
+
+	test('the speech models answer at once in both regions with MP3, speak in a voice MiniMax lists, and take MiniMax\'s own settings (D78)', () => {
+		const provider = buildCatalog([MINIMAX]).providers[0];
+		const speech = provider.models.filter(model => model.kind === 'audio');
+		const parameters = (emotions: string) => [
+			'voice:English_Graceful_Lady',
+			'speed=0.5-2/0.05:1',
+			'vol=0.1-10/0.1:1',
+			'pitch=-12-12/1:0',
+			`emotion=${emotions}:auto`,
+			`language_boost=auto|${LANGUAGES.join('|')}:undefined (more)`,
+			'voice_modify.pitch=-100-100/1:0 (more)',
+			'voice_modify.intensity=-100-100/1:0 (more)',
+			'voice_modify.timbre=-100-100/1:0 (more)',
+			'voice_modify.sound_effects=spacious_echo|auditorium_echo|lofi_telephone|robotic:undefined (more)'
+		];
+		const seven = 'auto|happy|sad|angry|fearful|disgusted|surprised|calm';
+		const entry = (id: string, label: string, emotions: string) => ({
+			id,
+			label,
+			makes: 'speech',
+			ids: { cn: id, intl: id },
+			format: 'mp3',
+			atOnce: true,
+			prompt: 'always 9999',
+			modes: ['reference Speech: start none, end none, images 0, videos 0, audio 0, source none'],
+			parameters: parameters(emotions)
+		});
+		assert.deepEqual(speech.map(model => ({
+			id: model.id,
+			label: model.label,
+			makes: model.makes,
+			ids: model.providerModels,
+			format: model.outputFormat,
+			atOnce: model.answersAtOnce,
+			prompt: `${model.prompt.required} ${model.prompt.maxLength}`,
+			modes: model.modes.map(mode => `${mode.id} ${mode.label}: start ${mode.inputs.startFrame}, end ${mode.inputs.endFrame}, images ${mode.inputs.images.max}, videos ${mode.inputs.videos.max}, audio ${mode.inputs.audios.max}, source ${mode.inputs.source}`),
+			parameters: model.parameters.map(summary)
+		})), [
+			entry('speech-2.8-hd', 'Speech 2.8 HD', seven),
+			entry('speech-2.8-turbo', 'Speech 2.8 Turbo', seven),
+			entry('speech-2.6-hd', 'Speech 2.6 HD', `${seven}|fluent|whisper`),
+			entry('speech-2.6-turbo', 'Speech 2.6 Turbo', `${seven}|fluent|whisper`)
+		]);
+		const parameter = (name: string) => speech[2].parameters.find(entry => entry.name === name);
+		const voice = parameter('voice');
+		const emotion = parameter('emotion');
+		const language = parameter('language_boost');
+		const effect = parameter('voice_modify.sound_effects');
+		assert.deepEqual({
+			voice: voice?.kind === 'voice' ? { options: voice.options, listed: voice.listed } : undefined,
+			emotions: emotion?.kind === 'choice' ? emotion.options.map(option => option.label) : undefined,
+			languages: language?.kind === 'choice' ? { first: language.options.slice(0, 3).map(option => option.label), optional: language.optional } : undefined,
+			effects: effect?.kind === 'choice' ? { labels: effect.options.map(option => option.label), optional: effect.optional } : undefined,
+			labels: speech[2].parameters.map(entry => entry.label)
+		}, {
+			voice: { options: [{ value: 'English_Graceful_Lady', label: 'Graceful Lady', description: 'English' }], listed: true },
+			emotions: ['Auto', 'Happy', 'Sad', 'Angry', 'Fearful', 'Disgusted', 'Surprised', 'Calm', 'Fluent', 'Whisper'],
+			languages: { first: ['Auto', 'Chinese', 'Cantonese'], optional: true },
+			effects: { labels: ['Spacious Echo', 'Auditorium Echo', 'Lo-Fi Telephone', 'Robotic'], optional: true },
+			labels: ['Voice', 'Speed', 'Volume', 'Pitch', 'Emotion', 'Language', 'Deepen / Brighten', 'Stronger / Softer', 'Nasal / Crisp', 'Sound Effect']
+		});
+	});
+
+	test('a speech request is sent once with the exact body: the text, the voice and MiniMax\'s settings of it, MP3 at its best as hex, and only the settings that are set (D78)', async () => {
+		const server = await startServer(routed(answerAudioAtOnce({ path: '/v1/t2a_v2', sounds: [tinyMp3()], as: 'hex', shape: ([audio]) => speechAnswer(audio) })));
+		try {
+			const providers = commands();
+			const cases: readonly { readonly model: string; readonly region: string; readonly params: Params; readonly body: Record<string, unknown> }[] = [
+				{
+					// The defaults: the catalog's voice, MiniMax's own pace, volume, and pitch, and no emotion, language, or effect.
+					model: 'speech-2.8-hd', region: 'intl', params: {},
+					body: { model: 'speech-2.8-hd', text: SPEECH_TEXT, stream: false, output_format: 'hex', voice_setting: { voice_id: 'English_Graceful_Lady', speed: 1, vol: 1, pitch: 0 }, audio_setting: AUDIO_SETTING }
+				},
+				{
+					model: 'speech-2.6-turbo',
+					region: 'cn',
+					params: { 'voice': OWN_VOICE, 'speed': 1.25, 'vol': 2.5, 'pitch': -3, 'emotion': 'whisper', 'language_boost': 'Chinese,Yue', 'voice_modify.intensity': -20, 'voice_modify.timbre': 35, 'voice_modify.sound_effects': 'lofi_telephone' },
+					body: {
+						model: 'speech-2.6-turbo',
+						text: SPEECH_TEXT,
+						stream: false,
+						output_format: 'hex',
+						voice_setting: { voice_id: OWN_VOICE, speed: 1.25, vol: 2.5, pitch: -3, emotion: 'whisper' },
+						audio_setting: AUDIO_SETTING,
+						language_boost: 'Chinese,Yue',
+						voice_modify: { pitch: 0, intensity: -20, timbre: 35, sound_effects: 'lofi_telephone' }
+					}
+				},
+				{
+					// A sound effect alone sends the voice effects with their numbers at 0.
+					model: 'speech-2.8-turbo', region: 'intl', params: { 'voice_modify.sound_effects': 'robotic', 'language_boost': 'auto' },
+					body: { model: 'speech-2.8-turbo', text: SPEECH_TEXT, stream: false, output_format: 'hex', voice_setting: { voice_id: 'English_Graceful_Lady', speed: 1, vol: 1, pitch: 0 }, audio_setting: AUDIO_SETTING, language_boost: 'auto', voice_modify: { pitch: 0, intensity: 0, timbre: 0, sound_effects: 'robotic' } }
+				},
+				{
+					model: 'speech-2.6-hd', region: 'cn', params: { 'emotion': 'calm', 'voice_modify.pitch': 40 },
+					body: { model: 'speech-2.6-hd', text: SPEECH_TEXT, stream: false, output_format: 'hex', voice_setting: { voice_id: 'English_Graceful_Lady', speed: 1, vol: 1, pitch: 0, emotion: 'calm' }, audio_setting: AUDIO_SETTING, voice_modify: { pitch: 40, intensity: 0, timbre: 0 } }
+				}
+			];
+			const landed: boolean[] = [];
+			for (const entry of cases) {
+				const request = speechRequest(server.url, entry.model, { params: entry.params }, entry.region);
+				const [target] = request.targets ?? [];
+				assert.deepEqual(value(await providers.submit(request)), { outputs: [{ written: target, size: tinyMp3().byteLength, format: 'mp3' }] });
+				landed.push(readFileSync(target).equals(tinyMp3()));
+			}
+			assert.deepEqual({ bodies: speechBodies(server.received), landed, sent: server.received.map(entry => `${entry.method} ${entry.path} ${entry.headers.authorization} ${entry.headers['content-type']}`) }, {
+				bodies: cases.map(entry => entry.body),
+				landed: cases.map(() => true),
+				sent: cases.map(() => `POST /v1/t2a_v2 Bearer ${KEY} application/json`)
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	test('the speech lands from its hex or from an address a relay answers, and an answer without readable speech is refused or leaves the outcome unknown (D78)', async () => {
+		const files = await startServer(routed(serveFiles({ '/speech/1.mp3': tinyMp3() })));
+		let answer: Record<string, unknown> = {};
+		const server = await startServer((request, response) => sendJson(response, 200, answer));
+		try {
+			const providers = commands();
+			const submit = async () => {
+				const submitted = await providers.submit(speechRequest(server.url, 'speech-2.8-turbo'));
+				return submitted.ok ? submitted.value : submitted.error;
+			};
+			answer = speechAnswer(`${files.url}/speech/1.mp3`);
+			const address = await submit();
+			const downloaded = value(await providers.download({ ...testAccess(MINIMAX, server.url, { apiKey: KEY }, 'intl'), model: 'speech-2.8-turbo', kind: 'audio', url: `${files.url}/speech/1.mp3`, targetFsPath: partTargets(1)[0] }));
+			answer = speechAnswer('fffb9');
+			const odd = await submit();
+			answer = speechAnswer('not hex at all');
+			const notHex = await submit();
+			answer = speechAnswer(Buffer.from('<html>busy</html>'.repeat(5)).toString('hex'));
+			const notSound = await submit();
+			answer = { data: null, trace_id: '01b8bf9bb7433cc75c18eee6cfa8fe21', base_resp: { status_code: 0, status_msg: 'success' } };
+			const nothing = await submit();
+			const unreadable = 'MiniMax answered a sound BaseHalf cannot read.';
+			assert.deepEqual({ address, downloaded, keySent: files.received.map(entry => entry.headers.authorization ?? 'none'), odd, notHex, notSound, nothing, sent: server.received.length }, {
+				address: { outputs: [{ url: `${files.url}/speech/1.mp3` }] },
+				downloaded: { size: tinyMp3().byteLength, format: 'mp3' },
+				keySent: ['none'],
+				odd: { outputs: [{ refused: unreadable }] },
+				notHex: { outputs: [{ refused: unreadable }] },
+				notSound: { outputs: [{ refused: 'The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.' }] },
+				nothing: { code: 'unknownOutcome', message: 'MiniMax accepted the request but answered no speech BaseHalf can read.' },
+				sent: 5
+			});
+		} finally {
+			await server.close();
+			await files.close();
+		}
+	});
+
+	test('voices lists the account\'s cloned and designed voices as its own, then MiniMax\'s system voices, without samples, in either region (D78)', async () => {
+		const answer = {
+			system_voice: [
+				{ voice_id: 'English_Graceful_Lady', voice_name: 'Graceful Lady', description: ['A graceful and elegant English lady.'], created_time: '1970-01-01' },
+				{ voice_id: 'Chinese (Mandarin)_News_Anchor', voice_name: 'News Anchor', description: ['A professional, middle-aged female news anchor', 'in standard Mandarin.'], created_time: '1970-01-01' }
+			],
+			voice_cloning: [{ voice_id: 'my-narrator-01', description: [], created_time: '2026-10-20' }],
+			voice_generation: [{ voice_id: 'ttv-voice-2026102011321125-2uEN0X1S', description: ['A deep, salty sea captain.'], created_time: '2026-10-21' }],
+			base_resp: { status_code: 0, status_msg: 'success' }
+		};
+		const intl = await listVoicesAgainst(MINIMAX, 'speech-2.8-hd', { apiKey: KEY }, routed(voiceList(answer)));
+		const cn = await listVoicesAgainst(MINIMAX, 'speech-2.6-turbo', { apiKey: KEY }, routed(voiceList(answer)), 'cn');
+		const voices = [
+			// A cloned or designed voice has no name: it is named by its id.
+			{ id: 'my-narrator-01', label: 'my-narrator-01', own: true },
+			{ id: 'ttv-voice-2026102011321125-2uEN0X1S', label: 'ttv-voice-2026102011321125-2uEN0X1S', description: 'A deep, salty sea captain.', own: true },
+			{ id: 'English_Graceful_Lady', label: 'Graceful Lady', description: 'A graceful and elegant English lady.', own: false },
+			{ id: 'Chinese (Mandarin)_News_Anchor', label: 'News Anchor', description: 'A professional, middle-aged female news anchor in standard Mandarin.', own: false }
+		];
+		assert.deepEqual({ intl: intl.answer, cn: cn.answer, sent: [...intl.received, ...cn.received].map(entry => `${entry.method} ${entry.path} ${entry.headers.authorization} ${entry.body.toString('utf8')}`) }, {
+			intl: { ok: true, value: { voices } },
+			cn: { ok: true, value: { voices } },
+			sent: Array.from({ length: 2 }, () => `POST /v1/get_voice Bearer ${KEY} {"voice_type":"all"}`)
+		});
+	});
+
+	test('voices answers the first 2,000 voices with truncated, and reads MiniMax\'s codes and HTTP errors of the list (D78)', async () => {
+		const many = {
+			system_voice: Array.from({ length: 2001 }, (_entry, index) => ({ voice_id: `System_Voice_${index}`, voice_name: `Voice ${index}`, description: [] })),
+			voice_cloning: [{ voice_id: 'mine-1', description: [] }],
+			base_resp: { status_code: 0, status_msg: 'success' }
+		};
+		const list = (answer: unknown, status?: number) => listVoicesAgainst(MINIMAX, 'speech-2.8-hd', { apiKey: KEY }, routed(voiceList(answer, status)));
+		const truncated = value((await list(many)).answer);
+		const refused = await list({ base_resp: { status_code: 1004, status_msg: 'token not match group' } });
+		const busy = await list({ base_resp: { status_code: 1002, status_msg: 'rate limit' } });
+		const internal = await list({ base_resp: { status_code: 1000, status_msg: 'unknown error' } });
+		const limited = await list({ base_resp: { status_code: 1002, status_msg: 'rate limit' } }, 429);
+		assert.deepEqual({
+			count: truncated.voices.length,
+			truncated: truncated.truncated,
+			first: truncated.voices[0],
+			last: truncated.voices.at(-1)?.id,
+			refused: error(refused.answer),
+			busy: error(busy.answer),
+			internal: error(internal.answer),
+			limited: error(limited.answer),
+			asked: [refused, busy, internal, limited].map(entry => entry.received.length)
+		}, {
+			count: 2000,
+			truncated: true,
+			first: { id: 'mine-1', label: 'mine-1', own: true },
+			last: 'System_Voice_1998',
+			refused: { code: 'auth', message: 'token not match group (1004)' },
+			// MiniMax states no limit of the list, and names none of its other models.
+			busy: { code: 'rateLimited', message: 'rate limit (1002)' },
+			// Nothing is created by a list: an unknown error fails it for the network.
+			internal: { code: 'network', message: 'unknown error (1000)' },
+			limited: { code: 'rateLimited', message: 'rate limit (1002)', status: 429 },
+			// The list is retried as a poll is: an answer of 429 three more times.
+			asked: [1, 1, 1, 4]
+		});
+	});
+
+	test('a speech request refused by base_resp, by its HTTP status, or whose answer is lost is sent once, with plain words for sensitive text and a voice or model the key cannot use (D78)', async () => {
+		let respond: (response: ServerResponse) => void = response => sendJson(response, 200, {});
+		const server = await startServer((request, response, socket) => {
+			if (request.path === '/drop/v1/t2a_v2') {
+				socket.destroy();
+				return;
+			}
+			respond(response);
+		});
+		try {
+			const providers = commands();
+			const create = async (answer: (response: ServerResponse) => void, endpoint = server.url) => {
+				respond = answer;
+				return error(await providers.submit(speechRequest(endpoint, 'speech-2.8-hd')));
+			};
+			const code = (status: number, message: string) => (response: ServerResponse) => sendJson(response, 200, { data: null, trace_id: '01b8bf9bb7433cc75c18eee6cfa8fe21', base_resp: { status_code: status, status_msg: message } });
+			const login = 'login fail: Please carry the API secret key in the \'Authorization\' field of the request header';
+			const outcomes = {
+				sensitive: await create(code(1026, 'input new_sensitive')),
+				sensitiveSpeech: await create(code(1027, 'output new_sensitive')),
+				invisible: await create(code(1042, 'invisible character ratio limit')),
+				unknownVoice: await create(code(2054, 'voice id not exist')),
+				invalidVoice: await create(code(20132, 'invalid samples or voice_id')),
+				otherAccount: await create(code(2042, 'You don\'t have access to this voice_id')),
+				otherModel: await create(code(2043, 'The model does not support this voice_id')),
+				plan: await create(code(2068, 'The current plan tier does not support this model')),
+				balance: await create(code(1008, 'insufficient balance')),
+				credit: await create(code(2053, 'insufficient credit')),
+				key: await create(code(2049, 'invalid api key')),
+				busy: await create(code(1002, 'rate limit')),
+				params: await create(code(2013, 'invalid params, voice_setting.speed')),
+				internal: await create(code(1000, 'unknown error')),
+				unauthorized: await create(response => sendJson(response, 401, { base_resp: { status_code: 1004, status_msg: login } })),
+				limited: await create(response => sendJson(response, 429, { base_resp: { status_code: 1002, status_msg: 'rate limit' } }, { 'Retry-After': '4' })),
+				dropped: (await create(() => undefined, `${server.url}/drop`)).code
+			};
+			assert.deepEqual({ outcomes, sent: server.received.length }, {
+				outcomes: {
+					sensitive: { code: 'rejected', message: 'input new_sensitive (1026) MiniMax\'s content check refused the text.' },
+					sensitiveSpeech: { code: 'rejected', message: 'output new_sensitive (1027) MiniMax\'s content check stopped the speech.' },
+					invisible: { code: 'rejected', message: 'invisible character ratio limit (1042) More than a tenth of the text is characters MiniMax cannot read.' },
+					unknownVoice: { code: 'rejected', message: 'voice id not exist (2054) MiniMax does not know this voice for this key: choose another voice.' },
+					invalidVoice: { code: 'rejected', message: 'invalid samples or voice_id (20132) MiniMax does not know this voice for this key: choose another voice.' },
+					otherAccount: { code: 'rejected', message: 'You don\'t have access to this voice_id (2042) The voice belongs to another MiniMax account: choose one of this account\'s voices.' },
+					otherModel: { code: 'rejected', message: 'The model does not support this voice_id (2043) This model does not speak in this voice: choose another voice or another model.' },
+					plan: { code: 'rejected', message: 'The current plan tier does not support this model (2068) The MiniMax plan of this key does not include this model.' },
+					balance: { code: 'balance', message: 'insufficient balance (1008)' },
+					credit: { code: 'balance', message: 'insufficient credit (2053)' },
+					key: { code: 'auth', message: 'invalid api key (2049)' },
+					busy: { code: 'rateLimited', message: `rate limit (1002) ${SPEECH_LIMITS}` },
+					params: { code: 'rejected', message: 'invalid params, voice_setting.speed (2013)' },
+					internal: { code: 'unknownOutcome', message: 'unknown error (1000)' },
+					unauthorized: { code: 'auth', message: `${login} (1004)`, status: 401 },
+					limited: { code: 'rateLimited', message: `rate limit (1002) ${SPEECH_LIMITS} The provider asks to wait 4 seconds.`, status: 429 },
+					dropped: 'unknownOutcome'
+				},
+				// Each request was sent once, never again.
+				sent: 17
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	test('check of a speech model takes any voice of the account and refuses what MiniMax does not take, and nothing is sent then (D78)', async () => {
+		const providers = commands();
+		const problems = async (model: string, options: AudioRequestOptions) => value(await providers.check(speechRequest('https://api.minimax.io', model, options))).problems;
+		assert.deepEqual({
+			ownVoice: await problems('speech-2.8-hd', { params: { voice: OWN_VOICE } }),
+			controlVoice: await problems('speech-2.8-hd', { params: { voice: 'English_Graceful_Lady\n' } }),
+			fluentOn26: await problems('speech-2.6-hd', { params: { emotion: 'fluent' } }),
+			fluentOn28: await problems('speech-2.8-turbo', { params: { emotion: 'fluent' } }),
+			fast: await problems('speech-2.8-hd', { params: { speed: 2.5 } }),
+			offStep: await problems('speech-2.8-hd', { params: { speed: 1.03 } }),
+			silent: await problems('speech-2.8-hd', { params: { vol: 0 } }),
+			high: await problems('speech-2.8-hd', { params: { pitch: 13 } }),
+			bright: await problems('speech-2.8-hd', { params: { 'voice_modify.pitch': 101 } }),
+			minimaxField: await problems('speech-2.8-hd', { params: { voice_setting: 'x' } }),
+			longest: await problems('speech-2.8-hd', { prompt: 'x'.repeat(9999) }),
+			tooLong: await problems('speech-2.8-hd', { prompt: 'x'.repeat(10_000) }),
+			noText: await problems('speech-2.8-hd', { prompt: '' }),
+			image: await problems('speech-2.8-hd', { inputs: plannedFiles({ images: 1 }) }),
+			lyrics: await problems('speech-2.8-hd', { mode: 'lyrics' })
+		}, {
+			ownVoice: [],
+			controlVoice: ['Voice has characters that the id of a voice cannot have.'],
+			fluentOn26: [],
+			fluentOn28: ['Emotion cannot be fluent for Speech 2.8 Turbo; choose Auto, Happy, Sad, Angry, Fearful, Disgusted, Surprised, Calm.'],
+			fast: ['Speed must be between 0.5 and 2.'],
+			offStep: ['Speed must be a step of 0.05 from 0.5.'],
+			silent: ['Volume must be between 0.1 and 10.'],
+			high: ['Pitch must be between -12 and 12.'],
+			bright: ['Deepen / Brighten must be between -100 and 100.'],
+			minimaxField: ['Speech 2.8 HD has no setting named "voice_setting".'],
+			longest: [],
+			tooLong: ['The prompt is 10000 characters long; Speech 2.8 HD takes at most 9999.'],
+			noText: ['Write a prompt: Speech 2.8 HD needs one.'],
+			image: ['Speech 2.8 HD in Speech mode takes no reference images.'],
+			lyrics: ['Speech 2.8 HD has no lyrics mode.']
+		});
+		const server = await startServer((request, response) => sendJson(response, 200, speechAnswer(tinyMp3().toString('hex'))));
+		try {
+			const refused = error(await providers.submit(speechRequest(server.url, 'speech-2.8-turbo', { params: { emotion: 'whisper' } })));
+			assert.deepEqual({ refused, sent: server.received.length }, { refused: { code: 'rejected', message: 'Emotion cannot be whisper for Speech 2.8 Turbo; choose Auto, Happy, Sad, Angry, Fearful, Disgusted, Surprised, Calm.' }, sent: 0 });
+		} finally {
+			await server.close();
+		}
+	});
+
+	test('a speech model has no task: poll refuses it, and cancel answers false without a request (D78)', async () => {
+		const server = await startServer((request, response) => sendJson(response, 200, { task: { id: '1', status: 'queued' } }));
+		try {
+			const providers = commands();
+			const ref = { ...access(server.url, 'cn'), model: 'speech-2.6-hd', remoteId: '01b8bf9bb7433cc75c18eee6cfa8fe21' };
+			assert.deepEqual({ poll: error(await providers.poll(ref)), cancel: value(await providers.cancel(ref)), sent: server.received.length }, {
+				poll: { code: 'rejected', message: 'Speech 2.6 HD answers with its speech at once: there is no task to ask about.' },
 				cancel: { cancelled: false },
 				sent: 0
 			});

@@ -4,10 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Emitter } from '../../../base/common/event.js';
-import { ProxyChannel } from '../../../base/parts/ipc/common/ipc.js';
 import { ipcRenderer } from '../../../base/parts/sandbox/electron-browser/globals.js';
 import { InstantiationType, registerSingleton } from '../../instantiation/common/extensions.js';
 import { ISharedProcessService } from '../../ipc/electron-browser/services.js';
+import { BaseHalfProviderChannelClient } from '../common/basehalfProviderChannel.js';
 import { BaseHalfProviderConnection } from '../common/basehalfProviderConnection.js';
 import { BASEHALF_PROVIDERS_CHANNEL, BASEHALF_SHARED_PROCESS_STOPPED_CHANNEL, IBaseHalfProviderService } from '../common/basehalfProviders.js';
 
@@ -21,7 +21,7 @@ class BaseHalfProviderServiceClient extends BaseHalfProviderConnection {
 		const stopped = new Emitter<void>();
 		ipcRenderer.on(BASEHALF_SHARED_PROCESS_STOPPED_CHANNEL, () => stopped.fire());
 		super(
-			ProxyChannel.toService<IBaseHalfProviderService>(sharedProcessService.getChannel(BASEHALF_PROVIDERS_CHANNEL)),
+			new BaseHalfProviderChannelClient(sharedProcessService.getChannel(BASEHALF_PROVIDERS_CHANNEL)),
 			stopped.event,
 			ipcRenderer.invoke(BASEHALF_SHARED_PROCESS_STOPPED_CHANNEL).then(value => value === true)
 		);

@@ -5,10 +5,12 @@
 
 /**
  * What the provider tests share: a local HTTP server that records what it
- * receives, with routes that answer as an image API and a provider's storage
- * do; a small provider module declared for the tests; builders of small media
- * files, tiny valid images among them; planned inputs as such files; and new
- * files to write outputs to. Nothing here talks to a real provider.
+ * receives, with routes that answer as an image API, a speech API, and a
+ * provider's storage do; small provider modules declared for the tests, of
+ * images and videos and of sounds; builders of small media files, tiny valid
+ * images and sounds among them; planned inputs as such files; requests of an
+ * audio model and the voices a module lists, run through the commands; and
+ * new files to write outputs to. Nothing here talks to a real provider.
  */
 
 import { hasKey } from '../../../../base/common/types.js';
@@ -19,10 +21,12 @@ import type { AddressInfo, Socket } from 'net';
 import { tmpdir } from 'os';
 import { join } from '../../../../base/common/path.js';
 import zlib from 'zlib';
+import { VideoProviderCommands } from '../../node/commands.js';
 import { ProviderFailure } from '../../node/failure.js';
-import { imageFormatOf, MEDIA_MIME_TYPES } from '../../node/media.js';
-import type { ProviderModule } from '../../node/module.js';
-import type { CatalogProvider, Media, PlannedMedia, ProviderResponse, SubmitResult } from '../../common/basehalfProviderTypes.js';
+import { audioFormatOf, imageFormatOf, MEDIA_MIME_TYPES } from '../../node/media.js';
+import type { OutputLocation, ProviderModule } from '../../node/module.js';
+import type { AudioOutputFormat, CatalogMode, CatalogProvider, ListedVoice, Media, ModeId, Params, PlannedMedia, PromptPart, ProviderAccess, ProviderResponse, SubmitPayload, SubmitResult, VoicesResult } from '../../common/basehalfProviderTypes.js';
+import { multipartFormParts, silentMp3, type MockFormPart } from './mockVideoProvider.js';
 
 export interface Received {
 	readonly method: string;
@@ -118,18 +122,23 @@ export function routed(...routes: readonly TestRoute[]): (request: Received, res
 	};
 }
 
-/** The type and extension of image bytes, from their signature; other bytes are sent as a plain file. */
-function imageFile(bytes: Buffer): { readonly contentType: string; readonly extension: string } {
-	const format = imageFormatOf(bytes);
-	return format
-		? { contentType: MEDIA_MIME_TYPES[format], extension: format === 'jpeg' ? 'jpg' : format }
-		: { contentType: 'application/octet-stream', extension: 'bin' };
+/** The type a sound of each format is served with. */
+const AUDIO_MIME_TYPES: Readonly<Record<AudioOutputFormat, string>> = Object.freeze({ mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4' });
+
+/** The type and extension of image or sound bytes, from their signature; other bytes are sent as a plain file. */
+function mediaFile(bytes: Buffer): { readonly contentType: string; readonly extension: string } {
+	const image = imageFormatOf(bytes);
+	if (image) {
+		return { contentType: MEDIA_MIME_TYPES[image], extension: image === 'jpeg' ? 'jpg' : image };
+	}
+	const sound = audioFormatOf(bytes);
+	return sound ? { contentType: AUDIO_MIME_TYPES[sound], extension: sound } : { contentType: 'application/octet-stream', extension: 'bin' };
 }
 
 /**
  * A route that serves files, as a provider's storage or CDN does: `files` maps
  * a path, without its query, to the bytes a GET of it answers, with the type
- * of an image's format. It takes no other request.
+ * of an image's or a sound's format. It takes no other request.
  */
 export function serveFiles(files: Readonly<Record<string, Buffer>>): TestRoute {
 	return (request, response) => {
@@ -137,7 +146,7 @@ export function serveFiles(files: Readonly<Record<string, Buffer>>): TestRoute {
 		if (!bytes) {
 			return false;
 		}
-		response.writeHead(200, { 'Content-Type': imageFile(bytes).contentType, 'Content-Length': String(bytes.byteLength) });
+		response.writeHead(200, { 'Content-Type': mediaFile(bytes).contentType, 'Content-Length': String(bytes.byteLength) });
 		response.end(bytes);
 		return true;
 	};
@@ -169,7 +178,7 @@ export interface ImagesAtOnce {
  * With `as: 'url'`, it also serves each image at its address.
  */
 export function answerImagesAtOnce(options: ImagesAtOnce): TestRoute {
-	const files = new Map(options.images.map((bytes, index) => [`/files/at-once-${index + 1}.${imageFile(bytes).extension}`, bytes]));
+	const files = new Map(options.images.map((bytes, index) => [`/files/at-once-${index + 1}.${mediaFile(bytes).extension}`, bytes]));
 	const serve = serveFiles(Object.fromEntries(files));
 	return (request, response, socket) => {
 		if (options.as === 'url' && serve(request, response, socket)) {
@@ -182,6 +191,59 @@ export function answerImagesAtOnce(options: ImagesAtOnce): TestRoute {
 			? options.images.map(bytes => bytes.toString('base64'))
 			: [...files.keys()].map(path => `http://${request.headers.host}${path}`);
 		sendJson(response, options.status ?? 200, options.shape(images));
+		return true;
+	};
+}
+
+export interface AudioAtOnce {
+	/** The path of the create, such as `/v1/text-to-speech/voice-1`; a query is not compared. */
+	readonly path: string;
+	/** POST unless given. */
+	readonly method?: string;
+	/** The sounds the provider made, in its order; a speech API makes one. */
+	readonly sounds: readonly Buffer[];
+	/**
+	 * How the sounds are answered: `bytes`, the first sound itself as the body
+	 * with the type of its format, as most speech APIs answer; or JSON that
+	 * `shape` makes from each sound's `base64` or `hex`, or from the address of
+	 * a file that the route serves itself (`url`),
+	 * `/files/sound-<n>.<extension>` on the server that received the create.
+	 */
+	readonly as: 'bytes' | 'base64' | 'hex' | 'url';
+	/** The JSON answered, in the provider's form, from the encoded sounds or their addresses; not for `bytes`. */
+	readonly shape?: (sounds: readonly string[]) => unknown;
+	/** 200 unless given. */
+	readonly status?: number;
+}
+
+/**
+ * A route that answers a create at once with the sounds (D78), as a speech or
+ * sound-effect API does, for example
+ * `answerAudioAtOnce({ path: '/v1/text-to-speech/aria', sounds: [tinyMp3()], as: 'bytes' })`, or
+ * `answerAudioAtOnce({ path: '/v1/t2a_v2', sounds: [tinyMp3()], as: 'hex', shape: ([audio]) => ({ data: { audio, status: 2 } }) })`.
+ * With `as: 'url'`, it also serves each sound at its address.
+ */
+export function answerAudioAtOnce(options: AudioAtOnce): TestRoute {
+	const files = new Map(options.sounds.map((bytes, index) => [`/files/sound-${index + 1}.${mediaFile(bytes).extension}`, bytes]));
+	const serve = serveFiles(Object.fromEntries(files));
+	return (request, response, socket) => {
+		if (options.as === 'url' && serve(request, response, socket)) {
+			return true;
+		}
+		if (request.method !== (options.method ?? 'POST') || request.path.split('?')[0] !== options.path) {
+			return false;
+		}
+		if (options.as === 'bytes') {
+			const [sound] = options.sounds;
+			response.writeHead(options.status ?? 200, { 'Content-Type': mediaFile(sound).contentType, 'Content-Length': String(sound.byteLength) });
+			response.end(sound);
+			return true;
+		}
+		assert.ok(options.shape, `an answer of sounds as ${options.as} needs its shape`);
+		const sounds = options.as === 'url'
+			? [...files.keys()].map(path => `http://${request.headers.host}${path}`)
+			: options.sounds.map(bytes => bytes.toString(options.as === 'hex' ? 'hex' : 'base64'));
+		sendJson(response, options.status ?? 200, options.shape(sounds));
 		return true;
 	};
 }
@@ -323,6 +385,255 @@ export function testModule(overrides: Partial<ProviderModule> = {}): ProviderMod
 	};
 }
 
+// --- an audio provider for the tests ----------------------------------------------------------------
+
+/** A mode of an audio model that takes up to `audios` reference sounds and nothing else (D78). */
+function audioMode(id: 'reference' | 'lyrics', label: string, audios = 0): CatalogMode {
+	return {
+		id,
+		label,
+		inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 0 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: audios }, source: 'none' },
+		limits: audios ? { audioSeconds: [2, 30] } : {}
+	};
+}
+
+/**
+ * The catalog entry of an audio provider for the tests (D78): two regions and
+ * one key, and
+ *
+ * - `speech-1`, speech in MP3, answered at once, offered at home only, whose
+ *   voice the provider lists (`aria` and `bo` in the catalog);
+ * - `speech-fixed`, speech in WAV, answered at once, with the catalog's two
+ *   voices only (`Kore` and `Puck`);
+ * - `song-1`, music in MP3, answered at once, From a Description and From
+ *   Lyrics, 1 to 3 songs, with a reference song, Instrumental, and Style;
+ * - `song-tasks`, music in MP3 that runs as a task, 1 or 2 songs;
+ * - `fx-1`, sound effects in MP3, answered at once.
+ */
+export function testAudioProvider(): CatalogProvider {
+	const atOnce = { kind: 'audio', outputFormat: 'mp3', answersAtOnce: true } as const;
+	return {
+		id: 'testaudio',
+		label: 'Test Audio',
+		regions: [
+			{ id: 'home', label: 'Home', baseUrl: 'https://api.example.com/v1' },
+			{ id: 'away', label: 'Away', baseUrl: 'https://api.example.cn/v1' }
+		],
+		credentials: [{ id: 'apiKey', label: 'API Key' }],
+		models: [
+			{
+				...atOnce,
+				id: 'speech-1',
+				makes: 'speech',
+				label: 'Speech 1',
+				providerModels: { home: 'speech-1-home' },
+				prompt: { required: 'always', maxLength: 200 },
+				modes: [audioMode('reference', 'Speech')],
+				parameters: [
+					{ name: 'voice', label: 'Voice', kind: 'voice', options: [{ value: 'aria', label: 'Aria', description: 'Warm, calm' }, { value: 'bo', label: 'Bo' }], default: 'aria', listed: true },
+					{ name: 'speed', label: 'Speed', kind: 'number', min: 0.5, max: 2, step: 0.05, default: 1 }
+				]
+			},
+			{
+				...atOnce,
+				id: 'speech-fixed',
+				makes: 'speech',
+				label: 'Speech Fixed',
+				outputFormat: 'wav',
+				providerModels: { home: 'speech-fixed', away: 'speech-fixed' },
+				prompt: { required: 'always', maxLength: 200 },
+				modes: [audioMode('reference', 'Speech')],
+				parameters: [{ name: 'voice', label: 'Voice', kind: 'voice', options: [{ value: 'Kore', label: 'Kore', description: 'Firm' }, { value: 'Puck', label: 'Puck', description: 'Upbeat' }], default: 'Kore' }]
+			},
+			{
+				...atOnce,
+				id: 'song-1',
+				makes: 'music',
+				label: 'Song 1',
+				providerModels: { home: 'song-1', away: 'song-1' },
+				prompt: { required: 'withoutMedia', maxLength: 300 },
+				modes: [audioMode('reference', 'From a Description', 1), audioMode('lyrics', 'From Lyrics', 1)],
+				parameters: [
+					{ name: 'count', label: 'Songs', kind: 'integer', min: 1, max: 3, step: 1, default: 1 },
+					{ name: 'instrumental', label: 'Instrumental', kind: 'boolean', default: false, modes: ['reference'] },
+					{ name: 'style', label: 'Style', kind: 'text', maxLength: 100, optional: true, modes: ['lyrics'] }
+				]
+			},
+			{
+				id: 'song-tasks',
+				kind: 'audio',
+				makes: 'music',
+				label: 'Song Tasks',
+				outputFormat: 'mp3',
+				providerModels: { home: 'song-tasks' },
+				prompt: { required: 'always', maxLength: 300 },
+				modes: [audioMode('reference', 'From a Description')],
+				parameters: [{ name: 'count', label: 'Songs', kind: 'integer', min: 1, max: 2, step: 1, default: 2 }]
+			},
+			{
+				...atOnce,
+				id: 'fx-1',
+				makes: 'sound',
+				label: 'Effects 1',
+				providerModels: { home: 'fx-1' },
+				prompt: { required: 'always', maxLength: 300 },
+				modes: [audioMode('reference', 'Sound Effects')],
+				parameters: [{ name: 'duration', label: 'Duration', kind: 'number', unit: 'seconds', min: 0.5, max: 30, step: 0.5, default: 5 }]
+			}
+		]
+	};
+}
+
+/** A voice of the test audio provider's list call, `GET /voices?page=<n>`, in its own form. */
+export interface TestProviderVoice {
+	readonly voice_id: string;
+	readonly name?: string;
+	/** `premade` for the provider's own; any other category is the account's. */
+	readonly category?: string;
+	readonly labels?: Readonly<Record<string, string>>;
+	readonly preview_url?: string;
+}
+
+/**
+ * A module of the test audio provider whose behavior each test replaces where
+ * it needs to. It sends a speech or a sound-effect request to
+ * `POST /speech/<model>` and keeps the sound the provider answers with as an
+ * inline output; a song request to `POST /songs`, answered at once with
+ * `{ songs: [{ audio: <base64> } | { url } | { error }] }` or, for
+ * `song-tasks`, with `{ id }`; and lists voices from `GET /voices?page=<n>`,
+ * which answers `{ voices: TestProviderVoice[], has_more }`, until the
+ * provider has no more or `limit` voices are listed.
+ */
+export function testAudioModule(overrides: Partial<ProviderModule> = {}): ProviderModule {
+	return {
+		describe: testAudioProvider,
+		headers: credentials => ({ Authorization: `Bearer ${credentials.apiKey}` }),
+		async check() {
+			return { problems: [] };
+		},
+		async submit(request, http) {
+			if (request.model.startsWith('song')) {
+				const answer = (await http.create({ method: 'POST', path: '/songs', body: { kind: 'json', value: { model: request.model, mode: request.mode, prompt: request.prompt, params: request.params } } })).object();
+				if (typeof answer.id === 'string') {
+					return answer.id;
+				}
+				return { outputs: (answer.songs as Record<string, string>[]).map(readSong) };
+			}
+			const answer = await http.create({ method: 'POST', path: `/speech/${encodeURIComponent(request.model)}`, headers: { Accept: 'audio/mpeg' }, body: { kind: 'json', value: { text: request.prompt, params: request.params } } });
+			return { outputs: [{ bytes: answer.body, format: 'mp3' }] };
+		},
+		async poll(ref, http) {
+			const answer = (await http.request({ method: 'GET', path: `/songs/${encodeURIComponent(ref.remoteId)}` })).object();
+			return answer.status === 'done' ? { state: 'succeeded', outputs: (answer.songs as Record<string, string>[]).map(readSong) } : { state: 'running' };
+		},
+		async cancel() {
+			return false;
+		},
+		async listVoices(_request, http, limit) {
+			const voices: ListedVoice[] = [];
+			for (let page = 1; ; page++) {
+				const answer = (await http.request({ method: 'GET', path: '/voices', query: { page } })).object();
+				for (const voice of answer.voices as TestProviderVoice[]) {
+					voices.push({
+						id: voice.voice_id,
+						label: voice.name ?? '',
+						...(voice.labels ? { description: Object.values(voice.labels).join(', ') } : {}),
+						own: voice.category !== 'premade',
+						...(voice.preview_url !== undefined ? { sample: voice.preview_url } : {})
+					});
+				}
+				if (voices.length > limit) {
+					return { voices: voices.slice(0, limit), truncated: true };
+				}
+				if (answer.has_more !== true) {
+					return { voices };
+				}
+			}
+		},
+		...overrides
+	};
+}
+
+function readSong(song: Record<string, string>): OutputLocation {
+	return song.audio !== undefined ? { bytes: Buffer.from(song.audio, 'base64') } : song.url !== undefined ? { url: song.url } : { refused: song.error ?? '' };
+}
+
+// --- audio requests and voices ------------------------------------------------------------------
+
+/**
+ * Where a test sends a module's requests: a local server (`http://127.0.0.1:<port>`)
+ * at the path of a region's base URL, the first region unless one is named,
+ * with these credentials. For a region whose base URL is
+ * `https://api.example.com/v1`, the endpoint is `<server>/v1`.
+ */
+export function testAccess(module: ProviderModule, server: string, credentials: Readonly<Record<string, string>>, region?: string): ProviderAccess {
+	const provider = module.describe();
+	const entry = region === undefined ? provider.regions[0] : provider.regions.find(candidate => candidate.id === region);
+	assert.ok(entry, `${provider.id} has no region ${region}`);
+	return { provider: provider.id, region: entry.id, endpoint: `${server}${new URL(entry.baseUrl).pathname.replace(/\/+$/, '')}`, credentials: { ...credentials } };
+}
+
+/** What a planned request of an audio model says besides its access and its model. */
+export interface AudioRequestOptions {
+	/** `reference` unless given; `lyrics` for a song from lyrics. */
+	readonly mode?: ModeId;
+	/** The card's values, `voice` among them; a parameter left out has its default. */
+	readonly params?: Params;
+	/** The prompt as the window sends it, one string or its parts; `A calm voice reads the morning news.` unless given. */
+	readonly prompt?: string | readonly PromptPart[];
+	/** The planned inputs, such as a reference song in `audios`; none unless given. */
+	readonly inputs?: Partial<PlannedMedia>;
+	/** How many new targets the request names: the `count` of its settings, or 1, unless given; 0 names none, as for a model that runs as a task. */
+	readonly targets?: number;
+}
+
+/**
+ * A planned request of an audio model as the window sends it to `check` and
+ * `submit` (D78), with a new `.part` target for each output it may make, for
+ * example
+ * `audioRequest(testAccess(ELEVENLABS, server.url, { apiKey: KEY }), 'eleven-v3', { params: { voice: 'JBFqnCBsd6RMkjVDRZzb' }, prompt: 'Welcome to the coast.' })`.
+ * A check takes it as it is.
+ */
+export function audioRequest(access: ProviderAccess, model: string, options: AudioRequestOptions = {}): SubmitPayload {
+	const params = options.params ?? {};
+	const targets = options.targets ?? (typeof params.count === 'number' ? params.count : 1);
+	const prompt = options.prompt ?? 'A calm voice reads the morning news.';
+	return {
+		...access,
+		model,
+		mode: options.mode ?? 'reference',
+		params,
+		prompt: typeof prompt === 'string' ? (prompt ? [prompt] : []) : prompt,
+		inputs: { images: [], videos: [], audios: [], ...options.inputs },
+		...(targets > 0 ? { targets: partTargets(targets) } : {})
+	};
+}
+
+/** The voices of a speech model as `voices` answered them, and what the local server received meanwhile, in order. */
+export interface ListedVoices {
+	readonly answer: ProviderResponse<VoicesResult>;
+	readonly received: readonly Received[];
+}
+
+/**
+ * Lists the voices of a speech model of `module` as the window asks for them
+ * when its voice menu opens (D78): `voices` through the commands, against a
+ * local server that `handler` answers as the provider's list calls, at the
+ * path of the region's base URL ({@link testAccess}); the server stops
+ * before it answers. For example
+ * `listVoicesAgainst(FISH_AUDIO, 's2.1-pro', { apiKey: KEY }, routed(myVoicePages))`.
+ */
+export async function listVoicesAgainst(module: ProviderModule, model: string, credentials: Readonly<Record<string, string>>, handler: (request: Received, response: ServerResponse, socket: Socket) => void, region?: string): Promise<ListedVoices> {
+	const server = await startServer(handler);
+	try {
+		const commands = new VideoProviderCommands([module], { http: { sleep: async () => undefined } });
+		const answer = await commands.voices({ ...testAccess(module, server.url, credentials, region), model });
+		return { answer, received: [...server.received] };
+	} finally {
+		await server.close();
+	}
+}
+
 // --- media --------------------------------------------------------------------------------------
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -431,8 +742,22 @@ function box(type: string, ...content: Buffer[]): Buffer {
 	return Buffer.concat([head, data]);
 }
 
-/** An ISO media file whose movie header says `seconds`: ftyp, a media box first when asked, then moov with mvhd. */
-export function isoMedia(seconds: number, options: { readonly brand?: string; readonly version?: 0 | 1; readonly mediaFirst?: boolean } = {}): Buffer {
+/** A track whose media handler is `handler`, such as `soun` for sound or `vide` for video: trak, tkhd, mdia, mdhd, and hdlr. */
+function isoTrack(handler: string): Buffer {
+	// A full box: version and flags, pre_defined, the handler type, three reserved words, and an empty name.
+	const fields = Buffer.alloc(4 + 4 + 4 + 12 + 1);
+	fields.write(handler, 8, 'latin1');
+	return box('trak', box('tkhd', Buffer.alloc(84)), box('mdia', box('mdhd', Buffer.alloc(24)), box('hdlr', fields)));
+}
+
+/**
+ * An ISO media file whose movie header says `seconds`: ftyp, a media box first
+ * when asked, then moov with mvhd. Its major brand is `isom` unless given, and
+ * its compatible brands `isom`, `iso2`, and `mp41` unless given. `tracks`
+ * gives the handler of each track, such as `soun` or `vide`; without it, the
+ * movie has one track that names no handler.
+ */
+export function isoMedia(seconds: number, options: { readonly brand?: string; readonly compatible?: readonly string[]; readonly version?: 0 | 1; readonly mediaFirst?: boolean; readonly tracks?: readonly string[] } = {}): Buffer {
 	const timescale = 600;
 	const duration = Math.round(seconds * timescale);
 	let header: Buffer;
@@ -446,9 +771,9 @@ export function isoMedia(seconds: number, options: { readonly brand?: string; re
 		header.writeUInt32BE(timescale, 12);
 		header.writeUInt32BE(duration, 16);
 	}
-	const fileType = box('ftyp', Buffer.from(`${options.brand ?? 'isom'}\0\0\x02\0isomiso2mp41`, 'latin1'));
+	const fileType = box('ftyp', Buffer.from(`${options.brand ?? 'isom'}\0\0\x02\0${(options.compatible ?? ['isom', 'iso2', 'mp41']).join('')}`, 'latin1'));
 	const media = box('mdat', Buffer.alloc(5000, 0x11));
-	const movie = box('moov', box('mvhd', header), box('trak', Buffer.alloc(32)));
+	const movie = box('moov', box('mvhd', header), ...(options.tracks ? options.tracks.map(isoTrack) : [box('trak', Buffer.alloc(32))]));
 	return Buffer.concat(options.mediaFirst ? [fileType, media, movie] : [fileType, movie, media]);
 }
 
@@ -477,36 +802,72 @@ export function wav(seconds: number): Buffer {
 
 /**
  * An MPEG-1 Layer III stream at 128 kbps and 44.1 kHz, joint stereo, of
- * `frames` frames of 1152 samples (417 or 418 bytes each), with an ID3v2 tag
- * first when asked and a Xing header in the first frame when asked.
+ * `frames` frames of 1152 samples (417 or 418 bytes each), as the local test
+ * provider writes its sounds (`silentMp3`), with an ID3v2 tag first when
+ * asked and a Xing header in the first frame when asked.
  */
 export function mp3(frames: number, options: { readonly id3?: boolean; readonly xingFrames?: number } = {}): Buffer {
-	const parts: Buffer[] = [];
-	if (options.id3) {
-		const tag = Buffer.alloc(10 + 300);
-		tag.write('ID3', 0, 'latin1');
-		tag[3] = 4;
-		// The size, syncsafe: 300 = 2 * 128 + 44.
-		tag[8] = 2;
-		tag[9] = 44;
-		parts.push(tag);
+	const stream = silentMp3(frames);
+	if (frames > 0 && options.xingFrames !== undefined) {
+		// After the frame's header and the 32 bytes of its side information.
+		stream.write('Xing', 4 + 32, 'latin1');
+		stream.writeUInt32BE(1, 4 + 32 + 4);
+		stream.writeUInt32BE(options.xingFrames, 4 + 32 + 8);
 	}
-	for (let index = 0; index < frames; index++) {
-		// Every third frame is padded, as an encoder does to keep 128 kbps at 44.1 kHz.
-		const padding = index % 3 === 0 ? 1 : 0;
-		const frame = Buffer.alloc(417 + padding);
-		frame[0] = 0xff;
-		frame[1] = 0xfb;
-		frame[2] = 0x90 | (padding << 1);
-		frame[3] = 0x44;
-		if (index === 0 && options.xingFrames !== undefined) {
-			frame.write('Xing', 4 + 32, 'latin1');
-			frame.writeUInt32BE(1, 4 + 32 + 4);
-			frame.writeUInt32BE(options.xingFrames, 4 + 32 + 8);
-		}
-		parts.push(frame);
+	if (!options.id3) {
+		return stream;
 	}
-	return Buffer.concat(parts);
+	const tag = Buffer.alloc(10 + 300);
+	tag.write('ID3', 0, 'latin1');
+	tag[3] = 4;
+	// The size, syncsafe: 300 = 2 * 128 + 44.
+	tag[8] = 2;
+	tag[9] = 44;
+	return Buffer.concat([tag, stream]);
+}
+
+/** A valid MP3 of silence, as a speech API answers it: four MPEG-1 Layer III frames at 128 kbps and 44.1 kHz, about a tenth of a second, 1,670 bytes. */
+export function tinyMp3(): Buffer {
+	return mp3(4);
+}
+
+/** A valid WAV of silence: a hundredth of a second of 16-bit mono PCM at 8 kHz, 220 bytes. */
+export function tinyWav(): Buffer {
+	return wav(0.01);
+}
+
+/**
+ * The start of a FLAC stream: its marker and its metadata, STREAMINFO for
+ * 44.1 kHz stereo at 16 bits, then a padding block, with no audio frame
+ * after them; 78 bytes.
+ */
+export function flacHeader(): Buffer {
+	const info = Buffer.alloc(34);
+	// The smallest and largest block, 4096 samples; the frame sizes, unknown.
+	info.writeUInt16BE(4096, 0);
+	info.writeUInt16BE(4096, 2);
+	// 44,100 Hz in 20 bits, 2 channels less one in 3 bits, 16 bits less one in 5 bits, no samples.
+	info.writeUInt32BE((44100 << 12) | (1 << 9) | (15 << 4), 10);
+	// Each block: whether it is the last, its type (0 STREAMINFO, 1 padding), and its length.
+	return Buffer.concat([Buffer.from('fLaC', 'latin1'), Buffer.from([0x00, 0x00, 0x00, 34]), info, Buffer.from([0x81, 0x00, 0x00, 32]), Buffer.alloc(32)]);
+}
+
+/**
+ * The first page of an Ogg stream (its checksum left zero) holding the start
+ * of the identification header of `codec`: Opus, Vorbis, or FLAC, which are
+ * sounds, or Theora, a video.
+ */
+export function oggHeader(codec: 'opus' | 'vorbis' | 'flac' | 'theora'): Buffer {
+	const packet = Buffer.alloc(48);
+	const signatures = { opus: 'OpusHead', vorbis: '\x01vorbis', flac: '\x7FFLAC', theora: '\x80theora' };
+	packet.write(signatures[codec], 0, 'latin1');
+	const page = Buffer.alloc(27);
+	page.write('OggS', 0, 'latin1');
+	// Version 0, the first page of its stream, granule 0, a serial number, page 0.
+	page[5] = 0x02;
+	page.writeUInt32LE(0x4241_5345, 14);
+	page[26] = 1;
+	return Buffer.concat([page, Buffer.from([packet.byteLength]), packet]);
 }
 
 // --- planned inputs for checks -------------------------------------------------------------------
@@ -557,38 +918,11 @@ export function plannedFiles(count: PlannedCount = {}): PlannedMedia {
 // --- multipart forms ----------------------------------------------------------------------------
 
 /** One part of a multipart form a test server received: its name, a file's name and type, and its bytes. */
-export interface ReceivedPart {
-	readonly name: string;
-	readonly fileName?: string;
-	readonly contentType?: string;
-	readonly bytes: Buffer;
-}
+export type ReceivedPart = MockFormPart;
 
-/** The parts of a multipart form a test server received, in order, also when several share a name (`image[]`). */
+/** The parts of a multipart form a test server received, in order, also when several share a name (`image[]`), as the local test provider reads them. */
 export function multipartParts(request: Received): ReceivedPart[] {
-	const boundary = /boundary=(?<boundary>[^;\s]+)/.exec(String(request.headers['content-type']))?.groups?.boundary;
-	assert.ok(boundary, 'a multipart form has a boundary');
-	const delimiter = Buffer.from(`--${boundary}`, 'latin1');
-	const parts: ReceivedPart[] = [];
-	let start = request.body.indexOf(delimiter);
-	while (start >= 0) {
-		const next = request.body.indexOf(delimiter, start + delimiter.length);
-		if (next < 0) {
-			break;
-		}
-		// Each part starts after the delimiter's line break and ends before the next delimiter's.
-		const part = request.body.subarray(start + delimiter.length + 2, next - 2);
-		const headerEnd = part.indexOf('\r\n\r\n');
-		const head = part.subarray(0, headerEnd).toString('utf8');
-		const fileName = /filename="(?<file>[^"]*)"/.exec(head)?.groups?.file;
-		const contentType = /Content-Type: (?<type>.+)/i.exec(head)?.groups?.type.trim();
-		parts.push({
-			name: / name="(?<name>[^"]*)"/.exec(head)?.groups?.name ?? '',
-			...(fileName !== undefined ? { fileName } : {}),
-			...(contentType !== undefined ? { contentType } : {}),
-			bytes: part.subarray(headerEnd + 4)
-		});
-		start = next;
-	}
+	const parts = multipartFormParts(String(request.headers['content-type']), request.body);
+	assert.ok(parts, 'a multipart form has a boundary');
 	return parts;
 }

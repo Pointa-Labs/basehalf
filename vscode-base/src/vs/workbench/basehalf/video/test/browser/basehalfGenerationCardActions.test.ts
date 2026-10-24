@@ -48,7 +48,7 @@ import {
 	IBaseHalfVideoProviderSettingsService,
 	IBaseHalfVideoProviderStatus
 } from '../../common/basehalfVideoGeneration.js';
-import { TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import { BaseHalfTestFileSystemProvider, FakeDraftOperations } from './basehalfVideoTestFixtures.js';
 
 const root = URI.file('/work');
@@ -66,10 +66,10 @@ class FakeCatalogService implements IBaseHalfVideoCatalogService {
 	declare readonly _serviceBrand: undefined;
 	private readonly changed = new Emitter<void>();
 	readonly onDidChange = this.changed.event;
-	state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_GENERATION_CATALOG };
+	state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
 	load(): void { }
 	async whenReady(): Promise<IBaseHalfVideoCatalog> {
-		return TEST_GENERATION_CATALOG;
+		return TEST_AUDIO_CATALOG;
 	}
 	async check(): Promise<IBaseHalfVideoCheckResult | undefined> {
 		return undefined;
@@ -194,6 +194,33 @@ suite('BaseHalfGenerationCardActions', () => {
 			upstream: 'upstream:\n  - brief.md\n',
 			video: 'prompt: ""\n',
 			plain: 'prompt: ""\n'
+		});
+	});
+
+	test('New Audio makes a draft named audio with the extension of its model, mp3 without one, which has no ratio, as one step named New Audio (D78)', async () => {
+		const harness = await createHarness(disposables, { 'notes/intro.md': 'Welcome to the coast.', 'sounds/.keep': '' });
+		const sounds = harness.resource('sounds');
+		const plain = await harness.actions.createDraft(sounds, 'audio');
+		// The last music model delivers WAV; a model of another kind is no sound's.
+		harness.lastUsed.set('audio', { provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics', params: { count: 2, style: 'sea shanty' } });
+		const song = await harness.actions.createDraft(sounds, 'audio', ['notes/intro.md']);
+		const ratio = harness.actions.newDraftRatio('audio');
+		harness.lastUsed.set('audio', { provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: {} });
+		const notASound = await harness.actions.createDraft(sounds, 'audio');
+		assert.deepStrictEqual({
+			paths: [plain.path, song.path, notASound.path],
+			plain: await harness.read('.bh/mirror/sounds/audio.mp3/generation.yaml'),
+			song: await harness.read('.bh/mirror/sounds/audio.wav/generation.yaml'),
+			upstream: await harness.read('.bh/mirror/sounds/audio.wav/upstream.yaml'),
+			ratio,
+			steps: [plain, song, notASound].map(draft => harness.undoRedo.getLastElement(draft)?.label)
+		}, {
+			paths: ['/work/sounds/audio.mp3', '/work/sounds/audio.wav', '/work/sounds/audio-2.mp3'],
+			plain: 'prompt: ""\n',
+			song: 'prompt: ""\nprovider: "dunlin"\nmodel: "dunlin-song"\nmode: "lyrics"\nparams:\n  count: 2\n  style: "sea shanty"\n',
+			upstream: 'upstream:\n  - notes/intro.md\n',
+			ratio: undefined,
+			steps: ['New Audio', 'New Audio', 'New Audio']
 		});
 	});
 
@@ -350,7 +377,7 @@ suite('BaseHalfGenerationCardActions', () => {
 			undone: false,
 			refused: [
 				'draft.mp4 has no file yet: it is a draft, and its own panel makes it.',
-				'plain.mp4 is not an image or video card.'
+				'plain.mp4 is not an image, video, or audio card.'
 			]
 		});
 	});
@@ -387,7 +414,7 @@ suite('BaseHalfGenerationCardActions', () => {
 			video: 'Acme Still takes no videos.',
 			replaced: undefined,
 			disconnected: undefined,
-			noModelPdf: 'An image or video card cannot use brief.pdf.',
+			noModelPdf: 'An image, video, or audio card cannot use brief.pdf.',
 			noModelVideo: undefined,
 			generated: 'shot.mp4 was made from these inputs. To change them, make a new version.',
 			generatedDisconnect: 'shot.mp4 was made from these inputs. To change them, make a new version.',

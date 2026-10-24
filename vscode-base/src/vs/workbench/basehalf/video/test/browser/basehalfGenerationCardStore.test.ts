@@ -200,8 +200,8 @@ suite('BaseHalfGenerationCardStore', () => {
 			shot: { kind: 'video', hasFile: true, made, prompt: 'A pier at dawn.' },
 			cards: [true, true, false, false, false]
 		});
-		await assert.rejects(harness.store.read(harness.resource('shots/plain.png')), /is not an image or video card/);
-		await assert.rejects(harness.store.read(harness.resource('notes.md')), /is not an image or video card/);
+		await assert.rejects(harness.store.read(harness.resource('shots/plain.png')), /is not an image, video, or audio card/);
+		await assert.rejects(harness.store.read(harness.resource('notes.md')), /is not an image, video, or audio card/);
 	});
 
 	test('a file that is not YAML at all reads as no prompt; saving keeps a copy first and says so without naming it, and leaves made.yaml as it is', async () => {

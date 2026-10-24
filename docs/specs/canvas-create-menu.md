@@ -6,7 +6,7 @@ Related: [canvas card placement](canvas-card-placement.md#pointing) (where
 a new card goes), [canvas card name](canvas-card-name.md) (changing a
 card's name on the card),
 [generation cards](generation-cards.md#creating-a-generation-card) (New
-Image and New Video), [reference graph](reference-graph.md#creating-connected-nodes)
+Image, New Video, and New Audio), [reference graph](reference-graph.md#creating-connected-nodes)
 (the menu of a connection line)
 
 ## Problem
@@ -50,10 +50,10 @@ Not in scope, and unchanged:
 - Files in the sidebar. It keeps VS Code's New File... and New Folder...,
   which name the item in the tree.
 - The menu of a connection line that is released on empty canvas: Note,
-  Image, and Video ([reference graph](reference-graph.md#creating-connected-nodes)).
+  Image, Video, and Audio ([reference graph](reference-graph.md#creating-connected-nodes)).
 - The menu of a card.
-- What New Note, New Image, New Video, Paste, and Import Files... do, and
-  how they are undone.
+- What New Note, New Image, New Video, New Audio, Paste, and Import
+  Files... do, and how they are undone.
 
 ## Required behavior
 
@@ -61,12 +61,15 @@ Not in scope, and unchanged:
 
 | Group | Items, in order |
 | --- | --- |
-| 1 | New Note, New Image, New Video, New Folder |
+| 1 | New Note, New Image, New Video, New Audio, New Folder |
 | 2 | Paste, Import Files... |
 
 - There is no New File, and no canvas command makes a file from a typed
   name.
 - New Folder has no ellipsis: it asks for nothing before it acts.
+- New Audio is [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)'s,
+  made on the same day as this menu, and makes a draft as New Image and New
+  Video do.
 
 ### New Folder
 
@@ -92,7 +95,7 @@ Not in scope, and unchanged:
 ### Undo
 
 - Making the folder is one step of the canvas's undo, as a rename or a
-  delete on the canvas is, and as New Image and New Video are. One undo on
+  delete on the canvas is, and as New Image, New Video, and New Audio are. One undo on
   the canvas takes it back: the folder is removed, and its card with it.
   Redo makes it again.
 - Its card does not come back to its place on redo. A delete in the window,
@@ -109,7 +112,7 @@ Not in scope, and unchanged:
 
 1. A secondary click on empty canvas, a double click on empty canvas, and
    the Create button open the same menu: New Note, New Image, New Video,
-   New Folder, a separator, Paste, Import Files....
+   New Audio, New Folder, a separator, Paste, Import Files....
 2. No item of the menu makes a file from a typed name.
 3. New Folder makes `untitled folder` in the folder of the canvas. In no
    frame from the click until the card shows is there a box, a field, or a
@@ -140,7 +143,8 @@ Not in scope, and unchanged:
 ### Seen in the window (2026-10-25)
 
 A window of the development host built from this change, on a test
-workspace that held one note.
+workspace that held one note. It was built before New Audio (D78) was
+merged, so its menu had no New Audio yet.
 
 | What was done | What happened |
 | --- | --- |

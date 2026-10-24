@@ -33,6 +33,7 @@ import { IWorkingCopyService } from '../../../../services/workingCopy/common/wor
 import { TestStorageService } from '../../../../test/common/workbenchTestServices.js';
 import {
 	BASEHALF_CANVAS_CARD_CONTEXT_MENU,
+	BASEHALF_CANVAS_NEW_AUDIO_COMMAND_ID,
 	BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID,
 	BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID,
 	BASEHALF_CANVAS_PANE_CONTEXT_MENU,
@@ -69,9 +70,10 @@ suite('BaseHalf canvas context menu', () => {
 		]);
 	});
 
-	test('registers pane creation commands: New Note, New Image, New Video, New Folder, no New File, and no submenu of empty nodes', () => {
+	test('registers pane creation commands: New Note, New Image, New Video, New Audio, New Folder, no New File, and no submenu of empty nodes', () => {
 		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_PANE_CONTEXT_MENU), [
 			['5_transfer', 'basehalf.canvas.importFiles'],
+			['1_new', 'basehalf.canvas.newAudio'],
 			['1_new', 'basehalf.canvas.newFolder'],
 			['1_new', 'basehalf.canvas.newImage'],
 			['1_new', 'basehalf.canvas.newNote'],
@@ -81,7 +83,7 @@ suite('BaseHalf canvas context menu', () => {
 		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU).filter(isISubmenuItem), []);
 		// The canvas makes no file from a typed name (canvas Create menu).
 		assert.strictEqual(CommandsRegistry.getCommand('basehalf.canvas.newFile'), undefined);
-		// New Image and New Video follow New Note, and New Folder, which asks for nothing, has no ellipsis.
+		// New Image, New Video, and New Audio follow New Note (D78), and New Folder, which asks for nothing, has no ellipsis.
 		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU)
 			.filter(isIMenuItem)
 			.filter(item => item.group === '1_new')
@@ -90,14 +92,16 @@ suite('BaseHalf canvas context menu', () => {
 			['basehalf.canvas.newNote', 'New Note'],
 			['basehalf.canvas.newImage', 'New Image'],
 			['basehalf.canvas.newVideo', 'New Video'],
+			['basehalf.canvas.newAudio', 'New Audio'],
 			['basehalf.canvas.newFolder', 'New Folder']
 		]);
 	});
 
-	test('keeps canvas card creation out of the command palette and dispatches drafts of images and videos', async () => {
+	test('keeps canvas card creation out of the command palette and dispatches drafts of images, videos, and sounds', async () => {
 		const resultCommands = [
 			[BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID, 'image'],
-			[BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, 'video']
+			[BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, 'video'],
+			[BASEHALF_CANVAS_NEW_AUDIO_COMMAND_ID, 'audio']
 		] as const;
 		const commandPaletteIds = new Set(MenuRegistry.getMenuItems(MenuId.CommandPalette)
 			.filter(isIMenuItem)

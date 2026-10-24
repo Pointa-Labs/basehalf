@@ -4,7 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describeBytes, plannedItems, type MediaFacts, type MediaInspector, type PlannedItem } from './media.js';
-import type { CatalogMode, CatalogModel, CatalogParameter, CheckLimit, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from '../common/basehalfProviderTypes.js';
+import { isVoiceId, MAX_VOICE_ID_LENGTH } from '../common/basehalfProviderVoices.js';
+import type { CatalogMode, CatalogModel, CatalogParameter, CheckLimit, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia, VoiceParameter } from '../common/basehalfProviderTypes.js';
 
 /**
  * What every model is checked against before anything is sent, from its
@@ -133,7 +134,7 @@ export function fitParams(model: CatalogModel, params: Params, limits: Readonly<
 	return fitted ?? params;
 }
 
-/** How many files a request with these resolved parameters may make: an image model's `count`, otherwise one. */
+/** How many files a request with these resolved parameters may make: the `count` of an image or a music model, otherwise one. */
 export function outputCount(params: Params): number {
 	const count = params.count;
 	return typeof count === 'number' && Number.isInteger(count) && count > 0 ? count : 1;
@@ -181,10 +182,17 @@ export function checkCounts(model: CatalogModel, mode: CatalogMode, counts: Plan
 	return problems;
 }
 
-/** The prompt rule of the model: present when required, absent when not taken, and not too long. */
+/**
+ * The prompt rule of the model: present when required, absent when not taken,
+ * and not too long, counted as it is sent. In Lyrics mode the prompt is what
+ * the song sings, so it is always required (D78).
+ */
 export function checkPrompt(model: CatalogModel, mode: CatalogMode, prompt: string, counts: PlannedCounts): string[] {
 	const written = prompt.trim().length > 0;
 	const takesVisual = mode.inputs.startFrame !== 'none' || mode.inputs.images.max > 0 || mode.inputs.videos.max > 0 || mode.inputs.source !== 'none';
+	if (mode.id === 'lyrics' && !written) {
+		return [`Write the lyrics: ${model.label} sings them in ${mode.label} mode.`];
+	}
 	if (model.prompt.required === 'always' && !written) {
 		return [`Write a prompt: ${model.label} needs one.`];
 	}
@@ -245,7 +253,35 @@ export function checkParameterValue(model: CatalogModel, parameter: CatalogParam
 				return `${parameter.label} must be text.`;
 			}
 			return [...value].length > parameter.maxLength ? `${parameter.label} is ${[...value].length} characters long; ${model.label} takes at most ${parameter.maxLength}.` : undefined;
+		case 'voice':
+			return checkVoiceValue(model, parameter, value);
 	}
+}
+
+/**
+ * A voice against its parameter (D78; providers, "Parameters"): one of the
+ * voices the catalog declares, or, for a parameter whose provider lists more,
+ * any id of a voice, since it may be one of the user's account.
+ */
+function checkVoiceValue(model: CatalogModel, parameter: VoiceParameter, value: ParamValue): string | undefined {
+	if (typeof value !== 'string') {
+		return `${parameter.label} must be the id of a voice.`;
+	}
+	if (parameter.options.some(option => option.value === value)) {
+		return undefined;
+	}
+	if (!parameter.listed) {
+		return isVoiceId(value) && [...value].length <= 64
+			? `${parameter.label} cannot be ${value} for ${model.label}; choose one of its voices.`
+			: `${model.label} has no such voice; choose one of its voices.`;
+	}
+	if (!value.trim()) {
+		return `${parameter.label} has no value.`;
+	}
+	if ([...value].length > MAX_VOICE_ID_LENGTH) {
+		return `${parameter.label} is ${[...value].length} characters long; the id of a voice has at most ${MAX_VOICE_ID_LENGTH}.`;
+	}
+	return isVoiceId(value) ? undefined : `${parameter.label} has characters that the id of a voice cannot have.`;
 }
 
 /** Unknown parameters, parameters of another mode, and values the declarations do not allow; a value a start frame sets is left out, not checked. */

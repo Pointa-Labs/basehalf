@@ -48,6 +48,33 @@
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 }
 
+/* The voice a speech model spoke in (D78): its glyph and its name, between the model and the settings. */
+.monaco-workbench .bh-record-panel-voice {
+	/* The voice's name stays whole up to its width, as the model's does; the summary of the settings gives way first. */
+	display: inline-flex;
+	max-width: 148px;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 5px;
+	padding: 0 4px;
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	font-size: 12px;
+	line-height: 28px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .bh-record-panel-voice-icon.codicon[class*='codicon-'] {
+	flex: none;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	font-size: 14px;
+}
+
+.monaco-workbench .bh-record-panel-voice-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .monaco-workbench .bh-record-panel-new-version {
 	display: inline-flex;
 	height: 32px;

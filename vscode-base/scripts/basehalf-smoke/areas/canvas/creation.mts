@@ -56,16 +56,20 @@ export async function assertCanvasDoubleClickCreateMenu(page) {
 }
 
 /**
- * Generation cards, "Creating a generation card" and criterion 2, and canvas
- * Create menu, criteria 1 and 2: the Create menu offers New Note, New Image,
- * New Video, and New Folder, with no New File and no submenu of nodes, and
- * then Paste and Import Files.... New Image and New Video each make a draft in the
- * folder of the canvas: a card, selected, with its panel and its prompt
- * focused, and a `generation.yaml` with an empty prompt (no generation ran on
- * this computer), and no file. Each is one step of the canvas undo stack.
- * The Create button centers the card on the middle of the canvas, or puts
- * it at the nearest open place in sight, and the view goes to a card that is
- * out of sight; the step hands the view back as it found it.
+ * Generation cards, "Creating a generation card" and criteria 2 and 80, and
+ * canvas Create menu, criteria 1 and 2: the Create menu offers New Note, New
+ * Image, New Video, New Audio, and New Folder, with no New File and no
+ * submenu of nodes, and then Paste and Import Files.... New Image and New
+ * Video each make a draft in the folder of the canvas: a card, selected, with
+ * its panel and its prompt focused, and a `generation.yaml` with an empty
+ * prompt (no generation ran on this computer), and no file. Each is one step
+ * of the canvas undo stack. The Create button centers the card on the middle
+ * of the canvas, or puts it at the nearest open place in sight, and the view
+ * goes to a card that is out of sight; the step hands the view back as it
+ * found it, within the pixels of a drag. New Audio's draft is checked in the
+ * video suite (`areas/video/audioCards.mts`): one more draft here leaves the
+ * view a fraction of a pixel elsewhere, and that decides the next step's
+ * near-tie of two open places for its folder.
  */
 export async function assertCanvasCreateMenuMakesDrafts(page) {
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
@@ -75,8 +79,8 @@ export async function assertCanvasCreateMenuMakesDrafts(page) {
 		throw new Error('The README card must be drawn before the drafts are made');
 	}
 	const menu = await readCanvasCreateMenu(page);
-	if (JSON.stringify(menu) !== JSON.stringify(['New Note', 'New Image', 'New Video', 'New Folder', '|', 'Paste', 'Import Files...'])) {
-		throw new Error(`The Create menu must offer New Note, New Image, New Video, and New Folder, then Paste and Import Files..., and nothing else: ${JSON.stringify(menu)}`);
+	if (JSON.stringify(menu) !== JSON.stringify(['New Note', 'New Image', 'New Video', 'New Audio', 'New Folder', '|', 'Paste', 'Import Files...'])) {
+		throw new Error(`The Create menu must offer New Note, New Image, New Video, New Audio, and New Folder, then Paste and Import Files..., and nothing else: ${JSON.stringify(menu)}`);
 	}
 	const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
 	const canvasPath = mirror('canvas.yaml');

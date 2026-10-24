@@ -9,10 +9,10 @@ import { tmpdir } from 'os';
 import { join } from '../../../../base/common/path.js';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../../node/commands.js';
 import { GOOGLE } from '../../node/google.js';
-import type { MediaInspector } from '../../node/media.js';
+import { pcmToWav, type MediaInspector } from '../../node/media.js';
 import { buildCatalog, PROVIDER_MODULES } from '../../node/registry.js';
 import type { CatalogParameter, PollState } from '../../common/basehalfProviderTypes.js';
-import { remoteIdOf, remoteIdIn, error, isoMedia, jpegHeader, partTargets, plannedFiles, png, recordingSleep, sendJson, startServer, tinyJpeg, tinyPng, value, wav, webpHeader, type Received } from './providerTestKit.js';
+import { audioRequest, remoteIdOf, remoteIdIn, error, isoMedia, jpegHeader, partTargets, plannedFiles, png, recordingSleep, sendJson, startServer, testAccess, tinyJpeg, tinyMp3, tinyPng, tinyWav, value, wav, webpHeader, type AudioRequestOptions, type Received } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
 suite('BaseHalf providers: google', () => {
@@ -798,7 +798,9 @@ suite('BaseHalf providers: google', () => {
 			'How much the model reasons before it draws. More thinking can help a complex image and takes longer.'
 		]);
 		assert.deepEqual(buildCatalog(PROVIDER_MODULES).providers.find(entry => entry.id === 'google')?.models.map(model => `${model.kind} ${model.id}`), [
-			`video ${MODEL}`, `image ${BANANA}`, `image ${PRO}`, `image ${LITE}`, `image ${FLASH}`
+			`video ${MODEL}`, `image ${BANANA}`, `image ${PRO}`, `image ${LITE}`, `image ${FLASH}`,
+			// The speech and music models of D78 follow the image models.
+			'audio gemini-3.8-flash-tts', 'audio gemini-3.8-flash-lite-tts', 'audio lyria-3.5', 'audio lyria-3-clip-preview'
 		]);
 	});
 
@@ -1086,5 +1088,540 @@ suite('BaseHalf providers: google', () => {
 		} finally {
 			await gemini.close();
 		}
+	});
+
+	// --- speech models (D78) ---------------------------------------------------------------------------
+
+	const TTS = 'gemini-3.8-flash-tts';
+	const TTS_LITE = 'gemini-3.8-flash-lite-tts';
+	const SPEECH_PROMPT = 'Wait... <short pause> did you hear the tide come in?';
+	/** The 30 prebuilt voices with Google's words for each, in the order of the speech guide's table. */
+	const PREBUILT_VOICES = [
+		'Zephyr Bright', 'Puck Upbeat', 'Charon Informative', 'Kore Firm', 'Fenrir Excitable', 'Leda Youthful', 'Orus Firm', 'Aoede Breezy', 'Callirrhoe Easy-going', 'Autonoe Bright',
+		'Enceladus Breathy', 'Iapetus Clear', 'Umbriel Easy-going', 'Algieba Smooth', 'Despina Smooth', 'Erinome Clear', 'Algenib Gravelly', 'Rasalgethi Informative', 'Laomedeia Upbeat', 'Achernar Soft',
+		'Alnilam Firm', 'Schedar Even', 'Gacrux Mature', 'Pulcherrima Forward', 'Achird Friendly', 'Zubenelgenubi Casual', 'Vindemiatrix Gentle', 'Sadachbia Lively', 'Sadaltager Knowledgeable', 'Sulafat Warm'
+	];
+	const SPEECH_FREE_QUOTA = 'Google\'s free tier lets the project of this API key use this model only so much, and that is used up for now. Wait and try again, or set up billing for the project in Google AI Studio for higher limits.';
+	const SPEECH_NO_FREE_TIER = 'Google\'s free tier is not available to the project of this API key. Set up billing for the project in Google AI Studio, or use the key of a project that has it.';
+
+	/** A request of an audio model of Google, as the window sends it, with one new target. */
+	function googleAudioRequest(endpoint: string, model: string, options: AudioRequestOptions = {}) {
+		return audioRequest(testAccess(GOOGLE, endpoint.replace(/\/v1beta$/, ''), { apiKey: KEY }), model, options);
+	}
+
+	/** A `generateContent` answer whose first candidate holds these parts. */
+	function speechContent(parts: readonly unknown[], extra: Record<string, unknown> = {}) {
+		return { candidates: [{ content: { role: 'model', parts }, finishReason: 'STOP', index: 0, ...extra }], usageMetadata: { promptTokenCount: 14, candidatesTokenCount: 25, totalTokenCount: 39 }, modelVersion: TTS };
+	}
+
+	function inlineAudio(bytes: Buffer, mimeType: string) {
+		return { inlineData: { mimeType, data: bytes.toString('base64') } };
+	}
+
+	/**
+	 * A local server that answers `generateContent` as the Gemini API does:
+	 * each request gets the next of `answers` (`drop` closes the connection after
+	 * the request arrived), and its body is kept.
+	 */
+	async function startSpeechGemini(answers: readonly (readonly [number, unknown] | 'drop')[]) {
+		const created: Record<string, unknown>[] = [];
+		const server = await startServer((request, response, socket) => {
+			if (request.headers['x-goog-api-key'] !== KEY) {
+				sendJson(response, 400, { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } });
+				return;
+			}
+			if (request.method === 'POST' && /^\/v1beta\/models\/[^/]+:generateContent$/.test(request.path)) {
+				created.push(JSON.parse(request.body.toString('utf8')));
+				const answer = answers[Math.min(created.length, answers.length) - 1];
+				if (answer === 'drop') {
+					socket.destroy();
+				} else {
+					sendJson(response, answer[0], answer[1]);
+				}
+				return;
+			}
+			sendJson(response, 404, { error: { code: 404, message: 'Not found.', status: 'NOT_FOUND' } });
+		});
+		return { endpoint: `${server.url}/v1beta`, received: server.received, created, close: () => server.close() };
+	}
+
+	test('the catalog declares two speech models that answer at once with WAV, in one of the 30 prebuilt voices, Kore by default, which are not listed (D78)', () => {
+		const provider = buildCatalog([GOOGLE]).providers[0];
+		const speech = provider.models.filter(model => model.kind === 'audio' && model.makes === 'speech');
+		const mode = { id: 'reference', label: 'Speech', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 0 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} };
+		const entry = (id: string, label: string) => ({ id, label, sentAs: { global: id }, prompt: { required: 'always', maxLength: 8192 }, outputFormat: 'wav', answersAtOnce: true, modes: [mode], parameters: ['voice'] });
+		assert.deepEqual(speech.map(model => ({
+			id: model.id,
+			label: model.label,
+			sentAs: model.providerModels,
+			prompt: model.prompt,
+			outputFormat: model.outputFormat,
+			answersAtOnce: model.answersAtOnce,
+			modes: model.modes,
+			parameters: model.parameters.map(parameter => parameter.name)
+		})), [entry(TTS, 'Gemini 3.8 Flash TTS'), entry(TTS_LITE, 'Gemini 3.8 Flash-Lite TTS')]);
+		const voice = speech[1].parameters[0];
+		assert.deepEqual(voice.kind === 'voice' ? {
+			label: voice.label,
+			voices: voice.options.map(option => `${option.value} ${option.description}`),
+			named: voice.options.every(option => option.label === option.value),
+			default: voice.default,
+			listed: voice.listed
+		} : undefined, { label: 'Voice', voices: PREBUILT_VOICES, named: true, default: 'Kore', listed: false });
+	});
+
+	test('a speech request sends the prompt to generateContent once with the audio modality, WAV, and the prebuilt voice, and the WAV answered lands as it is (D78)', async () => {
+		const gemini = await startSpeechGemini([[200, speechContent([inlineAudio(tinyWav(), 'audio/wav')])]]);
+		try {
+			const providers = commands();
+			const cases: readonly { readonly model: string; readonly params: Record<string, string>; readonly voice: string }[] = [
+				// The catalog's default voice.
+				{ model: TTS, params: {}, voice: 'Kore' },
+				{ model: TTS_LITE, params: { voice: 'Sulafat' }, voice: 'Sulafat' }
+			];
+			const answers = [];
+			for (const entry of cases) {
+				const request = googleAudioRequest(gemini.endpoint, entry.model, { params: entry.params, prompt: SPEECH_PROMPT });
+				const [target] = request.targets ?? [];
+				answers.push({ answer: value(await providers.submit(request)), same: readFileSync(target).equals(tinyWav()), target });
+			}
+			assert.deepEqual({
+				answers: answers.map(entry => ({ answer: entry.answer, same: entry.same })),
+				bodies: gemini.created,
+				sent: gemini.received.map(entry => `${entry.method} ${entry.path} ${entry.headers['x-goog-api-key']} ${entry.headers['content-type']}`)
+			}, {
+				answers: answers.map(entry => ({ answer: { outputs: [{ written: entry.target, size: tinyWav().byteLength, format: 'wav' }] }, same: true })),
+				bodies: cases.map(entry => ({
+					contents: [{ role: 'user', parts: [{ text: SPEECH_PROMPT }] }],
+					generationConfig: {
+						responseModalities: ['AUDIO'],
+						responseFormat: { audio: { mimeType: 'AUDIO_WAV' } },
+						speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: entry.voice } } }
+					}
+				})),
+				sent: [`POST /v1beta/models/${TTS}:generateContent ${KEY} application/json`, `POST /v1beta/models/${TTS_LITE}:generateContent ${KEY} application/json`]
+			});
+		} finally {
+			await gemini.close();
+		}
+	});
+
+	test('raw samples land as a WAV of their rate, the last audio part is the speech, and a blocked text or an answer without the speech is refused with Google\'s reason (D78)', async () => {
+		// A tenth of a second of 16-bit mono samples at 24 kHz, and a twentieth at 16 kHz.
+		const samples = Buffer.alloc(4800, 0x01);
+		const slower = Buffer.alloc(1600, 0x02);
+		const gemini = await startSpeechGemini([
+			[200, speechContent([inlineAudio(samples, 'audio/L16;codec=pcm;rate=24000')])],
+			[200, speechContent([inlineAudio(slower, 'audio/L16;rate=16000')])],
+			[200, speechContent([inlineAudio(samples, 'audio/pcm')])],
+			[200, speechContent([{ text: 'Here is the speech.' }, inlineAudio(tinyMp3(), 'audio/wav'), inlineAudio(tinyWav(), 'audio/wav')])],
+			[200, { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' }, usageMetadata: { promptTokenCount: 14, totalTokenCount: 14 } }],
+			[200, speechContent([], { finishReason: 'SAFETY', finishMessage: 'The response was blocked by the safety filters.' })],
+			[200, speechContent([{ text: 'I can only read text aloud.' }], { finishReason: 'OTHER' })],
+			[200, { usageMetadata: { promptTokenCount: 14, totalTokenCount: 14 } }],
+			[200, speechContent([inlineAudio(Buffer.from('<html>busy</html>'.repeat(5)), 'text/html')])]
+		]);
+		try {
+			const providers = commands();
+			const submit = async () => {
+				const request = googleAudioRequest(gemini.endpoint, TTS, { prompt: SPEECH_PROMPT });
+				const answer = value(await providers.submit(request));
+				return { answer, target: (request.targets ?? [])[0] };
+			};
+			const raw = await submit();
+			const sixteen = await submit();
+			const pcm = await submit();
+			const last = await submit();
+			const outcomes = {
+				blocked: (await submit()).answer,
+				safety: (await submit()).answer,
+				text: (await submit()).answer,
+				empty: (await submit()).answer,
+				notSound: (await submit()).answer
+			};
+			const asWav = (bytes: Buffer, sampleRate: number) => pcmToWav(bytes, { sampleRate, channels: 1, bitsPerSample: 16 });
+			assert.deepEqual({
+				written: [raw, sixteen, pcm, last].map(entry => entry.answer),
+				files: [readFileSync(raw.target).equals(asWav(samples, 24000)), readFileSync(sixteen.target).equals(asWav(slower, 16000)), readFileSync(pcm.target).equals(asWav(samples, 24000)), readFileSync(last.target).equals(tinyWav())],
+				...outcomes,
+				sent: gemini.created.length
+			}, {
+				written: [
+					{ outputs: [{ written: raw.target, size: 44 + samples.byteLength, format: 'wav' }] },
+					{ outputs: [{ written: sixteen.target, size: 44 + slower.byteLength, format: 'wav' }] },
+					{ outputs: [{ written: pcm.target, size: 44 + samples.byteLength, format: 'wav' }] },
+					{ outputs: [{ written: last.target, size: tinyWav().byteLength, format: 'wav' }] }
+				],
+				files: [true, true, true, true],
+				blocked: { outputs: [{ refused: 'Google blocked the text (PROHIBITED_CONTENT).' }] },
+				safety: { outputs: [{ refused: 'Google finished the generation without the speech (SAFETY): The response was blocked by the safety filters.' }] },
+				text: { outputs: [{ refused: 'Google finished the generation without the speech (OTHER): I can only read text aloud.' }] },
+				empty: { outputs: [{ refused: 'Google finished the generation without the speech.' }] },
+				// Bytes that are neither a WAV nor raw samples are kept only when they start like a sound.
+				notSound: { outputs: [{ refused: 'The file does not start like an MP3, WAV, FLAC, Ogg, or M4A sound.' }] },
+				sent: 9
+			});
+		} finally {
+			await gemini.close();
+		}
+	});
+
+	test('speech whose candidate Google cut off at its output limit, or ended before its natural stop, is refused with Google\'s reason; speech without a finish reason lands (D78)', async () => {
+		const speech = [inlineAudio(tinyWav(), 'audio/wav')];
+		const gemini = await startSpeechGemini([
+			// A long text: the speech stops where the output tokens run out, before the end of the text.
+			[200, { ...speechContent(speech, { finishReason: 'MAX_TOKENS' }), usageMetadata: { promptTokenCount: 8000, candidatesTokenCount: 16384, totalTokenCount: 24384 } }],
+			[200, speechContent(speech, { finishReason: 'CONTINUATION', continuationToken: 'bW9yZQ==' })],
+			[200, speechContent(speech, { finishReason: 'OTHER', finishMessage: 'The model stopped early.' })],
+			[200, speechContent(speech, { finishReason: 'SAFETY' })],
+			[200, speechContent(speech, { finishReason: undefined })],
+			[200, speechContent(speech, { finishReason: 'FINISH_REASON_UNSPECIFIED' })]
+		]);
+		try {
+			const providers = commands();
+			const outcomes = [];
+			for (let index = 0; index < 6; index++) {
+				const request = googleAudioRequest(gemini.endpoint, TTS, { prompt: SPEECH_PROMPT });
+				const [target] = request.targets ?? [];
+				outcomes.push({ answer: value(await providers.submit(request)), written: existsSync(target), target });
+			}
+			const [cut, continued, other, safety, absent, unspecified] = outcomes;
+			assert.deepEqual({
+				refused: [cut, continued, other, safety].map(entry => ({ answer: entry.answer, written: entry.written })),
+				landed: [absent, unspecified].map(entry => ({ answer: entry.answer, written: entry.written })),
+				sent: gemini.created.length
+			}, {
+				refused: [
+					{ answer: { outputs: [{ refused: 'Google cut the speech off at its output limit, before the end of the text (MAX_TOKENS). A shorter text helps.' }] }, written: false },
+					{ answer: { outputs: [{ refused: 'Google cut the speech off at its output limit, before the end of the text (CONTINUATION). A shorter text helps.' }] }, written: false },
+					{ answer: { outputs: [{ refused: 'Google ended the speech before it was finished (OTHER): The model stopped early.' }] }, written: false },
+					{ answer: { outputs: [{ refused: 'Google ended the speech before it was finished (SAFETY).' }] }, written: false }
+				],
+				landed: [
+					{ answer: { outputs: [{ written: absent.target, size: tinyWav().byteLength, format: 'wav' }] }, written: true },
+					{ answer: { outputs: [{ written: unspecified.target, size: tinyWav().byteLength, format: 'wav' }] }, written: true }
+				],
+				sent: 6
+			});
+		} finally {
+			await gemini.close();
+		}
+	});
+
+	test('check of a speech model takes only its 30 voices, voices is refused for it, and nothing is sent for a request check refuses (D78)', async () => {
+		const gemini = await startSpeechGemini([[200, speechContent([inlineAudio(tinyWav(), 'audio/wav')])]]);
+		try {
+			const providers = commands();
+			const problems = async (model: string, options: AudioRequestOptions) => value(await providers.check(googleAudioRequest(gemini.endpoint, model, options))).problems;
+			assert.deepEqual({
+				prebuilt: await problems(TTS, { params: { voice: 'Puck' } }),
+				designed: await problems(TTS, { params: { voice: 'voice_abc123def456' } }),
+				lowercase: await problems(TTS_LITE, { params: { voice: 'kore' } }),
+				longest: await problems(TTS, { prompt: 'x'.repeat(8192) }),
+				tooLong: await problems(TTS, { prompt: 'x'.repeat(8193) }),
+				noText: await problems(TTS, { prompt: '' }),
+				image: await problems(TTS, { inputs: plannedFiles({ images: 1 }) }),
+				lyrics: await problems(TTS, { mode: 'lyrics' }),
+				speed: await problems(TTS, { params: { speed: 1.2 } })
+			}, {
+				prebuilt: [],
+				designed: ['Voice cannot be voice_abc123def456 for Gemini 3.8 Flash TTS; choose one of its voices.'],
+				lowercase: ['Voice cannot be kore for Gemini 3.8 Flash-Lite TTS; choose one of its voices.'],
+				longest: [],
+				tooLong: ['The prompt is 8193 characters long; Gemini 3.8 Flash TTS takes at most 8192.'],
+				noText: ['Write a prompt: Gemini 3.8 Flash TTS needs one.'],
+				image: ['Gemini 3.8 Flash TTS in Speech mode takes no reference images.'],
+				lyrics: ['Gemini 3.8 Flash TTS has no lyrics mode.'],
+				speed: ['Gemini 3.8 Flash TTS has no setting named "speed".']
+			});
+			const voices = error(await providers.voices({ ...access(gemini.endpoint), model: TTS }));
+			const refused = error(await providers.submit(googleAudioRequest(gemini.endpoint, TTS_LITE, { params: { voice: 'Narrator' } })));
+			assert.deepEqual({ voices, refused, sent: gemini.received.length }, {
+				voices: { code: 'rejected', message: 'Google lists no voices of Gemini 3.8 Flash TTS.' },
+				refused: { code: 'rejected', message: 'Voice cannot be Narrator for Gemini 3.8 Flash-Lite TTS; choose one of its voices.' },
+				sent: 0
+			});
+		} finally {
+			await gemini.close();
+		}
+	});
+
+	test('a speech request reads a used-up free quota, a project without a free tier, a project denied access, too many requests, and a server error, and is sent once (D78)', async () => {
+		const server = await startServer((request, response, socket) => {
+			const answer = (status: number, body: unknown, headers: Record<string, string> = {}) => sendJson(response, status, body, headers);
+			switch (request.path.split('/')[1]) {
+				case 'free':
+					return answer(429, { error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details. Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 10, model: gemini-3.8-flash-tts', status: 'RESOURCE_EXHAUSTED' } }, { 'Retry-After': '20' });
+				case 'country':
+					return answer(400, { error: { code: 400, message: 'Gemini API free tier is not available in your country. Please enable billing on your project in Google AI Studio.', status: 'FAILED_PRECONDITION' } });
+				case 'denied':
+					return answer(403, { error: { code: 403, message: 'Your project has been denied access. Please contact support.', status: 'PERMISSION_DENIED' } });
+				case 'busy':
+					return answer(429, { error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).', status: 'RESOURCE_EXHAUSTED' } }, { 'Retry-After': '7' });
+				case 'down':
+					return answer(503, { error: { code: 503, message: 'The model is overloaded. Please try again later.', status: 'UNAVAILABLE' } });
+				default:
+					socket.destroy();
+			}
+		});
+		try {
+			const providers = commands();
+			const submit = async (prefix: string, model = TTS) => error(await providers.submit(googleAudioRequest(`${server.url}/${prefix}/v1beta`, model)));
+			const outcomes = {
+				free: await submit('free'),
+				country: await submit('country', TTS_LITE),
+				denied: await submit('denied'),
+				busy: await submit('busy'),
+				down: await submit('down'),
+				dropped: (await submit('drop')).code
+			};
+			assert.deepEqual({ outcomes, sent: server.received.map(entry => entry.path.split('/')[1]) }, {
+				outcomes: {
+					free: { code: 'rateLimited', message: SPEECH_FREE_QUOTA, status: 429 },
+					country: { code: 'auth', message: SPEECH_NO_FREE_TIER, status: 400 },
+					denied: { code: 'auth', message: 'Your project has been denied access. Please contact support.', status: 403 },
+					busy: { code: 'rateLimited', message: 'Resource has been exhausted (e.g. check quota). The provider asks to wait 7 seconds.', status: 429 },
+					down: { code: 'unknownOutcome', message: 'The model is overloaded. Please try again later.', status: 503 },
+					dropped: 'unknownOutcome'
+				},
+				sent: ['free', 'country', 'denied', 'busy', 'down', 'drop']
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	test('a speech model has no task: poll refuses it, and cancel answers false without a request (D78)', async () => {
+		const gemini = await startGemini();
+		try {
+			const providers = commands();
+			const ref = { ...access(gemini.endpoint), model: TTS_LITE, remoteId: 'v1_speech' };
+			assert.deepEqual({ poll: error(await providers.poll(ref)), cancel: value(await providers.cancel(ref)), sent: gemini.received.length }, {
+				poll: { code: 'rejected', message: 'Gemini 3.8 Flash-Lite TTS answers with its speech at once: there is no task to ask about.' },
+				cancel: { cancelled: false },
+				sent: 0
+			});
+		} finally {
+			await gemini.close();
+		}
+	});
+
+	// --- music models (D78) ----------------------------------------------------------------------------
+
+	const LYRIA = 'lyria-3.5';
+	const LYRIA_CLIP = 'lyria-3-clip-preview';
+	const MUSIC_PROMPT = 'A bright chiptune melody in C major, retro 8-bit video game style.';
+	const LYRICS = '[Verse]\nTide comes in, tide goes out\n\n[Chorus]\nHold the line (hold the line)';
+	const STYLE_TEXT = 'Slow folk at 72 BPM, a woman sings over a fingerpicked guitar.';
+
+	/** A finished music interaction, as a create answers it: the lyrics and the song's structure as text, then the song. */
+	function finishedSong(id: string, song = tinyMp3(), mimeType = 'audio/mp3') {
+		return interaction(id, 'completed', [imageOutputStep({ type: 'text', text: LYRICS }, { type: 'audio', mime_type: mimeType, data: song.toString('base64') })]);
+	}
+
+	test('the catalog declares Lyria 3.5 with From a Description and From Lyrics, and Lyria 3 Clip, each answering at once with MP3 from a prompt or up to 10 images (D78)', () => {
+		const provider = buildCatalog([GOOGLE]).providers[0];
+		const music = provider.models.filter(model => model.kind === 'audio' && model.makes === 'music');
+		const mode = (id: string, label: string) => ({ id, label, inputs: { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 10 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: {} });
+		assert.deepEqual(music.map(model => ({
+			id: model.id,
+			label: model.label,
+			sentAs: model.providerModels,
+			prompt: model.prompt,
+			outputFormat: model.outputFormat,
+			answersAtOnce: model.answersAtOnce,
+			modes: model.modes,
+			parameters: model.parameters.map(parameter => `${parameter.name} ${parameter.kind} ${parameter.default ?? 'none'}${parameter.optional ? ' optional' : ''}${parameter.kind === 'text' ? ` ${parameter.maxLength}` : ''} [${parameter.modes?.join(', ')}]`)
+		})), [
+			{
+				id: LYRIA, label: 'Lyria 3.5', sentAs: { global: LYRIA }, prompt: { required: 'withoutMedia', maxLength: 131_072 }, outputFormat: 'mp3', answersAtOnce: true,
+				modes: [mode('reference', 'From a Description'), mode('lyrics', 'From Lyrics')],
+				parameters: ['instrumental boolean false [reference]', 'style text none optional 1000 [lyrics]']
+			},
+			{
+				id: LYRIA_CLIP, label: 'Lyria 3 Clip', sentAs: { global: LYRIA_CLIP }, prompt: { required: 'withoutMedia', maxLength: 131_072 }, outputFormat: 'mp3', answersAtOnce: true,
+				modes: [mode('reference', 'From a Description')],
+				parameters: ['instrumental boolean false [reference]']
+			}
+		]);
+	});
+
+	test('a music request sends the text, then each image as base64, once and not in the background: Instrumental adds Google\'s words, and From Lyrics sends the Style and the lyrics beneath Lyrics: (D78)', async () => {
+		const gemini = await startImageGemini([[200, finishedSong('v1_song')]]);
+		try {
+			const providers = commands();
+			const images = (...media: readonly { readonly fsPath: string; readonly mimeType: string }[]) => ({ images: media, videos: [], audios: [] });
+			const cases: readonly { readonly model: string; readonly options: AudioRequestOptions; readonly input: () => unknown[] }[] = [
+				{ model: LYRIA, options: { prompt: MUSIC_PROMPT }, input: () => [{ type: 'text', text: MUSIC_PROMPT }] },
+				{
+					model: LYRIA, options: { prompt: MUSIC_PROMPT, params: { instrumental: true }, inputs: images(START, END) },
+					input: () => [{ type: 'text', text: `${MUSIC_PROMPT}\n\nInstrumental only, no vocals.` }, { type: 'image', mime_type: 'image/png', data: base64(START) }, { type: 'image', mime_type: 'image/jpeg', data: base64(END) }]
+				},
+				{ model: LYRIA, options: { mode: 'lyrics', prompt: LYRICS, params: { style: STYLE_TEXT } }, input: () => [{ type: 'text', text: `${STYLE_TEXT}\n\nLyrics:\n\n${LYRICS}` }] },
+				{ model: LYRIA, options: { mode: 'lyrics', prompt: LYRICS, inputs: images(STYLE) }, input: () => [{ type: 'text', text: `Lyrics:\n\n${LYRICS}` }, { type: 'image', mime_type: 'image/webp', data: base64(STYLE) }] },
+				// An image alone describes the music: no text part is sent.
+				{ model: LYRIA_CLIP, options: { prompt: '', inputs: images(START) }, input: () => [{ type: 'image', mime_type: 'image/png', data: base64(START) }] },
+				{ model: LYRIA_CLIP, options: { prompt: '', params: { instrumental: true }, inputs: images(END) }, input: () => [{ type: 'text', text: 'Instrumental only, no vocals.' }, { type: 'image', mime_type: 'image/jpeg', data: base64(END) }] }
+			];
+			const landed = [];
+			for (const entry of cases) {
+				const request = googleAudioRequest(gemini.endpoint, entry.model, entry.options);
+				const [target] = request.targets ?? [];
+				assert.deepEqual(value(await providers.submit(request)), { outputs: [{ written: target, size: tinyMp3().byteLength, format: 'mp3' }] });
+				landed.push(readFileSync(target).equals(tinyMp3()));
+			}
+			assert.deepEqual({ bodies: gemini.created, landed, sent: gemini.received.map(entry => `${entry.method} ${entry.path} ${entry.headers['x-goog-api-key']}`) }, {
+				bodies: cases.map(entry => ({ model: entry.model, input: entry.input() })),
+				landed: cases.map(() => true),
+				sent: cases.map(() => `POST /v1beta/interactions ${KEY}`)
+			});
+			// What check answers in From Lyrics is the lyrics, as the card wrote them: the module adds the Style and the header when it sends them.
+			assert.equal(value(await providers.check(googleAudioRequest(gemini.endpoint, LYRIA, { mode: 'lyrics', prompt: LYRICS, params: { style: STYLE_TEXT } }))).prompt, LYRICS);
+			// Google documents no names for Lyria's images: a mention takes the shared name.
+			assert.deepEqual([
+				value(await providers.check(googleAudioRequest(gemini.endpoint, LYRIA, { prompt: ['A waltz for the harbour of ', { input: 'images', index: 1 }, '.'], inputs: plannedFiles({ images: 2 }) }))).prompt,
+				value(await providers.check(googleAudioRequest(gemini.endpoint, LYRIA_CLIP, { prompt: ['为', { input: 'images', index: 0 }, '写一段音乐。'], inputs: plannedFiles({ images: 1 }) }))).prompt
+			], ['A waltz for the harbour of Image 2.', '为图片1写一段音乐。']);
+		} finally {
+			await gemini.close();
+		}
+	});
+
+	test('the song of an answer is its last audio block, and an answer without one, a failed one, or an unfinished one is refused with Google\'s words; a song still made is followed by its id (D78)', async () => {
+		const gemini = await startImageGemini([
+			[200, interaction('v1_two', 'completed', [imageOutputStep({ type: 'audio', mime_type: 'audio/mp3', data: tinyWav().toString('base64') }, { type: 'text', text: LYRICS }, { type: 'audio', mime_type: 'audio/mp3', data: tinyMp3().toString('base64') })])],
+			[200, finishedSong('v1_wav', tinyWav(), 'audio/mp3')],
+			[200, interaction('v1_lyrics', 'completed', [imageOutputStep({ type: 'text', text: 'I cannot make a song in the voice of a real singer.' })])],
+			[200, interaction('v1_empty', 'completed')],
+			[200, interaction('v1_blocked', 'failed', [], { errors: [{ code: 'recitation', message: 'The prompt asks for copyrighted lyrics.' }] })],
+			[200, interaction('v1_short', 'incomplete', [imageOutputStep({ type: 'text', text: LYRICS })])],
+			[200, interaction('v1_file', 'completed', [imageOutputStep({ type: 'audio', mime_type: 'audio/mp3', uri: 'files/song-1' })])],
+			[200, interaction('v1_song_run', 'in_progress')]
+		], {
+			v1_song_run: [interaction('v1_song_run', 'queued'), interaction('v1_song_run', 'in_progress'), finishedSong('v1_song_run')]
+		});
+		try {
+			const providers = commands();
+			const submit = async () => {
+				const request = googleAudioRequest(gemini.endpoint, LYRIA, { prompt: MUSIC_PROMPT });
+				const answer = await providers.submit(request);
+				return { answer: answer.ok ? answer.value : answer.error, target: (request.targets ?? [])[0] };
+			};
+			const two = await submit();
+			const wavBytes = await submit();
+			const outcomes = {
+				lyricsOnly: (await submit()).answer,
+				empty: (await submit()).answer,
+				blocked: (await submit()).answer,
+				short: (await submit()).answer,
+				file: (await submit()).answer
+			};
+			const submitted = (await submit()).answer;
+			const targets = partTargets(1);
+			const states: PollState[] = [];
+			for (let attempt = 0; attempt < 3; attempt++) {
+				states.push(value(await providers.poll({ ...access(gemini.endpoint), model: LYRIA, remoteId: 'v1_song_run', targets })));
+			}
+			assert.deepEqual({
+				two: two.answer,
+				lastKept: readFileSync(two.target).equals(tinyMp3()),
+				wavBytes: wavBytes.answer,
+				...outcomes,
+				submitted,
+				states,
+				song: readFileSync(targets[0]).equals(tinyMp3()),
+				sent: gemini.created.length
+			}, {
+				two: { outputs: [{ written: two.target, size: tinyMp3().byteLength, format: 'mp3' }] },
+				lastKept: true,
+				// Google named MP3; the bytes are a WAV, and they decide.
+				wavBytes: { outputs: [{ written: wavBytes.target, size: tinyWav().byteLength, format: 'wav' }] },
+				lyricsOnly: { outputs: [{ refused: 'Google finished the generation without a song: I cannot make a song in the voice of a real singer.' }] },
+				empty: { outputs: [{ refused: 'Google finished the generation without a song.' }] },
+				blocked: { outputs: [{ refused: 'The prompt asks for copyrighted lyrics.' }] },
+				short: { outputs: [{ refused: 'Google ended the generation before the song was finished.' }] },
+				file: { outputs: [{ url: `${gemini.endpoint}/files/song-1:download?alt=media` }] },
+				submitted: { remoteId: 'v1_song_run' },
+				states: [{ state: 'pending' }, { state: 'running' }, { state: 'succeeded', outputs: [{ written: targets[0], size: tinyMp3().byteLength, format: 'mp3' }] }],
+				song: true,
+				sent: 8
+			});
+		} finally {
+			await gemini.close();
+		}
+	});
+
+	test('a music request with a key of a free-tier project answers the paid-tier message, and the other refusals map as for an image, sent once (D78)', async () => {
+		const server = await startServer((request, response, socket) => {
+			const answer = (status: number, body: unknown) => sendJson(response, status, body);
+			switch (request.path.split('/')[1]) {
+				case 'free':
+					return answer(429, { error: { code: 'quota_exceeded', message: 'You exceeded your current quota, please check your plan and billing details. Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: lyria-3.5' } });
+				case 'blocked':
+					return answer(400, { error: { code: 'safety', message: 'The prompt asks for the voice of a specific artist.' } });
+				case 'prepay':
+					return answer(402, { error: { code: 'payment_required', message: 'Your Prepay credit balance is depleted.' } });
+				default:
+					socket.destroy();
+			}
+		});
+		try {
+			const providers = commands();
+			const submit = async (prefix: string, model = LYRIA) => error(await providers.submit(googleAudioRequest(`${server.url}/${prefix}/v1beta`, model, { prompt: MUSIC_PROMPT })));
+			assert.deepEqual({
+				free: await submit('free'),
+				freeClip: await submit('free', LYRIA_CLIP),
+				blocked: await submit('blocked'),
+				prepay: await submit('prepay'),
+				dropped: (await submit('drop')).code,
+				sent: server.received.length
+			}, {
+				free: { code: 'auth', message: FREE_TIER, status: 429 },
+				freeClip: { code: 'auth', message: FREE_TIER, status: 429 },
+				blocked: { code: 'rejected', message: 'The prompt asks for the voice of a specific artist.', status: 400 },
+				prepay: { code: 'balance', message: 'Your Prepay credit balance is depleted.', status: 402 },
+				dropped: 'unknownOutcome',
+				sent: 5
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	test('check of a music model reports more than 10 images, a mode or a setting the model does not take, the prompt rule of each mode, and other inputs (D78)', async () => {
+		const providers = commands();
+		const problems = async (model: string, options: AudioRequestOptions) => value(await providers.check(googleAudioRequest('https://generativelanguage.googleapis.com/v1beta', model, { prompt: MUSIC_PROMPT, ...options }))).problems;
+		assert.deepEqual({
+			tenImages: await problems(LYRIA, { inputs: plannedFiles({ images: 10 }) }),
+			elevenImages: await problems(LYRIA, { inputs: plannedFiles({ images: 11 }) }),
+			nothing: await problems(LYRIA, { prompt: '' }),
+			imageAlone: await problems(LYRIA_CLIP, { prompt: '', inputs: plannedFiles({ images: 1 }) }),
+			noLyrics: await problems(LYRIA, { mode: 'lyrics', prompt: '', inputs: plannedFiles({ images: 1 }) }),
+			lyrics: await problems(LYRIA, { mode: 'lyrics', prompt: LYRICS, params: { style: STYLE_TEXT } }),
+			longStyle: await problems(LYRIA, { mode: 'lyrics', prompt: LYRICS, params: { style: 's'.repeat(1001) } }),
+			styleInDescription: await problems(LYRIA, { params: { style: STYLE_TEXT } }),
+			instrumentalInLyrics: await problems(LYRIA, { mode: 'lyrics', prompt: LYRICS, params: { instrumental: true } }),
+			clipLyrics: await problems(LYRIA_CLIP, { mode: 'lyrics', prompt: LYRICS }),
+			clipStyle: await problems(LYRIA_CLIP, { params: { style: STYLE_TEXT } }),
+			video: await problems(LYRIA, { inputs: plannedFiles({ videos: 1 }) }),
+			sound: await problems(LYRIA_CLIP, { inputs: plannedFiles({ audios: 1 }) }),
+			duration: await problems(LYRIA, { params: { duration: 120 } })
+		}, {
+			tenImages: [],
+			elevenImages: ['Lyria 3.5 in From a Description mode takes at most 10 reference images; 11 are planned.'],
+			nothing: ['Write a prompt or connect an image: Lyria 3.5 needs one or the other.'],
+			imageAlone: [],
+			// An image does not stand for the lyrics.
+			noLyrics: ['Write the lyrics: Lyria 3.5 sings them in From Lyrics mode.'],
+			lyrics: [],
+			longStyle: ['Style is 1001 characters long; Lyria 3.5 takes at most 1000.'],
+			styleInDescription: ['Style does not apply in From a Description mode.'],
+			instrumentalInLyrics: ['Instrumental does not apply in From Lyrics mode.'],
+			clipLyrics: ['Lyria 3 Clip has no lyrics mode.'],
+			clipStyle: ['Lyria 3 Clip has no setting named "style".'],
+			video: ['Lyria 3.5 in From a Description mode takes no reference videos.'],
+			sound: ['Lyria 3 Clip in From a Description mode takes no reference audio clips.'],
+			duration: ['Lyria 3.5 has no setting named "duration".']
+		});
 	});
 });

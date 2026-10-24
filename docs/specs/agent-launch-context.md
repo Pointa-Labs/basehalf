@@ -1,10 +1,11 @@
 # Agent launch context
 
-Status: Active (2026-09-27; canvas workflows revised 2026-10-22 for D63, 2026-10-23 for D67, and 2026-10-24 for D74)
+Status: Active (2026-09-27; canvas workflows revised 2026-10-22 for D63, 2026-10-23 for D67, 2026-10-24 for D74, and 2026-10-25 for D78)
 Decisions: [D36](../decisions.md#d36--basehalf-stops-writing-agent-guides-into-workspaces-new-2026-09-27),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
 [D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23),
-[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
+[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
+[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)
 Related: [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [generation cards](generation-cards.md#agents)
@@ -149,8 +150,8 @@ The instruction covers the following, in this order.
 4. **Canvas workflows.**
    - Before any canvas workflow, run `basehalf --list-capabilities`. Its JSON
      is the only authority for the model catalog, templates, and operations.
-   - A generation card is an image or a video file; a draft is one whose file
-     does not exist yet. Write `prompt`, `provider`, `model`, `mode`, and
+   - A generation card is an image, a video, or a sound file; a draft is one
+     whose file does not exist yet. Write `prompt`, `provider`, `model`, `mode`, and
      `params` in a draft's `generation.yaml` to make or change a draft;
      never write `made.yaml`. A generated file keeps the inputs that made
      it: leave its `upstream.yaml` alone. A draft's inputs are the entries

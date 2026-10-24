@@ -6,6 +6,7 @@
 import './basehalfGenerationCardActions.js';
 import './basehalfGenerationCardStore.js';
 import './basehalfGenerationTaskStore.js';
+import './basehalfGenerationVoiceService.js';
 import './basehalfVideoCatalogService.js';
 import './basehalfVideoGenerationService.js';
 import './basehalfVideoProviderSettingsService.js';
@@ -20,8 +21,8 @@ import { BaseHalfVideoProvidersPage } from './basehalfVideoProvidersPage.js';
 /**
  * The Providers page (D59, D64), in the place of the former Models &
  * Providers page of Settings, and the command that opens it. The card store,
- * the task record store, and the catalog, provider settings, and generation
- * services register themselves in the modules imported above.
+ * the task record store, and the catalog, provider settings, generation, and
+ * voice services register themselves in the modules imported above.
  */
 settingsCustomSectionRegistry.register({
 	id: BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID,

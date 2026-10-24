@@ -7,6 +7,7 @@ import { basename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileStat } from '../../../../platform/files/common/files.js';
 import { baseHalfRenderableContentKind } from '../../cardDetail/common/basehalfContentRendering.js';
+import type { BaseHalfGenerationKind } from '../../video/common/basehalfGenerationInfo.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;
 export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH = 300;
@@ -131,7 +132,7 @@ export function baseHalfCanvasChildPath(parent: string, name: string): string {
 
 /** What the canvas knows of a generation card (generation cards): what it makes, and whether it has its file yet. */
 export interface IBaseHalfCanvasGenerationCard {
-	readonly kind: 'image' | 'video';
+	readonly kind: BaseHalfGenerationKind;
 	/** A draft has no file: the item's stat is made from its path ({@link baseHalfCanvasDraftStat}). */
 	readonly draft: boolean;
 }
@@ -813,22 +814,26 @@ export function baseHalfCanvasPictureCardSizeAt(card: IBaseHalfCanvasBounds, rat
 /**
  * The size of a generation card of a kind: the shape of `ratio`, the ratio of
  * its picture or, for a draft, the one its settings choose, and the ratio of
- * its kind while that is not known.
+ * its kind while that is not known. A sound has no picture: its card has the
+ * size of a file card (canvas card placement, "The card of an image or a
+ * video has its picture's shape").
  */
-export function baseHalfCanvasGenerationCardSize(kind: 'image' | 'video', ratio?: number): IBaseHalfCanvasSize {
-	return baseHalfCanvasPictureCardSize(ratio ?? BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO[kind]);
+export function baseHalfCanvasGenerationCardSize(kind: BaseHalfGenerationKind, ratio?: number): IBaseHalfCanvasSize {
+	return kind === 'audio'
+		? baseHalfCanvasDefaultCardSize('file')
+		: baseHalfCanvasPictureCardSize(ratio ?? BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO[kind]);
 }
 
 /** What decides the shape of an item's card: its kind, its file's name, and whether it is a generation card. */
 export type BaseHalfCanvasShapedItem = Pick<IBaseHalfCanvasItem, 'kind' | 'generation'> & { readonly stat: Pick<IFileStat, 'resource'> };
 
-/** The kind of the picture that the card of an item shows: an image or a video file, a generation card among them. */
+/** The kind of the picture that the card of an item shows: an image or a video file, a generation card among them. A sound shows none. */
 export function baseHalfCanvasPictureKind(item: BaseHalfCanvasShapedItem): 'image' | 'video' | undefined {
 	if (item.kind !== 'file') {
 		return undefined;
 	}
 	if (item.generation) {
-		return item.generation.kind;
+		return item.generation.kind === 'audio' ? undefined : item.generation.kind;
 	}
 	const kind = baseHalfRenderableContentKind(item.stat.resource);
 	return kind === 'image' || kind === 'video' ? kind : undefined;

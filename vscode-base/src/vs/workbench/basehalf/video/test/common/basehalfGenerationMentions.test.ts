@@ -16,7 +16,7 @@ import {
 	rebaseBaseHalfPromptMentions,
 	rewriteBaseHalfPromptMentions
 } from '../../common/basehalfGenerationMentions.js';
-import { BASEHALF_VIDEO_DEFAULT_MODE_INPUTS, IBaseHalfVideoInputSource, IBaseHalfVideoModeInputs, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_DEFAULT_MODE_INPUTS, BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, IBaseHalfVideoInputSource, IBaseHalfVideoModeInputs, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
 
 function entry(path: string, key = path.toLowerCase()): IBaseHalfMentionEntry {
 	return { path, key };
@@ -133,6 +133,141 @@ suite('BaseHalf generation mentions (D74)', () => {
 				empty: false
 			},
 			empty: { parts: [], empty: true }
+		});
+	});
+
+	test('a prompt that is spoken or sung says a mentioned note\'s text in its place and the other notes\' texts after a blank line, all without names (D78)', () => {
+		const speech = planBaseHalfVideoInputs({ ...REFERENCES, images: { min: 0, max: 0 }, videos: { min: 0, max: 0 } }, [
+			source('notes/intro.md', 'text'),
+			source('notes/outro.md', 'text'),
+			source('tune.mp3', 'audio'),
+			source('notes/empty.md', 'text')
+		]);
+		const texts = new Map([['notes/intro.md', 'Welcome to the coast.\n'], ['notes/outro.md', '  Thank you for listening.  '], ['notes/empty.md', ' ']]);
+		const textOf = (item: { readonly path: string }) => texts.get(item.path);
+		const spoken = (prompt: string) => buildBaseHalfPromptParts(prompt, speech, textOf, { spokenOrSung: true }).parts;
+		assert.deepStrictEqual({
+			// Criterion 86: the mentioned note is said as its text, and the second one follows.
+			mentioned: spoken('@[notes/intro.md]'),
+			inText: spoken('First: @[notes/intro.md] Then the tune @[tune.mp3].'),
+			twice: spoken('@[notes/intro.md] @[notes/intro.md]'),
+			notesOnly: spoken(''),
+			both: spoken('@[notes/intro.md] @[notes/outro.md]'),
+			// The same prompt that no voice says names its notes.
+			described: buildBaseHalfPromptParts('@[notes/intro.md]', speech, textOf).parts
+		}, {
+			mentioned: ['Welcome to the coast.\n\nThank you for listening.'],
+			inText: ['First: Welcome to the coast. Then the tune ', { input: 'audios', index: 0 }, '.\n\nThank you for listening.'],
+			twice: ['Welcome to the coast. Welcome to the coast.\n\nThank you for listening.'],
+			notesOnly: ['Welcome to the coast.\n\nThank you for listening.'],
+			both: ['Welcome to the coast. Thank you for listening.'],
+			described: ['"intro"\n\nintro:\nWelcome to the coast.\n\noutro:\nThank you for listening.']
+		});
+	});
+
+	test('in a prompt that is spoken or sung, a Markdown note joins as its plain text, as a reader of its card says it; a song\'s [Verse], a text note, and the card\'s own prompt stay as written (D78)', () => {
+		const speech = planBaseHalfVideoInputs({ ...REFERENCES, images: { min: 0, max: 0 }, videos: { min: 0, max: 0 } }, [
+			source('notes/script.md', 'text'),
+			source('notes/lyrics.markdown', 'text'),
+			source('notes/plain.txt', 'text')
+		]);
+		const script = [
+			'# Scene one',
+			'',
+			'Welcome to the **coast**, _friend_. See [the map](https://example.com/map) ~~twice~~.',
+			'',
+			'![A gull over the water](gull.png)',
+			'',
+			'- Bring `water`',
+			'- Bring 2 > 1 & "snacks", it\'s fine',
+			'  1. And a hat',
+			'',
+			'> A quoted line',
+			'> and its second',
+			'',
+			'```',
+			'Said as written:  *this*',
+			'```',
+			'',
+			'---',
+			'',
+			'It&#39;s <b>bold</b>, and a<br>line <!-- a note to myself -->of its own.',
+			'',
+			'| Who | Says |',
+			'| --- | --- |',
+			'| Ann | Hi |',
+			'',
+			'<div align="center">',
+			'Centered <i>words</i>',
+			'</div>',
+			'',
+			'A pause <break time="1s" /> here, as List<String> stays.'
+		].join('\n');
+		const texts = new Map([
+			['notes/script.md', script],
+			['notes/lyrics.markdown', '[Verse]\nTide comes *in*\nTide goes out\n\n[Chorus]\nSing \\*now\\*'],
+			['notes/plain.txt', '# Not a heading, **as written**']
+		]);
+		const textOf = (item: { readonly path: string }) => texts.get(item.path);
+		assert.deepStrictEqual({
+			spoken: buildBaseHalfPromptParts('Read **this**: @[notes/script.md]', speech, textOf, { spokenOrSung: true }).parts,
+			// The same notes in a prompt that no voice says keep their Markdown under their names.
+			described: buildBaseHalfPromptParts('@[notes/lyrics.markdown]', speech, textOf).parts
+		}, {
+			spoken: [[
+				'Read **this**: Scene one',
+				'',
+				'Welcome to the coast, friend. See the map twice.',
+				'',
+				'Bring water',
+				'Bring 2 > 1 & "snacks", it\'s fine',
+				'And a hat',
+				'',
+				'A quoted line',
+				'and its second',
+				'',
+				'Said as written:  *this*',
+				'',
+				'It\'s bold, and a',
+				'line of its own.',
+				'',
+				'Who Says',
+				'Ann Hi',
+				'',
+				'Centered words',
+				'',
+				'A pause <break time="1s" /> here, as List<String> stays.',
+				'',
+				'[Verse]',
+				'Tide comes in',
+				'Tide goes out',
+				'',
+				'[Chorus]',
+				'Sing *now*',
+				'',
+				'# Not a heading, **as written**'
+			].join('\n')],
+			described: [`"lyrics"\n\nscript:\n${script}\n\nlyrics:\n[Verse]\nTide comes *in*\nTide goes out\n\n[Chorus]\nSing \\*now\\*\n\nplain.txt:\n# Not a heading, **as written**`]
+		});
+	});
+
+	test('a note adds at most 16 KiB, cut between characters, never between the two halves of one', () => {
+		const speech = planBaseHalfVideoInputs({ ...REFERENCES, images: { min: 0, max: 0 }, videos: { min: 0, max: 0 } }, [source('notes/long.md', 'text')]);
+		// A character of two UTF-16 units whose second unit would be the first beyond the limit.
+		const long = `${'a'.repeat(BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH - 1)}\u{1F600} and more`;
+		const fits = `${'a'.repeat(BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH - 2)}\u{1F600} and more`;
+		const sent = (text: string, spokenOrSung: boolean) => buildBaseHalfPromptParts('@[notes/long.md]', speech, () => text, { spokenOrSung }).parts[0] as string;
+		const spoken = sent(long, true);
+		const described = sent(long, false);
+		assert.deepStrictEqual({
+			spoken: [spoken.length, spoken.endsWith('a')],
+			described: [described.length, described.endsWith('a')],
+			// A character that fits whole is kept.
+			fits: sent(fits, true).endsWith('\u{1F600}')
+		}, {
+			spoken: [BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH - 1, true],
+			described: ['"long"\n\nlong:\n'.length + BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH - 1, true],
+			fits: true
 		});
 	});
 });
