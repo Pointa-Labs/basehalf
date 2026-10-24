@@ -224,7 +224,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	const explorerUndoSource = new UndoRedoSource();
 	instantiationService.stub(IExplorerService, {
 		applyBulkEdit: async (edits, options) => {
-			await bulkEdit.apply(edits, { undoRedoSource: explorerUndoSource, undoRedoGroup: options.undoRedoGroup, label: options.undoLabel, code: 'undoredo.explorerOperation', confirmBeforeUndo: options.confirmBeforeUndo });
+			await bulkEdit.apply(edits, { undoRedoSource: explorerUndoSource, label: options.undoLabel, code: 'undoredo.explorerOperation', confirmBeforeUndo: options.confirmBeforeUndo });
 		}
 	} as Partial<IExplorerService> as IExplorerService);
 	const flush = new BaseHalfEditorFlushService();

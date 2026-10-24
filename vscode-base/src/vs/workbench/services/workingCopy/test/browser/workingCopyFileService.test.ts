@@ -17,7 +17,6 @@ import { ICopyOperation, SourceTargetPair } from '../../common/workingCopyFileSe
 import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { timeout } from '../../../../../base/common/async.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
-import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
 
 suite('WorkingCopyFileService', () => {
 
@@ -159,31 +158,6 @@ suite('WorkingCopyFileService', () => {
 		await accessor.workingCopyFileService.move([{ file: { source, target } }], CancellationToken.None);
 		assert.strictEqual(guarded, false);
 		assert.deepStrictEqual(order, ['participant', 'precondition', 'will', 'io', 'did', 'did:wait', 'release']);
-	});
-
-	test('passes the caller owned undo group object to hard preconditions', async function () {
-		const source = toResource.call(this, '/path/group-source.txt');
-		const target = toResource.call(this, '/path/group-target.txt');
-		await accessor.fileService.createFile(source);
-		const group = new UndoRedoGroup();
-		let observed = false;
-		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
-			prepare: async (_files, operation, undoInfo) => {
-				if (operation === FileOperation.MOVE) {
-					assert.strictEqual(undoInfo?.undoRedoGroupId, group.id);
-					assert.strictEqual(undoInfo?.undoRedoGroup, group);
-					observed = true;
-				}
-				return { dispose: () => undefined };
-			}
-		}));
-
-		await accessor.workingCopyFileService.move(
-			[{ file: { source, target } }],
-			CancellationToken.None,
-			{ undoRedoGroupId: group.id, undoRedoGroup: group }
-		);
-		assert.strictEqual(observed, true);
 	});
 
 	test('hard precondition rejection prevents move and delete IO', async function () {

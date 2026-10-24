@@ -273,3 +273,7 @@ Paths are under `vscode-base/` unless they start with a dot.
    install an extension, the reason an extension does not run, a cleanup
    error, four lines of the release notes, and, until D76, the refusal of
    the extension server to install from the gallery.
+3. VS Code's check that an extension uses only the API proposals it declares
+   (`isProposedApiEnabled`) stays as VS Code has it from 1.141.0 on. The
+   import commit returned `true` there, so this one line is not the import
+   commit's code (`vscode-base/BASEHALF_UPSTREAM.md`).

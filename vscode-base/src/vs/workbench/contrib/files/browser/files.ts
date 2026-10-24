@@ -18,14 +18,13 @@ import { createDecorator, ServicesAccessor } from '../../../../platform/instanti
 import { ResourceFileEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { isActiveElement } from '../../../../base/browser/dom.js';
-import { UndoRedoGroup, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
+import { UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
 
 export interface IExplorerBulkEditOptions {
 	readonly undoLabel: string;
 	readonly progressLabel: string;
 	readonly confirmBeforeUndo?: boolean;
 	readonly progressLocation?: ProgressLocation.Explorer | ProgressLocation.Window;
-	readonly undoRedoGroup?: UndoRedoGroup;
 	readonly undoRedoSource?: UndoRedoSource;
 }
 
