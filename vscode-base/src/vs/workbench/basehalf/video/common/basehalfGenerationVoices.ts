@@ -8,7 +8,7 @@ import { Event } from '../../../../base/common/event.js';
 import { language } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import type { ListedVoice, VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
-import { isVoiceId } from '../../../../platform/basehalfProviders/common/basehalfProviderVoices.js';
+import { isVoiceId, MAX_SAMPLE_ADDRESS_LENGTH } from '../../../../platform/basehalfProviders/common/basehalfProviderVoices.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { BaseHalfVideoModeId, baseHalfVideoModeParameters, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from './basehalfVideoCatalog.js';
 
@@ -150,8 +150,9 @@ export interface IBaseHalfVoiceMenuInput {
  * The rows of the voice menu (generation cards, "The panel"): **Your
  * Voices**, the account's own that the list holds, and **Voices**, the
  * catalog's first and then the others the provider lists, each voice once.
- * A voice of the card that no list names heads Voices by its id; once a list
- * of the account has come, it says that it is not among them. A search keeps
+ * A voice of the card that no list names heads Voices by its id; once a whole
+ * list of the account has come, it says that it is not among them, and a list
+ * cut at its most says nothing of it. A search keeps
  * the voices whose name or description holds it, spaces left out; the last
  * row says when the provider had more voices than the list holds.
  */
@@ -174,8 +175,10 @@ export function baseHalfVoiceMenuRows(input: IBaseHalfVoiceMenuInput, query: str
 	const voices: IBaseHalfVoiceMenuVoice[] = [];
 	if (!input.parameter.options.some(option => option.value === input.voice) && !listed.has(input.voice) && input.voice) {
 		// Another account's voice, or one deleted since: it is sent as it is, and the provider says whether it knows it.
+		// A list cut at its most may hold it no more than the account, which may have it beyond the first voices.
 		seen.add(input.voice);
-		voices.push(entry(input.voice, input.voice, input.list ? localize('basehalf.generation.voices.notListed', "Not among the voices of this account.") : undefined, undefined));
+		const notListed = input.list && !input.list.truncated ? localize('basehalf.generation.voices.notListed', "Not among the voices of this account.") : undefined;
+		voices.push(entry(input.voice, input.voice, notListed, undefined));
 	}
 	for (const option of input.parameter.options) {
 		if (!seen.has(option.value)) {
@@ -229,8 +232,9 @@ export interface IBaseHalfVoiceMenuStatusInput {
  * The line under the voice menu's search field (generation cards, "The
  * panel"): a provider that is not set up says how to get all of its voices,
  * with Set Up; a list that could not be loaded says why, with Try Again; and
- * the first list says that it loads. A provider that lists no voices has
- * none: the catalog's voices are all of them.
+ * a set-up provider without a list yet says that it loads, as the menu asks
+ * it right away. A provider that lists no voices has none: the catalog's
+ * voices are all of them.
  */
 export function baseHalfVoiceMenuStatus(input: IBaseHalfVoiceMenuStatusInput): IBaseHalfVoiceMenuStatus | undefined {
 	if (!input.listed) {
@@ -242,7 +246,7 @@ export function baseHalfVoiceMenuStatus(input: IBaseHalfVoiceMenuStatusInput): I
 	if (input.voices.error !== undefined && !input.voices.loading) {
 		return Object.freeze({ text: localize('basehalf.generation.voices.failed', "The voices could not be loaded: {0}", input.voices.error), action: 'retry' as const });
 	}
-	if (input.voices.loading && !input.voices.list) {
+	if (!input.voices.list) {
 		return Object.freeze({ text: localize('basehalf.generation.voices.loading', "Loading voices…") });
 	}
 	return undefined;
@@ -260,8 +264,10 @@ export function baseHalfFormatCount(value: number): string {
  * id is the id of a voice by the provider service's rule (`isVoiceId`: 1 to
  * 256 characters, not only spaces, without control characters), each id
  * once, at most {@link BASEHALF_VOICES_MAX}, its name and description as
- * plain text, and its sample only as an `http` or `https` address.
- * `undefined` for an answer that is no list of voices.
+ * plain text of at most 200 and 300 characters, counted and cut as the
+ * provider service counts and cuts them, and its sample only as an `http`
+ * or `https` address of at most 8,192 characters, as long as the service
+ * keeps. `undefined` for an answer that is no list of voices.
  */
 export function parseBaseHalfVoicesResult(value: unknown): VoicesResult | undefined {
 	if (!isRecord(value) || !Array.isArray(value.voices)) {
@@ -297,14 +303,20 @@ function compact(text: string): string {
 	return text.toLowerCase().replace(/\s+/g, '');
 }
 
-/** Plain text of at most `maxLength` characters, on one line, without control characters or markup. */
+/**
+ * Plain text of at most `maxLength` characters, on one line, without control
+ * characters or markup. Characters are counted as the provider service counts
+ * them, so that a name it kept is kept whole, and a longer one is cut between
+ * characters, never between the halves of one.
+ */
 function plainText(value: string, maxLength: number): string {
 	const text = value.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-	return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+	const characters = [...text];
+	return characters.length > maxLength ? `${characters.slice(0, maxLength - 1).join('').trimEnd()}…` : text;
 }
 
 function isWebAddress(value: string): boolean {
-	if (value.length > 4096) {
+	if (value.length > MAX_SAMPLE_ADDRESS_LENGTH) {
 		return false;
 	}
 	try {

@@ -613,7 +613,10 @@ every call that needs them.
   at an address that `voicePreview` fetches from, of at most 8,192
   characters; the account's voices come first, each group in the provider's
   order; and a voice listed twice is kept once, the first time, the
-  account's before the provider's.
+  account's before the provider's. Characters are counted as Unicode
+  characters, and a cut never falls between the halves of one. The window
+  reads the answer by the same rules (`MAX_SAMPLE_ADDRESS_LENGTH` of the
+  common folder), so that it keeps every voice and sample the service kept.
 - `voicePreview` takes the access, the model, and the `sample` address of a
   listed voice, and answers the sample's bytes: from an `https` address, or
   from an `http` one on this computer only when the endpoint is on this

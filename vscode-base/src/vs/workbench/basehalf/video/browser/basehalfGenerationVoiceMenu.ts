@@ -53,7 +53,9 @@ const HOVER_GROUP = 'basehalf-video-panel';
  * its description, a play button for its sample, and a check on the card's
  * voice. Up and Down move the current voice, Enter chooses it, Space plays its
  * sample, and Escape closes the menu. It asks the provider for the voices each
- * time it opens and shows the last list meanwhile; closing it stops a sample.
+ * time it opens, and again when the provider becomes set up or moves to
+ * another region or endpoint while it is open, and shows the last list
+ * meanwhile; closing it stops a sample.
  */
 export class BaseHalfGenerationVoiceMenu extends Disposable {
 
@@ -75,6 +77,8 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 	private statusKind: 'setUp' | 'retry' | undefined;
 	private query = '';
 	private composing = false;
+	/** Where the menu last asked, or would have asked, for the voices: the provider set up or not, its region, and its endpoint. */
+	private askedOf: string;
 
 	constructor(
 		element: HTMLElement,
@@ -132,7 +136,8 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 		this._register(addDisposableListener(this.statusAction, 'click', () => this.runStatusAction()));
 		this._register(this.voices.onDidChangeVoices(() => this.render()));
 		this._register(this.voices.onDidChangeSample(() => this.renderSample()));
-		this._register(this.providerSettings.onDidChange(() => this.render()));
+		this._register(this.providerSettings.onDidChange(() => this.onDidChangeProviderSettings()));
+		this.askedOf = this.accessOf();
 		this.render();
 		this.ask();
 	}
@@ -149,6 +154,7 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 		this.target = target;
 		this.render();
 		if (otherModel) {
+			this.askedOf = this.accessOf();
 			this.ask();
 		}
 	}
@@ -157,6 +163,27 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 		// Closing the menu stops its sample.
 		this.voices.stopSample();
 		super.dispose();
+	}
+
+	/** Whether the provider is set up, its region, and its endpoint: what the list of voices the menu asks for depends on. */
+	private accessOf(): string {
+		const status = this.providerSettings.getStatus(this.target.provider);
+		return JSON.stringify([status.setUp, status.region.id, status.endpoint]);
+	}
+
+	/**
+	 * The settings of a provider changed, perhaps in another window: when the
+	 * menu's provider became set up, or moved to another region or endpoint,
+	 * while the menu is open, the menu asks for its voices there, and says
+	 * that they load until they come.
+	 */
+	private onDidChangeProviderSettings(): void {
+		const access = this.accessOf();
+		if (access !== this.askedOf) {
+			this.askedOf = access;
+			this.ask();
+		}
+		this.render();
 	}
 
 	/** The menu asks the provider for the voices each time it opens, when the provider lists them and is set up. */

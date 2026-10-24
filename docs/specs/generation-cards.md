@@ -944,8 +944,10 @@ From top to bottom:
        card's does ([The player](#the-player)): the window decodes the
        bytes and plays them itself, since it plays no address of a
        provider. While the sample loads or plays, the button stops it. One
-       sound plays at a time: playing another sample, closing
-       the menu, or a card's video or sound that starts stops it, and a
+       sound plays at a time: playing another sample, closing the menu, or
+       a card's video or sound that starts with its sound, or whose sound is
+       turned on while it plays, stops it; a video that plays without sound,
+       as a card's video does while the pointer is over it, does not. A
        sample that starts pauses what plays on the canvas. A sample that
        cannot be fetched or played says why under the search field, "The
        sample of <voice> could not be played: <reason>", until another one
@@ -953,7 +955,10 @@ From top to bottom:
        last one stopped.
      - The menu asks the provider for the voices each time it opens, and
        shows the last list it has meanwhile, or the catalog's voices with
-       "Loading voices…" when it has none yet. When the provider is not set
+       "Loading voices…" when it has none yet. It asks again when, while it
+       is open, the provider becomes set up or its region or endpoint
+       changes, in this window or another, and says "Loading voices…" until
+       the list of the region comes. When the provider is not set
        up, it shows the catalog's voices and "Set up <provider> to choose
        from all of its voices and your own." with **Set Up**, which opens
        Providers at the provider. When the list cannot be loaded, it shows
@@ -965,9 +970,13 @@ From top to bottom:
      - A voice that the card has and that no list names, as one of another
        account or one deleted since, shows at the top of Voices by its id,
        and is sent as it is; the provider says whether it knows it. Once a
-       list of the account has come, its second line says "Not among the
-       voices of this account."; before, it has none, since the account may
-       have it.
+       whole list of the account has come, its second line says "Not among
+       the voices of this account."; before, and when the list was cut at
+       2,000 voices, it has none, since the account may have it, also
+       beyond the first 2,000.
+     - The menu shows the voices as the provider service answers them: a
+       sample at an address of up to 8,192 characters, and a name and a
+       description cut, where the service cuts them, between characters.
      - Up and Down move through the voices from the search field, Enter
        chooses the current one, Space plays its sample or stops it, and
        Escape closes the menu. The menu starts at the card's voice, and a
@@ -2192,13 +2201,17 @@ Audio cards (D78)
     voice; another model of the same provider keeps it.
 84. A voice's play button plays its sample, the sound coming up and going
     down; playing another sample or closing the menu stops it, and it pauses
-    a video that plays on the canvas.
+    a video that plays on the canvas. A video that starts with its sound
+    stops it; the preview of a video under the pointer, which plays without
+    sound, does not.
 85. With the provider not set up, the voice menu lists the catalog's voices
     and says "Set up <provider> to choose from all of its voices and your
-    own." with Set Up, which opens Providers at the provider; with a list
-    that cannot be loaded, it lists the catalog's voices with the reason and
-    Try Again; a voice the card has that no list names shows by its id with
-    "Not among the voices of this account."
+    own." with Set Up, which opens Providers at the provider; once the
+    provider is set up while the menu is open, the menu says "Loading
+    voices…" and asks for the voices. With a list that cannot be loaded, it
+    lists the catalog's voices with the reason and Try Again; a voice the
+    card has that no list names shows by its id with "Not among the voices
+    of this account.", unless the list was cut at 2,000.
 86. A note connected to a speech draft is spoken without its name: the
     prompt `@[notes/intro.md]` with a note that says `Welcome to the coast.`
     is sent as `Welcome to the coast.`; a second connected note that the
@@ -2289,9 +2302,13 @@ Audio cards (D78)
   the voice menu with a fake provider service and a test audio graph: the
   sections, search, choosing, a sample that plays and stops, another
   sample or closing the menu stopping it, a video on the canvas that it
-  pauses and that stops it, the provider not set up, a list that fails, a
-  list cut at 2,000, a voice no list names, and the keyboard
-  (`basehalfGenerationVoiceMenu.test.ts`); the voice and "Song 1 of 2" in
+  pauses and that stops it, the provider not set up, and set up or moved to
+  another region while the menu is open, a list that fails, a list cut at
+  2,000, a voice no list names, also in a list cut at 2,000, the samples
+  and names the window keeps, and the keyboard
+  (`basehalfGenerationVoiceMenu.test.ts`); a sample that a video playing
+  without sound leaves playing and one with sound stops
+  (`basehalfCanvasCardMedia.test.ts`); the voice and "Song 1 of 2" in
   the panel of a card with its file (`basehalfGenerationRecordPresentation.test.ts`,
   `basehalfGenerationRecordPanel.test.ts`); New Audio
   (`basehalfGenerationCardActions.test.ts`); several songs, a sound that
