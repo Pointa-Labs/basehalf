@@ -178,3 +178,18 @@ it over:
   not registered in `MenuId.LayoutControlMenu`,
   `MenuId.MenubarAppearanceMenu`, or `MenuId.LayoutControlMenuSubmenu`, and
   its two layout icons are gone. The command keeps Cmd+J.
+
+## The location in the title bar (2026-07-12, revised 2026-10-24)
+
+BaseHalf's own change. See public decision D73 and
+`docs/specs/title-bar-location.md`. An update of the whole tree has to
+carry it over:
+
+- `src/vs/workbench/browser/parts/titlebar/commandCenterControl.ts`: while
+  a canvas or Card Detail is shown, the command center's quick pick item
+  draws the path and a magnifier. A click on it opens the search except on
+  a folder button or "…", a press on a button inside it leaves the keyboard
+  where it was, and only Enter and Space on those buttons are kept from the
+  action bar.
+- `src/vs/workbench/browser/parts/titlebar/media/titlebarpart.css`: the
+  rules of `basehalf-location-mode` and `basehalf-command-center-*`.

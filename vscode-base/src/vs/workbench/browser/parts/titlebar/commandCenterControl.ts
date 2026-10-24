@@ -3,7 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { addDisposableListener, EventLike, EventType, isActiveDocument, reset } from '../../../../base/browser/dom.js';
+import { addDisposableListener, EventHelper, EventType, isActiveDocument, reset } from '../../../../base/browser/dom.js';
+import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
 import { BaseActionViewItem, IBaseActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
 import { getDefaultHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegateFactory.js';
 import { IHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegate.js';
@@ -11,6 +12,7 @@ import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js'
 import { IAction, SubmenuAction } from '../../../../base/common/actions.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
+import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { autorun } from '../../../../base/common/observable.js';
 import { basename, joinPath } from '../../../../base/common/resources.js';
@@ -192,17 +194,9 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 
 					return this._instaService.createInstance(class CommandCenterQuickPickItem extends BaseActionViewItem {
 						private readonly renderDisposables = this._store.add(new MutableDisposable<DisposableStore>());
-						private breadcrumbMode = false;
 
 						constructor() {
 							super(undefined, action, options);
-						}
-
-						override onClick(event: EventLike, preserveFocus = false): void {
-							if (this.breadcrumbMode) {
-								return;
-							}
-							super.onClick(event, preserveFocus);
 						}
 
 							override render(container: HTMLElement): void {
@@ -230,7 +224,6 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 						private renderContents(container: HTMLElement): void {
 							const disposables = new DisposableStore();
 							this.renderDisposables.value = disposables;
-							this.breadcrumbMode = false;
 							const breadcrumbs = that._canvasNavigationService.isSurfaceActive
 									? baseHalfTitleBreadcrumbs(that._canvasNavigationService.state)
 									: [];
@@ -255,23 +248,28 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 							}
 
 						private renderBreadcrumbs(container: HTMLElement, entries: readonly IBaseHalfTitleBreadcrumb[], disposables: DisposableStore): void {
-							this.breadcrumbMode = true;
 							container.role = 'group';
 								container.setAttribute('aria-label', localize('basehalf.locationAndSearch', "Location and workspace search"));
 								container.removeAttribute('aria-description');
 								container.classList.add('basehalf-location-mode', 'compact-mode');
 
+							// BaseHalf: a press and a click on the path that no button inside it takes
+							// (the current place, a chevron, the room around them) are the box's own:
+							// the press keeps the keyboard where it was, and the click opens the search
+							// (docs/specs/title-bar-location.md, D73).
 							const path = document.createElement('div');
 							path.className = 'basehalf-command-center-breadcrumbs';
-							disposables.add(addDisposableListener(path, EventType.MOUSE_DOWN, event => event.stopPropagation()));
-							disposables.add(addDisposableListener(path, EventType.CLICK, event => {
-								event.preventDefault();
-								event.stopPropagation();
-							}));
-							// The ActionBar listens above this item and otherwise treats Enter or
-							// Space anywhere in the breadcrumb group as the parent Quick Open action.
-							disposables.add(addDisposableListener(container, EventType.KEY_DOWN, event => event.stopPropagation()));
-							disposables.add(addDisposableListener(container, EventType.KEY_UP, event => event.stopPropagation()));
+							// The ActionBar listens above this item and treats Enter or Space as the
+							// Quick Open action. On a button inside the box they are that button's
+							// only; every other key goes on, so that shortcuts work in the box.
+							for (const type of [EventType.KEY_DOWN, EventType.KEY_UP]) {
+								disposables.add(addDisposableListener(container, type, event => {
+									const keyboardEvent = new StandardKeyboardEvent(event);
+									if (event.target !== container && (keyboardEvent.equals(KeyCode.Enter) || keyboardEvent.equals(KeyCode.Space))) {
+										event.stopPropagation();
+									}
+								}));
+							}
 								const displayEntries: Array<IBaseHalfTitleBreadcrumb | readonly IBaseHalfTitleBreadcrumb[]> = entries.length <= 4
 									? [...entries]
 									: [entries[0], entries.slice(1, -2), ...entries.slice(-2)];
@@ -298,7 +296,8 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 								const searchLabel = this.getTooltip() ?? localize('basehalf.searchWorkspace', "Search workspace");
 								search.setAttribute('aria-label', searchLabel);
 								disposables.add(that._hoverService.setupDelayedHover(search, { content: searchLabel }));
-								disposables.add(addDisposableListener(search, EventType.MOUSE_DOWN, event => event.stopPropagation()));
+								// BaseHalf: a press on a button in the box leaves the keyboard where it was (D73).
+								disposables.add(addDisposableListener(search, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
 								// BaseHalf: the path shows nothing more under the pointer, and the search button only its name:
 								// the hover of the whole location, which names its search, does not show over them (D65).
 								for (const element of [path, search]) {
@@ -326,7 +325,7 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 								const button = element as HTMLButtonElement;
 								button.type = 'button';
 								button.setAttribute('aria-label', localize('basehalf.openFolderCanvas', "Open {0} canvas", entry.path));
-								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => event.stopPropagation()));
+								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
 								disposables.add(addDisposableListener(button, EventType.CLICK, event => {
 									event.preventDefault();
 									event.stopPropagation();
@@ -344,7 +343,7 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 								const overflowLabel = localize('basehalf.showParentFolders', "Show parent folders");
 								button.setAttribute('aria-label', overflowLabel);
 								disposables.add(that._hoverService.setupDelayedHover(button, { content: overflowLabel }));
-								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => event.stopPropagation()));
+								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
 								disposables.add(addDisposableListener(button, EventType.CLICK, event => {
 									event.preventDefault();
 									event.stopPropagation();
