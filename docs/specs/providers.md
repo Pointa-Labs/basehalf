@@ -342,6 +342,11 @@ under the extension of its format, as an image does.
 A speech model speaks in one voice, its `voice` parameter. The catalog
 declares the voices every account of the provider has, at least the
 model's default, so that a draft has a voice before anything is asked. A
+provider that speaks in a voice of its own when a request names none may
+declare that voice as the default, an option whose value the module leaves
+out of the request (Fish Audio). Where no voice is in every account, the
+catalog declares those that the most accounts can use, and the provider's
+specification says which accounts cannot (ElevenLabs). A
 provider whose API lists voices answers, through the `voices` call
 ([Requests](#requests)), its own voices and those of the user's account:
 the voices the user cloned, designed, or saved in the provider's app. Each
