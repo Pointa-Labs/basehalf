@@ -3,7 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { isHighSurrogate } from '../../../../base/common/strings.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
+import { baseHalfSpokenNoteText, isBaseHalfMarkdownNotePath } from './basehalfGenerationSpokenText.js';
 import { BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH, BaseHalfVideoPromptPart, IBaseHalfVideoInputPlanItem, IBaseHalfVideoPromptInput } from './basehalfVideoCatalog.js';
 
 /**
@@ -243,6 +245,10 @@ export interface IBaseHalfPromptPartsOptions {
  * note stands for the note's text, in its place, as often as it is
  * mentioned, and the text of each connected note that the prompt does not
  * mention follows the prompt, in order, after a blank line, without names.
+ * A Markdown note's text is then its plain text, as a reader of its card says
+ * it (`baseHalfSpokenNoteText`); the card's own prompt is sent as typed.
+ *
+ * A note adds at most 16 KiB, cut between characters.
  */
 export function buildBaseHalfPromptParts(
 	prompt: string,
@@ -288,10 +294,17 @@ export function buildBaseHalfPromptParts(
 	};
 	let unconnected: string | undefined;
 	const spokenOrSung = options.spokenOrSung === true;
-	// The text a note adds: its head of at most 16 KiB, without the spaces around it.
+	// The text a note adds: its head of at most 16 KiB, cut between characters, without the spaces around it;
+	// in a prompt that is spoken or sung, a Markdown note's text as a reader of its card says it.
+	const noteTexts = new Map<number, string>();
 	const noteText = (index: number) => {
-		const value = textOf(plan[index], index) ?? '';
-		return (value.length > BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH ? value.slice(0, BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH) : value).trim();
+		let text = noteTexts.get(index);
+		if (text === undefined) {
+			const head = textHead(textOf(plan[index], index) ?? '', BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH);
+			text = (spokenOrSung && isBaseHalfMarkdownNotePath(plan[index].path) ? textHead(baseHalfSpokenNoteText(head), BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH) : head).trim();
+			noteTexts.set(index, text);
+		}
+		return text;
 	};
 	/** The notes that a spoken or sung prompt says in place: they do not follow it again. */
 	const said = new Set<number>();
@@ -338,6 +351,14 @@ export function buildBaseHalfPromptParts(
 		...(unconnected !== undefined ? { unconnected } : {}),
 		empty: parts.length === 0
 	});
+}
+
+/** The head of a text of at most `max` UTF-16 units, cut between characters: never between the two units of one. */
+function textHead(text: string, max: number): string {
+	if (text.length <= max) {
+		return text;
+	}
+	return text.slice(0, isHighSurrogate(text.charCodeAt(max - 1)) ? max - 1 : max);
 }
 
 //#endregion

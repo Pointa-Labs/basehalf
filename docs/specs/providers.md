@@ -312,7 +312,7 @@ provider module maps it to its provider's field and value.
 | `negative_prompt` | text, optional, advanced | | what the result should not show |
 | `prompt_extend` | boolean | | the provider rewrites or extends the prompt before it generates |
 | `watermark` | boolean, advanced | | the provider marks the result as made by AI |
-| `voice` | voice | the provider's voice ids | the voice a speech model speaks in |
+| `voice` | voice | the provider's voice ids; an id belongs to its provider, so choosing a model of another provider keeps a voice only when the new model declares it among its voices, and gives it the new model's default otherwise, while a model of the same provider keeps it | the voice a speech model speaks in |
 | `speed` | number | from 0.5 to 2 in steps of 0.05, 1 being the voice's own pace; a narrower range where the provider has one | how fast the voice speaks |
 | `instrumental` | boolean | | music without singing |
 | `style` | text, optional | | the style of the music in `lyrics` mode, where the prompt is the lyrics |
@@ -672,8 +672,8 @@ module writes the names:
   `audios` with the input's place among them, from 0. The window has written
   the notes already: a mention of a note is its name in double quotes, and
   the notes' texts follow under their names; in a prompt that is spoken or
-  sung, the mention is the note's text itself, and the other notes' texts
-  follow without their names
+  sung, the mention is the note's text itself, a Markdown note's plain text
+  without its marks, and the other notes' texts follow without their names
   ([generation cards, Inputs](generation-cards.md#inputs)). A prompt that
   mentions nothing may be sent as one string.
 - A mention of an input that the request does not send is refused, and so is
@@ -779,7 +779,8 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
    page, the model menu, and `--list-capabilities`.
 2. Every control of the settings is drawn from the selected model's
    declarations, and changing the model keeps every value the new model
-   accepts and gives the others the new model's defaults.
+   accepts and gives the others the new model's defaults; a voice of
+   another provider is kept only when the new model declares it.
 3. A provider is set up with its region and credentials; the credentials are
    in no workspace file, no page markup, and no log.
 4. `check` reports, before anything is written, a missing required input, too

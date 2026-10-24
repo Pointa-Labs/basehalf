@@ -412,7 +412,7 @@ export type BaseHalfAgentCapabilityDiscoveryJsonValue = null | boolean | number 
 export const BASEHALF_AGENT_DISCOVERY_GENERATION_EXTENSIONS = Object.freeze({
 	image: Object.freeze(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.bmp'] as const),
 	video: Object.freeze(['.mp4', '.mov', '.m4v', '.webm'] as const),
-	audio: Object.freeze(['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg'] as const)
+	audio: Object.freeze(['.mp3', '.wav', '.flac', '.m4a', '.ogg'] as const)
 });
 
 /** Where a card's card information is, for the card at `<path>` relative to the workspace folder. */

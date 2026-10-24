@@ -172,7 +172,7 @@ const DIRECT_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.p
 const DIRECT_IMAGE_FORMATS: Readonly<Record<string, BaseHalfVideoImageFormat>> = Object.freeze({ '.png': 'png', '.jpg': 'jpeg', '.jpeg': 'jpeg', '.webp': 'webp' });
 const RASTER_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp' });
 const VIDEO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v', '.webm': 'video/webm' });
-const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac' });
+const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.flac': 'audio/flac' });
 
 const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'balance', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'notImage', 'notAudio', 'tooLarge', 'unknownProvider', 'exists']);
 

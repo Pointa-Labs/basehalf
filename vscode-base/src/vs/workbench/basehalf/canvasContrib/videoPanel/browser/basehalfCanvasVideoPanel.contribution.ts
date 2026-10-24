@@ -19,6 +19,7 @@ import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseH
 import { baseHalfCanvasChildPath } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
+import { BASEHALF_VIDEO_INPUT_EXTENSIONS } from '../../../video/common/basehalfVideoCatalog.js';
 import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../../video/browser/basehalfGenerationRecordPanel.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../video/browser/basehalfVideoNodePanel.js';
 
@@ -289,7 +290,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			openLabel: localize('basehalf.canvas.video.importInputButton', "Import"),
 			filters: [{
 				name: localize('basehalf.canvas.video.importInputFilter', "Images, Videos, Audio, and Text"),
-				extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'md', 'markdown', 'txt']
+				extensions: Object.values(BASEHALF_VIDEO_INPUT_EXTENSIONS).flat()
 			}]
 		});
 		const source = picked?.[0];

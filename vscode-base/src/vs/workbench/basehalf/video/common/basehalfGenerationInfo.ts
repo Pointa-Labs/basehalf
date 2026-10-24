@@ -45,11 +45,14 @@ import {
 /** What a generation card makes: an image, a video, or a sound (D64, D78). A card offers the models of its kind. */
 export type BaseHalfGenerationKind = BaseHalfModelKind;
 
-/** The extensions a card of each kind may have, lower case, without the dot. */
+/**
+ * The extensions a card of each kind may have, lower case, without the dot.
+ * A sound's are those BaseHalf lands a generated sound under and plays.
+ */
 export const BASEHALF_GENERATION_EXTENSIONS: Readonly<Record<BaseHalfGenerationKind, readonly string[]>> = Object.freeze({
 	image: Object.freeze(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp']),
 	video: Object.freeze(['mp4', 'mov', 'm4v', 'webm']),
-	audio: Object.freeze(['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg'])
+	audio: Object.freeze(['mp3', 'wav', 'flac', 'm4a', 'ogg'])
 });
 
 /** The kinds of generation cards, in the order the canvas offers them. */
@@ -140,7 +143,7 @@ export function baseHalfGenerationDraftNameRule(kind: BaseHalfGenerationKind): s
 	switch (kind) {
 		case 'image': return localize('basehalf.generation.name.imageDraft', "An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.");
 		case 'video': return localize('basehalf.generation.name.videoDraft', "A video card needs a name that ends in .mp4, .mov, .m4v, or .webm.");
-		case 'audio': return localize('basehalf.generation.name.audioDraft', "An audio card needs a name that ends in .mp3, .wav, .flac, .m4a, .aac, or .ogg.");
+		case 'audio': return localize('basehalf.generation.name.audioDraft', "An audio card needs a name that ends in .mp3, .wav, .flac, .m4a, or .ogg.");
 	}
 }
 

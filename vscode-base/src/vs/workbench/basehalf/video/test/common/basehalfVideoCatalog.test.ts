@@ -45,6 +45,7 @@ import {
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoGenerateBlockerInput,
+	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoInputSource,
 	IBaseHalfVideoNumberParameter,
@@ -281,11 +282,14 @@ suite('BaseHalfVideoCatalog', () => {
 		assert.deepStrictEqual({
 			note: stripBaseHalfMarkdownFrontMatter('﻿---\nupstream:\n  - brief.md\n---\n# Scene\n\nThe sea at dusk.\n'),
 			noFrontMatter: stripBaseHalfMarkdownFrontMatter('# Title\n---\nnot front matter\n---\n'),
-			kinds: ['a.PNG', 'b.webm', 'c.flac', 'd.markdown', 'e.pdf', 'folder'].map(baseHalfVideoInputKindOfPath)
+			kinds: ['a.PNG', 'b.webm', 'c.flac', 'd.markdown', 'e.pdf', 'folder'].map(baseHalfVideoInputKindOfPath),
+			// The sounds the window shows as sounds, an Ogg as .oga too, and AAC.
+			sounds: ['a.mp3', 'b.wav', 'c.m4a', 'd.ogg', 'e.OGA', 'f.flac', 'g.aac', 'h.opus'].map(baseHalfVideoInputKindOfPath)
 		}, {
 			note: '# Scene\n\nThe sea at dusk.\n',
 			noFrontMatter: '# Title\n---\nnot front matter\n---\n',
-			kinds: ['image', 'video', 'audio', 'text', 'other', 'other']
+			kinds: ['image', 'video', 'audio', 'text', 'other', 'other'],
+			sounds: ['audio', 'audio', 'audio', 'audio', 'audio', 'audio', 'audio', 'other']
 		});
 	});
 
@@ -723,6 +727,47 @@ suite('BaseHalfVideoCatalog', () => {
 				rule: [true, false, false, false],
 				closed: [true, false],
 				refused: [undefined, 'Dunlin Voice does not accept "" for Voice.']
+			});
+		});
+
+		test('a voice belongs to its provider: a model of another provider keeps it only among its own voices and otherwise speaks in its default; a model of the same provider keeps it', () => {
+			// A second provider whose speech model lists voices too, as ElevenLabs, Fish Audio, and MiniMax do; it declares one of Dunlin's ids as well.
+			const egretVoice: IBaseHalfVideoCatalogModel = {
+				...DUNLIN_VOICE,
+				id: 'egret-voice',
+				label: 'Egret Voice',
+				providerModels: { main: 'egret-1' },
+				parameters: [
+					{ name: 'voice', label: 'Voice', kind: 'voice', default: 'eg-default', listed: true, options: [{ value: 'eg-default', label: 'Egret Default' }, { value: 'vx-sable', label: 'Sable' }] },
+					{ name: 'speed', label: 'Speed', kind: 'number', min: 0.5, max: 2, step: 0.05, default: 1 }
+				]
+			};
+			// Dunlin's second speech model, to choose within one provider.
+			const lite: IBaseHalfVideoCatalogModel = { ...DUNLIN_VOICE, id: 'dunlin-voice-lite', label: 'Dunlin Voice Lite', providerModels: { main: 'voice-lite-1' } };
+			const { catalog, problems } = parseBaseHalfVideoCatalog({ schema: 1, providers: [{ ...DUNLIN, models: [DUNLIN_VOICE, lite] }, { ...DUNLIN, id: 'egret', label: 'Egret Speech', models: [egretVoice] }] });
+			const chosen = (generation: IBaseHalfVideoGenerationChoice, provider: string, model: string) => baseHalfVideoChooseModel(generation, findBaseHalfVideoModel(catalog, provider, model)!).params;
+			const dunlinWith = (voice: string) => ({ provider: 'dunlin', model: 'dunlin-voice', mode: 'reference' as const, params: { voice, speed: 1.25 } });
+			assert.deepStrictEqual({
+				problems,
+				// A voice of Dunlin's account, and one of its own, which Egret does not declare: Egret speaks in its default, and the speed stays.
+				accountToOther: chosen(dunlinWith('own-narrator'), 'egret', 'egret-voice'),
+				ownToOther: chosen(dunlinWith('vx-pike'), 'egret', 'egret-voice'),
+				// Egret's default is no voice of Dunlin's, though Dunlin lists voices and takes any id.
+				back: chosen({ provider: 'egret', model: 'egret-voice', mode: 'reference', params: { voice: 'eg-default' } }, 'dunlin', 'dunlin-voice'),
+				// A voice that the other model declares too is kept.
+				shared: chosen(dunlinWith('vx-sable'), 'egret', 'egret-voice'),
+				// Within one provider, the account's voice stays.
+				sameProvider: chosen(dunlinWith('own-narrator'), 'dunlin', 'dunlin-voice-lite'),
+				// A card without a provider has no voice of the new provider's.
+				noProvider: chosen({ model: 'dunlin-voice', params: { voice: 'own-narrator' } }, 'dunlin', 'dunlin-voice')
+			}, {
+				problems: [],
+				accountToOther: { voice: 'eg-default', speed: 1.25 },
+				ownToOther: { voice: 'eg-default', speed: 1.25 },
+				back: { voice: 'vx-ember', speed: 1 },
+				shared: { voice: 'vx-sable', speed: 1.25 },
+				sameProvider: { voice: 'own-narrator', speed: 1.25 },
+				noProvider: { voice: 'vx-ember', speed: 1 }
 			});
 		});
 
