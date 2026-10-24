@@ -1240,8 +1240,6 @@ export function readCardToolbar(page) {
 		return toolbar ? {
 			path: toolbar.getAttribute('data-node-path'),
 			media: toolbar.getAttribute('data-media'),
-			surface: toolbar.getAttribute('data-video-surface'),
-			draft: toolbar.classList.contains('basehalf-video-draft-toolbar'),
 			actions: Array.from(toolbar.querySelectorAll('[data-video-action]')).map(button => button.getAttribute('data-video-action')),
 			labels: Array.from(toolbar.querySelectorAll('[data-video-action]')).map(button => button.getAttribute('aria-label'))
 		} : null;

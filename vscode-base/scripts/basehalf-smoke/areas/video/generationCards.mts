@@ -435,8 +435,8 @@ async function assertCreatedCardInSight(page, row, viewBefore, what) {
 // focused with no ring, a `generation.yaml` with an empty prompt and no model,
 // no file, and nothing in Files; the card is in sight, and the view moves only
 // when the view as it was had no open place for it; with no model Generate is
-// disabled and says why, also in its tooltip; the toolbar offers Upload
-// Video. Undo takes the draft back with its place, and redo brings it back.
+// disabled and says why, also in its tooltip; no toolbar shows above it
+// (D71). Undo takes the draft back with its place, and redo brings it back.
 async function assertNewVideoMakesDraft(page) {
 	await videoSmokeProvider();
 	createGenerationSmokeFolder();
@@ -474,9 +474,11 @@ async function assertNewVideoMakesDraft(page) {
 	if (shown.kind !== 'video' || shown.generate.label !== 'Choose a model to generate.' || shown.model !== 'Choose Model' || !shown.modelOutlined || shown.generate.stop || shown.reason !== null) {
 		throw new Error(`Without a model, Generate must say so as its name and the model button must be outlined: ${JSON.stringify(shown)}`);
 	}
-	const toolbar = await waitForReading(() => readCardToolbar(page), seen => seen?.path === VIDEO, 'the toolbar of the selected draft');
-	if (!toolbar.draft || toolbar.media !== 'video' || toolbar.surface !== 'empty' || JSON.stringify(toolbar.actions) !== JSON.stringify(['importResult']) || toolbar.labels[0] !== 'Upload Video') {
-		throw new Error(`The toolbar of a selected video draft must offer Upload Video: ${JSON.stringify(toolbar)}`);
+	// Criterion 48: what a draft takes is added from its panel; no Upload Video above it.
+	await page.waitForTimeout(400);
+	const toolbar = await readCardToolbar(page);
+	if (toolbar !== null) {
+		throw new Error(`A selected video draft must show no toolbar: ${JSON.stringify(toolbar)}`);
 	}
 	await panel.locator('button.bh-video-panel-generate').hover();
 	await page.locator('.workbench-hover', { hasText: 'Choose a model to generate.' }).waitFor({ state: 'visible', timeout: 10_000 });
@@ -591,8 +593,7 @@ async function assertPromptSavesWithoutDialog(page) {
 
 // Criterion 2 for images: New Image makes a draft named `image.png`, since no
 // image model was used, drawn square, the ratio of an image without a model,
-// with its panel and
-// the toolbar's Upload Image.
+// with its panel and no toolbar (D71).
 async function assertNewImageMakesDraft(page) {
 	await clickCanvasCreateAction(page, 'New Image');
 	await waitUntil(() => readGenerationInfo(IMAGE) !== undefined, `New Image to make the draft ${IMAGE}`, 20_000);
@@ -611,9 +612,11 @@ async function assertNewImageMakesDraft(page) {
 	if (shown.kind !== 'image' || shown.generate?.label !== 'Choose a model to generate.') {
 		throw new Error(`The panel of an image draft must be one of an image card without a model: ${JSON.stringify(shown)}`);
 	}
-	const toolbar = await waitForReading(() => readCardToolbar(page), seen => seen?.path === IMAGE, 'the toolbar of the selected image draft');
-	if (!toolbar.draft || toolbar.media !== 'image' || JSON.stringify(toolbar.actions) !== JSON.stringify(['importResult']) || toolbar.labels[0] !== 'Upload Image') {
-		throw new Error(`The toolbar of a selected image draft must offer Upload Image: ${JSON.stringify(toolbar)}`);
+	// Criterion 48: no Upload Image above an image draft either.
+	await page.waitForTimeout(400);
+	const toolbar = await readCardToolbar(page);
+	if (toolbar !== null) {
+		throw new Error(`A selected image draft must show no toolbar: ${JSON.stringify(toolbar)}`);
 	}
 	await clickBlankCanvas(page);
 }
@@ -1154,13 +1157,22 @@ async function assertInputBoxButtons(page) {
 		const actions = Array.from(element.querySelectorAll('.bh-input-row-action'));
 		return {
 			plus: element.querySelectorAll('.bh-input-row-add').length,
-			buttons: actions.map(button => ({ key: button.getAttribute('data-key'), name: button.getAttribute('aria-label'), top: Math.round(button.getBoundingClientRect().top - top), pressed: button.getAttribute('aria-pressed') })),
-			right: actions.length ? Math.round(right - actions.at(-1).getBoundingClientRect().right) : null
+			buttons: actions.map(button => ({ key: button.getAttribute('data-key'), name: button.getAttribute('aria-label'), top: Math.round(button.getBoundingClientRect().top - top), pressed: button.getAttribute('aria-pressed'), icon: Array.from(button.querySelector('.codicon')?.classList ?? []).find(name => name.startsWith('codicon-') && name !== 'codicon') ?? null })),
+			right: actions.length ? Math.round(right - actions.at(-1).getBoundingClientRect().right) : null,
+			// No control of the card shows a cloud: nothing is uploaded anywhere.
+			clouds: element.ownerDocument.querySelectorAll('.bh-video-panel .codicon-cloud-upload, .basehalf-video-context-toolbar .codicon-cloud-upload').length,
+			toolbar: element.ownerDocument.querySelectorAll('.basehalf-video-context-toolbar').length
 		};
 	});
-	const expectedCorner = { plus: 0, buttons: [{ key: 'pick', name: 'Pick on Canvas', top: 0, pressed: 'false' }, { key: 'import', name: 'Import File…', top: 0, pressed: null }], right: 0 };
+	const expectedCorner = {
+		plus: 0,
+		buttons: [{ key: 'pick', name: 'Pick on Canvas', top: 0, pressed: 'false', icon: 'codicon-inspect' }, { key: 'import', name: 'Import File…', top: 0, pressed: null, icon: 'codicon-attach' }],
+		right: 0,
+		clouds: 0,
+		toolbar: 0
+	};
 	if (canonicalJson(corner) !== canonicalJson(expectedCorner)) {
-		throw new Error(`Pick on Canvas and Import File… must be two buttons at the panel's top right, and the row must have no plus: ${JSON.stringify(corner)}`);
+		throw new Error(`Pick on Canvas and Import File…, with the paperclip, must be two buttons at the panel's top right, with no plus, no cloud, and no toolbar above the draft: ${JSON.stringify(corner)}`);
 	}
 	await panel.locator(PICK_BUTTON).hover();
 	await page.locator('.workbench-hover', { hasText: 'Pick on Canvas' }).waitFor({ state: 'visible', timeout: 10_000 });
@@ -1456,7 +1468,7 @@ async function generateAndLandVideo(page, provider) {
 async function assertCardDetailShowsWhatMadeIt(page) {
 	await selectGenerationCard(page, VIDEO);
 	const toolbar = await waitForReading(() => readCardToolbar(page), seen => seen?.path === VIDEO && seen.actions.length > 1, 'the toolbar of the card with its video');
-	if (JSON.stringify(toolbar.actions) !== JSON.stringify(['captureFrame', 'revealVideo', 'openFullPreview']) || toolbar.media !== 'video' || toolbar.surface !== 'video' || toolbar.draft) {
+	if (JSON.stringify(toolbar.actions) !== JSON.stringify(['captureFrame', 'revealVideo', 'openFullPreview']) || toolbar.media !== 'video') {
 		throw new Error(`The toolbar of a card with its video must offer Capture Frame, Reveal, and Open: ${JSON.stringify(toolbar)}`);
 	}
 	await page.locator('.basehalf-video-context-toolbar [data-video-action="openFullPreview"]').click();
