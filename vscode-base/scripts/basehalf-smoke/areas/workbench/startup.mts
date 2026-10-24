@@ -18,7 +18,7 @@ import {
 	readBhTree
 } from '../../fixture.mts';
 import { readCanvasCardGeometry, readCanvasCardPlaces } from '../../lib/canvas.mts';
-import { runCommand } from '../../lib/quickInput.mts';
+import { runCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 import { readLayoutControls } from '../../lib/workbench.mts';
 
 export async function assertNewWindowBaseHalfWelcome(application, workspacePage) {
@@ -154,6 +154,62 @@ export async function assertBaseHalfRootTitlebarBreadcrumb(page) {
 		throw new Error('The workspace root is not the current breadcrumb segment');
 	}
 	await page.locator('.basehalf-command-center-search[aria-label]').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+// The location in the title bar is one button for the search, but for its
+// folders (docs/specs/title-bar-location.md). A press on it leaves the
+// keyboard where it was, and shortcuts work while the keyboard is in it.
+export async function assertTitleBarLocationOpensSearch(page) {
+	const quickInput = visibleQuickInput(page);
+	const quickOpenKey = process.platform === 'darwin' ? 'Meta+P' : 'Control+P';
+	const current = page.locator('.basehalf-command-center-breadcrumb-segment.current');
+	const search = page.locator('.basehalf-command-center-search');
+	await current.waitFor({ state: 'visible', timeout: 15_000 });
+	const opensSearch = async (what, act) => {
+		await act();
+		await quickInput.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {
+			throw new Error(`${what} did not open the search`);
+		});
+		await page.keyboard.press('Escape');
+		await quickInput.waitFor({ state: 'hidden', timeout: 10_000 });
+	};
+	const keyboard = () => page.evaluate(() => ({
+		onCanvas: !!document.activeElement?.closest('.basehalf-canvas-cards'),
+		active: `${document.activeElement?.tagName}.${document.activeElement?.className}`
+	}));
+
+	// The empty room between the current place and the magnifier.
+	const room = await page.evaluate(() => {
+		const place = document.querySelector('.basehalf-command-center-breadcrumb-segment.current').getBoundingClientRect();
+		const magnifier = document.querySelector('.basehalf-command-center-search').getBoundingClientRect();
+		return { left: place.right, right: magnifier.left, y: magnifier.top + magnifier.height / 2 };
+	});
+	if (room.right - room.left < 24) {
+		throw new Error(`The location has no empty room to click: ${JSON.stringify(room)}`);
+	}
+	await page.evaluate(() => document.querySelector('.basehalf-canvas-cards').focus());
+	await opensSearch('A click in the empty room of the location', () => page.mouse.click((room.left + room.right) / 2, room.y));
+	const afterEscape = await keyboard();
+	if (!afterEscape.onCanvas) {
+		throw new Error(`Escape from the search did not give the keyboard back to the canvas: ${afterEscape.active}`);
+	}
+	await opensSearch('Quick Open after the search closed', () => page.keyboard.press(quickOpenKey));
+	await opensSearch('A click on the current place', () => current.click());
+
+	// With the keyboard on the magnifier, a shortcut works, and Enter opens
+	// the search.
+	await opensSearch('Quick Open with the keyboard on the magnifier', async () => {
+		await search.focus();
+		await page.keyboard.press(quickOpenKey);
+	});
+	await opensSearch('Enter on the magnifier', async () => {
+		await search.focus();
+		await page.keyboard.press('Enter');
+	});
+
+	// Leave the keyboard on the canvas and the pointer off the title bar.
+	await page.evaluate(() => document.querySelector('.basehalf-canvas-cards').focus());
+	await page.mouse.move(640, await page.evaluate(() => window.innerHeight - 6));
 }
 
 // Opening the workspace and rendering its first canvas write nothing under

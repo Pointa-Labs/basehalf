@@ -77,7 +77,8 @@ import {
 	assertFreshCanvasFramed,
 	assertLayoutControlAtTheLeftEnd,
 	assertNewWindowBaseHalfWelcome,
-	assertProductThemeAndCards
+	assertProductThemeAndCards,
+	assertTitleBarLocationOpensSearch
 } from './areas/workbench/startup.mts';
 import { app, opts, workspacePath } from './context.mts';
 import { commitFixtureChanges } from './fixture.mts';
@@ -120,6 +121,7 @@ async function startOnFreshCanvas(page) {
 async function runWorkbenchSuite(page) {
 	await step('new-window-basehalf-welcome', () => assertNewWindowBaseHalfWelcome(app, page));
 	await startOnFreshCanvas(page);
+	await step('title-bar-location-opens-search', () => assertTitleBarLocationOpensSearch(page));
 	await step('open-editors-hidden', () => assertOpenEditorsHidden(page));
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
 	await step('statusbar-curated', () => assertStatusBarCurated(page));

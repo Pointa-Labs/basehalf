@@ -240,28 +240,36 @@ export async function assertBaseHalfTitlebarBreadcrumbs(page) {
 	const search = page.locator('.basehalf-command-center-search[aria-label]');
 	await search.waitFor({ state: 'visible', timeout: 10_000 });
 
-	// Passive breadcrumb chrome must never bubble into the parent Quick Open
-	// action, whether activated by pointer or by the ActionBar keyboard path.
+	// The location is one button for the search, but for its folders
+	// (docs/specs/title-bar-location.md): a chevron, Enter on the location
+	// itself, and the magnifier open the search, and Card Detail stays open.
 	const quickInput = visibleQuickInput(page);
-	await current.click();
-	await quickInput.waitFor({ state: 'hidden', timeout: 1_000 });
-	await breadcrumbs.locator('.basehalf-command-center-breadcrumb-separator').first().click();
-	await quickInput.waitFor({ state: 'hidden', timeout: 1_000 });
 	const locationGroup = page.locator('.command-center-quick-pick.basehalf-location-mode');
-	await locationGroup.focus();
-	await page.keyboard.press('Enter');
-	await quickInput.waitFor({ state: 'hidden', timeout: 1_000 });
+	const opensSearch = [
+		['A click on a chevron', () => breadcrumbs.locator('.basehalf-command-center-breadcrumb-separator').first().click()],
+		['Enter on the location', async () => {
+			await locationGroup.focus();
+			await page.keyboard.press('Enter');
+		}],
+		['A click on the magnifier', () => search.click()]
+	];
+	for (const [what, act] of opensSearch) {
+		await act();
+		await quickInput.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {
+			throw new Error(`${what} did not open the search`);
+		});
+		await page.keyboard.press('Escape');
+		await quickInput.waitFor({ state: 'hidden', timeout: 10_000 });
+	}
 	await assertCardDetail(page, 'README.md');
 
-	// Search remains an explicit action inside the otherwise passive group.
-	await search.click();
-	await quickInput.waitFor({ state: 'visible', timeout: 10_000 });
-	await page.keyboard.press('Escape');
-	await quickInput.waitFor({ state: 'hidden', timeout: 10_000 });
-
+	// A folder button opens its canvas, and only that.
 	await breadcrumbs.locator('button.basehalf-command-center-breadcrumb-segment').first().click();
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
 	await page.locator('.basehalf-canvas-cards').waitFor({ state: 'visible', timeout: 15_000 });
+	if (await quickInput.isVisible()) {
+		throw new Error('The folder button of the workspace opened the search as well as its canvas');
+	}
 
 	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
 	await assertCardDetail(page, 'README.md');
