@@ -634,8 +634,15 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   (criterion 13).
 - The smoke's step of a dropped create counts the creates its provider
   received (criterion 12, second part).
-- The proxy part of criterion 12 was checked by hand, with `http.proxy` set
-  to a local proxy that logs what passes it. That the system's settings
-  reach the agent through the main process's session was read in the code.
+- The proxy part of criterion 12 was checked by hand in the window on
+  2026-10-24, with a temporary smoke step: with `http.proxy` set to a local
+  proxy that logs what passes it, and the provider's endpoint on a host that
+  only a proxy could reach, a generation's request arrived at the proxy. A
+  loopback address is always reached directly, so the check needs such a
+  host. That each request has a connection of its own, directly and through
+  a proxy, was measured in Node with the transport and the proxy agent. That
+  the system's settings reach the agent through the main process's session,
+  and that a proxy's authentication is asked of the main process, was read in
+  the code.
 - A search of the window's code for criterion 11.
 - No real provider is called by tests.
