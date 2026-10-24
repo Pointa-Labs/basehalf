@@ -145,7 +145,7 @@ choose the endpoint, so `check` answers no `providerModel`.
 | V6 | Multi-clip only without an end frame | First and Last Frame Video |
 | V6 | References need a reference image or video | Fusion |
 | V6 | without a reference video, at most 7 reference images | Fusion |
-| V6 | in Extend, the source video and the seconds added together at most 40 seconds, when the source's length is measured: answered as a limit of `duration`, up to 40 seconds minus the source's length, rounded down (D70) | Video Extend |
+| V6 | in Extend, the source video and the seconds added together at most 40 seconds, when the source's length is measured: answered as a limit of `duration`, up to 40 seconds minus the source's length, rounded down (D70); a source that leaves no room for the shortest duration is a problem | Video Extend |
 
 `check` also refuses a reference video too large for AI Video to upload in
 one request: the 128 MiB a request carries, less 64 KiB for the form around

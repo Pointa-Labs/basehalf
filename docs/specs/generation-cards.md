@@ -596,13 +596,14 @@ The settings of a draft are drawn from its model's
 far a number goes for what is connected, such as Wan 3.0, whose input videos
 and result are at most 30 seconds together. `check` answers that range with
 its reason ([check](providers.md#requests)), and the setting ends there: its
-slider or field goes no further, and a line under it says why, such as "Up to
-25 s. The connected video lasts 5.0 seconds, and Wan 3.0 makes at most 30
-seconds with it." A value beyond the range is used as its end: the summary
-shows that value, and that is what is sent and recorded. The card keeps the
-value it chose, which shows again when the inputs leave room for it, as a
-value the start frame sets does. Auto is never narrowed. Until `check` has
-answered for the inputs, the declared range shows.
+slider or field goes no further, a button beyond it is dimmed with the
+reason, and a line under it says why, such as "Up to 25s. The connected video
+lasts 5.0 seconds, and Wan 3.0 makes at most 30 seconds with it." A value
+beyond the range is used as its end: the summary shows that value, and that
+is what is sent and recorded. The card keeps the value it chose, which shows
+again when the inputs leave room for it, as a value the start frame sets
+does. Auto is never narrowed. The range follows the last answer of `check`,
+which comes a quarter of a second after the inputs or the values change.
 
 The values are the card's `params`; a parameter without a value shows its
 default, and that is what is sent. Choosing another model or mode keeps every
