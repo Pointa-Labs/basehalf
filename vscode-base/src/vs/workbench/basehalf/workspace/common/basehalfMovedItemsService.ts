@@ -1646,6 +1646,13 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				state.followed.set(baseHalfRemapSubtreeRel(path, from, to), kind);
 			}
 		}
+		// A file paired earlier in the window that moves on is where it went:
+		// the path it left is free again.
+		for (const item of state.disappeared.values()) {
+			if (item.pairedTo !== undefined && baseHalfIsMirrorSubtree(item.pairedTo, from)) {
+				item.pairedTo = baseHalfRemapSubtreeRel(item.pairedTo, from, to);
+			}
+		}
 		if (keepDisappeared) {
 			// A file that was removed lost its fingerprint to the list; the new path takes it.
 			for (const [path, item] of state.disappeared) {

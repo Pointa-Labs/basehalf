@@ -846,6 +846,37 @@ suite('BaseHalfMovedItemsService', () => {
 		});
 	});
 
+	test('a file paired in the last minute that moves on, through the workbench or outside BaseHalf, can be paired again with the path it left', async () => {
+		const recognizedBy: Record<string, string[]> = {};
+		for (const second of ['workbench', 'outside']) {
+			const fileService = await createFiles({ 'gull.png': `${PDF}gull` });
+			await describe(fileService, 'gull.png');
+			const { service, recognized } = start(fileService, true);
+			await service.whenCompared(folder);
+			// Each rename is compared before the next, and all of them well within the window.
+			const compared = () => timeout(timing.quietMs * 3);
+
+			await fileService.move(resource('gull.png'), resource('wings.png'));
+			await compared();
+			await fileService.move(resource('wings.png'), resource('sky.png'));
+			if (second === 'workbench') {
+				// The operation reports before its file events arrive, and its cascade moves the card information.
+				service.acceptWorkbenchMove(folder, 'wings.png', 'sky.png');
+				await fileService.move(joinPath(folder, '.bh', 'mirror', 'wings.png'), joinPath(folder, '.bh', 'mirror', 'sky.png'));
+			}
+			await compared();
+			await fileService.move(resource('sky.png'), resource('wings.png'));
+			await settle();
+			recognizedBy[second] = [...recognized];
+			service.dispose();
+		}
+
+		assert.deepStrictEqual(recognizedBy, {
+			workbench: ['gull.png -> wings.png [file, sameContent]', 'sky.png -> wings.png [file, sameContent]'],
+			outside: ['gull.png -> wings.png [file, sameContent]', 'wings.png -> sky.png [file, sameContent]', 'sky.png -> wings.png [file, sameContent]']
+		});
+	});
+
 	test('a move or a delete through the workbench is not a comparison, and a marked folder is never looked at', async () => {
 		const fileService = await createFiles({ 'a.md': note(5), 'b.md': note(5, [0]) });
 		await describe(fileService, 'a.md');
