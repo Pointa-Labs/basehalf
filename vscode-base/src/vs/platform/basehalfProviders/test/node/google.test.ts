@@ -1266,6 +1266,48 @@ suite('BaseHalf providers: google', () => {
 		}
 	});
 
+	test('speech whose candidate Google cut off at its output limit, or ended before its natural stop, is refused with Google\'s reason; speech without a finish reason lands (D78)', async () => {
+		const speech = [inlineAudio(tinyWav(), 'audio/wav')];
+		const gemini = await startSpeechGemini([
+			// A long text: the speech stops where the output tokens run out, before the end of the text.
+			[200, { ...speechContent(speech, { finishReason: 'MAX_TOKENS' }), usageMetadata: { promptTokenCount: 8000, candidatesTokenCount: 16384, totalTokenCount: 24384 } }],
+			[200, speechContent(speech, { finishReason: 'CONTINUATION', continuationToken: 'bW9yZQ==' })],
+			[200, speechContent(speech, { finishReason: 'OTHER', finishMessage: 'The model stopped early.' })],
+			[200, speechContent(speech, { finishReason: 'SAFETY' })],
+			[200, speechContent(speech, { finishReason: undefined })],
+			[200, speechContent(speech, { finishReason: 'FINISH_REASON_UNSPECIFIED' })]
+		]);
+		try {
+			const providers = commands();
+			const outcomes = [];
+			for (let index = 0; index < 6; index++) {
+				const request = googleAudioRequest(gemini.endpoint, TTS, { prompt: SPEECH_PROMPT });
+				const [target] = request.targets ?? [];
+				outcomes.push({ answer: value(await providers.submit(request)), written: existsSync(target), target });
+			}
+			const [cut, continued, other, safety, absent, unspecified] = outcomes;
+			assert.deepEqual({
+				refused: [cut, continued, other, safety].map(entry => ({ answer: entry.answer, written: entry.written })),
+				landed: [absent, unspecified].map(entry => ({ answer: entry.answer, written: entry.written })),
+				sent: gemini.created.length
+			}, {
+				refused: [
+					{ answer: { outputs: [{ refused: 'Google cut the speech off at its output limit, before the end of the text (MAX_TOKENS). A shorter text helps.' }] }, written: false },
+					{ answer: { outputs: [{ refused: 'Google cut the speech off at its output limit, before the end of the text (CONTINUATION). A shorter text helps.' }] }, written: false },
+					{ answer: { outputs: [{ refused: 'Google ended the speech before it was finished (OTHER): The model stopped early.' }] }, written: false },
+					{ answer: { outputs: [{ refused: 'Google ended the speech before it was finished (SAFETY).' }] }, written: false }
+				],
+				landed: [
+					{ answer: { outputs: [{ written: absent.target, size: tinyWav().byteLength, format: 'wav' }] }, written: true },
+					{ answer: { outputs: [{ written: unspecified.target, size: tinyWav().byteLength, format: 'wav' }] }, written: true }
+				],
+				sent: 6
+			});
+		} finally {
+			await gemini.close();
+		}
+	});
+
 	test('check of a speech model takes only its 30 voices, voices is refused for it, and nothing is sent for a request check refuses (D78)', async () => {
 		const gemini = await startSpeechGemini([[200, speechContent([inlineAudio(tinyWav(), 'audio/wav')])]]);
 		try {

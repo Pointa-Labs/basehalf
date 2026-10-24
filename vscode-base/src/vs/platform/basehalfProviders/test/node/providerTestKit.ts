@@ -742,12 +742,22 @@ function box(type: string, ...content: Buffer[]): Buffer {
 	return Buffer.concat([head, data]);
 }
 
+/** A track whose media handler is `handler`, such as `soun` for sound or `vide` for video: trak, tkhd, mdia, mdhd, and hdlr. */
+function isoTrack(handler: string): Buffer {
+	// A full box: version and flags, pre_defined, the handler type, three reserved words, and an empty name.
+	const fields = Buffer.alloc(4 + 4 + 4 + 12 + 1);
+	fields.write(handler, 8, 'latin1');
+	return box('trak', box('tkhd', Buffer.alloc(84)), box('mdia', box('mdhd', Buffer.alloc(24)), box('hdlr', fields)));
+}
+
 /**
  * An ISO media file whose movie header says `seconds`: ftyp, a media box first
  * when asked, then moov with mvhd. Its major brand is `isom` unless given, and
- * its compatible brands `isom`, `iso2`, and `mp41` unless given.
+ * its compatible brands `isom`, `iso2`, and `mp41` unless given. `tracks`
+ * gives the handler of each track, such as `soun` or `vide`; without it, the
+ * movie has one track that names no handler.
  */
-export function isoMedia(seconds: number, options: { readonly brand?: string; readonly compatible?: readonly string[]; readonly version?: 0 | 1; readonly mediaFirst?: boolean } = {}): Buffer {
+export function isoMedia(seconds: number, options: { readonly brand?: string; readonly compatible?: readonly string[]; readonly version?: 0 | 1; readonly mediaFirst?: boolean; readonly tracks?: readonly string[] } = {}): Buffer {
 	const timescale = 600;
 	const duration = Math.round(seconds * timescale);
 	let header: Buffer;
@@ -763,7 +773,7 @@ export function isoMedia(seconds: number, options: { readonly brand?: string; re
 	}
 	const fileType = box('ftyp', Buffer.from(`${options.brand ?? 'isom'}\0\0\x02\0${(options.compatible ?? ['isom', 'iso2', 'mp41']).join('')}`, 'latin1'));
 	const media = box('mdat', Buffer.alloc(5000, 0x11));
-	const movie = box('moov', box('mvhd', header), box('trak', Buffer.alloc(32)));
+	const movie = box('moov', box('mvhd', header), ...(options.tracks ? options.tracks.map(isoTrack) : [box('trak', Buffer.alloc(32))]));
 	return Buffer.concat(options.mediaFirst ? [fileType, media, movie] : [fileType, movie, media]);
 }
 

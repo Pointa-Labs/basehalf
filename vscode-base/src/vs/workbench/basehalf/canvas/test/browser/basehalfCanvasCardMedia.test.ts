@@ -8,7 +8,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, playBaseHalfCanvasMediaOneAtATime, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../../browser/basehalfCanvasCardMedia.js';
+import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, playBaseHalfCanvasMediaOneAtATime, playBaseHalfCanvasSoundInTurn, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../../browser/basehalfCanvasCardMedia.js';
 
 suite('BaseHalfCanvasCardMedia', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
@@ -104,6 +104,56 @@ suite('BaseHalfCanvasCardMedia', () => {
 			assert.deepStrictEqual({ own, paused: paused.slice(3) }, {
 				own: ['card video, its sound down first'],
 				paused: ['video in a note', 'card video']
+			});
+		} finally {
+			root.remove();
+		}
+	});
+
+	test('a sound that plays in turn, such as a voice\'s sample, stops for a video or a sound that starts with its sound or whose sound comes on, not for one that plays without sound, as the preview under the pointer does (D78)', () => {
+		const root = mainWindow.document.createElement('div');
+		mainWindow.document.body.appendChild(root);
+		const medium = (tag: 'video' | 'audio', muted: boolean) => {
+			const element = root.appendChild(mainWindow.document.createElement(tag));
+			const state = { playing: false, muted };
+			Object.defineProperty(element, 'paused', { configurable: true, get: () => !state.playing });
+			Object.defineProperty(element, 'muted', { configurable: true, get: () => state.muted });
+			element.play = () => {
+				state.playing = true;
+				element.dispatchEvent(new Event('play'));
+				return Promise.resolve();
+			};
+			element.pause = () => {
+				state.playing = false;
+			};
+			return { element, state };
+		};
+		try {
+			store.add(playBaseHalfCanvasMediaOneAtATime(root));
+			const stopped: string[] = [];
+			const first = store.add(playBaseHalfCanvasSoundInTurn(() => stopped.push('first sample')));
+			// The preview of a video under the pointer plays without sound: the sample goes on.
+			const preview = medium('video', true);
+			preview.element.play();
+			const whilePreview = [...stopped];
+			// Its sound turned on while it plays stops the sample.
+			preview.state.muted = false;
+			preview.element.dispatchEvent(new Event('volumechange'));
+			const soundOn = [...stopped];
+			first.dispose();
+			store.add(playBaseHalfCanvasSoundInTurn(() => stopped.push('second sample')));
+			// A video that does not play gives no sound when its sound is turned on.
+			const still = medium('video', true);
+			still.state.muted = false;
+			still.element.dispatchEvent(new Event('volumechange'));
+			const stillSoundOn = [...stopped];
+			// A sound card that starts with its sound stops the sample at once.
+			medium('audio', false).element.play();
+			assert.deepStrictEqual({ whilePreview, soundOn, stillSoundOn, stopped }, {
+				whilePreview: [],
+				soundOn: ['first sample'],
+				stillSoundOn: ['first sample'],
+				stopped: ['first sample', 'second sample']
 			});
 		} finally {
 			root.remove();

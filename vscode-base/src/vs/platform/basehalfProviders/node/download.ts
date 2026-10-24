@@ -6,7 +6,7 @@
 import { open, stat, unlink } from 'fs/promises';
 import { isAbsolute } from '../../../base/common/path.js';
 import { ProviderFailure, rejected, unreadable } from './failure.js';
-import { isAllowedAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, USER_AGENT, type BoundHttp, type ProviderTransport, type TransportRequest, type TransportResponse } from './http.js';
+import { isAllowedAddress, isSampleAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, USER_AGENT, type BoundHttp, type ProviderTransport, type TransportRequest, type TransportResponse } from './http.js';
 import { AUDIO_SIGNATURE_BYTES, audioFormatOf, IMAGE_SIGNATURE_BYTES, imageFormatOf } from './media.js';
 import type { InlineOutput, OutputAddress } from './module.js';
 import type { AudioOutputFormat, ModelKind, OutputFormat, ProviderErrorCode } from '../common/basehalfProviderTypes.js';
@@ -19,7 +19,7 @@ export const MAX_IMAGE_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 export const MAX_AUDIO_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 /** The largest sample of a voice that `voicePreview` fetches for the window to play (providers, "Requests"). */
 export const MAX_VOICE_SAMPLE_BYTES = 5 * 1024 * 1024;
-/** The longest address of a file that the window can hand back to `download` or `voicePreview`. */
+/** The longest address of a file that the window can hand back to `download`; a voice's sample has its own (`MAX_SAMPLE_ADDRESS_LENGTH`). */
 export const MAX_ADDRESS_LENGTH = 8192;
 const MAX_REDIRECTS = 5;
 
@@ -47,6 +47,8 @@ interface FileRule {
 	readonly noun: 'image' | 'video' | 'sound' | 'sample';
 	/** The noun with its article, as a sentence uses it. */
 	readonly aNoun: string;
+	/** The addresses the file is fetched from, the first one and every redirect, for the call's endpoint. */
+	readonly fetchesFrom: (url: URL, endpoint: URL | undefined) => boolean;
 	readonly maxBytes: number;
 	/** How many bytes the format is told from. */
 	readonly headBytes: number;
@@ -71,6 +73,7 @@ const RULES: Readonly<Record<ModelKind, FileRule>> = Object.freeze({
 	video: {
 		noun: 'video',
 		aNoun: 'a video',
+		fetchesFrom: isAllowedAddress,
 		maxBytes: MAX_VIDEO_DOWNLOAD_BYTES,
 		headBytes: 8,
 		formatOf: head => isMp4(head) ? 'mp4' : undefined,
@@ -82,6 +85,7 @@ const RULES: Readonly<Record<ModelKind, FileRule>> = Object.freeze({
 	image: {
 		noun: 'image',
 		aNoun: 'an image',
+		fetchesFrom: isAllowedAddress,
 		maxBytes: MAX_IMAGE_DOWNLOAD_BYTES,
 		headBytes: IMAGE_SIGNATURE_BYTES,
 		formatOf: imageFormatOf,
@@ -90,11 +94,15 @@ const RULES: Readonly<Record<ModelKind, FileRule>> = Object.freeze({
 		tooShort: 'The file is too short to be a PNG, JPEG, or WebP image.',
 		accept: 'image/png,image/jpeg,image/webp,application/octet-stream;q=0.9,*/*;q=0.5'
 	},
-	audio: { noun: 'sound', aNoun: 'a sound', maxBytes: MAX_AUDIO_DOWNLOAD_BYTES, ...SOUND }
+	audio: { noun: 'sound', aNoun: 'a sound', fetchesFrom: isAllowedAddress, maxBytes: MAX_AUDIO_DOWNLOAD_BYTES, ...SOUND }
 });
 
-/** What a voice's sample must be to reach the window: a sound of at most 5 MiB. */
-const SAMPLE_RULE: FileRule = Object.freeze({ noun: 'sample', aNoun: 'a sample', maxBytes: MAX_VOICE_SAMPLE_BYTES, ...SOUND });
+/**
+ * What a voice's sample must be to reach the window: a sound of at most
+ * 5 MiB, from an `https://` address, or an `http://` one on this computer
+ * only for an endpoint on this computer.
+ */
+const SAMPLE_RULE: FileRule = Object.freeze({ noun: 'sample', aNoun: 'a sample', fetchesFrom: isSampleAddress, maxBytes: MAX_VOICE_SAMPLE_BYTES, ...SOUND });
 
 /** A failure after which the whole download starts again, with the wait the provider asked for. */
 class RetryableDownload extends Error {
@@ -113,14 +121,14 @@ export function downloadAddress(value: string, kind: ModelKind): URL {
 	return addressOf(value, RULES[kind]);
 }
 
-function addressOf(value: string, rule: FileRule): URL {
+function addressOf(value: string, rule: FileRule, endpoint?: URL): URL {
 	let url: URL;
 	try {
 		url = new URL(value);
 	} catch {
 		throw unreadable(`The provider gave ${rule.aNoun} address that is not complete.`);
 	}
-	if (!isAllowedAddress(url)) {
+	if (!rule.fetchesFrom(url, endpoint)) {
 		throw unreadable(`The provider gave ${rule.aNoun} address that does not start with https://.`);
 	}
 	return url;
@@ -162,8 +170,10 @@ export async function downloadFile(http: BoundHttp, location: OutputAddress | In
  * Fetches the sample of a voice into memory, for the window to play (D78;
  * providers, "Requests"): under the rules of a download (at most five
  * redirects, the credentials only to the endpoint's own origin, the same
- * retries), and only bytes that start like a sound (`notAudio`), at most
- * 5 MiB (`tooLarge`). Answers the bytes and the format they start like.
+ * retries), from an `https://` address, or an `http://` one on this computer
+ * only for an endpoint on this computer, redirects included, and only bytes
+ * that start like a sound (`notAudio`), at most 5 MiB (`tooLarge`). Answers
+ * the bytes and the format they start like.
  */
 export async function fetchSample(http: BoundHttp, address: string, options: DownloadOptions = {}): Promise<FetchedSample> {
 	const maxBytes = options.maxBytes ?? SAMPLE_RULE.maxBytes;
@@ -294,7 +304,7 @@ function memorySink(): DownloadSink<Buffer> {
 }
 
 async function downloadOnce<T>(http: BoundHttp, location: OutputAddress, rule: FileRule, maxBytes: number, timeoutMs: number, sink: DownloadSink<T>): Promise<T> {
-	let url = addressOf(location.url, rule);
+	let url = addressOf(location.url, rule, http.endpoint);
 	for (let redirects = 0; ; redirects++) {
 		const ownOrigin = url.origin === http.endpoint.origin;
 		const headers: Record<string, string> = {
@@ -312,7 +322,7 @@ async function downloadOnce<T>(http: BoundHttp, location: OutputAddress, rule: F
 			if (redirects >= MAX_REDIRECTS) {
 				throw unreadable(`The ${rule.noun} address redirected more than five times.`);
 			}
-			url = addressOf(new URL(response.headers.location, url).href, rule);
+			url = addressOf(new URL(response.headers.location, url).href, rule, http.endpoint);
 			continue;
 		}
 		if (status < 200 || status >= 300) {

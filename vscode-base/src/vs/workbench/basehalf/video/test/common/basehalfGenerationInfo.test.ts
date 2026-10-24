@@ -74,10 +74,10 @@ suite('BaseHalfGenerationInfo', () => {
 				['a.png', 'b.JPG', 'c.jpeg', 'd.webp', 'e.gif', 'f.avif', 'g.bmp', 'h.mp4', 'i.MOV', 'j.m4v', 'k.webm', 'l.md', 'm', 'n.png.txt', '.png'].map(baseHalfGenerationKindOfPath),
 				['image', 'image', 'image', 'image', 'image', 'image', 'image', 'video', 'video', 'video', 'video', undefined, undefined, undefined, undefined]
 			);
-			// Sounds are the third kind (D78).
+			// Sounds are the third kind (D78), of the formats BaseHalf lands and plays: no AAC without a container.
 			assert.deepStrictEqual(
 				['a.mp3', 'b.WAV', 'c.flac', 'd.m4a', 'e.aac', 'f.Ogg', 'g.opus', 'h.mp3.md'].map(baseHalfGenerationKindOfPath),
-				['audio', 'audio', 'audio', 'audio', 'audio', 'audio', undefined, undefined]
+				['audio', 'audio', 'audio', 'audio', undefined, 'audio', undefined, undefined]
 			);
 		});
 
@@ -113,7 +113,7 @@ suite('BaseHalfGenerationInfo', () => {
 			assert.deepStrictEqual((['image', 'video', 'audio'] as const).map(baseHalfGenerationDraftNameRule), [
 				'An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.',
 				'A video card needs a name that ends in .mp4, .mov, .m4v, or .webm.',
-				'An audio card needs a name that ends in .mp3, .wav, .flac, .m4a, .aac, or .ogg.'
+				'An audio card needs a name that ends in .mp3, .wav, .flac, .m4a, or .ogg.'
 			]);
 		});
 

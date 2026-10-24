@@ -597,13 +597,15 @@ export function normalizeBaseHalfVideoParams(model: IBaseHalfVideoCatalogModel, 
 
 /**
  * The generation after the user chose a model: every value the new model and
- * mode accept is kept, the others take their defaults. A voice is its
- * provider's (D78): a model of another provider keeps it only when it is one
- * of the model's own voices, since that provider does not know another's ids.
+ * mode accept is kept, the others take their defaults. A voice's id belongs
+ * to its provider (providers, "Parameters"): a model of another provider
+ * keeps the voice only when it is among its own voices, and otherwise speaks
+ * in its default, even where its provider lists voices and would take any
+ * id; a model of the same provider keeps it.
  */
 export function baseHalfVideoChooseModel(generation: IBaseHalfVideoGenerationChoice | undefined, ref: IBaseHalfVideoModelRef): IBaseHalfVideoGenerationChoice {
 	const mode = baseHalfVideoModeOf(ref.model, generation?.mode);
-	const params = generation?.provider === ref.provider.id ? generation.params : withoutAnotherProvidersVoice(ref.model, generation?.params);
+	const params = generation?.provider === ref.provider.id ? generation.params : withoutOtherProvidersVoices(ref.model, generation?.params);
 	return Object.freeze({
 		provider: ref.provider.id,
 		model: ref.model.id,
@@ -612,14 +614,19 @@ export function baseHalfVideoChooseModel(generation: IBaseHalfVideoGenerationCho
 	});
 }
 
-/** The values without a voice that is none of the model's own voices, as the voice of another provider's model is. */
-function withoutAnotherProvidersVoice(model: IBaseHalfVideoCatalogModel, params: IBaseHalfVideoGenerationChoice['params']): IBaseHalfVideoGenerationChoice['params'] {
-	const voice = model.parameters.find((parameter): parameter is IBaseHalfVideoVoiceParameter => parameter.kind === 'voice');
-	if (!params || !voice || !Object.prototype.hasOwnProperty.call(params, voice.name) || voice.options.some(option => option.value === params[voice.name])) {
+/** The values without a voice that is none of the model's own voices: it may be the id of another provider's. */
+function withoutOtherProvidersVoices(model: IBaseHalfVideoCatalogModel, params: BaseHalfVideoParams | undefined): BaseHalfVideoParams | undefined {
+	const voices = model.parameters.filter((parameter): parameter is IBaseHalfVideoVoiceParameter => parameter.kind === 'voice');
+	if (!params || !voices.some(parameter => Object.prototype.hasOwnProperty.call(params, parameter.name))) {
 		return params;
 	}
-	const { [voice.name]: _another, ...others } = params;
-	return others;
+	const kept: Record<string, BaseHalfVideoParamValue> = { ...params };
+	for (const parameter of voices) {
+		if (!parameter.options.some(option => option.value === kept[parameter.name])) {
+			delete kept[parameter.name];
+		}
+	}
+	return kept;
 }
 
 /** The generation after the user chose a mode of its model. */
@@ -871,29 +878,28 @@ export interface IBaseHalfVideoInputPlanItem {
 	readonly reason?: BaseHalfVideoInputUnusedReason;
 }
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp']);
-const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'webm']);
-const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac']);
-const TEXT_EXTENSIONS = new Set(['md', 'markdown', 'txt']);
+/**
+ * The extensions of the files an input of each kind may be, lower case,
+ * without the dot (generation cards, "Inputs"). A sound's are those the
+ * window shows as sounds (`BASEHALF_MEDIA_FILE_EXTENSIONS`), and AAC, which
+ * a provider may take.
+ */
+export const BASEHALF_VIDEO_INPUT_EXTENSIONS: Readonly<Record<Exclude<BaseHalfVideoInputKind, 'other'>, readonly string[]>> = Object.freeze({
+	image: Object.freeze(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp']),
+	video: Object.freeze(['mp4', 'mov', 'm4v', 'webm']),
+	audio: Object.freeze(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac']),
+	text: Object.freeze(['md', 'markdown', 'txt'])
+});
+
+const INPUT_KIND_BY_EXTENSION: ReadonlyMap<string, BaseHalfVideoInputKind> = new Map(
+	Object.entries(BASEHALF_VIDEO_INPUT_EXTENSIONS).flatMap(([kind, extensions]) => extensions.map(extension => [extension, kind as BaseHalfVideoInputKind] as const))
+);
 
 /** The input kind of a file, by its extension (generation cards, "Inputs"). */
 export function baseHalfVideoInputKindOfPath(path: string): BaseHalfVideoInputKind {
 	const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
 	const dot = name.lastIndexOf('.');
-	const extension = dot > 0 ? name.slice(dot + 1) : '';
-	if (IMAGE_EXTENSIONS.has(extension)) {
-		return 'image';
-	}
-	if (VIDEO_EXTENSIONS.has(extension)) {
-		return 'video';
-	}
-	if (AUDIO_EXTENSIONS.has(extension)) {
-		return 'audio';
-	}
-	if (TEXT_EXTENSIONS.has(extension)) {
-		return 'text';
-	}
-	return 'other';
+	return INPUT_KIND_BY_EXTENSION.get(dot > 0 ? name.slice(dot + 1) : '') ?? 'other';
 }
 
 /**

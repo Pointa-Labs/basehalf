@@ -36,16 +36,22 @@ export function pauseBaseHalfCanvasMedia(media: HTMLMediaElement): void {
 	}
 }
 
-/** Sounds that play without a media element, such as a voice's sample (D78): each stops when a video or a sound starts. */
+/** Sounds that play without a media element, such as a voice's sample (D78): each stops when a video or a sound starts with its sound. */
 const soundsInTurn = new Set<() => void>();
 /** What each root that plays its media one at a time pauses when such a sound starts. */
 const pausesForSounds = new Set<() => void>();
+
+/** Whether a video or a sound gives sound while it plays: not muted, and not at no volume. */
+function isAudible(media: HTMLMediaElement): boolean {
+	return !media.muted && media.volume > 0;
+}
 
 /**
  * A sound that plays without a media element takes its turn, as the sample
  * of a voice does (generation cards, "The panel"): what plays in every root
  * of {@link playBaseHalfCanvasMediaOneAtATime} pauses now, and `stop` is
- * called when a video or a sound starts there, until the result is disposed.
+ * called when a video or a sound starts there with its sound, or its sound
+ * comes on while it plays, until the result is disposed.
  */
 export function playBaseHalfCanvasSoundInTurn(stop: () => void): IDisposable {
 	for (const pause of [...pausesForSounds]) {
@@ -57,9 +63,12 @@ export function playBaseHalfCanvasSoundInTurn(stop: () => void): IDisposable {
 
 /**
  * One video or sound in `root` plays at a time (video node, "The player"):
- * one that starts pauses the others, on cards and in notes alike, and stops
- * a sound that plays in turn. Media events do not bubble, so `root` hears
- * them on their way down.
+ * one that starts pauses the others, on cards and in notes alike. One that
+ * starts with its sound, or whose sound comes on while it plays, stops a
+ * sound that plays in turn; a video that plays without sound, as the preview
+ * of a card under the pointer does, lets it play (generation cards, "The
+ * panel"). Media events do not bubble, so `root` hears them on their way
+ * down.
  */
 export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposable {
 	const playing = new Set<HTMLMediaElement>();
@@ -67,6 +76,12 @@ export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposabl
 	const mediaOf = (event: Event): HTMLMediaElement | undefined => {
 		const target = event.target as HTMLElement | null;
 		return target?.tagName === 'VIDEO' || target?.tagName === 'AUDIO' ? target as HTMLMediaElement : undefined;
+	};
+	const stopSoundsInTurn = () => {
+		for (const stop of [...soundsInTurn]) {
+			soundsInTurn.delete(stop);
+			stop();
+		}
 	};
 	const pauseAll = () => {
 		for (const media of [...playing]) {
@@ -88,9 +103,14 @@ export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposabl
 			}
 		}
 		playing.add(media);
-		for (const stop of [...soundsInTurn]) {
-			soundsInTurn.delete(stop);
-			stop();
+		if (isAudible(media)) {
+			stopSoundsInTurn();
+		}
+	}, true));
+	store.add(addDisposableListener(root, 'volumechange', event => {
+		const media = mediaOf(event);
+		if (media && !media.paused && isAudible(media)) {
+			stopSoundsInTurn();
 		}
 	}, true));
 	store.add(addDisposableListener(root, 'pause', event => {

@@ -161,6 +161,50 @@ suite('BaseHalf providers: providerMedia', () => {
 		});
 	});
 
+	test('an input of an ISO media file of a general brand whose tracks hold sound and no video is measured as an M4A, as afconvert writes one with -f m4af or -f mp4f; one with a video track stays a video (D78)', async () => {
+		const measured = async (bytes: Buffer) => measure(bufferSource(bytes));
+		// `afconvert -f m4af`: the audio brand M4A, then mp42 and isom.
+		const m4af = isoMedia(31, { brand: 'M4A ', compatible: ['M4A ', 'mp42', 'isom'], tracks: ['soun'] });
+		// `afconvert -f mp4f`, and the recorders of phones: the general brand mp42 alone.
+		const mp4f = isoMedia(31, { brand: 'mp42', compatible: ['mp42', 'isom'], tracks: ['soun'] });
+		assert.deepEqual({
+			m4af: await measured(m4af),
+			mp4f: await measured(mp4f),
+			isom: await measured(isoMedia(4.5, { tracks: ['soun'] })),
+			mediaFirst: await measured(isoMedia(6, { brand: 'mp42', compatible: ['mp42', 'isom'], tracks: ['soun'], mediaFirst: true })),
+			// A video with its sound, a video without sound, and a movie whose track names no handler stay videos.
+			movie: await measured(isoMedia(5, { brand: 'mp42', compatible: ['mp42', 'isom'], tracks: ['vide', 'soun'] })),
+			soundThenPicture: await measured(isoMedia(5, { tracks: ['soun', 'vide'] })),
+			silent: await measured(isoMedia(5, { tracks: ['vide'] })),
+			unnamed: await measured(isoMedia(5, { brand: 'mp42' })),
+			// A QuickTime movie of sound alone is still a movie: only the general brands are looked into.
+			quickTime: await measured(isoMedia(5, { brand: 'qt  ', tracks: ['soun'] }))
+		}, {
+			m4af: { format: 'm4a', seconds: 31 },
+			mp4f: { format: 'm4a', seconds: 31 },
+			isom: { format: 'm4a', seconds: 4.5 },
+			mediaFirst: { format: 'm4a', seconds: 6 },
+			movie: { format: 'mp4', seconds: 5 },
+			soundThenPicture: { format: 'mp4', seconds: 5 },
+			silent: { format: 'mp4', seconds: 5 },
+			unnamed: { format: 'mp4', seconds: 5 },
+			quickTime: { format: 'mov', seconds: 5 }
+		});
+		// Every audio limit takes it as a sound, and a video slot does not take it as a video.
+		const limits = checkLimits({ ...REFERENCE, limits: { ...REFERENCE.limits, videoSeconds: [2, 15] } }, await measureItems({
+			images: [file('cover.png', png(400, 400))],
+			videos: [file('voice-memo.mp4', isoMedia(5, { brand: 'mp42', compatible: ['mp42', 'isom'], tracks: ['soun'] }))],
+			audios: [file('voice.m4a', isoMedia(4, { brand: 'mp42', compatible: ['mp42', 'isom'], tracks: ['soun'] })), file('hum.m4a', mp4f)]
+		}, createMediaInspector()));
+		assert.deepEqual(limits, [
+			'Reference video 1 voice-memo.mp4 is not a video whose length BaseHalf can read (MP4 or MOV).',
+			'Reference audio 2 hum.m4a is 31 seconds long; an audio clip must be 2 to 15 seconds.',
+			'The audio clips are 35 seconds long together; at most 15 seconds are allowed.'
+		]);
+		// A download is still told from its first bytes alone, where general brands may hold a video.
+		assert.equal(audioFormatOf(mp4f), undefined);
+	});
+
 	test('raw samples written as a WAV start like a sound and last as long as the samples do (D78)', async () => {
 		// 1.5 seconds of 16-bit mono at 24 kHz.
 		const written = pcmToWav(Buffer.alloc(72_000), { sampleRate: 24_000, channels: 1, bitsPerSample: 16 });

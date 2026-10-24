@@ -21,7 +21,7 @@ import { playBaseHalfCanvasMediaOneAtATime, registerBaseHalfCanvasMediaPause } f
 import { IBaseHalfVideoSoundLevel } from '../../../canvas/browser/basehalfCanvasVideoSound.js';
 import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from '../../browser/basehalfGenerationVoiceMenu.js';
 import { BaseHalfGenerationVoiceService, IBaseHalfVoiceSampleContext, IBaseHalfVoiceSamplePlayback, IBaseHalfVoiceSampleSound } from '../../browser/basehalfGenerationVoiceService.js';
-import { baseHalfVoiceLabel, baseHalfVoiceParameter, IBaseHalfGenerationVoiceService, parseBaseHalfVoicesResult } from '../../common/basehalfGenerationVoices.js';
+import { baseHalfVoiceLabel, baseHalfVoiceMenuStatus, baseHalfVoiceParameter, IBaseHalfGenerationVoiceService, parseBaseHalfVoicesResult } from '../../common/basehalfGenerationVoices.js';
 import { findBaseHalfVideoRegion, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice, IBaseHalfVideoProviderAccess } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../../common/basehalfVideoGeneration.js';
 import { TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
@@ -33,6 +33,8 @@ const VOICE = baseHalfVoiceParameter(SPEECH)!;
 /** The same model as one whose provider lists no voices: the catalog's are all of them. */
 const CLOSED_VOICE: VoiceParameter = { ...VOICE, listed: undefined };
 const CLOSED_SPEECH: IBaseHalfVideoCatalogModel = { ...SPEECH, parameters: SPEECH.parameters.map(parameter => parameter === VOICE ? CLOSED_VOICE : parameter) };
+/** Dunlin Sound with a second region, whose voices are its own. */
+const TWO_REGIONS: IBaseHalfVideoCatalogProvider = { ...DUNLIN, regions: [...DUNLIN.regions, { id: 'south', label: 'South', baseUrl: 'https://south.dunlin.example/v1' }] };
 
 /** The voices Dunlin Sound lists: one the user cloned, then its own, one of them also in the catalog. */
 const LIST: VoicesResult = {
@@ -83,12 +85,14 @@ class FakeProviderSettings extends Disposable implements IBaseHalfVideoProviderS
 	private readonly changed = this._register(new Emitter<void>());
 	readonly onDidChange = this.changed.event;
 	readonly notSetUp = new Set<string>();
+	/** The region in use of a provider, when it is not its first. */
+	readonly regions = new Map<string, string>();
 	/** Why the stored credentials cannot be read, when they cannot. */
 	unreadable: string | undefined;
 	readonly opened: (string | undefined)[] = [];
 
 	getStatus(provider: IBaseHalfVideoCatalogProvider): IBaseHalfVideoProviderStatus {
-		const region = findBaseHalfVideoRegion(provider, undefined);
+		const region = findBaseHalfVideoRegion(provider, this.regions.get(provider.id));
 		const setUp = !this.notSetUp.has(provider.id);
 		return { region, setUp, endpoint: region.baseUrl, customEndpoint: false, credentials: new Set(setUp ? provider.credentials.map(credential => credential.id) : []) };
 	}
@@ -101,7 +105,7 @@ class FakeProviderSettings extends Disposable implements IBaseHalfVideoProviderS
 		if (this.unreadable) {
 			throw new Error(this.unreadable);
 		}
-		const region = findBaseHalfVideoRegion(provider, undefined);
+		const region = findBaseHalfVideoRegion(provider, this.regions.get(provider.id));
 		return this.notSetUp.has(provider.id) ? undefined : { provider: provider.id, region: region.id, endpoint: region.baseUrl, credentials: { apiKey: 'key-1' } };
 	}
 
@@ -555,6 +559,60 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		});
 	});
 
+	test('a list cut at 2,000 says nothing of a voice it does not name, which may be beyond the first 2,000', async () => {
+		providers.voices = () => ({ ok: true, value: { ...LIST, truncated: true } });
+		const { element } = open({ voice: 'cloned-elsewhere' });
+		await service.refresh(DUNLIN, SPEECH);
+		const shown = rows(element);
+		assert.deepStrictEqual({ voice: shown.slice(2, 4), last: shown[shown.length - 1] }, {
+			voice: ['# Voices', 'cloned-elsewhere ✓ <'],
+			last: '(Showing the first 4 voices.)'
+		});
+	});
+
+	test('an open menu asks again when its provider becomes set up or moves to another region, and says that the voices load until they come', async () => {
+		settings.notSetUp.add('dunlin');
+		const { element } = open({ provider: TWO_REGIONS });
+		await settle();
+		const notSetUp = { status: status(element), asked: providers.listed.length };
+		const answer = new DeferredPromise<unknown>();
+		providers.voices = () => answer.p;
+		// The user sets the provider up in Providers while the menu is open.
+		settings.notSetUp.delete('dunlin');
+		settings.change();
+		const atOnce = status(element);
+		await settle();
+		const setUp = { atOnce, status: status(element), asked: providers.listed.map(request => request.region) };
+		answer.complete({ ok: true, value: LIST });
+		await settle();
+		const listed = { status: status(element), rows: rows(element).slice(0, 2) };
+		// Another region of the provider has lists of its own.
+		providers.voices = () => ({ ok: true, value: { voices: [{ id: 'south-1', label: 'Southern', own: false }] } });
+		settings.regions.set('dunlin', 'south');
+		settings.change();
+		const moving = status(element);
+		await settle();
+		// A change of anything else asks nothing more.
+		settings.change();
+		await settle();
+		assert.deepStrictEqual({
+			notSetUp,
+			setUp,
+			listed,
+			moving,
+			south: { rows: rows(element).slice(4), asked: providers.listed.map(request => request.region) },
+			// A set-up provider without a list yet says that it loads, before and while the menu asks.
+			neverAsked: baseHalfVoiceMenuStatus({ listed: true, setUp: true, providerLabel: DUNLIN.label, voices: { loading: false } })
+		}, {
+			notSetUp: { status: 'Set up Dunlin Sound to choose from all of its voices and your own. [Set Up]', asked: 0 },
+			setUp: { atOnce: 'Loading voices…', status: 'Loading voices…', asked: ['main'] },
+			listed: { status: undefined, rows: ['# Your Voices', 'My Narrator — Cloned [play]'] },
+			moving: 'Loading voices…',
+			south: { rows: ['Southern'], asked: ['main', 'south'] },
+			neverAsked: { text: 'Loading voices…' }
+		});
+	});
+
 	test('a model whose provider lists no voices offers the catalog\'s voices alone and asks nothing', async () => {
 		const { element } = open({ model: CLOSED_SPEECH, parameter: CLOSED_VOICE, voice: 'vx-sable' });
 		await settle();
@@ -653,6 +711,30 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 			characters: ['Clef'],
 			capped: { length: 2000, truncated: true },
 			notAList: undefined
+		});
+	});
+
+	test('keeps the samples and the names the provider service keeps: an address of up to 8,192 characters, and names cut by characters, never between the halves of one', () => {
+		const head = 'https://cdn.example/sample.mp3?X-Signature=';
+		const signed = (length: number) => `${head}${'s'.repeat(length - head.length)}`;
+		// A character of two UTF-16 units: the service counts 200 of them as a name of 200 characters.
+		const wide = '\u{20000}';
+		const read = parseBaseHalfVoicesResult({
+			voices: [
+				{ id: 'long', label: 'Long', own: false, sample: signed(5000) },
+				{ id: 'longest', label: 'Longest', own: false, sample: signed(8192) },
+				{ id: 'too-long', label: 'Too long', own: false, sample: signed(8193) },
+				{ id: 'wide', label: wide.repeat(200), description: wide.repeat(300), own: false },
+				{ id: 'wider', label: wide.repeat(201), description: wide.repeat(301), own: false }
+			]
+		})!;
+		assert.deepStrictEqual({
+			samples: read.voices.slice(0, 3).map(voice => voice.sample?.length),
+			// The service's names come whole; a longer one is cut to 199 characters and an ellipsis.
+			names: read.voices.slice(3).map(voice => [voice.label === wide.repeat(200), [...voice.label].length, voice.label.endsWith(`${wide}…`), [...voice.description ?? ''].length])
+		}, {
+			samples: [5000, 8192, undefined],
+			names: [[true, 200, false, 300], [false, 200, true, 300]]
 		});
 	});
 });

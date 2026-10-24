@@ -312,7 +312,7 @@ provider module maps it to its provider's field and value.
 | `negative_prompt` | text, optional, advanced | | what the result should not show |
 | `prompt_extend` | boolean | | the provider rewrites or extends the prompt before it generates |
 | `watermark` | boolean, advanced | | the provider marks the result as made by AI |
-| `voice` | voice | the provider's voice ids | the voice a speech model speaks in |
+| `voice` | voice | the provider's voice ids; an id belongs to its provider, so choosing a model of another provider keeps a voice only when the new model declares it among its voices, and gives it the new model's default otherwise, while a model of the same provider keeps it | the voice a speech model speaks in |
 | `speed` | number | from 0.5 to 2 in steps of 0.05, 1 being the voice's own pace; a narrower range where the provider has one | how fast the voice speaks |
 | `instrumental` | boolean | | music without singing |
 | `style` | text, optional | | the style of the music in `lyrics` mode, where the prompt is the lyrics |
@@ -499,7 +499,13 @@ every call that needs them.
   and the prompt as the provider module writes it, which is what the
   declarations and the module check and what `submit` sends. It reads image sizes and video
   and audio lengths from the files and checks them against the mode's
-  limits. For a model
+  limits. An input that is an ISO media file is an M4A when its major brand
+  is an audio brand, `M4A ` or `M4B `, or a general one, `isom`, `iso2`,
+  `mp41`, or `mp42`, while its tracks hold sound and no video: a track whose
+  handler is `soun` and none whose handler is `vide`, as `afconvert -f mp4f`
+  and the recorders of phones write an M4A. Otherwise it is a MOV under the
+  brand `qt  ` and an MP4 under any other. So an M4A is taken wherever a mode
+  takes M4A, and a sound in an `.mp4` file is not taken for a video. For a model
   whose modes and inputs choose among several provider ids, it also answers
   `providerModel`, the id the request would be sent with; the window records
   that id with the generation.
@@ -574,7 +580,8 @@ every call that needs them.
   - an M4A: an ISO media file whose first box is `ftyp` with an audio brand,
     `M4A ` or `M4B `, as its major brand or among the brands it lists in
     those bytes. A file of general brands alone, such as `isom` or `mp42`,
-    may hold a video, and is not taken for a sound.
+    may hold a video, and is not taken for a sound: its first bytes do not
+    show its tracks, which `check` reads of an input.
 
   AAC without a container, a video, and anything else is `notAudio`.
 - `place` takes `from`, a `.part` file directly in a `.bh/cache/generation/`
@@ -603,13 +610,20 @@ every call that needs them.
   voice ([Parameters](#parameters)) is left out; a name and a description
   are plain text on one line, at most 200 and 300 characters, cut with an
   ellipsis; a voice without a name is named by its id; a sample is kept only
-  at an `https` address, or an `http` one on this computer, of at most 8,192
+  at an address that `voicePreview` fetches from, of at most 8,192
   characters; the account's voices come first, each group in the provider's
   order; and a voice listed twice is kept once, the first time, the
-  account's before the provider's.
+  account's before the provider's. Characters are counted as Unicode
+  characters, and a cut never falls between the halves of one. The window
+  reads the answer by the same rules (`MAX_SAMPLE_ADDRESS_LENGTH` of the
+  common folder), so that it keeps every voice and sample the service kept.
 - `voicePreview` takes the access, the model, and the `sample` address of a
-  listed voice, and answers the sample's bytes: an `https` address, or
-  `http` on this computer; the credentials go only to the endpoint's own
+  listed voice, and answers the sample's bytes: from an `https` address, or
+  from an `http` one on this computer only when the endpoint is on this
+  computer too, as the local test provider is (`isSampleAddress`). A
+  provider elsewhere never has BaseHalf ask a service of this computer: its
+  `http` address on this computer is refused before anything is sent, and so
+  is a redirect to one. The credentials go only to the endpoint's own
   origin, as for a download; at most 5 MiB; and only bytes that start like a
   sound, as a downloaded sound must. The window decodes and plays them
   itself, so that no address of a provider is ever played by the window. It
@@ -661,8 +675,8 @@ module writes the names:
   `audios` with the input's place among them, from 0. The window has written
   the notes already: a mention of a note is its name in double quotes, and
   the notes' texts follow under their names; in a prompt that is spoken or
-  sung, the mention is the note's text itself, and the other notes' texts
-  follow without their names
+  sung, the mention is the note's text itself, a Markdown note's plain text
+  without its marks, and the other notes' texts follow without their names
   ([generation cards, Inputs](generation-cards.md#inputs)). A prompt that
   mentions nothing may be sent as one string.
 - A mention of an input that the request does not send is refused, and so is
@@ -768,7 +782,8 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
    page, the model menu, and `--list-capabilities`.
 2. Every control of the settings is drawn from the selected model's
    declarations, and changing the model keeps every value the new model
-   accepts and gives the others the new model's defaults.
+   accepts and gives the others the new model's defaults; a voice of
+   another provider is kept only when the new model declares it.
 3. A provider is set up with its region and credentials; the credentials are
    in no workspace file, no page markup, and no log.
 4. `check` reports, before anything is written, a missing required input, too
@@ -823,7 +838,9 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     with their samples where the provider gives them, at most 2,000;
     `voicePreview` answers a sample's bytes, at most 5 MiB, and refuses bytes
     that do not start like a sound. Neither sends the credentials to another
-    origin than the endpoint's.
+    origin than the endpoint's, and for an endpoint elsewhere neither gives
+    nor fetches a sample over `http` on this computer, also after a
+    redirect.
 17. A `voice` value that is not among a listed parameter's options passes
     `check` when it is at most 256 characters without control characters;
     for a parameter that is not listed, only an option passes.
@@ -864,9 +881,12 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   file (criterion 15), of `voices` and `voicePreview` against a local server
   (criterion 16), of the `voice` value in `check` (criterion 17), and of each
   audio module, Lyrics mode among them (criterion 18): what a sound starts
-  like (`providerMedia.test.ts`), sounds downloaded and answered with the
+  like, and an input that is an M4A under a general brand, as `afconvert`
+  writes one with `-f m4af` and `-f mp4f` (`providerMedia.test.ts`), sounds
+  downloaded and answered with the
   file (`providerDownload.test.ts`), sounds as outputs, the voice in `check`,
-  and Lyrics mode (`providerAudio.test.ts`), the voices and their samples
+  and Lyrics mode (`providerAudio.test.ts`), the voices and their samples,
+  and samples on this computer for a provider elsewhere
   (`providerVoices.test.ts`), a sample's bytes over the channel between the
   processes (`basehalfProviderConnection.test.ts`), and the catalog's rules
   for audio models (`providerCatalog.test.ts`).
