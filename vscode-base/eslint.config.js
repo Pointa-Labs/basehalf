@@ -153,8 +153,6 @@ export default defineConfig(
 			'scripts/basehalf-*/**/*.{js,mjs,ts,mts}',
 			'src/vs/platform/basehalf*/**/*.{js,mjs,ts,mts}',
 			'src/vs/workbench/basehalf/**/*.{js,mjs,ts,mts}',
-			'src/vs/workbench/api/browser/mainThreadBaseHalf.ts',
-			'src/vs/workbench/api/common/extHostBaseHalf.ts',
 		],
 		rules: {
 			'header/header': [
