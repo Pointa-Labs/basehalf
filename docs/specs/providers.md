@@ -346,12 +346,16 @@ every call that needs them.
   applies the system's proxy settings, a proxy auto-configuration,
   `http.proxy`, `http.noProxy`, and the certificates the system trusts, as it
   did in the extension host; the main process resolves the system's proxy
-  with the session that every window uses. A proxy that asks for a password
-  is not answered. The cross-origin rules of a window do not apply:
-  providers do not answer cross-origin requests from a window, which is why
-  requests never run there. Chromium's network stack, which the shared
-  process's own requests use, is not used: it sends a request again by
-  itself when a kept-alive connection fails before the answer.
+  with the session that every window uses, and loads the certificates for
+  every window unless `http.systemCertificatesNode` asks for Node's own. A
+  proxy that asks for authentication gets a Kerberos ticket, or the name and
+  password that the main process asks the user for once, as for a window's
+  own requests; BaseHalf keeps them for that proxy while it runs. A loopback
+  address is always reached directly. The cross-origin rules of a window do
+  not apply: providers do not answer cross-origin requests from a window,
+  which is why requests never run there. Chromium's network stack, which the
+  shared process's own requests use, is not used: it sends a request again
+  by itself when a kept-alive connection fails before the answer.
 - A call that does not reach the service, because the shared process stopped
   or the window lost its connection to it, fails as a call whose service
   stopped while it ran: `submit` has an unknown outcome, since the request
