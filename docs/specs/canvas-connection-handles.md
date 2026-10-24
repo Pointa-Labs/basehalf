@@ -1,8 +1,13 @@
-# Canvas connection handles and drop line
+# Canvas connection handles, drop line, and the ends of a connection
 
-Status: Active (2026-10-10)
+Status: Active (2026-10-10). Revised 2026-10-25: a connection whose end is
+let go on empty canvas is removed.
+Decision: [D80](../decisions.md#d80--a-connection-pulled-off-a-card-and-let-go-on-empty-canvas-is-removed-and-a-marquee-over-connections-alone-selects-them-new-2026-10-25)
+for [dragging an end of a connection](#dragging-an-end-of-a-connection)
 Related: [reference graph](reference-graph.md#creating-connected-nodes)
-(Create from Connection), [canvas card resize](canvas-card-resize.md)
+(Create from Connection), [canvas card resize](canvas-card-resize.md),
+[canvas selection and arrangement](canvas-selection-and-arrangement.md)
+(selecting connections)
 
 ## Problem
 
@@ -16,10 +21,16 @@ After a connection drag was released on empty canvas, the drag line vanished
 while the Create from Connection menu was open. The menu then looked detached
 from the card it would connect to.
 
+An end of a connection that was pulled off its card and let go on empty
+canvas came back to its card (reported on 2026-10-25). The pull showed the
+line leaving the card, and the release undid it, so the only way to remove a
+connection was to select it and press Delete.
+
 ## Scope
 
-In scope: the hit geometry and appearance of the four connection handles, and
-the line shown while the Create from Connection menu is open.
+In scope: the hit geometry and appearance of the four connection handles,
+the line shown while the Create from Connection menu is open, and what the
+release of a dragged end of a connection does.
 
 Not in scope, and unchanged:
 
@@ -30,7 +41,10 @@ Not in scope, and unchanged:
   part of the set
   ([canvas selection and arrangement](canvas-selection-and-arrangement.md#a-set)).
 - Snapping onto a target handle during a drag (a 48-pixel connection radius),
-  click-to-connect, connecting into a card, and reconnecting an edge.
+  click-to-connect, and connecting into a card.
+- How a drag takes an end of a connection, how that end follows the pointer
+  and snaps to a side of a card, and what a reconnect writes
+  ([reference graph](reference-graph.md#reference-edits)).
 - The Create from Connection menu itself, which the reference graph specifies.
 
 ## Terms
@@ -42,6 +56,11 @@ Not in scope, and unchanged:
 - **Capture circle**: the hit target of one handle, centered on its anchor
   point. It takes the pointer only where nothing else on the canvas does.
 - **Visible circle**: the drawn handle, centered on its anchor point.
+- **Empty canvas**: as in
+  [canvas selection and arrangement](canvas-selection-and-arrangement.md#terms),
+  a point of the canvas scene where no card, connection, capture circle, set
+  box, toolbar, menu, or view control takes the pointer. The line being
+  dragged is not counted.
 
 ## Required behavior
 
@@ -98,6 +117,44 @@ Not in scope, and unchanged:
   appears within 2 seconds, because the create failed or was refused, the
   line is removed.
 
+### Dragging an end of a connection
+
+**The rule.** A connection whose end is pulled off its card and let go on
+empty canvas is removed. Let go on a card it can connect to, it is
+connected there. Anywhere else, it goes back.
+
+How the drag works is unchanged: a press on a connection's line and a move
+of more than 4 screen pixels takes the end of the half that was pressed. That
+end follows the pointer and snaps to the nearest side of a card that the
+pointer is on or near, other than the card at the line's other end. The
+pointer is a grabbing hand until the button is released.
+
+| The button is released | What happens |
+| --- | --- |
+| While the end is snapped to a side of a card | The connection is reconnected there, as before: the source end replaces the entry in place, the target end moves it to the new card. Back on its own card it only changes side. |
+| On empty canvas | The connection is removed, as Delete removes it: the downstream card no longer lists the upstream card. |
+| On the card at the line's other end | Nothing changes, and the line goes back: a card cannot list itself. |
+| Anywhere else: on another connection, a set box, a toolbar, a menu, a view control, or outside the canvas | Nothing changes, and the line goes back. |
+
+- Escape, the window losing focus, and a cancelled pointer end the drag as
+  before: nothing changes, and the line goes back.
+- A press that moves less than 4 screen pixels is a click, which selects the
+  connection, as before.
+- The line keeps its look while it is dragged. It does not show beforehand
+  whether a release will remove it.
+- **Removed** means the same disconnect as Delete: one step of undo, which
+  puts the entry back in its place in the list; the anchor row in
+  `canvas.yaml` is kept
+  ([reference graph](reference-graph.md#edges)). The line disappears when
+  the button is released and does not come back while the write is under
+  way.
+- **Refused.** A connection that cannot change, such as an input of a
+  generation card with its file or of a draft while it generates
+  ([reference graph](reference-graph.md#connecting)), says why, as Delete
+  does, and its line is drawn again. Nothing is written.
+- Dragging one of [several selected connections](canvas-selection-and-arrangement.md#selected-connections)
+  changes only that one. The others stay selected.
+
 ## Acceptance criteria
 
 1. At 40% and 100% zoom, a pointer 16 screen pixels outside a card from one of
@@ -116,4 +173,14 @@ Not in scope, and unchanged:
    a panned canvas. Escape, or a click on empty canvas, removes it in the same
    frame as the menu. Choosing an item keeps it until exactly one edge
    from the source to the new note or draft is drawn in its place.
-5. The smoke covers criteria 1, 3, and 4.
+5. Dragging the target half of a connection to empty canvas and letting go
+   removes the connection: the line is gone from the release on, and the
+   downstream note no longer lists the upstream card. No menu opens. One undo
+   brings the line back and the entry back to its place in the list.
+6. The same holds for the source half.
+7. Letting go on the card at the line's other end, or pressing Escape before
+   letting go, changes no file, and the line is drawn where it was.
+8. Letting go on empty canvas with an input of a generation card with its
+   file shows the refusal, draws the line again, and changes no file.
+9. The smoke covers criteria 1, 3 to 7: the step `canvas-edge-half-reconnect`
+   criterion 7, and `canvas-edge-let-go-on-empty-canvas` criteria 5 and 6.

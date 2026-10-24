@@ -311,3 +311,133 @@ export async function assertCanvasSelectionAndArrangement(page) {
 	fs.rmSync(mirror(folderName), { recursive: true, force: true });
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
 }
+
+// Canvas selection and arrangement, selected connections: a marquee that
+// touches no card selects the connections it crosses, Delete and the context
+// menu's Disconnect remove all of them as one step of undo, and a marquee that
+// reaches a card selects the card alone. Every pointer action is a real one.
+export async function assertCanvasMarqueeSelectsConnections(page) {
+	const folderName = 'linked';
+	const listed = `---\nupstream:\n  - ${folderName}/a.md\n  - ${folderName}/b.md\n---\n# D\n`;
+	const notePath = name => path.join(workspacePath, folderName, name);
+	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}/${name}"]`);
+	const edgeId = from => `${folderName}/${from}${String.fromCharCode(0)}${folderName}/d.md`;
+	const both = [edgeId('a.md'), edgeId('b.md')].sort();
+	const same = (first, second) => JSON.stringify(first) === JSON.stringify(second);
+	const undoKey = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
+	const readState = () => page.evaluate(() => ({
+		marked: Array.from(document.querySelectorAll('.react-flow__edge[data-marquee-selected]')).map(edge => edge.getAttribute('data-id')).sort(),
+		selected: Array.from(document.querySelectorAll('.react-flow__edge.selected')).map(edge => edge.getAttribute('data-id')).sort(),
+		markedCards: Array.from(document.querySelectorAll('.basehalf-canvas-card.marquee-selected')).map(element => element instanceof HTMLElement ? element.dataset.basehalfCardPath : '').sort(),
+		cards: Array.from(document.querySelectorAll('.basehalf-canvas-card.selected')).map(element => element instanceof HTMLElement ? element.dataset.basehalfCardPath : '').sort()
+	}));
+	const rectOf = async name => {
+		const box = await card(name).boundingBox();
+		if (!box) {
+			throw new Error(`The card of ${name} is not drawn.`);
+		}
+		return box;
+	};
+	const drag = async (points, beforeRelease) => {
+		await page.mouse.move(points[0].x, points[0].y);
+		await page.mouse.down();
+		const seen = [];
+		for (let index = 1; index < points.length; index++) {
+			await page.mouse.move(points[index].x, points[index].y, { steps: 8 });
+			await page.waitForTimeout(16);
+			seen.push(await readState());
+		}
+		await page.mouse.up();
+		await page.waitForTimeout(350);
+		return seen;
+	};
+
+	// a.md and b.md are left of d.md, one above the other, so their two lines
+	// into d.md cross the empty canvas between them apart from each other.
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.mkdirSync(path.join(workspacePath, '.bh', 'mirror', folderName), { recursive: true });
+	fs.writeFileSync(notePath('a.md'), '# A\n', 'utf8');
+	fs.writeFileSync(notePath('b.md'), '# B\n', 'utf8');
+	fs.writeFileSync(notePath('d.md'), listed, 'utf8');
+	const row = (name, x, y) => [`  - path: "${folderName}/${name}"`, '    kind: file', `    x: ${x}`, `    y: ${y}`, '    width: 300', '    height: 220'];
+	fs.writeFileSync(path.join(workspacePath, '.bh', 'mirror', folderName, 'canvas.yaml'), [
+		`path: "${folderName}"`, 'size:', '  width: 2400', '  height: 1600', 'cards:',
+		...row('a.md', 0, 0), ...row('b.md', 0, 400), ...row('d.md', 700, 200),
+		'edges: []', ''
+	].join('\n'), 'utf8');
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
+	await assertCanvasFolder(page, folderName);
+	await page.waitForFunction(ids => ids.every(id => Array.from(document.querySelectorAll('.basehalf-canvas-edge-path')).some(edge => edge instanceof SVGPathElement && edge.dataset.edgeId === id)), both, { timeout: 15_000 });
+	await page.waitForTimeout(1_000);
+
+	// Points between the cards, from the cards as they are drawn: the line from
+	// a.md runs from 110 to 310 and the one from b.md from 510 to 310, in the
+	// card's 220.
+	const a = await rectOf('a.md');
+	const b = await rectOf('b.md');
+	const d = await rectOf('d.md');
+	const gapX = fraction => a.x + a.width + (d.x - a.x - a.width) * fraction;
+	const atA = fraction => a.y + a.height * fraction;
+	const start = { x: gapX(0.45), y: atA(0.6) };
+	const acrossBoth = { x: gapX(0.55), y: b.y + b.height * 0.4 };
+	const acrossTheFirst = { x: gapX(0.55), y: d.y + d.height * 60 / 220 };
+	const intoD = { x: d.x + 20, y: d.y + d.height * 60 / 220 };
+	const isPane = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('react-flow__pane') ?? false, start);
+	if (!isPane) {
+		throw new Error(`A marquee must begin on empty canvas: ${JSON.stringify(start)}`);
+	}
+
+	// Two lines, no card: both are marked while it is drawn and selected after.
+	const [during] = await drag([start, acrossBoth]);
+	const selected = await readState();
+	if (!same(during.marked, both) || during.markedCards.length !== 0 || !same(selected.selected, both) || selected.cards.length !== 0 || selected.marked.length !== 0) {
+		throw new Error(`A marquee across two lines and no card must mark both and then select both: ${JSON.stringify({ during, selected })}`);
+	}
+	// Delete removes both from d.md, and one undo brings both back in their places.
+	await page.keyboard.press('Delete');
+	await waitUntil(() => fs.readFileSync(notePath('d.md'), 'utf8') === '# D\n', 'Delete to remove both selected connections from d.md');
+	await page.keyboard.press(undoKey);
+	await waitUntil(() => fs.readFileSync(notePath('d.md'), 'utf8') === listed, 'one undo to bring both connections back in their places');
+	await page.waitForFunction(ids => ids.every(id => Array.from(document.querySelectorAll('.basehalf-canvas-edge-path')).some(edge => edge instanceof SVGPathElement && edge.dataset.edgeId === id)), both, { timeout: 10_000 });
+
+	// A marquee that crosses a line and reaches a card marks and selects the card alone.
+	const [overLine, overCard, backOverLine] = await drag([start, acrossTheFirst, intoD, acrossTheFirst, intoD]);
+	const afterCard = await readState();
+	if (!same(overLine.marked, [edgeId('a.md')]) || overCard.marked.length !== 0 || !same(overCard.markedCards, [`${folderName}/d.md`])
+		|| !same(backOverLine.marked, [edgeId('a.md')]) || !same(afterCard.cards, [`${folderName}/d.md`]) || afterCard.selected.length !== 0) {
+		throw new Error(`A marquee that reaches a card must mark and select only the card: ${JSON.stringify({ overLine, overCard, backOverLine, afterCard })}`);
+	}
+
+	// Disconnect in the context menu of one of two selected lines removes both.
+	await drag([start, acrossBoth]);
+	const linePoint = await page.evaluate(id => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit')).find(edge => edge instanceof SVGPathElement && edge.dataset.edgeId === id);
+		if (!(hit instanceof SVGPathElement)) {
+			return undefined;
+		}
+		const point = new DOMPoint(hit.getPointAtLength(hit.getTotalLength() / 2).x, hit.getPointAtLength(hit.getTotalLength() / 2).y).matrixTransform(hit.getScreenCTM() ?? undefined);
+		return document.elementFromPoint(point.x, point.y) === hit ? { x: point.x, y: point.y } : undefined;
+	}, edgeId('a.md'));
+	if (!linePoint) {
+		throw new Error('The middle of the line from a.md must be open to the pointer.');
+	}
+	await page.mouse.click(linePoint.x, linePoint.y, { button: 'right' });
+	const disconnect = page.locator('.context-view.monaco-menu-container .action-label[aria-label="Disconnect"]');
+	await disconnect.waitFor({ state: 'visible', timeout: 5_000 });
+	const withMenu = await readState();
+	if (!same(withMenu.selected, both)) {
+		throw new Error(`The context menu of a selected line must keep both lines selected: ${JSON.stringify(withMenu)}`);
+	}
+	await page.waitForTimeout(150);
+	await disconnect.click();
+	await waitUntil(() => fs.readFileSync(notePath('d.md'), 'utf8') === '# D\n', 'Disconnect to remove both selected connections');
+	await page.locator('.basehalf-canvas-cards').focus();
+	await page.keyboard.press(undoKey);
+	await waitUntil(() => fs.readFileSync(notePath('d.md'), 'utf8') === listed, 'one undo to bring back both disconnected connections');
+
+	await openRootCanvas(page);
+	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
+	fs.rmSync(path.join(workspacePath, '.bh', 'mirror', folderName), { recursive: true, force: true });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+}

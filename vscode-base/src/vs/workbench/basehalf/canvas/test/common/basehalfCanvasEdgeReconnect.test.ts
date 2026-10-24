@@ -7,7 +7,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	baseHalfCanvasReconnectEndForPath,
-	baseHalfCanvasReconnectSnapForHit,
+	baseHalfCanvasReconnectRelease,
 	IBaseHalfCanvasPathSample,
 	nearestBaseHalfCanvasPathRatio,
 	resolveBaseHalfCanvasReconnectPoint
@@ -87,15 +87,28 @@ suite('BaseHalfCanvasEdgeReconnect', () => {
 		], new Set()), { kind: 'blank' });
 	});
 
-	test('cancels reconnect drops on blank or invalid cards instead of deleting the edge', () => {
-		assert.strictEqual(baseHalfCanvasReconnectSnapForHit({ kind: 'blank' }), undefined);
-		assert.strictEqual(baseHalfCanvasReconnectSnapForHit({ kind: 'invalid-card' }), undefined);
+	test('a release on empty canvas removes the connection; elsewhere off a card side it stays', () => {
 		const snap = {
 			nodeId: 'target',
 			anchor: 'west' as const,
 			clientPoint: { x: 200, y: 60 },
 			distance: 0
 		};
-		assert.strictEqual(baseHalfCanvasReconnectSnapForHit({ kind: 'snap', snap }), snap);
+		assert.deepStrictEqual(
+			{
+				emptyCanvas: baseHalfCanvasReconnectRelease({ kind: 'blank' }, true),
+				overSomethingElse: baseHalfCanvasReconnectRelease({ kind: 'blank' }, false),
+				otherEndsCard: baseHalfCanvasReconnectRelease({ kind: 'invalid-card' }, false),
+				otherEndsCardEdge: baseHalfCanvasReconnectRelease({ kind: 'invalid-card' }, true),
+				cardSide: baseHalfCanvasReconnectRelease({ kind: 'snap', snap }, false)
+			},
+			{
+				emptyCanvas: { kind: 'remove' },
+				overSomethingElse: { kind: 'cancel' },
+				otherEndsCard: { kind: 'cancel' },
+				otherEndsCardEdge: { kind: 'cancel' },
+				cardSide: { kind: 'reconnect', snap }
+			}
+		);
 	});
 });

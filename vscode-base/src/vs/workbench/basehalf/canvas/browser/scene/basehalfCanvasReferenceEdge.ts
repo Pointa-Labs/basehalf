@@ -7,7 +7,7 @@ import './media/basehalfCanvasReferenceEdge.css';
 import { baseHalfCanvasEdgePath } from '../../common/basehalfCanvasModel.js';
 import {
 	baseHalfCanvasReconnectEndForPath,
-	baseHalfCanvasReconnectSnapForHit,
+	baseHalfCanvasReconnectRelease,
 	BaseHalfCanvasReconnectHit,
 	BaseHalfCanvasEdgeReconnectEnd,
 	IBaseHalfCanvasReconnectSnap,
@@ -101,6 +101,24 @@ function snapReconnectPointer(
 	);
 }
 
+/**
+ * Whether a point is on empty canvas: past the connection being dragged, the
+ * first thing there that takes the pointer is the scene's pane.
+ */
+function isEmptyCanvasAt(host: HTMLElement, edgeId: string, clientX: number, clientY: number): boolean {
+	const bounds = host.getBoundingClientRect();
+	if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top || clientY > bounds.bottom) {
+		return false;
+	}
+	for (const element of host.ownerDocument.elementsFromPoint(clientX, clientY)) {
+		if (element.closest('.react-flow__edge')?.getAttribute('data-id') === edgeId) {
+			continue;
+		}
+		return element.classList.contains('react-flow__pane') && host.contains(element);
+	}
+	return false;
+}
+
 function clearEdgeReconnectTarget(host: HTMLElement, edgeId: string): void {
 	for (const card of host.querySelectorAll<HTMLElement>('.basehalf-canvas-card.connection-target')) {
 		if (card.dataset.basehalfReconnectEdgeId !== edgeId) {
@@ -145,8 +163,9 @@ function showEdgeReconnectTarget(host: HTMLElement, edgeId: string, snap: IBaseH
 }
 
 /**
- * Makes the edge of a reference: the line between two cards, and reconnecting
- * it by dragging either half of the line to another card.
+ * Makes the edge of a reference: the line between two cards, reconnecting it
+ * by dragging either half of the line to another card, and removing it by
+ * letting that half go on empty canvas.
  */
 export function createBaseHalfCanvasReferenceEdge(environment: IBaseHalfCanvasSceneEnvironment) {
 	const { vendor, h, host, EdgeInteractionContext } = environment;
@@ -249,11 +268,19 @@ export function createBaseHalfCanvasReferenceEdge(environment: IBaseHalfCanvasSc
 					return;
 				}
 
-				const snapped = baseHalfCanvasReconnectSnapForHit(snapForPointer(event));
-				if (!snapped) {
+				const release = baseHalfCanvasReconnectRelease(
+					snapForPointer(event),
+					isEmptyCanvasAt(host, reconnect.flowEdge.id, event.clientX, event.clientY)
+				);
+				if (release.kind !== 'reconnect') {
+					if (release.kind === 'remove') {
+						// Let go on empty canvas: the connection is removed, as Delete removes it.
+						interaction.remove(reconnect.flowEdge);
+					}
 					finishReconnect();
 					return;
 				}
+				const snapped = release.snap;
 				interaction.reconnect(reconnect.flowEdge, {
 					source: reconnect.end === 'source' ? snapped.nodeId : previous.from,
 					sourceHandle: reconnect.end === 'source' ? snapped.anchor : previous.from_anchor,

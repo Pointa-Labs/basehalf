@@ -491,7 +491,8 @@ Navigation and card rendering never wait for the index.
 
 Primitive operations:
 - **add** an entry;
-- **remove** an entry;
+- **remove** an entry, or several entries of one store in one write (Delete
+  of several selected connections that end at one card);
 - **replace** an entry in place (source-end reconnect, Relink, rename
   refactor);
 - **move** an edge between downstream nodes (target-end reconnect).

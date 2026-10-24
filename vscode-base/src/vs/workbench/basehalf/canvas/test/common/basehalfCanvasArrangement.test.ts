@@ -12,6 +12,7 @@ import {
 	baseHalfCanvasArrangeOrder,
 	baseHalfCanvasBoundingRect,
 	baseHalfCanvasCardsInMarquee,
+	baseHalfCanvasLinesInMarquee,
 	baseHalfCanvasSelectionState,
 	baseHalfCanvasTidy
 } from '../../common/basehalfCanvasArrangement.js';
@@ -35,13 +36,48 @@ suite('BaseHalfCanvasArrangement', () => {
 	test('the state of a selection follows from what is selected', () => {
 		assert.deepStrictEqual(
 			[
-				baseHalfCanvasSelectionState(0, false),
-				baseHalfCanvasSelectionState(0, true),
-				baseHalfCanvasSelectionState(1, false),
-				baseHalfCanvasSelectionState(2, false),
-				baseHalfCanvasSelectionState(7, false)
+				baseHalfCanvasSelectionState(0, 0),
+				baseHalfCanvasSelectionState(0, 1),
+				baseHalfCanvasSelectionState(0, 3),
+				baseHalfCanvasSelectionState(1, 0),
+				baseHalfCanvasSelectionState(2, 0),
+				baseHalfCanvasSelectionState(7, 0)
 			],
-			['nothing', 'connection', 'card', 'set', 'set']
+			['nothing', 'connections', 'connections', 'card', 'set', 'set']
+		);
+	});
+
+	test('a marquee crosses a line when a point of the drawn curve lies in it', () => {
+		const left = { x: 0, y: 0, width: 200, height: 100 };
+		const right = { x: 500, y: 0, width: 200, height: 100 };
+		// East to west is a straight line at y 50 from x 200 to x 500. South to
+		// south dips below the cards, to y 265 halfway.
+		const lines = [
+			{ id: 'straight', from: left, fromAnchor: 'east' as const, to: right, toAnchor: 'west' as const },
+			{ id: 'below', from: left, fromAnchor: 'south' as const, to: right, toAnchor: 'south' as const }
+		];
+		const crossed = (x: number, y: number, width: number, height: number) => baseHalfCanvasLinesInMarquee(lines, { x, y, width, height });
+		assert.deepStrictEqual(
+			{
+				through: crossed(320, 20, 40, 60),
+				onlyAnEnd: crossed(490, 40, 20, 20),
+				onItsBorder: crossed(320, 50, 40, 20),
+				besideIt: crossed(320, 53, 40, 20),
+				aboveIt: crossed(320, 0, 40, 40),
+				aroundWhichItCurves: crossed(300, 110, 100, 100),
+				throughBoth: crossed(340, 0, 20, 300),
+				farAway: crossed(2000, 2000, 50, 50)
+			},
+			{
+				through: ['straight'],
+				onlyAnEnd: ['straight'],
+				onItsBorder: ['straight'],
+				besideIt: [],
+				aboveIt: [],
+				aroundWhichItCurves: [],
+				throughBoth: ['straight', 'below'],
+				farAway: []
+			}
 		);
 	});
 

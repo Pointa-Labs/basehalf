@@ -90,6 +90,8 @@ export class BaseHalfCanvasRenderer {
 	private renderedGenerationCards: { readonly folder: string; readonly cards: readonly IBaseHalfGenerationCardEntry[] } | undefined;
 	/** The ratios of the pictures of the last full drawing, which a layout change keeps. */
 	private renderedPictureRatios: { readonly folder: string; readonly ratios: ReadonlyMap<string, number> } | undefined;
+	/** The warnings a step of the user's queued, as the last full drawing showed them. */
+	private shownQueuedWarnings: readonly string[] = [];
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -617,6 +619,9 @@ export class BaseHalfCanvasRenderer {
 				}
 			}
 		}
+		// A drawing for a change on disk is no step of the user's: the warnings
+		// that their last step brought stay, also when that step wrote files.
+		const keptQueuedWarnings = forDiskChange && !this.view.userRenderOwed ? this.shownQueuedWarnings : [];
 		clearNode(this.view.canvasOverlay);
 		const previousRenderedCards = this.view.renderedCardsByPath;
 		this.view.renderedBadges = badgeRead.badges;
@@ -752,7 +757,8 @@ export class BaseHalfCanvasRenderer {
 			this.renderCanvasWarning(badgeWarning);
 		}
 		this.view.connections.renderCanvasConnectionsStatus(connections.state);
-		for (const warning of this.view.pendingCanvasWarnings.splice(0)) {
+		this.shownQueuedWarnings = [...new Set([...keptQueuedWarnings, ...this.view.pendingCanvasWarnings.splice(0)])];
+		for (const warning of this.shownQueuedWarnings) {
 			this.renderCanvasWarning(warning);
 		}
 

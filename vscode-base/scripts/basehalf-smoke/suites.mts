@@ -14,12 +14,12 @@ import {
 	assertCanvasNewFolder,
 	assertCanvasNumericFolderNames
 } from './areas/canvas/creation.mts';
-import { assertCanvasEdgeFollowsCardDragLive, assertCanvasEdgeHalfReconnect, assertEdgeDeleteRemovesReference, assertEdgeDeleteScopedToCanvas } from './areas/canvas/edges.mts';
+import { assertCanvasEdgeFollowsCardDragLive, assertCanvasEdgeHalfReconnect, assertCanvasEdgeLetGoOnEmptyCanvas, assertEdgeDeleteRemovesReference, assertEdgeDeleteScopedToCanvas } from './areas/canvas/edges.mts';
 import { assertCanvasCardFollowsOutsideRename, assertCanvasCardsFollowManyOutsideRenames, assertCanvasFollowsRenamedOpenFolder } from './areas/canvas/followRenames.mts';
 import { assertCanvasInlineRename } from './areas/canvas/names.mts';
 import { assertCanvasNoteInlineWysiwygEditor } from './areas/canvas/noteEditor.mts';
 import { assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
-import { assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
+import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
 import { assertCanvasSnapGuides, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
 import {
 	assertBadgeClosesOnRichEditorActivation,
@@ -169,6 +169,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-undo-after-closing-note', () => assertCanvasUndoAfterClosingNote(page));
 	await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
 	await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
+	await step('canvas-edge-let-go-on-empty-canvas', () => assertCanvasEdgeLetGoOnEmptyCanvas(page));
 	await step('agent-upstream-edit-draws-edge', () => assertAgentUpstreamEditDrawsEdge(page));
 	await step('badge-editor-upstream-downstream', () => assertBadgeEditorUpstreamDownstream(page));
 	await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
@@ -177,6 +178,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
 	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-selection-and-arrangement', () => assertCanvasSelectionAndArrangement(page));
+	await step('canvas-marquee-selects-connections', () => assertCanvasMarqueeSelectsConnections(page));
 	await step('agent-sees-selection', () => assertAgentSeesSelection(page));
 	await step('note-that-cannot-hold-a-list', () => assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page));
 }

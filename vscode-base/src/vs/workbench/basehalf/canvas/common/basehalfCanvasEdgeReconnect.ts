@@ -37,10 +37,23 @@ export type BaseHalfCanvasReconnectHit =
 	| { readonly kind: 'invalid-card' }
 	| { readonly kind: 'blank' };
 
-/** Only a valid card-side snap commits a reconnect. Dropping on empty canvas
- *  or the excluded opposite endpoint cancels and preserves the existing edge. */
-export function baseHalfCanvasReconnectSnapForHit(hit: BaseHalfCanvasReconnectHit): IBaseHalfCanvasReconnectSnap | undefined {
-	return hit.kind === 'snap' ? hit.snap : undefined;
+export type BaseHalfCanvasReconnectRelease =
+	| { readonly kind: 'reconnect'; readonly snap: IBaseHalfCanvasReconnectSnap }
+	| { readonly kind: 'remove' }
+	| { readonly kind: 'cancel' };
+
+/**
+ * What letting go of a dragged end does (canvas connection handles): a snap
+ * to a card side reconnects there, and a release on empty canvas removes the
+ * connection. Anywhere else, the card at the other end included, the
+ * connection stays as it was. `onEmptyCanvas` says whether nothing but the
+ * scene's pane is under the pointer.
+ */
+export function baseHalfCanvasReconnectRelease(hit: BaseHalfCanvasReconnectHit, onEmptyCanvas: boolean): BaseHalfCanvasReconnectRelease {
+	if (hit.kind === 'snap') {
+		return { kind: 'reconnect', snap: hit.snap };
+	}
+	return hit.kind === 'blank' && onEmptyCanvas ? { kind: 'remove' } : { kind: 'cancel' };
 }
 
 /** Matches the established card-side target depth used by connection drags. */

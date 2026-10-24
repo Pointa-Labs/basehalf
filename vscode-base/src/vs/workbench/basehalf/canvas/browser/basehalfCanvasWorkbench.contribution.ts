@@ -391,7 +391,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			connect: (sceneKey, structuralEpoch, connection) => this.connections.connectSceneEdge(sceneKey, structuralEpoch, connection),
 			showConnectionCreateMenu: (sceneKey, structuralEpoch, drop) => this.connections.showConnectionCreateMenu(sceneKey, structuralEpoch, drop),
 			reconnect: (sceneKey, structuralEpoch, intent) => this.connections.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
-			removeEdge: (sceneKey, structuralEpoch, edge) => this.connections.removeEdgeFromScene(sceneKey, structuralEpoch, edge),
+			removeEdges: (sceneKey, structuralEpoch, edges) => this.connections.removeEdgesFromScene(sceneKey, structuralEpoch, edges),
 			performSelectionAction: (sceneKey, structuralEpoch, action, paths) => this.selectionActions.performSceneSelectionAction(sceneKey, structuralEpoch, action, paths),
 			cancelPendingCardOpen: () => this.selectionActions.cancelPendingNodeActivation(),
 			prepareSelectionChange: (sceneKey, structuralEpoch, paths) => this.selectionActions.prepareSceneSelectionChange(sceneKey, structuralEpoch, paths),

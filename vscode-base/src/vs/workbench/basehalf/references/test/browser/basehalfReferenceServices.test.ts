@@ -619,6 +619,24 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.deepStrictEqual(harness.notifications.messages, []);
 	});
 
+	test('several entries leave one note in one operation with another store, and one undo puts each back in its place', async () => {
+		const listed = '---\nupstream:\n  - a.md\n  - b.md\n  - c.md\n---\n# D\n';
+		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': listed, 'e.md': '---\nupstream:\n  - a.md\n---\n# E\n' });
+		const source = new UndoRedoSource();
+		const canvas = joinPath(folder, '.bh', 'mirror', 'canvas.yaml');
+		const result = await harness.edit.apply([
+			{ node: harness.node('d.md'), operation: { kind: 'removeEntries', entries: ['a.md', 'c.md'] } },
+			{ node: harness.node('e.md'), operation: { kind: 'remove', entry: 'a.md' } }
+		], options);
+		const removed = { outcomes: result.stores.map(store => store.outcome), d: await harness.read('d.md'), e: await harness.read('e.md') };
+		assert.ok(harness.edit.pushUndoElement(result, { label: 'Disconnect', resources: [canvas], source }));
+		await harness.undoRedo.undo(source);
+		assert.deepStrictEqual({ removed, undone: { d: await harness.read('d.md'), e: await harness.read('e.md') } }, {
+			removed: { outcomes: ['changed', 'changed'], d: '---\nupstream:\n  - b.md\n---\n# D\n', e: '# E\n' },
+			undone: { d: listed, e: '---\nupstream:\n  - a.md\n---\n# E\n' }
+		});
+	});
+
 	test('canvas undo refuses after an external edit, changes nothing, and keeps the step', async () => {
 		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'b.md': '# B\n' });
 		const source = new UndoRedoSource();

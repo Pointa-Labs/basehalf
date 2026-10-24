@@ -445,29 +445,39 @@ export function useBaseHalfCanvasSceneConnections(environment: IBaseHalfCanvasSc
 		});
 	}, [makeEdge, setLiveEdges, updateSnapshot]);
 
+	// Every edge removed together is one disconnect, one step of undo.
 	const removeEdges = vendor.useCallback((deleted: readonly BaseHalfCanvasFlowEdge[]) => {
-		for (const flowEdge of deleted) {
-			const edge = flowEdge.data?.edge;
-			const operationKey = flowEdge.data?.sceneKey;
-			const operationEpoch = flowEdge.data?.structuralEpoch;
-			if (!edge || !operationKey || operationEpoch === undefined || operationKey !== sceneKeyRef.current || operationEpoch !== structuralEpochRef.current) {
-				continue;
-			}
-			const token = ++mutationSequence.current;
+		const operationKey = sceneKeyRef.current;
+		const operationEpoch = structuralEpochRef.current;
+		const edges = deleted.flatMap(flowEdge => flowEdge.data?.edge && flowEdge.data.sceneKey === operationKey && flowEdge.data.structuralEpoch === operationEpoch
+			? [flowEdge.data.edge]
+			: []);
+		if (edges.length === 0) {
+			return;
+		}
+		const token = ++mutationSequence.current;
+		for (const edge of edges) {
 			pendingEdges.current.set(edge.id, { token, kind: 'delete' });
-			void delegate.removeEdge(operationKey, operationEpoch, edge).then(() => {
-				if (sceneKeyRef.current === operationKey && structuralEpochRef.current === operationEpoch && pendingEdges.current.get(edge.id)?.token === token) {
+		}
+		const settle = (): boolean => {
+			if (sceneKeyRef.current !== operationKey || structuralEpochRef.current !== operationEpoch) {
+				return false;
+			}
+			let settled = false;
+			for (const edge of edges) {
+				if (pendingEdges.current.get(edge.id)?.token === token) {
 					pendingEdges.current.delete(edge.id);
+					settled = true;
 				}
-			}).catch(error => {
-				if (sceneKeyRef.current !== operationKey || structuralEpochRef.current !== operationEpoch || pendingEdges.current.get(edge.id)?.token !== token) {
-					return;
-				}
-				pendingEdges.current.delete(edge.id);
+			}
+			return settled;
+		};
+		void delegate.removeEdges(operationKey, operationEpoch, edges).then(settle).catch(error => {
+			if (settle()) {
 				updateSnapshot(snapshotRef.current);
 				delegate.reportError(error);
-			});
-		}
+			}
+		});
 	}, [updateSnapshot]);
 
 	const ownsCurrentEdge = vendor.useCallback((flowEdge: BaseHalfCanvasFlowEdge): boolean => {
@@ -496,7 +506,7 @@ export function useBaseHalfCanvasSceneConnections(environment: IBaseHalfCanvasSc
 			if (!preserveFocus) {
 				host.focus({ preventScroll: true });
 			}
-			void requestSelection({ edgeId: flowEdge.id });
+			void requestSelection({ edgeIds: [flowEdge.id] });
 		},
 		reconnect: optimisticReconnect,
 		remove(flowEdge): void {

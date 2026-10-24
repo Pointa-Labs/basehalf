@@ -545,8 +545,9 @@ export class BaseHalfCanvasSelectionActions {
 		if (request.kind === 'edge') {
 			mainWindow.setTimeout(() => {
 				const current = this.view.getCurrentFolder();
-				const edge = this.view.renderedSceneEdges.find(candidate => candidate.id === request.edge.id);
-				if (this.view.disposed || !current || this.view.sceneKey(current) !== sceneKey || !edge
+				const ids = new Set(request.edges.map(edge => edge.id));
+				const edges = this.view.renderedSceneEdges.filter(candidate => ids.has(candidate.id));
+				if (this.view.disposed || !current || this.view.sceneKey(current) !== sceneKey || edges.length === 0
 					|| !this.view.workspaceMutationCoordinator.isStampCurrent(current.workspaceFolder, this.view.sceneMutationStamp(current, structuralEpoch))) {
 					return;
 				}
@@ -556,7 +557,7 @@ export class BaseHalfCanvasSelectionActions {
 					getActions: () => [toAction({
 						id: 'basehalf.canvas.disconnectSelection',
 						label: localize('basehalf.canvas.edge.disconnect', "Disconnect"),
-						run: () => this.view.connections.removeEdgeFromScene(sceneKey, structuralEpoch, edge)
+						run: () => this.view.connections.removeEdgesFromScene(sceneKey, structuralEpoch, edges)
 					})],
 					onHide: wasCancelled => {
 						if (wasCancelled) {

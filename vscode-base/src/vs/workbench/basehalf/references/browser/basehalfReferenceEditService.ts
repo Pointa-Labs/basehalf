@@ -852,6 +852,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				return [{ kind: 'add', entry: baseHalfNormalizeUpstreamEntry(operation.entry) }];
 			case 'remove':
 				return [{ kind: 'remove', entry: operation.entry }];
+			case 'removeEntries':
+				return operation.entries.map(entry => ({ kind: 'remove', entry }));
 			case 'replace':
 				return [{ kind: 'replace', from: operation.from, to: baseHalfNormalizeUpstreamEntry(operation.to) }];
 			case 'replaceEntries':

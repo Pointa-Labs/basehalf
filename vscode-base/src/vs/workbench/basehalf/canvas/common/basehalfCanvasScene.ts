@@ -216,7 +216,7 @@ export interface IBaseHalfCanvasSceneSnapshot {
 	readonly cards: readonly IBaseHalfCanvasSceneCard[];
 	readonly edges: readonly IBaseHalfCanvasSceneEdge[];
 	readonly selectedCardPaths?: readonly string[];
-	readonly selectedEdgeId?: string;
+	readonly selectedEdgeIds?: readonly string[];
 }
 
 export interface IBaseHalfCanvasSceneGeometry extends IBaseHalfCanvasBounds {
@@ -308,9 +308,10 @@ export interface IBaseHalfCanvasSceneReconnect {
 	readonly next: IBaseHalfCanvasSceneConnection;
 }
 
+/** Cards or connections, never both (docs/specs/canvas-selection-and-arrangement.md). */
 export interface IBaseHalfCanvasSceneSelection {
 	readonly cardPaths?: readonly string[];
-	readonly edgeId?: string;
+	readonly edgeIds?: readonly string[];
 }
 
 export type BaseHalfCanvasSceneSelectionAction = 'rename' | 'duplicate' | 'delete' | 'copyReferences';
@@ -337,7 +338,8 @@ export type BaseHalfCanvasSceneContextMenuRequest =
 	}
 	| {
 		readonly kind: 'edge';
-		readonly edge: IBaseHalfCanvasSceneEdge;
+		/** The selected connections, the one under the pointer among them. */
+		readonly edges: readonly IBaseHalfCanvasSceneEdge[];
 		readonly anchor: HTMLElement | { readonly x: number; readonly y: number };
 	}
 	| {
@@ -361,7 +363,8 @@ export interface IBaseHalfCanvasSceneDelegate {
 	 *  created, `false` when the menu was dismissed or nothing was created. */
 	showConnectionCreateMenu(sceneKey: string, structuralEpoch: number, drop: IBaseHalfCanvasSceneConnectionDrop): Promise<boolean>;
 	reconnect(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void>;
-	removeEdge(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
+	/** Disconnects every one of `edges` as one step of undo. */
+	removeEdges(sceneKey: string, structuralEpoch: number, edges: readonly IBaseHalfCanvasSceneEdge[]): Promise<void>;
 	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;
 	cancelPendingCardOpen(): void;
 	prepareSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean>;

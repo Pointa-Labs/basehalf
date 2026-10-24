@@ -1,7 +1,9 @@
 # Canvas selection and arrangement
 
-Status: Active (2026-10-12). Implemented.
-Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12)
+Status: Active (2026-10-12). Implemented. Revised 2026-10-25: a marquee that
+touches no card selects the connections it crosses.
+Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12),
+revised by [D80](../decisions.md#d80--a-connection-pulled-off-a-card-and-let-go-on-empty-canvas-is-removed-and-a-marquee-over-connections-alone-selects-them-new-2026-10-25)
 Related: [canvas card placement](canvas-card-placement.md) (rows, chosen
 rows, list order, the plain grid),
 [canvas connection handles](canvas-connection-handles.md) (capture circles),
@@ -16,6 +18,10 @@ rows, list order, the plain grid),
 One selected card is one card, whether it was clicked or boxed. Two or more
 selected cards are a set: one object with one box, one toolbar, and one way
 to move it.
+
+**A marquee selects the cards it touches. When it touches no card, it selects
+the connections it crosses.** Cards and connections are never selected
+together.
 
 **BaseHalf moves cards only when the user asks for it**: by arranging a set
 or by tidying the canvas. Each is one step that the user can take back.
@@ -47,12 +53,16 @@ code on 2026-10-12 gave the causes below. Faults 1 to 3 were then
 6. There is no way to put cards in order. The
    [placement specification](canvas-card-placement.md#open-questions) left
    the tidy command open.
+7. No marquee selects a connection (reported on 2026-10-25), so connections
+   are removed one by one.
 
 ## Scope
 
 In scope:
 
 - Selecting cards with a marquee.
+- Selecting connections with a marquee, and what Delete and Disconnect do
+  with several selected connections.
 - The states of the selection, and what each shows.
 - A set of cards: its box, its toolbar, moving it.
 - Arranging a set in a grid, a row, or a column.
@@ -63,7 +73,10 @@ Not in scope, and unchanged:
 - Everything a single selected card can do: its toolbar, the controls of a
   Note or a video card, resizing, connecting, opening, editing, moving by
   the arrow keys, its context menu.
-- Selecting a connection, and what a selected connection can do.
+- Selecting one connection with a click, and what one selected connection
+  shows.
+- Dragging an end of a connection
+  ([canvas connection handles](canvas-connection-handles.md#dragging-an-end-of-a-connection)).
 - Moving the canvas and zooming.
 - How a place is saved and when BaseHalf chooses one
   ([canvas card placement](canvas-card-placement.md)).
@@ -76,13 +89,17 @@ Not in scope, and unchanged:
 - **Empty canvas**: a point of the canvas scene where no card, connection,
   capture circle, set box, toolbar, menu, or view control takes the pointer.
 - **Marquee**: the rectangle the user draws with the pointer to select
-  cards.
+  cards, or connections where it touches no card.
 - **Set**: two or more selected cards.
 - **Set box**: the smallest rectangle that holds the card rectangles of a
   set and the captions above them. A caption takes the pointer, so the box
   holds it: a press on the name of a card of a set is a press on the box.
 - **Connection**: a connection that the canvas draws between two of its
   cards. It runs from the upstream card to the downstream card.
+- **Line of a connection**: the curve the canvas draws for it, from the
+  anchor point on the side of one card to the anchor point on the side of
+  the other, without its arrowhead and without the wider band around it that
+  takes the pointer.
 - **Group**: cards of one canvas that connections join, directly or through
   other cards, in either direction. A group has at least two cards.
 - **Single**: a card that no connection joins to another card of the canvas.
@@ -109,7 +126,8 @@ called the first and the second product here.
 | --- | --- | --- |
 | A drag that begins on empty canvas | draws a marquee | draws a marquee |
 | Which cards a marquee selects | every card it touches | every card it touches |
-| Connections of the boxed cards | not selected | not tried: the test canvas had none |
+| Connections of the boxed cards | not selected | the connection between two boxed cards is selected with them; one with only one boxed card is not (tried 2026-10-25) |
+| A marquee that touches only connections (tried 2026-10-25) | selects every connection it crosses, with no toolbar | selects nothing |
 | Cards are marked while the marquee is drawn | yes | not observed |
 | A set after the marquee | a dashed box with a margin, a toolbar above it | a filled box without a margin, a toolbar above it |
 | The toolbar of a set | seven actions in four groups, most with the name beside the icon | five actions in three groups, icons alone, the name shown when the pointer rests on one |
@@ -151,10 +169,19 @@ number, and both put the actions in groups. BaseHalf names its buttons as
 the first product does: its four actions fit, and a name needs no icon font
 and no resting pointer to be read.
 
+On 2026-10-25 both were tried again with connections. A selected connection
+shows a button that cuts it, in both, and Delete removes every selected
+connection. One undo brought back what Delete removed. A marquee over two
+connections in the first product selected both and showed no button. The
+first product draws the connections between selected cards with a moving
+color, without selecting them. Neither lets an end of a connection be
+dragged.
+
 BaseHalf takes what both products agree on. Where they differ it takes the
 behavior that keeps one state for one selection: the second product's for a
 set made by Shift-click, the first product's for a marquee that touches one
-card. The box is drawn filled and without a margin, as the second product
+card, and the first product's for a marquee over connections, which the
+user chose on 2026-10-25. The box is drawn filled and without a margin, as the second product
 draws it. A box that stays behind and keys that select page text are faults
 and are not taken.
 
@@ -170,9 +197,9 @@ the state alone.
 | Nothing | nothing | no selection controls |
 | One card | one card | that card's outline and its own controls, as before this specification |
 | A set | two or more cards | the outline of each card, the set box, the set toolbar |
-| A connection | one connection | as before this specification |
+| Connections | one or more connections | the selected look of each connection's line; nothing else |
 
-- Cards and a connection are never selected together.
+- Cards and connections are never selected together.
 - A way of selecting never leaves a mark of its own. One card that was
   boxed, one card that was clicked, and the last card left by Shift-click
   are the same state, show the same controls, and answer the pointer in the
@@ -217,7 +244,13 @@ is drawn.
 - Every card in the marquee shows the selected outline, in the same frame
   in which the marquee reached it. A card that the marquee leaves loses the
   outline. No toolbar, box, or handle is shown yet.
-- Connections are not marked and not selected.
+- While the marquee touches no card, every connection whose line it crosses
+  shows the selected look, in the same frame in which the marquee reached
+  it. A line is crossed when any point of it lies in the marquee, also at
+  one of its ends and also when the line is not drawn because it is out of
+  view. A connection that the marquee leaves loses the look.
+- While the marquee touches a card, no connection is marked, also one whose
+  line it crosses.
 - Near the edge of the scene the canvas moves and the marquee grows with
   it, as before this specification. The point of the press stays where it
   was on the canvas. A wheel that moves the canvas while the button is held
@@ -228,7 +261,8 @@ is drawn.
 selection is still being cleared, because a Note is closing, selects when
 that is done. The cards in the marquee are the selection:
 
-- none: nothing is selected;
+- none, and no line crossed: nothing is selected;
+- none, and one or more lines crossed: those connections are selected;
 - one: that card is the one selected card;
 - two or more: they are a set.
 
@@ -298,6 +332,33 @@ cards has the keyboard focus.
 a marquee, selects a connection, opens the context menu of empty canvas or
 of a card outside the box, or goes to another canvas. It also ends when
 fewer than two of its cards are left.
+
+### Selected connections
+
+One or more connections are selected by a marquee that touches no card. One
+is selected by a click on its line, as before.
+
+- Each selected connection shows the selected look of its line. Nothing else
+  is shown: no box, no toolbar, no handles.
+- **Delete and Backspace** remove every selected connection, as one step of
+  undo. The canvas must have the keyboard focus, as for one connection.
+  - The connections that end at one card leave its list in one write.
+  - A connection that cannot change, such as an input of a generation card
+    with its file or of a draft while it generates
+    ([reference graph](reference-graph.md#connecting)), stays. The others
+    are removed, and the reason is shown once.
+  - Undo brings every removed connection back, each entry in its place in
+    its list.
+- **The context menu** of a selected connection keeps the selection, and its
+  **Disconnect** removes every selected connection in the same way. The
+  context menu of a connection that is not selected selects that connection
+  alone first, as before.
+- A click on a connection selects it alone. A click on empty canvas, a
+  marquee, selecting a card, and going to another canvas end the selection.
+- A selected connection that disappears, because an agent or another view
+  removed it, leaves the selection.
+- Dragging an end of one of them changes only that connection
+  ([canvas connection handles](canvas-connection-handles.md#dragging-an-end-of-a-connection)).
 
 ### Moving a set
 
@@ -493,6 +554,8 @@ Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
 ## Not in this version
 
 - A way to add to the selection with a marquee.
+- Shift-click on a connection to add it to the selected connections.
+- A button on a selected connection that removes it.
 - A key that selects every card, and a key that clears the selection.
 - A context menu for a set.
 - Moving a set with the arrow keys.
@@ -517,6 +580,12 @@ Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
   rectangles** of the drawing in which they are shown.
 - **The order, the three arrangements, and the tidy layout are functions
   without services**, so that unit tests cover them with plain numbers.
+  So is the test of which lines a marquee crosses: it works from the card
+  rectangles, the anchors, and the marquee in flow pixels, with the curve
+  the canvas draws, and never reads the drawing.
+- **The selected connections are the scene's own**, as the one selected
+  connection was. The workbench is asked to clear the selection of cards
+  when a marquee begins, and is told of no connection.
 - **An arrangement, a tidy, and a revert go through the write that saves a
   move of cards**: one change of the layout and one undo element for all
   cards.
@@ -528,7 +597,8 @@ Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
 Selection
 
 1. A marquee over cards with and without connections selects exactly the
-   cards it touches. No connection is selected.
+   cards it touches. No connection is selected, also one whose line the
+   marquee crosses.
 2. While a marquee is drawn over a canvas of 300 cards, the most a canvas
    shows, every card it reaches shows the outline in the same frame, and no
    request goes to the workbench between the first movement and the
@@ -536,7 +606,8 @@ Selection
 3. A marquee that touches one card and a click on that card give the same
    state: the same controls are shown, a double click opens or edits the
    card, and its resize targets and connection handles answer.
-4. A marquee that touches no card leaves nothing selected.
+4. A marquee that touches no card and crosses no line leaves nothing
+   selected.
 5. A set made by a marquee and a set of the same cards made by Shift-click
    show the same box and the same toolbar and answer the pointer in the
    same way.
@@ -596,8 +667,30 @@ Tidying
 
 Storage
 
-30. A marquee, a Shift-click, and a click write nothing under `.bh/`.
+30. A marquee, a Shift-click, and a click write nothing under `.bh/`, also
+    a marquee that selects connections.
 31. An arrangement, a tidy, and a revert each write the layout once.
+
+Connections
+
+32. A marquee that touches no card and crosses the lines of two connections
+    selects both, and no card. While it is drawn both lines show the selected
+    look; a line it leaves loses the look.
+33. Delete after criterion 32 removes both connections: each downstream note
+    no longer lists its upstream card. One undo brings both back.
+34. Two selected connections into the same note leave its list in one write,
+    and one undo brings both entries back in their places.
+35. With a connection into a generation card with its file and another one
+    selected, Delete removes the other one, keeps the first, and shows the
+    refusal once.
+36. Disconnect in the context menu of one of two selected connections removes
+    both.
+37. A marquee that crosses a line and then reaches a card marks and selects
+    only the card. Drawn back off the card, it marks the line again.
+38. The lines a marquee crosses are given by a function that the unit tests
+    cover: a line through the marquee, a line with only its end in it, a
+    line that curves around the marquee, and a marquee inside the band of a
+    line that it does not cross.
 
 ## Verification
 
@@ -606,6 +699,7 @@ Storage
   with several cards before it, singles only, groups only, and rows of
   blocks that wrap.
 - Unit tests of the function that gives the state for a selection.
+- Unit tests of the function that gives the lines a marquee crosses.
 - The smoke in the real window, on a fixture workspace with connected and
   unconnected cards. Each step also checks which element is at the pointer,
   because an element can be drawn and still be covered.
@@ -615,6 +709,8 @@ Storage
   1, 3, 5 to 7, 10 to 14, 18, 19, 22 to 25, 27, and 28 on a folder of five
   notes that it writes and removes. It leaves out the capture circles of
   criterion 12, the drag of criterion 13, and Revert of criterion 28.
+- The step `canvas-marquee-selects-connections` of the smoke covers criteria
+  32 to 34, 36, and 37 with the real pointer.
 
 ### Seen in the real window before the change, 2026-10-12
 
@@ -760,6 +856,8 @@ the time between frames was taken inside the window.
   begins on a set box moves the canvas.
 - [Canvas connection handles](canvas-connection-handles.md): the cards of a
   set show no handles, and their capture circles are under the set box.
+- [Reference graph](reference-graph.md#reference-edits): several entries
+  leave one store in one write (2026-10-25).
 
 ## Open questions
 
