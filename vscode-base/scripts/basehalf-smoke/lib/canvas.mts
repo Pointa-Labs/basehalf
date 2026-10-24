@@ -362,21 +362,23 @@ export async function panCanvasToward(page, canvasBox, deltaX, deltaY) {
 	const panStart = await page.evaluate(({ bounds, horizontal, vertical }) => {
 		const xFractions = horizontal >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
 		const yFractions = vertical >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
-		for (const yFraction of yFractions) {
-			for (const xFraction of xFractions) {
-				const x = bounds.x + bounds.width * xFraction;
-				const y = bounds.y + bounds.height * yFraction;
-				// A drag by the middle button moves the canvas from empty canvas, from a
-				// card, and from a connection. It does not from a toolbar or another
-				// surface that keeps the pointer, and such a surface can lie on the
-				// first point: the toolbar of a set is as wide as its names.
-				const hit = document.elementFromPoint(x, y);
-				if (hit?.closest('.react-flow__pane') && (hit.closest('.react-flow__node, .react-flow__edge') || !hit.closest('.nopan'))) {
-					return { x, y };
-				}
-			}
+		const points = yFractions.flatMap(yFraction => xFractions.map(xFraction => ({ x: bounds.x + bounds.width * xFraction, y: bounds.y + bounds.height * yFraction })));
+		// Empty canvas first. A card can hold a control that keeps the pointer
+		// and shows only under it: the control bar of a video card appears on
+		// hover and takes the press.
+		const blank = points.find(point => document.elementFromPoint(point.x, point.y)?.classList.contains('react-flow__pane'));
+		if (blank) {
+			return blank;
 		}
-		return undefined;
+		// A drag by the middle button moves the canvas from a card and from a
+		// connection too. It does not from a control of a card, a toolbar, or
+		// another surface that keeps the pointer, and such a surface can lie on
+		// the first point: the toolbar of a set is as wide as its names.
+		return points.find(point => {
+			const hit = document.elementFromPoint(point.x, point.y);
+			const keeps = hit?.closest('.nopan');
+			return !!hit?.closest('.react-flow__pane') && (!keeps || keeps === hit.closest('.react-flow__node, .react-flow__edge'));
+		});
 	}, { bounds: canvasBox, horizontal: deltaX, vertical: deltaY });
 	if (!panStart) {
 		await page.waitForTimeout(100);
