@@ -9,8 +9,10 @@
 // network, and every link to the web goes to the workbench.
 
 import './bookReader.css';
+import { makeComicBook } from 'foliate-js/comic-book.js';
 import { Overlayer } from 'foliate-js/overlayer.js';
-import { View, type FoliateSearchResult, type IFoliateLocation, type IFoliateSearchMatch, type IFoliateTocItem, type IFoliateView } from 'foliate-js/view.js';
+import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from 'foliate-js/vendor/zip.js';
+import { View, type FoliateSearchResult, type IFoliateBookSource, type IFoliateLocation, type IFoliateSearchMatch, type IFoliateTocItem, type IFoliateView } from 'foliate-js/view.js';
 import {
 	BASEHALF_BOOK_SELECTION_TEXT_LIMIT,
 	BASEHALF_BOOK_TEXT_SIZES,
@@ -97,6 +99,7 @@ async function open(): Promise<void> {
 	const file = new File([await response.blob()], (root.dataset.name || 'book.epub').toLowerCase());
 	// The element foliate-js defines for a book.
 	const reader: IFoliateView = new View();
+	const book = file.name.endsWith('.cbz') ? await comicBook(file) : file;
 	bookHost.append(reader);
 	reader.addEventListener('load', event => onSectionLoad((event as CustomEvent<{ doc: Document }>).detail.doc));
 	reader.addEventListener('relocate', event => onRelocate((event as CustomEvent<IFoliateLocation>).detail));
@@ -106,7 +109,7 @@ async function open(): Promise<void> {
 		const link = (event as CustomEvent<{ a: HTMLAnchorElement; href_: string }>).detail;
 		vscode.postMessage({ type: 'basehalf.book.openLink', href: link.a.href || link.href_ });
 	});
-	await reader.open(file);
+	await reader.open(book);
 	// A script of the book is not even loaded; the page's policy would not run it.
 	reader.book.transformTarget?.addEventListener('load', event => {
 		const detail = (event as CustomEvent<{ isScript?: boolean; allow: unknown }>).detail;
@@ -131,6 +134,27 @@ async function open(): Promise<void> {
 	status.hidden = true;
 	root.dataset.status = 'ready';
 	observeTheme();
+}
+
+/**
+ * A comic book archive, its pages in natural name order as foliate-js puts
+ * them, without the hidden files that the system which packed it added, such
+ * as those under `__MACOSX/`, and each page named by its file without the
+ * extension.
+ */
+async function comicBook(file: File): Promise<IFoliateBookSource> {
+	configure({ useWebWorkers: false });
+	const entries = (await new ZipReader(new BlobReader(file)).getEntries())
+		.filter(entry => !entry.directory && !entry.filename.split('/').some(part => part.startsWith('.') || part === '__MACOSX'));
+	const byName = new Map(entries.map(entry => [entry.filename, entry]));
+	const book = makeComicBook({
+		entries,
+		loadText: name => byName.get(name)?.getData(new TextWriter()) ?? null,
+		loadBlob: (name, type) => byName.get(name)?.getData(new BlobWriter(type)) ?? null,
+		getSize: name => byName.get(name)?.uncompressedSize ?? 0
+	}, file);
+	book.toc = book.toc?.map(item => ({ ...item, label: (item.label ?? '').replace(/^.*\//, '').replace(/\.[^.]+$/, '') }));
+	return book;
 }
 
 function fail(message: string): void {

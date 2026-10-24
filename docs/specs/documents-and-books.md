@@ -199,7 +199,10 @@ show the same files ([architecture invariants](../harness/architecture-invariant
 20. **Contents.** Contents opens the book's table of contents beside the
     book, with the chapter shown marked. A click on an entry goes there.
     Contents closes with its button or with Escape. A book without a table
-    of contents shows its sections by their order.
+    of contents shows its sections by their order. A comic book's pages are
+    its pictures in natural name order, each listed by its file name without
+    the extension, and the hidden files of the system that packed it are no
+    pages.
 21. **Search.** Search opens a field over the contents. Enter searches the
     whole book and lists each match with the words around it, in the order
     of the book, as they are found. A click on a match goes there and marks
