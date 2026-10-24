@@ -17,7 +17,7 @@ import EmbedPDF, {
 	type ThemeColors,
 	type ZoomLevel
 } from '@embedpdf/snippet';
-import { FontCharset } from '@embedpdf/models';
+import { FontCharset, PdfErrorCode } from '@embedpdf/models';
 import { BASEHALF_PDF_AUTOMATIC_ZOOM_MAX, BASEHALF_PDF_SELECTION_TEXT_LIMIT, type BaseHalfPdfWebviewMessage, type BaseHalfPdfZoom, type IBaseHalfPdfSelection, type IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
 
 interface VsCodeApi {
@@ -45,11 +45,16 @@ const statusMessage = requiredElement<HTMLElement>('basehalf-pdf-status-message'
 const vscode = acquireVsCodeApi();
 const initialization: { timeout?: number } = {};
 
+/** While the viewer asks for the password of the PDF in its place. */
+let locked = false;
 /** When the user last pressed, typed, or scrolled in the page: a zoom right after it is the user's. */
 let lastUserInput = 0;
 for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 	window.addEventListener(type, () => {
-		lastUserInput = Date.now();
+		// What the user types for the password is not about the zoom that the PDF then opens at.
+		if (!locked) {
+			lastUserInput = Date.now();
+		}
 		vscode.postMessage({ type: 'basehalf.pdf.userInteraction' });
 	}, {
 		capture: true,
@@ -63,7 +68,8 @@ let escapeUsedByViewer = false;
 // Escape that the viewer does not use closes Card Detail (opening and closing
 // Card Detail, "The keyboard"). The viewer closes a menu or a dialog on Escape
 // without saying so, so whether one is open is read before it does, and a
-// field of its own, such as the page number, keeps its Escape.
+// field of its own, such as the page number, keeps its Escape. The field of
+// the password does not: Escape there is Cancel.
 window.addEventListener('keydown', event => {
 	if (event.key !== 'Escape') {
 		return;
@@ -71,7 +77,7 @@ window.addEventListener('keydown', event => {
 	const target = event.composedPath()[0];
 	const inField = target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 	const scope = viewerUi?.forDocument(DOCUMENT_ID);
-	escapeUsedByViewer = inField || (!!scope && (scope.getOpenMenus().length > 0 || scope.isModalOpen()));
+	escapeUsedByViewer = !locked && (inField || (!!scope && (scope.getOpenMenus().length > 0 || scope.isModalOpen())));
 }, { capture: true });
 window.addEventListener('keydown', event => {
 	if (event.key === 'Escape' && !escapeUsedByViewer && !event.defaultPrevented && !event.isComposing
@@ -258,7 +264,13 @@ async function initializeRegistry(registry: PluginRegistry): Promise<void> {
 	});
 	documentManager.onDocumentError(event => {
 		if (event.documentId === DOCUMENT_ID) {
-			showError(event.message || 'The PDF document could not be opened.');
+			documentFailed(event.code, event.message);
+		}
+	});
+	// Cancel, when the viewer asks for the password, closes the PDF, and Card Detail with it.
+	documentManager.onDocumentClosed(documentId => {
+		if (documentId === DOCUMENT_ID) {
+			vscode.postMessage({ type: 'basehalf.media.escape' });
 		}
 	});
 
@@ -322,8 +334,26 @@ async function initializeRegistry(registry: PluginRegistry): Promise<void> {
 	if (documentState?.status === 'loaded') {
 		markReady();
 	} else if (documentState?.status === 'error') {
-		showError(documentState.error || 'The PDF document could not be opened.');
+		documentFailed(documentState.errorCode, documentState.error ?? undefined);
 	}
+}
+
+/**
+ * A PDF that a password locks is asked for by the viewer, in place of the
+ * PDF, and opens once the password is right. Any other PDF that does not open
+ * says that BaseHalf could not open it, and the reason goes to the log (PDFs
+ * and books, "The PDF reader").
+ */
+function documentFailed(code: number | undefined, message: string | undefined): void {
+	if (code === PdfErrorCode.Password) {
+		locked = true;
+		window.clearTimeout(initialization.timeout);
+		root.dataset.status = 'locked';
+		status.hidden = true;
+		return;
+	}
+	vscode.postMessage({ type: 'basehalf.pdf.failed', message: message ?? '' });
+	showError(root.dataset.failedLabel || 'BaseHalf could not open this PDF.');
 }
 
 function installBaseHalfSelectionCommand(registry: PluginRegistry): void {
@@ -390,6 +420,7 @@ function installBaseHalfSelectionCommand(registry: PluginRegistry): void {
 
 function markReady(): void {
 	ready = true;
+	locked = false;
 	window.clearTimeout(initialization.timeout);
 	root.dataset.status = 'ready';
 	status.hidden = true;

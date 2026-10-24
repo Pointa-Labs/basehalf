@@ -48,6 +48,12 @@ export interface IBaseHalfPdfUserInteractionMessage {
 	readonly type: 'basehalf.pdf.userInteraction';
 }
 
+/** A PDF that did not open for another reason than its password, with the reason for the log. */
+export interface IBaseHalfPdfFailedMessage {
+	readonly type: 'basehalf.pdf.failed';
+	readonly message: string;
+}
+
 /**
  * Escape typed in the page of an image, a sound, or a PDF that nothing of the
  * page used: it closes Card Detail, as it does elsewhere in Card Detail
@@ -58,7 +64,7 @@ export interface IBaseHalfMediaEscapeMessage {
 	readonly type: 'basehalf.media.escape';
 }
 
-export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage | IBaseHalfPdfSelectionChangedMessage | IBaseHalfPdfUserInteractionMessage | IBaseHalfMediaEscapeMessage;
+export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage | IBaseHalfPdfSelectionChangedMessage | IBaseHalfPdfUserInteractionMessage | IBaseHalfPdfFailedMessage | IBaseHalfMediaEscapeMessage;
 
 /** The longest text the page sends of a selection: one character more than the record of agents keeps. */
 export const BASEHALF_PDF_SELECTION_TEXT_LIMIT = 10_001;
@@ -136,6 +142,15 @@ export function isBaseHalfPdfUserInteractionMessage(value: unknown): value is IB
 	return !!value
 		&& typeof value === 'object'
 		&& (value as Partial<IBaseHalfPdfUserInteractionMessage>).type === 'basehalf.pdf.userInteraction';
+}
+
+/** The reason a PDF did not open, as the page says it: at most 500 characters, for the log. */
+export function baseHalfPdfFailureFromMessage(value: unknown): string | undefined {
+	if (!value || typeof value !== 'object' || (value as Partial<IBaseHalfPdfFailedMessage>).type !== 'basehalf.pdf.failed') {
+		return undefined;
+	}
+	const message = (value as Partial<IBaseHalfPdfFailedMessage>).message;
+	return typeof message === 'string' ? message.slice(0, 500) : '';
 }
 
 export function isBaseHalfMediaEscapeMessage(value: unknown): value is IBaseHalfMediaEscapeMessage {

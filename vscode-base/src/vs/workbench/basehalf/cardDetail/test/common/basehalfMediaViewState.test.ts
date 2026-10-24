@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, DEFAULT_BASEHALF_PDF_VIEW_STATE, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
+import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, DEFAULT_BASEHALF_PDF_VIEW_STATE, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
 
 suite('BaseHalfMediaViewState', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -74,6 +74,16 @@ suite('BaseHalfMediaViewState', () => {
 		assert.strictEqual(isBaseHalfPdfUserInteractionMessage({ type: 'basehalf.pdf.userInteraction' }), true);
 		assert.strictEqual(isBaseHalfPdfUserInteractionMessage({ type: 'basehalf.pdf.viewState' }), false);
 		assert.strictEqual(isBaseHalfPdfUserInteractionMessage(undefined), false);
+	});
+
+	test('takes the reason a PDF did not open for the log, at most 500 characters', () => {
+		assert.deepStrictEqual([
+			baseHalfPdfFailureFromMessage({ type: 'basehalf.pdf.failed', message: 'FPDF_LoadMemDocument failed' }),
+			baseHalfPdfFailureFromMessage({ type: 'basehalf.pdf.failed', message: 'x'.repeat(900) })?.length,
+			baseHalfPdfFailureFromMessage({ type: 'basehalf.pdf.failed', message: 42 }),
+			baseHalfPdfFailureFromMessage({ type: 'basehalf.pdf.userInteraction' }),
+			baseHalfPdfFailureFromMessage('basehalf.pdf.failed')
+		], ['FPDF_LoadMemDocument failed', 500, '', undefined, undefined]);
 	});
 
 	test('recognizes only the Escape that a page of Card Detail did not use', () => {

@@ -180,7 +180,12 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     changes. Once the user zooms, the PDF opens at the zoom and the page
     where the user was, as before.
 16. Everything else is as before: thumbnails, the outline, search, zoom,
-    text selection, and Grow branch from a selection.
+    text selection, and Grow branch from a selection. A PDF that a password
+    locks asks for it in place of the PDF, says so when it is not right,
+    and asks again; Cancel closes Card Detail. BaseHalf keeps no password:
+    the PDF asks each time it opens. Any other PDF that does not open shows
+    "BaseHalf could not open this PDF." in its place, and the reason goes to
+    the log.
 
 ### The book reader
 
@@ -310,6 +315,9 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     76 MB and EPUBs of 25 MB, no frame of the window takes longer than
     34 ms until every cover is drawn. A PDF of 76 MB and 1,307 pages opens
     in Card Detail the same way.
+15. A PDF that a password locks asks for the password in Card Detail: a
+    wrong one is said so, the right one opens the PDF, and Cancel closes
+    Card Detail. A damaged PDF shows "BaseHalf could not open this PDF."
 
 ## Verification
 

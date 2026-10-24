@@ -28,7 +28,7 @@ import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, whenBaseHalfCanvasMediaDrawn } 
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
-import { baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
+import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
 import { IBaseHalfAgentSelectionDocumentText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocumentBranch.js';
 import { baseHalfDocumentVersion } from '../../documents/common/basehalfDocuments.js';
@@ -423,6 +423,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			this.onDocumentInteraction();
 			return;
 		}
+		const failure = baseHalfPdfFailureFromMessage(message);
+		if (failure !== undefined) {
+			this.logService.warn(`[BaseHalf] the PDF reader could not open ${resource.toString()}: ${failure}`);
+			return;
+		}
 
 		const state = baseHalfPdfViewStateFromMessage(message);
 		if (state) {
@@ -625,7 +630,8 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 			normalizeBaseHalfPdfViewState(pdfViewState),
 			basename(resource),
 			baseHalfPdfLocale(language),
-			localize('basehalf.pdf.branch.action', "Grow branch")
+			localize('basehalf.pdf.branch.action', "Grow branch"),
+			localize('basehalf.pdf.failed', "BaseHalf could not open this PDF.")
 		);
 	}
 	const resourceName = escapeAttribute(basename(resource));
@@ -706,7 +712,7 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 </html>`;
 }
 
-function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: string, fontSc: string, nonce: string, viewState: IBaseHalfPdfViewState, name: string, locale: string, branchActionLabel: string): string {
+function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: string, fontSc: string, nonce: string, viewState: IBaseHalfPdfViewState, name: string, locale: string, branchActionLabel: string, failedLabel: string): string {
 	return `<!DOCTYPE html>
 <html lang="${escapeAttribute(locale)}">
 <head>
@@ -730,7 +736,7 @@ function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: stri
 	</style>
 </head>
 <body>
-	<div id="basehalf-pdf-viewer" data-source="${source}" data-wasm="${escapeAttribute(wasm)}" data-font-sc="${escapeAttribute(fontSc)}" data-name="${escapeAttribute(name)}" data-locale="${escapeAttribute(locale)}" data-branch-action-label="${escapeAttribute(branchActionLabel)}" data-page="${viewState.page}" data-zoom="${viewState.zoom ?? ''}" data-status="loading"></div>
+	<div id="basehalf-pdf-viewer" data-source="${source}" data-wasm="${escapeAttribute(wasm)}" data-font-sc="${escapeAttribute(fontSc)}" data-name="${escapeAttribute(name)}" data-locale="${escapeAttribute(locale)}" data-branch-action-label="${escapeAttribute(branchActionLabel)}" data-failed-label="${escapeAttribute(failedLabel)}" data-page="${viewState.page}" data-zoom="${viewState.zoom ?? ''}" data-status="loading"></div>
 	<div class="status loading" id="basehalf-pdf-status" role="status" aria-live="polite">
 		<div class="status-content">
 			<div class="status-placeholder" aria-hidden="true"></div>
