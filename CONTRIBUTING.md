@@ -35,16 +35,12 @@ There is no CLI binary; the desktop app (and your tests) call core directly.
 > material rather than the center for new desktop orchestration. Read
 > [`AGENTS.md`](AGENTS.md) before changing desktop architecture.
 
-## Build a BaseHalf plugin
+## Plugins
 
-Plugin development is separate from contributing to the BaseHalf host. Use the
-stable `vscode.basehalf` API, `@basehalf/plugin-sdk`, and `bh-plugin` tooling.
-Community plugins use the same Basehalf account, publish to private quarantine,
-and enter the signed catalog only after validation and review.
-
-Start with [`docs/plugin-development.md`](docs/plugin-development.md). A plugin
-submission requires the current CLA and publishing terms, but it does not need
-a pull request or a separate developer account.
+BaseHalf has no plugin platform (D76): no extension contributes to it, and
+nothing can be published for it. What the container shows and does with
+files is built into BaseHalf itself; what agents can do is extended through
+the agents' own skills and tool connections.
 
 ## Repo layout & the rules that must not break
 

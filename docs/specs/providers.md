@@ -7,7 +7,7 @@ Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-
 [D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Related: [generation cards](generation-cards.md),
-[built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md),
+[built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
 Providers page)
 

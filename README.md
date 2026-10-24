@@ -320,14 +320,12 @@ packages/                            historical BaseHalf core/desktop material
    activation into BaseHalf folder canvases and card detail.
 4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
    render as Agent Area sessions, not the stock terminal panel.
-5. **Fixed shell, extensible main canvas.** The built-in AI Video adds
+5. **Fixed shell, one main canvas.** AI Video is BaseHalf's own code: it adds
    templates, card projections, the Sequence view, and the requests that
    image and video cards send to their providers without replacing the
-   canvas model, BaseHalf navigation, the sidebar, or Agent Area. The plugin
-   platform it is built on is frozen: nothing can be installed or published.
-   See
-   [built-in AI Video and the frozen plugin platform](docs/specs/built-in-ai-video-and-plugin-freeze.md)
-   and the [plugin architecture](docs/plugin-architecture.md).
+   canvas model, BaseHalf navigation, the sidebar, or Agent Area. There is no
+   plugin platform: nothing can be installed or published for BaseHalf. See
+   [built-in AI Video and no plugins](docs/specs/built-in-ai-video-and-no-plugins.md).
 6. **Markdown shares one truth.** Rich, source, and preview projections operate
    over the same Markdown working copy.
 7. **BaseHalf does not secretly edit user files.** Automated services never

@@ -1210,7 +1210,7 @@ promotes reviewed plugins no longer runs on a schedule, and the publishing
 portal and its API are taken out of service. The signed registry, the signing
 key, the stored submissions, and the platform's code stay as they are, so the
 freeze can be lifted. See
-[built-in AI Video and the frozen plugin platform](specs/built-in-ai-video-and-plugin-freeze.md).
+[built-in AI Video and no plugins](specs/built-in-ai-video-and-no-plugins.md).
 
 **Why.** The platform was built for an ecosystem that does not exist yet.
 Three months after community publishing opened, the catalog held no plugin
@@ -2762,7 +2762,7 @@ Requests to providers are Node's own, one connection each and never sent
 again by themselves, with VS Code's proxy agent, as they were in the
 extension host: the system's proxy settings and certificates apply, and the
 cross-origin rules of a window do not. What the user sees does not change. See
-[built-in AI Video and the frozen plugin platform](specs/built-in-ai-video-and-plugin-freeze.md),
+[built-in AI Video and no plugins](specs/built-in-ai-video-and-no-plugins.md),
 [providers and the model catalog](specs/providers.md#requests), and
 [Video Sequence](specs/video-sequence.md).
 
@@ -2819,3 +2819,67 @@ its own background work there.
   provider service, with the session that every window uses.
 - A release builds no AI Video of its own, and the check of a packaged
   layout no longer looks for it.
+
+## D76 — The plugin platform is removed (NEW, 2026-10-25)
+
+**Decision.** BaseHalf has no plugin platform, in the product or in the
+repository. What leaves: the plugin catalog and its signature checks, the
+installer and its records, the Plugins view and library, the admission of
+reviewed plugins, the contribution points that extensions filled (canvas
+templates, Card Detail projections, agent capabilities, and structural
+cleanups), the `vscode.basehalf` extension API, the release tooling and its
+checks, the workflows that published, promoted, withdrew, and rolled back
+plugins, the developer packages `@basehalf/plugin-cli` and
+`@basehalf/plugin-sdk` with their workflow, and the infrastructure
+definitions of the registry. What BaseHalf itself uses stays and moves to the
+feature it belongs to: the registries of canvas templates, Card Detail
+projections, and agent capabilities, project file transitions with their
+upstream guard, and the extension allowlist with its install policy. No
+extension contributes to BaseHalf. VS Code's own extension system stays as
+VS Code has it, its extension host, extension API, extension management, and
+gallery, so that BaseHalf can build on it later: where BaseHalf changed VS
+Code's files for its plugins, those parts go back to VS Code's code at the
+import commit. The registry, the signing key, the storage
+and the database behind it, the publishing services, and the published
+packages are retired by their owner outside the repository. See
+[built-in AI Video and no plugins](specs/built-in-ai-video-and-no-plugins.md).
+
+**Why.** D45 froze the platform and kept its code so that the freeze could
+be lifted without rebuilding it. Since D75 no extension is admitted at all,
+and the code no longer describes a platform that could be reopened as it is:
+the recipes, the Video node documents, the model catalogs that plugins
+declared, and AI Video as an extension are gone (D58, D63, D75). It is still
+about 12,000 lines in the application, among them tests, release tooling, and
+an extension API, and about 8,500 beside it. Parts of it still ran: four
+contribution points and the admission service at start, and a stage of
+plugin cleanups, with no provider, in every delete. And one folder mixed what
+BaseHalf uses every day with what nothing uses, so every change near it had
+to tell them apart first.
+
+**What was set aside.**
+- Keeping the frozen code, as D45 decided. Reopening would rewrite it anyway,
+  and git keeps it.
+- Keeping the workflows that withdraw and roll back published plugins, and
+  the infrastructure definitions, until the registry is shut down, for the
+  builds that are already distributed. The owner chose to remove them now
+  and to retire the services by hand, with the code from git history where
+  it helps.
+- Keeping BaseHalf's extension API, `vscode.basehalf`, for an Extension
+  Development Host. No extension is written against it, and VS Code's own
+  API stays for whatever BaseHalf builds on extensions later.
+
+**Consequences.**
+- Replaces what D45 kept: the platform's code, its tests, its smoke slice,
+  and the recorded exception to D23. D25 to D34 now describe a platform that
+  exists in neither the product nor the repository.
+- D37 stands: a project file transition that is not BaseHalf's own operation,
+  such as a change to a Sequence, may change no upstream value.
+- Templates, projections, and agent capabilities are registered by BaseHalf's
+  own features only.
+- The extension allowlist is unchanged: BaseHalf runs its built-in
+  extensions, the agent extensions it supports, and the extension that an
+  Extension Development Host was started with, and installs nothing else.
+- A link that used to open a plugin still brings BaseHalf to the front and
+  does nothing else.
+- Builds that are already distributed keep reading the registry for as long
+  as it is online.

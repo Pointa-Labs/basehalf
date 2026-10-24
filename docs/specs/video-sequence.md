@@ -6,7 +6,7 @@ Decisions: [D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platfo
 [D75](../decisions.md#d75--ai-video-is-basehalfs-own-code-not-an-extension-new-2026-10-24)
 Related: [generation cards](generation-cards.md),
 [providers and the model catalog](providers.md),
-[built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md),
+[built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [reference graph](reference-graph.md#templates)
 
 Generation cards themselves (their files and generation information, drafts,
@@ -191,4 +191,4 @@ All project files and videos stay readable without BaseHalf. The retired
 its commands, its view in Card Detail, its capability for agents, and the
 starter template in `browser/`, registered with the card projection
 registry, the canvas template registry, and the agent capability registry
-directly, not through the frozen platform's contribution points.
+as BaseHalf's own feature; no extension contributes to them (D76).

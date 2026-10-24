@@ -18,7 +18,7 @@ Related: [providers and the model catalog](providers.md),
 [following moved items](following-moved-items.md),
 [mirror file resilience](mirror-file-resilience.md),
 [canvas card placement](canvas-card-placement.md),
-[built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md),
+[built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [architecture invariants](../harness/architecture-invariants.md)
 
 This specification owns the cards that generate an image or a video: where
@@ -1578,15 +1578,16 @@ is a file does:
 - `basehalf --run-node`, `host.videoCatalog`, and the extension API
   `inspectCanvasNode`, replaced by `basehalf --generate`, `host.modelCatalog`,
   and `inspectGenerationCard`, which answers a card's kind, whether it has its
-  file, and the `id` of its `made.yaml`.
+  file, and the `id` of its `made.yaml`. Since D76 there is no extension API:
+  BaseHalf's own Sequence asks the card store the same.
 - The `nodeId` and `videoNodePath` of Sequence items, its scans of
   `**/*.bhnode`, and the removal of Sequence items when a video is deleted.
 - From D58 and D59, as recorded there: the Draft, Attempt, and sealed-Result
   lifecycle, recipes, the reviewed catalogs, the Video Composer, channels,
   presets, typed model ids, and the OpenAI-compatible request format.
 
-The other parts of the frozen plugin platform stay as they are
-([built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md)).
+The plugin platform itself is removed
+([built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md)).
 
 ## Limits
 
@@ -1653,9 +1654,8 @@ job, so that a name in history still finds its file.
   nothing for every other path: a file without generation information,
   a draft whose folder is not on this computer, a path outside the open
   workspace folders or under `.bh/`, and one that is or passes through a
-  symbolic link. Nothing is written. The extension API
-  `vscode.basehalf.inspectGenerationCard(uri)` answers the same and stays
-  with the frozen platform; since D75 no admitted extension calls it.
+  symbolic link. Nothing is written. No extension can ask it: BaseHalf has
+  no extension API (D76).
 
 ## Acceptance criteria
 
