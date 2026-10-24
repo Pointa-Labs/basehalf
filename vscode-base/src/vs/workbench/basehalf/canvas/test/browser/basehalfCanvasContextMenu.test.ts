@@ -33,6 +33,7 @@ import { IWorkingCopyService } from '../../../../services/workingCopy/common/wor
 import { TestStorageService } from '../../../../test/common/workbenchTestServices.js';
 import {
 	BASEHALF_CANVAS_CARD_CONTEXT_MENU,
+	BASEHALF_CANVAS_NEW_AUDIO_COMMAND_ID,
 	BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID,
 	BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID,
 	BASEHALF_CANVAS_PANE_CONTEXT_MENU,
@@ -69,9 +70,10 @@ suite('BaseHalf canvas context menu', () => {
 		]);
 	});
 
-	test('registers pane creation commands: New Note, New Image, New Video, and no submenu of empty nodes', () => {
+	test('registers pane creation commands: New Note, New Image, New Video, New Audio, and no submenu of empty nodes', () => {
 		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_PANE_CONTEXT_MENU), [
 			['5_transfer', 'basehalf.canvas.importFiles'],
+			['1_new', 'basehalf.canvas.newAudio'],
 			['1_new', 'basehalf.canvas.newFile'],
 			['1_new', 'basehalf.canvas.newFolder'],
 			['1_new', 'basehalf.canvas.newImage'],
@@ -80,7 +82,7 @@ suite('BaseHalf canvas context menu', () => {
 			['5_transfer', 'basehalf.canvas.paste']
 		]);
 		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU).filter(isISubmenuItem), []);
-		// New Image and New Video follow New Note.
+		// New Image, New Video, and New Audio follow New Note (D78).
 		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU)
 			.filter(isIMenuItem)
 			.filter(item => item.group === '1_new')
@@ -89,15 +91,17 @@ suite('BaseHalf canvas context menu', () => {
 			'basehalf.canvas.newNote',
 			'basehalf.canvas.newImage',
 			'basehalf.canvas.newVideo',
+			'basehalf.canvas.newAudio',
 			'basehalf.canvas.newFile',
 			'basehalf.canvas.newFolder'
 		]);
 	});
 
-	test('keeps canvas card creation out of the command palette and dispatches drafts of images and videos', async () => {
+	test('keeps canvas card creation out of the command palette and dispatches drafts of images, videos, and sounds', async () => {
 		const resultCommands = [
 			[BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID, 'image'],
-			[BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, 'video']
+			[BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, 'video'],
+			[BASEHALF_CANVAS_NEW_AUDIO_COMMAND_ID, 'audio']
 		] as const;
 		const commandPaletteIds = new Set(MenuRegistry.getMenuItems(MenuId.CommandPalette)
 			.filter(isIMenuItem)

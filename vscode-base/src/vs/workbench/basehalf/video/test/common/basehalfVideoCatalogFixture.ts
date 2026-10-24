@@ -31,6 +31,13 @@ import {
  *   regions `north` and `south`; Corvid Paint makes up to four PNG images and
  *   answers at once; Corvid Print makes JPEG images as tasks and is retired in
  *   the south; Corvid Reel makes videos and answers at once.
+ * - Dunlin Sound (`dunlin`, in {@link TEST_AUDIO_CATALOG} only): one region,
+ *   one API key, and audio models (D78). Dunlin Voice speaks the prompt in a
+ *   listed voice of three the catalog declares, with a speed, and answers at
+ *   once as MP3; Dunlin Song makes music as WAV, from a description or from
+ *   lyrics with a style, instrumental or sung, one to three songs a
+ *   generation, two by default, with a reference sound and a reference
+ *   image; Dunlin Foley makes sound effects of 1 to 22 seconds as MP3.
  */
 
 const FRAMES: IBaseHalfVideoCatalogMode = {
@@ -211,11 +218,86 @@ export const CORVID: IBaseHalfVideoCatalogProvider = {
 	models: [CORVID_PAINT, CORVID_PRINT, CORVID_REEL]
 };
 
+const NO_INPUTS: IBaseHalfVideoCatalogMode['inputs'] = { startFrame: 'none', endFrame: 'none', images: { min: 0, max: 0 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' };
+
+/** A speech model whose voice the provider lists, with three voices of every account (D78). */
+export const DUNLIN_VOICE: IBaseHalfVideoCatalogModel = {
+	id: 'dunlin-voice',
+	kind: 'audio',
+	makes: 'speech',
+	label: 'Dunlin Voice',
+	description: 'A voice that says the prompt.',
+	providerModels: { main: 'voice-1' },
+	prompt: { required: 'always', maxLength: 10000 },
+	modes: [{ id: 'reference', label: 'From Text', inputs: NO_INPUTS, limits: {} }],
+	parameters: [
+		{
+			name: 'voice', label: 'Voice', kind: 'voice', default: 'vx-ember', listed: true,
+			options: [
+				{ value: 'vx-ember', label: 'Ember', description: 'Warm, low' },
+				{ value: 'vx-pike', label: 'Pike', description: 'Bright, quick' },
+				{ value: 'vx-sable', label: 'Sable' }
+			]
+		},
+		{ name: 'speed', label: 'Speed', kind: 'number', min: 0.5, max: 2, step: 0.05, default: 1 }
+	],
+	outputFormat: 'mp3',
+	answersAtOnce: true
+};
+
+/** A music model with Lyrics mode: one to three songs a generation, two by default, delivered as WAV (D78). */
+export const DUNLIN_SONG: IBaseHalfVideoCatalogModel = {
+	id: 'dunlin-song',
+	kind: 'audio',
+	makes: 'music',
+	label: 'Dunlin Song',
+	providerModels: { main: 'song-1' },
+	prompt: { required: 'always', maxLength: 3000 },
+	modes: [
+		{ id: 'reference', label: 'From a Description', inputs: { ...NO_INPUTS, images: { min: 0, max: 1 }, audios: { min: 0, max: 1 } }, limits: { audioSeconds: [5, 60] } },
+		{ id: 'lyrics', label: 'From Lyrics', inputs: { ...NO_INPUTS, images: { min: 0, max: 1 }, audios: { min: 0, max: 1 } }, limits: { audioSeconds: [5, 60] } }
+	],
+	parameters: [
+		{ name: 'instrumental', label: 'Instrumental', kind: 'boolean', default: false, modes: ['reference'] },
+		{ name: 'style', label: 'Style', kind: 'text', maxLength: 300, optional: true, modes: ['lyrics'] },
+		{ name: 'count', label: 'Songs', kind: 'integer', min: 1, max: 3, step: 1, default: 2 }
+	],
+	outputFormat: 'wav'
+};
+
+/** A sound-effect model of 1 to 22 seconds (D78). */
+export const DUNLIN_FOLEY: IBaseHalfVideoCatalogModel = {
+	id: 'dunlin-foley',
+	kind: 'audio',
+	makes: 'sound',
+	label: 'Dunlin Foley',
+	providerModels: { main: 'foley-1' },
+	prompt: { required: 'always', maxLength: 450 },
+	modes: [{ id: 'reference', label: 'From a Description', inputs: NO_INPUTS, limits: {} }],
+	parameters: [
+		{ name: 'duration', label: 'Duration', kind: 'number', unit: 'seconds', min: 1, max: 22, step: 0.5, default: 5 }
+	],
+	outputFormat: 'mp3',
+	answersAtOnce: true
+};
+
+/** Dunlin Sound (`dunlin`): audio models of speech, music, and sound effects, one region, one API key. */
+export const DUNLIN: IBaseHalfVideoCatalogProvider = {
+	id: 'dunlin',
+	label: 'Dunlin Sound',
+	regions: [{ id: 'main', label: 'Dunlin', baseUrl: 'https://api.dunlin.example/v1', console: 'https://console.dunlin.example' }],
+	credentials: [{ id: 'apiKey', label: 'API Key' }],
+	models: [DUNLIN_VOICE, DUNLIN_SONG, DUNLIN_FOLEY]
+};
+
 /** The fixture as the window keeps it once it has read the provider service's answer. */
 export const TEST_VIDEO_CATALOG: IBaseHalfVideoCatalog = parseBaseHalfVideoCatalog({ schema: 1, providers: [ACME, BOREALIS] }).catalog;
 
 /** The fixture with a provider of image models, as a generation card's tests read it. */
 export const TEST_GENERATION_CATALOG: IBaseHalfVideoCatalog = parseBaseHalfVideoCatalog({ schema: 1, providers: [ACME, BOREALIS, CORVID] }).catalog;
+
+/** The fixture with a provider of image models and one of audio models, as the tests of audio cards read it (D78). */
+export const TEST_AUDIO_CATALOG: IBaseHalfVideoCatalog = parseBaseHalfVideoCatalog({ schema: 1, providers: [ACME, BOREALIS, CORVID, DUNLIN] }).catalog;
 
 /** The catalog read from the provider service's answer, whose models are the ones above. */
 export function testVideoModel(providerId: string, modelId: string): IBaseHalfVideoCatalogModel {

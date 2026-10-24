@@ -175,6 +175,7 @@ suite('BaseHalfSequence', () => {
 		assert.deepStrictEqual(resolveBaseHalfSequenceVideoCard('imported.mp4', true, undefined), {});
 		assert.throws(() => resolveBaseHalfSequenceVideoCard('draft.mp4', false, { kind: 'video', hasFile: false }), /has no video yet/);
 		assert.throws(() => resolveBaseHalfSequenceVideoCard('frame.png', true, { kind: 'image', hasFile: true }), /image card/);
+		assert.throws(() => resolveBaseHalfSequenceVideoCard('song.wav', true, { kind: 'audio', hasFile: true }), /'song\.wav' is an audio card, not a video\./);
 		assert.throws(() => resolveBaseHalfSequenceVideoCard('gone.mp4', false, undefined), /not a video file/);
 	});
 

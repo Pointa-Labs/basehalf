@@ -64,7 +64,7 @@ export interface IBaseHalfSequenceDocument {
 
 /** What a generation card is: its kind, whether it has its file, and the `id` of its `made.yaml`. */
 export interface IBaseHalfSequenceCardState {
-	readonly kind: 'image' | 'video';
+	readonly kind: 'image' | 'video' | 'audio';
 	readonly hasFile: boolean;
 	readonly generationId?: string;
 }
@@ -195,7 +195,7 @@ export function removeBaseHalfSequenceItem(document: IBaseHalfSequenceDocument, 
  */
 export function resolveBaseHalfSequenceVideoCard(videoPath: string, isVideoFile: boolean, card: IBaseHalfSequenceCardState | undefined): { readonly generationId?: string } {
 	if (card && card.kind !== 'video') {
-		throw new Error(`'${videoPath}' is an image card, not a video.`);
+		throw new Error(card.kind === 'audio' ? `'${videoPath}' is an audio card, not a video.` : `'${videoPath}' is an image card, not a video.`);
 	}
 	if (card && !card.hasFile) {
 		throw new Error(`'${videoPath}' has no video yet. Generate it first.`);

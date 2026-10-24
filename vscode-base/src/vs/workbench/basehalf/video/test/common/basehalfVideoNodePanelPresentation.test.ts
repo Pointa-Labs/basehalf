@@ -145,7 +145,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			],
 			startTooltip: 'Start frame\nframes/a.png',
 			// No mode uses a PDF: the card keeps its own mode, and the PDF stops Generate (D67).
-			blocker: { kind: 'unusableInput', path: 'docs/brief.pdf', name: 'brief.pdf', reason: 'An image or video card cannot use brief.pdf.' }
+			blocker: { kind: 'unusableInput', path: 'docs/brief.pdf', name: 'brief.pdf', reason: 'An image, video, or audio card cannot use brief.pdf.' }
 		});
 	});
 
@@ -449,7 +449,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			},
 			unusableInput: {
 				blocker: 'unusableInput',
-				generate: 'generate disabled: brief.pdf cannot be sent: An image or video card cannot use brief.pdf.',
+				generate: 'generate disabled: brief.pdf cannot be sent: An image, video, or audio card cannot use brief.pdf.',
 				model: { label: 'Acme Motion 2', outlined: false, title: onEast }
 			},
 			check: { blocker: 'check', generate: 'generate disabled: The prompt is longer than 2,000 characters.', model: { label: 'Acme Motion 2', outlined: false, title: onEast } },

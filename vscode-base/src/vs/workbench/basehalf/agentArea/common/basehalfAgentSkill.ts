@@ -13,7 +13,7 @@ export const BASEHALF_AGENT_SKILL_NAME = 'basehalf';
 export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** Changes whenever the skill text changes, so that an installed copy of an
  * earlier text is offered an update. */
-export const BASEHALF_AGENT_SKILL_VERSION = '8';
+export const BASEHALF_AGENT_SKILL_VERSION = '9';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -44,15 +44,15 @@ export const BASEHALF_AGENT_SELECTION_SECTION: readonly string[] = [
 ];
 
 /**
- * Where an image that an agent made with a tool of its own goes (agent skill,
- * "The skill", section 5): the folder of the canvas the user works on, which
- * the record of the selection names. It names no tool, and it is not in the
- * launch instruction.
+ * Where an image or a sound that an agent made with a tool of its own goes
+ * (agent skill, "The skill", section 5): the folder of the canvas the user
+ * works on, which the record of the selection names. It names no tool, and it
+ * is not in the launch instruction.
  */
 export const BASEHALF_AGENT_OWN_IMAGE_SECTION: readonly string[] = [
-	'## An image you make yourself',
+	'## An image or a sound you make yourself',
 	'',
-	'When you make an image with a tool of your own, such as your own image generation, put it in the folder of the canvas the user works on, where it is a card. That folder is the one `.bh/cache/selection.yaml` names: the folder at `path` when `selected` is `folder`, and otherwise the folder that holds the selected card, cards, or note. When there is no record, ask the user which folder.'
+	'When you make an image or a sound with a tool of your own, such as your own image generation, put the file in the folder of the canvas the user works on, where it is a card. That folder is the one `.bh/cache/selection.yaml` names: the folder at `path` when `selected` is `folder`, and otherwise the folder that holds the selected card, cards, or note. When there is no record, ask the user which folder.'
 ];
 
 /**

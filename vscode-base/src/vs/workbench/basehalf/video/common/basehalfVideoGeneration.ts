@@ -206,11 +206,12 @@ export interface IBaseHalfVideoGenerationService {
 	/**
 	 * Starts a generation of the card at `resource` from its prompt, settings,
 	 * and inputs as its card information holds them. A card with its file
-	 * generates into a new draft beside it, and an image model's `count`
-	 * makes further drafts in a row to the right. Resolves with every card the
-	 * generation lands on, in the order of its outputs, once its task record
-	 * is `submitting`. Rejects with a {@link BaseHalfVideoGenerationError}, and
-	 * leaves no record and no card it made, when it cannot generate.
+	 * generates into a new draft beside it, and the `count` of an image or a
+	 * music model makes further drafts in a row to the right. Resolves with
+	 * every card the generation lands on, in the order of its outputs, once
+	 * its task record is `submitting`. Rejects with a
+	 * {@link BaseHalfVideoGenerationError}, and leaves no record and no card it
+	 * made, when it cannot generate.
 	 */
 	generate(resource: URI, options?: IBaseHalfGenerateOptions): Promise<readonly URI[]>;
 
@@ -450,7 +451,7 @@ export interface IBaseHalfGenerationCardActions {
 	readonly _serviceBrand: undefined;
 
 	/**
-	 * Makes a draft of a kind in `folder`: `image` or `video` with the
+	 * Makes a draft of a kind in `folder`: `image`, `video`, or `audio` with the
 	 * extension of its model's output and the next free number, an empty
 	 * prompt, and the provider, model, mode, and values of the last generation
 	 * of that kind on this computer made legal for the catalog. With `upstream`,
@@ -463,6 +464,7 @@ export interface IBaseHalfGenerationCardActions {
 	 * the values {@link createDraft} gives it, when the catalog is there and its
 	 * model has a ratio of its own; its card is placed with that shape (canvas
 	 * card placement, "The card of an image or a video has its picture's shape").
+	 * A sound has none.
 	 */
 	newDraftRatio(kind: BaseHalfGenerationKind): number | undefined;
 

@@ -45,7 +45,7 @@ import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSe
 import { baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { baseHalfIsDraft, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
-import { IBaseHalfGenerationInfo } from '../../video/common/basehalfGenerationInfo.js';
+import { BaseHalfGenerationKind, IBaseHalfGenerationInfo } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfVideoInitialGeneration } from '../../video/common/basehalfVideoCatalog.js';
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
@@ -60,9 +60,10 @@ export const BASEHALF_CANVAS_CARD_CONTEXT_MENU = MenuId.for('BaseHalfCanvasCardC
 export const BASEHALF_CANVAS_PANE_CONTEXT_MENU = MenuId.for('BaseHalfCanvasPaneContext');
 
 const BASEHALF_CANVAS_OPEN_COMMAND_ID = 'basehalf.canvas.openResource';
-/** New Image and New Video of the canvas menu (generation cards, "Creating a generation card"). */
+/** New Image, New Video, and New Audio of the canvas menu (generation cards, "Creating a generation card"). */
 export const BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID = 'basehalf.canvas.newImage';
 export const BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID = 'basehalf.canvas.newVideo';
+export const BASEHALF_CANVAS_NEW_AUDIO_COMMAND_ID = 'basehalf.canvas.newAudio';
 const BASEHALF_CANVAS_NEW_FILE_COMMAND_ID = 'basehalf.canvas.newFile';
 const BASEHALF_CANVAS_NEW_FOLDER_COMMAND_ID = 'basehalf.canvas.newFolder';
 const BASEHALF_CANVAS_PASTE_COMMAND_ID = 'basehalf.canvas.paste';
@@ -510,7 +511,7 @@ registerAction2(class BaseHalfCanvasNewFileAction extends Action2 {
 	}
 });
 
-function registerBaseHalfCanvasNewDraftAction(id: string, title: ReturnType<typeof localize2>, kind: 'image' | 'video', order: number): void {
+function registerBaseHalfCanvasNewDraftAction(id: string, title: ReturnType<typeof localize2>, kind: BaseHalfGenerationKind, order: number): void {
 	registerAction2(class BaseHalfCanvasNewDraftAction extends Action2 {
 		constructor() {
 			super({
@@ -528,6 +529,7 @@ function registerBaseHalfCanvasNewDraftAction(id: string, title: ReturnType<type
 
 registerBaseHalfCanvasNewDraftAction(BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID, localize2('basehalf.canvas.context.newImage', "New Image"), 'image', 12);
 registerBaseHalfCanvasNewDraftAction(BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, localize2('basehalf.canvas.context.newVideo', "New Video"), 'video', 14);
+registerBaseHalfCanvasNewDraftAction(BASEHALF_CANVAS_NEW_AUDIO_COMMAND_ID, localize2('basehalf.canvas.context.newAudio', "New Audio"), 'audio', 16);
 
 registerAction2(class BaseHalfCanvasNewFolderAction extends Action2 {
 	constructor() {
@@ -1687,7 +1689,7 @@ function templateFolderState(
  * What a draft of a template starts with (reference graph, "Templates"): the
  * template's prompt, and the provider, model, mode, and values of the last
  * generation of its kind on this computer, made legal for the model, as New
- * Image and New Video do. Read when the draft is made.
+ * Image, New Video, and New Audio do. Read when the draft is made.
  */
 function templateDraftInfo(catalogService: IBaseHalfVideoCatalogService, providerSettings: IBaseHalfVideoProviderSettingsService): (draft: IBaseHalfCanvasTemplateDraft) => IBaseHalfGenerationInfo {
 	return draft => {

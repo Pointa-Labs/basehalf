@@ -28,6 +28,8 @@ export const BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY = 'basehalf.video.providers.v1
 export const BASEHALF_VIDEO_LAST_USED_STORAGE_KEY = 'basehalf.video.lastUsed.v2';
 /** The provider, model, mode, and values of the last generation of an image on this computer. */
 export const BASEHALF_IMAGE_LAST_USED_STORAGE_KEY = 'basehalf.image.lastUsed.v1';
+/** The provider, model, mode, and values of the last generation of a sound on this computer (D78). */
+export const BASEHALF_AUDIO_LAST_USED_STORAGE_KEY = 'basehalf.audio.lastUsed.v1';
 
 const SETTINGS_VERSION = 1;
 const MAX_PROVIDERS = 64;

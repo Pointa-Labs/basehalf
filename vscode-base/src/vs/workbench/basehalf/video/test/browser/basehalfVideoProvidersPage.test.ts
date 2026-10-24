@@ -20,7 +20,7 @@ import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVide
 import { BaseHalfVideoProvidersPage } from '../../browser/basehalfVideoProvidersPage.js';
 import { BaseHalfVideoCatalogState, IBaseHalfVideoCatalog, IBaseHalfVideoCheckResult } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoCatalogService } from '../../common/basehalfVideoGeneration.js';
-import { TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
+import { TEST_AUDIO_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import { FakeProviderCommands, InMemoryCredentialStore } from './basehalfVideoTestFixtures.js';
 
 /** A credential store whose writes wait until the test lets them end, to change the page while one is saved. */
@@ -171,19 +171,27 @@ suite('BaseHalfVideoProvidersPage', () => {
 		});
 	});
 
-	test('lists each provider\'s models under Images and Videos, so that the user can tell where to get credentials', () => {
-		const { page, container } = createPage({ kind: 'ready', catalog: TEST_GENERATION_CATALOG });
-		page.setInput('corvid');
-		const groups = descendants(container).filter(element => element.classList.contains('basehalf-video-provider-models')).map(group => ({
-			kind: group.dataset.kind,
-			text: group.textContent,
-			models: descendants(group).filter(element => element.dataset.model).map(element => element.dataset.model)
-		}));
-		assert.deepStrictEqual({ title: descendants(container).find(element => element.tagName === 'H1')?.textContent, groups }, {
+	test('lists each provider\'s models under Images, Videos, and Audio, so that the user can tell where to get credentials', () => {
+		const { page, container } = createPage({ kind: 'ready', catalog: TEST_AUDIO_CATALOG });
+		const groupsOf = (provider: string) => {
+			page.setInput(provider);
+			return descendants(container).filter(element => element.classList.contains('basehalf-video-provider-models')).map(group => ({
+				kind: group.dataset.kind,
+				text: group.textContent,
+				models: descendants(group).filter(element => element.dataset.model).map(element => element.dataset.model)
+			}));
+		};
+		const corvid = groupsOf('corvid');
+		const dunlin = groupsOf('dunlin');
+		assert.deepStrictEqual({ title: descendants(container).find(element => element.tagName === 'H1')?.textContent, corvid, dunlin }, {
 			title: 'Providers',
-			groups: [
+			corvid: [
 				{ kind: 'image', text: 'ImagesCorvid Paint · Corvid Print', models: ['corvid-paint', 'corvid-print'] },
 				{ kind: 'video', text: 'VideosCorvid Reel', models: ['corvid-reel'] }
+			],
+			// A provider of sounds lists its models under Audio alone (D78).
+			dunlin: [
+				{ kind: 'audio', text: 'AudioDunlin Voice · Dunlin Song · Dunlin Foley', models: ['dunlin-voice', 'dunlin-song', 'dunlin-foley'] }
 			]
 		});
 	});

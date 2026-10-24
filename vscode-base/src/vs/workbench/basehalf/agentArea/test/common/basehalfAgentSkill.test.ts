@@ -85,7 +85,7 @@ suite('BaseHalfAgentSkill', () => {
 		}, { missing: [], sharedSections: true, dictatesOrder: false, claimsAgentArea: false, retired: [] });
 	});
 
-	test('says where an image the agent made itself goes: the folder of the canvas the selection names, after the shared sections and outside the launch instruction', () => {
+	test('says where an image or a sound the agent made itself goes: the folder of the canvas the selection names, after the shared sections and outside the launch instruction', () => {
 		const body = BASEHALF_AGENT_SKILL_MARKDOWN.slice(BASEHALF_AGENT_SKILL_MARKDOWN.indexOf('\n---\n') + 5);
 		const section = BASEHALF_AGENT_OWN_IMAGE_SECTION.join('\n');
 		assert.deepStrictEqual({
@@ -95,7 +95,7 @@ suite('BaseHalfAgentSkill', () => {
 			last: body.trimEnd().endsWith(section),
 			missing: ['a tool of your own', 'the folder of the canvas the user works on', '`.bh/cache/selection.yaml`', '`folder`', 'ask the user'].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('image you make')
-		}, { version: '8', inBody: true, afterShared: true, last: true, missing: [], inLaunchInstruction: false });
+		}, { version: '9', inBody: true, afterShared: true, last: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('describes the record of what the user selected, and names the request it answers', () => {
@@ -116,7 +116,7 @@ suite('BaseHalfAgentSkill', () => {
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '8', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '9', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('goes to Claude Code\'s folder and the shared one, and is offered while a location lacks the bundled text', () => {

@@ -135,4 +135,33 @@ suite('BaseHalf generation mentions (D74)', () => {
 			empty: { parts: [], empty: true }
 		});
 	});
+
+	test('a prompt that is spoken or sung says a mentioned note\'s text in its place and the other notes\' texts after a blank line, all without names (D78)', () => {
+		const speech = planBaseHalfVideoInputs({ ...REFERENCES, images: { min: 0, max: 0 }, videos: { min: 0, max: 0 } }, [
+			source('notes/intro.md', 'text'),
+			source('notes/outro.md', 'text'),
+			source('tune.mp3', 'audio'),
+			source('notes/empty.md', 'text')
+		]);
+		const texts = new Map([['notes/intro.md', 'Welcome to the coast.\n'], ['notes/outro.md', '  Thank you for listening.  '], ['notes/empty.md', ' ']]);
+		const textOf = (item: { readonly path: string }) => texts.get(item.path);
+		const spoken = (prompt: string) => buildBaseHalfPromptParts(prompt, speech, textOf, { spokenOrSung: true }).parts;
+		assert.deepStrictEqual({
+			// Criterion 86: the mentioned note is said as its text, and the second one follows.
+			mentioned: spoken('@[notes/intro.md]'),
+			inText: spoken('First: @[notes/intro.md] Then the tune @[tune.mp3].'),
+			twice: spoken('@[notes/intro.md] @[notes/intro.md]'),
+			notesOnly: spoken(''),
+			both: spoken('@[notes/intro.md] @[notes/outro.md]'),
+			// The same prompt that no voice says names its notes.
+			described: buildBaseHalfPromptParts('@[notes/intro.md]', speech, textOf).parts
+		}, {
+			mentioned: ['Welcome to the coast.\n\nThank you for listening.'],
+			inText: ['First: Welcome to the coast. Then the tune ', { input: 'audios', index: 0 }, '.\n\nThank you for listening.'],
+			twice: ['Welcome to the coast. Welcome to the coast.\n\nThank you for listening.'],
+			notesOnly: ['Welcome to the coast.\n\nThank you for listening.'],
+			both: ['Welcome to the coast. Thank you for listening.'],
+			described: ['"intro"\n\nintro:\nWelcome to the coast.\n\noutro:\nThank you for listening.']
+		});
+	});
 });

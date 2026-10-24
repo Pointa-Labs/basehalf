@@ -6,9 +6,20 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
+	BASEHALF_AUDIO_DEFAULT_MODE_INPUTS,
+	baseHalfAudioModelAbilities,
+	baseHalfDefaultModeId,
+	baseHalfDefaultModeInputs,
 	baseHalfModelFileExtension,
+	baseHalfModelMakesSeveral,
 	baseHalfModelMostOutputs,
 	baseHalfModelOutputCount,
+	baseHalfModelVoiceParameter,
+	baseHalfVideoExampleGeneration,
+	baseHalfVideoParamValueLabel,
+	baseHalfVideoPromptPlaceholder,
+	baseHalfVideoRecordedSettingsSummary,
+	baseHalfVoiceLabel,
 	BaseHalfVideoCatalogState,
 	baseHalfVideoCatalogForAgents,
 	BaseHalfVideoGenerateBlocker,
@@ -40,15 +51,19 @@ import {
 	IBaseHalfVideoInputPlanItem,
 	IBaseHalfVideoInputSource,
 	IBaseHalfVideoNumberParameter,
+	IBaseHalfVideoVoiceParameter,
 	isBaseHalfModelDeprecated,
+	isBaseHalfSpokenOrSungPrompt,
 	isBaseHalfVideoModelBlocker,
+	isBaseHalfVideoParamValueAccepted,
+	isBaseHalfVoiceId,
 	normalizeBaseHalfVideoParams,
 	parseBaseHalfVideoCatalog,
 	parseBaseHalfVideoCheckResult,
 	planBaseHalfVideoInputs,
 	stripBaseHalfMarkdownFrontMatter
 } from '../../common/basehalfVideoCatalog.js';
-import { ACME, ACME_MOTION, BOREALIS, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG, testVideoModel } from './basehalfVideoCatalogFixture.js';
+import { ACME, ACME_MOTION, BOREALIS, DUNLIN, DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG, testVideoModel } from './basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfVideoCatalog', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -498,7 +513,7 @@ suite('BaseHalfVideoCatalog', () => {
 				secondVideo: [1, 'shots/w.mp4', 'Acme Motion 2 takes one video at most.'],
 				noVideos: [0, 'shots/v.mp4', 'Acme Still takes no videos.'],
 				noImages: [0, 'shots/a.png', 'Borealis One takes no images.'],
-				pdf: [1, 'docs/brief.pdf', 'An image or video card cannot use brief.pdf.'],
+				pdf: [1, 'docs/brief.pdf', 'An image, video, or audio card cannot use brief.pdf.'],
 				clipImages: [3, 'shots/c.png', 'Acme Clip takes at most 2 images.'],
 				together: [1, 'shots/v.mp4', 'Acme Split cannot use v.mp4 together with the inputs before it.']
 			});
@@ -626,6 +641,237 @@ suite('BaseHalfVideoCatalog', () => {
 				],
 				noPrice: false
 			});
+		});
+	});
+	suite('audio models (D78)', () => {
+		const dunlin = TEST_AUDIO_CATALOG.providers[3];
+		const [speech, song, foley] = dunlin.models;
+		const voice = baseHalfModelVoiceParameter(speech) as IBaseHalfVideoVoiceParameter;
+		const corvid = TEST_AUDIO_CATALOG.providers[2];
+
+		test('reads an audio model with what it makes, its format, and its voices, and refuses one that does not say what it makes or delivers', () => {
+			const declared = (model: Record<string, unknown>) => parseBaseHalfVideoCatalog({ schema: 1, providers: [{ ...DUNLIN, models: [model] }] });
+			const voiceOf = (parameter: Record<string, unknown>) => declared({ ...DUNLIN_VOICE, parameters: [parameter] });
+			const withVoices = voiceOf({ name: 'voice', label: 'Voice', kind: 'voice', default: 'gone', options: [{ value: 'vx-ember', label: 'Ember', description: '  Warm,\nlow ' }, { value: 'vx-pike', label: 'Pike' }] });
+			assert.deepStrictEqual({
+				models: dunlin.models.map(model => [model.id, model.kind, model.makes, model.outputFormat]),
+				voice: { listed: voice.listed, default: voice.default, options: voice.options.map(option => [option.value, option.label, option.description]) },
+				modes: song.modes.map(mode => `${mode.id} ${mode.label}`),
+				// A default that is none of the voices stands for the first; a description is plain text.
+				fallback: withVoices.catalog.providers[0].models[0].parameters[0],
+				problems: [
+					...declared({ ...DUNLIN_VOICE, makes: undefined }).problems,
+					...declared({ ...DUNLIN_VOICE, makes: 'noise' }).problems,
+					...declared({ ...DUNLIN_VOICE, outputFormat: 'png' }).problems,
+					...declared({ ...DUNLIN_VOICE, kind: 'pdf' }).problems,
+					...voiceOf({ name: 'voice', label: 'Voice', kind: 'voice', default: 'a', options: [] }).problems,
+					...voiceOf({ name: 'voice', label: 'Voice', kind: 'voice', default: 'a', options: [{ value: 'a', label: 'A' }, { value: 'a', label: 'B' }] }).problems,
+					...voiceOf({ name: 'voice', label: 'Voice', kind: 'voice', default: 'a', options: [{ value: 'a\nb', label: 'A' }] }).problems
+				]
+			}, {
+				models: [['dunlin-voice', 'audio', 'speech', 'mp3'], ['dunlin-song', 'audio', 'music', 'wav'], ['dunlin-foley', 'audio', 'sound', 'mp3']],
+				voice: { listed: true, default: 'vx-ember', options: [['vx-ember', 'Ember', 'Warm, low'], ['vx-pike', 'Pike', 'Bright, quick'], ['vx-sable', 'Sable', undefined]] },
+				modes: ['reference From a Description', 'lyrics From Lyrics'],
+				fallback: {
+					name: 'voice', label: 'Voice', kind: 'voice', default: 'vx-ember',
+					options: [{ value: 'vx-ember', label: 'Ember', description: 'Warm, low' }, { value: 'vx-pike', label: 'Pike' }]
+				},
+				problems: [
+					'providers[0].models[0].makes must be speech, music, or sound for an audio model.',
+					'providers[0].models[0].makes must be speech, music, or sound for an audio model.',
+					'providers[0].models[0].outputFormat must be mp3 or wav for an audio model.',
+					'providers[0].models[0].kind must be image, video, or audio.',
+					'providers[0].models[0].parameters[0].options must list at least one voice, each once.',
+					'providers[0].models[0].parameters[0].options must list at least one voice, each once.',
+					'providers[0].models[0].parameters[0].options[0].value must be a voice id of 1 to 256 characters without control characters.'
+				]
+			});
+		});
+
+		test('an audio card lists the audio models, and starts with the last values of a sound, never with a model of another kind', () => {
+			const lastSong = { provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics' as const, params: { count: 3, style: 'sea shanty', voice: 'x' } };
+			assert.deepStrictEqual({
+				audio: baseHalfVideoListedModels(dunlin, undefined, 'audio').map(model => model.id),
+				noAudio: baseHalfVideoListedModels(corvid, undefined, 'audio').map(model => model.id),
+				images: baseHalfVideoListedModels(dunlin, undefined, 'image').map(model => model.id),
+				song: baseHalfVideoInitialGeneration(lastSong, TEST_AUDIO_CATALOG, 'audio'),
+				forAVideo: baseHalfVideoInitialGeneration(lastSong, TEST_AUDIO_CATALOG, 'video'),
+				lastImageForASound: baseHalfVideoInitialGeneration({ provider: 'corvid', model: 'corvid-paint' }, TEST_AUDIO_CATALOG, 'audio'),
+				example: baseHalfVideoExampleGeneration(TEST_AUDIO_CATALOG, provider => ({ setUp: false, region: findBaseHalfVideoRegion(provider, undefined) }), 'audio')
+			}, {
+				audio: ['dunlin-voice', 'dunlin-song', 'dunlin-foley'],
+				noAudio: [],
+				images: [],
+				song: { provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics', params: { style: 'sea shanty', count: 3 } },
+				forAVideo: undefined,
+				lastImageForASound: undefined,
+				example: { provider: 'dunlin', model: 'dunlin-voice', mode: 'reference', params: { voice: 'vx-ember', speed: 1 } }
+			});
+		});
+
+		test('a voice keeps a voice of its options, and a listed voice any id of 1 to 256 characters without control characters; anything else takes the default', () => {
+			const closed: IBaseHalfVideoVoiceParameter = { ...voice, listed: undefined };
+			const kept = (value: unknown) => normalizeBaseHalfVideoParams(speech, 'reference', { voice: value }).voice;
+			assert.deepStrictEqual({
+				listed: ['vx-pike', 'own-narrator', 'x'.repeat(256), 'x'.repeat(257), 'a\u0007b', '', 7].map(kept),
+				closed: ['vx-pike', 'own-narrator'].map(value => isBaseHalfVideoParamValueAccepted(closed, value)),
+				ids: ['own-narrator', '', 'a\u0085b', 'x'.repeat(256)].map(isBaseHalfVoiceId),
+				// An agent's voice of the account is taken as it is, and one the parameter does not take is named.
+				refused: [baseHalfVideoRefusedParam(speech, 'reference', { voice: 'own-narrator' }), baseHalfVideoRefusedParam(speech, 'reference', { voice: '' })]
+			}, {
+				listed: ['vx-pike', 'own-narrator', 'x'.repeat(256), 'vx-ember', 'vx-ember', 'vx-ember', 'vx-ember'],
+				closed: [true, false],
+				ids: [true, false, false, true],
+				refused: [undefined, 'Dunlin Voice does not accept "" for Voice.']
+			});
+		});
+
+		test('the settings name no voice: its button shows it, by the name the catalog or the provider\'s list gives it, or its id', () => {
+			assert.deepStrictEqual({
+				summary: baseHalfVideoSettingsSummary(speech, 'reference', { voice: 'vx-pike', speed: 1.25 }),
+				recorded: baseHalfVideoRecordedSettingsSummary(speech, 'reference', { voice: 'own-narrator', speed: 1.5 }),
+				labels: [
+					baseHalfVoiceLabel(voice, 'vx-pike'),
+					baseHalfVoiceLabel(voice, 'own-narrator', [{ id: 'own-narrator', label: 'My Narrator', own: true }]),
+					baseHalfVoiceLabel(voice, 'own-narrator'),
+					baseHalfVideoParamValueLabel(voice, 'vx-sable')
+				],
+				song: baseHalfVideoSettingsSummary(song, 'lyrics', { style: 'Sea  shanty' }),
+				instrumental: baseHalfVideoSettingsSummary(song, 'reference', { instrumental: true, count: 1 })
+			}, {
+				summary: ['From Text', 'Speed 1.25'],
+				recorded: ['From Text', 'Speed 1.5'],
+				labels: ['Pike', 'My Narrator', 'own-narrator', 'Sable'],
+				song: ['From Lyrics', 'Sea shanty', 'Songs 2'],
+				instrumental: ['From a Description', 'Instrumental', 'Songs 1']
+			});
+		});
+
+		test('a music model makes as many songs as its count, and every audio model one file of the format it declares', () => {
+			assert.deepStrictEqual({
+				several: [baseHalfModelMakesSeveral(song), baseHalfModelMakesSeveral(speech), baseHalfModelMakesSeveral(foley)],
+				counts: [baseHalfModelOutputCount(song, 'lyrics', {}), baseHalfModelOutputCount(song, 'lyrics', { count: 3 }), baseHalfModelOutputCount(song, 'reference', { count: 9 }), baseHalfModelOutputCount(speech, 'reference', { count: 3 })],
+				most: [baseHalfModelMostOutputs(song), baseHalfModelMostOutputs(speech), baseHalfModelMostOutputs(foley)],
+				extensions: dunlin.models.map(baseHalfModelFileExtension)
+			}, {
+				several: [true, false, false],
+				counts: [2, 3, 2, 1],
+				most: [3, 1, 1],
+				extensions: ['mp3', 'wav', 'mp3']
+			});
+		});
+
+		test('an audio model says what it makes first, then the characters of speech, or its modes, length, songs, and references', () => {
+			assert.deepStrictEqual([speech, song, foley].map(baseHalfVideoModelAbilities), [
+				'Speech · Up to 10,000 characters',
+				'Music · From a Description · From Lyrics · Up to 3 songs · 1 reference image · 1 reference sound',
+				'Sound Effects · Up to 22s'
+			]);
+			assert.strictEqual(baseHalfAudioModelAbilities({ ...song, modes: [song.modes[0]], parameters: [] }), 'Music · 1 reference image · 1 reference sound');
+		});
+
+		test('the prompt of a speech model and the prompt in Lyrics mode are spoken or sung, and the placeholder says what the prompt is', () => {
+			assert.deepStrictEqual({
+				spokenOrSung: [
+					isBaseHalfSpokenOrSungPrompt(speech, 'reference'),
+					isBaseHalfSpokenOrSungPrompt(song, 'lyrics'),
+					isBaseHalfSpokenOrSungPrompt(song, 'reference'),
+					isBaseHalfSpokenOrSungPrompt(foley, 'reference'),
+					isBaseHalfSpokenOrSungPrompt(motion, 'lyrics'),
+					isBaseHalfSpokenOrSungPrompt(undefined, 'lyrics')
+				],
+				placeholders: [
+					baseHalfVideoPromptPlaceholder('image', undefined, undefined),
+					baseHalfVideoPromptPlaceholder('video', motion, 'frames'),
+					baseHalfVideoPromptPlaceholder('audio', speech, 'reference'),
+					baseHalfVideoPromptPlaceholder('audio', song, 'reference'),
+					baseHalfVideoPromptPlaceholder('audio', song, 'lyrics'),
+					baseHalfVideoPromptPlaceholder('audio', foley, 'reference'),
+					baseHalfVideoPromptPlaceholder('audio', undefined, undefined)
+				]
+			}, {
+				spokenOrSung: [true, true, false, false, false, false],
+				placeholders: [
+					'Describe the image. Type @ to mention an input.',
+					'Describe the video. Type @ to mention an input.',
+					'Write what the voice says. Type @ to mention an input.',
+					'Describe the music. Type @ to mention an input.',
+					'Write the lyrics. Type @ to mention an input.',
+					'Describe the sound. Type @ to mention an input.',
+					'Describe the sound. Type @ to mention an input.'
+				]
+			});
+		});
+
+		test('a song\'s references are the images and sounds its mode takes, in Lyrics mode as in references; an audio card without a model shows references', () => {
+			const inputs: IBaseHalfVideoInputSource[] = [
+				{ path: 'refs/cover.png', kind: 'image', available: true },
+				{ path: 'refs/tune.mp3', kind: 'audio', available: true },
+				{ path: 'notes/lyrics.md', kind: 'text', available: true },
+				{ path: 'refs/second.wav', kind: 'audio', available: true },
+				{ path: 'clips/take.mp4', kind: 'video', available: true }
+			];
+			assert.deepStrictEqual({
+				lyrics: uses(planBaseHalfVideoInputs(baseHalfVideoModeOf(song, 'lyrics').inputs, inputs)),
+				references: uses(planBaseHalfVideoInputs(baseHalfVideoModeOf(song, 'reference').inputs, inputs.slice(0, 3))),
+				speech: uses(planBaseHalfVideoInputs(speech.modes[0].inputs, inputs.slice(1, 3))),
+				withoutModel: uses(planBaseHalfVideoInputs(baseHalfDefaultModeInputs('audio'), inputs)),
+				defaults: [baseHalfDefaultModeInputs('image').images.max, baseHalfDefaultModeInputs('video').startFrame, baseHalfDefaultModeInputs('audio') === BASEHALF_AUDIO_DEFAULT_MODE_INPUTS, baseHalfDefaultModeId('audio'), baseHalfDefaultModeId('video')],
+				refused: [baseHalfVideoInputProblem(speech, inputs.slice(1, 2))?.reason, baseHalfVideoInputProblem(song, inputs.slice(0, 4))?.reason, baseHalfVideoInputProblem(song, inputs.slice(4))?.reason]
+			}, {
+				lyrics: ['refs/cover.png:reference', 'refs/tune.mp3:reference', 'notes/lyrics.md:text', 'refs/second.wav:unused(full)', 'clips/take.mp4:unused(mode)'],
+				references: ['refs/cover.png:reference', 'refs/tune.mp3:reference', 'notes/lyrics.md:text'],
+				speech: ['refs/tune.mp3:unused(mode)', 'notes/lyrics.md:text'],
+				withoutModel: ['refs/cover.png:reference', 'refs/tune.mp3:reference', 'notes/lyrics.md:text', 'refs/second.wav:reference', 'clips/take.mp4:unused(mode)'],
+				defaults: [Number.MAX_SAFE_INTEGER, 'optional', true, 'reference', 'frames'],
+				refused: ['Dunlin Voice takes no audio.', 'Dunlin Song takes one audio file at most.', 'Dunlin Song takes no videos.']
+			});
+		});
+
+		test('a model of another kind than the card\'s blocks Generate and says what to choose', () => {
+			const blocker = (kind: 'image' | 'video' | 'audio', provider: string, model: string) => {
+				const found = getBaseHalfVideoGenerateBlocker({
+					generating: false,
+					catalog: { kind: 'ready', catalog: TEST_AUDIO_CATALOG },
+					generation: { provider, model },
+					kind,
+					setup: candidate => ({ setUp: true, region: findBaseHalfVideoRegion(candidate, undefined) }),
+					prompt: 'Rain on a tin roof.'
+				});
+				return found && [found.kind, baseHalfVideoGenerateBlockerText(found), isBaseHalfVideoModelBlocker(found)];
+			};
+			assert.deepStrictEqual([
+				blocker('audio', 'acme', 'acme-motion-2'),
+				blocker('audio', 'corvid', 'corvid-paint'),
+				blocker('image', 'dunlin', 'dunlin-voice'),
+				blocker('video', 'dunlin', 'dunlin-song'),
+				blocker('video', 'corvid', 'corvid-paint'),
+				blocker('audio', 'dunlin', 'dunlin-foley')
+			], [
+				['otherKind', 'Acme Motion 2 makes videos. Choose an audio model.', true],
+				['otherKind', 'Corvid Paint makes images. Choose an audio model.', true],
+				['otherKind', 'Dunlin Voice makes sounds. Choose an image model.', true],
+				['otherKind', 'Dunlin Song makes sounds. Choose a video model.', true],
+				['otherKind', 'Corvid Paint makes images. Choose a video model.', true],
+				undefined
+			]);
+		});
+
+		test('agents read what an audio model makes, the format it delivers, and its voices with whether the provider lists more', () => {
+			const agents = baseHalfVideoCatalogForAgents(TEST_AUDIO_CATALOG, provider => ({ setUp: false, region: findBaseHalfVideoRegion(provider, undefined) }));
+			const models = agents[3].models as { id: string; kind: string; makes?: string; outputFormat?: string; parameters: { name: string; kind: string; listed?: boolean; options?: { value: string }[] }[] }[];
+			assert.deepStrictEqual(models.map(model => ({
+				id: model.id,
+				kind: model.kind,
+				makes: model.makes,
+				outputFormat: model.outputFormat,
+				voice: model.parameters.filter(parameter => parameter.kind === 'voice').map(parameter => ({ listed: parameter.listed, options: parameter.options?.map(option => option.value) }))[0]
+			})), [
+				{ id: 'dunlin-voice', kind: 'audio', makes: 'speech', outputFormat: 'mp3', voice: { listed: true, options: ['vx-ember', 'vx-pike', 'vx-sable'] } },
+				{ id: 'dunlin-song', kind: 'audio', makes: 'music', outputFormat: 'wav', voice: undefined },
+				{ id: 'dunlin-foley', kind: 'audio', makes: 'sound', outputFormat: 'mp3', voice: undefined }
+			]);
+			assert.strictEqual((agents[2].models as { makes?: string }[]).some(model => model.makes !== undefined), false);
 		});
 	});
 });

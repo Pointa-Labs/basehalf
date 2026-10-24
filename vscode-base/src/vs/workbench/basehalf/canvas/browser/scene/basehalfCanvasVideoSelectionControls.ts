@@ -157,7 +157,7 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 			return h(vendor.Fragment);
 		}
 
-		const image = controls.media === 'image';
+		const media = controls.media ?? 'video';
 		const labels: Readonly<Record<BaseHalfCanvasSceneVideoAction, string>> = {
 			captureFrame: localize('basehalf.canvas.video.captureFrame', "Capture Frame"),
 			revealVideo: baseHalfCanvasRevealVideoLabel(),
@@ -330,11 +330,13 @@ export function createBaseHalfCanvasVideoSelectionControls(environment: IBaseHal
 				ref: toolbarRef,
 				className: `basehalf-video-context-toolbar basehalf-video-result-toolbar${frameMenu ? ' menu-open' : ''} basehalf-canvas-note-toolbar basehalf-canvas-note-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel`,
 				role: 'toolbar',
-				'aria-label': image
+				'aria-label': media === 'image'
 					? localize('basehalf.canvas.image.actions', "Image actions for {0}", node.id)
-					: localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
+					: media === 'audio'
+						? localize('basehalf.canvas.audio.actions', "Sound actions for {0}", node.id)
+						: localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
 				'data-node-path': node.id,
-				'data-media': image ? 'image' : 'video',
+				'data-media': media,
 				'data-placement': placement.side,
 				'data-chrome-state': suppressed ? 'suppressed' : 'present',
 				'aria-hidden': suppressed,

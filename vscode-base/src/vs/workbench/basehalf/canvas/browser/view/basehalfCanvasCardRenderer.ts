@@ -407,12 +407,13 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		if (preview.kind === 'media') {
-			// A generation card with its file shows its image or its video as the
-			// card of any such file does; one that cannot be shown says so.
+			// A generation card with its file shows its image, its video, or its
+			// sound as the card of any such file does; one that cannot be shown says so.
 			const unshowable = item.generation ? () => this.renderGenerationFace(previewNode, item, listeners) : undefined;
 			// One whose file was just saved says Saving over its picture until the
-			// picture can be drawn, so that the card goes from Saving straight to it.
-			const cover = item.generation && carried && (preview.mediaKind === 'image' || preview.mediaKind === 'video')
+			// picture can be drawn, or the sound has its length, so that the card
+			// goes from Saving straight to it.
+			const cover = item.generation && carried && preview.mediaKind !== 'pdf'
 				? this.renderSavingCover(previewNode, item, carried, listeners)
 				: undefined;
 			this.renderMediaPreview(previewNode, preview, interactive, listeners, open, card, unshowable, cover ? () => {

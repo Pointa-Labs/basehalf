@@ -13,7 +13,7 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { ISettingsCustomSection, ISettingsCustomSectionLayout } from '../../../contrib/preferences/browser/settingsCustomSections.js';
-import { BaseHalfVideoCatalogState, baseHalfVideoListedModels, baseHalfVideoRegionOffersModel, IBaseHalfVideoCatalogCredential, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
+import { BASEHALF_MODEL_KINDS, BaseHalfModelKind, BaseHalfVideoCatalogState, baseHalfVideoListedModels, baseHalfVideoRegionOffersModel, IBaseHalfVideoCatalogCredential, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
 import { BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH, BaseHalfVideoProviderSettingsError } from '../common/basehalfVideoProviderSettings.js';
 
@@ -51,8 +51,8 @@ let pageCount = 0;
 /**
  * The Providers page of Settings (D59, D64, providers, "Credentials,
  * regions, and endpoints"), drawn from the model catalog: the providers in
- * the catalog's order, and for the one selected its models under Images and
- * Videos, its region, one masked field per credential it declares, its
+ * the catalog's order, and for the one selected its models under Images,
+ * Videos, and Audio, its region, one masked field per credential it declares, its
  * endpoint, and a link to the region's console. Saving checks nothing with the provider; the first generation tells
  * whether the credentials work. A stored value is never read here and never
  * shown: the page knows only whether one is set.
@@ -364,17 +364,15 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		summary.textContent = status.setUp
 			? localize('basehalf.video.providers.summarySetUp', "Set up · {0}", modelCount(provider))
 			: localize('basehalf.video.providers.summaryNotSetUp', "Not set up · {0}", modelCount(provider));
-		// The models by name, under Images and Videos, so that the user can tell which provider to get credentials from.
-		for (const kind of ['image', 'video'] as const) {
+		// The models by name, under Images, Videos, and Audio, so that the user can tell which provider to get credentials from.
+		for (const kind of BASEHALF_MODEL_KINDS) {
 			const listed = baseHalfVideoListedModels(provider, undefined, kind);
 			if (!listed.length) {
 				continue;
 			}
 			const models = append(heading, $('p.basehalf-video-provider-models'));
 			models.dataset.kind = kind;
-			append(models, $('span.basehalf-video-provider-models-kind')).textContent = kind === 'image'
-				? localize('basehalf.video.providers.images', "Images")
-				: localize('basehalf.video.providers.videos', "Videos");
+			append(models, $('span.basehalf-video-provider-models-kind')).textContent = modelsHeading(kind);
 			for (const [index, model] of listed.entries()) {
 				if (index > 0) {
 					models.append(' · ');
@@ -861,6 +859,15 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			input.value = '';
 		}
 		this.sensitiveInputs.clear();
+	}
+}
+
+/** The heading of a provider's models of a kind: Images, Videos, or Audio. */
+function modelsHeading(kind: BaseHalfModelKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.video.providers.images', "Images");
+		case 'video': return localize('basehalf.video.providers.videos', "Videos");
+		case 'audio': return localize('basehalf.video.providers.audio', "Audio");
 	}
 }
 

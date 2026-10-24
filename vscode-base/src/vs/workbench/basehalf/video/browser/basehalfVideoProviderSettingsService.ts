@@ -20,8 +20,9 @@ import {
 	IBaseHalfVideoProviderAccess
 } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
-import { baseHalfGenerationChoice, BaseHalfGenerationKind, normalizeBaseHalfGenerationInfo } from '../common/basehalfGenerationInfo.js';
+import { BASEHALF_GENERATION_KINDS, baseHalfGenerationChoice, BaseHalfGenerationKind, normalizeBaseHalfGenerationInfo } from '../common/basehalfGenerationInfo.js';
 import {
+	BASEHALF_AUDIO_LAST_USED_STORAGE_KEY,
 	BASEHALF_IMAGE_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_PROVIDERS_COMMAND_ID,
@@ -66,7 +67,7 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		super();
 		this.settingsRaw = this.storageService.get(BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY, StorageScope.APPLICATION);
 		this.settings = parseBaseHalfVideoProviderSettings(this.settingsRaw);
-		this.lastUsed = { image: this.readLastUsed('image'), video: this.readLastUsed('video') };
+		this.lastUsed = { image: this.readLastUsed('image'), video: this.readLastUsed('video'), audio: this.readLastUsed('audio') };
 
 		const listeners = this._register(new DisposableStore());
 		// Another window changed a provider, or this one did: read it again only
@@ -79,7 +80,7 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 				this._onDidChange.fire();
 			}
 		}));
-		for (const kind of ['image', 'video'] as const) {
+		for (const kind of BASEHALF_GENERATION_KINDS) {
 			this._register(this.storageService.onDidChangeValue(StorageScope.APPLICATION, LAST_USED_STORAGE_KEYS[kind], listeners)(() => {
 				const read = this.readLastUsed(kind);
 				if (read.raw !== this.lastUsed[kind].raw) {
@@ -265,7 +266,8 @@ function normalizeBaseHalfVideoEndpointQuietly(value: string): string | undefine
 /** Where the last values of each kind are stored (providers, "Credentials, regions, and endpoints"). */
 const LAST_USED_STORAGE_KEYS: Readonly<Record<BaseHalfGenerationKind, string>> = Object.freeze({
 	image: BASEHALF_IMAGE_LAST_USED_STORAGE_KEY,
-	video: BASEHALF_VIDEO_LAST_USED_STORAGE_KEY
+	video: BASEHALF_VIDEO_LAST_USED_STORAGE_KEY,
+	audio: BASEHALF_AUDIO_LAST_USED_STORAGE_KEY
 });
 
 function parseLastUsed(raw: string | undefined): IBaseHalfVideoGenerationChoice | undefined {

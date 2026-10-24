@@ -134,7 +134,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			this.readMirror(card, BASEHALF_GENERATION_MADE_FILE)
 		]);
 		if (stat?.isDirectory || (info.kind === 'absent' && made.kind === 'absent')) {
-			throw new Error(localize('basehalf.generation.store.notCard', "{0} is not an image or video card.", this.label(card)));
+			throw new Error(localize('basehalf.generation.store.notCard', "{0} is not an image, video, or audio card.", this.label(card)));
 		}
 		return this.snapshot(card, !!stat, this.readInfo(info), made);
 	}
@@ -198,7 +198,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 				this.readMirror(card, BASEHALF_GENERATION_MADE_FILE)
 			]);
 			if (stat?.isDirectory || (current.kind === 'absent' && made.kind === 'absent')) {
-				throw new Error(localize('basehalf.generation.store.notCard', "{0} is not an image or video card.", this.label(card)));
+				throw new Error(localize('basehalf.generation.store.notCard', "{0} is not an image, video, or audio card.", this.label(card)));
 			}
 			if (current.kind === 'tooLarge') {
 				throw new Error(localize('basehalf.generation.store.tooLarge', "BaseHalf cannot save the prompt and settings of {0}: what is saved for it is too large.", this.label(card)));
@@ -484,6 +484,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 				case 'boolean':
 					return 'boolean';
 				case 'text':
+				case 'voice':
 					return 'string';
 				default:
 					return undefined;
@@ -670,7 +671,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 	private locate(resource: URI): ICardLocation {
 		const card = this.locateQuietly(resource);
 		if (!card) {
-			throw new Error(localize('basehalf.generation.store.notCardHere', "{0} is not an image or video card in the open folder.", this.uriIdentityService.extUri.basename(resource)));
+			throw new Error(localize('basehalf.generation.store.notCardHere', "{0} is not an image, video, or audio card in the open folder.", this.uriIdentityService.extUri.basename(resource)));
 		}
 		return card;
 	}

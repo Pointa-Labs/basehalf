@@ -95,16 +95,12 @@ const CARD_ERROR_MAX_LENGTH = 300;
 
 export function baseHalfGenerationCardPresentation(input: IBaseHalfGenerationCardInput): IBaseHalfGenerationCardPresentation {
 	const phase = baseHalfGenerationPhase(input);
-	const kindLabel = input.kind === 'image'
-		? localize('basehalf.generation.card.kindImage', "Image")
-		: localize('basehalf.generation.card.kindVideo', "Video");
+	const kindLabel = baseHalfGenerationKindLabel(input.kind);
 	const name = input.name;
 	switch (phase) {
 		case 'file': {
 			if (input.fileShowable === false) {
-				const message = input.kind === 'image'
-					? localize('basehalf.generation.card.imageUnshowable', "This image cannot be shown here")
-					: localize('basehalf.generation.card.videoUnshowable', "This video cannot be played here");
+				const message = unshowableMessage(input.kind);
 				return Object.freeze({
 					phase,
 					state: 'unshowable',
@@ -154,6 +150,24 @@ export function baseHalfGenerationCardPresentation(input: IBaseHalfGenerationCar
 			});
 		default:
 			return Object.freeze({ phase, state: phase, ariaLabel: localize('basehalf.generation.card.aria.draft', "{0}, {1}, draft", name, kindLabel) });
+	}
+}
+
+/** The kind of a generation card in a word, as its accessible name says it: Image, Video, or Audio. */
+export function baseHalfGenerationKindLabel(kind: BaseHalfGenerationKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.generation.card.kindImage', "Image");
+		case 'video': return localize('basehalf.generation.card.kindVideo', "Video");
+		case 'audio': return localize('basehalf.generation.card.kindAudio', "Audio");
+	}
+}
+
+/** What the card of a file that this computer cannot show or play says (generation cards, "The card"). */
+function unshowableMessage(kind: BaseHalfGenerationKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.generation.card.imageUnshowable', "This image cannot be shown here");
+		case 'video': return localize('basehalf.generation.card.videoUnshowable', "This video cannot be played here");
+		case 'audio': return localize('basehalf.generation.card.audioUnshowable', "This sound cannot be played here");
 	}
 }
 

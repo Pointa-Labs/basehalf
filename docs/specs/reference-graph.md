@@ -3,12 +3,14 @@
 Status: Active (2026-09-27; Open File removed 2026-10-10 for D41; a note that
 cannot hold its list keeps it in its sidecar, 2026-10-10 for D42; node
 documents removed and drafts added, 2026-10-22 for D63; the mentions in a
-draft's prompt follow its entries, 2026-10-24 for D74)
+draft's prompt follow its entries, 2026-10-24 for D74; Audio from
+Connection, 2026-10-25 for D78)
 Decisions: [D37](../decisions.md#d37--references-are-stored-once-by-the-downstream-node-new-2026-09-27),
 [D41](../decisions.md#d41--users-are-not-expected-to-read-code-or-open-hidden-files-new-2026-10-10),
 [D42](../decisions.md#d42--a-note-that-cannot-hold-its-upstream-list-keeps-it-with-basehalf-new-2026-10-10),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
-[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
+[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
+[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)
 Related: [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [agent launch context](agent-launch-context.md),
 [generation cards](generation-cards.md)
@@ -768,9 +770,10 @@ entries after a move, so that they keep naming the inputs that were moved.
   Releasing a connection drag from a card on empty canvas opens a context menu
   at the release point. It is the same kind of menu as the double-click create
   menu, never Quick Input.
-  - **Items.** **Note**, **Image**, and **Video**. These are the double-click
-    menu's New Note, New Image, and New Video. The earlier items for empty
-    audio, file, PDF, and presentation nodes are removed (D63).
+  - **Items.** **Note**, **Image**, **Video**, and **Audio**. These are the
+    double-click menu's New Note, New Image, New Video, and New Audio (D78).
+    The earlier items for empty audio, file, PDF, and presentation nodes are
+    removed (D63).
   - **First bytes.** The new node lists the source as its only `upstream`
     entry before it exists: a note in its initial bytes, and a draft in its
     `upstream.yaml`, which is written before its `generation.yaml`. There is
@@ -785,16 +788,19 @@ entries after a move, so that they keep naming the inputs that were moved.
   - **Note** creates `untitled.md` (or the next free `untitled-N.md`). Its
     content is only a frontmatter block that lists the source. It opens for
     inline editing, as New Note does.
-  - **Image** and **Video** create a draft named `image` or `video` with the
-    extension of the model's output (`image.png`, `video.mp4`), with the next
-    free number when the name is taken by a file, a folder, or a draft, as
-    New Image and New Video do
+  - **Image**, **Video**, and **Audio** create a draft named `image`,
+    `video`, or `audio` with the extension of the model's output
+    (`image.png`, `video.mp4`, `audio.mp3`), with the next free number when
+    the name is taken by a file, a folder, or a draft, as New Image, New
+    Video, and New Audio do
     ([generation cards](generation-cards.md#creating-a-generation-card)).
-    The draft is selected, and its panel shows. Both are offered from every
-    source, a note included: the source becomes the draft's first input, and
-    the panel says how a generation uses it, or that its model cannot use it
-    and Generate does not run
-    ([generation cards](generation-cards.md#inputs)).
+    The draft is selected, and its panel shows. All three are offered from
+    every source, a note included: the source becomes the draft's first
+    input, and the panel says how a generation uses it, or that its model
+    cannot use it and Generate does not run
+    ([generation cards](generation-cards.md#inputs)). An audio draft has the
+    size of a file card, and the side the line enters is centered on the
+    release point as for any card.
   - **Cancel.** Escape or a click outside closes the menu and writes nothing.
   - **Undo.** For a draft, one canvas undo step removes the draft with its
     card information, its card, and its edge together, and refuses while the
@@ -1381,8 +1387,10 @@ slice 4, or slice 5 without slice 3.
     - Image creates an image draft whose `upstream.yaml` names the source.
     - Video is offered from every source, a text source included, and
       creates a video draft whose first input is the source.
-    - The menu offers no item for an empty audio, file, PDF, or presentation
-      node.
+    - Audio is offered from every source too, and creates an audio draft,
+      at the size of a file card, whose first input is the source (D78).
+    - The menu offers no item for an empty file, PDF, or presentation node,
+      and none for an empty audio node: Audio makes a draft.
     - One canvas undo removes a created draft, its card, and its edge. A
       later canvas action, undone and redone in another folder, redoes that
       action and not the removed draft.

@@ -39,7 +39,9 @@ class CatalogCommands {
 		poll: () => { throw new Error('not used'); },
 		download: () => { throw new Error('not used'); },
 		cancel: () => { throw new Error('not used'); },
-		place: () => { throw new Error('not used'); }
+		place: () => { throw new Error('not used'); },
+		voices: () => { throw new Error('not used'); },
+		voicePreview: () => { throw new Error('not used'); }
 	};
 }
 

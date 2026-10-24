@@ -105,6 +105,12 @@ suite('BaseHalfAgentSelection', () => {
 			several: { selected: 'cards', paths: ['courses/untitled.md', 'shots/video.mp4'] },
 			label: { icon: 'video', text: 'video.mp4' }
 		});
+		// An audio draft is recorded the same way, with the icon of a sound (D78).
+		const sound = baseHalfAgentSelectionFor({ ...canvas, cards: [{ path: 'voice/audio.mp3', isFolder: false, draft: true }] });
+		assert.deepStrictEqual({ record: toPlain(parseYaml(serializeBaseHalfAgentSelection(sound), [])), label: baseHalfAgentSelectionLabel(sound) }, {
+			record: { selected: 'card', path: 'voice/audio.mp3', draft: 'true' },
+			label: { icon: 'audio', text: 'audio.mp3' }
+		});
 	});
 
 	test('the record escapes what YAML does not allow, and a cut never splits a character', () => {

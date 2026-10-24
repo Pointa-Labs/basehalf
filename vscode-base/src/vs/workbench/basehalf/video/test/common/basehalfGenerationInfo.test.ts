@@ -9,6 +9,9 @@ import {
 	BASEHALF_GENERATION_MAX_FILE_BYTES,
 	baseHalfGenerationCandidateName,
 	baseHalfGenerationClaimWinner,
+	baseHalfGenerationDraftExtension,
+	baseHalfGenerationDraftNameRule,
+	baseHalfGenerationDraftRenameExtension,
 	baseHalfGenerationExtensionMatchesFormat,
 	baseHalfGenerationFileFormat,
 	baseHalfGenerationFormatExtension,
@@ -49,6 +52,7 @@ import {
 	submitBaseHalfGenerationTask,
 	writeBaseHalfGenerationInfoFields
 } from '../../common/basehalfGenerationInfo.js';
+import { CORVID_PAINT, CORVID_PRINT, CORVID_REEL, DUNLIN_FOLEY, DUNLIN_SONG, DUNLIN_VOICE } from './basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfGenerationInfo', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -70,6 +74,47 @@ suite('BaseHalfGenerationInfo', () => {
 				['a.png', 'b.JPG', 'c.jpeg', 'd.webp', 'e.gif', 'f.avif', 'g.bmp', 'h.mp4', 'i.MOV', 'j.m4v', 'k.webm', 'l.md', 'm', 'n.png.txt', '.png'].map(baseHalfGenerationKindOfPath),
 				['image', 'image', 'image', 'image', 'image', 'image', 'image', 'video', 'video', 'video', 'video', undefined, undefined, undefined, undefined]
 			);
+			// Sounds are the third kind (D78).
+			assert.deepStrictEqual(
+				['a.mp3', 'b.WAV', 'c.flac', 'd.m4a', 'e.aac', 'f.Ogg', 'g.opus', 'h.mp3.md'].map(baseHalfGenerationKindOfPath),
+				['audio', 'audio', 'audio', 'audio', 'audio', 'audio', undefined, undefined]
+			);
+		});
+
+		test('a new draft takes its model\'s format when the model is of its kind, and png, mp4, or mp3 otherwise; choosing a model of another format renames an image or an audio draft (D78)', () => {
+			assert.deepStrictEqual({
+				extensions: [
+					baseHalfGenerationDraftExtension('image'),
+					baseHalfGenerationDraftExtension('image', CORVID_PRINT),
+					baseHalfGenerationDraftExtension('video', CORVID_REEL),
+					baseHalfGenerationDraftExtension('audio'),
+					baseHalfGenerationDraftExtension('audio', DUNLIN_SONG),
+					baseHalfGenerationDraftExtension('audio', DUNLIN_VOICE),
+					// A model of another kind tells nothing of the format.
+					baseHalfGenerationDraftExtension('audio', CORVID_PRINT)
+				],
+				renames: [
+					baseHalfGenerationDraftRenameExtension('shots/audio.mp3', 'audio', DUNLIN_SONG),
+					baseHalfGenerationDraftRenameExtension('shots/audio.wav', 'audio', DUNLIN_FOLEY),
+					baseHalfGenerationDraftRenameExtension('shots/audio.mp3', 'audio', DUNLIN_VOICE),
+					baseHalfGenerationDraftRenameExtension('shots/image.png', 'image', CORVID_PRINT),
+					baseHalfGenerationDraftRenameExtension('shots/image.jpeg', 'image', CORVID_PRINT),
+					baseHalfGenerationDraftRenameExtension('shots/image.png', 'image', CORVID_PAINT),
+					baseHalfGenerationDraftRenameExtension('shots/video.mov', 'video', CORVID_REEL),
+					baseHalfGenerationDraftRenameExtension('shots/audio.mp3', 'audio', CORVID_PRINT)
+				]
+			}, {
+				extensions: ['png', 'jpg', 'mp4', 'mp3', 'wav', 'mp3', 'mp3'],
+				renames: ['wav', 'mp3', undefined, 'jpg', undefined, undefined, undefined, undefined]
+			});
+		});
+
+		test('a draft keeps a name of its kind, and says which extensions it takes', () => {
+			assert.deepStrictEqual((['image', 'video', 'audio'] as const).map(baseHalfGenerationDraftNameRule), [
+				'An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.',
+				'A video card needs a name that ends in .mp4, .mov, .m4v, or .webm.',
+				'An audio card needs a name that ends in .mp3, .wav, .flac, .m4a, .aac, or .ogg.'
+			]);
 		});
 
 		test('names are numbered as the canvas numbers what it creates', () => {
@@ -99,7 +144,7 @@ suite('BaseHalfGenerationInfo', () => {
 				bytes(0, 0, 0, 24, 'ftypisom'),
 				bytes('GIF89a'),
 				bytes(0x89, 'PN')
-			].map(baseHalfGenerationFileFormat), ['png', 'jpeg', 'webp', 'mp4', undefined, undefined]);
+			].map(head => baseHalfGenerationFileFormat(head)), ['png', 'jpeg', 'webp', 'mp4', undefined, undefined]);
 			assert.deepStrictEqual((['png', 'jpeg', 'webp', 'mp4'] as const).map(baseHalfGenerationFormatExtension), ['png', 'jpg', 'webp', 'mp4']);
 			assert.deepStrictEqual([
 				baseHalfGenerationExtensionMatchesFormat('shots/a.jpeg', 'jpeg'),
@@ -107,6 +152,34 @@ suite('BaseHalfGenerationInfo', () => {
 				baseHalfGenerationExtensionMatchesFormat('shots/a.png', 'jpeg'),
 				baseHalfGenerationExtensionMatchesFormat('shots/a.mov', 'mp4')
 			], [true, true, false, false]);
+		});
+
+		test('a sound is an MP3, a WAV, a FLAC, an Ogg, or an M4A by its first bytes, and an AAC stream is none of them (D78)', () => {
+			assert.deepStrictEqual({
+				sounds: [
+					bytes('ID3', 4, 0, 0, 0, 0, 0, 0),
+					bytes(0xFF, 0xFB, 0x90, 0x64),
+					bytes(0xFF, 0xF3, 0x28, 0xC4),
+					bytes('RIFF', 36, 0, 0, 0, 'WAVE', 'fmt '),
+					bytes('fLaC', 0, 0, 0, 34),
+					bytes('OggS', 0, 2),
+					// An ADTS stream of AAC has the sync of an MPEG audio frame without a layer.
+					bytes(0xFF, 0xF1, 0x50, 0x80),
+					bytes('RIFF', 36, 0, 0, 0, 'AVI ')
+				].map(head => baseHalfGenerationFileFormat(head, 'audio')),
+				// An ISO media file is an M4A on an audio card and an MP4 on any other.
+				isoMedia: (['audio', 'video', undefined] as const).map(kind => baseHalfGenerationFileFormat(bytes(0, 0, 0, 28, 'ftypM4A '), kind)),
+				extensions: (['mp3', 'wav', 'flac', 'ogg', 'm4a'] as const).map(baseHalfGenerationFormatExtension),
+				matches: [
+					baseHalfGenerationExtensionMatchesFormat('shots/audio.WAV', 'wav'),
+					baseHalfGenerationExtensionMatchesFormat('shots/audio.mp3', 'wav')
+				]
+			}, {
+				sounds: ['mp3', 'mp3', 'mp3', 'wav', 'flac', 'ogg', undefined, undefined],
+				isoMedia: ['m4a', 'mp4', 'mp4'],
+				extensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a'],
+				matches: [true, false]
+			});
 		});
 
 		test('a video lands as an MP4 of at most 512 MiB, an image as a PNG, JPEG, or WebP of at most 64 MiB', () => {
@@ -120,6 +193,19 @@ suite('BaseHalfGenerationInfo', () => {
 				isBaseHalfGenerationFileAccepted('image', 'png', 0)
 			], [true, false, false, true, false, false, false]);
 		});
+
+		test('a sound lands as an MP3, a WAV, a FLAC, an Ogg, or an M4A of at most 256 MiB (D78)', () => {
+			assert.deepStrictEqual([
+				isBaseHalfGenerationFileAccepted('audio', 'mp3', 256 * 1024 * 1024),
+				isBaseHalfGenerationFileAccepted('audio', 'wav', 256 * 1024 * 1024 + 1),
+				isBaseHalfGenerationFileAccepted('audio', 'flac', 10),
+				isBaseHalfGenerationFileAccepted('audio', 'ogg', 10),
+				isBaseHalfGenerationFileAccepted('audio', 'm4a', 10),
+				isBaseHalfGenerationFileAccepted('audio', 'mp4', 10),
+				isBaseHalfGenerationFileAccepted('video', 'mp3', 10),
+				isBaseHalfGenerationFileAccepted('image', 'wav', 10)
+			], [true, false, true, true, true, false, false, false]);
+		});
 	});
 
 	suite('generation.yaml', () => {
@@ -132,6 +218,15 @@ suite('BaseHalfGenerationInfo', () => {
 			});
 			const text = serializeBaseHalfGenerationInfo(info);
 			assert.deepStrictEqual(parseBaseHalfGenerationInfo(text), { info, readable: true, ignored: [] });
+		});
+
+		test('reads Lyrics mode and the voice of a speech model, which is text (D78)', () => {
+			const song = setBaseHalfGenerationChoice({ prompt: 'The tide comes in' }, { provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics', params: { count: 2, style: 'sea shanty' } });
+			const speech = parseBaseHalfGenerationInfo('prompt: "Welcome"\nmode: "reference"\nparams:\n  voice: "vx-ember"\n', name => name === 'voice' ? 'string' : undefined);
+			assert.deepStrictEqual({ song: parseBaseHalfGenerationInfo(serializeBaseHalfGenerationInfo(song)).info, voice: speech.info.params }, {
+				song,
+				voice: { voice: 'vx-ember' }
+			});
 		});
 
 		test('reads field by field: a field with the wrong shape is absent and the others are used', () => {
@@ -295,6 +390,19 @@ suite('BaseHalfGenerationInfo', () => {
 			assert.strictEqual(parseBaseHalfGenerationTask('{'), undefined);
 			assert.strictEqual(parseBaseHalfGenerationTask(JSON.stringify({ ...task, state: 'running' })), undefined);
 			assert.strictEqual(parseBaseHalfGenerationTask(JSON.stringify({ ...task, extra: 1 })), undefined);
+			assert.strictEqual(parseBaseHalfGenerationTask(JSON.stringify({ ...task, kind: 'pdf' })), undefined);
+		});
+
+		test('a generation of songs is recorded as one of the kind audio, with a record of each song (D78)', () => {
+			const songs = createBaseHalfGenerationTask({ id: '20261025T080000-50e6', kind: 'audio', cards: ['songs/audio.wav', 'songs/audio-2.wav'], follower: 'window-1', now });
+			const landing = landBaseHalfGenerationTask(runBaseHalfGenerationTask(submitBaseHalfGenerationTask(songs, { ...request, mode: 'lyrics', params: { count: 2, style: 'sea shanty' } }, 'The tide comes in.', false), 'remote-2'));
+			const read = parseBaseHalfGenerationTask(serializeBaseHalfGenerationTask(landing));
+			const made = baseHalfGenerationMadeOfTask(landing, 1, later);
+			assert.deepStrictEqual({ kind: read?.kind, mode: read?.request?.mode, made: [made.id, made.output, made.outputs] }, {
+				kind: 'audio',
+				mode: 'lyrics',
+				made: ['20261025T080000-50e6-2', 2, 2]
+			});
 		});
 	});
 });

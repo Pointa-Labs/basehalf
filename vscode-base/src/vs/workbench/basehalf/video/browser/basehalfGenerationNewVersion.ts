@@ -62,8 +62,8 @@ export async function createBaseHalfNewVersion(
 	const parent = dirname(snapshot.resource);
 	const parts = baseHalfGenerationNameParts(name);
 	const ref = findBaseHalfVideoModel(catalog, info.provider, info.model);
-	// An image model delivers its own format; the new draft takes its extension, as a new draft of that model does.
-	const extension = ref && ref.model.kind === 'image' && snapshot.kind === 'image' ? baseHalfModelFileExtension(ref.model) : parts.extension;
+	// An image or an audio model delivers its own format; the new draft takes its extension, as a new draft of that model does.
+	const extension = ref && ref.model.kind === snapshot.kind && snapshot.kind !== 'video' ? baseHalfModelFileExtension(ref.model) : parts.extension;
 	let draft: URI | undefined;
 	for (let attempt = 1; !draft; attempt++) {
 		const next = await services.cardStore.nextFreeName(parent, parts.base, extension, baseHalfGenerationNameOrdinal(name));

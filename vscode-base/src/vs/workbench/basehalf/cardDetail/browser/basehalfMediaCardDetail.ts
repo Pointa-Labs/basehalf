@@ -30,6 +30,7 @@ import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '..
 import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
 import { formatBaseHalfVideoElapsed } from '../../video/common/basehalfVideoCardPresentation.js';
 import {
+	BASEHALF_AUDIO_DEFAULT_MODE_INPUTS,
 	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
 	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
 	BaseHalfVideoInputKind,
@@ -72,7 +73,7 @@ export interface IBaseHalfGenerationProvenanceInput {
 	readonly path: string;
 }
 
-/** What made the file of a generation card, as Card Detail shows it below the image or the video. */
+/** What made the file of a generation card, as Card Detail shows it below the image, the video, or the sound. */
 export interface IBaseHalfGenerationProvenance {
 	readonly heading: string;
 	/** A sentence below the heading, such as that the file is a copy. */
@@ -124,7 +125,8 @@ export function baseHalfGenerationProvenance(
 	const finished = Date.parse(made.finishedAt);
 	const format = safeIntl.DateTimeFormat(displayLanguage, { dateStyle: 'medium', timeStyle: 'medium' }).value;
 	const time = (value: number, fallback: string) => Number.isFinite(value) ? format.format(new Date(value)) : fallback;
-	const modeInputs = mode?.inputs ?? (made.mode === 'frames' ? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS : BASEHALF_IMAGE_DEFAULT_MODE_INPUTS);
+	// Without the catalog, frames by their places, and references by the kind of the card.
+	const modeInputs = mode?.inputs ?? (made.mode === 'frames' ? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS : card.kind === 'audio' ? BASEHALF_AUDIO_DEFAULT_MODE_INPUTS : BASEHALF_IMAGE_DEFAULT_MODE_INPUTS);
 	const plan = planBaseHalfVideoInputs(modeInputs, made.inputs.map(path => ({ path, kind: kindOf(path), available: true })));
 	const inputs = plan.map((item): IBaseHalfGenerationProvenanceInput => Object.freeze({ name: provenanceUse(item), path: item.path }));
 	const rows: IBaseHalfGenerationProvenanceRow[] = [
@@ -134,7 +136,11 @@ export function baseHalfGenerationProvenance(
 		{ label: localize('basehalf.generation.detail.settings', "Settings"), value: settings.length ? settings.join(' · ') : localize('basehalf.generation.detail.noSettings', "None") },
 		{ label: localize('basehalf.generation.detail.prompt', "Prompt"), value: baseHalfPromptAsText(made.prompt, made.inputs).trim() || localize('basehalf.generation.detail.noPrompt', "No prompt") },
 		...(made.output !== undefined && made.outputs !== undefined
-			? [{ label: localize('basehalf.generation.detail.image', "Image"), value: localize('basehalf.generation.detail.imageOf', "{0} of {1}", made.output, made.outputs) }]
+			? [{
+				// Which image or song of how many (generation cards, "Several images from one generation").
+				label: card.kind === 'audio' ? localize('basehalf.generation.detail.song', "Song") : localize('basehalf.generation.detail.image', "Image"),
+				value: localize('basehalf.generation.detail.imageOf', "{0} of {1}", made.output, made.outputs)
+			}]
 			: []),
 		{ label: localize('basehalf.generation.detail.started', "Started"), value: time(started, made.startedAt) },
 		{
@@ -147,11 +153,7 @@ export function baseHalfGenerationProvenance(
 	return Object.freeze({
 		heading: localize('basehalf.generation.detail.generated', "Generated"),
 		// A copy keeps the original's record: what it says is what made the original.
-		...(made.copyOf !== undefined ? {
-			note: card.kind === 'image'
-				? localize('basehalf.generation.detail.copyImage', "This image is a copy of a generated image; this is what made that one.")
-				: localize('basehalf.generation.detail.copyVideo', "This video is a copy of a generated video; this is what made that one.")
-		} : {}),
+		...(made.copyOf !== undefined ? { note: copyNote(card.kind) } : {}),
 		rows: Object.freeze(rows.map(row => Object.freeze(row))),
 		inputs: Object.freeze(inputs)
 	});
@@ -223,9 +225,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			}
 
 			if (kind === 'video' || kind === 'audio') {
-				if (kind === 'video') {
-					this.followGenerationProvenance(state);
-				}
+				// What made a generated video or sound shows below its player (D78).
+				this.followGenerationProvenance(state);
 				this._register(this.fileService.onDidFilesChange(event => {
 					if (event.contains(state.resource, FileChangeType.DELETED)) {
 						this.renderNotice('This media file no longer exists.');
@@ -418,8 +419,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	}
 
 	/**
-	 * Below the image or the video of a generation card: what made its file
-	 * (generation cards, "The toolbar"), drawn again when its card
+	 * Below the image, the video, or the sound of a generation card: what made
+	 * its file (generation cards, "The toolbar"), drawn again when its card
 	 * information changes. A file that is no generation card shows nothing
 	 * more.
 	 */
@@ -456,7 +457,9 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		const section = this.provenance = append(this.root, $('section.bh-generation-provenance'));
 		section.setAttribute('aria-label', card.kind === 'image'
 			? localize('basehalf.generation.detail.labelImage', "What made this image")
-			: localize('basehalf.generation.detail.labelVideo', "What made this video"));
+			: card.kind === 'audio'
+				? localize('basehalf.generation.detail.labelSound', "What made this sound")
+				: localize('basehalf.generation.detail.labelVideo', "What made this video"));
 		append(section, $('h2.bh-generation-provenance-title')).textContent = provenance.heading;
 		if (provenance.note) {
 			append(section, $('p.bh-generation-provenance-note')).textContent = provenance.note;
@@ -478,6 +481,15 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				append(item, $('span.bh-generation-provenance-input-path')).textContent = input.path;
 			}
 		}
+	}
+}
+
+/** What the record of a copy says: what it shows made the original. */
+function copyNote(kind: IBaseHalfGenerationCardSnapshot['kind']): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.generation.detail.copyImage', "This image is a copy of a generated image; this is what made that one.");
+		case 'video': return localize('basehalf.generation.detail.copyVideo', "This video is a copy of a generated video; this is what made that one.");
+		case 'audio': return localize('basehalf.generation.detail.copySound', "This sound is a copy of a generated sound; this is what made that one.");
 	}
 }
 
