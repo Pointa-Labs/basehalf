@@ -7,7 +7,7 @@ import { mainWindow } from '../../../../base/browser/window.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
+import { FileAccess, Schemas } from '../../../../base/common/network.js';
 import { basename, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
@@ -16,6 +16,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { createBlobWorker } from '../../../../platform/webWorker/browser/webWorkerServiceImpl.js';
+import { readBaseHalfFileRange } from '../../workspace/common/basehalfFileRange.js';
 import { baseHalfBookFormatOfName, readBaseHalfBookCover } from '../common/basehalfBookCover.js';
 import {
 	BASEHALF_DOCUMENT_COVER_CACHE_FOLDER,
@@ -136,8 +137,12 @@ export class BaseHalfDocumentCoverService extends Disposable implements IBaseHal
 				if (size > BASEHALF_PDF_COVER_MAX_BYTES) {
 					return { version, problem: 'tooLarge' };
 				}
-				const content = await this.fileService.readFile(resource);
-				const reply = await this.pdfWorker.draw(ownBuffer(content.value.buffer), BASEHALF_DOCUMENT_COVER_WIDTH);
+				// The worker reads a file of this computer itself: a PDF of hundreds of
+				// megabytes would otherwise hold up the window while it passes through.
+				const pdf = resource.scheme === Schemas.file
+					? FileAccess.uriToBrowserUri(resource).with({ query: `basehalfCoverOf=${encodeURIComponent(version)}` }).toString(true)
+					: ownBuffer((await this.fileService.readFile(resource)).value.buffer);
+				const reply = await this.pdfWorker.draw(pdf, BASEHALF_DOCUMENT_COVER_WIDTH);
 				if (!reply.ok) {
 					this.logService.info(`[BaseHalf] the first page of ${resource.toString()} was not drawn: ${reply.message}`);
 					return { version, problem: reply.problem };
@@ -151,7 +156,7 @@ export class BaseHalfDocumentCoverService extends Disposable implements IBaseHal
 			}
 			const file: IBaseHalfRandomAccessFile = {
 				size,
-				read: async (offset, length) => (await this.fileService.readFile(resource, { position: offset, length })).value.buffer
+				read: async (offset, length) => (await readBaseHalfFileRange(this.fileService, resource, offset, length)).buffer
 			};
 			const book = await readBaseHalfBookCover(format, file, inflateRaw);
 			const about = {
@@ -240,12 +245,12 @@ class BaseHalfPdfCoverWorker extends Disposable {
 		this._register(toDisposable(() => this.stop('The window closed.')));
 	}
 
-	draw(bytes: ArrayBuffer, width: number): Promise<BaseHalfPdfCoverReply> {
+	draw(pdf: string | ArrayBuffer, width: number): Promise<BaseHalfPdfCoverReply> {
 		this.idle.clear();
 		const id = this.nextId++;
 		const request: IBaseHalfPdfCoverRequest = {
 			id,
-			bytes,
+			pdf,
 			width,
 			wasmUrl: FileAccess.asBrowserUri(`${contentViewerRoot}/pdfium.wasm`).toString(true),
 			fontUrl: FileAccess.asBrowserUri(`${contentViewerRoot}/NotoSansHans-Regular.otf`).toString(true)
@@ -253,7 +258,7 @@ class BaseHalfPdfCoverWorker extends Disposable {
 		const reply = new Promise<BaseHalfPdfCoverReply>(resolve => {
 			this.replies.set(id, resolve);
 			this.start().then(
-				worker => worker.postMessage(request, [bytes]),
+				worker => worker.postMessage(request, typeof pdf === 'string' ? [] : [pdf]),
 				error => this.answer({ id, ok: false, problem: 'unreadable', message: `The worker did not start: ${getErrorMessage(error)}` })
 			);
 		});

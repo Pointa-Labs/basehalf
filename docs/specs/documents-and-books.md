@@ -157,7 +157,10 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     - A PDF's first page is drawn 800 pixels wide on white, with its
       annotations, in a worker of the window, by the PDFium that the PDF
       reader uses. Text whose font the file does not hold is drawn with the
-      reader's fallback fonts.
+      reader's fallback fonts. The worker reads the PDF itself, through the
+      window's file protocol, so that its bytes never pass through the
+      thread that draws the window; a PDF that is not a file on this
+      computer is read for it.
     - For a book, BaseHalf reads only the parts of the file that name the
       cover and hold its picture, and makes the picture at most 800 pixels
       wide. It reads the title and the authors from the same parts.
@@ -303,6 +306,10 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     clicking into empty page records the card again.
 13. A PDF opens at most at 125 % on a wide Card Detail and fills a narrow
     one; after Zoom In it opens at that zoom again.
+14. While twenty documents appear in view at once, among them PDFs of
+    76 MB and EPUBs of 25 MB, no frame of the window takes longer than
+    34 ms until every cover is drawn. A PDF of 76 MB and 1,307 pages opens
+    in Card Detail the same way.
 
 ## Verification
 

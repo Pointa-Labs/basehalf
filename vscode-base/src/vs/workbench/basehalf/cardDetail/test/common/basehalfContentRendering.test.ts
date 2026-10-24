@@ -20,8 +20,8 @@ suite('BaseHalfContentRendering', () => {
 		);
 	});
 
-	test('the window loads every image, sound, and video that a card and Card Detail show; a PDF and a book draw in a page of their own', () => {
-		assert.deepStrictEqual(BASEHALF_RENDERABLE_CONTENT_EXTENSIONS.filter(extension => !BASEHALF_WINDOW_MEDIA_FILE_EXTENSIONS.includes(extension)), ['.pdf', '.azw', '.azw3', '.cbz', '.epub', '.fb2', '.fbz', '.mobi']);
+	test('the window loads every image, sound, video, and PDF that a card and Card Detail show; a book is read only in a page of its own', () => {
+		assert.deepStrictEqual(BASEHALF_RENDERABLE_CONTENT_EXTENSIONS.filter(extension => !BASEHALF_WINDOW_MEDIA_FILE_EXTENSIONS.includes(extension)), ['.azw', '.azw3', '.cbz', '.epub', '.fb2', '.fbz', '.mobi']);
 	});
 
 	test('keeps the exported selector and classifier in lockstep', () => {

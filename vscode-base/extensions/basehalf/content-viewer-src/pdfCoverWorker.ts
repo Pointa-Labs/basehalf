@@ -44,7 +44,8 @@ async function draw(request: IBaseHalfPdfCoverRequest): Promise<BaseHalfPdfCover
 	}
 	let document: PdfDocumentObject | undefined;
 	try {
-		document = await pdfium.openDocumentBuffer({ id: `cover-${request.id}`, content: request.bytes }).toPromise();
+		const content = typeof request.pdf === 'string' ? await read(request.pdf) : request.pdf;
+		document = await pdfium.openDocumentBuffer({ id: `cover-${request.id}`, content }).toPromise();
 		const page = document.pages[0];
 		if (!page) {
 			return { id: request.id, ok: false, problem: 'unreadable', message: 'The PDF has no page.' };
@@ -67,6 +68,15 @@ async function draw(request: IBaseHalfPdfCoverRequest): Promise<BaseHalfPdfCover
 			await pdfium.closeDocument(document).toPromise().catch(() => undefined);
 		}
 	}
+}
+
+/** The file, read by this thread, so that its bytes never pass through the window's. */
+async function read(url: string): Promise<ArrayBuffer> {
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(`The file could not be read: ${response.status}.`);
+	}
+	return response.arrayBuffer();
 }
 
 function messageOf(error: unknown): string {

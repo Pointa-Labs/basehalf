@@ -98,7 +98,8 @@ See [code organization](code-organization.md) and public decision D60.
   `.mobi`; sounds `.flac`, `.m4a`, `.mp3`, `.oga`, `.ogg`, and `.wav`;
   videos `.m4v`, `.mkv`, `.mov`, `.mp4`, and `.webm`; without regard to
   case. The window loads each image, sound, and video of the list itself,
-  from any folder, through its file protocol, and a sound and a video play
+  from any folder, through its file protocol, as the worker that draws a
+  PDF's cover loads the PDF, and a sound and a video play
   in BaseHalf's player, never in the system's controls
   ([generation cards](../specs/generation-cards.md#the-player)). A PDF and a
   book show their cover on their card and are read in a page of their own

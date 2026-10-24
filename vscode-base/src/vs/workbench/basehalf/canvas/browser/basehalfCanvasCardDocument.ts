@@ -86,7 +86,8 @@ export function renderBaseHalfCanvasCardDocument(container: HTMLElement, options
 					draw();
 				}
 			});
-			element.src = FileAccess.uriToBrowserUri(picture.resource).toString(true);
+			// The window's address leaves out the query; the version in it keeps a cover made again from the window's cache.
+			element.src = FileAccess.uriToBrowserUri(picture.resource).with({ query: picture.resource.query }).toString(true);
 		}
 		show(image.complete && image.naturalWidth > 0 ? 'cover' : 'surface');
 	};

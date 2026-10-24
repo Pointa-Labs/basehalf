@@ -13,8 +13,12 @@ export const BASEHALF_PDF_COVER_WORKER_READY = 'basehalf.pdfCover.ready';
 /** A request to draw the first page of a PDF. */
 export interface IBaseHalfPdfCoverRequest {
 	readonly id: number;
-	/** The whole file: PDFium reads a document from memory. */
-	readonly bytes: ArrayBuffer;
+	/**
+	 * The address in the window's file protocol that the worker reads the
+	 * whole file from, or, for a PDF that is not a file on this computer, the
+	 * whole file. PDFium reads a document from memory.
+	 */
+	readonly pdf: string | ArrayBuffer;
 	/** The width of the picture, in pixels. */
 	readonly width: number;
 	/** The PDFium that the PDF reader uses. */

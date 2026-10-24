@@ -20,12 +20,14 @@ export const BASEHALF_MEDIA_FILE_EXTENSIONS = Object.freeze({
 
 /**
  * The media files that the window loads itself, from any folder, through its
- * file protocol: the image of a card, and the sound and the video that a card
- * and Card Detail play in BaseHalf's player. A PDF and a book draw in a page
- * of their own.
+ * file protocol: the image of a card, the sound and the video that a card
+ * and Card Detail play in BaseHalf's player, and the PDF whose first page the
+ * window's worker draws for its card. A PDF and a book are read in a page of
+ * their own.
  */
 export const BASEHALF_WINDOW_MEDIA_FILE_EXTENSIONS: readonly string[] = Object.freeze([
 	...BASEHALF_MEDIA_FILE_EXTENSIONS.image,
+	...BASEHALF_MEDIA_FILE_EXTENSIONS.pdf,
 	...BASEHALF_MEDIA_FILE_EXTENSIONS.audio,
 	...BASEHALF_MEDIA_FILE_EXTENSIONS.video
 ]);
