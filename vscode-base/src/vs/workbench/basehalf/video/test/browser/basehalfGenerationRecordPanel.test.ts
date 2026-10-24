@@ -146,7 +146,7 @@ suite('BaseHalfGenerationRecordPanel', () => {
 
 	test('shows what made the file, from its record and not from a generation.yaml beside it, and nothing in it changes the card (criteria 42 and 58)', async () => {
 		gone.add('frames/b.png');
-		snapshot = { ...snapshot, made: { ...MADE, prompt: 'Image 1 rides along the sea to Image 2.' } };
+		snapshot = { ...snapshot, made: { ...MADE, prompt: '@[frames/a.png] rides along the sea to @[frames/b.png].' } };
 		const panel = await createPanel();
 		const tiles = [...panel.element.querySelectorAll<HTMLElement>('.bh-input-tile')];
 		assert.deepStrictEqual({
@@ -157,8 +157,8 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			gone: tiles.map(tile => tile.classList.contains('dimmed')),
 			controls: panel.element.querySelectorAll('.bh-input-row-action, .bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-swap').length,
 			prompt: texts(panel, '.bh-prompt-editor'),
-			// Its names are chips of the inputs it was made from, the one that is gone too.
-			chips: [...panel.element.querySelectorAll<HTMLElement>('.bh-prompt-chip')].map(chip => chip.dataset.name),
+			// Its mentions are chips of the inputs it was made from, the one that is gone too (D74).
+			chips: [...panel.element.querySelectorAll<HTMLElement>('.bh-prompt-chip')].map(chip => `${chip.querySelector('.bh-prompt-chip-name')?.textContent}${chip.classList.contains('unknown') ? ' (unknown)' : ''}`),
 			model: texts(panel, '.bh-record-panel-model'),
 			settings: texts(panel, '.bh-record-panel-settings'),
 			buttons: [...panel.element.querySelectorAll('button')].map(button => button.textContent),
@@ -168,13 +168,13 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			height: panel.height
 		}, {
 			state: 'ready',
-			// Named in their looks and to a screen reader; no tile has a number (D71).
-			inputs: ['Image 1, Start, a.png', 'Image 2, End, b.png, Not there any more.'],
+			// Named by their files in their looks and to a screen reader; no tile has a number (D71).
+			inputs: ['a.png, Start', 'b.png, End, Not there any more.'],
 			numbers: [undefined, undefined],
 			gone: [false, true],
 			controls: 0,
-			prompt: ['Image 1 rides along the sea to Image 2.'],
-			chips: ['Image 1', 'Image 2'],
+			prompt: ['a.png rides along the sea to b.png.'],
+			chips: ['a.png', 'b.png'],
 			model: ['Acme Motion 2'],
 			settings: ['Frames · 720p · 5s · Sound'],
 			buttons: ['New Version'],

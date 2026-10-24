@@ -115,13 +115,13 @@ suite('BaseHalfVideoCatalogService', () => {
 		const service = createService(commands, 0);
 		const request: IBaseHalfVideoCheckRequest = {
 			provider: 'acme', region: 'east', model: 'acme-motion-2', mode: 'frames',
-			params: { resolution: '720p', duration: 5, sound: true }, prompt: 'Rain',
+			params: { resolution: '720p', duration: 5, sound: true }, prompt: ['Rain'],
 			inputs: { startFrame: { fsPath: '/workspace/frames/a.png', mimeType: 'image/png' }, images: [], videos: [], audios: [] }
 		};
 		const seen: IBaseHalfVideoCheckRequest[] = [];
 		commands.check = checked => {
 			seen.push(checked);
-			return { ok: true, value: { problems: ['The start frame is smaller than 300 pixels.'] } };
+			return { ok: true, value: { problems: ['The start frame is smaller than 300 pixels.'], prompt: 'Rain' } };
 		};
 		const answered = await service.check(request);
 		commands.check = () => ({ ok: false, error: { code: 'unknownProvider', message: 'No such provider.' } });
@@ -129,7 +129,7 @@ suite('BaseHalfVideoCatalogService', () => {
 		commands.check = () => { throw new Error('Extension host terminated.'); };
 		const crashed = await service.check(request);
 		assert.deepStrictEqual({ answered, refused, crashed, seen }, {
-			answered: { problems: ['The start frame is smaller than 300 pixels.'] },
+			answered: { problems: ['The start frame is smaller than 300 pixels.'], prompt: 'Rain' },
 			refused: undefined,
 			crashed: undefined,
 			seen: [request]

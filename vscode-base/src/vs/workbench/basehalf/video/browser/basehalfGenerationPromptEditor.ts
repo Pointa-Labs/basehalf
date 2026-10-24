@@ -9,14 +9,21 @@ import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js'
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { FileAccess } from '../../../../base/common/network.js';
+import { URI } from '../../../../base/common/uri.js';
 import { RedoCommand, SelectAllCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
-import { findBaseHalfVideoLabelTokens, IBaseHalfVideoLabelToken } from '../common/basehalfVideoCatalog.js';
+import { baseHalfMentionedIndex, baseHalfMentionLabels, findBaseHalfPromptMentions, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
+import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
 
-/** What the chip of a name shows. */
+/** What the chip of a mention shows. */
 export interface IBaseHalfPromptChip {
-	readonly kind: 'image' | 'video' | 'audio';
-	/** The picture of an image, as a URL the window can load; a video and audio show their glyph. */
+	readonly kind: BaseHalfVideoInputKind;
+	/** The name of its file, as the chip shows it. */
+	readonly label: string;
+	/** The picture of an image, as a URL the window can load; the other kinds show their glyph. */
 	readonly picture?: string;
+	/** False for a mention of a file that is not connected, which shows with a warning underline. */
+	readonly known: boolean;
 }
 
 export interface IBaseHalfPromptEditorOptions {
@@ -24,8 +31,8 @@ export interface IBaseHalfPromptEditorOptions {
 	readonly placeholder: string;
 	/** The longest prompt, in characters. */
 	readonly maxLength: number;
-	/** The chip of a name in the prompt, or `undefined` for a name that means no input. */
-	readonly chipOf: (name: IBaseHalfVideoLabelToken) => IBaseHalfPromptChip | undefined;
+	/** The chip of a mention in the prompt. */
+	readonly chipOf: (mention: IBaseHalfPromptMention) => IBaseHalfPromptChip;
 	/** How long typing joins one step of undo, in milliseconds. */
 	readonly undoRunTime?: number;
 	/** The time now, for joining typing into steps of undo. */
@@ -54,14 +61,15 @@ const DEFAULT_UNDO_RUN_TIME = 1000;
 
 /**
  * The prompt of a generation card's panel (generation cards, "The panel",
- * D68): an editable text in which each name of an input (图片1, Image 1)
- * shows as a chip with the input's picture. The text is the truth: a chip is
- * its name, which is what is stored and sent. A name typed by hand turns into
- * a chip once it is complete, never while an input method composes.
+ * D68, D74): an editable text in which each mention of an input,
+ * `@[<entry>]`, shows as a chip with the file's name and picture. The text is
+ * the truth: a chip is its mention, which is what is stored. A mention typed
+ * by hand turns into a chip once it is complete, never while an input method
+ * composes.
  *
  * The browser does the typing, the deleting, the moving, and the input
  * method; after each edit the editor reads the text back, and draws it again
- * when its names no longer match its chips. It handles Enter, paste, copy,
+ * when its mentions no longer match its chips. It handles Enter, paste, copy,
  * and cut as text, and keeps its own undo and Select All: VS Code takes only
  * `input` and `textarea` for text fields, so its Undo would otherwise undo a
  * step of the canvas while the prompt has the keyboard, and its Select All
@@ -150,7 +158,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		}));
 	}
 
-	/** The text, chips as their names. While an input method composes, the text from before the composition. */
+	/** The text, chips as their mentions. While an input method composes, the text from before the composition. */
 	get value(): string {
 		return this.text;
 	}
@@ -235,7 +243,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 
 	/**
 	 * Replaces the text from `start` to `end` with `text` as one step of undo,
-	 * and puts the caret after it, as choosing a name of the reference menu
+	 * and puts the caret after it, as choosing an input of the reference menu
 	 * does. Nothing is replaced while the prompt is read only.
 	 */
 	replace(start: number, end: number, text: string): void {
@@ -369,7 +377,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		this.pending = { before: this.state(), kind };
 	}
 
-	/** Reads the text back after the browser changed it, and draws it again when its names no longer match its chips. */
+	/** Reads the text back after the browser changed it, and draws it again when its mentions no longer match its chips. */
 	private didEdit(): void {
 		const pending = this.pending;
 		this.pending = undefined;
@@ -450,11 +458,9 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		return { start, end };
 	}
 
-	/** Where the names drawn as chips are in the text. */
+	/** Where the mentions drawn as chips are in the text. */
 	private chipRanges(): IBaseHalfPromptSelection[] {
-		return findBaseHalfVideoLabelTokens(this.text)
-			.filter(token => this.options.chipOf(token))
-			.map(token => ({ start: token.start, end: token.end }));
+		return findBaseHalfPromptMentions(this.text).map(mention => ({ start: mention.start, end: mention.end }));
 	}
 
 	private deleteRange(start: number, end: number): void {
@@ -532,25 +538,20 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		}
 		clearNode(this.element);
 		let offset = 0;
-		for (const token of findBaseHalfVideoLabelTokens(text)) {
-			if (token.start > offset) {
-				this.element.append(document.createTextNode(text.slice(offset, token.start)));
+		for (const mention of findBaseHalfPromptMentions(text)) {
+			if (mention.start > offset) {
+				this.element.append(document.createTextNode(text.slice(offset, mention.start)));
 			}
-			const name = text.slice(token.start, token.end);
-			const chip = this.options.chipOf(token);
-			if (chip) {
-				const element = kept.get(chipKey(name, chip))?.shift() ?? renderChip(name, chip);
-				element.classList.toggle('starts-line', token.start === 0 || text.charAt(token.start - 1) === '\n');
-				this.element.append(element);
-				const next = text.charAt(token.end);
-				if (next === '' || next === '\n') {
-					this.element.append(document.createTextNode(CARET_HOLDER));
-				}
-			} else {
-				const unknown = append(this.element, $('span.bh-prompt-name.unknown'));
-				unknown.textContent = name;
+			const source = text.slice(mention.start, mention.end);
+			const chip = this.options.chipOf(mention);
+			const element = kept.get(chipKey(source, chip))?.shift() ?? renderChip(source, chip);
+			element.classList.toggle('starts-line', mention.start === 0 || text.charAt(mention.start - 1) === '\n');
+			this.element.append(element);
+			const next = text.charAt(mention.end);
+			if (next === '' || next === '\n') {
+				this.element.append(document.createTextNode(CARET_HOLDER));
 			}
-			offset = token.end;
+			offset = mention.end;
 		}
 		if (offset < text.length) {
 			this.element.append(document.createTextNode(text.slice(offset)));
@@ -565,25 +566,20 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		}
 	}
 
-	/** Whether the elements are what `render(text)` draws: the same names as chips or unknown names, text between them, and the caret holders. */
+	/** Whether the elements are what `render(text)` draws: the same mentions as chips, text between them, and the caret holders. */
 	private matchesRendering(text: string): boolean {
 		const expected: string[] = [];
 		let offset = 0;
-		for (const token of findBaseHalfVideoLabelTokens(text)) {
-			if (token.start > offset) {
-				expected.push(`t${text.slice(offset, token.start)}`);
+		for (const mention of findBaseHalfPromptMentions(text)) {
+			if (mention.start > offset) {
+				expected.push(`t${text.slice(offset, mention.start)}`);
 			}
-			const name = text.slice(token.start, token.end);
-			if (this.options.chipOf(token)) {
-				expected.push(`c${name}`);
-				const next = text.charAt(token.end);
-				if (next === '' || next === '\n') {
-					expected.push('h');
-				}
-			} else {
-				expected.push(`u${name}`);
+			expected.push(`c${text.slice(mention.start, mention.end)}`);
+			const next = text.charAt(mention.end);
+			if (next === '' || next === '\n') {
+				expected.push('h');
 			}
-			offset = token.end;
+			offset = mention.end;
 		}
 		if (offset < text.length) {
 			expected.push(`t${text.slice(offset)}`);
@@ -610,10 +606,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 				}
 			} else if (isHTMLElement(child) && child.classList.contains('bh-prompt-chip')) {
 				flush();
-				actual.push(`c${child.dataset.name ?? ''}`);
-			} else if (isHTMLElement(child) && child.classList.contains('bh-prompt-name')) {
-				flush();
-				actual.push(`u${child.textContent ?? ''}`);
+				actual.push(`c${child.dataset.text ?? ''}`);
 			} else if (isHTMLElement(child) && child.tagName === 'BR' && child.dataset.holder === 'true' && child === this.element.lastChild) {
 				continue;
 			} else {
@@ -626,7 +619,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		return hasHolder === text.endsWith('\n') && expected.length === actual.length && expected.every((part, index) => part === actual[index]);
 	}
 
-	/** The text the elements hold: text, chips as their names, a line break of the browser's as a new line. */
+	/** The text the elements hold: text, chips as their mentions, a line break of the browser's as a new line. */
 	private read(): string {
 		return normalizeText(readNode(this.element));
 	}
@@ -672,7 +665,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 				}
 				continue;
 			}
-			const length = child.classList.contains('bh-prompt-chip') ? (child.dataset.name ?? '').length : (child.textContent ?? '').length;
+			const length = child.classList.contains('bh-prompt-chip') ? (child.dataset.text ?? '').length : (child.textContent ?? '').length;
 			if (remaining === 0) {
 				return { node: this.element, offset: index };
 			}
@@ -693,17 +686,39 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 	//#endregion
 }
 
-/** What a chip shows: two chips with the same key look the same. */
-function chipKey(name: string, chip: IBaseHalfPromptChip): string {
-	return `${name}\0${chip.kind}\0${chip.picture ?? ''}`;
+/**
+ * The chip of a mention (D74), for the prompt of a draft and of a card with
+ * its file alike: the input of `entries` whose path the mention names, with
+ * its picture while its file is there, and the file's name, with as much of
+ * its folder as tells it from another input with the same name; a mention
+ * whose path no entry names is a file that is not connected.
+ */
+export function baseHalfPromptChip(mention: IBaseHalfPromptMention, entries: readonly string[], inputOf: (index: number) => { readonly kind: BaseHalfVideoInputKind; readonly available: boolean; readonly file?: URI } | undefined): IBaseHalfPromptChip {
+	const index = baseHalfMentionedIndex(mention, entries);
+	if (index === undefined) {
+		const label = baseHalfMentionLabels([...entries, mention.path]).get(mention.path) ?? mention.path;
+		return Object.freeze({ kind: baseHalfVideoInputKindOfPath(mention.path), label, known: false });
+	}
+	const path = entries[index];
+	const input = inputOf(index);
+	const kind = input?.kind ?? baseHalfVideoInputKindOfPath(path);
+	const picture = kind === 'image' && input?.available && input.file ? FileAccess.uriToBrowserUri(input.file).toString(true) : undefined;
+	return Object.freeze({ kind, label: baseHalfMentionLabels(entries).get(path) ?? path, ...(picture ? { picture } : {}), known: true });
 }
 
-function renderChip(name: string, chip: IBaseHalfPromptChip): HTMLElement {
+/** What a chip shows: two chips with the same key look the same. */
+function chipKey(source: string, chip: IBaseHalfPromptChip): string {
+	return `${source}\0${chip.label}\0${chip.kind}\0${chip.picture ?? ''}\0${chip.known}`;
+}
+
+/** The chip of the mention `source`: its picture or glyph, and its file's name. */
+function renderChip(source: string, chip: IBaseHalfPromptChip): HTMLElement {
 	const element = $('span.bh-prompt-chip');
 	element.contentEditable = 'false';
-	element.dataset.chipKey = chipKey(name, chip);
-	element.dataset.name = name;
+	element.dataset.chipKey = chipKey(source, chip);
+	element.dataset.text = source;
 	element.dataset.kind = chip.kind;
+	element.classList.toggle('unknown', !chip.known);
 	if (chip.picture) {
 		const picture = append(element, $<HTMLImageElement>('img.bh-prompt-chip-picture'));
 		picture.alt = '';
@@ -714,12 +729,12 @@ function renderChip(name: string, chip: IBaseHalfPromptChip): HTMLElement {
 	} else {
 		element.append(chipGlyph(chip.kind));
 	}
-	append(element, $('span.bh-prompt-chip-name')).textContent = name;
+	append(element, $('span.bh-prompt-chip-name')).textContent = chip.label;
 	return element;
 }
 
 function chipGlyph(kind: IBaseHalfPromptChip['kind']): HTMLElement {
-	const glyph = renderIcon(kind === 'audio' ? Codicon.unmute : kind === 'video' ? Codicon.play : Codicon.fileMedia);
+	const glyph = renderIcon(kind === 'audio' ? Codicon.unmute : kind === 'video' ? Codicon.play : kind === 'image' ? Codicon.fileMedia : kind === 'text' ? Codicon.fileText : Codicon.file);
 	glyph.classList.add('bh-prompt-chip-glyph');
 	glyph.setAttribute('aria-hidden', 'true');
 	return glyph;
@@ -727,7 +742,7 @@ function chipGlyph(kind: IBaseHalfPromptChip['kind']): HTMLElement {
 
 /**
  * The text that elements hold, as the prompt reads itself: text, a chip as
- * its name, and a line of the browser's as a new line. The prompt writes its
+ * its mention, and a line of the browser's as a new line. The prompt writes its
  * new lines as text, so a line break element is only ever the browser's
  * placeholder for an empty line, and holds no text.
  */
@@ -739,7 +754,7 @@ function readNode(node: Node): string {
 				text += (child.textContent ?? '').replaceAll(CARET_HOLDER, '');
 			} else if (isHTMLElement(child)) {
 				if (child.classList.contains('bh-prompt-chip')) {
-					text += child.dataset.name ?? '';
+					text += child.dataset.text ?? '';
 				} else if (child.tagName === 'BR') {
 					continue;
 				} else if (child.tagName === 'DIV' || child.tagName === 'P') {

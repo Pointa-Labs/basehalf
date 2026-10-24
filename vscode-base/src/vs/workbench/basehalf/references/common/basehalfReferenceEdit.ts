@@ -177,8 +177,8 @@ export async function runBaseHalfReferenceDependents(dependents: readonly IBaseH
 
 /**
  * A feature that writes what depends on a list it owns, as generation cards
- * write the names of a draft's prompt (reference graph, "Undo";
- * generation cards, "Names follow their inputs").
+ * write the mentions of a draft's prompt (reference graph, "Undo";
+ * generation cards, "Mentions").
  */
 export interface IBaseHalfReferenceEditParticipant {
 	/**

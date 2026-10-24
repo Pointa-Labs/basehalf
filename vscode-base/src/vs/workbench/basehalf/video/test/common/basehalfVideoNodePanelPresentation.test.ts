@@ -18,9 +18,7 @@ import {
 	BaseHalfVideoPanelControl,
 	baseHalfVideoPanelInputFileName,
 	baseHalfVideoPanelMentionQuery,
-	baseHalfVideoPanelPromptMarks,
 	createBaseHalfVideoPanelPresentation,
-	filterBaseHalfVideoPanelNames,
 	IBaseHalfVideoPanelInputItem,
 	IBaseHalfVideoPanelPresentation,
 	IBaseHalfVideoPanelState,
@@ -65,13 +63,12 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			}),
 			...(options.check ? { check: options.check } : {}),
 			generating: options.generating ?? false,
-			prompt: options.prompt ?? 'A slow push in.',
-			displayLanguage: options.displayLanguage ?? 'en'
+			prompt: options.prompt ?? 'A slow push in.'
 		});
 	}
 
 	function describe(item: IBaseHalfVideoPanelInputItem): string {
-		return `${item.name}:${item.use}${item.reason ? ` (${item.reason})` : ''}`;
+		return `${item.fileName}:${item.use}${item.reason ? ` (${item.reason})` : ''}`;
 	}
 
 	function controls(list: readonly BaseHalfVideoPanelControl[]): string[] {
@@ -112,10 +109,10 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				mode: 'reference',
 				slots: [],
 				items: [
-					'Image 1:reference',
-					'Image 2:reference',
-					'Image 3:reference',
-					'Video 1:unused (Not used: This model takes no videos in this mode.)',
+					'a.png:reference',
+					'b.png:reference',
+					'c.png:reference',
+					'move.mp4:unused (Not used: This model takes no videos in this mode.)',
 					'scene:text',
 					'brief.pdf:unused (Not used: this kind of file cannot be sent to an image model.)'
 				],
@@ -139,12 +136,12 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			slots: ['Start=frames/a.png', 'End=frames/b.png'],
 			swapped: ['frames/b.png', 'frames/a.png', 'frames/c.png', 'clips/move.mp4', 'notes/scene.md', 'docs/brief.pdf'],
 			items: [
-				'Image 3:unused (Not used: Acme Motion 2 takes up to 2 images in Frames.)',
-				'Video 1:unused (Not used: Acme Motion 2 takes no videos in Frames.)',
+				'c.png:unused (Not used: Acme Motion 2 takes up to 2 images in Frames.)',
+				'move.mp4:unused (Not used: Acme Motion 2 takes no videos in Frames.)',
 				'scene:text',
 				'brief.pdf:unused (Not used: this kind of file cannot be sent to a video model.)'
 			],
-			startTooltip: 'Start frame · Image 1\nframes/a.png',
+			startTooltip: 'Start frame\nframes/a.png',
 			// No mode uses a PDF: the card keeps its own mode, and the PDF stops Generate (D67).
 			blocker: { kind: 'unusableInput', path: 'docs/brief.pdf', name: 'brief.pdf', reason: 'An image or video card cannot use brief.pdf.' }
 		});
@@ -165,37 +162,35 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		}, {
 			withVideo: {
 				mode: 'reference',
-				modes: ['Frames (Frames cannot use Video 1.)', 'References*'],
-				items: ['Image 1:reference', 'Video 1:reference'],
+				modes: ['Frames (Frames cannot use move.mp4.)', 'References*'],
+				items: ['a.png:reference', 'move.mp4:reference'],
 				blocker: undefined
 			},
 			imagesOnly: { mode: 'frames', modes: ['Frames*', 'References'] },
 			criterion9: {
 				mode: 'reference',
-				items: ['Image 1:reference', 'Image 2:reference', 'Image 3:reference', 'Video 1:reference', 'scene:text'],
+				items: ['a.png:reference', 'b.png:reference', 'c.png:reference', 'move.mp4:reference', 'scene:text'],
 				blocker: undefined
 			},
 			twoVideos: {
 				mode: 'frames',
-				modes: ['Frames* (Frames cannot use Video 1.)', 'References (References cannot use Video 2.)'],
+				modes: ['Frames* (Frames cannot use move.mp4.)', 'References (References cannot use second.mp4.)'],
 				// The panel fixes it: Generate says why, and no line does (D70).
 				reason: undefined
 			}
 		});
 	});
 
-	test('references take the three images and the video, in order, and name them', () => {
+	test('references take the three images and the video, in order, each by its file\'s name', () => {
 		const presentation = present({ generation: { ...frames, mode: 'reference' } });
 		assert.deepStrictEqual({
 			mode: presentation.mode?.id,
 			slots: presentation.inputRow?.slots.length,
-			items: presentation.inputRow?.items.map(describe),
-			names: presentation.names.map(name => `${name.label}=${name.path}${name.used ? '' : ' (unused)'}`)
+			items: presentation.inputRow?.items.map(describe)
 		}, {
 			mode: 'reference',
 			slots: 0,
-			items: ['Image 1:reference', 'Image 2:reference', 'Image 3:reference', 'Video 1:reference', 'scene:text', 'brief.pdf:unused (Not used: this kind of file cannot be sent to a video model.)'],
-			names: ['Image 1=frames/a.png', 'Image 2=frames/b.png', 'Image 3=frames/c.png', 'Video 1=clips/move.mp4']
+			items: ['a.png:reference', 'b.png:reference', 'c.png:reference', 'move.mp4:reference', 'scene:text', 'brief.pdf:unused (Not used: this kind of file cannot be sent to a video model.)']
 		});
 	});
 
@@ -278,13 +273,13 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 
 	test('a range check answers ends the slider there, dims a button beyond it, says why under it, and sums up the end; the card keeps its value (D70)', () => {
 		const reason = 'The connected video lasts 5.0 seconds, and Acme Motion 2 makes at most 12 seconds with it.';
-		const narrowed = (generation: IBaseHalfVideoGenerationChoice, limits: NonNullable<IPresentOptions['check']>['limits']) => present({ generation, inputs: [], check: { problems: [], limits } });
+		const narrowed = (generation: IBaseHalfVideoGenerationChoice, limits: NonNullable<IPresentOptions['check']>['limits']) => present({ generation, inputs: [], check: { problems: [], limits, prompt: '' } });
 		const beyond = narrowed({ ...frames, params: { ...frames.params, duration: 12 } }, { duration: { max: 7, reason } });
 		const auto = narrowed({ ...frames, mode: 'reference', params: { duration: -1 } }, { duration: { max: 7, reason } });
 		const still = narrowed({ provider: 'acme', model: 'acme-still', params: { duration: 10 } }, { duration: { max: 8, reason: 'Short.' } });
 		const between = narrowed({ provider: 'borealis', model: 'borealis-one', params: { strength: 0.1 } }, { strength: { min: 0.25, max: 0.75, reason: 'Middle.' } });
 		// Not asked yet: the region does not offer the model, so the declared range shows.
-		const notAsked = present({ generation: { provider: 'acme', model: 'acme-still', params: { duration: 10 } }, regions: { acme: 'west' }, inputs: [], check: { problems: [], limits: { duration: { max: 8, reason: 'Short.' } } } });
+		const notAsked = present({ generation: { provider: 'acme', model: 'acme-still', params: { duration: 10 } }, regions: { acme: 'west' }, inputs: [], check: { problems: [], limits: { duration: { max: 8, reason: 'Short.' } }, prompt: '' } });
 		const view = (presentation: IBaseHalfVideoPanelPresentation) => {
 			const settings = presentation.settingsView!;
 			const all = [...settings.controls, ...settings.advanced];
@@ -383,7 +378,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			notSetUp: present({ generation: { provider: 'borealis', model: 'borealis-one' } }),
 			region: present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' } }),
 			modeRegion: present({ catalog: westOnly, generation: { ...frames, mode: 'reference' } }),
-			check: present({ inputs: sources.slice(0, 2), check: { problems: ['frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.'] } }),
+			check: present({ inputs: sources.slice(0, 2), check: { problems: ['frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.'], prompt: '' } }),
 			unusableInput: present(),
 			nothingToSend: present({ prompt: '  ', inputs: [] }),
 			ready: present({ inputs: sources.slice(0, 2) })
@@ -421,7 +416,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			notSetUp: present({ generation: { provider: 'borealis', model: 'borealis-one' } }),
 			region: present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' } }),
 			unusableInput: present(),
-			check: present({ inputs: sources.slice(0, 2), check: { problems: ['The prompt is longer than 2,000 characters.'] } }),
+			check: present({ inputs: sources.slice(0, 2), check: { problems: ['The prompt is longer than 2,000 characters.'], prompt: '' } }),
 			nothingToSend: present({ prompt: '  ', inputs: [] }),
 			ready: present({ inputs: sources.slice(0, 2) })
 		};
@@ -476,14 +471,14 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			menu: menu.groups.map(group => `${group.label}: ${group.items.map(item => `${item.label} (${item.detail})`).join(', ')}`),
 			end: menu.settingsLabel,
 			videoModel: [videoModel.blocker?.kind, videoModel.generate.label, videoModel.model.outlined, videoModel.reason?.text],
-			draftInput: [draftInput.inputRow?.items.map(item => `${item.name}: ${item.reason ?? item.use}`), draftInput.generate.label, draftInput.reason?.text],
+			draftInput: [draftInput.inputRow?.items.map(item => `${item.fileName}: ${item.reason ?? item.use}`), draftInput.generate.label, draftInput.reason?.text],
 			noImages: present({ kind: 'image' }).modelMenu.message
 		}, {
 			menu: ['Corvid Studio: Corvid Paint (4K · Up to 4 images · 4 references), Corvid Print (2K · Up to 2 images · 4 references)'],
 			end: 'Providers…',
 			videoModel: ['otherKind', 'Acme Motion 2 makes videos. Choose an image model.', true, undefined],
 			draftInput: [
-				['Image 1: Not used: it has no file yet.', 'Image 2: reference'],
+				['hero.png: Not used: it has no file yet.', 'b.png: reference'],
 				'hero.png has no file yet. Generate it first, or remove its connection.',
 				undefined
 			],
@@ -492,8 +487,9 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 	});
 
 	test('asks check about what would be sent, without the inputs that the panel adds with their files', () => {
-		const presentation = present({ check: { problems: [] } });
-		const notOffered = present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' }, check: { problems: [] } });
+		const presentation = present({ check: { problems: [], prompt: '' } });
+		const notOffered = present({ generation: { provider: 'acme', model: 'acme-still' }, regions: { acme: 'west' }, check: { problems: [], prompt: '' } });
+		const mentions = present({ prompt: '@[frames/a.png] turns to @[frames/b.png] by @[notes/scene.md].', check: { problems: [], prompt: '' } });
 		assert.deepStrictEqual({
 			request: presentation.checkRequest,
 			notOffered: notOffered.checkRequest,
@@ -506,41 +502,38 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 				model: 'acme-motion-2',
 				mode: 'frames',
 				params: { resolution: '720p', duration: 5, sound: true },
-				prompt: 'A slow push in.\n\nThe sea at dusk.'
+				prompt: ['A slow push in.\n\nscene:\nThe sea at dusk.']
 			},
 			notOffered: undefined,
 			notSetUp: 'main'
 		});
+		// Each mention is its input's place in the request, which the provider module names (D74).
+		assert.deepStrictEqual(mentions.checkRequest?.prompt, [{ input: 'startFrame' }, ' turns to ', { input: 'endFrame' }, ' by "scene".\n\nscene:\nThe sea at dusk.']);
 	});
 
-	test('marks the names in a prompt and underlines a name that matches no input', () => {
-		const plan = present().plan;
-		const prompt = 'Image 1 walks into Image 2, then Video 1 and Image 4; 图片3 waves.';
-		assert.deepStrictEqual(baseHalfVideoPanelPromptMarks(prompt, plan).map(mark => `${prompt.slice(mark.start, mark.end)}${mark.known ? '' : '?'}`), [
-			'Image 1', 'Image 2', 'Video 1', 'Image 4?', '图片3'
+	test('a mention of a file that is not connected keeps Generate from running, and the panel shows no line for it (D74)', () => {
+		const presentation = present({ inputs: sources.slice(0, 2), prompt: '@[frames/a.png] meets @[shots/hero.png].' });
+		assert.deepStrictEqual([presentation.blocker, presentation.generate.enabled, presentation.generate.label, presentation.reason], [
+			{ kind: 'unconnectedMention', path: 'shots/hero.png' },
+			false,
+			'The prompt mentions hero.png, which is not connected.',
+			undefined
 		]);
 	});
 
-	test('opens the @ menu after a space or a character, never inside an e-mail address, and filters the names', () => {
-		const names = present({ generation: { ...frames, mode: 'reference' } }).names;
+	test('opens the @ menu after a space or a character, never inside an e-mail address', () => {
 		assert.deepStrictEqual({
 			start: baseHalfVideoPanelMentionQuery('@', 1),
 			afterSpace: baseHalfVideoPanelMentionQuery('a cat @Ima', 10),
 			afterChinese: baseHalfVideoPanelMentionQuery('让@图片', 4),
 			email: baseHalfVideoPanelMentionQuery('mail me@home', 12),
-			afterSpaceTyped: baseHalfVideoPanelMentionQuery('@image 1', 8),
-			filtered: filterBaseHalfVideoPanelNames(names, 'ima').map(name => name.label),
-			byFile: filterBaseHalfVideoPanelNames(names, 'move').map(name => name.label),
-			compact: filterBaseHalfVideoPanelNames(names, 'video1').map(name => name.label)
+			afterSpaceTyped: baseHalfVideoPanelMentionQuery('@image 1', 8)
 		}, {
 			start: { start: 0, query: '' },
 			afterSpace: { start: 6, query: 'Ima' },
 			afterChinese: { start: 1, query: '图片' },
 			email: undefined,
-			afterSpaceTyped: undefined,
-			filtered: ['Image 1', 'Image 2', 'Image 3'],
-			byFile: ['Video 1'],
-			compact: ['Video 1']
+			afterSpaceTyped: undefined
 		});
 	});
 

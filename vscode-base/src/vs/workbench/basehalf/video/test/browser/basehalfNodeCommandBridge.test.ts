@@ -288,15 +288,18 @@ suite('BaseHalfNodeCommandBridge', () => {
 			files: [authoring.examples.generationFile, authoring.examples.inputsFile],
 			example: { readable: example.readable, provider: example.info.provider, model: example.info.model, mode: example.info.mode, params: example.info.params },
 			inputs: readBaseHalfSidecarUpstream(authoring.examples.inputs, { nodePath: authoring.examples.card }).items.map(item => item.path),
+			// The example's prompt mentions its inputs by their entries (D74).
+			prompt: example.info.prompt,
 			rules: (authoring.rules as string[]).filter(rule => /made\.yaml|draft|basehalf --generate|host\.modelCatalog|upstream\.yaml/.test(rule)).length
 		}, {
-			contractVersion: 6,
+			contractVersion: 7,
 			schemaFields: ['prompt', 'provider', 'model', 'mode', 'params'],
 			card: ['shots/shot-01/clip.mp4', 'video'],
 			files: ['.bh/mirror/shots/shot-01/clip.mp4/generation.yaml', '.bh/mirror/shots/shot-01/clip.mp4/upstream.yaml'],
 			example: { readable: true, provider: 'borealis', model: 'borealis-one', mode: 'frames', params: { caption: '', strength: 0.5 } },
 			inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
-			rules: 8
+			prompt: 'The rider in @[frames/start.png] cycles along the coast, as @[notes/scene.md] describes; the camera follows slowly.',
+			rules: 9
 		});
 		// The model catalog, from which an agent chooses a generation; the example is of a provider set up here.
 		const providers = response.host?.modelCatalog.providers as readonly Record<string, any>[];

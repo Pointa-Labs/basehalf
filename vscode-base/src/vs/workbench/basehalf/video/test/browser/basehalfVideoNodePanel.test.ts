@@ -194,7 +194,7 @@ class FakeCatalogService extends Disposable implements IBaseHalfVideoCatalogServ
 	state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_VIDEO_CATALOG };
 	loads = 0;
 	readonly checks: IBaseHalfVideoCheckRequest[] = [];
-	answer: (request: IBaseHalfVideoCheckRequest) => IBaseHalfVideoCheckResult | undefined = () => ({ problems: [] });
+	answer: (request: IBaseHalfVideoCheckRequest) => IBaseHalfVideoCheckResult | undefined = () => ({ problems: [], prompt: '' });
 
 	load(): void {
 		this.loads++;
@@ -457,9 +457,14 @@ suite('BaseHalfVideoNodePanel', () => {
 		return find(panel, '.bh-prompt-editor');
 	}
 
-	/** The text of the prompt, chips as their names. */
+	/** The text of the prompt, chips as their mentions (D74). */
 	function valueOf(prompt: HTMLElement): string {
-		return (prompt.textContent ?? '').replaceAll('\u200b', '');
+		return [...prompt.childNodes].map(node => (node as HTMLElement).classList?.contains('bh-prompt-chip') ? (node as HTMLElement).dataset.text ?? '' : node.textContent ?? '').join('').replaceAll('\u200b', '');
+	}
+
+	/** What the chips of the prompt show: their files' names, and those of files that are not connected. */
+	function chipsOf(panel: BaseHalfVideoNodePanel): string[] {
+		return findAll(panel, '.bh-prompt-chip').map(chip => `${chip.querySelector('.bh-prompt-chip-name')?.textContent}${chip.classList.contains('unknown') ? ' (not connected)' : ''}`);
 	}
 
 	/** Changes the prompt's text as the browser does when the user types, with the caret at its end. */
@@ -555,7 +560,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	}));
 
-	test('typing @ opens the reference menu with its search field focused; Enter puts the name of a connected input in place of the @ as a chip', async () => {
+	test('typing @ opens the reference menu with its search field focused; Enter puts the mention of a connected input in place of the @ as a chip', async () => {
 		const panel = await createPanel();
 		const prompt = promptOf(panel);
 		prompt.focus();
@@ -569,17 +574,17 @@ suite('BaseHalfVideoNodePanel', () => {
 		press(search, 'ArrowDown');
 		press(search, 'Enter');
 		await settle();
-		assert.deepStrictEqual({ opened, value: valueOf(prompt), chips: findAll(panel, '.bh-prompt-chip').map(chip => chip.dataset.name), menu: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt }, {
+		assert.deepStrictEqual({ opened, value: valueOf(prompt), chips: chipsOf(panel), menu: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt }, {
 			// The connected note is listed too, after the frames, as the row shows it (D71).
-			opened: { focused: true, listed: ['a.pngImage 1', 'b.pngImage 2', 'scene'] },
-			value: 'The cat in Image 2 ',
-			chips: ['Image 2'],
+			opened: { focused: true, listed: ['a.png', 'b.png', 'scene'] },
+			value: 'The cat in @[frames/b.png] ',
+			chips: ['b.png'],
 			menu: 0,
 			focused: true
 		});
 	});
 
-	test('a card of the canvas chosen in the reference menu is connected and named; one the model cannot use is dimmed, and Escape leaves the @', async () => {
+	test('a card of the canvas chosen in the reference menu is connected and mentioned; one the model cannot use is dimmed, and Escape leaves the @', async () => {
 		folderFiles = ['c.png', 'clip.mp4', 'shot.mp4', '.hidden.png', 'notes.md'];
 		refusal = path => path.endsWith('.mp4') ? 'Acme Motion 2 takes no videos in Frames.' : undefined;
 		const panel = await createPanel();
@@ -600,13 +605,13 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		assert.deepStrictEqual({ kinds, chosen, escaped: { value: valueOf(prompt), menu: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt } }, {
 			// The card itself and a hidden file are not listed; the connected images and note are in other folders (D71).
-			kinds: ['a.pngImage 1', 'b.pngImage 2', 'scene', 'Images1', 'VideosAcme Motion 2 takes no videos in Frames.1 (dimmed)', 'Audio0', 'Notes1'],
-			chosen: { added: ['shots/c.png'], value: 'Then Image 3 ' },
-			escaped: { value: 'Then Image 3 and @', menu: 0, focused: true }
+			kinds: ['a.png', 'b.png', 'scene', 'Images1', 'VideosAcme Motion 2 takes no videos in Frames.1 (dimmed)', 'Audio0', 'Notes1'],
+			chosen: { added: ['shots/c.png'], value: 'Then @[shots/c.png] ' },
+			escaped: { value: 'Then @[shots/c.png] and @', menu: 0, focused: true }
 		});
 	});
 
-	test('the reference menu lists the notes: a connected one under Connected, and Notes of the canvas; choosing a note connects it and takes the @ out (D71)', async () => {
+	test('the reference menu lists the notes: a connected one under Connected, and Notes of the canvas; choosing a note connects it and puts its mention in (D71, D74)', async () => {
 		folderFiles = ['c.png', 'idea.md', 'plan.txt'];
 		const panel = await createPanel();
 		const prompt = promptOf(panel);
@@ -621,31 +626,32 @@ suite('BaseHalfVideoNodePanel', () => {
 		notes.find(option => option.dataset.key === 'text:shots/idea.md')!.click();
 		await settle();
 		const chosen = { added: [...connections.added], value: valueOf(prompt), menus: findAll(panel, '.bh-reference-menu').length, focused: mainWindow.document.activeElement === prompt };
-		// The connected note: nothing to connect, and the @ is taken out.
+		// The connected note: nothing to connect, and its mention takes the place of the @.
 		type(prompt, `${valueOf(prompt)}@`);
 		await settle();
 		options().find(option => option.dataset.key === 'connected:notes/scene.md')!.click();
 		await settle();
 		assert.deepStrictEqual({ listed, flyout, chosen, connectedNote: { added: connections.added, value: valueOf(prompt) } }, {
-			listed: ['a.pngImage 1', 'b.pngImage 2', 'scene', 'Images1', 'Videos0', 'Audio0', 'Notes2'],
+			listed: ['a.png', 'b.png', 'scene', 'Images1', 'Videos0', 'Audio0', 'Notes2'],
 			flyout: ['idea', 'plan.txt'],
-			chosen: { added: ['shots/idea.md'], value: 'Then ', menus: 0, focused: true },
-			connectedNote: { added: ['shots/idea.md'], value: 'Then ' }
+			chosen: { added: ['shots/idea.md'], value: 'Then @[shots/idea.md] ', menus: 0, focused: true },
+			connectedNote: { added: ['shots/idea.md'], value: 'Then @[shots/idea.md] @[notes/scene.md] ' }
 		});
 	});
 
-	test('a name typed by hand turns into a chip with its input, and a name with no input is underlined', async () => {
+	test('a mention typed by hand turns into a chip with its input, and one of a file that is not connected is underlined (D74)', async () => {
 		const panel = await createPanel();
 		const prompt = promptOf(panel);
-		type(prompt, 'Image 1 turns into Image 3.');
-		assert.deepStrictEqual({
-			chips: findAll(panel, '.bh-prompt-chip').map(chip => chip.dataset.name),
-			unknown: findAll(panel, '.bh-prompt-name.unknown').map(name => name.textContent),
-			value: valueOf(prompt)
-		}, { chips: ['Image 1'], unknown: ['Image 3'], value: 'Image 1 turns into Image 3.' });
+		type(prompt, '@[frames/a.png] turns into @[frames/z.png].');
+		await settle();
+		assert.deepStrictEqual({ chips: chipsOf(panel), value: valueOf(prompt), generate: find(panel, '.bh-video-panel-generate').getAttribute('aria-label') }, {
+			chips: ['a.png', 'z.png (not connected)'],
+			value: '@[frames/a.png] turns into @[frames/z.png].',
+			generate: 'The prompt mentions z.png, which is not connected.'
+		});
 	});
 
-	test('the @ of a tile puts its name at the caret, and Alt+Right on a tile moves it one place in the list', async () => {
+	test('the @ of a tile puts its mention at the caret, and Alt+Right on a tile moves it one place in the list', async () => {
 		// In references mode every input is a tile of its own, in the order of the list.
 		store.info = { prompt: 'From  to the sea', ...READY, mode: 'reference' };
 		const panel = await createPanel();
@@ -663,7 +669,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		press(findAll(panel, '.bh-input-tile').find(tile => tile.dataset.path === 'notes/scene.md')!, 'ArrowRight', { altKey: true });
 		await settle();
 		assert.deepStrictEqual({ named, reorders: store.reorders }, {
-			named: 'From Image 2  to the sea',
+			named: 'From @[frames/b.png]  to the sea',
 			reorders: [['frames/a.png', 'frames/b.png', 'notes/scene.md']]
 		});
 	});
@@ -797,9 +803,9 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('the prompt is saved before a tile is removed, so that its names follow from what was typed (D68)', async () => {
+	test('the prompt is saved before a tile is removed, so that its mentions follow from what was typed (D68)', async () => {
 		const panel = await createPanel();
-		type(promptOf(panel), 'Image 2 rides');
+		type(promptOf(panel), '@[frames/b.png] rides');
 		const order: string[] = [];
 		const update = store.update.bind(store);
 		store.update = async (resource, mutate) => {
@@ -815,7 +821,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		};
 		findAll(panel, '.bh-input-tile').find(tile => tile.dataset.path === 'frames/a.png')!.querySelector<HTMLButtonElement>('.bh-input-tile-remove')!.click();
 		await settle();
-		assert.deepStrictEqual(order, ['saved Image 2 rides', 'removed frames/a.png']);
+		assert.deepStrictEqual(order, ['saved @[frames/b.png] rides', 'removed frames/a.png']);
 	});
 
 	test('the swap arrow exchanges the two frames in the upstream list and nothing else', async () => {
@@ -860,12 +866,12 @@ suite('BaseHalfVideoNodePanel', () => {
 	});
 
 	test('the first problem check reports blocks Generate, and the last answer for the model counts until the next one', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
-		catalog.answer = () => ({ problems: ['The prompt is longer than 2,000 characters.'] });
+		catalog.answer = () => ({ problems: ['The prompt is longer than 2,000 characters.'], prompt: '' });
 		const panel = await createPanel({ checkDelay: 250 });
 		const generate = find(panel, '.bh-video-panel-generate');
 		await timeout(300);
 		const first = { label: generate.getAttribute('aria-label'), checks: catalog.checks.length };
-		catalog.answer = () => ({ problems: [] });
+		catalog.answer = () => ({ problems: [], prompt: '' });
 		type(promptOf(panel), 'A shorter prompt');
 		await timeout(100);
 		const whileAsking = { label: generate.getAttribute('aria-label'), checks: catalog.checks.length };
@@ -878,7 +884,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			first: { label: 'The prompt is longer than 2,000 characters.', checks: 1 },
 			// The answer for the earlier prompt still blocks until the new one arrives.
 			whileAsking: { label: 'The prompt is longer than 2,000 characters.', checks: 1 },
-			after: { label: 'Generate', checks: 2, prompt: 'A shorter prompt' }
+			after: { label: 'Generate', checks: 2, prompt: ['A shorter prompt'] }
 		});
 	}));
 
@@ -977,7 +983,7 @@ suite('BaseHalfVideoNodePanel', () => {
 	test('a range check answers ends the slider there with its reason under it and read with it, and the summary shows what is sent (D70)', async () => {
 		store.info = { prompt: 'Rain', ...READY, params: { ...READY.params, duration: 12 } };
 		const reason = 'The connected video lasts 5.0 seconds, and Acme Motion 2 makes at most 12 seconds with it.';
-		catalog.answer = () => ({ problems: [], limits: { duration: { max: 7, reason } } });
+		catalog.answer = () => ({ problems: [], prompt: '', limits: { duration: { max: 7, reason } } });
 		const panel = await createPanel();
 		const summary = find(panel, '.bh-video-panel-settings').textContent;
 		find(panel, '.bh-video-panel-settings').click();
@@ -1194,7 +1200,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			renamed
 		}, {
 			items: ['Corvid Paint (4K · Up to 4 images · 4 references)', 'Corvid Print (2K · Up to 2 images · 4 references)', 'Providers…'],
-			placeholder: 'Describe the image. Type @ to name an input.',
+			placeholder: 'Describe the image. Type @ to mention an input.',
 			written: { provider: 'corvid', model: 'corvid-print', mode: 'reference', params: { resolution: '2k', count: 2 } },
 			moves: ['/workspace/shots/image.png -> /workspace/shots/image.jpg'],
 			renamed: ['/workspace/shots/image.jpg']
@@ -1219,7 +1225,7 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	test('the cross removes a connection and Pick on Canvas connects the clicked card, each as one undo step, and the canvas draws its lines at once', async () => {
 		const panel = await createPanel();
-		const remove = findAll(panel, '.bh-input-tile-remove').find(button => button.getAttribute('aria-label') === 'Remove Image 1');
+		const remove = findAll(panel, '.bh-input-tile-remove').find(button => button.getAttribute('aria-label') === 'Remove a.png');
 		remove?.click();
 		await settle();
 		startPick(panel).pick('refs/c.png');
@@ -1344,14 +1350,14 @@ suite('BaseHalfVideoNodePanel', () => {
 		assert.deepStrictEqual({ label: slot.getAttribute('aria-label'), added: connections.added }, { label: 'Add a Start Frame', added: ['shots/start.png'] });
 	});
 
-	test('the rows share the panel\'s edges, and a name stands on the baseline of the prompt\'s text', async () => {
+	test('the rows share the panel\'s edges, and a chip stands on the baseline of the prompt\'s text', async () => {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';
 		frame.style.cssText = 'position: absolute; left: 0; top: 0; width: 512px; --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;';
 		mainWindow.document.body.appendChild(frame);
 		mounted.push(frame);
 		// Borealis Media is not set up: the reason shows, with Set Up.
-		store.info = { prompt: 'Image 1 rides along the sea, Image 2 behind', provider: 'borealis', model: 'borealis-one' };
+		store.info = { prompt: '@[frames/a.png] rides along the sea, @[frames/b.png] behind', provider: 'borealis', model: 'borealis-one' };
 		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0 }));
 		frame.replaceChildren(panel.element);
 		await settle();
@@ -1394,7 +1400,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		mainWindow.document.body.appendChild(frame);
 		mounted.push(frame);
 		const measure = async (generationChoice: IBaseHalfVideoGenerationChoice) => {
-			store.info = { prompt: 'Image 1 rides along the sea at dusk.', ...generationChoice };
+			store.info = { prompt: '@[frames/a.png] rides along the sea at dusk.', ...generationChoice };
 			const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0 }));
 			frame.replaceChildren(panel.element);
 			await settle();

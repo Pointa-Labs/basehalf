@@ -19,9 +19,7 @@ export interface IBaseHalfInputTile {
 	/** The upstream entry: who the input is. */
 	readonly path: string;
 	readonly kind: BaseHalfVideoInputKind;
-	/** Its name, such as 图片1, which its look says; absent for an input without a name. A tile shows no number (D71). */
-	readonly label?: string;
-	/** The name of its file, as BaseHalf shows names. */
+	/** The name of its file, as BaseHalf shows names: what its look and its chips in the prompt say (D74). A tile shows no number (D71). */
 	readonly fileName: string;
 	/** The file it shows: an image, or a video's first frame. Absent while it has none. */
 	readonly file?: URI;
@@ -60,8 +58,8 @@ export interface IBaseHalfInputRowModel {
 export interface IBaseHalfInputRowDelegate {
 	/** Removes the input's connection. */
 	remove(path: string): void;
-	/** Puts the input's name into the prompt. */
-	insertName(label: string): void;
+	/** Puts the input's mention into the prompt (D74). */
+	insertMention(path: string): void;
 	/** Moves the input to the place of the input `before` in the list, or last. */
 	move(path: string, before: string | undefined): void;
 	/** Exchanges the start and the end frame. */
@@ -97,7 +95,7 @@ const LOOK_MARGIN = 12;
  * right end, the panel's top right, Pick on Canvas and Import File… (D71). A
  * tile shows the input's picture and on a frame its mark, and no number;
  * pointing at it shows a larger look above it with its name, a cross that
- * removes the connection, and an `@` that puts its name into the prompt; a
+ * removes the connection, and an `@` that puts its mention into the prompt; a
  * drag moves it in the list. The row is read only for a card that generates
  * and for the panel of a card with its file.
  */
@@ -276,9 +274,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		element.dataset.key = `tile:${tile.path}`;
 		element.dataset.path = tile.path;
 		element.dataset.kind = tile.kind;
-		if (tile.label) {
-			element.dataset.label = tile.label;
-		}
 		element.tabIndex = -1;
 		element.setAttribute('role', 'button');
 		element.setAttribute('aria-label', tileLabel(tile));
@@ -305,7 +300,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			const remove = append(element, $<HTMLButtonElement>('button.bh-input-tile-remove'));
 			remove.type = 'button';
 			remove.tabIndex = -1;
-			remove.setAttribute('aria-label', localize('basehalf.generation.inputRow.remove', "Remove {0}", tile.label ?? tile.fileName));
+			remove.setAttribute('aria-label', localize('basehalf.generation.inputRow.remove', "Remove {0}", tile.fileName));
 			remove.append(renderGlyph(Codicon.close));
 			this.rowStore.add(addDisposableListener(remove, 'pointerdown', event => event.stopPropagation()));
 			this.rowStore.add(addDisposableListener(remove, 'click', event => {
@@ -313,23 +308,20 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				this.hideLook();
 				this.delegate.remove(tile.path);
 			}));
-			if (tile.label) {
-				const label = tile.label;
-				const name = append(element, $<HTMLButtonElement>('button.bh-input-tile-name'));
-				name.type = 'button';
-				name.tabIndex = -1;
-				name.textContent = '@';
-				name.setAttribute('aria-label', localize('basehalf.generation.inputRow.insertName', "Put {0} into the Prompt", label));
-				this.rowStore.add(addDisposableListener(name, 'pointerdown', event => {
-					// The prompt keeps its caret.
-					event.preventDefault();
-					event.stopPropagation();
-				}));
-				this.rowStore.add(addDisposableListener(name, 'click', event => {
-					event.stopPropagation();
-					this.delegate.insertName(label);
-				}));
-			}
+			const mention = append(element, $<HTMLButtonElement>('button.bh-input-tile-name'));
+			mention.type = 'button';
+			mention.tabIndex = -1;
+			mention.textContent = '@';
+			mention.setAttribute('aria-label', localize('basehalf.generation.inputRow.insertMention', "Mention {0} in the Prompt", tile.fileName));
+			this.rowStore.add(addDisposableListener(mention, 'pointerdown', event => {
+				// The prompt keeps its caret.
+				event.preventDefault();
+				event.stopPropagation();
+			}));
+			this.rowStore.add(addDisposableListener(mention, 'click', event => {
+				event.stopPropagation();
+				this.delegate.insertMention(tile.path);
+			}));
 			this.rowStore.add(addDisposableListener(element, 'pointerdown', event => this.startDrag(event, element, tile)));
 		}
 		this.rowStore.add(addDisposableListener(element, 'pointerenter', () => {
@@ -524,10 +516,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			this.renderPicture(picture, tile, true, this.lookStore);
 		}
 		const names = append(look, $('.bh-input-look-names'));
-		if (tile.label) {
-			append(names, $('span.bh-input-look-label')).textContent = tile.frame ? `${tile.label} · ${frameMark(tile.frame)}` : tile.label;
-		}
-		append(names, $('span.bh-input-look-file')).textContent = tile.fileName;
+		append(names, $('span.bh-input-look-file')).textContent = tile.frame ? `${tile.fileName} · ${frameMark(tile.frame)}` : tile.fileName;
 		if (tile.note) {
 			append(look, $('.bh-input-look-note')).textContent = tile.note;
 		}
@@ -732,10 +721,10 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				this.delegate.remove(tile.path);
 				return;
 			}
-			if (event.key === 'Enter' && tile.label) {
+			if (event.key === 'Enter') {
 				event.preventDefault();
 				event.stopPropagation();
-				this.delegate.insertName(tile.label);
+				this.delegate.insertMention(tile.path);
 				return;
 			}
 			if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
@@ -859,7 +848,7 @@ function pictureKey(tile: IBaseHalfInputTile): string {
 
 /** What the look at a tile shows: its picture and its names. */
 function lookKey(tile: IBaseHalfInputTile): string {
-	return JSON.stringify([pictureKey(tile), tile.label ?? '', tile.frame ?? '', tile.fileName, tile.note ?? '']);
+	return JSON.stringify([pictureKey(tile), tile.frame ?? '', tile.fileName, tile.note ?? '']);
 }
 
 /**
@@ -886,11 +875,7 @@ function formatLength(seconds: number): string {
 }
 
 function tileLabel(tile: IBaseHalfInputTile, seconds?: number): string {
-	const name = tile.label ?? tile.fileName;
-	const parts = [tile.frame ? `${name}, ${frameMark(tile.frame)}` : name];
-	if (tile.label) {
-		parts.push(tile.fileName);
-	}
+	const parts = [tile.frame ? `${tile.fileName}, ${frameMark(tile.frame)}` : tile.fileName];
 	if (seconds !== undefined) {
 		parts.push(localize('basehalf.generation.inputRow.lengthSpoken', "{0} seconds", seconds.toFixed(1)));
 	}

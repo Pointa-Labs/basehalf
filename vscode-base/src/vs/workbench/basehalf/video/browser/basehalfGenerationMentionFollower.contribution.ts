@@ -18,28 +18,28 @@ import {
 	IBaseHalfReferenceListEntry,
 	IBaseHalfUpstreamEntryReplacement
 } from '../../references/common/basehalfReferenceEdit.js';
-import { baseHalfInputNameMapping, IBaseHalfInputListEntry, rewriteBaseHalfPromptNames } from '../common/basehalfGenerationInputNames.js';
+import { rewriteBaseHalfPromptMentions } from '../common/basehalfGenerationMentions.js';
 import { baseHalfGenerationKindOfPath, setBaseHalfGenerationPrompt } from '../common/basehalfGenerationInfo.js';
-import { baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfGenerationCardStore } from '../common/basehalfVideoGeneration.js';
 
-/** One change of a draft's list as the names see it. */
-interface INameChange {
-	readonly before: readonly IBaseHalfInputListEntry[];
-	readonly after: readonly IBaseHalfInputListEntry[];
+/** One change of a draft's list as the mentions see it. */
+interface IMentionChange {
+	readonly before: readonly IBaseHalfReferenceListEntry[];
+	readonly after: readonly IBaseHalfReferenceListEntry[];
 	readonly replacements: readonly IBaseHalfUpstreamEntryReplacement[];
 }
 
 /**
- * Keeps the names in a draft's prompt with their inputs (generation cards,
- * "Names follow their inputs", D68). It takes part in every reference edit
- * that writes a draft's list: when a name of the prompt means an input that
- * moved or is gone, it writes the prompt again, and the edit's undo and redo
- * put the prompt back with the list.
+ * Keeps the mentions in a draft's prompt with their inputs (generation cards,
+ * "Mentions", D74). It takes part in every reference edit that writes a
+ * draft's list, a rename's and a relink's too: when a mention names an entry
+ * that a replace rewrote, it writes the new path into it, and when it names
+ * one that is gone, it takes it out; the edit's undo and redo put the prompt
+ * back with the list. Adding and reordering change no mention.
  */
-export class BaseHalfGenerationNameFollower extends Disposable implements IWorkbenchContribution, IBaseHalfReferenceEditParticipant {
+export class BaseHalfGenerationMentionFollower extends Disposable implements IWorkbenchContribution, IBaseHalfReferenceEditParticipant {
 
-	static readonly ID = 'workbench.contrib.basehalf.generationNameFollower';
+	static readonly ID = 'workbench.contrib.basehalf.generationMentionFollower';
 
 	constructor(
 		@IBaseHalfReferenceEditService referenceEditService: IBaseHalfReferenceEditService,
@@ -64,14 +64,14 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 
 	private async follow(change: IBaseHalfReferenceListChange): Promise<IBaseHalfReferenceDependentEdit | undefined> {
 		const resource = change.node.resource;
-		// Only a generation card has names, and of those only a draft has a prompt to change (D67).
+		// Only a generation card has mentions, and of those only a draft has a prompt to change (D67).
 		if (!baseHalfGenerationKindOfPath(change.node.relativePath)) {
 			return undefined;
 		}
-		const forward: INameChange = { before: entries(change.before), after: entries(change.after), replacements: change.replacements };
-		// Adding an input last, as connecting does, gives no name another number.
-		const mapping = baseHalfInputNameMapping(forward.before, forward.after, forward.replacements);
-		if ([...mapping].every(([name, ordinal]) => name.endsWith(`:${ordinal}`))) {
+		const forward: IMentionChange = { before: change.before, after: change.after, replacements: change.replacements };
+		// Adding and reordering keep every entry: no mention changes then.
+		const kept = new Set(forward.after.map(entry => entry.key));
+		if (forward.replacements.length === 0 && forward.before.every(entry => kept.has(entry.key))) {
 			return undefined;
 		}
 		try {
@@ -84,7 +84,7 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 				return undefined;
 			}
 			const prompt = snapshot.info.prompt;
-			const next = rewriteBaseHalfPromptNames(prompt, forward.before, forward.after, forward.replacements);
+			const next = rewrite(prompt, forward);
 			if (next === undefined) {
 				return undefined;
 			}
@@ -92,10 +92,10 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 			if (written === undefined) {
 				return undefined;
 			}
-			const backward: INameChange = { before: forward.after, after: forward.before, replacements: forward.replacements.map(replacement => ({ from: replacement.to, to: replacement.from })) };
+			const backward: IMentionChange = { before: forward.after, after: forward.before, replacements: forward.replacements.map(replacement => ({ from: replacement.to, to: replacement.from })) };
 			return {
 				// The list is back to what it was: the prompt as it was, or, when it was
-				// changed since, the change with the numbers of that list.
+				// changed since, the change with the mentions of that list.
 				undo: () => this.restore(resource, written, prompt, backward),
 				redo: () => this.restore(resource, prompt, written, forward)
 			};
@@ -106,15 +106,15 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 	}
 
 	/**
-	 * Writes `next` when the prompt is still `prompt`, and otherwise its names
-	 * for the change. Resolves with the prompt written, or `undefined` when
-	 * nothing needed writing.
+	 * Writes `next` when the prompt is still `prompt`, and otherwise its
+	 * mentions for the change. Resolves with the prompt written, or
+	 * `undefined` when nothing needed writing.
 	 */
-	private async write(resource: URI, prompt: string, next: string, change: INameChange): Promise<string | undefined> {
+	private async write(resource: URI, prompt: string, next: string, change: IMentionChange): Promise<string | undefined> {
 		let written: string | undefined;
 		await this.cardStore.update(resource, info => {
 			const current = info.prompt;
-			const target = current === prompt ? next : rewriteBaseHalfPromptNames(current, change.before, change.after, change.replacements);
+			const target = current === prompt ? next : rewrite(current, change);
 			written = target;
 			return target === undefined ? info : setBaseHalfGenerationPrompt(info, target);
 		});
@@ -123,10 +123,10 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 
 	/**
 	 * Puts `restore` back when the prompt is still `expected`, and otherwise
-	 * gives its names the numbers of `change`'s list. A prompt that is
-	 * `restore` already stays, as after the Undo of a rename's report.
+	 * writes its mentions for `change`'s list. A prompt that is `restore`
+	 * already stays, as after the Undo of a rename's report.
 	 */
-	private async restore(resource: URI, expected: string, restore: string, change: INameChange): Promise<void> {
+	private async restore(resource: URI, expected: string, restore: string, change: IMentionChange): Promise<void> {
 		try {
 			if (!await this.cardStore.isGenerationCard(resource)) {
 				return;
@@ -139,7 +139,7 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 				if (info.prompt === restore) {
 					return info;
 				}
-				const target = info.prompt === expected ? restore : rewriteBaseHalfPromptNames(info.prompt, change.before, change.after, change.replacements);
+				const target = info.prompt === expected ? restore : rewrite(info.prompt, change);
 				return target === undefined ? info : setBaseHalfGenerationPrompt(info, target);
 			});
 		} catch (error) {
@@ -148,13 +148,13 @@ export class BaseHalfGenerationNameFollower extends Disposable implements IWorkb
 	}
 
 	private report(resource: URI, error: unknown): void {
-		this.logService.warn(`[BaseHalf generation] could not update the names in the prompt of ${resource.toString()}`, error);
-		this.notificationService.warn(localize('basehalf.generation.names.failed', "BaseHalf could not update the names in the prompt of {0}.", basename(resource)));
+		this.logService.warn(`[BaseHalf generation] could not update the mentions in the prompt of ${resource.toString()}`, error);
+		this.notificationService.warn(localize('basehalf.generation.mentions.failed', "BaseHalf could not update the mentions in the prompt of {0}.", basename(resource)));
 	}
 }
 
-function entries(list: readonly IBaseHalfReferenceListEntry[]): readonly IBaseHalfInputListEntry[] {
-	return list.map(entry => ({ key: entry.key, kind: baseHalfVideoInputKindOfPath(entry.path) }));
+function rewrite(prompt: string, change: IMentionChange): string | undefined {
+	return rewriteBaseHalfPromptMentions(prompt, change.before, change.after, change.replacements);
 }
 
-registerWorkbenchContribution2(BaseHalfGenerationNameFollower.ID, BaseHalfGenerationNameFollower, WorkbenchPhase.AfterRestored);
+registerWorkbenchContribution2(BaseHalfGenerationMentionFollower.ID, BaseHalfGenerationMentionFollower, WorkbenchPhase.AfterRestored);

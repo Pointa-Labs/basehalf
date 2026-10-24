@@ -9,6 +9,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { BaseHalfCanvasAnchor } from './basehalfCanvasModel.js';
 import { BASEHALF_PROJECT_PATH_MAX_LENGTH, baseHalfProjectPathKey, baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
 import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH, BaseHalfGenerationKind, baseHalfGenerationKindOfPath } from '../../video/common/basehalfGenerationInfo.js';
+import { rebaseBaseHalfPromptMentions } from '../../video/common/basehalfGenerationMentions.js';
 import {
 	isBaseHalfUpstreamMarkdownName,
 	planBaseHalfMarkdownUpstreamEdit,
@@ -191,6 +192,8 @@ export interface IBaseHalfCanvasTemplateUpstream {
 	 * template-relative path (empty for drafts without references). The card
 	 * store writes them when it makes the draft. */
 	readonly drafts: ReadonlyMap<string, readonly string[]>;
+	/** The prompt of each draft, keyed by its template-relative path, with its mentions rebased as its entries are (D74). */
+	readonly prompts: ReadonlyMap<string, string>;
 	/** Created files other than notes that keep their list in `.bh/mirror/<path>/upstream.yaml`. */
 	readonly sidecars: readonly IBaseHalfCanvasTemplateSidecarUpstream[];
 }
@@ -235,13 +238,16 @@ export function materializeBaseHalfCanvasTemplateUpstream(
 		files.set(file.path, plan.kind === 'edit' ? plan.text : file.contents);
 	}
 	const drafts = new Map<string, readonly string[]>();
+	const prompts = new Map<string, string>();
 	for (const draft of template.drafts) {
 		drafts.set(draft.path, Object.freeze([...entriesByTarget.get(draft.path) ?? []]));
+		// A mention names its input relative to the template, as a reference does.
+		prompts.set(draft.path, rebaseBaseHalfPromptMentions(draft.prompt, rebase));
 	}
 	const sidecars = template.files
 		.filter(file => !isBaseHalfUpstreamMarkdownName(file.path) && (entriesByTarget.get(file.path)?.length ?? 0) > 0)
 		.map(file => Object.freeze({ path: rebase(file.path), entries: Object.freeze([...entriesByTarget.get(file.path)!]) }));
-	return Object.freeze({ files, drafts, sidecars: Object.freeze(sidecars) });
+	return Object.freeze({ files, drafts, prompts, sidecars: Object.freeze(sidecars) });
 }
 
 function parseTextFile(value: unknown, path: string): IBaseHalfCanvasTemplateTextFile {

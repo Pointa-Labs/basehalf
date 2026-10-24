@@ -35,7 +35,7 @@ import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '.
 import { BaseHalfInMemoryFileSearchService } from '../../../references/test/browser/basehalfReferenceTestFixtures.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfGenerationCardStore } from '../../browser/basehalfGenerationCardStore.js';
-import { BaseHalfGenerationNameFollower } from '../../browser/basehalfGenerationNameFollower.contribution.js';
+import { BaseHalfGenerationMentionFollower } from '../../browser/basehalfGenerationMentionFollower.contribution.js';
 import { BaseHalfVideoCatalogState, IBaseHalfVideoCatalog, IBaseHalfVideoCheckResult } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../common/basehalfVideoGeneration.js';
 import { TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
@@ -109,7 +109,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	await index.whenReady(folder);
 	const store = disposables.add(instantiationService.createInstance(BaseHalfGenerationCardStore));
 	instantiationService.stub(IBaseHalfGenerationCardStore, store);
-	disposables.add(instantiationService.createInstance(BaseHalfGenerationNameFollower));
+	disposables.add(instantiationService.createInstance(BaseHalfGenerationMentionFollower));
 	return {
 		edit,
 		store,
@@ -139,13 +139,13 @@ function draft(prompt: string, entries: readonly string[]): Record<string, strin
 	};
 }
 
-suite('BaseHalfGenerationNameFollower (D68)', () => {
+suite('BaseHalfGenerationMentionFollower (D68, D74)', () => {
 	const disposables = new DisposableStore();
 	teardown(() => disposables.clear());
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('removing an input takes its name out of the prompt and renumbers the others, and undo and redo bring both back', async () => {
-		const harness = await createHarness(disposables, draft('图片1里的人骑车，背景是图片3', ['shots/a.png', 'shots/b.png', 'shots/c.png']));
+	test('removing an input takes its mention out of the prompt and leaves the others, and undo and redo bring both back', async () => {
+		const harness = await createHarness(disposables, draft('@[shots/a.png] 里的人骑车，背景是 @[shots/c.png]', ['shots/a.png', 'shots/b.png', 'shots/c.png']));
 		const source = new UndoRedoSource();
 		const canvas = joinPath(folder, '.bh', 'mirror', 'shots', 'canvas.yaml');
 		const removed = await harness.edit.remove(harness.node('shots/next.mp4'), 'shots/a.png', options);
@@ -156,38 +156,44 @@ suite('BaseHalfGenerationNameFollower (D68)', () => {
 		await harness.undoRedo.redo(source);
 		const afterRedo = await harness.prompt('shots/next.mp4');
 		assert.deepStrictEqual({ afterRemove, afterUndo, afterRedo, shown: harness.notifications.shown }, {
-			afterRemove: '里的人骑车，背景是图片2',
-			afterUndo: ['图片1里的人骑车，背景是图片3', 'upstream:\n  - shots/a.png\n  - shots/b.png\n  - shots/c.png\n'],
-			afterRedo: '里的人骑车，背景是图片2',
+			afterRemove: '里的人骑车，背景是 @[shots/c.png]',
+			afterUndo: ['@[shots/a.png] 里的人骑车，背景是 @[shots/c.png]', 'upstream:\n  - shots/a.png\n  - shots/b.png\n  - shots/c.png\n'],
+			afterRedo: '里的人骑车，背景是 @[shots/c.png]',
 			shown: []
 		});
 	});
 
-	test('reordering the inputs gives the names their inputs\' new numbers, other kinds keep theirs', async () => {
-		const harness = await createHarness(disposables, draft('从图片1到图片2，配上视频1', ['shots/a.png', 'shots/clip.mp4', 'shots/b.png']));
-		await harness.store.reorderUpstream(harness.node('shots/next.mp4').resource, ['shots/b.png', 'shots/clip.mp4', 'shots/a.png']);
-		assert.strictEqual(await harness.prompt('shots/next.mp4'), '从图片2到图片1，配上视频1');
+	test('reordering the inputs changes no mention', async () => {
+		const harness = await createHarness(disposables, draft('从 @[shots/a.png] 到 @[shots/b.png]，配上 @[shots/clip.mp4]', ['shots/a.png', 'shots/clip.mp4', 'shots/b.png']));
+		const reordered = await harness.store.reorderUpstream(harness.node('shots/next.mp4').resource, ['shots/b.png', 'shots/clip.mp4', 'shots/a.png']);
+		assert.deepStrictEqual([await harness.prompt('shots/next.mp4'), reordered.upstream], ['从 @[shots/a.png] 到 @[shots/b.png]，配上 @[shots/clip.mp4]', ['shots/b.png', 'shots/clip.mp4', 'shots/a.png']]);
 	});
 
-	test('a source-end reconnect keeps the number, and connecting an input last changes no name', async () => {
-		const harness = await createHarness(disposables, draft('图片1 then 图片2', ['shots/a.png', 'shots/b.png']));
+	test('a source-end reconnect writes the new source into its mentions, and connecting an input last changes nothing', async () => {
+		const harness = await createHarness(disposables, draft('@[shots/a.png] then @[shots/b.png]', ['shots/a.png', 'shots/b.png']));
 		await harness.edit.replace(harness.node('shots/next.mp4'), 'shots/a.png', 'shots/c.png', options);
 		await harness.edit.add(harness.node('shots/next.mp4'), 'shots/a.png', options);
-		assert.strictEqual(await harness.prompt('shots/next.mp4'), '图片1 then 图片2');
+		assert.strictEqual(await harness.prompt('shots/next.mp4'), '@[shots/c.png] then @[shots/b.png]');
 	});
 
-	test('undo after the prompt changed keeps the change and gives its names the numbers of the list it writes back', async () => {
-		const harness = await createHarness(disposables, draft('图片1, 图片3', ['shots/a.png', 'shots/b.png', 'shots/c.png']));
+	test('a rename of an input that rewrites its entry writes the new path into its mentions', async () => {
+		const harness = await createHarness(disposables, { ...draft('@[shots/a.png] rides past @[shots/b.png].', ['shots/a.png', 'shots/b.png']), 'shots/hero.png': 'hero' });
+		await harness.edit.apply([{ node: harness.node('shots/next.mp4'), operation: { kind: 'replaceEntries', replacements: [{ from: 'shots/a.png', to: 'shots/hero.png' }] } }], options);
+		assert.strictEqual(await harness.prompt('shots/next.mp4'), '@[shots/hero.png] rides past @[shots/b.png].');
+	});
+
+	test('undo after the prompt changed keeps the change and writes its mentions for the list it writes back', async () => {
+		const harness = await createHarness(disposables, draft('@[shots/a.png], @[shots/c.png]', ['shots/a.png', 'shots/b.png', 'shots/c.png']));
 		const source = new UndoRedoSource();
 		const canvas = joinPath(folder, '.bh', 'mirror', 'shots', 'canvas.yaml');
 		harness.edit.pushUndoElement(await harness.edit.remove(harness.node('shots/next.mp4'), 'shots/a.png', options), { label: 'Disconnect', resources: [canvas], source });
 		await harness.store.update(harness.node('shots/next.mp4').resource, info => ({ ...info, prompt: `${info.prompt} at night` }));
 		await harness.undoRedo.undo(source);
-		assert.strictEqual(await harness.prompt('shots/next.mp4'), ', 图片3 at night');
+		assert.strictEqual(await harness.prompt('shots/next.mp4'), ', @[shots/c.png] at night');
 	});
 
 	test('undo and redo that run twice, as the Undo of a rename\'s report and then canvas undo, change the prompt once', async () => {
-		const harness = await createHarness(disposables, draft('图片1里的人骑车，背景是图片3', ['shots/a.png', 'shots/b.png', 'shots/c.png']));
+		const harness = await createHarness(disposables, draft('@[shots/a.png] 里的人骑车，背景是 @[shots/c.png]', ['shots/a.png', 'shots/b.png', 'shots/c.png']));
 		const removed = await harness.edit.remove(harness.node('shots/next.mp4'), 'shots/a.png', options);
 		const [dependent] = removed.dependents ?? [];
 		await dependent.undo();
@@ -195,7 +201,7 @@ suite('BaseHalfGenerationNameFollower (D68)', () => {
 		const undone = await harness.prompt('shots/next.mp4');
 		await dependent.redo();
 		await dependent.redo();
-		assert.deepStrictEqual([undone, await harness.prompt('shots/next.mp4')], ['图片1里的人骑车，背景是图片3', '里的人骑车，背景是图片2']);
+		assert.deepStrictEqual([undone, await harness.prompt('shots/next.mp4')], ['@[shots/a.png] 里的人骑车，背景是 @[shots/c.png]', '里的人骑车，背景是 @[shots/c.png]']);
 	});
 
 	test('a connection into an ordinary file follows nothing and says nothing', async () => {

@@ -77,7 +77,7 @@ export class BaseHalfGenerationReferenceMenu extends Disposable {
 		super();
 		this.element = append(layer, $('.bh-reference-menu'));
 		this.element.setAttribute('role', 'dialog');
-		this.element.setAttribute('aria-label', localize('basehalf.generation.references.menu', "Name an Input"));
+		this.element.setAttribute('aria-label', localize('basehalf.generation.references.menu', "Mention an Input"));
 		this._register(toDisposable(() => this.element.remove()));
 		const field = append(this.element, $('.bh-reference-menu-search'));
 		field.append(renderGlyph(Codicon.search));

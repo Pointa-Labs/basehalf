@@ -20,7 +20,7 @@ suite('BaseHalfGenerationAgentContract', () => {
 			fields: Object.keys(contract.schema.properties),
 			closed: contract.schema.additionalProperties,
 			modes: contract.schema.properties.mode.enum,
-			missing: ['made.yaml', '.bh/cache/', 'draft', 'upstream.yaml', 'host.modelCatalog', 'basehalf --generate', 'Image 1', 'on the canvas', 'Only a draft has a generation.yaml', 'keeps the inputs that made it', 'Every one is sent', 'The mode that is used', 'without the seed'].filter(phrase => !rules.includes(phrase))
+			missing: ['made.yaml', '.bh/cache/', 'draft', 'upstream.yaml', 'host.modelCatalog', 'basehalf --generate', '@[frames/start.png]', 'Write no model\'s own names', 'on the canvas', 'Only a draft has a generation.yaml', 'keeps the inputs that made it', 'Every one is sent', 'The mode that is used', 'without the seed'].filter(phrase => !rules.includes(phrase))
 		}, {
 			version: BASEHALF_GENERATION_AGENT_CONTRACT_VERSION,
 			fields: [...BASEHALF_GENERATION_INFO_FIELDS],
@@ -28,7 +28,7 @@ suite('BaseHalfGenerationAgentContract', () => {
 			modes: ['frames', 'reference', 'extend', 'edit'],
 			missing: []
 		});
-		assert.strictEqual(contract.contractVersion, 6);
+		assert.strictEqual(contract.contractVersion, 7);
 		assert.ok((contract.rules as string[]).every(rule => rule.length <= 500));
 		assert.doesNotMatch(JSON.stringify(contract), /bhnode|--run-node|videoCatalog|outputs\/|recipe|attempt|price|currency/i);
 	});
@@ -47,11 +47,11 @@ suite('BaseHalfGenerationAgentContract', () => {
 			card: 'shots/shot-01/clip.mp4',
 			files: ['.bh/mirror/shots/shot-01/clip.mp4/generation.yaml', '.bh/mirror/shots/shot-01/clip.mp4/upstream.yaml'],
 			placeholder: {
-				info: { prompt: 'The rider in Image 1 cycles along the coast; the camera follows slowly.', provider: 'provider-id', model: 'model-id', mode: 'frames', params: { duration: 5 } },
+				info: { prompt: 'The rider in @[frames/start.png] cycles along the coast, as @[notes/scene.md] describes; the camera follows slowly.', provider: 'provider-id', model: 'model-id', mode: 'frames', params: { duration: 5 } },
 				readable: true,
 				ignored: []
 			},
-			catalog: { prompt: 'The rider in Image 1 cycles along the coast; the camera follows slowly.', provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { duration: 5, resolution: '720p', sound: true } },
+			catalog: { prompt: 'The rider in @[frames/start.png] cycles along the coast, as @[notes/scene.md] describes; the camera follows slowly.', provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { duration: 5, resolution: '720p', sound: true } },
 			inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md']
 		});
 	});

@@ -30,14 +30,18 @@ import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '..
 import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
 import { formatBaseHalfVideoElapsed } from '../../video/common/basehalfVideoCardPresentation.js';
 import {
+	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
+	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
 	BaseHalfVideoInputKind,
 	baseHalfVideoInputKindOfPath,
-	baseHalfVideoInputLabel,
 	baseHalfVideoParamValueLabel,
 	findBaseHalfVideoModel,
 	findBaseHalfVideoProvider,
-	IBaseHalfVideoCatalog
+	IBaseHalfVideoCatalog,
+	IBaseHalfVideoInputPlanItem,
+	planBaseHalfVideoInputs
 } from '../../video/common/basehalfVideoCatalog.js';
+import { baseHalfPromptAsText } from '../../video/common/basehalfGenerationMentions.js';
 import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../video/common/basehalfVideoGeneration.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
@@ -63,7 +67,7 @@ export interface IBaseHalfGenerationProvenanceRow {
 }
 
 export interface IBaseHalfGenerationProvenanceInput {
-	/** Such as `Image 1`, or `Text` for a note whose text joined the prompt. */
+	/** What it was used as: `Start frame`, `Image`, `Note` (whose text joined the prompt), and so on. */
 	readonly name: string;
 	readonly path: string;
 }
@@ -83,9 +87,10 @@ export interface IBaseHalfGenerationProvenance {
  * provider and its region, the mode, the settings, the prompt, which image of
  * how many it is, when it started and finished, and the inputs in order. The
  * names come from the model catalog when it has them, and are the recorded
- * ids otherwise. `kindOf` tells the kind of an input, so inputs are named as
- * the prompt names them. A card without a record says that BaseHalf did not
- * generate its file, and one whose record cannot be read says that.
+ * ids otherwise. The prompt shows each mention as its file's name, and each
+ * input says what it was used as; `kindOf` tells the kind of an input. A card
+ * without a record says that BaseHalf did not generate its file, and one whose
+ * record cannot be read says that.
  */
 export function baseHalfGenerationProvenance(
 	card: Pick<IBaseHalfGenerationCardSnapshot, 'kind' | 'made' | 'madeUnreadable'>,
@@ -119,22 +124,15 @@ export function baseHalfGenerationProvenance(
 	const finished = Date.parse(made.finishedAt);
 	const format = safeIntl.DateTimeFormat(displayLanguage, { dateStyle: 'medium', timeStyle: 'medium' }).value;
 	const time = (value: number, fallback: string) => Number.isFinite(value) ? format.format(new Date(value)) : fallback;
-	const ordinals = { image: 0, video: 0, audio: 0 };
-	const inputs = made.inputs.map((path): IBaseHalfGenerationProvenanceInput => {
-		const kind = kindOf(path);
-		const name = kind === 'image' || kind === 'video' || kind === 'audio'
-			? baseHalfVideoInputLabel(kind, ++ordinals[kind], displayLanguage)
-			: kind === 'text'
-				? localize('basehalf.generation.detail.textInput', "Text")
-				: localize('basehalf.generation.detail.otherInput', "Input");
-		return Object.freeze({ name, path });
-	});
+	const modeInputs = mode?.inputs ?? (made.mode === 'frames' ? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS : BASEHALF_IMAGE_DEFAULT_MODE_INPUTS);
+	const plan = planBaseHalfVideoInputs(modeInputs, made.inputs.map(path => ({ path, kind: kindOf(path), available: true })));
+	const inputs = plan.map((item): IBaseHalfGenerationProvenanceInput => Object.freeze({ name: provenanceUse(item), path: item.path }));
 	const rows: IBaseHalfGenerationProvenanceRow[] = [
 		{ label: localize('basehalf.generation.detail.model', "Model"), value: localize('basehalf.generation.detail.modelValue', "{0} ({1})", model?.label ?? made.model, made.providerModel) },
 		{ label: localize('basehalf.generation.detail.provider', "Provider"), value: localize('basehalf.generation.detail.providerValue', "{0} · {1}", provider?.label ?? made.provider, region?.label ?? made.region) },
 		{ label: localize('basehalf.generation.detail.mode', "Mode"), value: mode?.label ?? made.mode },
 		{ label: localize('basehalf.generation.detail.settings', "Settings"), value: settings.length ? settings.join(' · ') : localize('basehalf.generation.detail.noSettings', "None") },
-		{ label: localize('basehalf.generation.detail.prompt', "Prompt"), value: made.prompt.trim() || localize('basehalf.generation.detail.noPrompt', "No prompt") },
+		{ label: localize('basehalf.generation.detail.prompt', "Prompt"), value: baseHalfPromptAsText(made.prompt, made.inputs).trim() || localize('basehalf.generation.detail.noPrompt', "No prompt") },
 		...(made.output !== undefined && made.outputs !== undefined
 			? [{ label: localize('basehalf.generation.detail.image', "Image"), value: localize('basehalf.generation.detail.imageOf', "{0} of {1}", made.output, made.outputs) }]
 			: []),
@@ -480,6 +478,23 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				append(item, $('span.bh-generation-provenance-input-path')).textContent = input.path;
 			}
 		}
+	}
+}
+
+/** What an input of a generation was used as, as Card Detail names it beside its path. */
+function provenanceUse(item: IBaseHalfVideoInputPlanItem): string {
+	switch (item.use) {
+		case 'start-frame': return localize('basehalf.generation.detail.startFrame', "Start frame");
+		case 'end-frame': return localize('basehalf.generation.detail.endFrame', "End frame");
+		case 'source': return localize('basehalf.generation.detail.clip', "Clip");
+		case 'text': return localize('basehalf.generation.detail.textInput', "Note");
+	}
+	switch (item.kind) {
+		case 'image': return localize('basehalf.generation.detail.imageInput', "Image");
+		case 'video': return localize('basehalf.generation.detail.videoInput', "Video");
+		case 'audio': return localize('basehalf.generation.detail.audioInput', "Sound");
+		case 'text': return localize('basehalf.generation.detail.textInput', "Note");
+		default: return localize('basehalf.generation.detail.otherInput', "Input");
 	}
 }
 

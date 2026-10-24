@@ -11,7 +11,6 @@ import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { basename, isEqual } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -24,9 +23,8 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../canvas/common/basehalfCanvasScene.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
 import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH } from '../common/basehalfGenerationInfo.js';
-import { baseHalfInputNameOrdinals } from '../common/basehalfGenerationInputNames.js';
+import { IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { createBaseHalfGenerationRecordPresentation, IBaseHalfGenerationRecordInput, IBaseHalfGenerationRecordPresentation } from '../common/basehalfGenerationRecordPresentation.js';
-import { IBaseHalfVideoLabelToken } from '../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
@@ -37,7 +35,7 @@ import {
 import { baseHalfVideoPanelInputFileName } from '../common/basehalfVideoNodePanelPresentation.js';
 import { BASEHALF_VIDEO_PANEL_MAX_HEIGHT, BASEHALF_VIDEO_PANEL_MIN_HEIGHT } from '../common/basehalfVideoNodePanelPlacement.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputFrameSlot, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
-import { BaseHalfGenerationPromptEditor, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
+import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 
 /** What the panel of a card with its file needs from the canvas. The workbench implements it. */
 export interface IBaseHalfGenerationRecordPanelHost {
@@ -131,7 +129,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		// Read only: no plus, cross, `@`, swap, or dragging, and nothing that the row asks for changes the card.
 		this.inputRow = this._register(new BaseHalfGenerationInputRow({
 			remove: () => { },
-			insertName: () => { },
+			insertMention: () => { },
 			move: () => { },
 			swap: () => { },
 			openAddMenu: () => { },
@@ -148,7 +146,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			ariaLabel: localize('basehalf.generation.record.prompt', "Prompt it was made with"),
 			placeholder: localize('basehalf.generation.record.noPrompt', "No prompt"),
 			maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
-			chipOf: name => this.chipOf(name)
+			chipOf: mention => this.chipOf(mention)
 		}));
 		// A field that can be read, selected, and copied with the keyboard, and not changed.
 		this.editor.readOnly = true;
@@ -368,7 +366,6 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			return Object.freeze({
 				path: item.path,
 				kind: item.kind,
-				...(item.label !== undefined ? { label: item.label } : {}),
 				fileName: baseHalfVideoPanelInputFileName(item.path),
 				...(file ? { file } : {}),
 				dimmed: item.gone,
@@ -406,16 +403,9 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		}
 	}
 
-	/** The chip of a name in the prompt: the input it was made from of that kind and number, with its picture while it is there (D68). */
-	private chipOf(name: IBaseHalfVideoLabelToken): IBaseHalfPromptChip | undefined {
-		const ordinals = baseHalfInputNameOrdinals(this.inputs);
-		const index = this.inputs.findIndex((input, position) => input.kind === name.kind && ordinals[position] === name.ordinal);
-		if (index < 0) {
-			return undefined;
-		}
-		const input = this.inputs[index];
-		const picture = name.kind === 'image' && input.available && input.file ? FileAccess.uriToBrowserUri(input.file).toString(true) : undefined;
-		return Object.freeze({ kind: name.kind, ...(picture ? { picture } : {}) });
+	/** The chip of a mention in the prompt: the recorded input it names, with its picture while its file is there (D74). */
+	private chipOf(mention: IBaseHalfPromptMention): IBaseHalfPromptChip {
+		return baseHalfPromptChip(mention, this.inputs.map(input => input.path), index => this.inputs[index]);
 	}
 
 	/** The lines the prompt takes, from three to five; beyond five it scrolls. */

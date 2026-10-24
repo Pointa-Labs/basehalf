@@ -24,7 +24,7 @@ const video: IBaseHalfGenerationMade = {
 	providerModel: 'acme-motion-2-w-260101',
 	mode: 'reference',
 	params: { resolution: '720p', ratio: '21:9', duration: -1, sound: true, seed: 42, retired: 'x' },
-	prompt: 'Image 1 rides along the sea.',
+	prompt: '@[frames/start.png] rides along the sea, as @[notes/scene.md] says.',
 	inputs: ['frames/start.png', 'shots/hero.mp4', 'notes/scene.md', 'frames/end.png']
 };
 
@@ -47,7 +47,7 @@ const image: IBaseHalfGenerationMade = {
 suite('BaseHalfGenerationProvenance', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('says what made a generated file: model, provider, mode, settings, prompt, which image of how many, when, and the inputs in order, named by the catalog', () => {
+	test('says what made a generated file: model, provider, mode, settings, the prompt with its mentions as file names, which image of how many, when, and the inputs in order with what each was used as, named by the catalog', () => {
 		const format = safeIntl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'medium' }).value;
 		const started = { label: 'Started', value: format.format(new Date(startedAt)) };
 		const finished = { label: 'Finished', value: `${format.format(new Date(finishedAt))}, after 2:31` };
@@ -62,15 +62,15 @@ suite('BaseHalfGenerationProvenance', () => {
 					{ label: 'Provider', value: 'Acme Video · West · Acme Global' },
 					{ label: 'Mode', value: 'References' },
 					{ label: 'Settings', value: 'Resolution 720p · Ratio 21:9 · Duration Auto · Sound On · Seed 42 · retired: x' },
-					{ label: 'Prompt', value: 'Image 1 rides along the sea.' },
+					{ label: 'Prompt', value: 'start.png rides along the sea, as scene says.' },
 					started,
 					finished
 				],
 				inputs: [
-					{ name: 'Image 1', path: 'frames/start.png' },
-					{ name: 'Video 1', path: 'shots/hero.mp4' },
-					{ name: 'Text', path: 'notes/scene.md' },
-					{ name: 'Image 2', path: 'frames/end.png' }
+					{ name: 'Image', path: 'frames/start.png' },
+					{ name: 'Video', path: 'shots/hero.mp4' },
+					{ name: 'Note', path: 'notes/scene.md' },
+					{ name: 'Image', path: 'frames/end.png' }
 				]
 			},
 			image: {
@@ -90,7 +90,9 @@ suite('BaseHalfGenerationProvenance', () => {
 		});
 	});
 
-	test('without the catalog, the recorded ids', () => {
+	test('without the catalog, the recorded ids; frames by their places', () => {
+		const frames = baseHalfGenerationProvenance({ kind: 'video', made: { ...video, mode: 'frames', inputs: ['frames/start.png', 'frames/end.png'] } }, 'en');
+		assert.deepStrictEqual(frames.inputs.map(input => input.name), ['Start frame', 'End frame']);
 		assert.deepStrictEqual(baseHalfGenerationProvenance({ kind: 'video', made: video }, 'en').rows.slice(0, 4), [
 			{ label: 'Model', value: 'acme-motion-2 (acme-motion-2-w-260101)' },
 			{ label: 'Provider', value: 'acme · west' },

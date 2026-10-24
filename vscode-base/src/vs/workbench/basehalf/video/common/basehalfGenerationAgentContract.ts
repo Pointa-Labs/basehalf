@@ -10,6 +10,7 @@ import {
 	parseBaseHalfGenerationInfo,
 	serializeBaseHalfGenerationInfo
 } from './basehalfGenerationInfo.js';
+import { baseHalfPromptMention } from './basehalfGenerationMentions.js';
 import { BASEHALF_VIDEO_MODE_IDS, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
 
 /**
@@ -26,17 +27,19 @@ import { BASEHALF_VIDEO_MODE_IDS, IBaseHalfVideoGenerationChoice } from './baseh
 /**
  * Changes when what an agent may write changes. Version 5 was the first of
  * generation cards (D63); in version 6 only a draft has a `generation.yaml`,
- * a generated file keeps its inputs, and every input of a draft is sent (D67).
+ * a generated file keeps its inputs, and every input of a draft is sent (D67);
+ * in version 7 a prompt mentions an input as `@[<entry>]` instead of naming
+ * it by kind and number, and BaseHalf writes each model's names (D74).
  */
-export const BASEHALF_GENERATION_AGENT_CONTRACT_VERSION = 6;
+export const BASEHALF_GENERATION_AGENT_CONTRACT_VERSION = 7;
 
 /** A JSON value of the contract. */
 export type BaseHalfGenerationAgentJsonValue = null | boolean | number | string | readonly BaseHalfGenerationAgentJsonValue[] | { readonly [key: string]: BaseHalfGenerationAgentJsonValue };
 
 /** The card the example shows, relative to the workspace folder. */
 const EXAMPLE_CARD = 'shots/shot-01/clip.mp4';
-const EXAMPLE_PROMPT = 'The rider in Image 1 cycles along the coast; the camera follows slowly.';
 const EXAMPLE_INPUTS = ['frames/start.png', 'frames/end.png', 'notes/scene.md'];
+const EXAMPLE_PROMPT = `The rider in ${baseHalfPromptMention(EXAMPLE_INPUTS[0])} cycles along the coast, as ${baseHalfPromptMention(EXAMPLE_INPUTS[2])} describes; the camera follows slowly.`;
 /** A generation that stands for the catalog's when the catalog could not be read. */
 const PLACEHOLDER_GENERATION: IBaseHalfVideoGenerationChoice = Object.freeze({ provider: 'provider-id', model: 'model-id', mode: 'frames', params: Object.freeze({ duration: 5 }) });
 
@@ -65,7 +68,7 @@ export function getBaseHalfGenerationAgentContract(exampleGeneration?: IBaseHalf
 			type: 'object',
 			additionalProperties: false,
 			properties: {
-				prompt: { type: 'string', maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH, description: 'What the next generation makes. Text inputs join it.' },
+				prompt: { type: 'string', maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH, description: 'What the next generation makes. It mentions an input as @[<entry of upstream.yaml>]. Text inputs join it.' },
 				provider: { ...catalogId, description: 'The id of a provider of host.modelCatalog.' },
 				model: { ...catalogId, description: 'The id of a model of that provider, of the card\'s kind.' },
 				mode: { enum: [...BASEHALF_VIDEO_MODE_IDS], description: 'One of the modes of that model.' },
@@ -95,7 +98,7 @@ export function getBaseHalfGenerationAgentContract(exampleGeneration?: IBaseHalf
 			'The inputs of a draft are the entries of its upstream.yaml, in order, relative to the workspace folder; the downstream card stores the connection. Every one is sent.',
 			'The mode\'s input slots use the inputs: frames take the first image as the start frame and the second as the end frame; references take images, videos, and audio in order; extend and edit take the first video as the clip; text inputs join the prompt.',
 			'The mode that is used is the draft\'s own when it uses every input, and otherwise the first of the model\'s modes, in the catalog\'s order, that does; the draft keeps its own mode. A draft with an input that no mode of its model can use does not generate.',
-			'A prompt names inputs by kind and upstream order: Image 1, Video 1, Audio 1 (图片1, 视频1, 音频1 in Chinese).',
+			'A prompt mentions an input as @[<its entry>], with the entry exactly as upstream.yaml lists it, such as @[frames/start.png]; write a ] in an entry as \\]. Every mention must name an entry of the draft\'s upstream.yaml, or the draft does not generate. Write no model\'s own names, such as Image 1 or <<<image_1>>>: when the draft generates, BaseHalf writes the names its model reads. A mentioned note is sent by its name, and its text follows the prompt.',
 			'Generate a draft with basehalf --generate <workspace-relative path>. For a generated file it makes a new draft beside it from its made.yaml, without the seed and with the same inputs, and generates that. It refuses values the model does not accept and inputs it cannot use, prints the path of every card that generates (the new draft, and one card per image of several), and does not wait for the files.'
 		]
 	});

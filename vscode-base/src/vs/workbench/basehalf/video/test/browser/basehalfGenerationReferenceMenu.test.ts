@@ -12,14 +12,14 @@ import { IBaseHalfReferenceMenuModel } from '../../common/basehalfGenerationRefe
 
 const MODEL: IBaseHalfReferenceMenuModel = {
 	connected: [
-		{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', label: '图片1' },
-		{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', label: '图片2' }
+		{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', connected: true },
+		{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', connected: true }
 	],
 	canvas: [
 		{
 			kind: 'image', items: [
-				{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', label: '图片1' },
-				{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', label: '图片2' },
+				{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', connected: true },
+				{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', connected: true },
 				{ path: 'shots/liubang.png', kind: 'image', title: '刘邦.png' }
 			]
 		},

@@ -40,14 +40,13 @@ import {
 	baseHalfVideoChooseMode,
 	baseHalfVideoChooseModel,
 	baseHalfVideoInputKindOfPath,
-	baseHalfVideoInputLabel,
+	BaseHalfVideoInputKind,
 	findBaseHalfVideoModel,
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoInputPlanItem,
-	IBaseHalfVideoLabelToken,
 	IBaseHalfVideoModelRef
 } from '../common/basehalfVideoCatalog.js';
 import {
@@ -81,10 +80,10 @@ import {
 	IBaseHalfVideoPanelInputItem,
 	IBaseHalfVideoPanelPresentation
 } from '../common/basehalfVideoNodePanelPresentation.js';
-import { baseHalfInputNameOrdinals, isBaseHalfNamedInputKind } from '../common/basehalfGenerationInputNames.js';
+import { baseHalfPromptMention, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { BaseHalfReferenceMenuKind, IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
-import { BaseHalfGenerationPromptEditor, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
+import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
 import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
 import {
@@ -321,7 +320,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.layer = $('.bh-video-panel-layer');
 		this.inputRow = this._register(new BaseHalfGenerationInputRow({
 			remove: path => { void this.disconnect(path); },
-			insertName: label => this.insertName(label),
+			insertMention: path => this.insertMention(path),
 			move: (path, before) => { void this.moveInput(path, before); },
 			swap: () => {
 				const order = this.presentation?.inputRow?.swappedUpstream;
@@ -361,7 +360,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			ariaLabel: localize('basehalf.video.panel.prompt', "Prompt"),
 			placeholder: placeholderOf(options?.snapshot?.kind ?? 'video'),
 			maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
-			chipOf: name => this.chipOf(name)
+			chipOf: mention => this.chipOf(mention)
 		}));
 		// The field grows with its text from three lines to five, and scrolls beyond.
 		Object.assign(this.editor.element.style, {
@@ -881,7 +880,6 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			return Object.freeze({
 				path: item.path,
 				kind: item.kind,
-				...(item.label !== undefined ? { label: item.label } : {}),
 				fileName: item.fileName,
 				...(file ? { file } : {}),
 				dimmed: !item.used,
@@ -907,23 +905,15 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	/**
-	 * The chip of a name in the prompt: the input of that kind and number, with
-	 * its picture (D68). Until the inputs are read, the entries of the list
-	 * stand for them, so a name that has an input is never shown as one that
-	 * has none.
+	 * The chip of a mention in the prompt (D74): its input's picture or glyph
+	 * and its file's name, or, for a file that is not connected, its glyph and
+	 * name with a warning. Until the inputs are read, the entries of the list
+	 * stand for them, so a mention of an input is never shown as one of a file
+	 * that is not connected.
 	 */
-	private chipOf(name: IBaseHalfVideoLabelToken): IBaseHalfPromptChip | undefined {
-		const sources: readonly { readonly kind: IBaseHalfVideoResolvedInput['kind']; readonly available: boolean; readonly file?: URI }[] = this.inputs.length
-			? this.inputs
-			: (this.snapshot?.upstream ?? []).map(path => ({ kind: baseHalfVideoInputKindOfPath(path), available: false }));
-		const ordinals = baseHalfInputNameOrdinals(sources);
-		const index = sources.findIndex((source, position) => source.kind === name.kind && ordinals[position] === name.ordinal);
-		if (index < 0) {
-			return undefined;
-		}
-		const source = sources[index];
-		const picture = name.kind === 'image' && source.available && source.file ? FileAccess.uriToBrowserUri(source.file).toString(true) : undefined;
-		return Object.freeze({ kind: name.kind, ...(picture ? { picture } : {}) });
+	private chipOf(mention: IBaseHalfPromptMention): IBaseHalfPromptChip {
+		const entries = this.inputs.length ? this.inputs.map(input => input.path) : (this.snapshot?.upstream ?? []);
+		return baseHalfPromptChip(mention, entries, index => this.inputs[index]);
 	}
 
 	private renderFooter(): void {
@@ -1070,7 +1060,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			if (!(error instanceof BaseHalfVideoGenerationError)) {
 				this.logService.warn('[BaseHalf] the panel could not prepare the inputs to check', error);
 			}
-			result = Object.freeze({ problems: Object.freeze([baseHalfUserFacingErrorMessage(error)]) });
+			// Nothing was asked, so no prompt was written.
+			result = Object.freeze({ problems: Object.freeze([baseHalfUserFacingErrorMessage(error)]), prompt: '' });
 		}
 		if (this.disposed || key !== this.checkKey) {
 			// A newer check is on its way.
@@ -1909,36 +1900,26 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
-	/** The card's named inputs and its notes, in the order of the input row, then the canvas's cards by kind, as the menu lists them. */
+	/** The card's images, videos, sounds, and notes, in the order of the input row, then the canvas's cards by kind, as the menu lists them. */
 	private referenceMenuModel(): IBaseHalfReferenceMenuModel {
-		const labels = new Map<string, string>();
 		const row = this.presentation?.inputRow;
 		const connected: IBaseHalfReferenceMenuItem[] = [];
 		for (const item of row ? [...row.slots.flatMap(slot => slot.item ? [slot.item] : []), ...row.items] : []) {
-			if (item.label && isBaseHalfNamedInputKind(item.kind)) {
-				labels.set(item.path, item.label);
+			if (isReferenceMenuKind(item.kind)) {
 				const input = this.inputs[item.index];
 				connected.push(Object.freeze<IBaseHalfReferenceMenuItem>({
 					path: item.path,
 					kind: item.kind,
 					title: item.fileName,
-					label: item.label,
+					connected: true,
 					...pictureOf(item.kind, input?.available ? input.file : undefined)
 				}));
-			} else if (item.kind === 'text') {
-				// A note has no name (D71).
-				connected.push(Object.freeze<IBaseHalfReferenceMenuItem>({ path: item.path, kind: 'text', title: item.fileName, connected: true }));
 			}
 		}
 		const upstream = new Set(this.snapshot?.upstream ?? []);
 		const canvas = (this.canvasCards ?? EMPTY_CANVAS_CARDS).map(list => Object.freeze({
 			...list,
-			items: list.items.map(item => {
-				const label = labels.get(item.path);
-				return label
-					? Object.freeze({ ...item, label })
-					: item.kind === 'text' && upstream.has(item.path) ? Object.freeze({ ...item, connected: true }) : item;
-			})
+			items: list.items.map(item => upstream.has(item.path) ? Object.freeze({ ...item, connected: true }) : item)
 		}));
 		return Object.freeze({ connected, canvas });
 	}
@@ -1966,7 +1947,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			for (const entry of entries) {
 				const path = folderPath ? `${folderPath}/${entry.name}` : entry.name;
 				const kind = baseHalfVideoInputKindOfPath(path);
-				if (path === snapshot.path || entry.name.startsWith('.') || (!isBaseHalfNamedInputKind(kind) && kind !== 'text')) {
+				if (path === snapshot.path || entry.name.startsWith('.') || !isReferenceMenuKind(kind)) {
 					continue;
 				}
 				items.push(Object.freeze({ path, kind, title: baseHalfVideoPanelInputFileName(path), ...pictureOf(kind, entry.file) }));
@@ -1995,33 +1976,15 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	/**
-	 * Puts the chosen input's name in place of the `@`. A card that is not
-	 * connected is connected first, as a connection on the canvas is, or the
-	 * reason it cannot be is shown and the `@` stays. A note has no name: it is
-	 * connected, and the `@` is taken out (D71).
+	 * Puts the chosen input's mention in place of the `@` (D74). A card that is
+	 * not connected is connected first, as a connection on the canvas is, or
+	 * the reason it cannot be is shown and the `@` stays.
 	 */
 	private async chooseReference(item: IBaseHalfReferenceMenuItem): Promise<void> {
 		const at = this.mentionAt;
 		this.referenceMenu.clear();
 		this.mentionAt = undefined;
-		if (item.kind === 'text') {
-			if (!this.snapshot?.upstream.includes(item.path)) {
-				const connected = await this.acceptInput(item.path) && await this.connect(item.path);
-				if (this.disposed) {
-					return;
-				}
-				if (!connected) {
-					this.editor.focus(at !== undefined ? at + 1 : undefined);
-					return;
-				}
-				await this.refresh();
-			}
-			this.takeOutMention(at);
-			return;
-		}
-		let label = item.label;
-		if (!label) {
-			const count = this.presentation?.names.filter(name => name.kind === item.kind).length ?? 0;
+		if (!this.snapshot?.upstream.includes(item.path)) {
 			const connected = await this.acceptInput(item.path) && await this.connect(item.path);
 			if (this.disposed) {
 				return;
@@ -2032,36 +1995,23 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			}
 			// The chip is drawn with the new input once the panel has read it.
 			await this.refresh();
-			// A new input is the last of its kind.
-			label = baseHalfVideoInputLabel(item.kind, count + 1);
 		}
-		this.replaceMention(at, label);
+		this.replaceMention(at, item.path);
 	}
 
-	/** Takes out the `@` at `at` and puts the caret there, or gives the prompt the keyboard when the `@` is not there any more. */
-	private takeOutMention(at: number | undefined): void {
-		const text = this.editor.value;
-		if (at !== undefined && (text.charAt(at) === '@' || text.charAt(at) === '\uff20')) {
-			this.editor.focus(at);
-			this.editor.replace(at, at + 1, '');
-			return;
-		}
-		this.editor.focus();
-	}
-
-	/** Puts `label` and a space in place of the `@` at `at`, or at the caret when it is not there any more. */
-	private replaceMention(at: number | undefined, label: string): void {
+	/** Puts the mention of `path` and a space in place of the `@` at `at`, or at the caret when it is not there any more. */
+	private replaceMention(at: number | undefined, path: string): void {
 		const text = this.editor.value;
 		if (at !== undefined && (text.charAt(at) === '@' || text.charAt(at) === '\uff20')) {
 			this.editor.focus(at + 1);
-			this.editor.replace(at, at + 1, `${label} `);
+			this.editor.replace(at, at + 1, `${baseHalfPromptMention(path)} `);
 			return;
 		}
-		this.insertName(label);
+		this.insertMention(path);
 	}
 
-	/** Puts an input's name into the prompt at its caret, or at the end, with a space after it, and gives the prompt the keyboard. */
-	private insertName(label: string): void {
+	/** Puts the mention of an input into the prompt at its caret, or at the end, with a space after it, and gives the prompt the keyboard. */
+	private insertMention(path: string): void {
 		if (this.isLocked()) {
 			return;
 		}
@@ -2069,7 +2019,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		const end = this.editor.value.length;
 		const start = selection?.start ?? end;
 		this.editor.focus(start);
-		this.editor.replace(start, selection?.end ?? end, `${label} `);
+		this.editor.replace(start, selection?.end ?? end, `${baseHalfPromptMention(path)} `);
 	}
 
 	//#endregion
@@ -2405,11 +2355,16 @@ function pictureOf(kind: BaseHalfReferenceMenuKind, file: URI | undefined): { re
 	return kind === 'image' && file ? { picture: FileAccess.uriToBrowserUri(file).toString(true) } : {};
 }
 
+/** The kinds of input the reference menu lists: images, videos, sounds, and notes. */
+function isReferenceMenuKind(kind: BaseHalfVideoInputKind): kind is BaseHalfReferenceMenuKind {
+	return kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'text';
+}
+
 /** What the empty prompt of a card of a kind says. */
 function placeholderOf(kind: 'image' | 'video'): string {
 	return kind === 'image'
-		? localize('basehalf.video.panel.imagePromptPlaceholder', "Describe the image. Type @ to name an input.")
-		: localize('basehalf.video.panel.promptPlaceholder', "Describe the video. Type @ to name an input.");
+		? localize('basehalf.video.panel.imagePromptPlaceholder', "Describe the image. Type @ to mention an input.")
+		: localize('basehalf.video.panel.promptPlaceholder', "Describe the video. Type @ to mention an input.");
 }
 
 /** A click of the mouse or a touch. A click that Enter or Space makes on a button has no count. */

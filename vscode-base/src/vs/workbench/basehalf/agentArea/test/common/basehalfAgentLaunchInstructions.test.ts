@@ -35,6 +35,8 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			// D67: only a draft changes; a generated file keeps what made it, and every input of a draft is sent.
 			'A generated file keeps the inputs that made it',
 			'every one is sent',
+			// D74: a prompt mentions an input by its entry; BaseHalf writes each model's names.
+			'Mention an input in a prompt as `@[<entry>]`.',
 			'For a generated file it makes a new draft from what made it',
 			'```yaml\n---\nupstream:\n  - courses/linear-algebra/overview.md\n  - sources/strang.pdf\n---\n```'
 		];
@@ -58,6 +60,7 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'leave its `upstream.yaml` alone',
 			'A draft\'s inputs are the entries of its `upstream.yaml`, in order, and every one is sent',
 			'the first mode that can is used',
+			'Mention an input in a prompt as `@[<entry>]`.',
 			'The user renames, moves, or deletes a draft on the canvas.',
 			'host.modelCatalog',
 			'basehalf --generate <workspace-relative path>',

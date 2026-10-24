@@ -4,17 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import { BaseHalfNamedInputKind } from './basehalfGenerationInputNames.js';
 
 /**
  * What the reference menu lists (generation cards, "The panel", D68): the
- * card's inputs that have a name and its notes, and the cards of the canvas
- * by kind, or, while a search is typed, what matches it. Pure: the menu draws
- * the rows and the tests check them.
+ * card's images, videos, sounds, and notes, and the cards of the canvas by
+ * kind, or, while a search is typed, what matches it. Choosing one puts its
+ * mention into the prompt (D74). Pure: the menu draws the rows and the tests
+ * check them.
  */
 
-/** The kinds the menu lists: those that have names, and notes (D71). */
-export type BaseHalfReferenceMenuKind = BaseHalfNamedInputKind | 'text';
+/** The kinds the menu lists: images, videos, sounds, and notes (D71). */
+export type BaseHalfReferenceMenuKind = 'image' | 'video' | 'audio' | 'text';
 
 /** An input or a card the menu offers. */
 export interface IBaseHalfReferenceMenuItem {
@@ -23,9 +23,7 @@ export interface IBaseHalfReferenceMenuItem {
 	readonly kind: BaseHalfReferenceMenuKind;
 	/** Its name as BaseHalf shows it. */
 	readonly title: string;
-	/** Its name in the prompt, for a connected input (图片1). */
-	readonly label?: string;
-	/** A connected note, which has no name to show that it is connected. */
+	/** It is connected to the card. */
 	readonly connected?: boolean;
 	/** Why it cannot be chosen; it is dimmed. */
 	readonly disabled?: string;
@@ -42,7 +40,7 @@ export interface IBaseHalfReferenceMenuKindList {
 }
 
 export interface IBaseHalfReferenceMenuModel {
-	/** The card's inputs that have a name, and its notes, in the order of the list. */
+	/** The card's images, videos, sounds, and notes, in the order of the input row. */
 	readonly connected: readonly IBaseHalfReferenceMenuItem[];
 	/** Images, videos, audio, and notes, in that order. */
 	readonly canvas: readonly IBaseHalfReferenceMenuKindList[];
@@ -50,7 +48,7 @@ export interface IBaseHalfReferenceMenuModel {
 
 export type BaseHalfReferenceMenuRow =
 	| { readonly type: 'header'; readonly text: string }
-	/** `mark` is what the item shows at its right: its name, or that a note is connected. */
+	/** `mark` is what the item shows at its right: that it is connected, in the list of a kind. */
 	| { readonly type: 'item'; readonly key: string; readonly item: IBaseHalfReferenceMenuItem; readonly mark?: string }
 	| { readonly type: 'kind'; readonly key: string; readonly kind: BaseHalfReferenceMenuKind; readonly text: string; readonly count: number; readonly disabled?: string }
 	| { readonly type: 'empty'; readonly text: string };
@@ -101,7 +99,7 @@ export function baseHalfReferenceMenuRows(model: IBaseHalfReferenceMenuModel, qu
 	return Object.freeze(rows);
 }
 
-/** The rows of the list of one kind: every card of that kind on the canvas, the connected ones with their names. */
+/** The rows of the list of one kind: every card of that kind on the canvas, the connected ones marked so. */
 export function baseHalfReferenceMenuKindRows(model: IBaseHalfReferenceMenuModel, kind: BaseHalfReferenceMenuKind): readonly BaseHalfReferenceMenuRow[] {
 	const list = model.canvas.find(candidate => candidate.kind === kind);
 	if (!list?.items.length) {
@@ -115,19 +113,19 @@ export function isBaseHalfReferenceMenuChoice(row: BaseHalfReferenceMenuRow): ro
 	return row.type === 'item' || row.type === 'kind';
 }
 
-/** An item's row; under Connected it shows its name, and in a kind's list a connected note says so. */
+/** An item's row; in a kind's list a connected card says so. */
 function itemRow(group: string, item: IBaseHalfReferenceMenuItem): BaseHalfReferenceMenuRow {
-	const mark = item.label ?? (item.connected && group !== 'connected' ? localize('basehalf.generation.references.connectedNote', "Connected") : undefined);
+	const mark = item.connected && group !== 'connected' ? localize('basehalf.generation.references.connectedNote', "Connected") : undefined;
 	return { type: 'item', key: `${group}:${item.path}`, item, ...(mark ? { mark } : {}) };
 }
 
-/** A card that is connected has its name and is not refused; the others take their kind's reason. */
+/** A card that is connected is not refused; the others take their kind's reason. */
 function withKindDisabled(item: IBaseHalfReferenceMenuItem, list: IBaseHalfReferenceMenuKindList): IBaseHalfReferenceMenuItem {
-	return list.disabled && !item.label && !item.connected && !item.disabled ? { ...item, disabled: list.disabled } : item;
+	return list.disabled && !item.connected && !item.disabled ? { ...item, disabled: list.disabled } : item;
 }
 
 function matches(item: IBaseHalfReferenceMenuItem, needle: string): boolean {
-	return compact(item.title).includes(needle) || (item.label !== undefined && compact(item.label).includes(needle));
+	return compact(item.title).includes(needle);
 }
 
 function compact(text: string): string {

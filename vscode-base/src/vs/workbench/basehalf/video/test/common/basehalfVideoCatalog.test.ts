@@ -31,8 +31,6 @@ import {
 	baseHalfVideoRefusedParam,
 	baseHalfVideoSentParams,
 	baseHalfVideoSettingsSummary,
-	buildBaseHalfVideoPrompt,
-	findBaseHalfVideoLabelTokens,
 	findBaseHalfVideoModel,
 	findBaseHalfVideoRegion,
 	fitBaseHalfVideoParams,
@@ -71,7 +69,7 @@ suite('BaseHalfVideoCatalog', () => {
 	];
 
 	function uses(plan: readonly IBaseHalfVideoInputPlanItem[]): string[] {
-		return plan.map(item => `${item.path}:${item.use}${item.reason ? `(${item.reason})` : ''}${item.label ? `=${item.label}` : ''}`);
+		return plan.map(item => `${item.path}:${item.use}${item.reason ? `(${item.reason})` : ''}`);
 	}
 
 	test('the ratio a choice makes is its model\'s ratio setting for its mode, or that setting\'s default; a value that names no ratio, another mode, and another model have none', () => {
@@ -210,21 +208,21 @@ suite('BaseHalfVideoCatalog', () => {
 	});
 
 	test('frames take the first image as the start frame and the second as the end frame, and say why the rest is not used', () => {
-		const frames = planBaseHalfVideoInputs(baseHalfVideoModeOf(motion, 'frames').inputs, [...sources, { path: 'gone.png', kind: 'image', available: false }], 'en');
-		const startOnly = planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 2), 'en');
-		const textOnly = planBaseHalfVideoInputs(borealisOne.modes[0].inputs, sources.slice(0, 1), 'en');
+		const frames = planBaseHalfVideoInputs(baseHalfVideoModeOf(motion, 'frames').inputs, [...sources, { path: 'gone.png', kind: 'image', available: false }]);
+		const startOnly = planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 2));
+		const textOnly = planBaseHalfVideoInputs(borealisOne.modes[0].inputs, sources.slice(0, 1));
 		assert.deepStrictEqual({ frames: uses(frames), startOnly: uses(startOnly), textOnly: uses(textOnly) }, {
 			frames: [
-				'frames/a.png:start-frame=Image 1',
-				'frames/b.png:end-frame=Image 2',
-				'frames/c.png:unused(full)=Image 3',
-				'clips/move.mp4:unused(mode)=Video 1',
+				'frames/a.png:start-frame',
+				'frames/b.png:end-frame',
+				'frames/c.png:unused(full)',
+				'clips/move.mp4:unused(mode)',
 				'notes/scene.md:text',
 				'docs/brief.pdf:unused(kind)',
-				'gone.png:unused(missing)=Image 4'
+				'gone.png:unused(missing)'
 			],
-			startOnly: ['frames/a.png:start-frame=Image 1', 'frames/b.png:unused(full)=Image 2'],
-			textOnly: ['frames/a.png:unused(mode)=Image 1']
+			startOnly: ['frames/a.png:start-frame', 'frames/b.png:unused(full)'],
+			textOnly: ['frames/a.png:unused(mode)']
 		});
 	});
 
@@ -236,7 +234,7 @@ suite('BaseHalfVideoCatalog', () => {
 			{ path: 'e.png', kind: 'image', available: true },
 			{ path: 'take2.mov', kind: 'video', available: true },
 			{ path: 'voice.mp3', kind: 'audio', available: true }
-		], 'zh-cn');
+		]);
 		const media: IBaseHalfVideoInputSource[] = [
 			{ path: 'a.png', kind: 'image', available: true },
 			{ path: 'take1.mp4', kind: 'video', available: true },
@@ -246,43 +244,36 @@ suite('BaseHalfVideoCatalog', () => {
 		];
 		assert.deepStrictEqual({
 			references: uses(references),
-			extend: uses(planBaseHalfVideoInputs(baseHalfVideoModeOf(clip, 'extend').inputs, media, 'en')),
-			edit: uses(planBaseHalfVideoInputs(baseHalfVideoModeOf(clip, 'edit').inputs, media, 'en'))
+			extend: uses(planBaseHalfVideoInputs(baseHalfVideoModeOf(clip, 'extend').inputs, media)),
+			edit: uses(planBaseHalfVideoInputs(baseHalfVideoModeOf(clip, 'edit').inputs, media))
 		}, {
 			references: [
-				'gone.png:unused(missing)=图片1',
-				'frames/a.png:reference=图片2',
-				'frames/b.png:reference=图片3',
-				'frames/c.png:reference=图片4',
-				'clips/move.mp4:reference=视频1',
+				'gone.png:unused(missing)',
+				'frames/a.png:reference',
+				'frames/b.png:reference',
+				'frames/c.png:reference',
+				'clips/move.mp4:reference',
 				'notes/scene.md:text',
 				'docs/brief.pdf:unused(kind)',
-				'd.png:reference=图片5',
-				'e.png:unused(full)=图片6',
-				'take2.mov:unused(full)=视频2',
-				'voice.mp3:reference=音频1'
+				'd.png:reference',
+				'e.png:unused(full)',
+				'take2.mov:unused(full)',
+				'voice.mp3:reference'
 			],
-			extend: ['a.png:unused(mode)=Image 1', 'take1.mp4:source=Video 1', 'b.png:unused(mode)=Image 2', 'take2.mp4:unused(full)=Video 2', 'c.png:unused(mode)=Image 3'],
-			edit: ['a.png:reference=Image 1', 'take1.mp4:source=Video 1', 'b.png:reference=Image 2', 'take2.mp4:unused(full)=Video 2', 'c.png:unused(full)=Image 3']
+			extend: ['a.png:unused(mode)', 'take1.mp4:source', 'b.png:unused(mode)', 'take2.mp4:unused(full)', 'c.png:unused(mode)'],
+			edit: ['a.png:reference', 'take1.mp4:source', 'b.png:reference', 'take2.mp4:unused(full)', 'c.png:unused(full)']
 		});
 	});
 
-	test('builds the prompt from the node\'s prompt and its text inputs, without front matter, each at most 16 KiB', () => {
-		const note = stripBaseHalfMarkdownFrontMatter('﻿---\nupstream:\n  - brief.md\n---\n# Scene\n\nThe sea at dusk.\n');
+	test('reads a note without its front matter, and the kind of an input by its extension', () => {
 		assert.deepStrictEqual({
-			note,
-			prompt: buildBaseHalfVideoPrompt('  Image 1 rides along the sea. ', [note, '   ', 'Slow.']),
-			long: buildBaseHalfVideoPrompt('', ['x'.repeat(20_000)]).length,
+			note: stripBaseHalfMarkdownFrontMatter('﻿---\nupstream:\n  - brief.md\n---\n# Scene\n\nThe sea at dusk.\n'),
 			noFrontMatter: stripBaseHalfMarkdownFrontMatter('# Title\n---\nnot front matter\n---\n'),
-			kinds: ['a.PNG', 'b.webm', 'c.flac', 'd.markdown', 'e.pdf', 'folder'].map(baseHalfVideoInputKindOfPath),
-			tokens: findBaseHalfVideoLabelTokens('Image 1 meets 图片12 and Video 3; Images 2 is no name.').map(token => `${token.kind}${token.ordinal}@${token.start}`)
+			kinds: ['a.PNG', 'b.webm', 'c.flac', 'd.markdown', 'e.pdf', 'folder'].map(baseHalfVideoInputKindOfPath)
 		}, {
 			note: '# Scene\n\nThe sea at dusk.\n',
-			prompt: 'Image 1 rides along the sea.\n\n# Scene\n\nThe sea at dusk.\n\nSlow.',
-			long: 16 * 1024,
 			noFrontMatter: '# Title\n---\nnot front matter\n---\n',
-			kinds: ['image', 'video', 'audio', 'text', 'other', 'other'],
-			tokens: ['image1@0', 'image12@14', 'video3@23']
+			kinds: ['image', 'video', 'audio', 'text', 'other', 'other']
 		});
 	});
 
@@ -308,19 +299,22 @@ suite('BaseHalfVideoCatalog', () => {
 		});
 	});
 
-	test('reads what check answered: its problems as plain text, and nothing that is no answer', () => {
+	test('reads what check answered: its problems as plain text, the prompt as the module wrote it, and nothing that is no answer', () => {
 		assert.deepStrictEqual({
-			result: parseBaseHalfVideoCheckResult({ problems: ['  The prompt is <b>too long</b>.  ', ''] }),
-			notAResult: parseBaseHalfVideoCheckResult({ problems: [3] })
+			result: parseBaseHalfVideoCheckResult({ problems: ['  The prompt is <b>too long</b>.  ', ''], prompt: 'Image 1 rides.' }),
+			notAResult: parseBaseHalfVideoCheckResult({ problems: [3], prompt: '' }),
+			noPrompt: parseBaseHalfVideoCheckResult({ problems: [] })
 		}, {
-			result: { problems: ['The prompt is too long .'] },
-			notAResult: undefined
+			result: { problems: ['The prompt is too long .'], prompt: 'Image 1 rides.' },
+			notAResult: undefined,
+			noPrompt: undefined
 		});
 	});
 
 	test('reads the ranges check answered with their reasons, and fits a value beyond one to its end on the steps, as AI Video does (D70)', () => {
 		const checked = parseBaseHalfVideoCheckResult({
 			problems: [],
+			prompt: '',
 			limits: {
 				duration: { max: 7.6, reason: '  The connected video lasts 4.4 seconds.  ' },
 				strength: { min: 0.25, reason: 'At least a quarter.' },
@@ -393,7 +387,7 @@ suite('BaseHalfVideoCatalog', () => {
 			setUp: overrides.setUp ?? true,
 			region: findBaseHalfVideoRegion(provider, overrides.region)
 		});
-		const plan = planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 1), 'en');
+		const plan = planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 1));
 		const base: IBaseHalfVideoGenerateBlockerInput = {
 			generating: false,
 			catalog: ready,
@@ -412,9 +406,11 @@ suite('BaseHalfVideoCatalog', () => {
 			otherKind: { kind: 'image', setup: setup({ setUp: false }) },
 			notSetUp: { setup: setup({ setUp: false, region: 'west' }) },
 			region: { setup: setup({ region: 'west' }), problems: ['Too long.'] },
-			draftInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, [{ path: 'shots/start.png', kind: 'image', available: false, draft: true }], 'en'), problems: ['Too long.'] },
+			draftInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, [{ path: 'shots/start.png', kind: 'image', available: false, draft: true }]), problems: ['Too long.'] },
 			// Every input is sent (D67): a second image for a model that takes one stops Generate before what check said.
-			unusableInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 2), 'en'), problems: ['Too long.'] },
+			unusableInput: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 2)), problems: ['Too long.'] },
+			// A mention of a file that is not connected stops Generate before what check said (D74).
+			unconnectedMention: { plan: planBaseHalfVideoInputs(still.modes[0].inputs, sources.slice(0, 1)), unconnected: 'shots/hero.png', problems: ['Too long.'] },
 			check: { problems: ['', 'The start frame is smaller than 300 pixels.'] },
 			// A new card: nothing written and nothing connected says that before what the model needs.
 			nothingConnected: { plan: [], problems: ['Write a prompt: Acme Still needs one.'] },
@@ -433,7 +429,8 @@ suite('BaseHalfVideoCatalog', () => {
 			notSetUp: ['notSetUp', 'Acme Video is not set up. Set it up in Providers.', true],
 			region: ['region', 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.', true],
 			draftInput: ['draftInput', 'start.png has no file yet. Generate it first, or remove its connection.', false],
-			unusableInput: ['unusableInput', 'Image 2 cannot be sent: Acme Still takes one image at most.', false],
+			unusableInput: ['unusableInput', 'b.png cannot be sent: Acme Still takes one image at most.', false],
+			unconnectedMention: ['unconnectedMention', 'The prompt mentions hero.png, which is not connected.', false],
 			check: ['check', 'The start frame is smaller than 300 pixels.', false],
 			nothingConnected: ['nothingToSend', 'Write a prompt or connect an input to generate.', false],
 			nothingToSend: ['nothingToSend', 'Write a prompt or connect an input to generate.', false],
@@ -592,13 +589,13 @@ suite('BaseHalfVideoCatalog', () => {
 			});
 		});
 
-		test('an input that names a draft is unused for the draft and keeps its kind, so the names after it stay', () => {
+		test('an input that names a draft is unused for the draft and keeps its kind, so the inputs after it keep their use', () => {
 			const plan = planBaseHalfVideoInputs(paint.modes[0].inputs, [
 				{ path: 'shots/hero.png', kind: 'image', available: false, draft: true },
 				{ path: 'refs/b.png', kind: 'image', available: true },
 				{ path: 'gone.png', kind: 'image', available: false }
-			], 'en');
-			assert.deepStrictEqual(uses(plan), ['shots/hero.png:unused(draft)=Image 1', 'refs/b.png:reference=Image 2', 'gone.png:unused(missing)=Image 3']);
+			]);
+			assert.deepStrictEqual(uses(plan), ['shots/hero.png:unused(draft)', 'refs/b.png:reference', 'gone.png:unused(missing)']);
 		});
 
 		test('an agent\'s value that the model does not accept is named instead of made legal', () => {

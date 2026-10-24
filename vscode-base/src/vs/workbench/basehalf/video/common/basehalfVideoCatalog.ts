@@ -3,7 +3,6 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { language } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 
 /**
@@ -17,7 +16,7 @@ import { localize } from '../../../../nls.js';
  *
  * Below the types, the window's pure functions over the catalog: reading
  * it, normalizing a node's values, planning its inputs from a mode's slots,
- * building the prompt, summing up the settings, and the Generate blockers
+ * summing up the settings, and the Generate blockers
  * (video node specification, "Settings", "Inputs", and "The panel"). They are
  * the window's alone and are not mirrored.
  */
@@ -231,6 +230,19 @@ export interface IBaseHalfVideoPlannedMedia {
 	readonly source?: BaseHalfVideoMedia;
 }
 
+/** Where an input is in a request: a frame, the clip, or the n-th reference image, video, or sound (D74). */
+export type BaseHalfVideoPromptInputSlot = 'startFrame' | 'endFrame' | 'source' | 'images' | 'videos' | 'audios';
+
+/** A mention in the prompt as AI Video receives it: the place in the request of the input it names (providers, "Names in the prompt"). */
+export interface IBaseHalfVideoPromptInput {
+	readonly input: BaseHalfVideoPromptInputSlot;
+	/** From 0, among `images`, `videos`, or `audios`; absent for a frame and the clip. */
+	readonly index?: number;
+}
+
+/** A part of the prompt as AI Video receives it: text, or a mention of an input of the request, which the provider module names. */
+export type BaseHalfVideoPromptPart = string | IBaseHalfVideoPromptInput;
+
 export interface IBaseHalfVideoCheckRequest {
 	readonly provider: string;
 	readonly region: string;
@@ -238,8 +250,8 @@ export interface IBaseHalfVideoCheckRequest {
 	readonly mode: BaseHalfVideoModeId;
 	/** Every parameter that applies, with its value or default; optional ones only when set. */
 	readonly params: BaseHalfVideoParams;
-	/** The prompt as it would be sent, text inputs included. */
-	readonly prompt: string;
+	/** The prompt in parts, text inputs included; the provider module writes its mentions. */
+	readonly prompt: readonly BaseHalfVideoPromptPart[];
 	/** The files a generation would send; the module measures them. */
 	readonly inputs: IBaseHalfVideoPlannedMedia;
 }
@@ -247,6 +259,8 @@ export interface IBaseHalfVideoCheckRequest {
 export interface IBaseHalfVideoCheckResult {
 	/** Plain sentences, the first being what blocks the generation. Empty when it can run. */
 	readonly problems: readonly string[];
+	/** The prompt as the provider module writes it, its mentions named as its model reads them: what is checked and sent. */
+	readonly prompt: string;
 	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
 	readonly providerModel?: string;
 	/**
@@ -313,7 +327,7 @@ export interface IBaseHalfVideoSubmitRequest extends IBaseHalfVideoProviderAcces
 	readonly model: string;
 	readonly mode: BaseHalfVideoModeId;
 	readonly params: BaseHalfVideoParams;
-	readonly prompt: string;
+	readonly prompt: readonly BaseHalfVideoPromptPart[];
 	readonly inputs: IBaseHalfVideoPlannedMedia;
 	/**
 	 * One new file per output the request may make, each ending in `.part`,
@@ -968,8 +982,6 @@ export interface IBaseHalfVideoInputPlanItem {
 	readonly kind: BaseHalfVideoInputKind;
 	readonly use: BaseHalfVideoInputUse;
 	readonly reason?: BaseHalfVideoInputUnusedReason;
-	/** The name a prompt uses for an image, video, or audio input, such as `图片1`. */
-	readonly label?: string;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp']);
@@ -1027,28 +1039,21 @@ export const BASEHALF_IMAGE_DEFAULT_MODE_INPUTS: IBaseHalfVideoModeInputs = Obje
 
 /**
  * How a generation uses each input, in upstream order, from the slots the
- * mode declares (video node specification, "Inputs"). An image fills the
- * start frame, then the end frame, then the reference images, as far as the
- * mode has them; a video fills the clip, then the reference videos; audio
- * fills the reference audio. Text inputs join the prompt in every mode.
- * Images, videos, and audio are numbered by kind in upstream order, used or
- * not, so a name in the prompt keeps meaning the same input.
+ * mode declares (generation cards, "Inputs"). An image fills the start frame,
+ * then the end frame, then the reference images, as far as the mode has
+ * them; a video fills the clip, then the reference videos; audio fills the
+ * reference audio. Text inputs join the prompt in every mode.
  */
 export function planBaseHalfVideoInputs(
 	inputs: IBaseHalfVideoModeInputs,
-	sources: readonly IBaseHalfVideoInputSource[],
-	displayLanguage: string = language
+	sources: readonly IBaseHalfVideoInputSource[]
 ): readonly IBaseHalfVideoInputPlanItem[] {
-	const ordinals = { image: 0, video: 0, audio: 0 };
 	const taken = { startFrame: false, endFrame: false, source: false, image: 0, video: 0, audio: 0 };
 	const hasStart = inputs.startFrame !== 'none';
 	const hasEnd = inputs.endFrame !== 'none';
 	const hasSource = inputs.source !== 'none';
 	return Object.freeze(sources.map((source): IBaseHalfVideoInputPlanItem => {
-		const label = source.kind === 'image' || source.kind === 'video' || source.kind === 'audio'
-			? baseHalfVideoInputLabel(source.kind, ++ordinals[source.kind], displayLanguage)
-			: undefined;
-		const item = label !== undefined ? { path: source.path, kind: source.kind, label } : { path: source.path, kind: source.kind };
+		const item = { path: source.path, kind: source.kind };
 		const unused = (reason: BaseHalfVideoInputUnusedReason) => Object.freeze({ ...item, use: 'unused' as const, reason });
 		const used = (use: BaseHalfVideoInputUse) => Object.freeze({ ...item, use });
 		if (!source.available) {
@@ -1216,37 +1221,6 @@ function inputProblemReason(model: IBaseHalfVideoCatalogModel, inputs: readonly 
 	return localize('basehalf.video.catalog.input.together', "{0} cannot use {1} together with the inputs before it.", model.label, name);
 }
 
-/** `图片1`, `视频2`, `音频1` in a Chinese display language; `Image 1`, `Video 2`, `Audio 1` otherwise. */
-export function baseHalfVideoInputLabel(kind: 'image' | 'video' | 'audio', ordinal: number, displayLanguage: string = language): string {
-	const chinese = displayLanguage.toLowerCase().startsWith('zh');
-	switch (kind) {
-		case 'image': return chinese ? `图片${ordinal}` : `Image ${ordinal}`;
-		case 'video': return chinese ? `视频${ordinal}` : `Video ${ordinal}`;
-		case 'audio': return chinese ? `音频${ordinal}` : `Audio ${ordinal}`;
-	}
-}
-
-export interface IBaseHalfVideoLabelToken {
-	readonly start: number;
-	readonly end: number;
-	readonly kind: 'image' | 'video' | 'audio';
-	readonly ordinal: number;
-}
-
-const LABEL_TOKEN = /(图片|视频|音频)(\d{1,2})|\b(Image|Video|Audio) (\d{1,2})\b/g;
-
-/** The input names a prompt contains, in both languages, so the panel can mark them. */
-export function findBaseHalfVideoLabelTokens(prompt: string): readonly IBaseHalfVideoLabelToken[] {
-	const tokens: IBaseHalfVideoLabelToken[] = [];
-	for (const match of prompt.matchAll(LABEL_TOKEN)) {
-		const word = match[1] ?? match[3];
-		const digits = match[2] ?? match[4];
-		const kind = word === '图片' || word === 'Image' ? 'image' : word === '视频' || word === 'Video' ? 'video' : 'audio';
-		tokens.push(Object.freeze({ start: match.index, end: match.index + match[0].length, kind, ordinal: Number(digits) }));
-	}
-	return Object.freeze(tokens);
-}
-
 /** Removes a leading YAML front matter block, which holds a note's metadata, not its text. */
 export function stripBaseHalfMarkdownFrontMatter(text: string): string {
 	const normalized = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
@@ -1254,16 +1228,11 @@ export function stripBaseHalfMarkdownFrontMatter(text: string): string {
 	return match ? normalized.slice(match[0].length) : normalized;
 }
 
+/** The longest prompt as sent that the window takes from `check`, as the task record keeps it (D74). */
+export const BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH = 256 * 1024;
+
 /** The longest text one text input adds to the prompt. */
 export const BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH = 16 * 1024;
-
-/** The prompt sent: the node's prompt, then each text input in order, separated by a blank line. */
-export function buildBaseHalfVideoPrompt(prompt: string, texts: readonly string[]): string {
-	const parts = [prompt, ...texts.map(value => value.length > BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH ? value.slice(0, BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH) : value)]
-		.map(part => part.trim())
-		.filter(part => part.length > 0);
-	return parts.join('\n\n');
-}
 
 // --- Whether the node can generate -------------------------------------------------------------------
 
@@ -1288,6 +1257,8 @@ export type BaseHalfVideoGenerateBlocker =
 	| { readonly kind: 'draftInput'; readonly path: string }
 	/** No mode of the model can use this input with the ones before it ({@link baseHalfVideoInputProblem}); `name` is how the panel names it. */
 	| { readonly kind: 'unusableInput'; readonly path: string; readonly name: string; readonly reason: string }
+	/** The prompt mentions a file that is not connected (D74). */
+	| { readonly kind: 'unconnectedMention'; readonly path: string }
 	/** The first problem the provider module reported for the planned generation. */
 	| { readonly kind: 'check'; readonly message: string }
 	| { readonly kind: 'nothingToSend' };
@@ -1308,6 +1279,8 @@ export interface IBaseHalfVideoGenerateBlockerInput {
 	readonly plan?: readonly IBaseHalfVideoInputPlanItem[];
 	/** The mode that is used, which the inputs were planned with ({@link baseHalfVideoModeThatIsUsed}); the card's own mode when absent. */
 	readonly mode?: IBaseHalfVideoCatalogMode;
+	/** The path of the first mention of the prompt whose file is not connected (D74). */
+	readonly unconnected?: string;
 }
 
 export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlockerInput): BaseHalfVideoGenerateBlocker | undefined {
@@ -1354,8 +1327,10 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 	// Every input is sent: one that no mode of the model can use stops Generate (generation cards, "What is connected is sent").
 	const unusable = input.plan ? baseHalfVideoInputProblem(ref.model, input.plan.map(item => ({ path: item.path, kind: item.kind, available: true }))) : undefined;
 	if (unusable && input.plan) {
-		const item = input.plan[unusable.index];
-		return { kind: 'unusableInput', path: unusable.path, name: item.label ?? (unusable.path.slice(unusable.path.lastIndexOf('/') + 1) || unusable.path), reason: unusable.reason };
+		return { kind: 'unusableInput', path: unusable.path, name: unusable.path.slice(unusable.path.lastIndexOf('/') + 1) || unusable.path, reason: unusable.reason };
+	}
+	if (input.unconnected !== undefined) {
+		return { kind: 'unconnectedMention', path: input.unconnected };
 	}
 	const problem = input.problems?.find(message => message.trim().length > 0);
 	if (problem) {
@@ -1399,6 +1374,8 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
 			return baseHalfVideoDraftInputText(blocker.path);
 		case 'unusableInput':
 			return localize('basehalf.video.catalog.blocker.unusableInput', "{0} cannot be sent: {1}", blocker.name, blocker.reason);
+		case 'unconnectedMention':
+			return localize('basehalf.video.catalog.blocker.unconnectedMention', "The prompt mentions {0}, which is not connected.", blocker.path.slice(blocker.path.lastIndexOf('/') + 1) || blocker.path);
 		case 'check':
 			return blocker.message;
 		case 'nothingToSend':
@@ -1492,10 +1469,14 @@ export function parseBaseHalfVideoCheckResult(value: unknown): IBaseHalfVideoChe
 	if (!isRecord(value) || !Array.isArray(value.problems) || !value.problems.every(problem => typeof problem === 'string')) {
 		return undefined;
 	}
+	if (typeof value.prompt !== 'string' || value.prompt.length > BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH) {
+		return undefined;
+	}
 	const providerModel = typeof value.providerModel === 'string' && /^\S{1,256}$/.test(value.providerModel) ? value.providerModel : undefined;
 	const limits = parseCheckLimits(value.limits);
 	return Object.freeze({
 		problems: Object.freeze(value.problems.map(problem => plainText(problem, 1000)).filter(problem => problem.length > 0)),
+		prompt: value.prompt,
 		...(providerModel ? { providerModel } : {}),
 		...(limits ? { limits } : {})
 	});

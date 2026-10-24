@@ -24,7 +24,7 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 		providerModel: 'acme-motion-2-e-260101',
 		mode: 'frames',
 		params: { resolution: '720p', duration: 5, sound: true, seed: 7 },
-		prompt: 'Image 1 rides along the sea.',
+		prompt: '@[frames/a.png] rides along the sea.',
 		inputs: ['frames/a.png', 'frames/b.png', 'notes/scene.md']
 	};
 	/** The second frame was deleted since. */
@@ -34,24 +34,22 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 		{ path: 'notes/scene.md', kind: 'text', available: true }
 	];
 
-	test('shows the inputs by the names the mode that made it gave them, the prompt, and the model and settings it was made with, by the catalog\'s names', () => {
-		const presentation = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: ready, displayLanguage: 'en' });
+	test('shows the inputs with the frames the mode that made it gave them, the prompt with its mentions, and the model and settings it was made with, by the catalog\'s names', () => {
+		const presentation = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: ready });
 		assert.deepStrictEqual(presentation, {
 			readable: true,
 			inputs: [
-				{ index: 0, path: 'frames/a.png', kind: 'image', frame: 'start', label: 'Image 1', gone: false },
-				{ index: 1, path: 'frames/b.png', kind: 'image', frame: 'end', label: 'Image 2', gone: true },
+				{ index: 0, path: 'frames/a.png', kind: 'image', frame: 'start', gone: false },
+				{ index: 1, path: 'frames/b.png', kind: 'image', frame: 'end', gone: true },
 				{ index: 2, path: 'notes/scene.md', kind: 'text', gone: false }
 			],
-			prompt: 'Image 1 rides along the sea.',
+			prompt: '@[frames/a.png] rides along the sea.',
 			model: 'Acme Motion 2',
 			modelTitle: 'Made with Acme Motion 2 on Acme Video, East · Acme Cloud',
 			// The seed is an advanced value: in the whole list, not in the summary.
 			settings: 'Frames · 720p · 5s · Sound',
 			settingsTitle: 'Made with: Frames · 720p · 5s · Sound · Seed 7'
 		});
-		const chinese = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: ready, displayLanguage: 'zh-cn' });
-		assert.deepStrictEqual(chinese.inputs.map(input => input.label), ['图片1', '图片2', undefined]);
 	});
 
 	test('shows the values as they were sent, never made legal again, and the recorded ids while the catalog does not have the model', () => {
@@ -59,12 +57,11 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 			kind: 'video',
 			made: { ...MADE, mode: 'reference', params: { resolution: '1080p', duration: 20, style: 'film' }, inputs: ['frames/a.png'] },
 			inputs: [INPUTS[0]],
-			catalog: ready,
-			displayLanguage: 'en'
+			catalog: ready
 		});
-		assert.deepStrictEqual([unknownValue.settings, unknownValue.inputs.map(input => `${input.frame ?? '-'} ${input.label}`)], ['References · 1080p · 20s · style film', ['- Image 1']]);
+		assert.deepStrictEqual([unknownValue.settings, unknownValue.inputs.map(input => `${input.frame ?? '-'} ${input.path}`)], ['References · 1080p · 20s · style film', ['- frames/a.png']]);
 
-		const loading = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: { kind: 'loading' }, displayLanguage: 'en' });
+		const loading = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: { kind: 'loading' } });
 		assert.deepStrictEqual({
 			model: loading.model,
 			modelTitle: loading.modelTitle,
@@ -80,11 +77,11 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 
 	test('says which image of how many it is, that it is a copy, that it had no prompt, and that the record cannot be read', () => {
 		const image: IBaseHalfGenerationMade = { ...MADE, provider: 'corvid', region: 'north', model: 'corvid-paint', providerModel: 'paint-n-1', mode: 'reference', params: { resolution: '1k', count: 4 }, prompt: '', inputs: [], output: 2, outputs: 4 };
-		const several = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: image, inputs: [], catalog: ready, displayLanguage: 'en' });
+		const several = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: image, inputs: [], catalog: ready });
 		assert.deepStrictEqual([several.line, several.prompt, several.inputs.length, several.model], ['Image 2 of 4', '', 0, 'Corvid Paint']);
-		const copy = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: { ...image, copyOf: '20261023T080000-made0001-2' }, inputs: [], catalog: ready, displayLanguage: 'en' });
+		const copy = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: { ...image, copyOf: '20261023T080000-made0001-2' }, inputs: [], catalog: ready });
 		assert.strictEqual(copy.line, 'A copy. This is what made the original.');
-		const one = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: { ...image, output: 1, outputs: 1 }, inputs: [], catalog: ready, displayLanguage: 'en' });
+		const one = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: { ...image, output: 1, outputs: 1 }, inputs: [], catalog: ready });
 		assert.strictEqual(one.line, undefined);
 		const unreadable = createBaseHalfGenerationRecordPresentation({ kind: 'image', inputs: [], catalog: ready });
 		assert.deepStrictEqual([unreadable.readable, unreadable.inputs.length, unreadable.model], [false, 0, '']);

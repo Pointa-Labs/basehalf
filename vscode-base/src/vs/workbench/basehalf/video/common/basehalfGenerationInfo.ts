@@ -16,7 +16,7 @@ import {
 	baseHalfParseMirrorYaml,
 	BaseHalfMirrorYamlUnreadable
 } from '../../workspace/common/basehalfMirrorYaml.js';
-import { BASEHALF_VIDEO_MODE_IDS, BaseHalfVideoModeId, BaseHalfVideoOutputFormat, BaseHalfVideoParams, BaseHalfVideoParamValue, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_MODE_IDS, BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH, BaseHalfVideoModeId, BaseHalfVideoOutputFormat, BaseHalfVideoParams, BaseHalfVideoParamValue, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
 
 /**
  * The generation information of a card (D63, generation cards): what its next
@@ -47,7 +47,7 @@ export const BASEHALF_GENERATION_TASK_FOLDER = 'generation';
 
 export const BASEHALF_GENERATION_PROMPT_MAX_LENGTH = 64 * 1024;
 /** The whole prompt as sent, text inputs included, as a task record keeps it. */
-export const BASEHALF_GENERATION_SENT_PROMPT_MAX_LENGTH = 256 * 1024;
+export const BASEHALF_GENERATION_SENT_PROMPT_MAX_LENGTH = BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH;
 export const BASEHALF_GENERATION_ERROR_MAX_LENGTH = 4 * 1024;
 export const BASEHALF_GENERATION_MAX_INPUTS = 64;
 /** The most cards one generation lands on. */

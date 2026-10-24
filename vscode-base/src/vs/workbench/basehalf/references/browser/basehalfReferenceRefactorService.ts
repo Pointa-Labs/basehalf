@@ -101,7 +101,7 @@ export interface IBaseHalfReferenceRefactorOutcome {
 	readonly undo?: IWorkspaceUndoRedoElement;
 	/** The expected and next state of every store the operation changed. */
 	readonly changedStores: readonly IBaseHalfReferenceUndoStore[];
-	/** What participants wrote with the lists, such as the names of a draft's prompt, which the report's Undo puts back too. */
+	/** What participants wrote with the lists, such as the mentions of a draft's prompt, which the report's Undo puts back too. */
 	readonly dependents: readonly IBaseHalfReferenceDependentEdit[];
 	/** The label of the operation. */
 	readonly label: string;

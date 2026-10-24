@@ -53,9 +53,9 @@
 }
 
 /*
- * A name of an input: one piece of the text, with the input's picture. It is
- * a line of its own text, so its name stands on the baseline of the prompt's
- * text, whatever its picture is.
+ * A mention of an input: one piece of the text, with the file's picture and
+ * name. It is a line of its own text, so its name stands on the baseline of
+ * the prompt's text, whatever its picture is.
  */
 .monaco-workbench .bh-prompt-chip {
 	display: inline-block;
@@ -75,13 +75,13 @@
 	-webkit-user-select: all;
 }
 
-/* A name at the start of a line begins where the text does. */
+/* A chip at the start of a line begins where the text does. */
 .monaco-workbench .bh-prompt-chip.starts-line {
 	margin-left: 0;
 }
 
-.monaco-workbench .bh-prompt-chip[data-kind="audio"],
-.monaco-workbench .bh-prompt-chip[data-kind="video"] {
+.monaco-workbench .bh-prompt-chip:not([data-kind="image"]),
+.monaco-workbench .bh-prompt-chip.unknown {
 	padding-left: 4px;
 }
 
@@ -109,8 +109,12 @@
 	pointer-events: none;
 }
 
-/* A name that means no input. */
-.monaco-workbench .bh-prompt-name.unknown {
+/* A mention of a file that is not connected (D74). */
+.monaco-workbench .bh-prompt-chip.unknown {
+	background: color-mix(in srgb, var(--bh-card-text-secondary, var(--vscode-descriptionForeground)) 14%, transparent);
+}
+
+.monaco-workbench .bh-prompt-chip.unknown .bh-prompt-chip-name {
 	text-decoration-line: underline;
 	text-decoration-style: wavy;
 	text-decoration-color: var(--bh-card-warning, var(--vscode-editorWarning-foreground));

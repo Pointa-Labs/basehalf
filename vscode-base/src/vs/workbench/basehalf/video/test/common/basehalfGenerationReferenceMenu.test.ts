@@ -14,14 +14,14 @@ import {
 
 const MODEL: IBaseHalfReferenceMenuModel = {
 	connected: [
-		{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', label: '图片1' },
-		{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', label: '图片2' }
+		{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', connected: true },
+		{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', connected: true }
 	],
 	canvas: [
 		{
 			kind: 'image', items: [
-				{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', label: '图片1' },
-				{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', label: '图片2' },
+				{ path: 'shots/caocao.png', kind: 'image', title: '曹操.png', connected: true },
+				{ path: 'shots/dufu.png', kind: 'image', title: '杜甫.png', connected: true },
 				{ path: 'shots/liubang.png', kind: 'image', title: '刘邦.png' }
 			]
 		},
@@ -30,7 +30,7 @@ const MODEL: IBaseHalfReferenceMenuModel = {
 	]
 };
 
-/** The rows in short: headers, items with their names, kinds with their counts, and dimmed ones with why. */
+/** The rows in short: headers, items with their marks, kinds with their counts, and dimmed ones with why. */
 function brief(rows: readonly BaseHalfReferenceMenuRow[]): string[] {
 	return rows.map(row => {
 		switch (row.type) {
@@ -42,15 +42,15 @@ function brief(rows: readonly BaseHalfReferenceMenuRow[]): string[] {
 	});
 }
 
-suite('BaseHalf generation reference menu (D68)', () => {
+suite('BaseHalf generation reference menu (D68, D74)', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('lists the connected inputs, then the kinds of the canvas with how many cards each has', () => {
 		assert.deepStrictEqual(brief(baseHalfReferenceMenuRows(MODEL, '')), [
 			'# Connected',
-			'曹操.png = 图片1',
-			'杜甫.png = 图片2',
+			'曹操.png',
+			'杜甫.png',
 			'# On This Canvas',
 			'Images › 3',
 			'Videos › 1 [Acme Image 1 takes no videos.]',
@@ -58,26 +58,26 @@ suite('BaseHalf generation reference menu (D68)', () => {
 		]);
 	});
 
-	test('the list of a kind holds every card of it, the connected ones with their names, and a refused kind dims the others', () => {
+	test('the list of a kind holds every card of it, the connected ones marked so, and a refused kind dims the others', () => {
 		assert.deepStrictEqual({
 			images: brief(baseHalfReferenceMenuKindRows(MODEL, 'image')),
 			videos: brief(baseHalfReferenceMenuKindRows(MODEL, 'video')),
 			audio: brief(baseHalfReferenceMenuKindRows(MODEL, 'audio'))
 		}, {
-			images: ['曹操.png = 图片1', '杜甫.png = 图片2', '刘邦.png'],
+			images: ['曹操.png = Connected', '杜甫.png = Connected', '刘邦.png'],
 			videos: ['曹操.mp4 [Acme Image 1 takes no videos.]'],
 			audio: ['(No audio on this canvas.)']
 		});
 	});
 
-	test('a search shows what matches, by name or by the name in the prompt, a connected card once', () => {
+	test('a search shows what matches by name, a connected card once', () => {
 		assert.deepStrictEqual({
 			name: brief(baseHalfReferenceMenuRows(MODEL, '曹')),
-			label: brief(baseHalfReferenceMenuRows(MODEL, '图片 2')),
+			extension: brief(baseHalfReferenceMenuRows(MODEL, '杜甫.p')),
 			none: brief(baseHalfReferenceMenuRows(MODEL, 'zebra'))
 		}, {
-			name: ['# Connected', '曹操.png = 图片1', '# Videos', '曹操.mp4 [Acme Image 1 takes no videos.]'],
-			label: ['# Connected', '杜甫.png = 图片2'],
+			name: ['# Connected', '曹操.png', '# Videos', '曹操.mp4 [Acme Image 1 takes no videos.]'],
+			extension: ['# Connected', '杜甫.png'],
 			none: ['(Nothing here has that name.)']
 		});
 	});
@@ -88,7 +88,7 @@ suite('BaseHalf generation reference menu (D68)', () => {
 		]);
 	});
 
-	test('notes are listed with the inputs, without a name: a connected one under Connected, and in Notes a connected one says so; a refused kind never dims a connected note (D71)', () => {
+	test('notes are listed with the inputs: a connected one under Connected, and in Notes a connected one says so; a refused kind never dims a connected note (D71)', () => {
 		const withNotes: IBaseHalfReferenceMenuModel = {
 			connected: [
 				MODEL.connected[0],
@@ -111,7 +111,7 @@ suite('BaseHalf generation reference menu (D68)', () => {
 			search: brief(baseHalfReferenceMenuRows(withNotes, 'pla')),
 			none: brief(baseHalfReferenceMenuKindRows({ connected: [], canvas: [{ kind: 'text', items: [] }] }, 'text'))
 		}, {
-			menu: ['# Connected', '曹操.png = 图片1', 'scene', '杜甫.png = 图片2', '# On This Canvas', 'Images › 3', 'Videos › 1 [Acme Image 1 takes no videos.]', 'Audio › 0', 'Notes › 2 [Not here.]'],
+			menu: ['# Connected', '曹操.png', 'scene', '杜甫.png', '# On This Canvas', 'Images › 3', 'Videos › 1 [Acme Image 1 takes no videos.]', 'Audio › 0', 'Notes › 2 [Not here.]'],
 			notes: ['scene = Connected', 'plan [Not here.]'],
 			search: ['# Notes', 'plan [Not here.]'],
 			none: ['(No notes on this canvas.)']

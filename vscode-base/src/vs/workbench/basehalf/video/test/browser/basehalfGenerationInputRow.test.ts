@@ -14,9 +14,9 @@ function tile(path: string, extra: Partial<IBaseHalfInputTile> = {}): IBaseHalfI
 	return { path, kind: 'image', fileName: path.slice(path.lastIndexOf('/') + 1), dimmed: false, ...extra };
 }
 
-const START = tile('shots/start.png', { label: '图片1', frame: 'start', file: URI.file('/work/shots/start.png') });
-const END = tile('shots/end.png', { label: '图片2', frame: 'end' });
-const CLIP = tile('shots/clip.mp4', { kind: 'video', label: '视频1', dimmed: true, note: 'Not used: Acme Motion 2 takes no videos in Frames.' });
+const START = tile('shots/start.png', { frame: 'start', file: URI.file('/work/shots/start.png') });
+const END = tile('shots/end.png', { frame: 'end' });
+const CLIP = tile('shots/clip.mp4', { kind: 'video', dimmed: true, note: 'Not used: Acme Motion 2 takes no videos in Frames.' });
 const NOTE = tile('notes/scene.md', { kind: 'text', fileName: 'scene' });
 
 /** What the row draws, in order. */
@@ -66,7 +66,7 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 
 	const delegate: IBaseHalfInputRowDelegate = {
 		remove: path => calls.push(`remove ${path}`),
-		insertName: label => calls.push(`name ${label}`),
+		insertMention: path => calls.push(`mention ${path}`),
 		move: (path, before) => calls.push(`move ${path} before ${before ?? 'end'}`),
 		swap: () => calls.push('swap'),
 		openAddMenu: () => calls.push('add menu'),
@@ -122,7 +122,7 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 			'swap',
 			'tile shots/end.png · mark End · remove · name',
 			'tile shots/clip.mp4 · remove · name · dimmed',
-			'tile notes/scene.md · caption scene · remove',
+			'tile notes/scene.md · caption scene · remove · name',
 			'pick',
 			'import'
 		]);
@@ -136,9 +136,9 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 
 	test('drawing the row again keeps the pictures of the inputs that stay, so nothing blinks; an input that leaves and comes back gets its picture back', () => {
-		const image = tile('shots/a.png', { label: '图片1', file: URI.file('/work/shots/a.png') });
-		const clip = tile('shots/clip.mp4', { kind: 'video', label: '视频1', file: URI.file('/work/shots/clip.mp4') });
-		const other = tile('shots/b.png', { label: '图片2', file: URI.file('/work/shots/b.png') });
+		const image = tile('shots/a.png', { file: URI.file('/work/shots/a.png') });
+		const clip = tile('shots/clip.mp4', { kind: 'video', file: URI.file('/work/shots/clip.mp4') });
+		const other = tile('shots/b.png', { file: URI.file('/work/shots/b.png') });
 		const row = create({ tiles: [image, clip, other], editable: true });
 		const media = () => new Map([...row.element.querySelectorAll<HTMLElement>('.bh-input-tile')].map(element => [element.dataset.path, element.querySelector('img, video')]));
 		const before = media();
@@ -158,9 +158,9 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 
 	test('a video and a sound show their length once their file tells it, and keep it when the row is drawn again (D70)', () => {
-		const clip = tile('shots/clip.mp4', { kind: 'video', label: '视频1', file: URI.file('/work/shots/clip.mp4') });
-		const sound = tile('sounds/rain.mp3', { kind: 'audio', label: '音频1', file: URI.file('/work/sounds/rain.mp3') });
-		const draft = tile('shots/next.mp4', { kind: 'video', label: '视频2' });
+		const clip = tile('shots/clip.mp4', { kind: 'video', file: URI.file('/work/shots/clip.mp4') });
+		const sound = tile('sounds/rain.mp3', { kind: 'audio', file: URI.file('/work/sounds/rain.mp3') });
+		const draft = tile('shots/next.mp4', { kind: 'video' });
 		const row = create({ tiles: [clip, sound, draft], editable: true });
 		const lengths = () => [...row.element.querySelectorAll<HTMLElement>('.bh-input-tile')].map(element => {
 			const label = element.querySelector<HTMLElement>('.bh-input-tile-length');
@@ -178,21 +178,21 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		row.update({ tiles: [clip, sound, draft], editable: true });
 		assert.deepStrictEqual({ before, told, back: lengths() }, {
 			before: [
-				'shots/clip.mp4: waits (视频1, clip.mp4)',
-				'sounds/rain.mp3: waits (音频1, rain.mp3)',
+				'shots/clip.mp4: waits (clip.mp4)',
+				'sounds/rain.mp3: waits (rain.mp3)',
 				// A draft has no file to tell it.
-				'shots/next.mp4: none (视频2, next.mp4)'
+				'shots/next.mp4: none (next.mp4)'
 			],
 			told: [
-				'shots/clip.mp4: 6.8s (视频1, clip.mp4, 6.8 seconds)',
-				'sounds/rain.mp3: 12.0s (音频1, rain.mp3, 12.0 seconds)',
-				'shots/next.mp4: none (视频2, next.mp4)'
+				'shots/clip.mp4: 6.8s (clip.mp4, 6.8 seconds)',
+				'sounds/rain.mp3: 12.0s (rain.mp3, 12.0 seconds)',
+				'shots/next.mp4: none (next.mp4)'
 			],
 			// The clip left and came back, as by undo: its picture and its length show at once.
 			back: [
-				'shots/clip.mp4: 6.8s (视频1, clip.mp4, 6.8 seconds)',
-				'sounds/rain.mp3: 12.0s (音频1, rain.mp3, 12.0 seconds)',
-				'shots/next.mp4: none (视频2, next.mp4)'
+				'shots/clip.mp4: 6.8s (clip.mp4, 6.8 seconds)',
+				'sounds/rain.mp3: 12.0s (rain.mp3, 12.0 seconds)',
+				'shots/next.mp4: none (next.mp4)'
 			]
 		});
 	});
@@ -219,8 +219,8 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		const style = mainWindow.document.createElement('style');
 		style.textContent = '.bh-input-row-list { position: relative; display: flex; gap: 6px; align-items: center; } .bh-input-row-list > * { position: relative; width: 48px; height: 48px; flex: none; box-sizing: border-box; }';
 		container.append(style);
-		const image = () => tile('shots/a.png', { label: '图片1', file: URI.file('/work/shots/a.png') });
-		const other = tile('shots/b.png', { label: '图片2', file: URI.file('/work/shots/b.png') });
+		const image = () => tile('shots/a.png', { file: URI.file('/work/shots/a.png') });
+		const other = tile('shots/b.png', { file: URI.file('/work/shots/b.png') });
 		const row = create({ tiles: [image(), other], editable: true });
 		const tileOf = (path: string) => row.element.querySelector<HTMLElement>(`.bh-input-tile[data-path="${path}"]`)!;
 		const looks = () => [...layer.querySelectorAll('.bh-input-look')];
@@ -261,16 +261,17 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		]);
 	});
 
-	test('the cross removes the connection and the @ puts the name into the prompt', () => {
-		const row = create({ tiles: [START, CLIP], editable: true });
+	test('the cross removes the connection and the @ puts its mention into the prompt, a note\'s too (D74)', () => {
+		const row = create({ tiles: [START, CLIP, NOTE], editable: true });
 		(row.element.querySelector('.bh-input-tile-remove') as HTMLButtonElement).click();
 		(row.element.querySelectorAll('.bh-input-tile-name')[1] as HTMLButtonElement).click();
-		assert.deepStrictEqual(calls, ['remove shots/start.png', 'name 视频1']);
+		(row.element.querySelectorAll('.bh-input-tile-name')[2] as HTMLButtonElement).click();
+		assert.deepStrictEqual(calls, ['remove shots/start.png', 'mention shots/clip.mp4', 'mention notes/scene.md']);
 	});
 
-	test('on a focused tile, Delete removes it, Enter names it, and Alt+arrows move it one place', () => {
-		const a = tile('shots/a.png', { label: '图片1' });
-		const b = tile('shots/b.png', { label: '图片2' });
+	test('on a focused tile, Delete removes it, Enter mentions it, and Alt+arrows move it one place', () => {
+		const a = tile('shots/a.png', {});
+		const b = tile('shots/b.png', {});
 		const row = create({ tiles: [a, b, CLIP], editable: true });
 		const tiles = [...row.element.querySelectorAll('.bh-input-tile')] as HTMLElement[];
 		const key = (target: HTMLElement, init: KeyboardEventInit) => target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
@@ -280,14 +281,14 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		key(tiles[2], { key: 'ArrowRight', altKey: true });
 		key(tiles[2], { key: 'Delete' });
 		assert.deepStrictEqual(calls, [
-			'name 图片2',
+			'mention shots/b.png',
 			'move shots/b.png before end',
 			'move shots/b.png before shots/a.png',
 			'remove shots/clip.mp4'
 		]);
 	});
 
-	test('pointing at a tile shows its larger look above it, with its names and why it is dimmed; leaving hides it', () => {
+	test('pointing at a tile shows its larger look above it, with its file\'s name and why it is dimmed; leaving hides it', () => {
 		const row = create({ tiles: [START, CLIP], editable: true });
 		layOut(row);
 		const clip = row.element.querySelectorAll('.bh-input-tile')[1] as HTMLElement;
@@ -296,7 +297,7 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		const shown = { text: [...look.children].map(child => child.textContent), side: look.dataset.side };
 		pointer(clip, 'pointerleave', 0);
 		assert.deepStrictEqual({ shown, after: layer.querySelector('.bh-input-look') }, {
-			shown: { text: ['视频1clip.mp4', 'Not used: Acme Motion 2 takes no videos in Frames.'], side: 'above' },
+			shown: { text: ['clip.mp4', 'Not used: Acme Motion 2 takes no videos in Frames.'], side: 'above' },
 			after: null
 		});
 	});
@@ -310,7 +311,7 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 
 	test('a drag moves a tile among the other inputs; a press that hardly moves is a click; a dragged frame swaps the frames', () => {
-		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP, NOTE, tile('shots/c.png', { label: '图片3' })], editable: true });
+		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP, NOTE, tile('shots/c.png', {})], editable: true });
 		layOut(row);
 		const tiles = [...row.element.querySelectorAll('.bh-input-tile')] as HTMLElement[];
 		const left = (element: HTMLElement) => element.getBoundingClientRect().left;

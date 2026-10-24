@@ -316,6 +316,11 @@ export class FakeReferenceEditService {
 
 type Handler<T> = (argument: T) => Promise<unknown> | unknown;
 
+/** The prompt as a provider module of the tests writes it: its text as it is, and each mention as `<slot>` or `<slot n>` (D74). */
+export function fakeWrittenPrompt(prompt: IBaseHalfVideoCheckRequest['prompt']): string {
+	return prompt.map(part => typeof part === 'string' ? part : `<${part.input}${part.index !== undefined ? ` ${part.index}` : ''}>`).join('');
+}
+
 /**
  * The provider commands of the AI Video extension, scripted, with the test
  * catalog of invented providers. The default check finds no problem, the
@@ -329,7 +334,7 @@ export class FakeProviderCommands implements ICommandService {
 
 	readonly calls: { readonly id: string; readonly argument: unknown }[] = [];
 	catalog: Handler<unknown> = () => ({ ok: true, value: { schema: 1, providers: [ACME, BOREALIS] } });
-	check: Handler<IBaseHalfVideoCheckRequest> = () => ({ ok: true, value: { problems: [] } });
+	check: Handler<IBaseHalfVideoCheckRequest> = request => ({ ok: true, value: { problems: [], prompt: fakeWrittenPrompt(request.prompt) } });
 	submit: Handler<IBaseHalfVideoSubmitRequest> = () => ({ ok: true, value: { remoteId: 'cgt-remote-1' } });
 	poll: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/video.mp4' } });
 	download: Handler<IBaseHalfVideoDownloadRequest>;

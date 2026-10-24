@@ -68,6 +68,7 @@ import {
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../common/basehalfGenerationInfo.js';
+import { buildBaseHalfPromptParts } from '../common/basehalfGenerationMentions.js';
 import {
 	BASEHALF_VIDEO_IMAGE_FORMATS,
 	BASEHALF_VIDEO_PROVIDER_COMMANDS,
@@ -85,7 +86,6 @@ import {
 	BaseHalfVideoProviderErrorCode,
 	baseHalfVideoRefusedParam,
 	baseHalfVideoSentParams,
-	buildBaseHalfVideoPrompt,
 	findBaseHalfVideoModel,
 	findBaseHalfVideoProvider,
 	fitBaseHalfVideoParams,
@@ -609,13 +609,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		// Every input is sent (generation cards, "What is connected is sent"): one that no mode can use stops the generation.
 		const unusable = baseHalfVideoInputProblem(ref.model, resolved);
 		if (unusable) {
-			const name = plan[unusable.index]?.label ?? (unusable.path.slice(unusable.path.lastIndexOf('/') + 1) || unusable.path);
+			const name = unusable.path.slice(unusable.path.lastIndexOf('/') + 1) || unusable.path;
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'unusableInput', path: unusable.path, name, reason: unusable.reason }));
 		}
 		const params = normalizeBaseHalfVideoParams(ref.model, mode.id, info.params);
 		// What is sent and recorded: without the values a start frame sets.
 		const sent = baseHalfVideoSentParams(ref.model, mode.id, params, plan.some(item => item.use === 'start-frame'));
-		const texts: string[] = [];
+		const texts = new Map<number, string>();
 		const used: string[] = [];
 		for (const [index, item] of plan.entries()) {
 			if (item.use === 'unused') {
@@ -623,13 +623,17 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			}
 			used.push(item.path);
 			if (item.use === 'text') {
-				texts.push(await this.readText(resolved[index], item));
+				texts.set(index, await this.readText(resolved[index], item));
 				throwIfCancelled(token);
 			}
 		}
+		// The prompt in parts: each mention as its input's place in the request, which the provider module names (D74).
+		const prompt = buildBaseHalfPromptParts(info.prompt, plan, (_item, index) => texts.get(index));
+		if (prompt.unconnected !== undefined) {
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'unconnectedMention', path: prompt.unconnected }));
+		}
 		const inputs = await this.prepareInputMedia(plan, resolved, mode.limits.imageFormats ?? BASEHALF_VIDEO_IMAGE_FORMATS, token);
-		const sentPrompt = buildBaseHalfVideoPrompt(info.prompt, texts);
-		if (!sentPrompt && !inputs.startFrame && !inputs.endFrame && !inputs.source && !inputs.images.length && !inputs.videos.length && !inputs.audios.length) {
+		if (prompt.empty && !inputs.startFrame && !inputs.endFrame && !inputs.source && !inputs.images.length && !inputs.videos.length && !inputs.audios.length) {
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'nothingToSend' }));
 		}
 		// The provider module checks the planned generation with its files:
@@ -640,7 +644,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			model: ref.model.id,
 			mode: mode.id,
 			params: sent,
-			prompt: sentPrompt,
+			prompt: prompt.parts,
 			inputs
 		}, parseBaseHalfVideoCheckResult, false);
 		throwIfCancelled(token);
@@ -653,6 +657,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		// What is sent and recorded is what was checked: a value beyond a range the inputs narrow is fitted to it (D70).
 		const fitted = fitBaseHalfVideoParams(ref.model, sent, checked.value.limits);
+		// The prompt as the module writes it, which the task record keeps (D74).
+		const sentPrompt = checked.value.prompt;
 		const record: IBaseHalfGenerationRequest = {
 			provider: ref.provider.id,
 			region: access.region,
@@ -661,7 +667,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			providerModel: checked.value.providerModel ?? providerModel,
 			mode: mode.id,
 			params: fitted,
-			// The card's own prompt: the text of its notes stays on this computer.
+			// The card's own prompt, with its mentions: the text of its notes stays on this computer.
 			prompt: info.prompt,
 			inputs: used
 		};
@@ -670,7 +676,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			model: ref.model.id,
 			mode: mode.id,
 			params: fitted,
-			prompt: sentPrompt,
+			prompt: prompt.parts,
 			inputs,
 			targets: task.cards.map((_card, index) => this.taskStore.partFile(task, index).fsPath)
 		};

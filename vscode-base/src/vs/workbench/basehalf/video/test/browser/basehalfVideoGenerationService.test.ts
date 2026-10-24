@@ -60,6 +60,7 @@ import {
 	FAKE_JPEG,
 	FAKE_MP4,
 	FAKE_PNG,
+	fakeWrittenPrompt,
 	FakeDraftOperations,
 	FakeMovedItemsService,
 	FakeProviderCommands,
@@ -78,7 +79,7 @@ const KEY = 'acme-test-key-0123';
 const CORVID_KEY = 'corvid-test-key-4567';
 const [ACME_PROVIDER, , CORVID_PROVIDER] = TEST_GENERATION_CATALOG.providers;
 
-const VIDEO: IBaseHalfGenerationInfo = { prompt: '图片1 rides along the sea.', provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
+const VIDEO: IBaseHalfGenerationInfo = { prompt: 'A rider passes along the sea.', provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
 const IMAGE: IBaseHalfGenerationInfo = { prompt: 'A heron at dawn.', provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: { resolution: '1k', count: 1 } };
 const REQUEST: IBaseHalfGenerationRequest = {
 	provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: 'Rain.', inputs: []
@@ -271,7 +272,8 @@ suite('BaseHalfVideoGenerationService', () => {
 		await harness.write('frames/start.png', FAKE_PNG);
 		await harness.write('frames/end.png', FAKE_PNG);
 		await harness.write('notes/scene.md', '---\nupstream: []\n---\n# Scene\n\nThe sea at dusk.\n');
-		const video = await harness.card('shots/video.mp4', VIDEO, ['frames/start.png', 'frames/end.png', 'notes/scene.md']);
+		// The prompt mentions the start frame and the note (D74).
+		const video = await harness.card('shots/video.mp4', { ...VIDEO, prompt: '@[frames/start.png] rides along the sea, as @[notes/scene.md] says.' }, ['frames/start.png', 'frames/end.png', 'notes/scene.md']);
 		const { service, tasks, commands } = harness.first;
 		const polls = [
 			{ ok: true, value: { state: 'pending' } },
@@ -304,7 +306,8 @@ suite('BaseHalfVideoGenerationService', () => {
 		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
 		const download = commands.calls.find(call => call.id === DOWNLOAD)?.argument as IBaseHalfVideoDownloadRequest;
 		const placed = commands.calls.find(call => call.id === PLACE)?.argument as IBaseHalfVideoPlaceRequest;
-		const sentPrompt = '图片1 rides along the sea.\n\n# Scene\n\nThe sea at dusk.';
+		// Each mention as its input's place in the request, which the provider module names; the note under its name.
+		const sentPrompt = [{ input: 'startFrame' }, ' rides along the sea, as "scene" says.\n\nscene:\n# Scene\n\nThe sea at dusk.'];
 		assert.deepStrictEqual({
 			cards: cards.map(card => card.path),
 			whileSubmitting,
@@ -335,7 +338,7 @@ suite('BaseHalfVideoGenerationService', () => {
 				providerModel: 'acme-motion-2-e-260101',
 				mode: 'frames',
 				params: { resolution: '720p', duration: 5, sound: true },
-				prompt: '图片1 rides along the sea.',
+				prompt: '@[frames/start.png] rides along the sea, as @[notes/scene.md] says.',
 				inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md']
 			},
 			cache: [],
@@ -701,6 +704,27 @@ suite('BaseHalfVideoGenerationService', () => {
 		harness.dispose();
 	}));
 
+	test('a prompt that mentions a file that is not connected does not generate; the task record keeps the prompt as the module wrote it (D74)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const harness = await createHarness();
+		await harness.write('refs/a.png', FAKE_PNG);
+		const stray = await harness.card('shots/stray.mp4', { ...VIDEO, prompt: '@[refs/a.png] meets @[refs/hero.png].' }, ['refs/a.png']);
+		const named = await harness.card('shots/named.mp4', { ...VIDEO, prompt: 'From @[refs/a.png] on.' }, ['refs/a.png']);
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const refusal = await service.generate(stray).then(() => 'started', (error: Error) => error.message);
+		const sentBefore = commands.count(SUBMIT);
+		const [card] = await service.generate(named);
+		const record = (await harness.records()).find(task => task.cards.some(candidate => candidate.path === 'shots/named.mp4'));
+		assert.deepStrictEqual({ refusal, sentBefore, sentPrompt: record?.sentPrompt, recorded: record?.request?.prompt }, {
+			refusal: 'The prompt mentions hero.png, which is not connected.',
+			sentBefore: 0,
+			sentPrompt: 'From <startFrame> on.',
+			recorded: 'From @[refs/a.png] on.'
+		});
+		await service.stop(card);
+		harness.dispose();
+	}));
+
 	test('a draft whose input no mode of its model can use does not generate, and the mode that is used follows the inputs (D67)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
 		await harness.write('refs/a.png', FAKE_PNG);
@@ -719,7 +743,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			recordedMode: record?.request?.mode,
 			ownMode: (await harness.read('.bh/mirror/shots/with.mp4/generation.yaml'))?.includes('mode: "frames"')
 		}, {
-			refusal: 'Video 2 cannot be sent: Acme Motion 2 takes one video at most.',
+			refusal: 'second.mp4 cannot be sent: Acme Motion 2 takes one video at most.',
 			sentMode: ['reference'],
 			recordedMode: 'reference',
 			ownMode: true
@@ -1015,9 +1039,9 @@ suite('BaseHalfVideoGenerationService', () => {
 		const { service, commands } = harness.first;
 		const other = harness.window();
 		// The provider module takes long to check, as a keychain prompt or a slow check can.
-		commands.check = async () => {
+		commands.check = async request => {
 			await timeout(150_000);
-			return { ok: true, value: { problems: [] } };
+			return { ok: true, value: { problems: [], prompt: fakeWrittenPrompt(request.prompt) } };
 		};
 		commands.poll = () => ({ ok: true, value: { state: 'running' } });
 		const started = await service.generate(video).then(() => 'started', (error: Error) => error.message);
@@ -1262,7 +1286,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		await harness.write('frames/end.png', FAKE_PNG);
 		const input = (path: string, file = harness.resource(path)): IBaseHalfVideoResolvedInput => ({ path, kind: 'image', available: true, file });
 		const frames = TEST_GENERATION_CATALOG.providers[0].models[0].modes[0];
-		const prepare = (inputs: IBaseHalfVideoResolvedInput[]) => harness.first.service.prepareInputMedia(planBaseHalfVideoInputs(frames.inputs, inputs, 'en'), inputs, ['png', 'jpeg', 'webp']);
+		const prepare = (inputs: IBaseHalfVideoResolvedInput[]) => harness.first.service.prepareInputMedia(planBaseHalfVideoInputs(frames.inputs, inputs), inputs, ['png', 'jpeg', 'webp']);
 		const planned = [input('frames/start.svg'), input('frames/end.png')];
 		const first = await prepare(planned);
 		await prepare(planned);

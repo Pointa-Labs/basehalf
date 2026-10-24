@@ -3,7 +3,6 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { language } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import {
 	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
@@ -32,7 +31,6 @@ export interface IBaseHalfGenerationRecordState {
 	/** The inputs the record names, resolved now, in its order. */
 	readonly inputs: readonly IBaseHalfVideoInputSource[];
 	readonly catalog: BaseHalfVideoCatalogState;
-	readonly displayLanguage?: string;
 }
 
 export interface IBaseHalfGenerationRecordInput {
@@ -42,8 +40,6 @@ export interface IBaseHalfGenerationRecordInput {
 	readonly kind: BaseHalfVideoInputKind;
 	/** The start or the end frame, for a mode with frames. */
 	readonly frame?: 'start' | 'end';
-	/** The name the prompt had for it, such as `图片1`; absent for an input without a name. */
-	readonly label?: string;
 	/** Its file is not there any more. */
 	readonly gone: boolean;
 }
@@ -81,13 +77,12 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 	if (!made) {
 		return UNREADABLE;
 	}
-	const displayLanguage = state.displayLanguage ?? language;
 	const catalog = state.catalog.kind === 'ready' ? state.catalog.catalog : undefined;
 	const ref = findBaseHalfVideoModel(catalog, made.provider, made.model);
 	const mode = ref?.model.modes.find(candidate => candidate.id === made.mode);
-	// The names the generation gave its inputs: numbered by kind in the record's order, a frame by its slot.
+	// What the generation used each input for: a frame by its slot.
 	const modeInputs = mode?.inputs ?? (made.mode === 'frames' ? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS : BASEHALF_IMAGE_DEFAULT_MODE_INPUTS);
-	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs.map(input => ({ path: input.path, kind: input.kind, available: true })), displayLanguage);
+	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs.map(input => ({ path: input.path, kind: input.kind, available: true })));
 	const inputs = plan.map((item, index): IBaseHalfGenerationRecordInput => {
 		const frame = item.use === 'start-frame' ? 'start' : item.use === 'end-frame' ? 'end' : undefined;
 		return Object.freeze({
@@ -95,7 +90,6 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 			path: item.path,
 			kind: item.kind,
 			...(frame !== undefined ? { frame } : {}),
-			...(item.label !== undefined ? { label: item.label } : {}),
 			gone: !state.inputs[index].available
 		});
 	});

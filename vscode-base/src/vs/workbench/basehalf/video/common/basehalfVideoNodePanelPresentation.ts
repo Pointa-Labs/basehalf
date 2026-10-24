@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { isMacintosh, language } from '../../../../base/common/platform.js';
+import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import {
@@ -33,9 +33,7 @@ import {
 	baseHalfVideoRegionOffersModel,
 	baseHalfVideoSentParams,
 	baseHalfVideoSettingsSummary,
-	buildBaseHalfVideoPrompt,
 	BaseHalfModelKind,
-	findBaseHalfVideoLabelTokens,
 	findBaseHalfVideoModel,
 	fitBaseHalfVideoParams,
 	formatBaseHalfVideoNumber,
@@ -56,6 +54,7 @@ import {
 	normalizeBaseHalfVideoParams,
 	planBaseHalfVideoInputs
 } from './basehalfVideoCatalog.js';
+import { buildBaseHalfPromptParts } from './basehalfGenerationMentions.js';
 import { baseHalfGenerationChoice, IBaseHalfGenerationInfo } from './basehalfGenerationInfo.js';
 
 /**
@@ -85,7 +84,6 @@ export interface IBaseHalfVideoPanelState {
 	readonly generating: boolean;
 	/** The prompt as the panel holds it, which can be newer than the file. */
 	readonly prompt: string;
-	readonly displayLanguage?: string;
 }
 
 export interface IBaseHalfVideoPanelInputItem {
@@ -94,10 +92,7 @@ export interface IBaseHalfVideoPanelInputItem {
 	readonly path: string;
 	readonly kind: BaseHalfVideoInputKind;
 	readonly use: BaseHalfVideoInputUse;
-	/** The name a prompt uses for it, such as `图片1`. Images, videos, and audio only. */
-	readonly label?: string;
-	/** What the panel writes beside its thumbnail: its name, or its file name. */
-	readonly name: string;
+	/** The name of its file, as BaseHalf shows names: what its tile, its look, and its chips say (D74). */
 	readonly fileName: string;
 	readonly used: boolean;
 	/** Why it is not used, in words. */
@@ -125,23 +120,6 @@ export interface IBaseHalfVideoPanelInputRow {
 	readonly items: readonly IBaseHalfVideoPanelInputItem[];
 	/** What a row without inputs says. */
 	readonly emptyHint?: string;
-}
-
-/** An input that a prompt can name, for the `@` menu. */
-export interface IBaseHalfVideoPanelName {
-	readonly label: string;
-	readonly index: number;
-	readonly kind: 'image' | 'video' | 'audio';
-	readonly path: string;
-	readonly fileName: string;
-	readonly used: boolean;
-}
-
-/** A name in the prompt. `known` is false for a name that matches no input. */
-export interface IBaseHalfVideoPanelPromptMark {
-	readonly start: number;
-	readonly end: number;
-	readonly known: boolean;
 }
 
 export interface IBaseHalfVideoPanelModelButton {
@@ -286,7 +264,6 @@ export interface IBaseHalfVideoPanelPresentation {
 	readonly plan: readonly IBaseHalfVideoInputPlanItem[];
 	/** Absent when the mode and the card have no inputs to show. */
 	readonly inputRow?: IBaseHalfVideoPanelInputRow;
-	readonly names: readonly IBaseHalfVideoPanelName[];
 	readonly model: IBaseHalfVideoPanelModelButton;
 	readonly modelMenu: IBaseHalfVideoPanelModelMenu;
 	/** Absent until the catalog has the card's model. */
@@ -305,7 +282,6 @@ export interface IBaseHalfVideoPanelPresentation {
 }
 
 export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelPresentation {
-	const displayLanguage = state.displayLanguage ?? language;
 	const generation = baseHalfGenerationChoice(state.info);
 	const catalog = state.catalog.kind === 'ready' ? state.catalog.catalog : undefined;
 	const ref = findBaseHalfVideoModel(catalog, generation?.provider, generation?.model);
@@ -316,8 +292,10 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	// Without a model, an image card takes references, as every image model does, and a video card frames.
 	const modeInputs = mode?.inputs ?? (state.kind === 'image' ? BASEHALF_IMAGE_DEFAULT_MODE_INPUTS : BASEHALF_VIDEO_DEFAULT_MODE_INPUTS);
 	const modeId = mode?.id ?? generation?.mode ?? (state.kind === 'image' ? 'reference' : 'frames');
-	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs, displayLanguage);
+	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs);
 	const startFrame = plan.some(item => item.use === 'start-frame');
+	// The prompt in parts, as a generation sends it: each mention as its input's place in the request (D74).
+	const prompt = buildBaseHalfPromptParts(state.prompt, plan, item => state.texts?.get(item.path));
 	const checkRequest = ref && mode && region && baseHalfVideoRegionOffersModel(ref.model, region.id)
 		? Object.freeze<Omit<IBaseHalfVideoCheckRequest, 'inputs'>>({
 			provider: ref.provider.id,
@@ -325,7 +303,7 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 			model: ref.model.id,
 			mode: mode.id,
 			params: baseHalfVideoSentParams(ref.model, mode.id, params, startFrame),
-			prompt: buildBaseHalfVideoPrompt(state.prompt, plan.flatMap(item => item.use === 'text' ? [state.texts?.get(item.path) ?? ''] : []))
+			prompt: prompt.parts
 		})
 		: undefined;
 	const blocker = getBaseHalfVideoGenerateBlocker({
@@ -337,7 +315,8 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 		problems: checkRequest ? state.check?.problems : undefined,
 		prompt: state.prompt,
 		plan,
-		...(mode ? { mode } : {})
+		...(mode ? { mode } : {}),
+		...(prompt.unconnected !== undefined ? { unconnected: prompt.unconnected } : {})
 	});
 	const blockerText = blocker ? baseHalfVideoGenerateBlockerText(blocker) : undefined;
 	const modelLabel = ref?.model.label ?? localize('basehalf.video.panel.thisModel', "This model");
@@ -351,32 +330,14 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 		params,
 		plan,
 		...(row ? { inputRow: row } : {}),
-		names: Object.freeze(items.flatMap((item): IBaseHalfVideoPanelName[] => item.label && (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio')
-			? [Object.freeze({ label: item.label, index: item.index, kind: item.kind, path: item.path, fileName: item.fileName, used: item.used })]
-			: [])),
 		model: modelButton(state, ref, region, blocker, blockerText),
 		modelMenu: modelMenu(state),
-		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, displayLanguage, checkRequest ? state.check?.limits : undefined) } : {}),
+		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, checkRequest ? state.check?.limits : undefined) } : {}),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
 		...(blocker && blockerText ? reasonOf(blocker, blockerText, ref?.provider.id) : {}),
 		...(checkRequest ? { checkRequest } : {})
 	});
-}
-
-/** The names in a prompt, marked known when an input of that kind and number exists. */
-export function baseHalfVideoPanelPromptMarks(prompt: string, plan: readonly IBaseHalfVideoInputPlanItem[]): readonly IBaseHalfVideoPanelPromptMark[] {
-	const counts = { image: 0, video: 0, audio: 0 };
-	for (const item of plan) {
-		if (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio') {
-			counts[item.kind]++;
-		}
-	}
-	return Object.freeze(findBaseHalfVideoLabelTokens(prompt).map(token => Object.freeze({
-		start: token.start,
-		end: token.end,
-		known: token.ordinal >= 1 && token.ordinal <= counts[token.kind]
-	})));
 }
 
 /**
@@ -398,16 +359,6 @@ export function baseHalfVideoPanelMentionQuery(text: string, caret: number): { r
 		return undefined;
 	}
 	return Object.freeze({ start: at, query });
-}
-
-/** The names that match what was typed after `@`, in upstream order. */
-export function filterBaseHalfVideoPanelNames(names: readonly IBaseHalfVideoPanelName[], query: string): readonly IBaseHalfVideoPanelName[] {
-	const needle = query.trim().toLowerCase();
-	if (!needle) {
-		return names;
-	}
-	const compact = needle.replace(/\s+/g, '');
-	return names.filter(name => name.label.toLowerCase().replace(/\s+/g, '').includes(compact) || name.fileName.toLowerCase().includes(needle));
 }
 
 /** The upstream list with the entries at `first` and `second` exchanged, and nothing else changed. */
@@ -442,8 +393,6 @@ function inputItem(item: IBaseHalfVideoInputPlanItem, index: number, inputs: IBa
 		path: item.path,
 		kind: item.kind,
 		use: item.use,
-		...(item.label !== undefined ? { label: item.label } : {}),
-		name: item.label ?? fileName,
 		fileName,
 		used,
 		...(reason !== undefined ? { reason } : {}),
@@ -452,12 +401,11 @@ function inputItem(item: IBaseHalfVideoInputPlanItem, index: number, inputs: IBa
 }
 
 function usePurpose(item: IBaseHalfVideoInputPlanItem): string {
-	const label = item.label ?? '';
 	switch (item.use) {
-		case 'start-frame': return localize('basehalf.video.panel.use.startFrame', "Start frame · {0}", label);
-		case 'end-frame': return localize('basehalf.video.panel.use.endFrame', "End frame · {0}", label);
-		case 'reference': return localize('basehalf.video.panel.use.reference', "Reference · {0}", label);
-		case 'source': return localize('basehalf.video.panel.use.source', "Clip · {0}", label);
+		case 'start-frame': return localize('basehalf.video.panel.use.startFrame', "Start frame");
+		case 'end-frame': return localize('basehalf.video.panel.use.endFrame', "End frame");
+		case 'reference': return localize('basehalf.video.panel.use.reference', "Reference");
+		case 'source': return localize('basehalf.video.panel.use.source', "Clip");
 		default: return localize('basehalf.video.panel.use.text', "Its text is added to the prompt.");
 	}
 }
@@ -647,7 +595,6 @@ function settingsView(
 	startFrame: boolean,
 	region: IBaseHalfVideoCatalogRegion | undefined,
 	inputs: readonly IBaseHalfVideoInputSource[],
-	displayLanguage: string,
 	limits: IBaseHalfVideoCheckResult['limits']
 ): IBaseHalfVideoPanelSettingsView {
 	// A value beyond a range the inputs narrow shows as what is sent: the end of the range (D70).
@@ -666,7 +613,7 @@ function settingsView(
 					? localize('basehalf.video.panel.modeNotInRegion', "Not offered in {0}", region.label)
 					: undefined;
 				// A mode that cannot use every input is not chosen: what is connected is sent.
-				const disabled = baseHalfVideoModeUsesEveryInput(candidate.inputs, inputs) ? undefined : modeCannotUse(candidate, inputs, displayLanguage);
+				const disabled = baseHalfVideoModeUsesEveryInput(candidate.inputs, inputs) ? undefined : modeCannotUse(candidate, inputs);
 				return Object.freeze({
 					key: `mode:${candidate.id}`,
 					value: candidate.id,
@@ -682,11 +629,11 @@ function settingsView(
 	});
 }
 
-/** Why a mode cannot be chosen for the card's inputs: the first input it cannot use, as "Frames cannot use Video 1." */
-function modeCannotUse(mode: IBaseHalfVideoCatalogMode, inputs: readonly IBaseHalfVideoInputSource[], displayLanguage: string): string {
-	const plan = planBaseHalfVideoInputs(mode.inputs, inputs.map(input => input.available ? input : { path: input.path, kind: input.kind, available: true }), displayLanguage);
+/** Why a mode cannot be chosen for the card's inputs: the first input it cannot use, as "Frames cannot use clip.mp4." */
+function modeCannotUse(mode: IBaseHalfVideoCatalogMode, inputs: readonly IBaseHalfVideoInputSource[]): string {
+	const plan = planBaseHalfVideoInputs(mode.inputs, inputs.map(input => input.available ? input : { path: input.path, kind: input.kind, available: true }));
 	const item = plan.find(candidate => candidate.use === 'unused');
-	const name = item ? item.label ?? baseHalfVideoPanelInputFileName(item.path) : '';
+	const name = item ? baseHalfVideoPanelInputFileName(item.path) : '';
 	return localize('basehalf.video.panel.modeCannotUse', "{0} cannot use {1}.", mode.label, name);
 }
 

@@ -235,6 +235,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 			referenceEditService,
 			sidecars: upstream.sidecars,
 			draftUpstream: upstream.drafts,
+			draftPrompts: upstream.prompts,
 			generationCardStore,
 			draftInfo,
 			navigation,
@@ -424,6 +425,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 			referenceEditService,
 			sidecars: upstream.sidecars,
 			draftUpstream: upstream.drafts,
+			draftPrompts: upstream.prompts,
 			generationCardStore,
 			draftInfo,
 			navigation,
@@ -803,6 +805,8 @@ interface IBaseHalfTemplateSetupRuntime {
 	readonly sidecars: readonly IBaseHalfCanvasTemplateSidecarUpstream[];
 	/** The workspace-relative entries of each draft, by its template-relative path. */
 	readonly draftUpstream: ReadonlyMap<string, readonly string[]>;
+	/** The prompt of each draft with its mentions rebased, by its template-relative path (D74). */
+	readonly draftPrompts: ReadonlyMap<string, string>;
 	readonly generationCardStore: IBaseHalfGenerationCardStore;
 	/** What a draft of the template starts with: its prompt and this computer's last values of its kind. */
 	readonly draftInfo: (draft: IBaseHalfCanvasTemplateDraft) => IBaseHalfGenerationInfo;
@@ -1027,7 +1031,8 @@ async function applyTemplateDrafts(runtime: IBaseHalfTemplateSetupRuntime): Prom
 			throw new Error(localize('basehalf.canvas.template.draftTaken', "'{0}' is taken by another item, so the template could not make its card there.", draft.path));
 		}
 		const resource = joinProjectPath(runtime.projectResource, draft.path);
-		await runtime.generationCardStore.createDraft(dirname(resource), basename(resource), runtime.draftInfo(draft), runtime.draftUpstream.get(draft.path) ?? []);
+		const info = runtime.draftInfo(draft);
+		await runtime.generationCardStore.createDraft(dirname(resource), basename(resource), { ...info, prompt: runtime.draftPrompts.get(draft.path) ?? info.prompt }, runtime.draftUpstream.get(draft.path) ?? []);
 	}
 }
 
