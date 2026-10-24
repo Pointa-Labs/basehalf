@@ -90,16 +90,20 @@ See [code organization](code-organization.md) and public decision D60.
   area. Once open it takes the keyboard, and Escape closes it wherever in it
   the keyboard is
   ([opening and closing Card Detail](../specs/card-detail-opening.md)).
-- A card and Card Detail show the same files as an image, a PDF, a sound, or
-  a video, by one list (`platform/protocol/common/basehalfMediaFiles.ts`):
-  images `.avif`, `.bmp`, `.gif`, `.ico`, `.jpeg`, `.jpg`, `.png`, `.svg`,
-  and `.webp`; `.pdf`; sounds `.flac`, `.m4a`, `.mp3`, `.oga`, `.ogg`, and
-  `.wav`; videos `.m4v`, `.mkv`, `.mov`, `.mp4`, and `.webm`; without
-  regard to case. The window loads each image, sound, and video of the list
-  itself, from any folder, through its file protocol, and a sound and a
-  video play in BaseHalf's player, never in the system's controls
-  ([generation cards](../specs/generation-cards.md#the-player)). A file that
-  the system cannot decode says so where it would show.
+- A card and Card Detail show the same files as an image, a PDF, a book, a
+  sound, or a video, by one list
+  (`platform/protocol/common/basehalfMediaFiles.ts`): images `.avif`,
+  `.bmp`, `.gif`, `.ico`, `.jpeg`, `.jpg`, `.png`, `.svg`, and `.webp`;
+  `.pdf`; books `.azw`, `.azw3`, `.cbz`, `.epub`, `.fb2`, `.fbz`, and
+  `.mobi`; sounds `.flac`, `.m4a`, `.mp3`, `.oga`, `.ogg`, and `.wav`;
+  videos `.m4v`, `.mkv`, `.mov`, `.mp4`, and `.webm`; without regard to
+  case. The window loads each image, sound, and video of the list itself,
+  from any folder, through its file protocol, and a sound and a video play
+  in BaseHalf's player, never in the system's controls
+  ([generation cards](../specs/generation-cards.md#the-player)). A PDF and a
+  book show their cover on their card and are read in a page of their own
+  ([PDFs and books](../specs/documents-and-books.md)). A file that the
+  system cannot decode says so where it would show.
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 

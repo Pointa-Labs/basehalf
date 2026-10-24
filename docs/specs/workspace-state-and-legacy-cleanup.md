@@ -57,7 +57,7 @@ In the workspace, under `.bh/`:
 | `.bh/mirror/<path>/made.yaml` | project metadata | the record of the generation that made the file at `<path>`, written once by BaseHalf ([generation cards](generation-cards.md#madeyaml)) |
 | `.bh/mirror/<folder>/canvas.yaml` | kept in the folder, not shared through git | the place and size of every card, and edge anchor memory ([canvas card placement](canvas-card-placement.md)) |
 | `.bh/mirror/<file>/adhd.yaml` | project metadata | reading aids |
-| `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation |
+| `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation: the background of a note's card, or whether the card of a PDF or a book shows its cover ([PDFs and books](documents-and-books.md#hiding-and-showing-the-cover)) |
 | `.bh/legacy-references.yaml` | project metadata | append-only migration record, only after a migration |
 | `.bh/cache/` | machine-local runtime state | the task records of generations and their partial downloads under `generation/` ([generation cards](generation-cards.md#the-task-record)), undo stashes, recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)), and `selection.yaml`, the record of [the selection agents can see](selection-for-agents.md); not shared through git, and not watched for changes, except `generation/`, which BaseHalf watches so that every window of the workspace shows the same generations |
 | `.bh/.gitignore` | BaseHalf's own ignore file | hides itself, every `canvas.yaml`, and `.bh/cache/` from git ([canvas card placement](canvas-card-placement.md#places-stay-out-of-git)) |
@@ -114,6 +114,9 @@ In VS Code storage (this machine):
 | `basehalf.references.firstFrontmatterNotice.v1` | application | whether the first-frontmatter notice was shown |
 | `basehalf.agentSkill.declinedVersion` | application | the version of the [agent skill](agent-skill.md) the user chose not to be asked about again |
 | `basehalf.canvas.pendingTemplateSetups.v2` | workspace | pending template setups ([reference graph](reference-graph.md#templates)) |
+| `basehalf.pdfViewState.<file>` | workspace | the page and the zoom where the user was in a PDF ([PDFs and books](documents-and-books.md#the-pdf-reader)) |
+| `basehalf.bookViewState.<file>` | workspace | the place where the user was in a book ([PDFs and books](documents-and-books.md#the-book-reader)) |
+| `basehalf.bookReader.preferences` | profile | the size of a book's text and the choice of pages or one scroll |
 
 In BaseHalf's application storage for the workspace (this machine), outside
 VS Code storage and outside the workspace folder:
@@ -121,6 +124,12 @@ VS Code storage and outside the workspace folder:
 | File | Content |
 | --- | --- |
 | `<workspace storage>/basehalf/moved-items-<folder>.json`, one per workspace folder | what BaseHalf last saw in the folder: the paths of the items the canvas could show, the fingerprints of the followed items, the moves whose relocation has not finished, and the moves whose entries are still owed ([following moved items](following-moved-items.md#the-snapshot)) |
+
+In the application's data folder (this machine), for every workspace:
+
+| File | Content |
+| --- | --- |
+| `CachedCovers/<key>.json` and `<key>.webp` | the cover of a PDF or a book, made from its file ([PDFs and books](documents-and-books.md#how-a-cover-is-made)) |
 
 ## Canvas viewport state
 

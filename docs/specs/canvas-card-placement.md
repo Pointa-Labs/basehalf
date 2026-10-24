@@ -220,8 +220,9 @@ fourth: it goes where the user pointed
 ### When a card appears
 
 1. **Size.** The size at which a card of its kind is drawn when it is new:
-   300 × 220 for a file, 248 × 188 for a folder, and the shape of its
-   picture for an image or a video, a generation card among them
+   300 × 220 for a file, 248 × 188 for a folder, 300 × 400 for a PDF or a
+   book, and the shape of its picture for an image or a video, a generation
+   card among them
    ([below](#the-card-of-an-image-or-a-video-has-its-pictures-shape)).
    BaseHalf chooses the place when it knows the size: it measures the
    picture first, and for a draft it reads its settings; the kind of a draft
@@ -296,6 +297,13 @@ Its row holds its size, so that the layout stores what the canvas shows.
 
 The card of a sound keeps the size of a file card, and the user does not
 resize it either.
+
+The card of a PDF or a book is the card of a picture whose ratio is always
+3:4: its full shape is 300 × 400, and the rules above hold for it with that
+ratio, which needs no measuring. It shows its cover inside that shape
+([PDFs and books](documents-and-books.md#the-card), D81). A PDF card of the
+plain grid from before this rule, 300 × 220 with a card below it, is
+165 × 220.
 
 ### The end of a canvas
 

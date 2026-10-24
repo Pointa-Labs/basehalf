@@ -2819,3 +2819,59 @@ its own background work there.
   provider service, with the session that every window uses.
 - A release builds no AI Video of its own, and the check of a packaged
   layout no longer looks for it.
+
+## D81 — A PDF or a book shows its cover at one size, and a book opens to be read (NEW, 2026-10-25)
+
+**Decision.** The card of a PDF and of a book in a common e-book format
+(EPUB, Kindle's MOBI and AZW3, FictionBook, comic book archive) shows the
+document's cover: the first page of a PDF, the cover picture of a book. It
+is 300 × 400, the card of a picture whose shape is always 3:4, and the user
+does not resize it. A button at the right end of its caption hides the
+cover, and the card shows the grey face of a file card; the choice is the
+card's, in its `appearance.yaml`. Covers are made in the window and kept in
+the application's data folder, never in the workspace. A book opens in
+Card Detail in a reader of BaseHalf's own, built on foliate-js: pages, its
+contents, search, the size of its text, and the place where the user
+stopped. Grow branch works on a book's passage as on a PDF's, and the text
+selected in a PDF or a book is what agents can see. A PDF opens at the width
+of Card Detail, but at most 125 %, until the user zooms. See
+[PDFs and books](specs/documents-and-books.md).
+
+**Why.** People learn from material that is mostly PDF, and from hard books
+that are often e-book files. On 2026-10-25 the card of a PDF was an empty
+card with a glyph, and a book showed "Binary file" with nothing to open it.
+The user asked for the card to show the first page, at a fixed size that is
+not resized, with the cover hidden per card into the old grey, and for the
+common e-book formats to be read once imported. A card that shows its cover
+makes a canvas of sources readable at a glance, and one size keeps such a
+canvas in order. The selected passage is what a learner asks an agent
+about; until now the agent saw only which PDF was open.
+
+**What was set aside.**
+- The page's own shape for each card: a page of slides would make a wide
+  card among tall ones, and hiding the cover would change the size. One
+  3:4 shape holds the common pages and covers with a narrow margin.
+- Filling the card with the cover: a book's cover lost the top and bottom
+  of its title, and a page of slides most of the page.
+- Covers in `.bh/cache/`: a cover is a picture of a file, made again from
+  it at any time, and the workspace is the user's. The application's data
+  folder holds it on the one computer that made it.
+- foliate-js in the window to read covers: the window's Trusted Types
+  forbid the HTML parsing it does, and a worker has no HTML parser. A small
+  reader of BaseHalf's own reads only a cover's picture, title, and authors.
+- The npm package named foliate-js: it is published by somebody other than
+  its author and is a year behind. The reader takes the author's repository
+  at a fixed commit, as its author asks.
+- DjVu and CBR: no library for them is under a license BaseHalf takes.
+- The PDF at the full width of Card Detail: 186 % on a wide window, a page
+  in two screens.
+
+**Consequences.**
+- Revises D66: the card of a PDF no longer resizes, and a book's card does
+  not either.
+- Revises D57's record: selected text can be in a PDF or a book, with
+  `first_page` and `last_page` or `chapter`. The skill becomes version 9.
+- `appearance.yaml` holds `cover` for a document as it holds `background`
+  for a note.
+- foliate-js (MIT), with the zip.js (BSD-3-Clause) and fflate (MIT) it
+  carries, is a dependency of the book reader.

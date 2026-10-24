@@ -474,8 +474,8 @@ Each entry resolves to a kind by its file's extension: images (`png`, `jpg`,
 `jpeg`, `webp`, `gif`, `svg`, `avif`, `bmp`), videos (`mp4`, `mov`, `m4v`,
 `webm`), audio (`mp3`, `wav`, `m4a`, `aac`, `ogg`, `flac`), and text (`md`,
 `markdown`, `txt`). An entry that names a draft is of the draft's kind and
-unavailable until the draft has its file. Anything else, such as a folder or
-a PDF, is of kind other and is not used.
+unavailable until the draft has its file. Anything else, such as a folder, a
+PDF, or a book, is of kind other and is not used.
 
 How a generation uses the inputs is computed once, in `planBaseHalfInputs`,
 from the slots that the [mode that is used](#what-is-connected-is-sent)

@@ -1,9 +1,12 @@
 # The selection agents can see
 
-Status: Active (2026-10-14; a selected draft, 2026-10-22 for D63)
+Status: Active (2026-10-14; a selected draft, 2026-10-22 for D63; text in a
+PDF or a book, 2026-10-25 for D81)
 Decisions: [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
-[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
+[D81](../decisions.md)
 Related: [agent skill](agent-skill.md),
+[PDFs and books](documents-and-books.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [canvas selection and arrangement](canvas-selection-and-arrangement.md),
 [canvas card name](canvas-card-name.md),
@@ -69,6 +72,7 @@ says what differs in this record.
 | Selected one card, of any kind | the card | the card's icon and name, as its caption shows them |
 | Opened a card for editing, or opened it in Card Detail, and selected no text | the card | the same |
 | Selected text in a note, on its card or in Card Detail | the text, its note, and the lines it is on | a text icon and the start of the text |
+| Selected text in a PDF or a book in Card Detail | the text, its document, and the pages or the chapter it is in | the same |
 | Selected two or more cards | every selected card | "N cards selected" |
 
 - **Only selecting changes it.** Moving the pointer, scrolling, zooming, and
@@ -85,9 +89,12 @@ says what differs in this record.
 - Renaming, moving, or deleting a selected card ends its selection
   ([canvas card name](canvas-card-name.md)), so the folder is recorded.
 - A connection that is selected selects no card; the folder is recorded.
-- Card Detail's preview cannot be selected, and a PDF, an image, or a video
-  holds no text to select: there the card is recorded. So is a selection that
-  holds only white space, such as a selected image block or line break.
+- Card Detail's preview cannot be selected, and an image or a video holds no
+  text to select: there the card is recorded. So is a selection that holds
+  only white space, such as a selected image block or line break. Text in a
+  PDF or a book is recorded once its selection has not changed for 30 ms
+  ([PDFs and books](documents-and-books.md#what-agents-can-see)); when it
+  ends, the document's card is recorded again.
 - When the note changes while text is selected in it, such as when an agent
   writes it, the selection stays on the text it was on, and the record takes
   that text's new lines. A selection whose text the change rewrote covers the
@@ -146,6 +153,11 @@ text: "核心概念\nIR（原始需求）：用户想要什么（业务导向、
   note's file that hold the selection, counted from 1 and including the
   frontmatter, and `text`, the selected text as the note shows it: without
   Markdown marks, with one line break between blocks.
+- Text in a PDF adds `first_page` and `last_page` instead of the lines: the
+  pages the selection begins and ends on, counted from 1. Text in a book adds
+  `chapter`, the entry of the book's contents that the selection begins in,
+  or nothing when the book has no contents for that place. `text` is the text
+  as the reader shows it.
 - Text longer than 10,000 characters is cut there, never inside a character,
   and `text_is_cut: true` is added. The lines are still complete.
 - Characters that YAML does not allow in a file, such as U+2028, are written
@@ -194,6 +206,8 @@ The [agent skill](agent-skill.md#the-skill) describes the record:
   selected last in BaseHalf and that it exists only while BaseHalf is open,
   and that the user's own words win when they name something else.
 - Its version becomes 3, so BaseHalf offers the update.
+- Version 9 (D81) adds what `first_page`, `last_page`, and `chapter` mean
+  for text in a PDF or a book.
 
 The [launch instruction](agent-launch-context.md) does not describe the
 record: without the skill there is no record.
@@ -241,6 +255,11 @@ record: without the skill there is no record.
   or an image by its text, without HTML tags, marks, or white space, with
   entities decoded. One found on exactly one line narrows that end;
   otherwise the end stays at the block's edge, which holds the selection.
+- *Text in a PDF or a book in Card Detail.* The page of the PDF reader or the
+  book reader posts the selected text 30 ms after the selection stops
+  changing, with the pages it is on or the chapter it begins in, and an
+  empty selection when it ends. It sends at most one character more than
+  the record keeps.
 - Text is used only while the note it is in is the one being edited on its
   card, or the one Card Detail shows. Each projection of Card Detail keeps
   its own text, and the one shown counts.
