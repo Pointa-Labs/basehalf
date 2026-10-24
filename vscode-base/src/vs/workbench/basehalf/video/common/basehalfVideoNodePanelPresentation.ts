@@ -18,6 +18,7 @@ import {
 	BaseHalfVideoParams,
 	BaseHalfVideoParamValue,
 	baseHalfVideoGenerateBlockerText,
+	baseHalfVideoLimitRange,
 	baseHalfVideoListedModels,
 	baseHalfVideoModelAbilities,
 	baseHalfVideoModeParameters,
@@ -36,11 +37,13 @@ import {
 	BaseHalfModelKind,
 	findBaseHalfVideoLabelTokens,
 	findBaseHalfVideoModel,
+	fitBaseHalfVideoParams,
 	formatBaseHalfVideoNumber,
 	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalogMode,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoCatalogRegion,
+	IBaseHalfVideoCheckLimit,
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoInputPlanItem,
@@ -197,6 +200,8 @@ interface IBaseHalfVideoPanelControlBase {
 	readonly name: string;
 	readonly label: string;
 	readonly tooltip?: string;
+	/** Why a number goes less far than its model declares, with how far, such as "Up to 25s. The connected video lasts 5.0 seconds, …" (D70). */
+	readonly limit?: string;
 }
 
 /** One parameter as the settings popover draws it (generation cards, "Settings"). */
@@ -351,7 +356,7 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 			: [])),
 		model: modelButton(state, ref, region, blocker, blockerText),
 		modelMenu: modelMenu(state),
-		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, displayLanguage) } : {}),
+		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, displayLanguage, checkRequest ? state.check?.limits : undefined) } : {}),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
 		...(blocker && blockerText ? reasonOf(blocker, blockerText, ref?.provider.id) : {}),
@@ -642,13 +647,16 @@ function settingsView(
 	startFrame: boolean,
 	region: IBaseHalfVideoCatalogRegion | undefined,
 	inputs: readonly IBaseHalfVideoInputSource[],
-	displayLanguage: string
+	displayLanguage: string,
+	limits: IBaseHalfVideoCheckResult['limits']
 ): IBaseHalfVideoPanelSettingsView {
-	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, params, startFrame);
+	// A value beyond a range the inputs narrow shows as what is sent: the end of the range (D70).
+	const fitted = fitBaseHalfVideoParams(ref.model, params, limits);
+	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, fitted, startFrame);
 	const parameters = baseHalfVideoModeParameters(ref.model, mode.id);
 	const shown = (parameter: BaseHalfVideoCatalogParameter) => startFrame && parameter.setByStartFrame
 		? Object.freeze({ name: parameter.name, label: parameter.label, ...(parameter.tooltip ? { tooltip: parameter.tooltip } : {}), kind: 'fixed' as const, text: localize('basehalf.video.panel.setByStartFrame', "Set by the start frame") })
-		: control(parameter, params[parameter.name]);
+		: control(parameter, fitted[parameter.name], limits?.[parameter.name]);
 	return Object.freeze({
 		summary: parts.join(' · '),
 		summaryParts: parts,
@@ -682,7 +690,7 @@ function modeCannotUse(mode: IBaseHalfVideoCatalogMode, inputs: readonly IBaseHa
 	return localize('basehalf.video.panel.modeCannotUse', "{0} cannot use {1}.", mode.label, name);
 }
 
-function control(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue | undefined): BaseHalfVideoPanelControl {
+function control(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue | undefined, limit?: IBaseHalfVideoCheckLimit): BaseHalfVideoPanelControl {
 	const base = { name: parameter.name, label: parameter.label, ...(parameter.tooltip ? { tooltip: parameter.tooltip } : {}) };
 	switch (parameter.kind) {
 		case 'choice': {
@@ -701,7 +709,7 @@ function control(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoP
 		}
 		case 'integer':
 		case 'number':
-			return numberControl(parameter, value, base);
+			return numberControl(parameter, value, limit ? { ...base, limit: limitNote(parameter, limit) } : base, limit);
 		case 'boolean':
 			return Object.freeze({ ...base, kind: 'switch', on: value === true });
 		case 'text':
@@ -716,17 +724,31 @@ function control(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoP
 	}
 }
 
-function numberControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalfVideoParamValue | undefined, base: { readonly name: string; readonly label: string; readonly tooltip?: string }): BaseHalfVideoPanelControl {
+/** How far a limit lets a number go, and why: "Up to 25s. The connected video lasts …" (D70). */
+function limitNote(parameter: IBaseHalfVideoNumberParameter, limit: IBaseHalfVideoCheckLimit): string {
+	const range = baseHalfVideoLimitRange(parameter, limit);
+	const end = (value: number) => baseHalfVideoParamValueLabel(parameter, value);
+	return limit.min !== undefined && limit.max !== undefined
+		? localize('basehalf.video.panel.limitBetween', "{0} to {1}. {2}", end(range.min), end(range.max), limit.reason)
+		: limit.max !== undefined
+			? localize('basehalf.video.panel.limitMax', "Up to {0}. {1}", end(range.max), limit.reason)
+			: localize('basehalf.video.panel.limitMin', "At least {0}. {1}", end(range.min), limit.reason);
+}
+
+function numberControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalfVideoParamValue | undefined, base: { readonly name: string; readonly label: string; readonly tooltip?: string; readonly limit?: string }, limit?: IBaseHalfVideoCheckLimit): BaseHalfVideoPanelControl {
 	const steps = baseHalfVideoNumberSteps(parameter);
-	const fallback = numberFallback(parameter);
 	const autoSelected = parameter.auto !== undefined && value === parameter.auto.value;
+	// A range the inputs narrow ends the slider and the field there (D70).
+	const range = baseHalfVideoLimitRange(parameter, limit);
+	const fallback = Math.min(range.max, Math.max(range.min, numberFallback(parameter)));
 	const auto = parameter.auto ? Object.freeze({ selected: autoSelected, label: parameter.auto.label, value: parameter.auto.value, fallback }) : undefined;
 	if (steps <= BUTTON_CHOICES) {
 		const choices: IBaseHalfVideoPanelChoice<BaseHalfVideoParamValue>[] = baseHalfVideoNumberValues(parameter).map(number => Object.freeze({
 			key: `${parameter.name}:${number}`,
 			value: number,
 			label: baseHalfVideoParamValueLabel(parameter, number),
-			selected: number === value
+			selected: number === value,
+			...(limit && (number < range.min || number > range.max) ? { disabled: limit.reason } : {})
 		}));
 		if (parameter.auto) {
 			choices.push(Object.freeze({ key: `${parameter.name}:auto`, value: parameter.auto.value, label: parameter.auto.label, selected: autoSelected }));
@@ -742,8 +764,8 @@ function numberControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalf
 		return Object.freeze({
 			...base,
 			kind: 'slider',
-			min: parameter.min,
-			max: parameter.max,
+			min: range.min,
+			max: range.max,
 			step: parameter.step,
 			value: position,
 			valueLabel: value !== undefined ? baseHalfVideoParamValueLabel(parameter, value) : baseHalfVideoParamValueLabel(parameter, position),
@@ -754,8 +776,8 @@ function numberControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalf
 	return Object.freeze({
 		...base,
 		kind: 'number',
-		min: parameter.min,
-		max: parameter.max,
+		min: range.min,
+		max: range.max,
 		step: parameter.step,
 		integer: parameter.kind === 'integer',
 		text: number !== undefined ? formatBaseHalfVideoNumber(parameter, number) : '',
@@ -785,14 +807,13 @@ function ratioShape(value: string | number): { readonly shape?: { readonly width
 
 // --- Generate --------------------------------------------------------------------------------------
 
-/** The line of a blocker the panel does not show elsewhere, with its action (generation cards, "The panel"). */
+/**
+ * The line of a blocker fixed outside the panel, with its action (generation
+ * cards, "The panel"; D70). A blocker the panel itself fixes shows only on
+ * Generate's tooltip.
+ */
 function reasonOf(blocker: BaseHalfVideoGenerateBlocker, text: string, provider: string | undefined): { readonly reason?: IBaseHalfVideoPanelReason } {
 	switch (blocker.kind) {
-		case 'generating':
-		case 'catalogLoading':
-		case 'noModel':
-		case 'nothingToSend':
-			return {};
 		case 'notSetUp':
 			return { reason: Object.freeze({ text, action: Object.freeze({ label: localize('basehalf.video.panel.setUp', "Set Up"), provider: blocker.provider.id }) }) };
 		case 'region':
@@ -800,8 +821,10 @@ function reasonOf(blocker: BaseHalfVideoGenerateBlocker, text: string, provider:
 			return provider
 				? { reason: Object.freeze({ text, action: Object.freeze({ label: localize('basehalf.video.panel.providersAction', "Providers…"), provider }) }) }
 				: { reason: Object.freeze({ text }) };
-		default:
+		case 'catalogFailed':
 			return { reason: Object.freeze({ text }) };
+		default:
+			return {};
 	}
 }
 

@@ -1577,6 +1577,18 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		}
 	}
 
+	/**
+	 * Why a number goes less far than its model declares, under it, and read
+	 * with its slider or field (generation cards, "Settings"; D70). A button
+	 * beyond the range has the reason itself.
+	 */
+	private renderLimit(section: HTMLElement, control: BaseHalfVideoPanelControl, described?: HTMLElement): void {
+		if (control.limit) {
+			append(section, $('.bh-video-panel-setting-note.limit')).textContent = control.limit;
+			described?.setAttribute('aria-description', control.limit);
+		}
+	}
+
 	/** One parameter, drawn as the specification says for its kind (generation cards, "Settings"). */
 	private renderControl(parent: HTMLElement, control: BaseHalfVideoPanelControl): void {
 		switch (control.kind) {
@@ -1585,6 +1597,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			case 'ratio': {
 				const section = this.radioGroup(parent, control.label, control.choices, control.kind, value => this.changeParam(control.name, value), control.tooltip);
 				section.dataset.parameter = control.name;
+				this.renderLimit(section, control);
 				return;
 			}
 			case 'slider': {
@@ -1611,6 +1624,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				if (control.auto) {
 					this.autoSwitch(row, control.name, control.auto);
 				}
+				this.renderLimit(section, control, slider);
 				return;
 			}
 			case 'number': {
@@ -1651,6 +1665,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				if (control.auto) {
 					this.autoSwitch(row, control.name, control.auto);
 				}
+				this.renderLimit(section, control, field);
 				return;
 			}
 			case 'fixed': {

@@ -88,6 +88,7 @@ import {
 	buildBaseHalfVideoPrompt,
 	findBaseHalfVideoModel,
 	findBaseHalfVideoProvider,
+	fitBaseHalfVideoParams,
 	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCatalogMode,
@@ -650,6 +651,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		if (problem) {
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'check', message: problem }));
 		}
+		// What is sent and recorded is what was checked: a value beyond a range the inputs narrow is fitted to it (D70).
+		const fitted = fitBaseHalfVideoParams(ref.model, sent, checked.value.limits);
 		const record: IBaseHalfGenerationRequest = {
 			provider: ref.provider.id,
 			region: access.region,
@@ -657,7 +660,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			// The id the module would send, where the mode and inputs choose among several.
 			providerModel: checked.value.providerModel ?? providerModel,
 			mode: mode.id,
-			params: sent,
+			params: fitted,
 			// The card's own prompt: the text of its notes stays on this computer.
 			prompt: info.prompt,
 			inputs: used
@@ -666,7 +669,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			...access,
 			model: ref.model.id,
 			mode: mode.id,
-			params: sent,
+			params: fitted,
 			prompt: sentPrompt,
 			inputs,
 			targets: task.cards.map((_card, index) => this.taskStore.partFile(task, index).fsPath)

@@ -898,12 +898,13 @@ suite('BaseHalfVideoNodePanel', () => {
 			asked,
 			prepared: generation.prepared.at(0),
 			afterChange: afterChange - checks,
-			refused: { checks: catalog.checks.length - afterChange, reason: find(panel, '.bh-video-panel-reason-text').textContent, generate: [generate.getAttribute('aria-disabled'), generate.getAttribute('aria-label')] }
+			// The panel fixes it: Generate says why, and no line does (D70).
+			refused: { checks: catalog.checks.length - afterChange, line: !find(panel, '.bh-video-panel-reason').hidden, generate: [generate.getAttribute('aria-disabled'), generate.getAttribute('aria-label')] }
 		}, {
 			asked: { startFrame: { fsPath: '/workspace/frames/a.png', mimeType: 'image/*' }, endFrame: { fsPath: '/workspace/frames/b.png', mimeType: 'image/*' }, images: [], videos: [], audios: [] },
 			prepared: ['frames/a.png:start-frame', 'frames/b.png:end-frame'],
 			afterChange: 1,
-			refused: { checks: 0, reason: 'b.png is not a file on this computer.', generate: ['true', 'b.png is not a file on this computer.'] }
+			refused: { checks: 0, line: false, generate: ['true', 'b.png is not a file on this computer.'] }
 		});
 	});
 
@@ -919,6 +920,32 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('a range check answers ends the slider there with its reason under it and read with it, and the summary shows what is sent (D70)', async () => {
+		store.info = { prompt: 'Rain', ...READY, params: { ...READY.params, duration: 12 } };
+		const reason = 'The connected video lasts 5.0 seconds, and Acme Motion 2 makes at most 12 seconds with it.';
+		catalog.answer = () => ({ problems: [], limits: { duration: { max: 7, reason } } });
+		const panel = await createPanel();
+		const summary = find(panel, '.bh-video-panel-settings').textContent;
+		find(panel, '.bh-video-panel-settings').click();
+		const section = find(panel, '.bh-video-panel-setting[data-parameter="duration"]');
+		const slider = section.querySelector<HTMLInputElement>('.bh-video-panel-slider');
+		const notes = [...section.querySelectorAll('.bh-video-panel-setting-note.limit')].map(note => note.textContent);
+		assert.deepStrictEqual({
+			summary,
+			slider: [slider?.min, slider?.max, slider?.value, slider?.getAttribute('aria-description')],
+			notes,
+			// Nothing blocks: the end of the range is sent, and the card keeps 12.
+			generate: find(panel, '.bh-video-panel-generate').getAttribute('aria-disabled'),
+			written: store.generations
+		}, {
+			summary: 'Frames · 720p · 7s · Sound',
+			slider: ['4', '7', '7', `Up to 7s. ${reason}`],
+			notes: [`Up to 7s. ${reason}`],
+			generate: 'false',
+			written: []
+		});
+	});
+
 	test('the model menu lists the catalog\'s models by provider, and choosing one keeps the values it accepts', async () => {
 		store.info = { prompt: 'Rain', ...READY, mode: 'reference', params: { resolution: '1080p', ratio: '21:9', duration: 10, sound: false } };
 		const panel = await createPanel();
@@ -930,7 +957,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		assert.deepStrictEqual({ items, details, headings, written: store.generations, summary: find(panel, '.bh-video-panel-settings').textContent }, {
 			items: ['Acme Motion 2*', 'Acme Still', 'Acme Clip', 'Borealis One', 'Providers…'],
-			details: ['Frames · References · 12s · 1080p · Sound', 'Frames · 10s · 1080P', 'Extend · Edit · 720p', 'Frames', null],
+			details: ['Frames · References · 4–12s · 1080p · Sound', 'Frames · 5–10s · 1080P', 'Extend · Edit · 720p', 'Frames', null],
 			headings: ['Acme VideoEast · Acme Cloud', 'Borealis MediaNot set up'],
 			written: [{ provider: 'acme', model: 'acme-still', mode: 'frames', params: { resolution: '1080p', duration: 10 } }],
 			summary: 'Frames · 1080P · 10s'
@@ -946,7 +973,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === 'Providers…')?.click();
 		await settle();
 		assert.deepStrictEqual({ dimmed, opened: providers.opened }, {
-			dimmed: { unavailable: true, name: 'Acme Still', description: 'Not offered in West · Acme Global. Frames · 10s · 1080P', tooltip: 'Not offered in West · Acme Global' },
+			dimmed: { unavailable: true, name: 'Acme Still', description: 'Not offered in West · Acme Global. Frames · 5–10s · 1080P', tooltip: 'Not offered in West · Acme Global' },
 			opened: ['acme']
 		});
 	});

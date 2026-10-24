@@ -249,6 +249,64 @@ export interface IBaseHalfVideoCheckResult {
 	readonly problems: readonly string[];
 	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
 	readonly providerModel?: string;
+	/**
+	 * The ranges of number parameters that the planned inputs or the mode
+	 * narrow, by parameter name (D70; providers, "Requests"). A value beyond
+	 * one is fitted to it before it is checked, sent, and recorded.
+	 */
+	readonly limits?: Readonly<Record<string, IBaseHalfVideoCheckLimit>>;
+}
+
+/** How far a number parameter goes for the planned inputs or the mode, where that is narrower than its declaration, and why. */
+export interface IBaseHalfVideoCheckLimit {
+	readonly min?: number;
+	readonly max?: number;
+	readonly reason: string;
+}
+
+/**
+ * The values with each number beyond a limit fitted to its end, on the
+ * parameter's steps and inside its declared range, as AI Video fits them
+ * before it checks and sends them (D70). Auto and a value that is not a number
+ * are kept; a value left to its default is fitted when the default is beyond
+ * the limit.
+ */
+export function fitBaseHalfVideoParams(model: IBaseHalfVideoCatalogModel, params: BaseHalfVideoParams, limits: IBaseHalfVideoCheckResult['limits']): BaseHalfVideoParams {
+	if (!limits) {
+		return params;
+	}
+	let fitted: Record<string, BaseHalfVideoParamValue> | undefined;
+	for (const [name, limit] of Object.entries(limits)) {
+		const parameter = model.parameters.find(candidate => candidate.name === name);
+		if (!parameter || (parameter.kind !== 'integer' && parameter.kind !== 'number')) {
+			continue;
+		}
+		const value = Object.hasOwn(params, name) ? params[name] : parameter.default;
+		if (typeof value !== 'number' || (parameter.auto && value === parameter.auto.value)) {
+			continue;
+		}
+		const range = baseHalfVideoLimitRange(parameter, limit);
+		const next = value > range.max ? range.max : value < range.min ? range.min : value;
+		if (next !== value) {
+			fitted ??= { ...params };
+			fitted[name] = next;
+		}
+	}
+	return fitted ? Object.freeze(fitted) : params;
+}
+
+/** The range a limit leaves of a number parameter, on its steps and inside its declared range. */
+export function baseHalfVideoLimitRange(parameter: IBaseHalfVideoNumberParameter, limit: IBaseHalfVideoCheckLimit | undefined): { readonly min: number; readonly max: number } {
+	const step = parameter.step > 0 ? parameter.step : 1;
+	// An end on the steps, without the error of adding them (0.1 × 3 is not 0.3).
+	const onSteps = (end: number, round: (value: number) => number) => {
+		const steps = round(Number(((end - parameter.min) / step).toFixed(9)));
+		return Math.min(parameter.max, Math.max(parameter.min, Number((parameter.min + steps * step).toFixed(9))));
+	};
+	return {
+		min: limit?.min === undefined ? parameter.min : onSteps(limit.min, Math.ceil),
+		max: limit?.max === undefined ? parameter.max : onSteps(limit.max, Math.floor)
+	};
 }
 
 export interface IBaseHalfVideoSubmitRequest extends IBaseHalfVideoProviderAccess {
@@ -455,9 +513,12 @@ const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p
 export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): string {
 	const image = model.kind === 'image';
 	const parts = image ? [] : model.modes.map(mode => mode.label);
-	const duration = model.parameters.find(parameter => parameter.name === 'duration' && (parameter.kind === 'integer' || parameter.kind === 'number'));
-	if (!image && duration && (duration.kind === 'integer' || duration.kind === 'number')) {
-		parts.push(localize('basehalf.video.catalog.abilitySeconds', "{0}s", duration.max));
+	// The range of durations, as the two canvas products for media work list their models (D70).
+	const durations = image ? undefined : durationRange(model.parameters.find(parameter => parameter.name === 'duration'));
+	if (durations) {
+		parts.push(durations.min === durations.max
+			? localize('basehalf.video.catalog.abilitySeconds', "{0}s", durations.max)
+			: localize('basehalf.video.catalog.abilitySecondsRange', "{0}–{1}s", durations.min, durations.max));
 	}
 	const resolution = model.parameters.find(parameter => parameter.name === 'resolution' && parameter.kind === 'choice');
 	if (resolution?.kind === 'choice' && resolution.options.length) {
@@ -481,6 +542,18 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 		}
 	}
 	return parts.join(' · ');
+}
+
+/** The shortest and the longest duration a parameter declares: a number's range, or a choice's numbers. */
+function durationRange(parameter: BaseHalfVideoCatalogParameter | undefined): { readonly min: number; readonly max: number } | undefined {
+	if (parameter?.kind === 'integer' || parameter?.kind === 'number') {
+		return { min: parameter.min, max: parameter.max };
+	}
+	if (parameter?.kind === 'choice') {
+		const numbers = parameter.options.map(option => Number(option.value)).filter(value => Number.isFinite(value) && value > 0);
+		return numbers.length ? { min: Math.min(...numbers), max: Math.max(...numbers) } : undefined;
+	}
+	return undefined;
 }
 
 /** The most images one generation of a model makes: the highest `count` it declares, at most 16; 1 for a video model. */
@@ -1420,10 +1493,34 @@ export function parseBaseHalfVideoCheckResult(value: unknown): IBaseHalfVideoChe
 		return undefined;
 	}
 	const providerModel = typeof value.providerModel === 'string' && /^\S{1,256}$/.test(value.providerModel) ? value.providerModel : undefined;
+	const limits = parseCheckLimits(value.limits);
 	return Object.freeze({
 		problems: Object.freeze(value.problems.map(problem => plainText(problem, 1000)).filter(problem => problem.length > 0)),
-		...(providerModel ? { providerModel } : {})
+		...(providerModel ? { providerModel } : {}),
+		...(limits ? { limits } : {})
 	});
+}
+
+/** The limits of a check's answer that can be used: a finite end, a reason, and room between the ends. */
+function parseCheckLimits(value: unknown): IBaseHalfVideoCheckResult['limits'] {
+	if (!isRecord(value)) {
+		return undefined;
+	}
+	const limits: Record<string, IBaseHalfVideoCheckLimit> = {};
+	for (const [name, limit] of Object.entries(value)) {
+		if (!PARAMETER_NAME_PATTERN.test(name) || !isRecord(limit) || typeof limit.reason !== 'string') {
+			continue;
+		}
+		const finite = (end: unknown): end is number => typeof end === 'number' && Number.isFinite(end);
+		const min = finite(limit.min) ? limit.min : undefined;
+		const max = finite(limit.max) ? limit.max : undefined;
+		const reason = plainText(limit.reason, 500);
+		if ((min === undefined && max === undefined) || !reason || (min !== undefined && max !== undefined && min > max)) {
+			continue;
+		}
+		limits[name] = Object.freeze({ ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}), reason });
+	}
+	return Object.keys(limits).length ? Object.freeze(limits) : undefined;
 }
 
 /** The image formats a mode takes when it declares none. */

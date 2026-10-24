@@ -178,7 +178,8 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			twoVideos: {
 				mode: 'frames',
 				modes: ['Frames* (Frames cannot use Video 1.)', 'References (References cannot use Video 2.)'],
-				reason: 'Video 2 cannot be sent: Acme Motion 2 takes one video at most.'
+				// The panel fixes it: Generate says why, and no line does (D70).
+				reason: undefined
 			}
 		});
 	});
@@ -275,6 +276,48 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		});
 	});
 
+	test('a range check answers ends the slider there, dims a button beyond it, says why under it, and sums up the end; the card keeps its value (D70)', () => {
+		const reason = 'The connected video lasts 5.0 seconds, and Acme Motion 2 makes at most 12 seconds with it.';
+		const narrowed = (generation: IBaseHalfVideoGenerationChoice, limits: NonNullable<IPresentOptions['check']>['limits']) => present({ generation, inputs: [], check: { problems: [], limits } });
+		const beyond = narrowed({ ...frames, params: { ...frames.params, duration: 12 } }, { duration: { max: 7, reason } });
+		const auto = narrowed({ ...frames, mode: 'reference', params: { duration: -1 } }, { duration: { max: 7, reason } });
+		const still = narrowed({ provider: 'acme', model: 'acme-still', params: { duration: 10 } }, { duration: { max: 8, reason: 'Short.' } });
+		const between = narrowed({ provider: 'borealis', model: 'borealis-one', params: { strength: 0.1 } }, { strength: { min: 0.25, max: 0.75, reason: 'Middle.' } });
+		// Not asked yet: the region does not offer the model, so the declared range shows.
+		const notAsked = present({ generation: { provider: 'acme', model: 'acme-still', params: { duration: 10 } }, regions: { acme: 'west' }, inputs: [], check: { problems: [], limits: { duration: { max: 8, reason: 'Short.' } } } });
+		const view = (presentation: IBaseHalfVideoPanelPresentation) => {
+			const settings = presentation.settingsView!;
+			const all = [...settings.controls, ...settings.advanced];
+			return {
+				summary: settings.summary,
+				controls: controls(all.filter(control => control.name === 'duration' || control.name === 'strength')),
+				notes: all.flatMap(control => control.limit ? [`${control.label}: ${control.limit}`] : []),
+				dimmed: all.flatMap(control => control.kind === 'buttons' ? control.choices.flatMap(choice => choice.disabled ? [`${choice.label} (${choice.disabled})`] : []) : [])
+			};
+		};
+		assert.deepStrictEqual({
+			beyond: { ...view(beyond), generate: beyond.generate.enabled, params: beyond.params },
+			auto: view(auto),
+			still: view(still),
+			between: view(between),
+			notAsked: view(notAsked)
+		}, {
+			beyond: {
+				summary: 'Frames · 720p · 7s · Sound',
+				controls: ['Duration slider 4-7 by 1 at 7 (7s) +Auto'],
+				notes: [`Duration: Up to 7s. ${reason}`],
+				dimmed: [],
+				generate: true,
+				params: { resolution: '720p', duration: 12, sound: true }
+			},
+			// Auto is never narrowed; its slider waits at a value inside the range.
+			auto: { summary: 'References · 720p · 16:9 · Auto · Sound', controls: ['Duration slider 4-7 by 1 at 5 (Auto) +Auto*'], notes: [`Duration: Up to 7s. ${reason}`], dimmed: [] },
+			still: { summary: 'Frames · 1080P · 5s', controls: ['Duration buttons: 5s* 10s'], notes: ['Duration: Up to 5s. Short.'], dimmed: ['10s (Short.)'] },
+			between: { summary: 'Frames · Strength 0.3', controls: ['Strength slider 0.3-0.7 by 0.1 at 0.3 (0.3)'], notes: ['Strength: 0.3 to 0.7. Middle.'], dimmed: [] },
+			notAsked: { summary: 'Frames · 1080P · 10s', controls: ['Duration buttons: 5s 10s*'], notes: [], dimmed: [] }
+		});
+	});
+
 	test('the model menu lists the catalog\'s models by provider, says which provider is not set up, and dims a model its region does not offer', () => {
 		const menu = (presentation: IBaseHalfVideoPanelPresentation) => ({
 			message: presentation.modelMenu.message,
@@ -315,18 +358,18 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			neither: menu(present({ notSetUp: ['acme', 'borealis'] })).map(line => line.slice(0, line.indexOf(':')))
 		}, {
 			acmeSetUp: [
-				'Acme Video: Acme Motion 2 (Frames · References · 12s · 1080p · Sound), Acme Still (Frames · 10s · 1080P), Acme Clip (Extend · Edit · 720p)',
+				'Acme Video: Acme Motion 2 (Frames · References · 4–12s · 1080p · Sound), Acme Still (Frames · 5–10s · 1080P), Acme Clip (Extend · Edit · 720p)',
 				'Borealis Media: Borealis One (Frames)'
 			],
 			borealisSetUp: [
 				'Borealis Media: Borealis One (Frames)',
-				'Acme Video: Acme Motion 2 (Frames · References · 12s · 1080p · Sound), Acme Still (Frames · 10s · 1080P), Acme Clip (Extend · Edit · 720p)'
+				'Acme Video: Acme Motion 2 (Frames · References · 4–12s · 1080p · Sound), Acme Still (Frames · 5–10s · 1080P), Acme Clip (Extend · Edit · 720p)'
 			],
 			neither: ['Acme Video', 'Borealis Media']
 		});
 	});
 
-	test('the reason Generate cannot run shows as a line, with the action that fixes it, except where the panel already says it', () => {
+	test('the reason Generate cannot run shows as a line only when it is fixed outside the panel, with the action that fixes it', () => {
 		const declared = JSON.parse(JSON.stringify({ schema: 1, providers: TEST_VIDEO_CATALOG.providers }));
 		const motion = declared.providers[0].models.find((model: { id: string }) => model.id === 'acme-motion-2');
 		motion.modes = motion.modes.map((mode: { id: string }) => mode.id === 'reference' ? { ...mode, regions: ['west'] } : mode);
@@ -352,12 +395,13 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			loading: null,
 			failed: 'BaseHalf could not load the models: AI Video is not running.',
 			noModel: null,
-			unknownModel: 'acme-motion-9 is not a model BaseHalf offers. Choose another model.',
+			// What the panel fixes shows on Generate alone; a line is for what is fixed outside it (D70).
+			unknownModel: null,
 			notSetUp: 'Borealis Media is not set up. Set it up in Providers. [Set Up → borealis]',
 			region: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers. [Providers… → acme]',
 			modeRegion: 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Providers. [Providers… → acme]',
-			check: 'frames/a.png is 160 × 90 px; each side must be between 300 and 6000 px.',
-			unusableInput: 'brief.pdf cannot be sent: An image or video card cannot use brief.pdf.',
+			check: null,
+			unusableInput: null,
 			nothingToSend: null,
 			ready: null
 		});
@@ -437,11 +481,11 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		}, {
 			menu: ['Corvid Studio: Corvid Paint (4K · Up to 4 images · 4 references), Corvid Print (2K · Up to 2 images · 4 references)'],
 			end: 'Providers…',
-			videoModel: ['otherKind', 'Acme Motion 2 makes videos. Choose an image model.', true, 'Acme Motion 2 makes videos. Choose an image model.'],
+			videoModel: ['otherKind', 'Acme Motion 2 makes videos. Choose an image model.', true, undefined],
 			draftInput: [
 				['Image 1: Not used: it has no file yet.', 'Image 2: reference'],
 				'hero.png has no file yet. Generate it first, or remove its connection.',
-				'hero.png has no file yet. Generate it first, or remove its connection.'
+				undefined
 			],
 			noImages: 'AI Video offers no image models.'
 		});

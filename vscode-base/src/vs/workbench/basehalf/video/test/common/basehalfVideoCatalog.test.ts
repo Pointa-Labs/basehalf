@@ -20,6 +20,7 @@ import {
 	baseHalfVideoInitialGeneration,
 	baseHalfVideoInputKindOfPath,
 	baseHalfVideoInputProblem,
+	baseHalfVideoLimitRange,
 	baseHalfVideoListedModels,
 	baseHalfVideoModelAbilities,
 	baseHalfVideoModeOf,
@@ -34,6 +35,7 @@ import {
 	findBaseHalfVideoLabelTokens,
 	findBaseHalfVideoModel,
 	findBaseHalfVideoRegion,
+	fitBaseHalfVideoParams,
 	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoGenerateBlockerInput,
@@ -316,6 +318,43 @@ suite('BaseHalfVideoCatalog', () => {
 		});
 	});
 
+	test('reads the ranges check answered with their reasons, and fits a value beyond one to its end on the steps, as AI Video does (D70)', () => {
+		const checked = parseBaseHalfVideoCheckResult({
+			problems: [],
+			limits: {
+				duration: { max: 7.6, reason: '  The connected video lasts 4.4 seconds.  ' },
+				strength: { min: 0.25, reason: 'At least a quarter.' },
+				seed: { min: 9, max: 3, reason: 'No room.' },
+				resolution: { reason: 'No end.' },
+				'two words': { max: 2, reason: 'No name.' },
+				sound: { max: 4 }
+			}
+		});
+		const limits = checked?.limits;
+		const duration = (model: typeof motion) => model.parameters.find(parameter => parameter.name === 'duration') as IBaseHalfVideoNumberParameter;
+		assert.deepStrictEqual({
+			limits,
+			beyond: fitBaseHalfVideoParams(motion, { duration: 12, sound: true }, limits),
+			inside: fitBaseHalfVideoParams(motion, { duration: 6 }, limits),
+			auto: fitBaseHalfVideoParams(motion, { duration: -1 }, limits),
+			byDefault: fitBaseHalfVideoParams(motion, {}, { duration: { max: 4.5, reason: 'Short.' } }),
+			onSteps: fitBaseHalfVideoParams(still, { duration: 10 }, { duration: { max: 8, reason: 'Short.' } }),
+			upToMin: fitBaseHalfVideoParams(borealisOne, { strength: 0.1 }, limits),
+			none: fitBaseHalfVideoParams(motion, { duration: 12 }, undefined),
+			ranges: [baseHalfVideoLimitRange(duration(motion), limits?.duration), baseHalfVideoLimitRange(duration(still), { min: 6, reason: 'Long.' }), baseHalfVideoLimitRange(duration(motion), undefined)]
+		}, {
+			limits: { duration: { max: 7.6, reason: 'The connected video lasts 4.4 seconds.' }, strength: { min: 0.25, reason: 'At least a quarter.' } },
+			beyond: { duration: 7, sound: true },
+			inside: { duration: 6 },
+			auto: { duration: -1 },
+			byDefault: { duration: 4 },
+			onSteps: { duration: 5 },
+			upToMin: { strength: 0.3 },
+			none: { duration: 12 },
+			ranges: [{ min: 4, max: 7 }, { min: 10, max: 10 }, { min: 4, max: 12 }]
+		});
+	});
+
 	test('a value a start frame sets is left out of what is sent and summed up, and a mode outside its regions blocks', () => {
 		const declared = JSON.parse(JSON.stringify({ schema: 1, providers: [ACME] }));
 		const motionDeclared = declared.providers[0].models.find((model: { id: string }) => model.id === 'acme-motion-2');
@@ -507,8 +546,8 @@ suite('BaseHalfVideoCatalog', () => {
 			assert.deepStrictEqual([baseHalfVideoModelAbilities(paint), baseHalfVideoModelAbilities(print), baseHalfVideoModelAbilities(motion), baseHalfVideoModelAbilities(reel)], [
 				'4K · Up to 4 images · 4 references',
 				'2K · Up to 2 images · 4 references',
-				'Frames · References · 12s · 1080p · Sound',
-				'Frames · 8s'
+				'Frames · References · 4–12s · 1080p · Sound',
+				'Frames · 4–8s'
 			]);
 		});
 

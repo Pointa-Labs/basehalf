@@ -278,10 +278,11 @@
 	border-radius: 2px;
 }
 
+/* Dimmed while the card cannot generate, with the not-allowed pointer and the reason as its tooltip (D70). */
 .monaco-workbench .bh-video-panel-generate[aria-disabled="true"] {
 	color: var(--bh-card-text-ghost, var(--vscode-disabledForeground));
 	background: var(--bh-video-panel-fill);
-	cursor: default;
+	cursor: not-allowed;
 }
 
 .monaco-workbench .bh-video-panel-generate.busy > .codicon[class*='codicon-'] {
@@ -479,6 +480,15 @@
 	background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
 	border-radius: 7px;
 	font-size: 12px;
+}
+
+/* Why a number goes less far than its model declares, under its control (D70). */
+.monaco-workbench .bh-video-panel-setting-note.limit {
+	height: auto;
+	margin-top: 6px;
+	padding: 5px 8px;
+	font-size: 11px;
+	line-height: 15px;
 }
 
 /* A choice that cannot generate in the region, such as a mode: dimmed, and it can still be chosen. */
