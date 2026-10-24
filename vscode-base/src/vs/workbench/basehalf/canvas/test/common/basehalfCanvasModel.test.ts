@@ -10,7 +10,9 @@ import { FileType, IFileStat } from '../../../../../platform/files/common/files.
 import {
 	BASEHALF_CANVAS_CHILD_LIMIT,
 	baseHalfCanvasAnchorPoint,
+	baseHalfCanvasCardBuiltConnections,
 	baseHalfCanvasCardResizes,
+	baseHalfCanvasCardToggleConnections,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasCenteredPlace,
 	baseHalfCanvasEdgePath,
@@ -249,6 +251,22 @@ suite('BaseHalfCanvasModel', () => {
 				relationships: { upstream: ['docs/spec.md'], downstream: ['index.md'], issueCount: 0 }
 			}
 		]);
+	});
+
+	test('a card is built from its connections only while its badge face lists them; a connection drawn or removed changes its toggle alone', () => {
+		const one = relationships({ upstream: ['a.png'] });
+		const two = relationships({ upstream: ['a.png'], downstream: ['shot.mp4'] });
+		assert.deepStrictEqual({
+			closed: [baseHalfCanvasCardBuiltConnections(undefined, false), baseHalfCanvasCardBuiltConnections(one, false), baseHalfCanvasCardBuiltConnections(two, false)],
+			issues: baseHalfCanvasCardBuiltConnections({ ...two, issueCount: 2 }, false),
+			open: baseHalfCanvasCardBuiltConnections(two, true),
+			toggle: [baseHalfCanvasCardToggleConnections(undefined), baseHalfCanvasCardToggleConnections(one), baseHalfCanvasCardToggleConnections(two)]
+		}, {
+			closed: [0, 0, 0],
+			issues: 2,
+			open: two,
+			toggle: ['', '1 0', '1 1']
+		});
 	});
 
 	test('derives edges from each card\'s own upstream list, anchored by canvas.yaml rows where available', () => {

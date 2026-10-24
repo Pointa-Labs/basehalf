@@ -28,6 +28,11 @@
 	cursor: inherit !important;
 }
 
+/* A look changes at once: a fade would start again whenever the canvas draws the card again. */
+.monaco-workbench .basehalf-canvas-cards[data-video-input-pick-active] .basehalf-canvas-card {
+	transition: none;
+}
+
 /* The marks of a card are screen pixels, whatever the zoom. */
 .monaco-workbench .basehalf-canvas-card[data-basehalf-pick] {
 	--bh-pick-px: calc(1px / var(--basehalf-canvas-zoom, 1));

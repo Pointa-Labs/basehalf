@@ -12,7 +12,9 @@ import { FileChangesEvent, IFileStat } from '../../../../../platform/files/commo
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
 	BASEHALF_CANVAS_PICTURE_DEFAULT_RATIO,
+	baseHalfCanvasCardBuiltConnections,
 	baseHalfCanvasCardResizes,
+	baseHalfCanvasCardToggleConnections,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasChildPath,
@@ -657,8 +659,13 @@ export class BaseHalfCanvasRenderer {
 			);
 			const displayedItem = badge === item.badge ? item : { ...item, badge };
 			const visualKey = this.cardVisualKey(displayedItem);
+			const connectionsKey = baseHalfCanvasCardToggleConnections(displayedItem.relationships);
 			const cached = previousRenderedCards.get(item.path);
-			const element = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey, currentSceneKey)
+			const reused = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey, currentSceneKey);
+			if (reused) {
+				this.refreshReusedCard(cached, displayedItem, connectionsKey);
+			}
+			const element = reused
 				? cached.element
 				: this.view.cardRenderer.createCard(displayedItem, bounds, preview, currentSceneKey);
 			const controls = this.view.cardRenderer.sceneCardControls(displayedItem, preview);
@@ -671,7 +678,7 @@ export class BaseHalfCanvasRenderer {
 			}
 			this.view.cardRenderer.applyNoteBackground(element, isBaseHalfMarkdownResource(item.stat.resource) ? this.view.renderedNoteBackgrounds.get(item.path) ?? 'default' : undefined);
 			this.view.renderedCardElementsByPath.set(item.path, element);
-			this.view.renderedCardsByPath.set(item.path, { item, preview, visualKey, sceneKey: currentSceneKey, element });
+			this.view.renderedCardsByPath.set(item.path, { item, preview, visualKey, connectionsKey, sceneKey: currentSceneKey, element });
 			return {
 				path: item.path,
 				kind: item.kind,
@@ -865,7 +872,7 @@ export class BaseHalfCanvasRenderer {
 			badge: item.badge ? { description: item.badge.description, orphan: item.badge.orphan } : undefined,
 			badgeOpen,
 			inlineRename,
-			relationships: item.relationships,
+			relationships: baseHalfCanvasCardBuiltConnections(item.relationships, badgeOpen),
 			indexState: this.view.renderedIndexState,
 			// An open face renders the full Upstream and Downstream lists.
 			upstream: view ? {
@@ -880,6 +887,17 @@ export class BaseHalfCanvasRenderer {
 				message: ownProblem.message
 			} : undefined
 		});
+	}
+
+	/**
+	 * A card drawn again with the element it had: its badge toggle says the
+	 * connections it has now (canvas card interaction continuity, "A change
+	 * of connections").
+	 */
+	refreshReusedCard(cached: IBaseHalfCanvasCardRenderCacheEntry, item: IBaseHalfCanvasItem, connectionsKey: string): void {
+		if (cached.connectionsKey !== connectionsKey) {
+			this.view.cardRenderer.refreshBadgeToggle(cached.element, item);
+		}
 	}
 
 	canReuseRenderedCard(

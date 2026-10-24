@@ -464,6 +464,22 @@ export function baseHalfCanvasRelationshipsArePresent(relationships: IBaseHalfCa
 	return relationships.upstream.length > 0 || relationships.downstream.length > 0 || relationships.issueCount > 0;
 }
 
+/**
+ * What of a card's connections its element is built from: all of them while
+ * its badge face lists them, and else only the number of its issues. What
+ * else it shows of them is its badge toggle's, which is drawn again in place,
+ * so a connection drawn or removed keeps the card (canvas card interaction
+ * continuity, "A change of connections").
+ */
+export function baseHalfCanvasCardBuiltConnections(relationships: IBaseHalfCanvasItemRelationships | undefined, badgeOpen: boolean): IBaseHalfCanvasItemRelationships | number | undefined {
+	return badgeOpen ? relationships : relationships?.issueCount ?? 0;
+}
+
+/** What a card's badge toggle shows of its connections: how many it has upstream and downstream. */
+export function baseHalfCanvasCardToggleConnections(relationships: IBaseHalfCanvasItemRelationships | undefined): string {
+	return relationships ? `${relationships.upstream.length} ${relationships.downstream.length}` : '';
+}
+
 function isAnnotatedItem(item: IBaseHalfCanvasItem): boolean {
 	return item.card !== undefined
 		|| item.badge !== undefined // badges are pruned when empty, so presence = authored content

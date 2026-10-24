@@ -141,6 +141,8 @@ export interface IBaseHalfCanvasCardRenderCacheEntry {
 	readonly item: IBaseHalfCanvasItem;
 	readonly preview: BaseHalfCanvasCardPreview | undefined;
 	readonly visualKey: string;
+	/** What the card's badge toggle shows of its connections, drawn again in place when only that changes. */
+	readonly connectionsKey: string;
 	readonly sceneKey: string;
 	readonly element: HTMLElement;
 }

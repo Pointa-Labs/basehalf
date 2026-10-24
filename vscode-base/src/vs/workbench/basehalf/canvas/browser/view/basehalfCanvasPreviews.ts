@@ -8,6 +8,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { FileOperationResult, IFileStat, toFileOperationResult } from '../../../../../platform/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
+	baseHalfCanvasCardToggleConnections,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasDefaultCardSize,
 	baseHalfCanvasGenerationCardSize,
@@ -380,8 +381,13 @@ export class BaseHalfCanvasPreviews {
 				);
 				const displayedItem = badge === currentItem.badge ? currentItem : { ...currentItem, badge };
 				const visualKey = this.view.renderer.cardVisualKey(displayedItem);
+				const connectionsKey = baseHalfCanvasCardToggleConnections(displayedItem.relationships);
 				const cached = this.view.renderedCardsByPath.get(currentItem.path);
-				const element = this.view.renderer.canReuseRenderedCard(cached, displayedItem, preview, visualKey, hydrationBatch.sceneKey)
+				const reused = this.view.renderer.canReuseRenderedCard(cached, displayedItem, preview, visualKey, hydrationBatch.sceneKey);
+				if (reused) {
+					this.view.renderer.refreshReusedCard(cached, displayedItem, connectionsKey);
+				}
+				const element = reused
 					? cached.element
 					: this.view.cardRenderer.createCard(displayedItem, currentCard, preview, hydrationBatch.sceneKey);
 				this.view.cardRenderer.applyNoteBackground(element, isBaseHalfMarkdownResource(currentItem.stat.resource) ? this.view.renderedNoteBackgrounds.get(currentItem.path) ?? 'default' : undefined);
@@ -389,6 +395,7 @@ export class BaseHalfCanvasPreviews {
 					item: currentItem,
 					preview,
 					visualKey,
+					connectionsKey,
 					sceneKey: hydrationBatch.sceneKey,
 					element
 				});

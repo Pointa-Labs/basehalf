@@ -63,6 +63,8 @@ export class BaseHalfCanvasCardRenderer {
 	private readonly mediaVideoPlayers = new WeakMap<HTMLElement, IBaseHalfCanvasCardVideoPlayer>();
 	/** The face drawn last for each generation card, while it is drawn. */
 	private readonly generationFaces = new Map<string, IBaseHalfGenerationCardFace>();
+	/** Where each card element draws its badge toggle, to draw it again in place when only its connections change. */
+	private readonly badgeToggles = new WeakMap<HTMLElement, { readonly container: HTMLElement; readonly listeners: DisposableStore; readonly issueCount: number }>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -150,6 +152,21 @@ export class BaseHalfCanvasCardRenderer {
 		});
 	}
 
+	/**
+	 * Draws a card's badge toggle again for the connections the card has now,
+	 * in place: a change of connections alone keeps the card (canvas card
+	 * interaction continuity, "A change of connections").
+	 */
+	refreshBadgeToggle(card: HTMLElement, item: IBaseHalfCanvasItem): void {
+		const toggle = this.badgeToggles.get(card);
+		if (!toggle) {
+			return;
+		}
+		toggle.listeners.clear();
+		clearNode(toggle.container);
+		this.view.badgeEditor.renderCardBadgeToggle(toggle.container, item, toggle.issueCount, toggle.listeners);
+	}
+
 	/** The scene has put a card's element into the document in place of the previous one. */
 	didMountCardElement(path: string, element: HTMLElement): void {
 		this.view.cardListenerStores.didMount(path, element);
@@ -227,7 +244,9 @@ export class BaseHalfCanvasCardRenderer {
 		}
 		const captionActions = append(caption, $('.basehalf-canvas-card-caption-actions'));
 		if (canShowBadgeFace) {
-			this.view.badgeEditor.renderCardBadgeToggle(captionActions, item, badgeIssueCount, listeners);
+			const toggleListeners = listeners.add(new DisposableStore());
+			this.view.badgeEditor.renderCardBadgeToggle(captionActions, item, badgeIssueCount, toggleListeners);
+			this.badgeToggles.set(card, { container: captionActions, listeners: toggleListeners, issueCount: badgeIssueCount });
 		}
 		const content = append(card, $('.basehalf-canvas-card-content'));
 		this.view.creation.renderInlineRenameEditor(card, item);
