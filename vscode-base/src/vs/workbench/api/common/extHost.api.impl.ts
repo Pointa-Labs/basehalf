@@ -50,7 +50,6 @@ import { IExtHostCommands } from './extHostCommands.js';
 import { createExtHostComments } from './extHostComments.js';
 import { ExtHostConfigProvider, IExtHostConfiguration } from './extHostConfiguration.js';
 import { ExtHostCustomEditors } from './extHostCustomEditors.js';
-import { ExtHostBaseHalf } from './extHostBaseHalf.js';
 import { IExtHostDataChannels } from './extHostDataChannels.js';
 import { IExtHostDebugService } from './extHostDebugService.js';
 import { IExtHostDecorations } from './extHostDecorations.js';
@@ -238,7 +237,6 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 	const extHostWebviews = rpcProtocol.set(ExtHostContext.ExtHostWebviews, new ExtHostWebviews(rpcProtocol, initData.remote, extHostWorkspace, extHostLogService, extHostApiDeprecation));
 	const extHostWebviewPanels = rpcProtocol.set(ExtHostContext.ExtHostWebviewPanels, new ExtHostWebviewPanels(rpcProtocol, extHostWebviews, extHostWorkspace));
 	const extHostCustomEditors = rpcProtocol.set(ExtHostContext.ExtHostCustomEditors, new ExtHostCustomEditors(rpcProtocol, extHostDocuments, extensionStoragePaths, extHostWebviews, extHostWebviewPanels));
-	const extHostBaseHalf = rpcProtocol.set(ExtHostContext.ExtHostBaseHalf, new ExtHostBaseHalf(rpcProtocol, extHostWebviews));
 	const extHostWebviewViews = rpcProtocol.set(ExtHostContext.ExtHostWebviewViews, new ExtHostWebviewViews(rpcProtocol, extHostWebviews));
 	const extHostTesting = rpcProtocol.set(ExtHostContext.ExtHostTesting, accessor.get(IExtHostTesting));
 	const extHostUriOpeners = rpcProtocol.set(ExtHostContext.ExtHostUriOpeners, new ExtHostUriOpeners(rpcProtocol));
@@ -1952,27 +1950,11 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 			}
 		};
 
-		const basehalf: typeof vscode.basehalf = {
-			inspectGenerationCard(resource) {
-				return extHostBaseHalf.inspectGenerationCard(extension, resource);
-			},
-			applyProjectFileTransition(resource, expected, next, label) {
-				return extHostBaseHalf.applyProjectFileTransition(extension, resource, expected, next, label);
-			},
-			registerCanvasStructuralCleanupProvider(provider) {
-				return extHostBaseHalf.registerCanvasStructuralCleanupProvider(extension, provider);
-			},
-			registerCardProjectionProvider(projectionId, provider, options) {
-				return extHostBaseHalf.registerCardProjectionProvider(extension, projectionId, provider, options);
-			}
-		};
-
 		// eslint-disable-next-line local/code-no-dangerous-type-assertions
 		return <typeof vscode>{
 			version: initData.version,
 			// namespaces
 			ai,
-			basehalf,
 			authentication,
 			commands,
 			comments,

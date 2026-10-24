@@ -193,3 +193,12 @@ carry it over:
   action bar.
 - `src/vs/workbench/browser/parts/titlebar/media/titlebarpart.css`: the
   rules of `basehalf-location-mode` and `basehalf-command-center-*`.
+
+## The check of proposed API (2026-10-25)
+
+`isProposedApiEnabled` in
+`src/vs/workbench/services/extensions/common/extensions.ts` checks the API
+proposals an extension declares, as in 1.141.0. The import commit returned
+`true` there. Public decision D76 restored VS Code's extension system to the
+import commit and kept this line at its 1.141.0 state. An update of the whole
+tree takes upstream's line.

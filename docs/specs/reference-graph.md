@@ -113,9 +113,9 @@ listed A in `referenced_by`. That design had three problems:
    upstream value. No background process changes an upstream value.
 5. People, agents, and other tools may edit stores as ordinary text. Saved
    content is truth. BaseHalf never reverts it without an explicit user action.
-6. Reviewed plugins must not change upstream values. The host plugin APIs
-   reject such changes, and plugin review covers direct file writes (see
-   [Plugins](#plugins)).
+6. A project file transition that is not BaseHalf's own operation, such as a
+   change to a Sequence, must not change upstream values (see
+   [Project file transitions](#project-file-transitions)).
 
 ## Stores
 
@@ -1031,7 +1031,7 @@ with its own tools, and BaseHalf follows the item
 ([following moved items](following-moved-items.md)). The host operation
 `basehalf.workspace.move`, which earlier releases offered to Agent Area
 sessions, is removed. Its id stays reserved: a request for it is refused, and
-a plugin operation may not use it.
+no capability for agents may declare it.
 
 ## Migration from legacy badge pairs
 
@@ -1216,13 +1216,14 @@ because both ends validate these literals.
   store and no `node-result` source (D63). It lists no recipes (D58).
 - `host.operations` lists the template operation when templates are
   installed, and nothing otherwise. Host operation ids are reserved,
-  including the retired `basehalf.workspace.move`: a plugin capability that
-  declares one is rejected.
+  including the retired `basehalf.workspace.move`: a capability that declares
+  one is rejected.
 
-## Plugins
+## Project file transitions
 
-A reviewed plugin's project file transition and structural cleanup may not
-change any upstream value.
+A project file transition that is not BaseHalf's own operation, such as a
+change to a Sequence ([Video Sequence](video-sequence.md#sequence-operations)),
+may not change any upstream value. Since D76 no extension makes one.
 
 The host reads the upstream state of both the expected bytes and the next bytes
 with the index reader. A state is either "unreadable" or the ordered list of
@@ -1231,10 +1232,11 @@ For a Markdown file the list includes the
 [entries inside an unrecognized leading block](#recognition), because
 BaseHalf carries those into the note's sidecar.
 
-The transition is rejected with a plugin-facing error unless the two states are
-identical. That includes a transition that makes a readable store unreadable,
-or an unreadable store readable. Host-originated operations are exempt. The
-plugin API documentation states this rule.
+The transition is rejected with an error that names the file and says that
+BaseHalf changes upstream entries only through explicit user actions, unless
+the two states are identical. That includes a transition that makes a readable store
+unreadable, or an unreadable store readable. BaseHalf's own operations are
+exempt.
 
 ## Source-tree guard
 
@@ -1284,8 +1286,8 @@ slice 4, or slice 5 without slice 3.
    - Canvas, undo, badge editor, issues, delete, and copy.
    - `.bhnode` version 4, with execution, discovery, and the bridge version
      (replaced by version 5, D58; node documents removed by D63).
-   - Plugin guard, template materialization with pending setups version 2, and
-     migration.
+   - Plugin guard (removed with the plugin platform, D76), template
+     materialization with pending setups version 2, and migration.
 4. **Rename refactor, Relink Everywhere, and ADHD `line_base`.**
 5. **Agent guides (D36).** Stop the hint, harness, and `.gitignore` writes; the
    root-file notification; the launch context.
@@ -1354,8 +1356,9 @@ slice 4, or slice 5 without slice 3.
    - Undoing a migration edit, or a failed save, leaves every pair recoverable.
    - Preview lists every pair in exactly one section, and the counts match the
      files written.
-10. Plugin transitions that change an upstream value, including one that
-    breaks the frontmatter fence, are rejected.
+10. Project file transitions that are not BaseHalf's own and change an
+    upstream value, including one that breaks the frontmatter fence, are
+    rejected.
 11. Capability discovery and bridge validation use the new literals on both
     ends.
 12. The badge editor behaves as specified:
@@ -1390,7 +1393,7 @@ slice 4, or slice 5 without slice 3.
 17. Moves: see the acceptance criteria of
     [following moved items](following-moved-items.md#acceptance-criteria).
     Discovery does not list `basehalf.workspace.move`, a request for it is
-    refused, and a plugin operation with that id is rejected.
+    refused, and a capability operation with that id is rejected.
 18. The smoke covers these flows on an annotatable target:
     - connect, disconnect, and both reconnects;
     - canvas undo after closing the note;

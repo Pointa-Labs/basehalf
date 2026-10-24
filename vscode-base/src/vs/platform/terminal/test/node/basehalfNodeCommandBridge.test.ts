@@ -173,7 +173,7 @@ suite('BaseHalfNodeCommandServer', () => {
 		assert.strictEqual((JSON.parse(discoveryResult.stdout) as { outcome: string }).outcome, 'rejected');
 	});
 
-	test('carries one reviewed operation request and response without exposing another endpoint', async () => {
+	test('carries one operation request and response without exposing another endpoint', async () => {
 		const server = new BaseHalfNodeCommandServer(async request => {
 			assert.strictEqual(request.type, 'runOperation');
 			if (request.type !== 'runOperation') {
@@ -215,7 +215,7 @@ suite('BaseHalfNodeCommandServer', () => {
 		}
 	});
 
-	test('accepts cancellation as a terminal reviewed-operation outcome', async () => {
+	test('accepts cancellation as a terminal operation outcome', async () => {
 		const server = new BaseHalfNodeCommandServer(async request => {
 			assert.strictEqual(request.type, 'runOperation');
 			return {
@@ -290,7 +290,7 @@ suite('BaseHalfNodeCommandServer', () => {
 				extensions: [{
 					id: 'studio.workflow.capability',
 					label: 'Workflow tools',
-					description: 'Reviewed local workflow operations.',
+					description: 'Local workflow operations.',
 					documents: [{
 						kind: 'studio.workflow.sequence',
 						version: 1,

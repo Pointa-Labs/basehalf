@@ -78,7 +78,7 @@ suite('getBaseHalfExtensionMutationError', () => {
 		]) {
 			assert.strictEqual(
 				getBaseHalfExtensionMutationError(args, true),
-				'BaseHalf installs and updates code plugins only through its reviewed Plugins library.'
+				'BaseHalf cannot install or update extensions from the command line. It runs only its built-in extensions and the agent extensions it supports.'
 			);
 		}
 	});

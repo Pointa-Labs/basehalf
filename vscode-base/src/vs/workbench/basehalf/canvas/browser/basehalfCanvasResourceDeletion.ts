@@ -9,7 +9,6 @@ import { URI } from '../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IExplorerService } from '../../../contrib/files/browser/files.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../common/basehalfCanvasEditing.js';
 
@@ -57,7 +56,6 @@ export class BaseHalfCanvasResourceDeletionService implements IBaseHalfCanvasRes
 			}
 			keys.add(key);
 		}
-		const group = new UndoRedoGroup();
 		if (token.isCancellationRequested) {
 			throw new CancellationError();
 		}
@@ -70,7 +68,6 @@ export class BaseHalfCanvasResourceDeletionService implements IBaseHalfCanvasRes
 			undoLabel: options.undoLabel,
 			progressLabel: options.progressLabel,
 			confirmBeforeUndo: options.confirmBeforeUndo,
-			undoRedoGroup: group,
 			undoRedoSource: BASEHALF_CANVAS_UNDO_REDO_SOURCE
 		});
 	}

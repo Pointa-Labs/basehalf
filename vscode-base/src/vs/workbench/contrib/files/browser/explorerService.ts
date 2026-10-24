@@ -206,7 +206,6 @@ export class ExplorerService implements IExplorerService {
 		const promise = this.progressService.withProgress(progressOptions, async progress => {
 			await this.bulkEditService.apply(edit, {
 				undoRedoSource: options.undoRedoSource ?? UNDO_REDO_SOURCE,
-				undoRedoGroup: options.undoRedoGroup,
 				label: options.undoLabel,
 				code: 'undoredo.explorerOperation',
 				progress,

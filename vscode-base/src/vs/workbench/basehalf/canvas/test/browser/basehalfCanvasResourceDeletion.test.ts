@@ -10,9 +10,9 @@ import { URI } from '../../../../../base/common/uri.js';
 import { mock } from '../../../../../base/test/common/mock.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
-import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { IExplorerBulkEditOptions, IExplorerService } from '../../../../contrib/files/browser/files.js';
 import { BaseHalfCanvasResourceDeletionService } from '../../browser/basehalfCanvasResourceDeletion.js';
+import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../common/basehalfCanvasEditing.js';
 
 suite('BaseHalfCanvasResourceDeletionService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -20,7 +20,7 @@ suite('BaseHalfCanvasResourceDeletionService', () => {
 	test('delegates canvas deletion to the shared file-operation transaction', async () => {
 		const one = URI.file('/workspace/one.mp4');
 		const folder = URI.file('/workspace/shots');
-		let deleteGroup: UndoRedoGroup | undefined;
+		let applied = false;
 		const explorer = new class extends mock<IExplorerService>() {
 			override async applyBulkEdit(edits: ResourceFileEdit[], options: IExplorerBulkEditOptions): Promise<void> {
 				assert.deepStrictEqual(edits.map(edit => ({
@@ -45,7 +45,8 @@ suite('BaseHalfCanvasResourceDeletionService', () => {
 				assert.strictEqual(options.undoLabel, 'Delete selection');
 				assert.strictEqual(options.progressLabel, 'Deleting selection');
 				assert.strictEqual(options.confirmBeforeUndo, true);
-				deleteGroup = options.undoRedoGroup;
+				assert.strictEqual(options.undoRedoSource, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+				applied = true;
 			}
 		};
 		const service = new BaseHalfCanvasResourceDeletionService(explorer);
@@ -60,7 +61,7 @@ suite('BaseHalfCanvasResourceDeletionService', () => {
 			confirmBeforeUndo: true
 		});
 
-		assert.ok(deleteGroup, 'the generic file precondition must receive one real undo group');
+		assert.ok(applied, 'the deletion goes through the Explorer\'s bulk edit, as one undo step of the canvas');
 	});
 
 	test('rejects duplicate resources before starting deletion', async () => {

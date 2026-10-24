@@ -1,9 +1,5 @@
 [
 	"authentication",
-	"basehalfAgentCapabilities",
-	"basehalfCanvasTemplates",
-	"basehalfCardProjections",
-	"basehalfStructuralCleanups",
 	"breakpoints",
 	"chatAgents",
 	"chatContext",

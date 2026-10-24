@@ -17,7 +17,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Promises } from '../../../../base/common/async.js';
 import product from '../../../../platform/product/common/product.js';
-import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
+import { refuseBaseHalfExtensionInstall } from '../../../basehalf/shell/common/basehalfExtensionInstallPolicy.js';
 
 export class ExtensionDependencyChecker extends Disposable implements IWorkbenchContribution {
 
@@ -29,7 +29,7 @@ export class ExtensionDependencyChecker extends Disposable implements IWorkbench
 	) {
 		super();
 		CommandsRegistry.registerCommand('workbench.extensions.installMissingDependencies', () => {
-			assertBaseHalfReviewedPluginInstallSurface(product);
+			refuseBaseHalfExtensionInstall(product);
 			return this.installMissingDependencies();
 		});
 		if (!product.basehalfVersion) {
@@ -66,7 +66,7 @@ export class ExtensionDependencyChecker extends Disposable implements IWorkbench
 	}
 
 	private async installMissingDependencies(): Promise<void> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		refuseBaseHalfExtensionInstall(product);
 		const missingDependencies = await this.getUninstalledMissingDependencies();
 		if (missingDependencies.length) {
 			const extensions = await this.extensionsWorkbenchService.getExtensions(missingDependencies.map(id => ({ id })), CancellationToken.None);

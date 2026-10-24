@@ -38,7 +38,7 @@ import {
 	materializeBaseHalfCanvasTemplateUpstream,
 	parseBaseHalfCanvasTemplate
 } from '../common/basehalfCanvasTemplate.js';
-import { IBaseHalfCanvasTemplateRegistryService, readBaseHalfCanvasTemplateSource } from '../common/basehalfCanvasTemplateRegistry.js';
+import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvasTemplateRegistry.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
@@ -177,7 +177,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		if (!descriptor) {
 			throw new Error(localize('basehalf.canvas.template.notFound', "Canvas template '{0}' is not available.", commandArguments.templateId));
 		}
-		const templateSource = await readBaseHalfCanvasTemplateSource(fileService, descriptor);
+		const templateSource = descriptor.source;
 		throwIfTemplateCreationCancelled(cancellationToken);
 		const template = parseBaseHalfCanvasTemplate(templateSource);
 
@@ -404,7 +404,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 				setup.projectRelativePath
 			));
 		}
-		const templateSource = await readBaseHalfCanvasTemplateSource(fileService, descriptor);
+		const templateSource = descriptor.source;
 		if (await templateSourceDigest(templateSource) !== setup.templateDigest) {
 			throw new Error(localize(
 				'basehalf.canvas.template.resumeTemplateChanged',

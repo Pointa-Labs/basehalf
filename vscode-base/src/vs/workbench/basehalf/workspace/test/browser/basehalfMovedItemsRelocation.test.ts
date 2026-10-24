@@ -24,7 +24,6 @@ import { IWorkingCopyService } from '../../../../services/workingCopy/common/wor
 import { workbenchInstantiationService } from '../../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
-import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../../plugins/browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../../markdown/common/basehalfAdhdMirror.js';
 import { BaseHalfBadgeMirrorService, IBaseHalfBadgeMirrorService } from '../../../references/common/basehalfBadgeMirror.js';
 import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
@@ -117,7 +116,6 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		// The task records of this computer: what a move told them.
 		const taskStore = new BaseHalfRecordingGenerationTaskStore(folder);
 		instantiationService.stub(IBaseHalfGenerationTaskStore, taskStore);
-		instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 		const movedItems = session.add(new BaseHalfMovedItemsService(
 			timing,
 			fileService,

@@ -12,9 +12,9 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { BASEHALF_RENDERABLE_CONTENT_EXTENSIONS, isBaseHalfRenderableContentResource } from './basehalfContentRendering.js';
 
 /**
- * Stable projection identifier persisted in navigation state. Built-in
- * identifiers are ordinary strings so a domain plugin can add a projection
- * without widening a product-core union type.
+ * Stable projection identifier persisted in navigation state. Identifiers are
+ * ordinary strings so a feature of BaseHalf, such as Video Sequence, can add a
+ * projection without widening a product-core union type.
  */
 export type BaseHalfCardDetailProjection = string;
 

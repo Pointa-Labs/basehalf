@@ -30,7 +30,6 @@ import { compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, 
 import { copyCodiconsTask } from './lib/compilation.ts';
 import { ensureCopilotPlatformPackage, getCopilotExcludeFilter, getCopilotRuntimePrebuildFiles, getCopilotTgrepExcludeFilter, getRipgrepExcludeFilter, prepareBuiltInCopilotRipgrepShim } from './lib/copilot.ts';
 import { readAgentSdkResults } from './agent-sdk/common.ts';
-import { resolveBaseHalfPluginCatalogPublicKeys, type IBaseHalfPluginCatalogPublicKey } from './basehalf/pluginCatalogKeys.ts';
 import { useEsbuildTranspile } from './buildConfig.ts';
 import { promisify } from 'util';
 import globCallback from 'glob';
@@ -347,13 +346,6 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				const agentSdks = readAgentSdkResults();
 				if (Object.keys(agentSdks).length > 0) {
 					json.agentSdks = agentSdks;
-				}
-				const basehalfPlugins = json.basehalfPlugins as { readonly publicKeys?: readonly IBaseHalfPluginCatalogPublicKey[] } | undefined;
-				if (basehalfPlugins) {
-					json.basehalfPlugins = {
-						...basehalfPlugins,
-						publicKeys: resolveBaseHalfPluginCatalogPublicKeys(basehalfPlugins.publicKeys ?? [])
-					};
 				}
 				return json;
 			}))

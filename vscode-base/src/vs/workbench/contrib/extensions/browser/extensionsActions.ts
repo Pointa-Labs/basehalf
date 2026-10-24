@@ -76,7 +76,7 @@ import { IExtensionGalleryManifestService } from '../../../../platform/extension
 import { IWorkbenchIssueService } from '../../issue/common/issue.js';
 import { IUserDataProfilesService } from '../../../../platform/userDataProfile/common/userDataProfile.js';
 import product from '../../../../platform/product/common/product.js';
-import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
+import { refuseBaseHalfExtensionInstall } from '../../../basehalf/shell/common/basehalfExtensionInstallPolicy.js';
 
 export class PromptExtensionInstallFailureAction extends Action {
 
@@ -501,7 +501,7 @@ export class InstallAction extends ExtensionAction {
 	}
 
 	override async run(): Promise<any> {
-		assertBaseHalfReviewedPluginInstallSurface(this.productService);
+		refuseBaseHalfExtensionInstall(this.productService);
 		if (!this.extension) {
 			return;
 		}
@@ -827,7 +827,7 @@ export abstract class InstallInOtherServerAction extends ExtensionAction {
 	}
 
 	override async run(): Promise<void> {
-		assertBaseHalfReviewedPluginInstallSurface(this.productService);
+		refuseBaseHalfExtensionInstall(this.productService);
 		if (!this.extension?.local) {
 			return;
 		}
@@ -1015,7 +1015,7 @@ export class UpdateAction extends ExtensionAction {
 	}
 
 	override async run(): Promise<any> {
-		assertBaseHalfReviewedPluginInstallSurface(this.productService);
+		refuseBaseHalfExtensionInstall(this.productService);
 		if (!this.extension) {
 			return;
 		}
@@ -1627,7 +1627,7 @@ export class InstallAnotherVersionAction extends ExtensionAction {
 	}
 
 	override async run(): Promise<any> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		refuseBaseHalfExtensionInstall(product);
 		if (!this.enabled) {
 			return;
 		}
@@ -2404,7 +2404,7 @@ export class InstallRecommendedExtensionAction extends Action {
 	}
 
 	override async run(): Promise<any> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		refuseBaseHalfExtensionInstall(product);
 		await this.extensionWorkbenchService.openSearch(`@id:${this.extensionId}`);
 		const [extension] = await this.extensionWorkbenchService.getExtensions([{ id: this.extensionId }], { source: 'install-recommendation' }, CancellationToken.None);
 		if (extension) {
@@ -3178,7 +3178,7 @@ export class InstallSpecificVersionOfExtensionAction extends Action {
 	}
 
 	override async run(): Promise<any> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		refuseBaseHalfExtensionInstall(product);
 		const extensionPick = await this.quickInputService.pick(this.getExtensionEntries(), { placeHolder: localize('selectExtension', "Select Extension"), matchOnDetail: true });
 		if (extensionPick && extensionPick.extension) {
 			const action = this.instantiationService.createInstance(InstallAnotherVersionAction, extensionPick.extension, true);
@@ -3255,7 +3255,7 @@ export abstract class AbstractInstallExtensionsInServerAction extends Action {
 	}
 
 	override async run(): Promise<void> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		refuseBaseHalfExtensionInstall(product);
 		return this.selectAndInstallExtensions();
 	}
 

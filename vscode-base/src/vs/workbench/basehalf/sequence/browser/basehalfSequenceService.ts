@@ -24,7 +24,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IFileQuery, ISearchService, QueryType } from '../../../services/search/common/search.js';
 import { IBaseHalfCanvasNavigationService } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfProjectFileTransitionService } from '../../plugins/common/basehalfProjectFileTransitions.js';
+import { IBaseHalfProjectFileTransitionService } from '../../workspace/common/basehalfProjectFileTransitions.js';
 import { inspectBaseHalfGenerationCard, isBaseHalfOrdinaryFileInside } from '../../video/common/basehalfGenerationCardInspection.js';
 import { IBaseHalfGenerationCardStore } from '../../video/common/basehalfVideoGeneration.js';
 import {

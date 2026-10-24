@@ -157,7 +157,7 @@ render.
 
 No persisted data changes. `canvas.yaml` geometry, minimum sizes, and the
 resize session's events are unchanged. Every card kind has the same corner
-radius, so plugin-contributed cards get the same targets.
+radius, so every kind of card gets the same targets.
 
 ## Acceptance criteria
 

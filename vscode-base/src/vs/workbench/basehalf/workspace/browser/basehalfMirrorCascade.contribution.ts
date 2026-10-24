@@ -5,7 +5,6 @@
 
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { Event } from '../../../../base/common/event.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, relativePath as getRelativePath } from '../../../../base/common/resources.js';
@@ -15,11 +14,10 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { FileOperation, FileOperationResult, FileSystemProviderCapabilities, IFileService, toFileOperationResult } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { IFileOperationUndoRedoInfo, IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../../services/workingCopy/common/workingCopyFileService.js';
+import { IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../../services/workingCopy/common/workingCopyFileService.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfAdhdMirrorService } from '../../markdown/common/basehalfAdhdMirror.js';
 import { BaseHalfBadgeKind, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../../references/common/basehalfBadgeMirror.js';
@@ -50,7 +48,6 @@ import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBa
 import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../video/common/basehalfVideoGeneration.js';
 import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfDraftAsidePath, baseHalfIsDraft, baseHalfReadDraftFacts, baseHalfWalkDraftInformation } from '../../video/common/basehalfGenerationDraft.js';
-import { IBaseHalfOwnedStagedDeleteCleanup, IBaseHalfPluginStructuralDeleteCleanupService, rollbackBaseHalfUncompletedDeleteCleanups, settleBaseHalfStagedDeleteCleanups } from '../../plugins/browser/basehalfPluginStructuralDeleteCleanup.js';
 import { baseHalfDeleteMirrorFile, baseHalfPreserveUnreadableGenerationFile, baseHalfReadMirrorFile, baseHalfWriteMirrorFile } from '../common/basehalfMirrorFiles.js';
 // The draft operations that a draft at the new path of a moved item moves aside with.
 import './basehalfDraftOperations.js';
@@ -81,12 +78,7 @@ interface IBaseHalfCardInformationBefore {
 interface IBaseHalfPreparedStructuralOperation {
 	readonly operation: FileOperation.MOVE | FileOperation.DELETE;
 	readonly reservation: IBaseHalfStructuralMutationReservation;
-	readonly undoRedoGroup: UndoRedoGroup | undefined;
-	readonly stagedDeleteCleanups: IBaseHalfOwnedStagedDeleteCleanup[];
 	readonly before: IBaseHalfCardInformationBefore;
-	completedFileCount: number;
-	deleteCleanupsSettled: boolean;
-	finalizationSucceeded: boolean;
 	finalized: boolean;
 	published: boolean;
 	publication?: Promise<void>;
@@ -199,7 +191,6 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IBaseHalfGenerationTaskStore private readonly taskStore: IBaseHalfGenerationTaskStore,
 		@IBaseHalfDraftOperations private readonly draftOperations: IBaseHalfDraftOperations,
-		@IBaseHalfPluginStructuralDeleteCleanupService private readonly pluginStructuralDeleteCleanupService: IBaseHalfPluginStructuralDeleteCleanupService,
 		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService
 	) {
@@ -214,7 +205,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		this._register(this.workingCopyService.onDidChangeDirty(() => retry.schedule()));
 
 		this._register(workingCopyFileService.addFileOperationPrecondition({
-			prepare: (files, operation, undoInfo, token) => this.prepareStructuralDetail(files, operation, undoInfo, token)
+			prepare: (files, operation) => this.prepareStructuralDetail(files, operation)
 		}));
 
 		this._register(this.fileService.onDidFilesChange(event => {
@@ -259,7 +250,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 	}
 
-	private async prepareStructuralDetail(files: readonly SourceTargetPair[], operation: FileOperation, undoInfo: IFileOperationUndoRedoInfo | undefined, token: CancellationToken): Promise<IWorkingCopyFileOperationPreconditionGuard | void> {
+	private async prepareStructuralDetail(files: readonly SourceTargetPair[], operation: FileOperation): Promise<IWorkingCopyFileOperationPreconditionGuard | void> {
 		if (operation !== FileOperation.MOVE && operation !== FileOperation.DELETE) {
 			return;
 		}
@@ -282,12 +273,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const context: IBaseHalfPreparedStructuralOperation = {
 			operation,
 			reservation: this.workspaceMutationCoordinator.reserveStructural(workspaces, affectedPaths),
-			undoRedoGroup: undoInfo?.undoRedoGroup,
-			stagedDeleteCleanups: [],
 			before: { drafts: [], withoutRecord: [] },
-			completedFileCount: 0,
-			deleteCleanupsSettled: false,
-			finalizationSucceeded: false,
 			finalized: false,
 			published: false
 		};
@@ -313,16 +299,11 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			);
 			fence = preparedFence || undefined;
 			await context.reservation.runPrepared(() => this.readCardInformationBefore(operation, files, context.before));
-			if (operation === FileOperation.DELETE && !undoInfo?.isUndoing) {
-				await context.reservation.runPrepared(async lease => {
-					context.stagedDeleteCleanups.push(...await this.pluginStructuralDeleteCleanupService.stageDelete(files, token, lease));
-				});
-			}
 			let disposed = false;
 			return {
 				didRun: completedFiles => this.finalizePreparedOperation(context, completedFiles, false),
 				didFail: completedFiles => this.finalizePreparedOperation(context, completedFiles, true),
-				afterPublicEvents: operationSucceeded => this.completePreparedOperation(context, operationSucceeded),
+				afterPublicEvents: () => this.publishPreparedOperation(context),
 				dispose: () => {
 					if (disposed) {
 						return;
@@ -407,60 +388,23 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		context.published = true;
 	}
 
-	private async completePreparedOperation(context: IBaseHalfPreparedStructuralOperation, operationSucceeded: boolean): Promise<void> {
-		if (!context.deleteCleanupsSettled) {
-			context.deleteCleanupsSettled = true;
-			const canJoinFileUndo = operationSucceeded
-				&& context.finalizationSucceeded
-				&& context.completedFileCount > 0
-				&& context.undoRedoGroup !== undefined;
-			settleBaseHalfStagedDeleteCleanups(
-				context.stagedDeleteCleanups,
-				context.completedFileCount,
-				canJoinFileUndo ? context.undoRedoGroup : undefined
-			);
-		}
-		await this.publishPreparedOperation(context);
-	}
-
 	private async finalizePreparedOperation(context: IBaseHalfPreparedStructuralOperation, completedFiles: readonly SourceTargetPair[], failed: boolean): Promise<void> {
 		if (context.finalized) {
 			return;
 		}
 		context.finalized = true;
-		context.completedFileCount = completedFiles.length;
 		if (!failed) {
-			try {
-				await context.reservation.finishInternal(
-					lease => this.handleOperation(context.operation, completedFiles, lease, context.before),
-					baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles)
-				);
-				context.finalizationSucceeded = true;
-			} catch (error) {
-				// The physical operation completed, so every staged cleanup must
-				// remain even though no file undo element will be published.
-				throw error;
-			}
+			await context.reservation.finishInternal(
+				lease => this.handleOperation(context.operation, completedFiles, lease, context.before),
+				baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles)
+			);
 		} else if (completedFiles.length === 0) {
-			let rollbackError: unknown;
-			try {
-				await context.reservation.runPrepared(lease => rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, 0, lease));
-			} catch (error) {
-				rollbackError = error;
-			} finally {
-				await context.reservation.abortInternal();
-			}
-			if (rollbackError !== undefined) {
-				throw rollbackError;
-			}
+			await context.reservation.abortInternal();
 		} else {
 			this.logService.warn(`BaseHalf mirror cascade: ${context.operation === FileOperation.MOVE ? 'move' : 'delete'} batch failed after ${completedFiles.length} member(s) reached disk; reconciling the completed prefix`);
 			await context.reservation.reconcileInternal(
 				baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles),
-				async lease => {
-					await rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, completedFiles.length, lease);
-					await this.handleOperation(context.operation, completedFiles, lease, context.before);
-				}
+				lease => this.handleOperation(context.operation, completedFiles, lease, context.before)
 			);
 		}
 	}
@@ -470,18 +414,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			return;
 		}
 		context.finalized = true;
-		let rollbackError: unknown;
-		try {
-			await context.reservation.runPrepared(lease => rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, 0, lease));
-			context.deleteCleanupsSettled = true;
-		} catch (error) {
-			rollbackError = error;
-		} finally {
-			await context.reservation.cancel();
-		}
-		if (rollbackError !== undefined) {
-			throw rollbackError;
-		}
+		await context.reservation.cancel();
 	}
 
 	/**

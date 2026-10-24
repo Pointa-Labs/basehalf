@@ -8,19 +8,18 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { MenuRegistry } from '../../../../../platform/actions/common/actions.js';
 import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
-import { IFileService } from '../../../../../platform/files/common/files.js';
 import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
-import { BaseHalfCanvasTemplateRegistryService, readBaseHalfCanvasTemplateSource } from '../../../canvas/common/basehalfCanvasTemplateRegistry.js';
+import { BaseHalfCanvasTemplateRegistryService } from '../../../canvas/common/basehalfCanvasTemplateRegistry.js';
 import { BaseHalfCardDetailSurfaceRegistryService } from '../../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { BaseHalfCardProjectionRegistryService } from '../../../cardDetail/common/basehalfCardDetail.js';
-import { BaseHalfAgentCapabilityRegistryService } from '../../../plugins/common/basehalfAgentCapabilities.js';
+import { BaseHalfAgentCapabilityRegistryService } from '../../../agentArea/common/basehalfAgentCapabilities.js';
 import { BaseHalfSequenceContribution } from '../../browser/basehalfSequence.contribution.js';
 import { BASEHALF_STARTER_WORKFLOW_TEMPLATE_SOURCE } from '../../common/basehalfStarterWorkflowTemplate.js';
 
 suite('BaseHalfSequenceContribution', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('registers the Sequence view, the starter template, the capability for agents, and the commands, with the ids they had in the extension (D75)', async () => {
+	test('registers the Sequence view, the starter template, the capability for agents, and the commands, with the ids they had in the extension (D75)', () => {
 		const projections = store.add(new BaseHalfCardProjectionRegistryService());
 		const surfaces = store.add(new BaseHalfCardDetailSurfaceRegistryService());
 		const templates = store.add(new BaseHalfCanvasTemplateRegistryService());
@@ -34,9 +33,7 @@ suite('BaseHalfSequenceContribution', () => {
 		assert.strictEqual(surfaces.hasProvider('pointa.basehalf-ai-video.sequence'), true);
 
 		const template = templates.getTemplate('pointa.basehalf-ai-video.starter-workflow');
-		assert.deepStrictEqual([template?.label, template?.extensionId], ['Video Starter Workflow', 'pointa.basehalf-ai-video']);
-		// BaseHalf's own template is its text: nothing is read from a file.
-		assert.strictEqual(await readBaseHalfCanvasTemplateSource({} as IFileService, template!), BASEHALF_STARTER_WORKFLOW_TEMPLATE_SOURCE);
+		assert.deepStrictEqual([template?.label, template?.namespace, template?.source], ['Video Starter Workflow', 'pointa.basehalf-ai-video', BASEHALF_STARTER_WORKFLOW_TEMPLATE_SOURCE]);
 
 		const capability = capabilities.getCapability('pointa.basehalf-ai-video.sequence-capability');
 		assert.deepStrictEqual(capability?.documents.map(document => document.kind), ['pointa.basehalf-ai-video.shot', 'pointa.basehalf-ai-video.sequence']);

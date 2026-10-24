@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import type { IBaseHalfAgentCapabilityContribution } from '../../plugins/common/basehalfAgentCapabilities.js';
+import type { IBaseHalfAgentCapabilityContribution } from '../../agentArea/common/basehalfAgentCapabilities.js';
 import {
 	BASEHALF_SEQUENCE_ADD_COMMAND_ID,
 	BASEHALF_SEQUENCE_CAPABILITY_ID,

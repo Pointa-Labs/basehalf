@@ -220,7 +220,7 @@ source-tree safety warning, not duplicated rule bodies.
   substantive work through the harness to the spec-first sequence.
 - The root guides do not enumerate the complete decision corpus or duplicate
   architecture, delivery, or subsystem contracts.
-- `docs/harness/README.md` routes architecture, product-surface, plugin,
+- `docs/harness/README.md` routes architecture, product-surface, extension,
   protocol, and delivery work to the documents that own those topics.
 - Development-only guidance lives in `docs/harness/`; BaseHalf no longer
   generates `.bh/agent-harness/` in any workspace.

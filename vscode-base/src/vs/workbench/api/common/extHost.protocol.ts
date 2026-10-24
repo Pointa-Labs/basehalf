@@ -1137,41 +1137,6 @@ export interface MainThreadCustomEditorsShape extends IDisposable {
 	$onContentChange(resource: UriComponents, viewType: string): void;
 }
 
-export interface IBaseHalfExtensionIdentityDto {
-	readonly id: ExtensionIdentifier;
-	readonly version: string;
-	readonly location: UriComponents;
-	readonly isBuiltin: boolean;
-	readonly isUnderDevelopment: boolean;
-}
-
-/** What a generation card makes, by the extension of its file (D63). */
-export type BaseHalfGenerationCardKindDto = 'image' | 'video';
-
-/** What an admitted extension learns of a generation card: its kind, whether it has its file, and the `id` of its `made.yaml`. */
-export interface IBaseHalfGenerationCardStateDto {
-	readonly kind: BaseHalfGenerationCardKindDto;
-	readonly hasFile: boolean;
-	readonly generationId?: string;
-}
-
-export interface IBaseHalfProjectFileTransitionDto {
-	readonly resource: UriComponents;
-	readonly expected: VSBuffer;
-	readonly next: VSBuffer;
-	readonly label: string;
-}
-
-export interface MainThreadBaseHalfShape extends IDisposable {
-	$registerCardProjectionProvider(extension: WebviewExtensionDescription, projectionId: string, options: { readonly retainContextWhenHidden?: boolean }, serializeBuffersForPostMessage: boolean): void;
-	$unregisterCardProjectionProvider(projectionId: string): void;
-	$setCardProjectionDirty(handle: WebviewHandle, dirty: boolean): void;
-	$inspectGenerationCard(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfGenerationCardStateDto | undefined>;
-	$applyProjectFileTransition(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents, expected: VSBuffer, next: VSBuffer, label: string): Promise<void>;
-	$registerCanvasStructuralCleanupProvider(extension: IBaseHalfExtensionIdentityDto): void;
-	$unregisterCanvasStructuralCleanupProvider(extensionId: string): void;
-}
-
 export interface MainThreadWebviewViewsShape extends IDisposable {
 	$registerWebviewViewProvider(extension: WebviewExtensionDescription, viewType: string, options: { retainContextWhenHidden?: boolean; serializeBuffersForPostMessage: boolean }): void;
 	$unregisterWebviewViewProvider(viewType: string): void;
@@ -1259,13 +1224,6 @@ export interface ExtHostCustomEditorsShape {
 	$backup(resource: UriComponents, viewType: string, cancellation: CancellationToken): Promise<string>;
 
 	$onMoveCustomEditor(handle: WebviewHandle, newResource: UriComponents, viewType: string): Promise<void>;
-}
-
-export interface ExtHostBaseHalfShape {
-	$resolveCardProjection(resource: UriComponents, handle: WebviewHandle, projectionId: string, contentOptions: IWebviewContentOptions, visible: boolean, cancellation: CancellationToken): Promise<void>;
-	$disposeCardProjection(handle: WebviewHandle): void;
-	$setCardProjectionVisible(handle: WebviewHandle, visible: boolean): void;
-	$prepareCanvasStructuralCleanup(extensionId: string, resource: UriComponents, cancellation: CancellationToken): Promise<readonly IBaseHalfProjectFileTransitionDto[]>;
 }
 
 export interface ExtHostWebviewViewsShape {
@@ -4097,7 +4055,6 @@ export const MainContext = {
 	MainThreadWebviewPanels: createProxyIdentifier<MainThreadWebviewPanelsShape>('MainThreadWebviewPanels'),
 	MainThreadWebviewViews: createProxyIdentifier<MainThreadWebviewViewsShape>('MainThreadWebviewViews'),
 	MainThreadCustomEditors: createProxyIdentifier<MainThreadCustomEditorsShape>('MainThreadCustomEditors'),
-	MainThreadBaseHalf: createProxyIdentifier<MainThreadBaseHalfShape>('MainThreadBaseHalf'),
 	MainThreadUrls: createProxyIdentifier<MainThreadUrlsShape>('MainThreadUrls'),
 	MainThreadUriOpeners: createProxyIdentifier<MainThreadUriOpenersShape>('MainThreadUriOpeners'),
 	MainThreadProfileContentHandlers: createProxyIdentifier<MainThreadProfileContentHandlersShape>('MainThreadProfileContentHandlers'),
@@ -4175,7 +4132,6 @@ export const ExtHostContext = {
 	ExtHostWebviews: createProxyIdentifier<ExtHostWebviewsShape>('ExtHostWebviews'),
 	ExtHostWebviewPanels: createProxyIdentifier<ExtHostWebviewPanelsShape>('ExtHostWebviewPanels'),
 	ExtHostCustomEditors: createProxyIdentifier<ExtHostCustomEditorsShape>('ExtHostCustomEditors'),
-	ExtHostBaseHalf: createProxyIdentifier<ExtHostBaseHalfShape>('ExtHostBaseHalf'),
 	ExtHostWebviewViews: createProxyIdentifier<ExtHostWebviewViewsShape>('ExtHostWebviewViews'),
 	ExtHostEditorInsets: createProxyIdentifier<ExtHostEditorInsetsShape>('ExtHostEditorInsets'),
 	ExtHostEditorTabs: createProxyIdentifier<IExtHostEditorTabsShape>('ExtHostEditorTabs'),

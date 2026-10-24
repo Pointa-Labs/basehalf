@@ -21,7 +21,6 @@ import { SaveReason } from '../../../common/editor.js';
 import { IProgress, IProgressStep } from '../../../../platform/progress/common/progress.js';
 import { StoredFileWorkingCopySaveParticipant } from './storedFileWorkingCopySaveParticipant.js';
 import { IStoredFileWorkingCopy, IStoredFileWorkingCopyModel } from './storedFileWorkingCopy.js';
-import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 
 export const IWorkingCopyFileService = createDecorator<IWorkingCopyFileService>('workingCopyFileService');
 
@@ -44,13 +43,6 @@ export interface IFileOperationUndoRedoInfo {
 	 * Id of the undo group that the file operation belongs to.
 	 */
 	undoRedoGroupId?: number;
-
-	/**
-	 * The actual undo group, when the caller owns one. Internal preconditions
-	 * that stage companion workspace edits must use this object instead of
-	 * attempting to recover a group globally from its numeric id.
-	 */
-	undoRedoGroup?: UndoRedoGroup;
 
 	/**
 	 * Flag indicates if the operation is an undo.

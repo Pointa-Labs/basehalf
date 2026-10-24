@@ -7,10 +7,10 @@ import fs from 'fs';
 import path from 'path';
 import { logsPath } from '../../context.mts';
 
-// AI Video is BaseHalf's own code (D75; built-in AI Video and the frozen
-// plugin platform, criteria 11 and 12): after the generations of the suite,
-// no extension host has loaded the AI Video extension, and the provider
-// service in the shared process has logged the requests it sent.
+// AI Video is BaseHalf's own code (D75; built-in AI Video and no plugins,
+// criteria 10 and 11): after the generations of the suite, no extension host
+// has loaded the AI Video extension, and the provider service in the shared
+// process has logged the requests it sent.
 export async function assertProviderRequestsFromSharedProcess() {
 	const logs = filesBelow(logsPath);
 	const extensionHostLogs = logs.filter(file => path.basename(file) === 'exthost.log');

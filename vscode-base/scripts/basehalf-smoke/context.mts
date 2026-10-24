@@ -48,12 +48,6 @@ function parseArgs(args) {
 		keep: false,
 		verbose: false,
 		suite: undefined,
-		externalPluginId: undefined,
-		externalPluginExtension: undefined,
-		externalPluginVersion: undefined,
-		seedVsix: undefined,
-		verifyUninstalled: false,
-		verifyInstalled: false,
 		output: undefined,
 		packagedApp: undefined
 	};
@@ -70,24 +64,6 @@ function parseArgs(args) {
 			case '--suite':
 				parsed.suite = requireValue(args, ++i, arg);
 				break;
-			case '--external-plugin-id':
-				parsed.externalPluginId = requireValue(args, ++i, arg).toLowerCase();
-				break;
-			case '--external-plugin-extension':
-				parsed.externalPluginExtension = requireValue(args, ++i, arg).replace(/^\./, '').toLowerCase();
-				break;
-			case '--external-plugin-version':
-				parsed.externalPluginVersion = requireValue(args, ++i, arg);
-				break;
-			case '--seed-vsix':
-				parsed.seedVsix = path.resolve(requireValue(args, ++i, arg));
-				break;
-			case '--verify-uninstalled':
-				parsed.verifyUninstalled = true;
-				break;
-			case '--verify-installed':
-				parsed.verifyInstalled = true;
-				break;
 			case '--output':
 				parsed.output = path.resolve(requireValue(args, ++i, arg));
 				break;
@@ -101,19 +77,6 @@ function parseArgs(args) {
 				throw new Error(`Unknown argument: ${arg}`);
 		}
 	}
-	if (parsed.externalPluginId) {
-		throw new Error('The reviewed-plugin lifecycle slice cannot run while the plugin platform is frozen: the product has no plugin surface (docs/specs/built-in-ai-video-and-plugin-freeze.md).');
-	}
-	if (parsed.externalPluginId && (parsed.suite !== 'plugin' || !parsed.externalPluginExtension || !parsed.externalPluginVersion)) {
-		throw new Error('--external-plugin-id requires --suite plugin, --external-plugin-extension, and --external-plugin-version.');
-	}
-	if ((parsed.seedVsix || parsed.verifyUninstalled || parsed.verifyInstalled) && !parsed.externalPluginId) {
-		throw new Error('--seed-vsix and verification modes require --external-plugin-id.');
-	}
-	if (parsed.verifyUninstalled && parsed.verifyInstalled) {
-		throw new Error('--verify-installed and --verify-uninstalled are mutually exclusive.');
-	}
-
 	return parsed;
 }
 
@@ -132,23 +95,12 @@ Runs one suite of the smoke. scripts/basehalf-smoke.mts runs the suites, each in
 process of its own; use it through npm run basehalf:smoke or basehalf:smoke-no-compile.
 
 Options:
-  --suite <name>      The suite to run: workbench, canvas, cardDetail, navigation, video, or plugin.
+  --suite <name>      The suite to run: workbench, canvas, cardDetail, navigation, or video.
   --output <path>     Store smoke logs/user-data/crashes in this directory.
   --packaged-app <path>
                       Run against a packaged application bundle or folder instead of
                       the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.
   --keep              Keep the generated temporary directory after the run.
-  --external-plugin-id <id>
-                      With --suite plugin: run the reviewed remote-plugin lifecycle. Refused
-                      while the plugin platform is frozen.
-  --external-plugin-extension <ext>
-                      File extension contributed by the reviewed test plugin.
-  --external-plugin-version <version>
-                      Remote version expected after install or update.
-  --seed-vsix <path>  Preinstall an older VSIX before exercising remote update.
-  --verify-uninstalled
-                      Relaunch an existing output profile and verify source fallback.
-  --verify-installed  Relaunch an existing output profile and verify cached admission.
   --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
 `);
 	process.exit(0);

@@ -152,8 +152,7 @@ in [decisions.md](../decisions.md).
   the user started or confirmed, or through the rename refactor of an agent
   move, as listed in
   [reference graph Invariant 4](../specs/reference-graph.md#invariants). Host
-  lifecycle writes carry `upstream` through unchanged, and reviewed plugins may
-  not change it.
+  lifecycle writes carry `upstream` through unchanged.
 - Automated BaseHalf services observe user files and never modify them
   unprompted. BaseHalf writes user files only on an explicit user action,
   including the reference operations of reference graph Invariant 4, or after
@@ -189,31 +188,32 @@ See public decisions D12–D14, D24, D35–D38, and D40–D43, the
 [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
 specifications, and the relevant records under `private-docs/decisions/`.
 
-## Built-in AI Video, executable media, and the frozen plugin platform
+## Built-in AI Video, executable media, and no plugins
 
 The first two points are owned by
-[built-in AI Video and the frozen plugin platform](../specs/built-in-ai-video-and-plugin-freeze.md).
+[built-in AI Video and no plugins](../specs/built-in-ai-video-and-no-plugins.md).
 
 - AI Video is BaseHalf's own code, not an extension (D75). Its provider
   service runs in the shared process, which every window calls directly;
   requests to providers are Node's requests there with VS Code's proxy
   agent, one connection each and never sent again by themselves, never
   through the window. Video Sequence and the starter template are workbench
-  code. It has no install, update, or removal of its own (D45), and no
-  extension is admitted to the frozen platform's contribution points.
-- The plugin platform is frozen. Do not register its interface, fetch its
-  catalog, add a product configuration entry that names the registry or the
-  publishing portal, or write a message that sends the user to Plugins. Its
-  code, tooling, and documents are kept and must keep compiling and passing
-  their tests. Changing or deleting them is a separate decision.
+  code. It has no install, update, or removal of its own (D45).
+- BaseHalf has no plugin platform (D76). No extension contributes to
+  BaseHalf: do not add a contribution point, an extension API of BaseHalf, a
+  catalog, a product configuration entry that names the registry or the
+  publishing portal, or a message that sends the user to Plugins. VS Code's
+  own extension system stays as VS Code has it, so that BaseHalf can build
+  on it later; a change to it beyond the allowlist and the install policy is
+  a decision of its own.
 - The shell is fixed. The host owns the sidebar, canvas, navigation,
   reference semantics, node lifecycle, credentials, and Agent Area. Video
   Sequence adds a template, a file-specific Card Detail projection, and its
   commands through the host's registries, and the provider service answers
   the calls of generation cards. Sequence's project file transitions may not
   change any upstream value.
-- The initial extension ecosystem is curated around Git, GitHub,
-  GitHub Authentication, Codex, and Claude rather than a general marketplace.
+- The extension ecosystem is curated around Git, GitHub, GitHub
+  Authentication, Codex, and Claude rather than a general marketplace.
 - Workflow output is ordinary local user-owned data. Domain truth does not
   move into an extension-private database, and into `.bh/mirror/` only as
   card information: since D63 the prompt and settings of a generation card
@@ -232,11 +232,8 @@ The first two points are owned by
   sends a request again by itself and continues after a restart
   ([generation cards](../specs/generation-cards.md)).
 
-See public decisions D26–D28, D33, D45, D58, D63, D64, D67, and D75.
-[plugin-architecture.md](../plugin-architecture.md) and
-[plugin-development.md](../plugin-development.md) describe the frozen platform
-(D25, D29–D32) and its contribution points, which no extension uses since
-D75.
+See public decisions D26–D28, D33, D45, D58, D63, D64, D67, D75, and D76.
+D25 and D29 to D34 describe the plugin platform that D76 removed.
 
 ## Completion standard
 

@@ -34,8 +34,9 @@ type AllowedExtensionTarget =
 
 /**
  * The native extension server runs outside the workbench process. It therefore
- * enforces the product's gallery boundary independently so background services
- * cannot bypass the reviewed installation surface.
+ * refuses gallery extensions other than the agent extensions by itself, so that
+ * background services such as Settings Sync install no other extension either
+ * (D76; built-in AI Video and no plugins, rule 11).
  */
 export class BaseHalfServerAllowedExtensionsService extends AllowedExtensionsService implements IAllowedExtensionsService {
 
@@ -53,7 +54,7 @@ export class BaseHalfServerAllowedExtensionsService extends AllowedExtensionsSer
 			&& !isBaseHalfTrustedExternalGalleryIdentity(extension.identifier.id, extension.identifier.uuid)) {
 			return new MarkdownString(nls.localize(
 				'basehalf.serverGalleryExtensionNotAllowed',
-				"This extension can be installed only through BaseHalf's reviewed Plugins library."
+				"BaseHalf cannot install this extension. It runs only its built-in extensions and the agent extensions it supports."
 			));
 		}
 		return super.isAllowed(extension);

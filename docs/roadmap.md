@@ -15,9 +15,11 @@ See also:
 - [decisions.md D23](decisions.md#d23--module-complete-migration-not-mvp-or-intermediate-shell-new-2026-06-30)
   for the quality bar: module-complete migration, not an MVP shell.
 - [decisions.md D45](decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)
-  for built-in AI Video and the frozen plugin platform, and
+  for built-in AI Video,
   [D75](decisions.md#d75--ai-video-is-basehalfs-own-code-not-an-extension-new-2026-10-24)
-  for AI Video as BaseHalf's own code.
+  for AI Video as BaseHalf's own code, and
+  [D76](decisions.md#d76--the-plugin-platform-is-removed-new-2026-10-25)
+  for the removal of the plugin platform.
 
 ## Product Direction
 
@@ -41,7 +43,7 @@ BaseHalf's own product layer remains canvas-first:
 - The left sidebar exposes exactly Files, Git, and Search.
 - AI Video is a built-in capability on the main canvas and BaseHalf's own
   code, not an extension (D75). There is no plugin surface, and the plugin
-  platform is frozen (D45).
+  platform is removed (D76).
 
 ## Quality Bar
 
@@ -242,8 +244,8 @@ Done means:
 
 - BaseHalf has a curated product allowlist rather than exposing the full
   marketplace by default.
-- No plugin catalog, plugin manager, or community publishing surface is
-  exposed while the plugin platform is frozen (track 11).
+- No plugin catalog, plugin manager, or community publishing surface
+  exists; the plugin platform is removed (track 11, D76).
 - Required VS Code APIs for selected extensions are present: commands,
   terminals, webviews, auth, secrets, storage, configuration, and file access.
 - Blocked extensions fail with a clear product-level reason.
@@ -291,12 +293,13 @@ Current status: `npm run basehalf:smoke` and
 identity, canvas startup, hidden Open Editors, Source Control's VS Code Git
 provider, Quick Open, Quick Text Search, and folder routing.
 
-### 11. Built-in AI Video And The Frozen Plugin Platform
+### 11. Built-in AI Video And No Plugins
 
 Goal: AI Video works from the first start with no install step, the product
-has no plugin surface, and nothing publishes or signs a plugin unattended.
+has no plugin surface, and neither the product nor the repository holds a
+plugin platform.
 The owning specification is
-[built-in AI Video and the frozen plugin platform](specs/built-in-ai-video-and-plugin-freeze.md).
+[built-in AI Video and no plugins](specs/built-in-ai-video-and-no-plugins.md).
 
 Done means:
 
@@ -306,18 +309,18 @@ Done means:
 - The Activity Bar shows exactly Files, Git, and Search. No command, link, or
   message leads to Plugins.
 - BaseHalf makes no request to the plugin registry or the publishing portal.
-- Extensions that an earlier build's plugin installer put into a profile are
-  never admitted.
-- The promotion workflow has no schedule, and the publishing portal and its
-  API are out of service. The registry, the signing key, and the stored data
-  are kept.
-- The platform's code stays in the repository, compiles, and keeps its tests.
+- Extensions that an earlier build's plugin installer put into a profile do
+  not run.
+- The platform's code, tooling, workflows, developer packages, and
+  infrastructure definitions are gone from the repository (D76). VS Code's
+  own extension system stays as VS Code has it.
 
-Current status: the client side is implemented and covered by unit tests and
-the smoke. The services are not changed yet: the publishing portal and its
-API are still online, the release token is not revoked, and the developer
-packages carry no notice. Builds that are already distributed still show the
-Plugins library and reject the published catalog.
+Current status: the client and the repository are done. The services are
+retired by hand: the registry, the signing key, the storage, and the
+database are still online, the publishing portal and its API were still
+online when last checked, the release token is not revoked, and the
+published developer packages are not deprecated. Builds that are already
+distributed still show the Plugins library and reject the published catalog.
 
 ## Current Execution Order
 

@@ -35,7 +35,6 @@ import { TestContextService, TestWorkingCopy } from '../../../../test/common/wor
 import { BaseHalfMirrorCascadeContribution } from '../../../workspace/browser/basehalfMirrorCascade.contribution.js';
 import { IBaseHalfMovedItem } from '../../../workspace/common/basehalfMovedItems.js';
 import { IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove, IBaseHalfRecognizedMoves } from '../../../workspace/common/basehalfMovedItemsService.js';
-import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../../plugins/browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceRefactorService, IBaseHalfReferenceRefactorService } from '../../browser/basehalfReferenceRefactorService.js';
 import { BaseHalfRenameRefactorContribution } from '../../browser/basehalfRenameRefactor.contribution.js';
@@ -225,7 +224,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	const explorerUndoSource = new UndoRedoSource();
 	instantiationService.stub(IExplorerService, {
 		applyBulkEdit: async (edits, options) => {
-			await bulkEdit.apply(edits, { undoRedoSource: explorerUndoSource, undoRedoGroup: options.undoRedoGroup, label: options.undoLabel, code: 'undoredo.explorerOperation', confirmBeforeUndo: options.confirmBeforeUndo });
+			await bulkEdit.apply(edits, { undoRedoSource: explorerUndoSource, label: options.undoLabel, code: 'undoredo.explorerOperation', confirmBeforeUndo: options.confirmBeforeUndo });
 		}
 	} as Partial<IExplorerService> as IExplorerService);
 	const flush = new BaseHalfEditorFlushService();
@@ -249,7 +248,6 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 	const taskStore = new BaseHalfRecordingGenerationTaskStore(folder);
 	instantiationService.stub(IBaseHalfGenerationTaskStore, taskStore);
-	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	const refactor = instantiationService.createInstance(BaseHalfReferenceRefactorService);
 	if (options.partialIndex) {
 		refactor.whenIndexReady = async () => 'partial';

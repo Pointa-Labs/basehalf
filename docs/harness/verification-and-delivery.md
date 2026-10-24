@@ -133,11 +133,10 @@ Package-specific work should run that package's lint, typecheck, and test
 scripts in addition to any cross-package acceptance checks defined by the
 owning specification.
 
-GitHub CI checks the historical pnpm workspace under `packages/`, the action
-pins of the workflows, and `infrastructure/`. It builds nothing of
-`vscode-base/`. A change to `packages/`, `pnpm-lock.yaml`,
-`pnpm-workspace.yaml`, `.github/workflows/`, or `infrastructure/` runs what CI
-runs before the push:
+GitHub CI checks the historical pnpm workspace under `packages/` and the
+action pins of the workflows. It builds nothing of `vscode-base/`. A change to
+`packages/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, or `.github/workflows/`
+runs what CI runs before the push:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -146,11 +145,10 @@ pnpm -r build
 pnpm -r test
 pnpm -r --if-present lint
 node vscode-base/scripts/basehalf-workflow-action-pins.mts
-terraform fmt -check -recursive infrastructure/plugins
 ```
 
-CI also runs the tests on Node 24, validates the Terraform configuration, and
-checks the licenses of the workspace's production dependencies
+The last command needs Node 24, as `vscode-base/` does. CI also runs the tests
+on Node 24 and checks the licenses of the workspace's production dependencies
 (`license-check.yml`). A package's tests read only the files of their own
 package and the files they write. CI starts from a fresh checkout, so a test
 that reads `vscode-base/` passes where `vscode-base/` is built and fails in

@@ -15,19 +15,18 @@ per feature:
 
 | Folder | What it holds | Owning documents |
 | --- | --- | --- |
-| `shell/` | The product profile, About, release notes, settings, layout controls, and the item glyphs and sideways scrollbar that several surfaces draw | [Layout controls](../specs/layout-controls.md), [workbench appearance](../specs/workbench-appearance.md) |
+| `shell/` | The product profile with the extension allowlist and install policy, About, release notes, settings, layout controls, and the item glyphs and sideways scrollbar that several surfaces draw | [Layout controls](../specs/layout-controls.md), [workbench appearance](../specs/workbench-appearance.md) |
 | `navigation/` | Folders opening as canvases and files as Card Detail, back and forward, and the flush before Card Detail is left | [Roadmap](../roadmap.md) tracks 2 and 4 |
-| `workspace/` | What BaseHalf keeps in `.bh/`: reading, writing, and recovering mirror files, the mirror cascade, following moved items, legacy cleanup, and workspace mutations | [Mirror file resilience](../specs/mirror-file-resilience.md), [following moved items](../specs/following-moved-items.md), [workspace state](../specs/workspace-state-and-legacy-cleanup.md) |
+| `workspace/` | What BaseHalf keeps in `.bh/`: reading, writing, and recovering mirror files, the mirror cascade, following moved items, legacy cleanup, workspace mutations, and project file transitions | [Mirror file resilience](../specs/mirror-file-resilience.md), [following moved items](../specs/following-moved-items.md), [workspace state](../specs/workspace-state-and-legacy-cleanup.md) |
 | `markdown/` | The Markdown document under the rich, source, and preview projections, and the reading aids of `adhd.yaml` | [Note rendering](../specs/note-rendering.md), roadmap track 5 |
 | `references/` | The reference graph: its stores and index, reference edits, the rename refactor, migration, and the badge editor | [Reference graph](../specs/reference-graph.md) |
 | `canvas/` | The canvas: its model and layout file, its view, scene, gestures, placement, and arrangement | The canvas specifications in the [harness routes](README.md#task-routes) |
 | `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/`, `snap/`, and `tidy/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
 | `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5 |
 | `documents/` | PDFs and books: which files they are, their covers and the cache that keeps them, the readers of covers, and the book reader's page | [PDFs and books](../specs/documents-and-books.md) |
-| `agentArea/` | The Agent Area, its terminal, the agent skill, and the selection agents can see | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
+| `agentArea/` | The Agent Area, its terminal, the agent skill, the selection agents can see, and the registry of the capabilities agents read | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | Generation cards of images and videos: their drafts and generation information, the task records, the model catalog as the window receives it, the providers' settings, and the Providers page | [Generation cards](../specs/generation-cards.md), [providers and the model catalog](../specs/providers.md) |
 | `sequence/` | Video Sequence: the Sequence document, its view in Card Detail, its commands and its capability for agents, and the starter template | [Video Sequence](../specs/video-sequence.md) |
-| `plugins/` | The frozen plugin platform, its contribution points, and the extension allowlist | [Built-in AI Video and the frozen plugin platform](../specs/built-in-ai-video-and-plugin-freeze.md) |
 
 Inside a feature folder, files are in VS Code's layer folders: `common/`,
 `browser/`, and `electron-browser/`. Tests are in `test/<layer>/` of the same
@@ -60,9 +59,9 @@ history still finds its file.
 - Code that runs outside the window, or that extends one VS Code service in
   place, sits beside that service, named with a `basehalf` prefix: the app
   update under `platform/update/`, the command bridge of the pty host under
-  `platform/terminal/`, the gallery policy under `platform/extensionManagement/`,
-  and the two halves of the extension host API, `mainThreadBaseHalf.ts` and
-  `extHostBaseHalf.ts`, under `workbench/api/`.
+  `platform/terminal/`, and the gallery policy under
+  `platform/extensionManagement/`. BaseHalf has no extension host API of its
+  own (D76).
 - A service of BaseHalf's own that runs outside the window has a platform
   folder of its own, named with a `basehalf` prefix and split into VS Code's
   layers as its services are: the provider service of generation cards is

@@ -86,7 +86,7 @@ import { BuiltInExtensionsContext, ExtensionMarketplaceStatusUpdater, Extensions
 import { ExtensionsWorkbenchService } from './extensionsWorkbenchService.js';
 import './media/extensionManagement.css';
 import { UnsupportedExtensionsMigrationContrib } from './unsupportedExtensionsMigrationContribution.js';
-import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
+import { refuseBaseHalfExtensionInstall } from '../../../basehalf/shell/common/basehalfExtensionInstallPolicy.js';
 
 // Singletons
 registerSingleton(IExtensionsWorkbenchService, ExtensionsWorkbenchService, InstantiationType.Eager /* Auto updates extensions */);
@@ -96,7 +96,7 @@ registerSingleton(IExtensionRecommendationsService, ExtensionRecommendationsServ
 const exposeStockExtensionsProductSurface = !product.basehalfVersion;
 
 export function assertArbitraryExtensionInstallAllowed(): void {
-	assertBaseHalfReviewedPluginInstallSurface(product);
+	refuseBaseHalfExtensionInstall(product);
 }
 
 // Quick Access
@@ -389,7 +389,7 @@ jsonRegistry.registerSchema(ExtensionsConfigurationSchemaId, ExtensionsConfigura
 // Register Commands
 CommandsRegistry.registerCommand('_extensions.manage', (accessor: ServicesAccessor, extensionId: string, tab?: ExtensionEditorTab, preserveFocus?: boolean, feature?: string) => {
 	if (product.basehalfVersion) {
-		// BaseHalf has no extension or plugin page to open.
+		// BaseHalf has no extension page to open.
 		return;
 	}
 	const extensionService = accessor.get(IExtensionsWorkbenchService);
@@ -404,7 +404,7 @@ CommandsRegistry.registerCommand('_extensions.manage', (accessor: ServicesAccess
 CommandsRegistry.registerCommand('extension.open', async (accessor: ServicesAccessor, extensionId: string, tab?: ExtensionEditorTab, preserveFocus?: boolean, feature?: string, sideByside?: boolean) => {
 	const commandService = accessor.get(ICommandService);
 	if (product.basehalfVersion) {
-		// BaseHalf has no extension or plugin page to open.
+		// BaseHalf has no extension page to open.
 		return;
 	}
 	const extensionService = accessor.get(IExtensionsWorkbenchService);
