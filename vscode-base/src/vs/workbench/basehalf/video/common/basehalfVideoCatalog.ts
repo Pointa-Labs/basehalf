@@ -62,6 +62,7 @@ import type {
 	VoicesRequest as IBaseHalfVideoVoicesRequest,
 	VoicesResult as IBaseHalfVideoVoicesResult
 } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
+import { isVoiceId, MAX_VOICE_ID_LENGTH } from '../../../../platform/basehalfProviders/common/basehalfProviderVoices.js';
 
 /**
  * The model catalog as the window receives it from the provider service,
@@ -194,9 +195,6 @@ export const BASEHALF_AUDIO_MAKES: readonly BaseHalfAudioMakes[] = Object.freeze
 /** The formats an audio model declares that it delivers (providers, "Audio format"). */
 export const BASEHALF_AUDIO_FORMATS: readonly BaseHalfAudioFormat[] = Object.freeze(['mp3', 'wav']);
 
-/** The longest voice id a listed `voice` parameter takes that is not among its options (providers, "Parameters"). */
-export const BASEHALF_VOICE_ID_MAX_LENGTH = 256;
-
 /** What the window knows of the catalog: still asking, the answer, or why there is none. */
 export type BaseHalfVideoCatalogState =
 	| { readonly kind: 'loading' }
@@ -289,11 +287,12 @@ const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p
  * 4–15s · 1080p · Sound`; for an image its largest resolution, how many
  * images one generation can make, when more than one, and how many
  * references it takes, such as `4K · Up to 4 images · 14 references`; for an
- * audio model what it makes first ({@link baseHalfAudioModelAbilities}).
+ * audio model what it makes first ({@link audioModelAbilities}). The model
+ * menu shows it as each model's second line.
  */
 export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): string {
 	if (model.kind === 'audio') {
-		return baseHalfAudioModelAbilities(model);
+		return audioModelAbilities(model);
 	}
 	const image = model.kind === 'image';
 	const parts = image ? [] : model.modes.map(mode => mode.label);
@@ -301,7 +300,7 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 	const durations = image ? undefined : durationRange(model.parameters.find(parameter => parameter.name === 'duration'));
 	if (durations) {
 		parts.push(durations.min === durations.max
-			? localize('basehalf.video.catalog.abilitySeconds', "{0}s", durations.max)
+			? secondsAbility(durations.max)
 			: localize('basehalf.video.catalog.abilitySecondsRange', "{0}–{1}s", durations.min, durations.max));
 	}
 	const resolution = model.parameters.find(parameter => parameter.name === 'resolution' && parameter.kind === 'choice');
@@ -332,12 +331,13 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
  * An audio model's abilities in one line (generation cards, "The panel"):
  * what it makes, Speech, Music, or Sound Effects; then for speech the most
  * characters its prompt takes, and otherwise its modes when it has more than
- * one, its longest duration, how many songs one generation can make when that
- * is more than one, and how many reference images and sounds it takes, such
- * as `Speech · Up to 10,000 characters` and `Music · From a Description ·
- * From Lyrics · Up to 3 songs · 1 reference sound`.
+ * one, its longest duration (`Up to 22s`, or `30s` when it makes that length
+ * alone), how many songs one generation can make when that is more than one,
+ * and how many reference images and sounds it takes, such as `Speech · Up to
+ * 10,000 characters` and `Music · From a Description · From Lyrics · Up to 3
+ * songs · 1 reference sound`.
  */
-export function baseHalfAudioModelAbilities(model: IBaseHalfVideoCatalogModel): string {
+function audioModelAbilities(model: IBaseHalfVideoCatalogModel): string {
 	const parts = [baseHalfAudioMakesLabel(model.makes)];
 	if (model.makes === 'speech') {
 		parts.push(localize('basehalf.video.catalog.abilityCharacters', "Up to {0} characters", safeIntl.NumberFormat(language).value.format(model.prompt.maxLength)));
@@ -348,7 +348,9 @@ export function baseHalfAudioModelAbilities(model: IBaseHalfVideoCatalogModel): 
 	}
 	const durations = durationRange(model.parameters.find(parameter => parameter.name === 'duration'));
 	if (durations) {
-		parts.push(localize('basehalf.video.catalog.abilityLongest', "Up to {0}s", durations.max));
+		parts.push(durations.min === durations.max
+			? secondsAbility(durations.max)
+			: localize('basehalf.video.catalog.abilityLongest', "Up to {0}s", durations.max));
 	}
 	const most = baseHalfModelMostOutputs(model);
 	if (most > 1) {
@@ -389,30 +391,9 @@ export function isBaseHalfSpokenOrSungPrompt(model: IBaseHalfVideoCatalogModel |
 	return model?.kind === 'audio' && (model.makes === 'speech' || modeId === 'lyrics');
 }
 
-/**
- * The placeholder of a draft's prompt (generation cards, "The panel"): what
- * the prompt is, by the card's kind, what its model makes, and the mode that
- * is used, followed by "Type @ to mention an input.". An audio card without
- * a model describes a sound.
- */
-export function baseHalfVideoPromptPlaceholder(kind: BaseHalfModelKind, model: IBaseHalfVideoCatalogModel | undefined, modeId: BaseHalfVideoModeId | string | undefined): string {
-	const audio = model?.kind === 'audio' ? model : undefined;
-	if (kind === 'image') {
-		return localize('basehalf.video.catalog.placeholder.image', "Describe the image. Type @ to mention an input.");
-	}
-	if (kind === 'video') {
-		return localize('basehalf.video.catalog.placeholder.video', "Describe the video. Type @ to mention an input.");
-	}
-	if (audio?.makes === 'speech') {
-		return localize('basehalf.video.catalog.placeholder.speech', "Write what the voice says. Type @ to mention an input.");
-	}
-	if (audio && modeId === 'lyrics') {
-		return localize('basehalf.video.catalog.placeholder.lyrics', "Write the lyrics. Type @ to mention an input.");
-	}
-	if (audio?.makes === 'music') {
-		return localize('basehalf.video.catalog.placeholder.music', "Describe the music. Type @ to mention an input.");
-	}
-	return localize('basehalf.video.catalog.placeholder.sound', "Describe the sound. Type @ to mention an input.");
+/** The one length a model makes, as its abilities say it: `30s`. */
+function secondsAbility(seconds: number): string {
+	return localize('basehalf.video.catalog.abilitySeconds', "{0}s", seconds);
 }
 
 /** The shortest and the longest duration a parameter declares: a number's range, or a choice's numbers. */
@@ -531,13 +512,14 @@ export function baseHalfVideoListedModels(provider: IBaseHalfVideoCatalogProvide
 /**
  * Whether a parameter takes a value: a choice of its options, a number in its
  * range and on its steps (or its Auto), a boolean, text within its length, or
- * a voice of its options, and for a voice the provider lists, any other voice
- * id ({@link isBaseHalfVoiceId}), which may be one of the account's.
+ * a voice of its options, and for a voice the provider lists, any other id of
+ * a voice, which may be one of the account's: the provider service's rule
+ * (`isVoiceId`; providers, "Parameters"), which `check` applies too.
  */
 export function isBaseHalfVideoParamValueAccepted(parameter: BaseHalfVideoCatalogParameter, value: unknown): value is BaseHalfVideoParamValue {
 	switch (parameter.kind) {
 		case 'voice':
-			return typeof value === 'string' && (parameter.options.some(option => option.value === value) || (parameter.listed === true && isBaseHalfVoiceId(value)));
+			return typeof value === 'string' && (parameter.options.some(option => option.value === value) || (parameter.listed === true && isVoiceId(value)));
 		case 'choice':
 			return (typeof value === 'string' || typeof value === 'number') && parameter.options.some(option => option.value === value);
 		case 'integer':
@@ -558,30 +540,6 @@ export function isBaseHalfVideoParamValueAccepted(parameter: BaseHalfVideoCatalo
 		case 'text':
 			return typeof value === 'string' && value.length <= parameter.maxLength && !value.includes('\u0000');
 	}
-}
-
-/**
- * Whether a value can be the id of a voice that a provider lists, beyond the
- * voices the catalog declares (providers, "Parameters"): 1 to 256 characters
- * without control characters. An empty value names no voice.
- */
-export function isBaseHalfVoiceId(value: string): boolean {
-	return value.length > 0 && value.length <= BASEHALF_VOICE_ID_MAX_LENGTH && !/[\u0000-\u001F\u007F-\u009F]/.test(value);
-}
-
-/** The `voice` parameter of a speech model, which its voice button chooses instead of the settings (D78). */
-export function baseHalfModelVoiceParameter(model: IBaseHalfVideoCatalogModel | undefined, modeId?: BaseHalfVideoModeId): IBaseHalfVideoVoiceParameter | undefined {
-	const parameters = model ? (modeId !== undefined ? baseHalfVideoModeParameters(model, modeId) : model.parameters) : [];
-	return parameters.find((parameter): parameter is IBaseHalfVideoVoiceParameter => parameter.kind === 'voice');
-}
-
-/**
- * The name of a voice as the voice button, the panel of a card with its
- * file, and Card Detail say it: the name the catalog gives it, then the one
- * of `listed`, the provider's last list of voices, and otherwise its id.
- */
-export function baseHalfVoiceLabel(parameter: IBaseHalfVideoVoiceParameter, value: string, listed?: readonly IBaseHalfVideoListedVoice[]): string {
-	return parameter.options.find(option => option.value === value)?.label ?? listed?.find(voice => voice.id === value)?.label ?? value;
 }
 
 /**
@@ -765,13 +723,13 @@ export function formatBaseHalfVideoNumber(parameter: IBaseHalfVideoNumberParamet
  * A value as the settings button and Card Detail say it: a choice by its
  * option's label, Auto by its label, seconds as `5s`, any other number as the
  * number, a boolean as on or off, text with its whitespace collapsed, and a
- * voice by the name the catalog gives it, or its id.
+ * voice by the name the catalog gives it, or its id. The panels name a voice
+ * from the provider's last list too (`baseHalfVoiceLabel`).
  */
 export function baseHalfVideoParamValueLabel(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue): string {
 	switch (parameter.kind) {
-		case 'voice':
-			return baseHalfVoiceLabel(parameter, String(value));
 		case 'choice':
+		case 'voice':
 			return parameter.options.find(option => option.value === value)?.label ?? String(value);
 		case 'integer':
 		case 'number':
@@ -1761,8 +1719,8 @@ function parseParameter(value: unknown, path: string): BaseHalfVideoCatalogParam
 			// The voices the catalog declares for a speech model, at least its default (providers, "Voices").
 			const options = requireArray(record.options, `${path}.options`).map((option, index): IBaseHalfVideoCatalogVoiceOption => {
 				const candidate = requireRecord(option, `${path}.options[${index}]`);
-				if (typeof candidate.value !== 'string' || !isBaseHalfVoiceId(candidate.value)) {
-					throw new Error(`${path}.options[${index}].value must be a voice id of 1 to ${BASEHALF_VOICE_ID_MAX_LENGTH} characters without control characters.`);
+				if (typeof candidate.value !== 'string' || !isVoiceId(candidate.value)) {
+					throw new Error(`${path}.options[${index}].value must be a voice id of 1 to ${MAX_VOICE_ID_LENGTH} characters without control characters.`);
 				}
 				const description = typeof candidate.description === 'string' && candidate.description.trim() ? plainText(candidate.description, 200) : undefined;
 				return Object.freeze({ value: candidate.value, label: requireText(candidate.label, `${path}.options[${index}].label`), ...(description ? { description } : {}) });

@@ -30,8 +30,7 @@ import {
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoResolvedInput
 } from '../../common/basehalfVideoGeneration.js';
-import { TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
-import { TEST_AUDIO_CATALOG } from '../common/basehalfGenerationAudioCatalogFixture.js';
+import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
 const WORKSPACE = URI.file('/workspace');
 const CARD = URI.joinPath(WORKSPACE, 'shots', 'shot.mp4');
@@ -256,20 +255,21 @@ suite('BaseHalfGenerationRecordPanel', () => {
 
 	test('names the voice a speech model spoke in between the model and the settings, as the provider\'s last list names it once it comes, and says which song of how many it is (D78)', async () => {
 		catalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
-		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dulcet', region: 'main', model: 'dulcet-speech-2', providerModel: 'speech-2-260101', mode: 'reference', params: { voice: 'narrator-7', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
+		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'narrator-7', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
 		snapshot = { resource: SOUND, path: 'shots/audio.mp3', kind: AUDIO, hasFile: true, info: { prompt: '' }, infoReadable: true, made: spoken, upstream: [] };
 		const panel = await createPanel(SOUND);
 		const footer = () => [...panel.element.querySelector<HTMLElement>('.bh-video-panel-footer')!.children].filter(child => !(child as HTMLElement).hidden).map(child => child.textContent);
 		const byId = { footer: footer(), voice: panel.element.querySelector('.bh-record-panel-voice')?.getAttribute('aria-label'), label: panel.element.getAttribute('aria-label') };
-		lists.set('dulcet/main', { voices: [{ id: 'narrator-7', label: 'My Narrator', own: true }] });
+		lists.set('dunlin/main', { voices: [{ id: 'narrator-7', label: 'My Narrator', own: true }] });
 		listed.fire();
 		const byList = footer();
-		snapshot = { ...snapshot, made: { ...spoken, provider: 'ember', region: 'north', model: 'ember-song-9', providerModel: 'song-9-n', mode: 'lyrics', params: { count: 2 }, output: 1, outputs: 2 } };
+		snapshot = { ...snapshot, made: { ...spoken, model: 'dunlin-song', providerModel: 'song-1', mode: 'lyrics', params: { count: 2 }, output: 1, outputs: 2 } };
 		changed.fire(SOUND);
 		await settle();
 		assert.deepStrictEqual({ byId, byList, song: { line: texts(panel, '.bh-record-panel-line'), voice: texts(panel, '.bh-record-panel-voice') } }, {
-			byId: { footer: ['Dulcet Speech 2', 'narrator-7', 'Speech · Speed 1', '', 'New Version'], voice: 'Voice: narrator-7', label: 'What made the sound audio.mp3' },
-			byList: ['Dulcet Speech 2', 'My Narrator', 'Speech · Speed 1', '', 'New Version'],
+			// The voice is named once, beside the model, and the summary of the settings leaves it out.
+			byId: { footer: ['Dunlin Voice', 'narrator-7', 'From Text · Speed 1', '', 'New Version'], voice: 'Voice: narrator-7', label: 'What made the sound audio.mp3' },
+			byList: ['Dunlin Voice', 'My Narrator', 'From Text · Speed 1', '', 'New Version'],
 			song: { line: ['Song 1 of 2'], voice: [] }
 		});
 	});

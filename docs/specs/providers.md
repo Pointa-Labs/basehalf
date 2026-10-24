@@ -264,8 +264,9 @@ reference song.
   since it may be a voice of the account; for one that is not listed, only
   an option is. Such a value is the id of a voice: 1 to 256 characters,
   counted as Unicode characters, not only spaces, and without control
-  characters (`isVoiceId` of the provider service's common folder, which
-  the window can use too).
+  characters (`isVoiceId` of the provider service's common folder). The
+  window has no rule of its own: its catalog, the values it keeps and
+  sends, and the voices it reads from a list use the same function.
 - The kind `voice` is only that of the parameter named `voice`, and only a
   speech model has it, never optional. Its default is among its options,
   each option's value is the id of a voice and is declared once, and a

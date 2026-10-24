@@ -8,8 +8,8 @@ import { localize } from '../../../../nls.js';
 import type { VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import {
-	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
-	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
+	baseHalfDefaultModeId,
+	baseHalfDefaultModeInputs,
 	BaseHalfVideoCatalogParameter,
 	BaseHalfVideoCatalogState,
 	BaseHalfVideoGenerateBlocker,
@@ -58,7 +58,7 @@ import {
 } from './basehalfVideoCatalog.js';
 import { buildBaseHalfPromptParts } from './basehalfGenerationMentions.js';
 import { baseHalfGenerationChoice, IBaseHalfGenerationInfo } from './basehalfGenerationInfo.js';
-import { baseHalfFormatCount, baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
+import { baseHalfVoiceLabel, baseHalfVoiceParameter } from './basehalfGenerationVoices.js';
 
 /**
  * Everything the panel under a selected generation card draws (D63, D64,
@@ -312,8 +312,8 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const region = ref ? state.setup(ref.provider).region : undefined;
 	const params = ref && mode ? normalizeBaseHalfVideoParams(ref.model, mode.id, generation?.params) : Object.freeze({ ...generation?.params });
 	// Without a model, a video card takes frames, and an image or an audio card references, as every model of its kind does.
-	const modeInputs = mode?.inputs ?? defaultModeInputs(state.kind);
-	const modeId = mode?.id ?? generation?.mode ?? (state.kind === 'video' ? 'frames' : 'reference');
+	const modeInputs = mode?.inputs ?? baseHalfDefaultModeInputs(state.kind);
+	const modeId = mode?.id ?? generation?.mode ?? baseHalfDefaultModeId(state.kind);
 	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs);
 	const startFrame = plan.some(item => item.use === 'start-frame');
 	// The prompt in parts, as a generation sends it: each mention as its input's place in the request (D74).
@@ -431,30 +431,6 @@ export function baseHalfVideoPanelPlaceholder(kind: BaseHalfModelKind, model?: I
 	return makes === 'music'
 		? localize('basehalf.video.panel.musicPromptPlaceholder', "Describe the music. Type @ to mention an input.")
 		: localize('basehalf.video.panel.soundPromptPlaceholder', "Describe the sound. Type @ to mention an input.");
-}
-
-/**
- * What an audio card takes while it has no model: images and sounds as
- * references, as an audio model's references mode does, as many as are
- * connected. It is no model's declaration; Generate needs a model of the
- * catalog.
- */
-const AUDIO_DEFAULT_MODE_INPUTS: IBaseHalfVideoModeInputs = Object.freeze({
-	startFrame: 'none',
-	endFrame: 'none',
-	images: Object.freeze({ min: 0, max: Number.MAX_SAFE_INTEGER }),
-	videos: Object.freeze({ min: 0, max: 0 }),
-	audios: Object.freeze({ min: 0, max: Number.MAX_SAFE_INTEGER }),
-	source: 'none'
-});
-
-/** The slots a card of a kind shows its inputs in while it has no model. */
-function defaultModeInputs(kind: BaseHalfModelKind): IBaseHalfVideoModeInputs {
-	switch (kind) {
-		case 'image': return BASEHALF_IMAGE_DEFAULT_MODE_INPUTS;
-		case 'audio': return AUDIO_DEFAULT_MODE_INPUTS;
-		case 'video': return BASEHALF_VIDEO_DEFAULT_MODE_INPUTS;
-	}
 }
 
 /** The voice button: the card's voice, made legal for the model, by the name the catalog or the provider's last list gives it. */
@@ -648,7 +624,7 @@ function modelMenu(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelModelMen
 				label: model.label,
 				checked: generation?.provider === provider.id && generation.model === model.id,
 				...(unavailable ? { unavailable } : {}),
-				detail: model.kind === 'audio' ? audioModelAbilities(model) : baseHalfVideoModelAbilities(model),
+				detail: baseHalfVideoModelAbilities(model),
 				title: unavailable ?? model.description ?? model.label
 			});
 		});
@@ -671,70 +647,6 @@ function modelMenu(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelModelMen
 		groups: Object.freeze(groups),
 		settingsLabel
 	});
-}
-
-/**
- * An audio model's abilities in one line, from its declarations (generation
- * cards, "The panel"): what it makes, then for speech the most characters
- * its prompt takes, and otherwise its modes when it has more than one, its
- * longest duration, how many songs one generation can make when that is more
- * than one, and how many reference images and sounds it takes, such as
- * `Speech · Up to 10,000 characters` and `Music · From a Description · From
- * Lyrics · Up to 3 songs · 1 reference sound`.
- */
-function audioModelAbilities(model: IBaseHalfVideoCatalogModel): string {
-	const parts: string[] = [];
-	switch (model.makes) {
-		case 'speech':
-			parts.push(localize('basehalf.video.panel.makesSpeech', "Speech"));
-			parts.push(localize('basehalf.video.panel.abilityCharacters', "Up to {0} characters", baseHalfFormatCount(model.prompt.maxLength)));
-			return parts.join(' · ');
-		case 'music':
-			parts.push(localize('basehalf.video.panel.makesMusic', "Music"));
-			break;
-		case 'sound':
-			parts.push(localize('basehalf.video.panel.makesSound', "Sound Effects"));
-			break;
-	}
-	if (model.modes.length > 1) {
-		parts.push(...model.modes.map(mode => mode.label));
-	}
-	const duration = longestDuration(model.parameters.find(parameter => parameter.name === 'duration'));
-	if (duration) {
-		parts.push(duration.fixed
-			? localize('basehalf.video.panel.abilitySeconds', "{0}s", duration.text)
-			: localize('basehalf.video.panel.abilityUpToSeconds', "Up to {0}s", duration.text));
-	}
-	const count = model.makes === 'music' ? model.parameters.find(parameter => parameter.name === 'count') : undefined;
-	const songs = count?.kind === 'integer' || count?.kind === 'number' ? Math.min(16, Math.floor(count.max)) : 1;
-	if (songs > 1) {
-		parts.push(localize('basehalf.video.panel.abilitySongs', "Up to {0} songs", songs));
-	}
-	const images = Math.max(0, ...model.modes.map(mode => mode.inputs.images.max));
-	if (images > 0) {
-		parts.push(images === 1
-			? localize('basehalf.video.panel.abilityReferenceImage', "1 reference image")
-			: localize('basehalf.video.panel.abilityReferenceImages', "{0} reference images", images));
-	}
-	const sounds = Math.max(0, ...model.modes.map(mode => mode.inputs.audios.max));
-	if (sounds > 0) {
-		parts.push(sounds === 1
-			? localize('basehalf.video.panel.abilityReferenceSound', "1 reference sound")
-			: localize('basehalf.video.panel.abilityReferenceSounds', "{0} reference sounds", sounds));
-	}
-	return parts.join(' · ');
-}
-
-/** The longest duration a parameter declares, as the line writes it, and whether it is the only one: a number's highest, or a choice's. */
-function longestDuration(parameter: BaseHalfVideoCatalogParameter | undefined): { readonly text: string; readonly fixed: boolean } | undefined {
-	if (parameter?.kind === 'integer' || parameter?.kind === 'number') {
-		return { text: formatBaseHalfVideoNumber(parameter, parameter.max), fixed: parameter.min === parameter.max };
-	}
-	if (parameter?.kind === 'choice') {
-		const seconds = parameter.options.map(option => Number(option.value)).filter(value => Number.isFinite(value) && value > 0);
-		return seconds.length ? { text: String(Math.max(...seconds)), fixed: seconds.length === 1 } : undefined;
-	}
-	return undefined;
 }
 
 // --- the settings ----------------------------------------------------------------------------------

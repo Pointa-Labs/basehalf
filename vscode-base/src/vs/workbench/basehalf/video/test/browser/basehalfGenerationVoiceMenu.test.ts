@@ -12,32 +12,34 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IBaseHalfProviderService } from '../../../../../platform/basehalfProviders/common/basehalfProviders.js';
-import type { ProviderResponse, VoicePreviewRequest, VoicePreviewResult, VoicesRequest, VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
+import type { ProviderResponse, VoiceParameter, VoicePreviewRequest, VoicePreviewResult, VoicesRequest, VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
 import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { ILogService, NullLogService } from '../../../../../platform/log/common/log.js';
 import { playBaseHalfCanvasMediaOneAtATime, registerBaseHalfCanvasMediaPause } from '../../../canvas/browser/basehalfCanvasCardMedia.js';
 import { IBaseHalfVideoSoundLevel } from '../../../canvas/browser/basehalfCanvasVideoSound.js';
-import {
-	BaseHalfGenerationVoiceMenu,
-	BaseHalfGenerationVoiceService,
-	IBaseHalfVoiceMenuTarget,
-	IBaseHalfVoiceSampleContext,
-	IBaseHalfVoiceSamplePlayback,
-	IBaseHalfVoiceSampleSound
-} from '../../browser/basehalfGenerationVoiceMenu.js';
-import { baseHalfVoiceLabel, IBaseHalfGenerationVoiceService, parseBaseHalfVoicesResult } from '../../common/basehalfGenerationVoices.js';
-import { findBaseHalfVideoRegion, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice, IBaseHalfVideoProviderAccess } from '../../common/basehalfVideoCatalog.js';
+import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from '../../browser/basehalfGenerationVoiceMenu.js';
+import { BaseHalfGenerationVoiceService, IBaseHalfVoiceSampleContext, IBaseHalfVoiceSamplePlayback, IBaseHalfVoiceSampleSound } from '../../browser/basehalfGenerationVoiceService.js';
+import { baseHalfVoiceLabel, baseHalfVoiceParameter, IBaseHalfGenerationVoiceService, parseBaseHalfVoicesResult } from '../../common/basehalfGenerationVoices.js';
+import { findBaseHalfVideoRegion, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice, IBaseHalfVideoProviderAccess } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../../common/basehalfVideoGeneration.js';
-import { DULCET, DULCET_SPEECH, DULCET_VOICE, EMBER, EMBER_VOICE } from '../common/basehalfGenerationAudioCatalogFixture.js';
+import { TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
-/** The voices Dulcet Voice lists: one the user cloned, then its own, one of them also in the catalog. */
+/** Dunlin Sound and its speech model as the window keeps them, whose voice the provider lists: Ember, the default, Pike, and Sable. */
+const DUNLIN = TEST_AUDIO_CATALOG.providers.find(provider => provider.id === 'dunlin')!;
+const SPEECH = DUNLIN.models.find(model => model.id === 'dunlin-voice')!;
+const VOICE = baseHalfVoiceParameter(SPEECH)!;
+/** The same model as one whose provider lists no voices: the catalog's are all of them. */
+const CLOSED_VOICE: VoiceParameter = { ...VOICE, listed: undefined };
+const CLOSED_SPEECH: IBaseHalfVideoCatalogModel = { ...SPEECH, parameters: SPEECH.parameters.map(parameter => parameter === VOICE ? CLOSED_VOICE : parameter) };
+
+/** The voices Dunlin Sound lists: one the user cloned, then its own, one of them also in the catalog. */
 const LIST: VoicesResult = {
 	voices: [
-		{ id: 'narrator-7', label: 'My Narrator', description: 'Cloned', own: true, sample: 'https://cdn.dulcet.example/narrator-7.mp3' },
-		{ id: 'kore', label: 'Kore (listed)', description: 'Firm, female', own: false, sample: 'https://cdn.dulcet.example/kore.mp3' },
-		{ id: 'rachel', label: 'Rachel', description: 'Warm and calm', own: false, sample: 'https://cdn.dulcet.example/rachel.mp3' },
+		{ id: 'narrator-7', label: 'My Narrator', description: 'Cloned', own: true, sample: 'https://cdn.dunlin.example/narrator-7.mp3' },
+		{ id: 'vx-ember', label: 'Ember (listed)', description: 'Warm, low, listed', own: false, sample: 'https://cdn.dunlin.example/vx-ember.mp3' },
+		{ id: 'rachel', label: 'Rachel', description: 'Warm and calm', own: false, sample: 'https://cdn.dunlin.example/rachel.mp3' },
 		{ id: 'adam', label: 'Adam', own: false }
 	]
 };
@@ -222,13 +224,13 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		}
 	});
 
-	/** Opens the menu of Dulcet Speech 2, whose card speaks in Kore unless the target says otherwise. */
+	/** Opens the menu of Dunlin Voice, whose card speaks in Ember unless the target says otherwise. */
 	function open(target?: Partial<IBaseHalfVoiceMenuTarget>): { readonly menu: BaseHalfGenerationVoiceMenu; readonly element: HTMLElement } {
 		const element = mainWindow.document.createElement('div');
 		element.className = 'bh-video-panel-menu voice';
 		mainWindow.document.body.append(element);
 		mounted.push(element);
-		const menu = disposables.add(instantiation.createInstance(BaseHalfGenerationVoiceMenu, element, { provider: DULCET, model: DULCET_SPEECH, parameter: DULCET_VOICE, voice: 'kore', ...target }, {
+		const menu = disposables.add(instantiation.createInstance(BaseHalfGenerationVoiceMenu, element, { provider: DUNLIN, model: SPEECH, parameter: VOICE, voice: 'vx-ember', ...target }, {
 			choose: voice => { chosen.push(voice); },
 			dismiss: () => { dismissed++; },
 			layout: () => { }
@@ -310,31 +312,32 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		// A menu opened again while the request runs asks nothing more.
 		open().menu.dispose();
 		answer.complete({ ok: true, value: LIST });
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		assert.deepStrictEqual({ loading, listed: rows(element), status: status(element), asked: providers.listed }, {
 			// The catalog's voices, which every account has, while the provider is asked.
-			loading: { rows: ['# Voices', 'Kore — Firm ✓ <', 'Puck — Upbeat'], status: 'Loading voices…' },
+			loading: { rows: ['# Voices', 'Ember — Warm, low ✓ <', 'Pike — Bright, quick', 'Sable'], status: 'Loading voices…' },
 			listed: [
 				'# Your Voices',
 				'My Narrator — Cloned [play]',
 				'# Voices',
 				// The catalog's name and description, with the sample the provider lists for it.
-				'Kore — Firm [play] ✓ <',
-				'Puck — Upbeat',
+				'Ember — Warm, low [play] ✓ <',
+				'Pike — Bright, quick',
+				'Sable',
 				'Rachel — Warm and calm [play]',
 				'Adam'
 			],
 			status: undefined,
 			// Asked with this computer's access, as a generation asks.
-			asked: [{ provider: 'dulcet', region: 'main', endpoint: 'https://api.dulcet.example', credentials: { apiKey: 'key-1' }, model: 'dulcet-speech-2' }]
+			asked: [{ provider: 'dunlin', region: 'main', endpoint: 'https://api.dunlin.example/v1', credentials: { apiKey: 'key-1' }, model: 'dunlin-voice' }]
 		});
 	});
 
 	test('typing in the search field keeps the voices whose name or description holds it, and says when none does', async () => {
 		const { element } = open();
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		const field = search(element);
-		type(field, 'UP');
+		type(field, 'QUICK');
 		const byDescription = rows(element);
 		type(field, 'warm and');
 		const withSpace = rows(element);
@@ -344,7 +347,7 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		const none = rows(element);
 		assert.deepStrictEqual({ byDescription, withSpace, yours, none }, {
 			// The first voice found is the current one.
-			byDescription: ['# Voices', 'Puck — Upbeat <'],
+			byDescription: ['# Voices', 'Pike — Bright, quick <'],
 			withSpace: ['# Voices', 'Rachel — Warm and calm [play] <'],
 			yours: ['# Your Voices', 'My Narrator — Cloned [play] <'],
 			none: ['(No voice here has that name or description.)']
@@ -353,10 +356,11 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 
 	test('a click or Enter chooses a voice for the panel to save; Up and Down move through the voices from the search field, and Escape closes the menu', async () => {
 		const { menu, element } = open();
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		menu.focus();
 		const field = search(element);
 		const focused = mainWindow.document.activeElement === field;
+		press(field, 'ArrowDown');
 		press(field, 'ArrowDown');
 		press(field, 'ArrowDown');
 		const current = rows(element).find(row => row.endsWith('<'));
@@ -376,17 +380,18 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 
 	test('a sample plays through the window\'s own audio graph, coming up over 40 ms and going down over 60 ms; its button and Space stop it, another sample stops it, and closing the menu stops it', async () => {
 		const { menu, element } = open();
-		await service.refresh(DULCET, DULCET_SPEECH);
-		play(element, 'Kore').click();
+		await service.refresh(DUNLIN, SPEECH);
+		play(element, 'Ember').click();
 		const loadingRow = rows(element)[3];
 		await settle();
 		const first = context.playbacks[0];
-		const playing = { row: rows(element)[3], label: play(element, 'Kore').getAttribute('aria-label'), level: [...first.level.calls], sample: service.sample?.phase };
+		const playing = { row: rows(element)[3], label: play(element, 'Ember').getAttribute('aria-label'), level: [...first.level.calls], sample: service.sample?.phase };
 		context.currentTime = 10.5;
-		play(element, 'Kore').click();
+		play(element, 'Ember').click();
 		const stopped = { level: first.level.calls.slice(5), stops: first.stops.map(at), row: rows(element)[3], sample: service.sample };
 		first.end();
 		// Space plays the current voice, and a second sample stops the first.
+		press(search(element), 'ArrowDown');
 		press(search(element), 'ArrowDown');
 		press(search(element), 'ArrowDown');
 		const space = press(search(element), ' ');
@@ -407,21 +412,21 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 			fetched: providers.previewed.map(request => `${request.model} ${request.sample} ${request.credentials.apiKey}`),
 			decoded: context.log
 		}, {
-			loadingRow: 'Kore — Firm [stop] ✓ <',
+			loadingRow: 'Ember — Warm, low [stop] ✓ <',
 			playing: {
-				row: 'Kore — Firm [stop] ✓ <',
-				label: 'Stop the Sample of Kore',
+				row: 'Ember — Warm, low [stop] ✓ <',
+				label: 'Stop the Sample of Ember',
 				// From silence at 10 s up to full over 40 ms, and down over the last 100 ms of its two seconds.
 				level: ['cancel 10', 'set 0 10', 'ramp 1 10.04', 'set 1 11.9', 'ramp 0 12'],
 				sample: 'playing'
 			},
-			stopped: { level: ['cancel 10.5', 'set 1 10.5', 'ramp 0 10.56'], stops: ['10.56'], row: 'Kore — Firm [play] ✓ <', sample: undefined },
+			stopped: { level: ['cancel 10.5', 'set 1 10.5', 'ramp 0 10.56'], stops: ['10.56'], row: 'Ember — Warm, low [play] ✓ <', sample: undefined },
 			replaced: { spaceTyped: false, field: '', stops: ['11.06'], playing: 'narrator-7' },
 			closed: { stops: ['11.31'], sample: undefined },
 			fetched: [
-				'dulcet-speech-2 https://cdn.dulcet.example/kore.mp3 key-1',
-				'dulcet-speech-2 https://cdn.dulcet.example/rachel.mp3 key-1',
-				'dulcet-speech-2 https://cdn.dulcet.example/narrator-7.mp3 key-1'
+				'dunlin-voice https://cdn.dunlin.example/vx-ember.mp3 key-1',
+				'dunlin-voice https://cdn.dunlin.example/rachel.mp3 key-1',
+				'dunlin-voice https://cdn.dunlin.example/narrator-7.mp3 key-1'
 			],
 			decoded: ['decode 10 bytes', 'decode 10 bytes', 'decode 10 bytes']
 		});
@@ -438,7 +443,7 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		disposables.add(registerBaseHalfCanvasMediaPause(video, () => paused.push('the card\'s video, its sound down first')));
 		video.dispatchEvent(new Event('play'));
 		const { element } = open();
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		play(element, 'Rachel').click();
 		await settle();
 		const whileSample = [...paused];
@@ -456,9 +461,9 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 
 	test('a sample that cannot be fetched or played says why under the search field, until another is played', async () => {
 		const { element } = open();
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		providers.preview = () => ({ ok: false, error: { code: 'notAudio', message: 'The sample is not a sound.' } });
-		play(element, 'Kore').click();
+		play(element, 'Ember').click();
 		await settle();
 		const line = () => {
 			const sample = element.querySelector<HTMLElement>('.bh-voice-menu-status.sample')!;
@@ -474,7 +479,7 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		play(element, 'Rachel').click();
 		await settle();
 		assert.deepStrictEqual({ refused, undecodable, after: line(), playing: service.sample?.voice }, {
-			refused: 'The sample of Kore could not be played: The sample is not a sound.',
+			refused: 'The sample of Ember could not be played: The sample is not a sound.',
 			undecodable: 'The sample of Rachel could not be played: BaseHalf cannot play the sound of this sample.',
 			after: undefined,
 			playing: 'rachel'
@@ -482,29 +487,29 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 	});
 
 	test('with the provider not set up, the menu lists the catalog\'s voices and says how to get the others, asks nothing, and Set Up opens Providers at the provider', async () => {
-		settings.notSetUp.add('dulcet');
+		settings.notSetUp.add('dunlin');
 		const { element } = open();
 		await settle();
 		const shown = { rows: rows(element), status: status(element), asked: providers.listed.length };
 		element.querySelector<HTMLButtonElement>('.bh-voice-menu-status-action')!.click();
 		assert.deepStrictEqual({ shown, opened: settings.opened }, {
 			shown: {
-				rows: ['# Voices', 'Kore — Firm ✓ <', 'Puck — Upbeat'],
-				status: 'Set up Dulcet Voice to choose from all of its voices and your own. [Set Up]',
+				rows: ['# Voices', 'Ember — Warm, low ✓ <', 'Pike — Bright, quick', 'Sable'],
+				status: 'Set up Dunlin Sound to choose from all of its voices and your own. [Set Up]',
 				asked: 0
 			},
-			opened: ['dulcet']
+			opened: ['dunlin']
 		});
 	});
 
 	test('a list that cannot be loaded shows the catalog\'s voices with the reason and Try Again, which asks again; the menu opened next shows the last list while it asks', async () => {
 		providers.voices = () => ({ ok: false, error: { code: 'auth', message: 'The API key is not valid.' } });
 		const { menu, element } = open();
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		const failed = { rows: rows(element), status: status(element) };
 		providers.voices = () => ({ ok: true, value: LIST });
 		element.querySelector<HTMLButtonElement>('.bh-voice-menu-status-action')!.click();
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		const retried = { rows: rows(element).length, status: status(element), asked: providers.listed.length };
 		menu.dispose();
 		const answer = new DeferredPromise<unknown>();
@@ -512,13 +517,13 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		const reopened = open();
 		const meanwhile = { rows: rows(reopened.element).slice(0, 4), status: status(reopened.element) };
 		answer.complete({ ok: false, error: { code: 'network', message: 'The network is down.' } });
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		assert.deepStrictEqual({ failed, retried, meanwhile, failedAgain: { rows: rows(reopened.element).length, status: status(reopened.element), asked: providers.listed.length } }, {
-			failed: { rows: ['# Voices', 'Kore — Firm ✓ <', 'Puck — Upbeat'], status: 'The voices could not be loaded: The API key is not valid. [Try Again]' },
-			retried: { rows: 7, status: undefined, asked: 2 },
-			meanwhile: { rows: ['# Your Voices', 'My Narrator — Cloned [play]', '# Voices', 'Kore — Firm [play] ✓ <'], status: undefined },
+			failed: { rows: ['# Voices', 'Ember — Warm, low ✓ <', 'Pike — Bright, quick', 'Sable'], status: 'The voices could not be loaded: The API key is not valid. [Try Again]' },
+			retried: { rows: 8, status: undefined, asked: 2 },
+			meanwhile: { rows: ['# Your Voices', 'My Narrator — Cloned [play]', '# Voices', 'Ember — Warm, low [play] ✓ <'], status: undefined },
 			// The last list stays, with the reason the new one could not be loaded.
-			failedAgain: { rows: 7, status: 'The voices could not be loaded: The network is down. [Try Again]', asked: 3 }
+			failedAgain: { rows: 8, status: 'The voices could not be loaded: The network is down. [Try Again]', asked: 3 }
 		});
 	});
 
@@ -526,12 +531,12 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		const voices = Array.from({ length: 2000 }, (_value, index) => ({ id: `voice-${index}`, label: `Voice ${index}`, own: false }));
 		providers.voices = () => ({ ok: true, value: { voices: [...voices, { id: 'voice-2000', label: 'Voice 2000', own: false }] } });
 		const { element } = open();
-		await service.refresh(DULCET, DULCET_SPEECH);
+		await service.refresh(DUNLIN, SPEECH);
 		const shown = rows(element);
-		assert.deepStrictEqual({ count: shown.length, first: shown.slice(0, 4), last: shown.slice(-2) }, {
-			// The catalog's two voices, then the 2,000 the window keeps.
-			count: 2004,
-			first: ['# Voices', 'Kore — Firm ✓ <', 'Puck — Upbeat', 'Voice 0'],
+		assert.deepStrictEqual({ count: shown.length, first: shown.slice(0, 5), last: shown.slice(-2) }, {
+			// The catalog's three voices, then the 2,000 the window keeps.
+			count: 2005,
+			first: ['# Voices', 'Ember — Warm, low ✓ <', 'Pike — Bright, quick', 'Sable', 'Voice 0'],
 			last: ['Voice 1999', '(Showing the first 2,000 voices.)']
 		});
 	});
@@ -542,8 +547,8 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		const { element } = open({ voice: 'cloned-elsewhere' });
 		const beforeList = rows(element).slice(0, 2);
 		answer.complete({ ok: true, value: LIST });
-		await service.refresh(DULCET, DULCET_SPEECH);
-		assert.deepStrictEqual({ beforeList, listed: rows(element).slice(2, 4), name: baseHalfVoiceLabel(DULCET_VOICE, 'cloned-elsewhere', LIST) }, {
+		await service.refresh(DUNLIN, SPEECH);
+		assert.deepStrictEqual({ beforeList, listed: rows(element).slice(2, 4), name: baseHalfVoiceLabel(VOICE, 'cloned-elsewhere', LIST) }, {
 			beforeList: ['# Voices', 'cloned-elsewhere ✓ <'],
 			listed: ['# Voices', 'cloned-elsewhere — Not among the voices of this account. ✓ <'],
 			name: 'cloned-elsewhere'
@@ -551,19 +556,17 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 	});
 
 	test('a model whose provider lists no voices offers the catalog\'s voices alone and asks nothing', async () => {
-		const voice = EMBER_VOICE.parameters.find(parameter => parameter.kind === 'voice');
-		assert.ok(voice?.kind === 'voice');
-		const { element } = open({ provider: EMBER, model: EMBER_VOICE, parameter: voice, voice: 'bram' });
+		const { element } = open({ model: CLOSED_SPEECH, parameter: CLOSED_VOICE, voice: 'vx-sable' });
 		await settle();
 		assert.deepStrictEqual({ rows: rows(element), status: status(element), asked: providers.listed.length }, {
-			rows: ['# Voices', 'Aria — Bright', 'Bram ✓ <'],
+			rows: ['# Voices', 'Ember — Warm, low', 'Pike — Bright, quick', 'Sable ✓ <'],
 			status: undefined,
 			asked: 0
 		});
 	});
 
 	test('Tab reaches Set Up from the search field and leaves the menu after it; Space never types into the search', async () => {
-		settings.notSetUp.add('dulcet');
+		settings.notSetUp.add('dunlin');
 		const { menu, element } = open();
 		menu.focus();
 		const field = search(element);
@@ -580,31 +583,31 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 	test('the window keeps the last list per provider and region, asks once at a time, and says why when the credentials cannot be read', async () => {
 		const answer = new DeferredPromise<unknown>();
 		providers.voices = () => answer.p;
-		const first = service.refresh(DULCET, DULCET_SPEECH);
-		const second = service.refresh(DULCET, DULCET_SPEECH);
-		const whileAsked = service.voices('dulcet', 'main');
+		const first = service.refresh(DUNLIN, SPEECH);
+		const second = service.refresh(DUNLIN, SPEECH);
+		const whileAsked = service.voices('dunlin', 'main');
 		answer.complete({ ok: true, value: LIST });
 		await Promise.all([first, second]);
-		const kept = service.voices('dulcet', 'main');
-		settings.unreadable = 'BaseHalf cannot read the credentials of Dulcet Voice. Set them again in Providers.';
-		await service.refresh(DULCET, DULCET_SPEECH);
+		const kept = service.voices('dunlin', 'main');
+		settings.unreadable = 'BaseHalf cannot read the credentials of Dunlin Sound. Set them again in Providers.';
+		await service.refresh(DUNLIN, SPEECH);
 		assert.deepStrictEqual({
 			asked: providers.listed.length,
 			whileAsked,
 			kept: { voices: kept.list?.voices.length, loading: kept.loading },
-			otherRegion: service.voices('dulcet', 'elsewhere'),
-			unreadable: { voices: service.voices('dulcet', 'main').list?.voices.length, error: service.voices('dulcet', 'main').error }
+			otherRegion: service.voices('dunlin', 'elsewhere'),
+			unreadable: { voices: service.voices('dunlin', 'main').list?.voices.length, error: service.voices('dunlin', 'main').error }
 		}, {
 			asked: 1,
 			whileAsked: { loading: true },
 			kept: { voices: 4, loading: false },
 			otherRegion: { loading: false },
-			unreadable: { voices: 4, error: 'BaseHalf cannot read the credentials of Dulcet Voice. Set them again in Providers.' }
+			unreadable: { voices: 4, error: 'BaseHalf cannot read the credentials of Dunlin Sound. Set them again in Providers.' }
 		});
 	});
 
 	test('the window\'s sound output for samples stops five seconds after the last one ended', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
-		await service.playSample(DULCET, DULCET_SPEECH, 'rachel', 'https://cdn.dulcet.example/rachel.mp3');
+		await service.playSample(DUNLIN, SPEECH, 'rachel', 'https://cdn.dunlin.example/rachel.mp3');
 		const playing = context.state;
 		context.playbacks[0].end();
 		await timeout(4999);
@@ -619,20 +622,25 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		});
 	}));
 
-	test('reads what the provider service listed: an id of at most 256 characters without control characters, each once, at most 2,000, names as plain text, and samples only at web addresses', () => {
+	test('reads what the provider service listed: an id of a voice by the service\'s own rule, each once, at most 2,000, names as plain text, and samples only at web addresses', () => {
 		const capped = parseBaseHalfVoicesResult({ voices: Array.from({ length: 2001 }, (_value, index) => ({ id: `v${index}`, label: `V ${index}`, own: false })) });
+		// 256 characters of two UTF-16 units each: the rule counts characters, as the provider service does (`isVoiceId`).
+		const clefs = '\u{1D11E}'.repeat(256);
 		assert.deepStrictEqual({
 			read: parseBaseHalfVoicesResult({
 				voices: [
 					{ id: 'a', label: ' A  <b>voice</b>\n', description: 'Deep,\u0007 slow', own: true, sample: 'javascript:alert(1)' },
 					{ id: 'a', label: 'Again' },
 					{ id: '' },
+					{ id: '   ' },
 					{ id: 'b\u0000' },
+					{ id: 'b\u0085' },
 					{ id: 'x'.repeat(257) },
 					'not a voice',
 					{ id: 'c', label: '', description: 7, own: 'yes', sample: 'https://cdn.example/c.mp3' }
 				]
 			}),
+			characters: parseBaseHalfVoicesResult({ voices: [{ id: clefs, label: 'Clef', own: false }, { id: `${clefs}\u{1D11E}`, label: 'Too long', own: false }] })?.voices.map(voice => voice.label),
 			capped: { length: capped?.voices.length, truncated: capped?.truncated },
 			notAList: parseBaseHalfVoicesResult({ voices: 'none' })
 		}, {
@@ -642,6 +650,7 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 					{ id: 'c', label: 'c', own: false, sample: 'https://cdn.example/c.mp3' }
 				]
 			},
+			characters: ['Clef'],
 			capped: { length: 2000, truncated: true },
 			notAList: undefined
 		});

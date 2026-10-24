@@ -36,7 +36,6 @@ import {
 	BaseHalfVideoImageFormat,
 	BaseHalfVideoModeId,
 	BaseHalfVideoParamValue,
-	baseHalfModelFileExtension,
 	baseHalfVideoAddedInputRefusal,
 	baseHalfVideoChangeParam,
 	baseHalfVideoChooseMode,
@@ -65,7 +64,7 @@ import {
 import {
 	BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
 	baseHalfGenerationChoice,
-	baseHalfGenerationExtensionMatchesFormat,
+	baseHalfGenerationDraftRenameExtension,
 	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationNameParts,
 	IBaseHalfGenerationInfo,
@@ -129,9 +128,9 @@ export interface IBaseHalfVideoNodePanelHost {
 	 */
 	didGenerateInNode?(resource: URI): void;
 	/**
-	 * The draft was renamed, as a model of another image format renames it
-	 * (generation cards, "Creating a generation card"). The workbench shows the
-	 * panel of the card at its new name.
+	 * The draft was renamed, as a model that delivers another format renames
+	 * an image or an audio draft (generation cards, "Creating a generation
+	 * card"). The workbench shows the panel of the card at its new name.
 	 */
 	didRenameCard?(resource: URI): void;
 }
@@ -1580,14 +1579,14 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	 */
 	private async followModelFormat(model: IBaseHalfVideoCatalogModel): Promise<void> {
 		const snapshot = this.snapshot;
-		if (this.disposed || !snapshot || snapshot.hasFile || snapshot.made || !namedByFormat(snapshot.kind) || model.kind !== snapshot.kind || !model.outputFormat
-			|| baseHalfGenerationExtensionMatchesFormat(snapshot.path, model.outputFormat)) {
+		const extension = !this.disposed && snapshot && !snapshot.hasFile && !snapshot.made ? baseHalfGenerationDraftRenameExtension(snapshot.path, snapshot.kind, model) : undefined;
+		if (extension === undefined) {
 			return;
 		}
 		const name = basename(this.resource);
 		const folder = dirname(this.resource);
 		try {
-			const next = await this.store.nextFreeName(folder, baseHalfGenerationNameParts(name).base, baseHalfModelFileExtension(model), baseHalfGenerationNameOrdinal(name));
+			const next = await this.store.nextFreeName(folder, baseHalfGenerationNameParts(name).base, extension, baseHalfGenerationNameOrdinal(name));
 			const target = joinPath(folder, next);
 			await this.draftOperations.move(this.resource, target);
 			this.host.didRenameCard?.(target);
@@ -2453,11 +2452,6 @@ function panelLabel(kind: BaseHalfModelKind, name: string): string {
 		case 'audio': return localize('basehalf.video.panel.audioLabel', "Audio panel for {0}", name);
 		case 'video': return localize('basehalf.video.panel.label', "Video panel for {0}", name);
 	}
-}
-
-/** Whether a draft of the kind takes the extension of the format its model delivers: an image's or a sound's. */
-function namedByFormat(kind: BaseHalfModelKind): boolean {
-	return kind === 'image' || kind === 'audio';
 }
 
 /** A click of the mouse or a touch. A click that Enter or Space makes on a button has no count. */

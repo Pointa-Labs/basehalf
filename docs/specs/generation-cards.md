@@ -1752,13 +1752,22 @@ job, so that a name in history still finds its file.
   (`browser/basehalfGenerationVoiceMenu.ts`). The voice menu draws the rows
   of `common/basehalfGenerationVoices.ts` (pure: a voice's name, the
   sections, the search, and the lines it shows), and the window's voice
-  service, in the same module, asks the provider service for the voices
-  with the provider's access, keeps the last list per provider and region
-  for the window, which both panels name voices from, and plays the
-  samples through an audio graph of its own. A sample takes its turn with
-  the canvas's media through `playBaseHalfCanvasSoundInTurn` of
+  service (`browser/basehalfGenerationVoiceService.ts`, which registers with
+  the other generation services through the Providers contribution) asks
+  the provider service for the voices with the provider's access, keeps the
+  last list per provider and region for the window, which both panels name
+  voices from, and plays the samples through an audio graph of its own. A
+  sample takes its turn with the canvas's media through
+  `playBaseHalfCanvasSoundInTurn` of
   `canvas/browser/basehalfCanvasCardMedia.ts`, which keeps one video or
-  sound playing at a time. The name follower
+  sound playing at a time. Whether a value is the id of a voice is the
+  provider service's one rule, `isVoiceId` of
+  `platform/basehalfProviders/common/basehalfProviderVoices.ts`, which the
+  window's catalog and the list of voices it reads use too. The model menu's
+  second line, what a model makes and its other abilities, is written for
+  every kind by `common/basehalfVideoCatalog.ts`; the prompt's placeholder,
+  by the panel's presentation (`common/basehalfVideoNodePanelPresentation.ts`).
+  The name follower
   (`browser/basehalfGenerationNameFollower.contribution.ts`) takes part in the reference
   edits of drafts and writes the names of their prompts, as a participant of
   the reference edit service ([reference graph](reference-graph.md#undo)). The canvas
@@ -2214,10 +2223,11 @@ Audio cards (D78)
   `basehalfGenerationPromptEditor.test.ts`).
 - Unit tests for D78: the audio kind, its extensions, and a draft's
   extension from the model (`basehalfGenerationInfo.test.ts`); the prompt
-  that is spoken or sung and the summary without the voice
-  (`basehalfVideoCatalog.test.ts`); the placeholder, the model menu's line,
-  the voice button, and the settings without the voice
-  (`basehalfVideoNodePanelPresentation.test.ts`, `basehalfVideoNodePanel.test.ts`);
+  that is spoken or sung, the model menu's line, the voice ids a listed
+  voice takes, and the summary without the voice
+  (`basehalfVideoCatalog.test.ts`); the placeholder, the model menu, the
+  voice button, the settings without the voice, and the draft renamed to its
+  model's format and back (`basehalfVideoNodePanelPresentation.test.ts`, `basehalfVideoNodePanel.test.ts`);
   the voice menu with a fake provider service and a test audio graph: the
   sections, search, choosing, a sample that plays and stops, another
   sample or closing the menu stopping it, a video on the canvas that it
@@ -2227,7 +2237,9 @@ Audio cards (D78)
   the panel of a card with its file (`basehalfGenerationRecordPresentation.test.ts`,
   `basehalfGenerationRecordPanel.test.ts`); New Audio
   (`basehalfGenerationCardActions.test.ts`); several songs and a sound that
-  lands (`basehalfVideoGenerationService.test.ts`).
+  lands (`basehalfVideoGenerationService.test.ts`). The audio models of
+  these tests are the test catalog's one provider of audio models
+  (`basehalfVideoCatalogFixture.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
   42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 73 to 76, and 78, against the local test provider through the ByteDance module, and

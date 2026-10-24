@@ -8,6 +8,7 @@ import { Event } from '../../../../base/common/event.js';
 import { language } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import type { ListedVoice, VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
+import { isVoiceId } from '../../../../platform/basehalfProviders/common/basehalfProviderVoices.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { BaseHalfVideoModeId, baseHalfVideoModeParameters, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from './basehalfVideoCatalog.js';
 
@@ -22,13 +23,21 @@ import { BaseHalfVideoModeId, baseHalfVideoModeParameters, IBaseHalfVideoCatalog
 /** The most voices a list keeps (providers, "Requests"). */
 export const BASEHALF_VOICES_MAX = 2000;
 
-/** The voice of a model that speaks: its parameter of kind `voice`, of those that apply to the mode when one is given. */
+/**
+ * The voice of a model that speaks, which its voice button chooses instead of
+ * the settings: its parameter of kind `voice`, of those that apply to the
+ * mode when one is given.
+ */
 export function baseHalfVoiceParameter(model: IBaseHalfVideoCatalogModel, modeId?: BaseHalfVideoModeId): VoiceParameter | undefined {
 	const parameters = modeId ? baseHalfVideoModeParameters(model, modeId) : model.parameters;
 	return parameters.find((parameter): parameter is VoiceParameter => parameter.kind === 'voice');
 }
 
-/** A voice's name: the one the catalog gives it, or the provider's last list, or its id when neither has it. */
+/**
+ * A voice's name, as the voice button and the panel of a card with its file
+ * say it: the one the catalog gives it, or the provider's last list, or its
+ * id when neither has it.
+ */
 export function baseHalfVoiceLabel(parameter: VoiceParameter | undefined, id: string, list: VoicesResult | undefined): string {
 	return parameter?.options.find(option => option.value === id)?.label
 		?? list?.voices.find(voice => voice.id === id)?.label
@@ -247,11 +256,12 @@ export function baseHalfFormatCount(value: number): string {
 // --- Reading what the provider service answers ---------------------------------------------------
 
 /**
- * Reads what `voices` answered, keeping what the menu can show: a voice with
- * an id of at most 256 characters without control characters, each id once,
- * at most {@link BASEHALF_VOICES_MAX}, its name and description as plain
- * text, and its sample only as an `http` or `https` address. `undefined` for
- * an answer that is no list of voices.
+ * Reads what `voices` answered, keeping what the menu can show: a voice whose
+ * id is the id of a voice by the provider service's rule (`isVoiceId`: 1 to
+ * 256 characters, not only spaces, without control characters), each id
+ * once, at most {@link BASEHALF_VOICES_MAX}, its name and description as
+ * plain text, and its sample only as an `http` or `https` address.
+ * `undefined` for an answer that is no list of voices.
  */
 export function parseBaseHalfVoicesResult(value: unknown): VoicesResult | undefined {
 	if (!isRecord(value) || !Array.isArray(value.voices)) {
@@ -261,7 +271,7 @@ export function parseBaseHalfVoicesResult(value: unknown): VoicesResult | undefi
 	const seen = new Set<string>();
 	let truncated = value.truncated === true;
 	for (const candidate of value.voices) {
-		if (!isRecord(candidate) || typeof candidate.id !== 'string' || !VOICE_ID_PATTERN.test(candidate.id) || seen.has(candidate.id)) {
+		if (!isRecord(candidate) || typeof candidate.id !== 'string' || !isVoiceId(candidate.id) || seen.has(candidate.id)) {
 			continue;
 		}
 		if (voices.length === BASEHALF_VOICES_MAX) {
@@ -282,8 +292,6 @@ export function parseBaseHalfVoicesResult(value: unknown): VoicesResult | undefi
 	}
 	return Object.freeze({ voices: Object.freeze(voices), ...(truncated ? { truncated: true } : {}) });
 }
-
-const VOICE_ID_PATTERN = /^[^\u0000-\u001F\u007F]{1,256}$/;
 
 function compact(text: string): string {
 	return text.toLowerCase().replace(/\s+/g, '');

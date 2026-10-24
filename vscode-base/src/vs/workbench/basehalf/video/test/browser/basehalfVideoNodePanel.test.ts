@@ -27,7 +27,6 @@ import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPane
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceUndoElementOptions } from '../../../references/common/basehalfReferenceEdit.js';
 import {
 	BaseHalfModelKind,
-	baseHalfModelFileExtension,
 	BaseHalfVideoCatalogState,
 	baseHalfVideoChangeParam,
 	BaseHalfVideoMedia,
@@ -61,8 +60,7 @@ import {
 import { baseHalfGenerationChoice, BaseHalfGenerationKind, IBaseHalfGenerationInfo, setBaseHalfGenerationChoice } from '../../common/basehalfGenerationInfo.js';
 import { IBaseHalfGenerationVoiceService, IBaseHalfVoices, IBaseHalfVoiceSample, IBaseHalfVoiceSampleFailure } from '../../common/basehalfGenerationVoices.js';
 import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
-import { TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
-import { DULCET_SPEECH, EMBER_VOICE, TEST_AUDIO_CATALOG } from '../common/basehalfGenerationAudioCatalogFixture.js';
+import { DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
 const WORKSPACE = URI.file('/workspace');
 const NODE_PATH = 'shots/shot.mp4';
@@ -70,7 +68,7 @@ const NODE = URI.joinPath(WORKSPACE, 'shots', 'shot.mp4');
 const READY: IBaseHalfVideoGenerationChoice = { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
 /** The kind of an audio card (D78). */
 const AUDIO = 'audio' as BaseHalfModelKind as BaseHalfGenerationKind;
-const SPEECH: IBaseHalfVideoGenerationChoice = { provider: 'dulcet', model: 'dulcet-speech-2', mode: 'reference', params: { voice: 'kore', speed: 1 } };
+const SPEECH: IBaseHalfVideoGenerationChoice = { provider: 'dunlin', model: 'dunlin-voice', mode: 'reference', params: { voice: 'vx-ember', speed: 1 } };
 
 /**
  * A card store over one card: what its `generation.yaml` and `upstream.yaml`
@@ -1522,12 +1520,12 @@ suite('BaseHalfVideoNodePanel', () => {
 		assert.deepStrictEqual({ withRow, withoutRow: panel.height, heights }, { withRow: 188, withoutRow: 132, heights: [132] });
 	});
 
-	/** The panel of an audio draft at `shots/audio.mp3`, with the audio models of the catalog and every provider set up (D78). */
-	async function createAudioPanel(info: IBaseHalfGenerationInfo, upstream: readonly string[] = []): Promise<BaseHalfVideoNodePanel> {
+	/** The panel of an audio draft, at `shots/audio.mp3` unless `path` says otherwise, with the audio models of the catalog and every provider set up (D78). */
+	async function createAudioPanel(info: IBaseHalfGenerationInfo, upstream: readonly string[] = [], path = 'shots/audio.mp3'): Promise<BaseHalfVideoNodePanel> {
 		catalog.state = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
 		providers.notSetUp = new Set();
 		store.kind = AUDIO;
-		store.path = 'shots/audio.mp3';
+		store.path = path;
 		store.info = info;
 		store.upstream = upstream;
 		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, store.resource, host, { checkDelay: 0 }));
@@ -1556,7 +1554,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			expanded: voice.getAttribute('aria-expanded')
 		};
 		const before = store.info;
-		findAll(panel, '.bh-voice-menu-option').find(option => option.querySelector('.bh-voice-menu-name')?.textContent === 'Puck')!.click();
+		findAll(panel, '.bh-voice-menu-option').find(option => option.querySelector('.bh-voice-menu-name')?.textContent === 'Pike')!.click();
 		await settle();
 		assert.deepStrictEqual({
 			shown,
@@ -1568,27 +1566,27 @@ suite('BaseHalfVideoNodePanel', () => {
 		}, {
 			shown: {
 				footer: ['bh-video-panel-model', 'bh-video-panel-voice', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
-				label: 'Kore',
-				name: 'Voice: Kore',
+				label: 'Ember',
+				name: 'Voice: Ember',
 				tooltip: 'Voice',
-				summary: 'Speech · Speed 1'
+				summary: 'From Text · Speed 1'
 			},
 			settings: ['Speed'],
-			opened: { focused: true, asked: ['dulcet/dulcet-speech-2'], voices: ['Kore*', 'Puck'], width: '300px', expanded: 'true' },
+			opened: { focused: true, asked: ['dunlin/dunlin-voice'], voices: ['Ember*', 'Pike', 'Sable'], width: '300px', expanded: 'true' },
 			closed: { menus: 0, focused: true, sampleStopped: true },
-			saved: setBaseHalfGenerationChoice(before, baseHalfVideoChangeParam(baseHalfGenerationChoice(before), DULCET_SPEECH, 'voice', 'puck', 'reference'))
+			saved: setBaseHalfGenerationChoice(before, baseHalfVideoChangeParam(baseHalfGenerationChoice(before), DUNLIN_VOICE, 'voice', 'vx-pike', 'reference'))
 		});
 	});
 
 	test('the voice button names its voice as the catalog does, and opens nothing while the draft generates (D78)', async () => {
 		generation.generating = true;
 		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
-		voices.answer('dulcet', 'main', { voices: [{ id: 'kore', label: 'Kore of the account', own: false }] });
+		voices.answer('dunlin', 'main', { voices: [{ id: 'vx-ember', label: 'Ember of the account', own: false }] });
 		await settle();
 		const voice = find(panel, '.bh-video-panel-voice');
 		voice.click();
 		assert.deepStrictEqual({ label: voice.textContent, disabled: voice.getAttribute('aria-disabled'), menus: findAll(panel, '.bh-video-panel-menu').length }, {
-			label: 'Kore',
+			label: 'Ember',
 			disabled: 'true',
 			menus: 0
 		});
@@ -1600,9 +1598,9 @@ suite('BaseHalfVideoNodePanel', () => {
 		const said: Record<string, string | undefined> = { none: placeholder() };
 		for (const [name, choice] of [
 			['speech', SPEECH],
-			['music', { provider: 'ember', model: 'ember-song-9', mode: 'reference' }],
-			['lyrics', { provider: 'ember', model: 'ember-song-9', mode: 'lyrics' }],
-			['sound', { provider: 'dulcet', model: 'dulcet-effects', mode: 'reference' }]
+			['music', { provider: 'dunlin', model: 'dunlin-song', mode: 'reference' }],
+			['lyrics', { provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics' }],
+			['sound', { provider: 'dunlin', model: 'dunlin-foley', mode: 'reference' }]
 		] as const) {
 			store.writeFromElsewhere({ prompt: '', ...choice });
 			await settle();
@@ -1621,26 +1619,35 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('an audio card lists the audio models, each with what it makes first on its second line, and a model of another format renames the draft (D78)', async () => {
+	test('an audio card lists the audio models, each with what it makes first on its second line, and a model of another format renames the draft, and back (D78)', async () => {
 		const renamed: string[] = [];
 		host.didRenameCard = resource => renamed.push(resource.path);
-		const panel = await createAudioPanel({ prompt: 'Welcome.', ...SPEECH });
-		find(panel, '.bh-video-panel-model').click();
-		const items = findAll(panel, '.bh-video-panel-menu-item').map(item => `${menuLabel(item)}${item.querySelector('.bh-video-panel-menu-detail') ? ` (${item.querySelector('.bh-video-panel-menu-detail')?.textContent})` : ''}`);
-		findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === 'Ember Voice')?.click();
+		const menuItem = (panel: BaseHalfVideoNodePanel, model: string) => findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === model)!;
+		const speech = await createAudioPanel({ prompt: 'Welcome.', ...SPEECH });
+		find(speech, '.bh-video-panel-model').click();
+		const items = findAll(speech, '.bh-video-panel-menu-item').map(item => `${menuLabel(item)}${item.querySelector('.bh-video-panel-menu-detail') ? ` (${item.querySelector('.bh-video-panel-menu-detail')?.textContent})` : ''}`);
+		// Dunlin Song delivers WAV.
+		menuItem(speech, 'Dunlin Song').click();
 		await settle();
-		assert.deepStrictEqual({ items, moves: drafts.moves, renamed, label: panel.element.getAttribute('aria-label') }, {
+		const labels = [speech.element.getAttribute('aria-label')];
+		speech.dispose();
+		// The workbench shows the panel of the card at its new name; a model that delivers MP3 renames it back.
+		const song = await createAudioPanel(store.info, [], 'shots/audio.wav');
+		labels.push(song.element.getAttribute('aria-label'));
+		find(song, '.bh-video-panel-model').click();
+		menuItem(song, 'Dunlin Voice').click();
+		await settle();
+		assert.deepStrictEqual({ items, moves: drafts.moves, renamed, labels }, {
 			items: [
-				'Dulcet Speech 2 (Speech · Up to 10,000 characters)',
-				'Dulcet Effects (Sound Effects · Up to 22s)',
-				'Ember Song 9 (Music · From a Description · From Lyrics · Up to 3 songs · 1 reference sound)',
-				'Ember Voice (Speech · Up to 5,000 characters)',
+				'Dunlin Voice (Speech · Up to 10,000 characters)',
+				'Dunlin Song (Music · From a Description · From Lyrics · Up to 3 songs · 1 reference image · 1 reference sound)',
+				'Dunlin Foley (Sound Effects · Up to 22s)',
 				'Providers…'
 			],
-			// The draft takes the extension of the format its model delivers.
-			moves: [`/workspace/shots/audio.mp3 -> /workspace/shots/audio.${baseHalfModelFileExtension(EMBER_VOICE)}`],
-			renamed: [`/workspace/shots/audio.${baseHalfModelFileExtension(EMBER_VOICE)}`],
-			label: 'Audio panel for audio.mp3'
+			// The draft takes the extension of the format its model delivers (criterion 81).
+			moves: ['/workspace/shots/audio.mp3 -> /workspace/shots/audio.wav', '/workspace/shots/audio.wav -> /workspace/shots/audio.mp3'],
+			renamed: ['/workspace/shots/audio.wav', '/workspace/shots/audio.mp3'],
+			labels: ['Audio panel for audio.mp3', 'Audio panel for audio.wav']
 		});
 	});
 
@@ -1650,8 +1657,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		frame.style.cssText = 'position: absolute; left: 0; top: 0; width: 512px; --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;';
 		mainWindow.document.body.appendChild(frame);
 		mounted.push(frame);
-		voices.answer('dulcet', 'main', {
-			voices: Array.from({ length: 40 }, (_value, index) => ({ id: `voice-${index}`, label: `Voice with a rather long name ${index}`, description: 'Warm, calm, and slow, with a deep and even tone', own: index < 3, sample: `https://cdn.dulcet.example/${index}.mp3` }))
+		voices.answer('dunlin', 'main', {
+			voices: Array.from({ length: 40 }, (_value, index) => ({ id: `voice-${index}`, label: `Voice with a rather long name ${index}`, description: 'Warm, calm, and slow, with a deep and even tone', own: index < 3, sample: `https://cdn.dunlin.example/${index}.mp3` }))
 		});
 		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
 		frame.replaceChildren(panel.element);

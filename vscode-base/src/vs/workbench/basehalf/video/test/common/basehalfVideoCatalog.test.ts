@@ -7,19 +7,15 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	BASEHALF_AUDIO_DEFAULT_MODE_INPUTS,
-	baseHalfAudioModelAbilities,
 	baseHalfDefaultModeId,
 	baseHalfDefaultModeInputs,
 	baseHalfModelFileExtension,
 	baseHalfModelMakesSeveral,
 	baseHalfModelMostOutputs,
 	baseHalfModelOutputCount,
-	baseHalfModelVoiceParameter,
 	baseHalfVideoExampleGeneration,
 	baseHalfVideoParamValueLabel,
-	baseHalfVideoPromptPlaceholder,
 	baseHalfVideoRecordedSettingsSummary,
-	baseHalfVoiceLabel,
 	BaseHalfVideoCatalogState,
 	baseHalfVideoCatalogForAgents,
 	BaseHalfVideoGenerateBlocker,
@@ -46,6 +42,7 @@ import {
 	findBaseHalfVideoRegion,
 	fitBaseHalfVideoParams,
 	getBaseHalfVideoGenerateBlocker,
+	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoGenerateBlockerInput,
 	IBaseHalfVideoInputPlanItem,
@@ -56,13 +53,13 @@ import {
 	isBaseHalfSpokenOrSungPrompt,
 	isBaseHalfVideoModelBlocker,
 	isBaseHalfVideoParamValueAccepted,
-	isBaseHalfVoiceId,
 	normalizeBaseHalfVideoParams,
 	parseBaseHalfVideoCatalog,
 	parseBaseHalfVideoCheckResult,
 	planBaseHalfVideoInputs,
 	stripBaseHalfMarkdownFrontMatter
 } from '../../common/basehalfVideoCatalog.js';
+import { baseHalfVoiceLabel, baseHalfVoiceParameter } from '../../common/basehalfGenerationVoices.js';
 import { ACME, ACME_MOTION, BOREALIS, DUNLIN, DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG, testVideoModel } from './basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfVideoCatalog', () => {
@@ -646,7 +643,7 @@ suite('BaseHalfVideoCatalog', () => {
 	suite('audio models (D78)', () => {
 		const dunlin = TEST_AUDIO_CATALOG.providers[3];
 		const [speech, song, foley] = dunlin.models;
-		const voice = baseHalfModelVoiceParameter(speech) as IBaseHalfVideoVoiceParameter;
+		const voice = baseHalfVoiceParameter(speech) as IBaseHalfVideoVoiceParameter;
 		const corvid = TEST_AUDIO_CATALOG.providers[2];
 
 		test('reads an audio model with what it makes, its format, and its voices, and refuses one that does not say what it makes or delivers', () => {
@@ -712,16 +709,19 @@ suite('BaseHalfVideoCatalog', () => {
 		test('a voice keeps a voice of its options, and a listed voice any id of 1 to 256 characters without control characters; anything else takes the default', () => {
 			const closed: IBaseHalfVideoVoiceParameter = { ...voice, listed: undefined };
 			const kept = (value: unknown) => normalizeBaseHalfVideoParams(speech, 'reference', { voice: value }).voice;
+			// 256 characters of two UTF-16 units each.
+			const clefs = '\u{1D11E}'.repeat(256);
 			assert.deepStrictEqual({
 				listed: ['vx-pike', 'own-narrator', 'x'.repeat(256), 'x'.repeat(257), 'a\u0007b', '', 7].map(kept),
+				// The provider service's rule (`isVoiceId`), which `check` applies too: characters are counted, and an id is not only spaces.
+				rule: [clefs, `${clefs}\u{1D11E}`, '   ', 'a\u0085b'].map(value => kept(value) === value),
 				closed: ['vx-pike', 'own-narrator'].map(value => isBaseHalfVideoParamValueAccepted(closed, value)),
-				ids: ['own-narrator', '', 'a\u0085b', 'x'.repeat(256)].map(isBaseHalfVoiceId),
 				// An agent's voice of the account is taken as it is, and one the parameter does not take is named.
 				refused: [baseHalfVideoRefusedParam(speech, 'reference', { voice: 'own-narrator' }), baseHalfVideoRefusedParam(speech, 'reference', { voice: '' })]
 			}, {
 				listed: ['vx-pike', 'own-narrator', 'x'.repeat(256), 'vx-ember', 'vx-ember', 'vx-ember', 'vx-ember'],
+				rule: [true, false, false, false],
 				closed: [true, false],
-				ids: [true, false, false, true],
 				refused: [undefined, 'Dunlin Voice does not accept "" for Voice.']
 			});
 		});
@@ -731,17 +731,21 @@ suite('BaseHalfVideoCatalog', () => {
 				summary: baseHalfVideoSettingsSummary(speech, 'reference', { voice: 'vx-pike', speed: 1.25 }),
 				recorded: baseHalfVideoRecordedSettingsSummary(speech, 'reference', { voice: 'own-narrator', speed: 1.5 }),
 				labels: [
-					baseHalfVoiceLabel(voice, 'vx-pike'),
-					baseHalfVoiceLabel(voice, 'own-narrator', [{ id: 'own-narrator', label: 'My Narrator', own: true }]),
-					baseHalfVoiceLabel(voice, 'own-narrator'),
-					baseHalfVideoParamValueLabel(voice, 'vx-sable')
+					baseHalfVoiceLabel(voice, 'vx-pike', undefined),
+					baseHalfVoiceLabel(voice, 'own-narrator', { voices: [{ id: 'own-narrator', label: 'My Narrator', own: true }] }),
+					baseHalfVoiceLabel(voice, 'own-narrator', undefined),
+					// The catalog's name comes first.
+					baseHalfVoiceLabel(voice, 'vx-pike', { voices: [{ id: 'vx-pike', label: 'Pike of the account', own: false }] }),
+					// Card Detail names a voice as it names every value: by the catalog, or by its id.
+					baseHalfVideoParamValueLabel(voice, 'vx-sable'),
+					baseHalfVideoParamValueLabel(voice, 'own-narrator')
 				],
 				song: baseHalfVideoSettingsSummary(song, 'lyrics', { style: 'Sea  shanty' }),
 				instrumental: baseHalfVideoSettingsSummary(song, 'reference', { instrumental: true, count: 1 })
 			}, {
 				summary: ['From Text', 'Speed 1.25'],
 				recorded: ['From Text', 'Speed 1.5'],
-				labels: ['Pike', 'My Narrator', 'own-narrator', 'Sable'],
+				labels: ['Pike', 'My Narrator', 'own-narrator', 'Pike', 'Sable', 'own-narrator'],
 				song: ['From Lyrics', 'Sea shanty', 'Songs 2'],
 				instrumental: ['From a Description', 'Instrumental', 'Songs 1']
 			});
@@ -762,45 +766,40 @@ suite('BaseHalfVideoCatalog', () => {
 		});
 
 		test('an audio model says what it makes first, then the characters of speech, or its modes, length, songs, and references', () => {
-			assert.deepStrictEqual([speech, song, foley].map(baseHalfVideoModelAbilities), [
+			const duration = (parameter: Partial<IBaseHalfVideoNumberParameter>): IBaseHalfVideoNumberParameter => ({ name: 'duration', label: 'Duration', kind: 'integer', unit: 'seconds', min: 1, max: 30, step: 1, ...parameter });
+			const references = (images: number, audios: number) => song.modes.map(mode => ({ ...mode, inputs: { ...mode.inputs, images: { min: 0, max: images }, audios: { min: 0, max: audios } } }));
+			const models: readonly IBaseHalfVideoCatalogModel[] = [
+				speech,
+				song,
+				foley,
+				{ ...song, modes: [song.modes[0]], parameters: [] },
+				// Auto does not count as a length; a model that makes one length says it alone, as a number or as a choice.
+				{ ...foley, parameters: [duration({ kind: 'number', min: 0.5, max: 22, step: 0.1, auto: { value: -1, label: 'Auto' } })] },
+				{ ...song, parameters: [duration({ min: 30, max: 30 })] },
+				{ ...foley, parameters: [{ name: 'duration', label: 'Duration', kind: 'choice', options: [{ value: 30, label: '30s' }] }] },
+				{ ...song, modes: references(2, 3), parameters: [] }
+			];
+			assert.deepStrictEqual(models.map(baseHalfVideoModelAbilities), [
 				'Speech · Up to 10,000 characters',
 				'Music · From a Description · From Lyrics · Up to 3 songs · 1 reference image · 1 reference sound',
-				'Sound Effects · Up to 22s'
+				'Sound Effects · Up to 22s',
+				'Music · 1 reference image · 1 reference sound',
+				'Sound Effects · Up to 22s',
+				'Music · From a Description · From Lyrics · 30s · 1 reference image · 1 reference sound',
+				'Sound Effects · 30s',
+				'Music · From a Description · From Lyrics · 2 reference images · 3 reference sounds'
 			]);
-			assert.strictEqual(baseHalfAudioModelAbilities({ ...song, modes: [song.modes[0]], parameters: [] }), 'Music · 1 reference image · 1 reference sound');
 		});
 
-		test('the prompt of a speech model and the prompt in Lyrics mode are spoken or sung, and the placeholder says what the prompt is', () => {
-			assert.deepStrictEqual({
-				spokenOrSung: [
-					isBaseHalfSpokenOrSungPrompt(speech, 'reference'),
-					isBaseHalfSpokenOrSungPrompt(song, 'lyrics'),
-					isBaseHalfSpokenOrSungPrompt(song, 'reference'),
-					isBaseHalfSpokenOrSungPrompt(foley, 'reference'),
-					isBaseHalfSpokenOrSungPrompt(motion, 'lyrics'),
-					isBaseHalfSpokenOrSungPrompt(undefined, 'lyrics')
-				],
-				placeholders: [
-					baseHalfVideoPromptPlaceholder('image', undefined, undefined),
-					baseHalfVideoPromptPlaceholder('video', motion, 'frames'),
-					baseHalfVideoPromptPlaceholder('audio', speech, 'reference'),
-					baseHalfVideoPromptPlaceholder('audio', song, 'reference'),
-					baseHalfVideoPromptPlaceholder('audio', song, 'lyrics'),
-					baseHalfVideoPromptPlaceholder('audio', foley, 'reference'),
-					baseHalfVideoPromptPlaceholder('audio', undefined, undefined)
-				]
-			}, {
-				spokenOrSung: [true, true, false, false, false, false],
-				placeholders: [
-					'Describe the image. Type @ to mention an input.',
-					'Describe the video. Type @ to mention an input.',
-					'Write what the voice says. Type @ to mention an input.',
-					'Describe the music. Type @ to mention an input.',
-					'Write the lyrics. Type @ to mention an input.',
-					'Describe the sound. Type @ to mention an input.',
-					'Describe the sound. Type @ to mention an input.'
-				]
-			});
+		test('the prompt of a speech model and the prompt in Lyrics mode are spoken or sung', () => {
+			assert.deepStrictEqual([
+				isBaseHalfSpokenOrSungPrompt(speech, 'reference'),
+				isBaseHalfSpokenOrSungPrompt(song, 'lyrics'),
+				isBaseHalfSpokenOrSungPrompt(song, 'reference'),
+				isBaseHalfSpokenOrSungPrompt(foley, 'reference'),
+				isBaseHalfSpokenOrSungPrompt(motion, 'lyrics'),
+				isBaseHalfSpokenOrSungPrompt(undefined, 'lyrics')
+			], [true, true, false, false, false, false]);
 		});
 
 		test('a song\'s references are the images and sounds its mode takes, in Lyrics mode as in references; an audio card without a model shows references', () => {

@@ -25,8 +25,7 @@ import {
 	IBaseHalfVideoPanelState,
 	swapBaseHalfVideoUpstreamEntries
 } from '../../common/basehalfVideoNodePanelPresentation.js';
-import { TEST_AUDIO_CATALOG } from './basehalfGenerationAudioCatalogFixture.js';
-import { TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from './basehalfVideoCatalogFixture.js';
+import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from './basehalfVideoCatalogFixture.js';
 
 suite('BaseHalfVideoNodePanelPresentation', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -583,8 +582,9 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 	// --- Audio cards (D78) ----------------------------------------------------------------------
 
 	const audio: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
-	const speech: IBaseHalfVideoGenerationChoice = { provider: 'dulcet', model: 'dulcet-speech-2', mode: 'reference', params: { voice: 'kore', speed: 1 } };
-	const song: IBaseHalfVideoGenerationChoice = { provider: 'ember', model: 'ember-song-9', mode: 'lyrics', params: { count: 2 } };
+	const speech: IBaseHalfVideoGenerationChoice = { provider: 'dunlin', model: 'dunlin-voice', mode: 'reference', params: { voice: 'vx-ember', speed: 1 } };
+	const song: IBaseHalfVideoGenerationChoice = { provider: 'dunlin', model: 'dunlin-song', mode: 'lyrics', params: { count: 2 } };
+	const foley: IBaseHalfVideoGenerationChoice = { provider: 'dunlin', model: 'dunlin-foley' };
 	/** A song, a picture, a clip, and a note, connected in that order. */
 	const audioSources: IBaseHalfVideoInputSource[] = [
 		{ path: 'refs/theme.mp3', kind: 'audio', available: true },
@@ -623,11 +623,11 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			summary: presentation.settingsView!.summary,
 			placeholder: presentation.placeholder,
 			// A model that makes music or sound effects speaks in no voice.
-			others: [present({ kind: 'audio', catalog: audio, generation: song, inputs: [] }).voice, present({ kind: 'audio', catalog: audio, generation: { provider: 'dulcet', model: 'dulcet-effects' }, inputs: [] }).voice]
+			others: [present({ kind: 'audio', catalog: audio, generation: song, inputs: [] }).voice, present({ kind: 'audio', catalog: audio, generation: foley, inputs: [] }).voice]
 		}, {
-			voice: { value: 'kore', label: 'Kore', title: 'Voice', parameter: 'voice' },
+			voice: { value: 'vx-ember', label: 'Ember', title: 'Voice', parameter: 'voice' },
 			controls: ['Speed slider 0.5-2 by 0.05 at 1 (1)'],
-			summary: 'Speech · Speed 1',
+			summary: 'From Text · Speed 1',
 			placeholder: 'Write what the voice says. Type @ to mention an input.',
 			others: [undefined, undefined]
 		});
@@ -639,8 +639,8 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			speech: placeholder(speech),
 			music: placeholder({ ...song, mode: 'reference' }),
 			lyrics: placeholder(song),
-			sound: placeholder({ provider: 'dulcet', model: 'dulcet-effects' }),
-			unknownModel: placeholder({ provider: 'dulcet', model: 'dulcet-retired' }),
+			sound: placeholder(foley),
+			unknownModel: placeholder({ provider: 'dunlin', model: 'dunlin-retired' }),
 			image: baseHalfVideoPanelPlaceholder('image'),
 			video: baseHalfVideoPanelPlaceholder('video')
 		}, {
@@ -654,11 +654,18 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 		});
 	});
 
-	test('the model menu of an audio card lists the audio models, each with what it makes first on its second line (D78)', () => {
-		const menu = present({ kind: 'audio', catalog: audio, generation: speech, inputs: [], notSetUp: ['ember'] }).modelMenu;
-		assert.deepStrictEqual(menu.groups.map(group => ({ provider: group.label, detail: group.detail, models: group.items.map(item => `${item.label}: ${item.detail}`) })), [
-			{ provider: 'Dulcet Voice', detail: undefined, models: ['Dulcet Speech 2: Speech · Up to 10,000 characters', 'Dulcet Effects: Sound Effects · Up to 22s'] },
-			{ provider: 'Ember Sound', detail: 'Not set up', models: ['Ember Song 9: Music · From a Description · From Lyrics · Up to 3 songs · 1 reference sound', 'Ember Voice: Speech · Up to 5,000 characters'] }
-		]);
+	test('the model menu of an audio card lists the audio models alone, each with what it makes first on its second line (D78)', () => {
+		const menu = (notSetUp: readonly string[]) => present({ kind: 'audio', catalog: audio, generation: speech, inputs: [], notSetUp }).modelMenu.groups
+			.map(group => ({ provider: group.label, detail: group.detail, models: group.items.map(item => `${item.label}: ${item.detail}`) }));
+		const models = [
+			'Dunlin Voice: Speech · Up to 10,000 characters',
+			'Dunlin Song: Music · From a Description · From Lyrics · Up to 3 songs · 1 reference image · 1 reference sound',
+			'Dunlin Foley: Sound Effects · Up to 22s'
+		];
+		assert.deepStrictEqual({ setUp: menu([]), notSetUp: menu(['dunlin']) }, {
+			// The providers of images and videos have no audio models: they are not listed.
+			setUp: [{ provider: 'Dunlin Sound', detail: undefined, models }],
+			notSetUp: [{ provider: 'Dunlin Sound', detail: 'Not set up', models }]
+		});
 	});
 });
