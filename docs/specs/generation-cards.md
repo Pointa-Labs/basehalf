@@ -673,6 +673,11 @@ From top to bottom:
      again blinks nothing, and an input that comes back soon, as by undo or a
      second click of Pick on Canvas, shows its picture at once; the prompt's
      chips keep their pictures too.
+   - The line on the canvas changes with the tile. A connection that the
+     panel makes or removes, by Pick on Canvas, the reference menu, Import
+     File…, or a tile's cross, and its undo and redo, draws the canvas at
+     once, as a line drawn on the canvas does, and does not wait for the
+     canvas to learn of it from the file.
    - The tiles scroll sideways when they do not fit, and the plus follows
      them.
 2. **Prompt**: a text field that grows to five lines and then scrolls.
@@ -1822,6 +1827,8 @@ Pick on Canvas (D69)
     and the model button begin at one left edge, within half a pixel, and
     the reason's action and the Generate button end at one right edge; a
     name's text and the prompt's text share a baseline.
+64. A connection made or removed in the panel, and its undo, shows on the
+    canvas's line within two frames of the tile at 60 Hz, 34 ms.
 
 ## Verification
 
@@ -1879,7 +1886,7 @@ Pick on Canvas (D69)
   `basehalfGenerationPromptEditor.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
-  42 to 46, 49, 50, 52, 54, 56, 59, 60, 62, and 63, against the local test provider through the ByteDance module, with a
+  42 to 46, 49, 50, 52, 54, 56, 59, 60, and 62 to 64, against the local test provider through the ByteDance module, with a
   test key; no paid provider is called. The test provider answers every task
   and image with a file of its own, as a real provider does, so that a file
   moved outside BaseHalf is told from another by its content. After a
