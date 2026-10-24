@@ -921,6 +921,49 @@ export function readCanvasPick(page) {
 }
 
 /**
+ * Samples every frame of the card at `cardPath` while `run` runs: which
+ * element and picture it is, what a click on it does, and whether the accent
+ * outline of Pick on Canvas shows. Returns the frames with each run of equal
+ * ones taken together.
+ */
+export async function sampleCardLooks(page, cardPath, run) {
+	await page.evaluate(path => {
+		const ids = new WeakMap();
+		const id = element => {
+			if (!element) {
+				return 0;
+			}
+			if (!ids.has(element)) {
+				ids.set(element, ids.size + 1);
+			}
+			return ids.get(element);
+		};
+		const token = window.__basehalfCardLooks = (window.__basehalfCardLooks ?? 0) + 1;
+		window.__basehalfCardLookFrames = [];
+		const sample = () => {
+			if (window.__basehalfCardLooks !== token) {
+				return;
+			}
+			const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+			const shadow = card ? getComputedStyle(card).boxShadow : '';
+			window.__basehalfCardLookFrames.push(`card ${id(card)} picture ${id(card?.querySelector('img, video'))} ${card?.getAttribute('data-basehalf-pick') ?? '-'} ${/^\S+\([^)]*\) 0px 0px 0px [1-9]/.test(shadow) ? 'outline' : 'plain'}`);
+			requestAnimationFrame(sample);
+		};
+		requestAnimationFrame(sample);
+	}, cardPath);
+	let frames = [];
+	try {
+		await run();
+	} finally {
+		frames = await page.evaluate(() => {
+			window.__basehalfCardLooks++;
+			return window.__basehalfCardLookFrames;
+		});
+	}
+	return frames.filter((frame, index) => frame !== frames[index - 1]);
+}
+
+/**
  * Moves the pointer over the card at `cardPath` and reads what the window
  * shows there: the pointer over its body and over its name, the label beside
  * the pointer, and whether the card is darkened with a check mark.

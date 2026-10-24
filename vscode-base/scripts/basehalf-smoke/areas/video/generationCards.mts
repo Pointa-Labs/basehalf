@@ -61,6 +61,7 @@ import {
 	readUpstreamSidecar,
 	replacePrompt,
 	runGenerateInTerminal,
+	sampleCardLooks,
 	sampleCardPhases,
 	savePrompt,
 	SCENE_NOTE,
@@ -1066,13 +1067,26 @@ async function assertPickOnCanvas(page) {
 	await waitForCanvasCardSelection(page, VIDEO);
 
 	// Two clicks in a row: the image is connected at the end, and start.png is removed with its name.
-	await clickCanvasCardOnTop(page, still);
-	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]), `a click to connect ${still} at the end of the list`, 10_000);
-	await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[still] === 'remove', `picking to stay on and show ${still} as connected`);
+	// Criterion 62: each card keeps its element and its picture, and its look changes once.
+	const connecting = await sampleCardLooks(page, still, async () => {
+		await clickCanvasCardOnTop(page, still);
+		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]), `a click to connect ${still} at the end of the list`, 10_000);
+		await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[still] === 'remove', `picking to stay on and show ${still} as connected`);
+		await page.waitForTimeout(300);
+	});
 	await showCardOnCanvas(page, START_IMAGE);
-	await clickCanvasCardOnTop(page, START_IMAGE);
-	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([END_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === `${VIDEO_PROMPT} Image 1`, `a click on the connected ${START_IMAGE} to remove it and rename Image 2 in the prompt`, 10_000);
-	await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[START_IMAGE] === 'connect', `picking to stay on and show ${START_IMAGE} as one a click connects`);
+	const removing = await sampleCardLooks(page, START_IMAGE, async () => {
+		await clickCanvasCardOnTop(page, START_IMAGE);
+		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([END_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === `${VIDEO_PROMPT} Image 1`, `a click on the connected ${START_IMAGE} to remove it and rename Image 2 in the prompt`, 10_000);
+		await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[START_IMAGE] === 'connect', `picking to stay on and show ${START_IMAGE} as one a click connects`);
+		await page.waitForTimeout(300);
+	});
+	for (const looks of [connecting, removing]) {
+		const elements = new Set(looks.map(look => look.split(' ').slice(0, 4).join(' ')));
+		if (elements.size !== 1 || new Set(looks).size !== looks.length || !looks.at(-1).includes(looks === connecting ? 'remove plain' : 'connect outline')) {
+			throw new Error(`A click of Pick on Canvas must change the card's look once and keep its element and its picture: ${JSON.stringify({ connecting, removing })}`);
+		}
+	}
 
 	// Escape ends picking; the draft keeps its selection and its panel.
 	await page.keyboard.press('Escape');
