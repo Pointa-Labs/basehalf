@@ -330,13 +330,27 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				}
 			},
 			openAddMenu: (trigger, byPointer) => {
-				// While picking, the plus is pressed: a click on it ends picking.
+				// An empty frame while picking ends picking, as Pick on Canvas does.
 				if (this.picking) {
 					this.endPick();
 				} else {
 					this.toggleMenu('add', trigger, byPointer);
 				}
 			},
+			// The buttons at the panel's top right (D71).
+			togglePick: () => {
+				this.closeMenu(false);
+				if (this.picking) {
+					this.endPick();
+				} else {
+					this.startPick();
+				}
+			},
+			importFile: () => {
+				this.closeMenu(false);
+				void this.importFile();
+			},
+			setupHover: (element, content) => this.hoverService.setupDelayedHover(element, () => ({ content }), { groupId: HOVER_GROUP }),
 			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
 		}, this.layer));
 		this.inputRow.element.hidden = true;

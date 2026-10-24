@@ -123,7 +123,7 @@ export interface IBaseHalfVideoPanelInputRow {
 	readonly swappedUpstream?: readonly string[];
 	/** The inputs the row shows besides the slots, in upstream order. */
 	readonly items: readonly IBaseHalfVideoPanelInputItem[];
-	/** What a row without inputs says beside its plus. */
+	/** What a row without inputs says. */
 	readonly emptyHint?: string;
 }
 

@@ -7,7 +7,7 @@ import './media/basehalfGenerationInputRow.css';
 import { $, addDisposableListener, append, clearNode, getWindow, isHTMLElement } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -35,7 +35,7 @@ export interface IBaseHalfInputTile {
 	readonly frame?: 'start' | 'end';
 }
 
-/** An empty start or end frame, which opens the plus's menu. */
+/** An empty start or end frame, which opens a menu of the two buttons' actions. */
 export interface IBaseHalfInputFrameSlot {
 	readonly role: 'start' | 'end';
 	readonly tile?: IBaseHalfInputTile;
@@ -50,11 +50,11 @@ export interface IBaseHalfInputRowModel {
 	readonly canSwap?: boolean;
 	/** The other inputs, in the order of the list. */
 	readonly tiles: readonly IBaseHalfInputTile[];
-	/** What a row without inputs says beside its plus. */
+	/** What a row without inputs says. */
 	readonly hint?: string;
 	/** The inputs can be removed, named, reordered, and added to: a draft that does not generate. */
 	readonly editable: boolean;
-	/** Pick on Canvas is on (D69): the plus is pressed, and a click on it ends picking. */
+	/** Pick on Canvas is on (D69): its button is highlighted, and a click on it ends picking (D71). */
 	readonly picking?: boolean;
 }
 
@@ -68,8 +68,14 @@ export interface IBaseHalfInputRowDelegate {
 	move(path: string, before: string | undefined): void;
 	/** Exchanges the start and the end frame. */
 	swap(): void;
-	/** Opens the plus's menu from `trigger`. */
+	/** Opens the menu of an empty frame from `trigger`: Pick on Canvas and Import File…. */
 	openAddMenu(trigger: HTMLElement, byPointer: boolean): void;
+	/** Starts Pick on Canvas, or ends it while it is on (D71). */
+	togglePick(): void;
+	/** Copies a file into the card's folder and connects it (D71). */
+	importFile(): void;
+	/** Gives `element` BaseHalf's tooltip. */
+	setupHover(element: HTMLElement, content: string): IDisposable;
 	/** The canvas in window coordinates, for keeping the look inside it. */
 	canvasBounds(): { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
 }
@@ -89,12 +95,13 @@ const LOOK_MARGIN = 12;
 
 /**
  * The input row of a generation card's panel (generation cards, "The panel",
- * D68): the card's connections as tiles, in the order of its list, then a
- * plus. A tile shows the input's picture, the number of its name, and on a
- * frame its mark; pointing at it shows a larger look above it, a cross that
- * removes the connection, and an `@` that puts its name into the prompt; a
- * drag moves it in the list. The row is read only for a card that generates
- * and for the panel of a card with its file.
+ * D68): the card's connections as tiles, in the order of its list, and at its
+ * right end, the panel's top right, Pick on Canvas and Import File… (D71). A
+ * tile shows the input's picture, the number of its name, and on a frame its
+ * mark; pointing at it shows a larger look above it, a cross that removes the
+ * connection, and an `@` that puts its name into the prompt; a drag moves it
+ * in the list. The row is read only for a card that generates and for the
+ * panel of a card with its file.
  */
 export class BaseHalfGenerationInputRow extends Disposable {
 
@@ -123,6 +130,10 @@ export class BaseHalfGenerationInputRow extends Disposable {
 	private list: HTMLElement | undefined;
 	private look: HTMLElement | undefined;
 	private lookFor: string | undefined;
+	/** What the look shows, to keep it while the row is drawn again for the same input (D71). */
+	private lookKey: string | undefined;
+	/** The look was shown for the keyboard's focus, which takes it away when it leaves the row. */
+	private lookByFocus = false;
 	private model: IBaseHalfInputRowModel | undefined;
 	private renderedKey: string | undefined;
 	/** The control of the row that takes its one tab stop. */
@@ -153,11 +164,16 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				this.updateTabStop();
 				const tile = this.tileOf(target);
 				if (tile && target.matches(':focus-visible')) {
-					this.showLook(target, tile);
+					this.showLook(target, tile, true);
 				}
 			}
 		}));
-		this._register(addDisposableListener(this.element, 'focusout', () => this.hideLook()));
+		// A look the pointer shows stays when the focus leaves, as when a tile's `@` gives the prompt the keyboard.
+		this._register(addDisposableListener(this.element, 'focusout', () => {
+			if (this.lookByFocus) {
+				this.hideLook();
+			}
+		}));
 		this._register(addDisposableListener(this.element, 'wheel', event => {
 			// A vertical wheel scrolls the tiles sideways.
 			const list = this.list;
@@ -170,7 +186,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 
 	/** Draws the row for `model`. Nothing is drawn again while it is the same, so pictures stay loaded. */
 	update(model: IBaseHalfInputRowModel | undefined): void {
-		const key = JSON.stringify(model ?? null, (name, value) => URI.isUri(value) ? value.toString() : value);
+		const key = rowKey(model);
 		if (key === this.renderedKey) {
 			return;
 		}
@@ -179,7 +195,8 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		const focused = this.focusedKey();
 		// The tiles scrolled sideways stay where they were.
 		const scrolled = this.list?.scrollLeft ?? 0;
-		this.hideLook();
+		// The look stays when its input's tile is drawn again where it was, with what the look shows (D71).
+		const looked = this.lookFor !== undefined ? this.findByKey(`tile:${this.lookFor}`)?.getBoundingClientRect() : undefined;
 		this.rowStore.clear();
 		clearNode(this.element);
 		this.list = undefined;
@@ -187,6 +204,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		this.lengthLabels = new Map();
 		this.element.hidden = !model;
 		if (!model) {
+			this.hideLook();
 			this.dropUndrawnPictures();
 			return;
 		}
@@ -211,18 +229,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		for (const tile of model.tiles) {
 			this.renderTile(list, tile, model);
 		}
-		if (model.editable) {
-			const add = append(this.element, $<HTMLButtonElement>('button.bh-input-row-add'));
-			add.type = 'button';
-			add.dataset.key = 'add';
-			add.setAttribute('aria-haspopup', 'menu');
-			add.setAttribute('aria-label', localize('basehalf.generation.inputRow.add', "Add Input"));
-			if (model.picking) {
-				add.setAttribute('aria-pressed', 'true');
-			}
-			add.append(renderGlyph(Codicon.add));
-			this.rowStore.add(addDisposableListener(add, 'click', event => this.delegate.openAddMenu(add, event.detail > 0)));
-		}
 		const hint = model.picking
 			? localize('basehalf.generation.inputRow.picking', "Click cards on the canvas. Escape or Done ends.")
 			: model.hint;
@@ -233,8 +239,16 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				text.setAttribute('role', 'status');
 			}
 		}
+		if (model.editable) {
+			// At the panel's top right (D71).
+			const actions = append(this.element, $('.bh-input-row-actions'));
+			const pick = this.renderAction(actions, 'pick', Codicon.inspect, localize('basehalf.generation.inputRow.pick', "Pick on Canvas"), () => this.delegate.togglePick());
+			pick.setAttribute('aria-pressed', String(!!model.picking));
+			this.renderAction(actions, 'import', Codicon.cloudUpload, localize('basehalf.generation.inputRow.import', "Import File…"), () => this.delegate.importFile());
+		}
 		this.dropUndrawnPictures();
 		list.scrollLeft = scrolled;
+		this.keepOrHideLook(looked);
 		this.updateTabStop();
 		if (focused) {
 			this.findByKey(focused)?.focus({ preventScroll: true });
@@ -249,11 +263,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		if (tile) {
 			this.placeLook(tile);
 		}
-	}
-
-	/** The button of the plus, for the menu to open from. */
-	addButton(): HTMLElement | undefined {
-		return this.findByKey('add');
 	}
 
 	override dispose(): void {
@@ -329,7 +338,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		}
 		this.rowStore.add(addDisposableListener(element, 'pointerenter', () => {
 			if (!this.dragging) {
-				this.showLook(element, tile);
+				this.showLook(element, tile, false);
 			}
 		}));
 		this.rowStore.add(addDisposableListener(element, 'pointerleave', () => {
@@ -337,6 +346,18 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				this.hideLook();
 			}
 		}));
+	}
+
+	/** A button at the row's right end: an icon whose name is its tooltip and its accessible name. */
+	private renderAction(parent: HTMLElement, key: string, icon: ThemeIcon, name: string, run: () => void): HTMLButtonElement {
+		const button = append(parent, $<HTMLButtonElement>('button.bh-input-row-action'));
+		button.type = 'button';
+		button.dataset.key = key;
+		button.setAttribute('aria-label', name);
+		button.append(renderGlyph(icon));
+		this.rowStore.add(this.delegate.setupHover(button, name));
+		this.rowStore.add(addDisposableListener(button, 'click', () => run()));
+		return button;
 	}
 
 	private renderEmptyFrame(parent: HTMLElement, slot: IBaseHalfInputFrameSlot, model: IBaseHalfInputRowModel): void {
@@ -485,12 +506,15 @@ export class BaseHalfGenerationInputRow extends Disposable {
 
 	//#region The look
 
-	private showLook(tileElement: HTMLElement, tile: IBaseHalfInputTile): void {
+	private showLook(tileElement: HTMLElement, tile: IBaseHalfInputTile, byFocus: boolean): void {
 		if (this.lookFor === tile.path && this.look?.isConnected) {
+			this.lookByFocus &&= byFocus;
 			return;
 		}
 		this.hideLook();
 		this.lookFor = tile.path;
+		this.lookKey = lookKey(tile);
+		this.lookByFocus = byFocus;
 		const look = append(this.layer, $('.bh-input-look'));
 		look.setAttribute('aria-hidden', 'true');
 		this.look = look;
@@ -555,8 +579,31 @@ export class BaseHalfGenerationInputRow extends Disposable {
 
 	private hideLook(): void {
 		this.lookFor = undefined;
+		this.lookKey = undefined;
+		this.lookByFocus = false;
 		this.look = undefined;
 		this.lookStore.clear();
+	}
+
+	/**
+	 * After the row is drawn again: keeps the look when its input's tile is
+	 * where it was, `before`, and the look would show the same, so that it does
+	 * not blink; the pointer is still on that tile. Otherwise takes it away.
+	 */
+	private keepOrHideLook(before: DOMRect | undefined): void {
+		const path = this.lookFor;
+		if (path === undefined) {
+			return;
+		}
+		const tile = this.tileOf(this.findByKey(`tile:${path}`));
+		const element = tile && this.findByKey(`tile:${path}`);
+		const now = element?.getBoundingClientRect();
+		const samePlace = !!before && !!now && Math.abs(before.left - now.left) < 0.5 && Math.abs(before.top - now.top) < 0.5;
+		if (!tile || !element || !samePlace || lookKey(tile) !== this.lookKey || !this.look?.isConnected) {
+			this.hideLook();
+			return;
+		}
+		this.placeLook(element);
 	}
 
 	//#endregion
@@ -766,9 +813,9 @@ export class BaseHalfGenerationInputRow extends Disposable {
 
 	//#endregion
 
-	private tileOf(element: HTMLElement): IBaseHalfInputTile | undefined {
-		const path = element.dataset.path;
-		if (path === undefined || !element.classList.contains('bh-input-tile')) {
+	private tileOf(element: HTMLElement | undefined): IBaseHalfInputTile | undefined {
+		const path = element?.dataset.path;
+		if (!element || path === undefined || !element.classList.contains('bh-input-tile')) {
 			return undefined;
 		}
 		const model = this.model;
@@ -812,6 +859,29 @@ export class BaseHalfGenerationInputRow extends Disposable {
 /** What identifies a tile's picture: its input and its file. */
 function pictureKey(tile: IBaseHalfInputTile): string {
 	return `${tile.path}\0${tile.kind}\0${tile.file?.toString() ?? ''}`;
+}
+
+/** What the look at a tile shows: its picture and its names. */
+function lookKey(tile: IBaseHalfInputTile): string {
+	return JSON.stringify([pictureKey(tile), tile.label ?? '', tile.frame ?? '', tile.fileName, tile.note ?? '']);
+}
+
+/**
+ * What the row shows, as a key: two models with the same key draw the same
+ * row. A file counts by its address alone: a URI's JSON carries the fields it
+ * caches, which reading its path adds and reading the inputs again drops, and
+ * they would draw the row again for nothing (D71).
+ */
+function rowKey(model: IBaseHalfInputRowModel | undefined): string {
+	if (!model) {
+		return 'null';
+	}
+	const tile = (value: IBaseHalfInputTile) => ({ ...value, file: value.file?.toString() });
+	return JSON.stringify({
+		...model,
+		frames: model.frames?.map(slot => ({ ...slot, tile: slot.tile && tile(slot.tile) })),
+		tiles: model.tiles.map(tile)
+	});
 }
 
 /** A length as a tile shows it: 6.8s. */

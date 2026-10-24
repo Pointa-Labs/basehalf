@@ -151,11 +151,11 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		const tiles = [...panel.element.querySelectorAll<HTMLElement>('.bh-input-tile')];
 		assert.deepStrictEqual({
 			state: panel.element.dataset.state,
-			// The tiles of a draft's input row, read only: no plus, cross, @, or swap (D68).
+			// The tiles of a draft's input row, read only: no buttons, cross, @, or swap (D68, D71).
 			inputs: tiles.map(tile => tile.getAttribute('aria-label')),
 			numbers: tiles.map(tile => tile.querySelector('.bh-input-tile-number')?.textContent),
 			gone: tiles.map(tile => tile.classList.contains('dimmed')),
-			controls: panel.element.querySelectorAll('.bh-input-row-add, .bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-swap').length,
+			controls: panel.element.querySelectorAll('.bh-input-row-action, .bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-swap').length,
 			prompt: texts(panel, '.bh-prompt-editor'),
 			// Its names are chips of the inputs it was made from, the one that is gone too.
 			chips: [...panel.element.querySelectorAll<HTMLElement>('.bh-prompt-chip')].map(chip => chip.dataset.name),

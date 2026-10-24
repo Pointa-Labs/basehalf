@@ -15,7 +15,7 @@
 	overflow: hidden;
 }
 
-/* The tiles take the width they need and scroll sideways beyond the row; the plus follows them. */
+/* The tiles take the width they need and scroll sideways beyond the row; the buttons stay at its right end. */
 .monaco-workbench .bh-input-row-list {
 	position: relative;
 	display: flex;
@@ -70,16 +70,8 @@
 	border-color: var(--bh-video-panel-line, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
 	border-radius: 9px;
 	font: inherit;
+	/* The arrow, also while dragged: a tile is no card that moves (D71). */
 	cursor: default;
-}
-
-.monaco-workbench .bh-input-row.editable .bh-input-tile:not(.empty) {
-	cursor: grab;
-}
-
-.monaco-workbench .bh-input-row.dragging,
-.monaco-workbench .bh-input-row.dragging .bh-input-tile:not(.empty) {
-	cursor: grabbing;
 }
 
 .monaco-workbench .bh-input-tile.dragging {
@@ -288,23 +280,19 @@
 	pointer-events: none;
 }
 
-.monaco-workbench .bh-input-row-swap,
-.monaco-workbench .bh-input-row-add {
+.monaco-workbench .bh-input-row-swap {
 	display: grid;
+	width: 24px;
+	height: 24px;
 	flex: none;
 	place-items: center;
 	padding: 0;
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 	background: transparent;
-	cursor: pointer;
-	transition: background-color 120ms ease, color 120ms ease;
-}
-
-.monaco-workbench .bh-input-row-swap {
-	width: 24px;
-	height: 24px;
 	border: 0;
 	border-radius: 50%;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
 }
 
 .monaco-workbench .bh-input-row-swap > .codicon[class*='codicon-'],
@@ -330,25 +318,43 @@
 	background: var(--bh-video-panel-hover, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
 }
 
-.monaco-workbench .bh-input-row-add {
-	width: 48px;
-	height: 48px;
-	border-width: 1px;
-	border-style: dashed;
-	border-color: var(--bh-video-panel-line, color-mix(in srgb, var(--vscode-foreground) 14%, transparent));
-	border-radius: 9px;
+/* Pick on Canvas and Import File… at the row's right end, the panel's top right (D71). */
+.monaco-workbench .bh-input-row-actions {
+	display: flex;
+	flex: none;
+	align-self: flex-start;
+	gap: 4px;
+	margin-left: auto;
 }
 
-.monaco-workbench .bh-input-row-add:hover,
-.monaco-workbench .bh-input-row-add[aria-expanded="true"] {
+.monaco-workbench .bh-input-row-action {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	place-items: center;
+	padding: 0;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	background: var(--bh-video-panel-fill, color-mix(in srgb, var(--vscode-foreground) 6%, transparent));
+	border: 1px solid transparent;
+	border-radius: 8px;
+	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .bh-input-row-action > .codicon[class*='codicon-'] {
+	font-size: 14px;
+}
+
+.monaco-workbench .bh-input-row-action:hover {
 	color: var(--bh-card-text-primary, var(--vscode-foreground));
 	background: var(--bh-video-panel-hover, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
 }
 
-.monaco-workbench .bh-input-row.picking .bh-input-row-add {
+/* Highlighted while the draft picks. */
+.monaco-workbench .bh-input-row-action[aria-pressed="true"] {
 	color: var(--bh-video-panel-accent, var(--vscode-focusBorder));
-	border-color: var(--bh-video-panel-accent, var(--vscode-focusBorder));
-	border-style: solid;
+	background: color-mix(in srgb, var(--bh-video-panel-accent, var(--vscode-focusBorder)) 16%, transparent);
+	border-color: color-mix(in srgb, var(--bh-video-panel-accent, var(--vscode-focusBorder)) 55%, transparent);
 }
 
 /* A hint takes up to two lines of the row rather than being cut. */
@@ -361,6 +367,16 @@
 	line-height: 15px;
 	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
+}
+
+/* While the draft picks, the highlighted button and the bar over the canvas say so: the hint is read, not shown, and the tiles keep their room (D71). */
+.monaco-workbench .bh-input-row.picking .bh-input-row-hint {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 /* The larger look at an input, above its tile. */

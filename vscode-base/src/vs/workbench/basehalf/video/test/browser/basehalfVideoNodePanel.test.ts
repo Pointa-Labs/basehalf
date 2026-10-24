@@ -478,10 +478,14 @@ suite('BaseHalfVideoNodePanel', () => {
 		target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
 	}
 
-	/** Chooses Pick on Canvas from the plus, and answers what the panel asked the canvas to pick with. */
+	/** The button at the panel's top right: `pick` or `import` (D71). */
+	function action(panel: BaseHalfVideoNodePanel, key: 'pick' | 'import'): HTMLButtonElement {
+		return find<HTMLButtonElement>(panel, `.bh-input-row-action[data-key="${key}"]`);
+	}
+
+	/** Starts Pick on Canvas with its button, and answers what the panel asked the canvas to pick with. */
 	function startPick(panel: BaseHalfVideoNodePanel): IBaseHalfCanvasCardPick {
-		find(panel, '.bh-input-row-add').click();
-		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Pick on Canvas')?.click();
+		action(panel, 'pick').click();
 		assert.ok(host.pick, 'The panel started no pick.');
 		return host.pick;
 	}
@@ -635,7 +639,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('while the draft generates, its prompt is read only, its tiles have no cross, @, or plus, and the model opens nothing (D67)', async () => {
+	test('while the draft generates, its prompt is read only, its tiles have no cross, @, or buttons, and the model opens nothing (D67)', async () => {
 		generation.generating = true;
 		const panel = await createPanel();
 		const prompt = promptOf(panel);
@@ -644,7 +648,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		assert.deepStrictEqual({
 			editable: prompt.contentEditable,
-			controls: findAll(panel, '.bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-add, .bh-input-row-swap').length,
+			controls: findAll(panel, '.bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-action, .bh-input-row-swap').length,
 			menus: findAll(panel, '.bh-video-panel-menu, .bh-reference-menu').length,
 			model: find(panel, '.bh-video-panel-model').getAttribute('aria-disabled')
 		}, { editable: 'false', controls: 0, menus: 0, model: 'true' });
@@ -670,7 +674,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			video: pick.cardOf('refs/clip-2.mp4', false),
 			unusable: pick.cardOf('refs/brief.pdf', false),
 			folder: pick.cardOf('refs', true),
-			pressed: find(panel, '.bh-input-row-add').getAttribute('aria-pressed'),
+			pressed: action(panel, 'pick').getAttribute('aria-pressed'),
 			hint: find(panel, '.bh-input-row-hint').textContent
 		}, {
 			title: 'Click cards to connect them to shot.mp4, or a connected card to remove it.',
@@ -719,11 +723,11 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('Pick on Canvas ends with the plus, with Escape in the panel, from the canvas, and when the draft generates (D69)', async () => {
+	test('Pick on Canvas ends with its button, with Escape in the panel, from the canvas, and when the draft generates (D69, D71)', async () => {
 		const panel = await createPanel();
 		startPick(panel);
-		find(panel, '.bh-input-row-add').click();
-		const byPlus = { picking: !!host.pick, menus: findAll(panel, '.bh-video-panel-menu').length, pressed: find(panel, '.bh-input-row-add').getAttribute('aria-pressed') };
+		action(panel, 'pick').click();
+		const byButton = { picking: !!host.pick, menus: findAll(panel, '.bh-video-panel-menu').length, pressed: action(panel, 'pick').getAttribute('aria-pressed') };
 		startPick(panel);
 		press(promptOf(panel), 'Escape');
 		const byEscape = { picking: !!host.pick, cardFocused: host.cardFocused };
@@ -731,15 +735,36 @@ suite('BaseHalfVideoNodePanel', () => {
 		const ended = startPick(panel);
 		host.pick = undefined;
 		ended.ended();
-		const byCanvas = { pressed: find(panel, '.bh-input-row-add').getAttribute('aria-pressed'), hint: findAll(panel, '.bh-input-row-hint').map(hint => hint.textContent) };
+		const byCanvas = { pressed: action(panel, 'pick').getAttribute('aria-pressed'), hint: findAll(panel, '.bh-input-row-hint').map(hint => hint.textContent) };
 		startPick(panel);
 		generation.generating = true;
 		catalog.set(catalog.state);
-		assert.deepStrictEqual({ byPlus, byEscape, byCanvas, generating: !!host.pick }, {
-			byPlus: { picking: false, menus: 0, pressed: null },
+		assert.deepStrictEqual({ byButton, byEscape, byCanvas, generating: !!host.pick }, {
+			byButton: { picking: false, menus: 0, pressed: 'false' },
 			byEscape: { picking: false, cardFocused: 0 },
-			byCanvas: { pressed: null, hint: [] },
+			byCanvas: { pressed: 'false', hint: [] },
 			generating: false
+		});
+	});
+
+	test('Import File… at the panel\'s top right connects the copy it makes, and nothing when the model refuses the file (D71)', async () => {
+		const asked: string[] = [];
+		host.importFile = async accept => {
+			asked.push('dialog');
+			return await accept('shots/c.png') ? 'shots/c.png' : undefined;
+		};
+		const panel = await createPanel();
+		action(panel, 'import').click();
+		await settle();
+		const connected = [...connections.added];
+		refusal = () => 'Acme Motion 2 takes at most 2 images in Frames.';
+		action(panel, 'import').click();
+		await settle();
+		assert.deepStrictEqual({ asked, connected, after: connections.added, said: notifications.shown }, {
+			asked: ['dialog', 'dialog'],
+			connected: ['shots/c.png'],
+			after: ['shots/c.png'],
+			said: ['Acme Motion 2 takes at most 2 images in Frames.']
 		});
 	});
 
@@ -1229,8 +1254,10 @@ suite('BaseHalfVideoNodePanel', () => {
 	});
 
 	test('a menu that a click opened has no current item until an arrow key chooses one; from the keyboard it starts at its first item', async () => {
+		// The menu of an empty end frame.
+		store.upstream = ['frames/a.png'];
 		const panel = await createPanel();
-		const add = find(panel, '.bh-input-row-add');
+		const add = find(panel, '.bh-input-tile.empty');
 		const active = () => mainWindow.document.activeElement as HTMLElement;
 		// The focused item by its name, or the menu itself.
 		const current = () => active().matches('.bh-video-panel-menu') ? 'menu' : active().querySelector('.bh-video-panel-menu-label')?.textContent ?? active().className;

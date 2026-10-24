@@ -135,6 +135,9 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			move: () => { },
 			swap: () => { },
 			openAddMenu: () => { },
+			togglePick: () => { },
+			importFile: () => { },
+			setupHover: (element, content) => this.hoverService.setupDelayedHover(element, () => ({ content }), { groupId: HOVER_GROUP }),
 			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
 		}, this.layer));
 		this.inputRow.element.hidden = true;

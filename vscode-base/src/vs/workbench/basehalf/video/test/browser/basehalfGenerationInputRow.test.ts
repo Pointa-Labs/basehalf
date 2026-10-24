@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { mainWindow } from '../../../../../base/browser/window.js';
-import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowDelegate, IBaseHalfInputRowModel, IBaseHalfInputTile } from '../../browser/basehalfGenerationInputRow.js';
@@ -43,8 +43,8 @@ function drawn(row: BaseHalfGenerationInputRow): string[] {
 				parts.push((element as HTMLButtonElement).disabled ? 'swap disabled' : 'swap');
 			} else if (element.classList.contains('bh-input-row-arrow')) {
 				parts.push('arrow');
-			} else if (element.classList.contains('bh-input-row-add')) {
-				parts.push('add');
+			} else if (element.classList.contains('bh-input-row-action')) {
+				parts.push(`${element.dataset.key}${element.getAttribute('aria-pressed') === 'true' ? ' (highlighted)' : ''}`);
 			} else if (element.classList.contains('bh-input-row-hint')) {
 				parts.push(`hint ${element.textContent}`);
 			} else {
@@ -62,6 +62,7 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	let canvas = { left: 0, top: 0, width: 1200, height: 900 };
 	let container: HTMLElement;
 	let layer: HTMLElement;
+	const hovers = new WeakMap<HTMLElement, string>();
 
 	const delegate: IBaseHalfInputRowDelegate = {
 		remove: path => calls.push(`remove ${path}`),
@@ -69,6 +70,12 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		move: (path, before) => calls.push(`move ${path} before ${before ?? 'end'}`),
 		swap: () => calls.push('swap'),
 		openAddMenu: () => calls.push('add menu'),
+		togglePick: () => calls.push('pick'),
+		importFile: () => calls.push('import'),
+		setupHover: (element, content) => {
+			hovers.set(element, content);
+			return Disposable.None;
+		},
 		canvasBounds: () => canvas
 	};
 
@@ -116,7 +123,8 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 			'tile shots/end.png · number 2 · mark End · remove · name',
 			'tile shots/clip.mp4 · number 1 · remove · name · dimmed',
 			'tile notes/scene.md · caption scene · remove',
-			'add'
+			'pick',
+			'import'
 		]);
 	});
 
@@ -124,7 +132,7 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		const row = create({ frames: [{ role: 'start', addLabel: 'Add a Start Frame' }, { role: 'end', addLabel: 'Add an End Frame' }], canSwap: false, tiles: [], editable: true });
 		(row.element.querySelector('.bh-input-tile.empty') as HTMLButtonElement).click();
 		row.update({ tiles: [], editable: true, hint: 'Add images as references' });
-		assert.deepStrictEqual({ drawn: drawn(row), calls }, { drawn: ['add', 'hint Add images as references'], calls: ['add menu'] });
+		assert.deepStrictEqual({ drawn: drawn(row), calls }, { drawn: ['hint Add images as references', 'pick', 'import'], calls: ['add menu'] });
 	});
 
 	test('drawing the row again keeps the pictures of the inputs that stay, so nothing blinks; an input that leaves and comes back gets its picture back', () => {
@@ -189,7 +197,61 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		});
 	});
 
-	test('read only, the row has no plus, cross, @, or swap, and its tiles still show their numbers', () => {
+	test('Pick on Canvas and Import File… are two buttons at the row\'s right end, named by their tooltips; Pick on Canvas is highlighted while picking (D71)', () => {
+		const row = create({ tiles: [START], editable: true });
+		const button = (key: string) => row.element.querySelector<HTMLButtonElement>(`.bh-input-row-action[data-key="${key}"]`)!;
+		const names = ['pick', 'import'].map(key => [button(key).getAttribute('aria-label'), hovers.get(button(key))]);
+		button('pick').click();
+		button('import').click();
+		row.update({ tiles: [START], editable: true, picking: true });
+		const picking = drawn(row);
+		row.update({ tiles: [START], editable: false });
+		assert.deepStrictEqual({ names, calls, picking, readOnly: drawn(row) }, {
+			names: [['Pick on Canvas', 'Pick on Canvas'], ['Import File…', 'Import File…']],
+			calls: ['pick', 'import'],
+			picking: ['tile shots/start.png · number 1 · mark Start · remove · name', 'hint Click cards on the canvas. Escape or Done ends.', 'pick (highlighted)', 'import'],
+			readOnly: ['tile shots/start.png · number 1 · mark Start']
+		});
+	});
+
+	test('the row is not drawn again for the same inputs, whatever was read of their files\' addresses, and the look at a tile stays while its tile does (D71)', () => {
+		// The layout of the stylesheet, for the tiles drawn again too.
+		const style = mainWindow.document.createElement('style');
+		style.textContent = '.bh-input-row-list { position: relative; display: flex; gap: 6px; align-items: center; } .bh-input-row-list > * { position: relative; width: 48px; height: 48px; flex: none; box-sizing: border-box; }';
+		container.append(style);
+		const image = () => tile('shots/a.png', { number: 1, label: '图片1', file: URI.file('/work/shots/a.png') });
+		const other = tile('shots/b.png', { number: 2, label: '图片2', file: URI.file('/work/shots/b.png') });
+		const row = create({ tiles: [image(), other], editable: true });
+		const tileOf = (path: string) => row.element.querySelector<HTMLElement>(`.bh-input-tile[data-path="${path}"]`)!;
+		const looks = () => [...layer.querySelectorAll('.bh-input-look')];
+		const first = tileOf('shots/a.png');
+		first.dispatchEvent(new PointerEvent('pointerenter', { pointerId: 7 }));
+		const [look] = looks();
+		// The check reads a file's path, and a save reads the inputs again: new addresses, one with its path cached.
+		const again = image();
+		void again.file!.fsPath;
+		row.update({ tiles: [again, { ...other, file: URI.file('/work/shots/b.png') }], editable: true });
+		const unchanged = { tile: tileOf('shots/a.png') === first, look: looks()[0] === look };
+		// The keyboard leaves the row, as when the @ gives the prompt the keyboard: the look the pointer shows stays.
+		const outside = mainWindow.document.createElement('input');
+		container.append(outside);
+		first.focus();
+		outside.focus();
+		const afterFocus = looks()[0] === look;
+		// A connection removed after a.png: the row is drawn again, and a.png's tile and look stay where they were.
+		row.update({ tiles: [again], editable: true });
+		const kept = looks().length === 1 && looks()[0] === look;
+		// An input put before a.png moves its tile: the look goes.
+		row.update({ tiles: [other, again], editable: true });
+		assert.deepStrictEqual({ unchanged, afterFocus, kept, moved: looks().length }, {
+			unchanged: { tile: true, look: true },
+			afterFocus: true,
+			kept: true,
+			moved: 0
+		});
+	});
+
+	test('read only, the row has no buttons, cross, @, or swap, and its tiles still show their numbers', () => {
 		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP], editable: false });
 		assert.deepStrictEqual(drawn(row), [
 			'tile shots/start.png · number 1 · mark Start',
