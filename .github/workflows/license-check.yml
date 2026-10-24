@@ -30,9 +30,12 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      # npx installs the checker into one shared cache folder. Packages checked
+      # at the same time install it over each other and read it half-written
+      # (2026-10-13 and 2026-10-24), so check one package at a time.
       - name: Check dependency licenses
         run: |
-          pnpm -r exec npx --yes license-checker@^25 \
+          pnpm -r --workspace-concurrency=1 exec npx --yes license-checker@25.0.1 \
             --production \
             --excludePrivatePackages \
             --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;BlueOak-1.0.0;Python-2.0" \

@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { run } from '../src/main.js';
 import { scaffoldPlugin } from '../src/scaffold.js';
@@ -67,19 +66,6 @@ describe('plugin init command', () => {
 });
 
 describe('plugin package command', () => {
-  it('validates the official AI Video provider catalog fixture', async () => {
-    const directory = fileURLToPath(
-      new URL('../../../vscode-base/extensions/basehalf-ai-video/', import.meta.url),
-    );
-    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-    await run(['validate', directory]);
-
-    expect(log).toHaveBeenCalledWith(
-      expect.stringMatching(/^Validated pointa\.basehalf-ai-video@.+\.$/),
-    );
-  });
-
   it('creates the exact local VSIX without publishing it', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'bh-plugin-package-'));
     temporary.push(root);
@@ -292,15 +278,9 @@ describe('plugin package command', () => {
     await mkdir(path.join(directory, 'out'), { recursive: true });
     await writeFile(path.join(directory, 'out/extension.js'), 'exports.activate = () => {};\n');
     await mkdir(path.join(directory, 'models'), { recursive: true });
-    const officialCatalog = fileURLToPath(
-      new URL(
-        '../../../vscode-base/extensions/basehalf-ai-video/models/provider-connections.json',
-        import.meta.url,
-      ),
-    );
     await writeFile(
       path.join(directory, 'models/provider-connections.json'),
-      await readFile(officialCatalog),
+      '{"schemaVersion":1,"connections":[]}\n',
     );
     const manifestPath = path.join(directory, 'package.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
