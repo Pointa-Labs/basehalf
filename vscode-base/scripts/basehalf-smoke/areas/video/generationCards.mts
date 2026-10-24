@@ -64,6 +64,7 @@ import {
 	sampleCardLooks,
 	sampleCardPhases,
 	sampleTileAndLine,
+	sampleTileAndLook,
 	savePrompt,
 	SCENE_NOTE,
 	SCENE_NOTE_TEXT,
@@ -71,6 +72,7 @@ import {
 	selectGenerationCard,
 	showCardOnCanvas,
 	START_IMAGE,
+	PICK_BUTTON,
 	startPickOnCanvas,
 	statesOf,
 	taskRecordOf,
@@ -159,7 +161,7 @@ const smoke = { provider: undefined, models: undefined, notOffered: undefined, s
 // --- Generation cards (D63, D64, D67, docs/specs/generation-cards.md) ------------------------------
 //
 // Acceptance criteria 1 to 8, 13 to 29, 32 to 38, 42, 43, the canvas's part
-// of 45 and 46, and 59 and 60 of generation cards, through the window and against the
+// of 45 and 46, 59, 60, and 69 to 72 of generation cards, through the window and against the
 // local test provider with its test key, reached through the provider module
 // of SMOKE_PROVIDER; no paid provider is called. Criterion 30, Sequence, is
 // in workflowTemplate.mts. The steps run in order, each where the one before
@@ -176,6 +178,7 @@ export async function runGenerationCardSteps(page) {
 	await step('video-image-model-menu', () => assertImageModelMenu(page));
 	await step('video-panel-inputs-and-names', () => assertPanelInputsAndNames(page));
 	await step('video-pick-on-canvas', () => assertPickOnCanvas(page));
+	await step('video-input-box-buttons', () => assertInputBoxButtons(page));
 	await step('video-panel-placement', () => assertPanelPlacement(page));
 	await step('video-prompt-and-agent-write-together', () => assertPromptAndAgentWriteTogether(page));
 	await step('video-generate-lands-video', () => assertGenerateLandsVideo(page));
@@ -1120,6 +1123,130 @@ async function assertPickOnCanvas(page) {
 		fs.rmSync(workspaceFile(cardPath), { force: true });
 		await canvasCard(page, cardPath).waitFor({ state: 'detached', timeout: 15_000 });
 	}
+}
+
+// D71, criteria 69 to 72: the panel's top right has Pick on Canvas and Import
+// File… as two icon buttons, named by their tooltips, and the row has no
+// plus; a click on Pick on Canvas highlights it, and a second ends picking.
+// The pointer over a tile is the arrow, and over its cross the pointing hand.
+// A click on a tile's @ while the pointer is on it puts its name in the
+// prompt and draws neither the row nor the look again, through the check and
+// the save of the prompt. The reference menu lists Notes: choosing a note of
+// the canvas connects it and takes the @ out. A note beside the cards is the
+// one connected; the step leaves the prompt and the list as it found them.
+async function assertInputBoxButtons(page) {
+	const idea = `${GENERATION_FOLDER}/idea.md`;
+	fs.writeFileSync(workspaceFile(idea), '# Idea\n\nA kite over the harbour.\n');
+	await canvasCard(page, idea).waitFor({ state: 'attached', timeout: 15_000 });
+	await waitUntil(() => readCardRow(idea) !== undefined, `the card of ${idea} to get a place`, 15_000);
+	const connected = [START_IMAGE, END_IMAGE, SCENE_NOTE];
+	let panel = await selectGenerationCard(page, VIDEO);
+	if (JSON.stringify(readUpstreamSidecar(VIDEO)) !== JSON.stringify(connected) || readGenerationInfo(VIDEO)?.prompt !== VIDEO_PROMPT_WITH_NAME) {
+		throw new Error(`The step starts where Pick on Canvas left ${VIDEO}: ${JSON.stringify({ upstream: readUpstreamSidecar(VIDEO), info: readGenerationInfo(VIDEO) })}`);
+	}
+
+	// Criterion 69: two icon buttons at the top right, Pick on Canvas first, and no plus.
+	const corner = await panel.evaluate(element => {
+		const box = element.getBoundingClientRect();
+		const style = element.ownerDocument.defaultView.getComputedStyle(element);
+		const right = box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+		const top = box.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
+		const actions = Array.from(element.querySelectorAll('.bh-input-row-action'));
+		return {
+			plus: element.querySelectorAll('.bh-input-row-add').length,
+			buttons: actions.map(button => ({ key: button.getAttribute('data-key'), name: button.getAttribute('aria-label'), top: Math.round(button.getBoundingClientRect().top - top), pressed: button.getAttribute('aria-pressed') })),
+			right: actions.length ? Math.round(right - actions.at(-1).getBoundingClientRect().right) : null
+		};
+	});
+	const expectedCorner = { plus: 0, buttons: [{ key: 'pick', name: 'Pick on Canvas', top: 0, pressed: 'false' }, { key: 'import', name: 'Import File…', top: 0, pressed: null }], right: 0 };
+	if (canonicalJson(corner) !== canonicalJson(expectedCorner)) {
+		throw new Error(`Pick on Canvas and Import File… must be two buttons at the panel's top right, and the row must have no plus: ${JSON.stringify(corner)}`);
+	}
+	await panel.locator(PICK_BUTTON).hover();
+	await page.locator('.workbench-hover', { hasText: 'Pick on Canvas' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await startPickOnCanvas(page, panel);
+	const looks = await panel.evaluate(element => {
+		const view = element.ownerDocument.defaultView;
+		const look = key => {
+			const style = view.getComputedStyle(element.querySelector(`.bh-input-row-action[data-key="${key}"]`));
+			return `${style.color} on ${style.backgroundColor}`;
+		};
+		return { pick: look('pick'), import: look('import') };
+	});
+	if (looks.pick === looks.import) {
+		throw new Error(`While the draft picks, Pick on Canvas must be highlighted: ${JSON.stringify(looks)}`);
+	}
+	await panel.locator(PICK_BUTTON).click();
+	await page.locator('.basehalf-canvas-pick-bar').waitFor({ state: 'detached', timeout: 10_000 });
+	await panel.locator(`${PICK_BUTTON}[aria-pressed="false"]`).waitFor({ state: 'visible', timeout: 10_000 });
+
+	// Criterion 71: the arrow over a tile, the pointing hand over its cross.
+	const tile = panel.locator(`.bh-input-tile[data-path="${START_IMAGE}"]`);
+	const box = await tile.boundingBox();
+	await page.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.45, { steps: 3 });
+	const cursors = await page.evaluate(([x, y, crossSelector]) => {
+		const view = document.defaultView;
+		const cross = document.querySelector(crossSelector).getBoundingClientRect();
+		return {
+			tile: view.getComputedStyle(document.elementFromPoint(x, y)).cursor,
+			cross: view.getComputedStyle(document.elementFromPoint(cross.left + cross.width / 2, cross.top + cross.height / 2)).cursor
+		};
+	}, [box.x + box.width * 0.35, box.y + box.height * 0.45, `.bh-video-panel .bh-input-tile[data-path="${START_IMAGE}"] .bh-input-tile-remove`]);
+	if (cursors.tile !== 'default' || cursors.cross !== 'pointer') {
+		throw new Error(`The pointer over a tile must be the arrow, and over its cross the pointing hand: ${JSON.stringify(cursors)}`);
+	}
+
+	// Criterion 72: the @ of the tile while the pointer is on it, through the check and the save.
+	await panel.locator('.bh-prompt-editor').click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
+	await page.keyboard.type(' ');
+	await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === `${VIDEO_PROMPT_WITH_NAME} ` || prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to be saved', 10_000);
+	await page.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.45, { steps: 3 });
+	await page.locator('.bh-input-look').waitFor({ state: 'visible', timeout: 10_000 });
+	const name = tile.locator('.bh-input-tile-name');
+	const at = await name.boundingBox();
+	await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2, { steps: 2 });
+	const frames = await sampleTileAndLook(page, START_IMAGE, async () => {
+		await page.mouse.down();
+		await page.mouse.up();
+		await waitForReading(() => readGenerationInfo(VIDEO)?.prompt ?? null, prompt => prompt === `${VIDEO_PROMPT_WITH_NAME} Image 1 `, 'the @ of start.png to put Image 1 in the prompt and the prompt to be saved', 10_000);
+		await page.waitForTimeout(700);
+	});
+	if (frames.length !== 1 || frames[0].includes('-')) {
+		throw new Error(`A click on a tile's @ must draw neither the row nor the look again: ${JSON.stringify(frames)}`);
+	}
+	await savePrompt(page, panel, VIDEO, VIDEO_PROMPT_WITH_NAME);
+
+	// Criterion 70: Notes in the reference menu; choosing a note connects it and takes the @ out.
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
+	await page.keyboard.type(' @');
+	const mention = await waitForReading(() => readMentionMenu(panel), seen => seen !== null && seen.searchFocused && seen.options.some(option => option.file === 'Notes'), 'typing @ to open the reference menu with Notes');
+	if (!mention.options.some(option => option.file === 'scene' && option.label === null)) {
+		throw new Error(`The connected note must be listed under Connected, without a name: ${JSON.stringify(mention)}`);
+	}
+	await panel.locator('.bh-reference-menu-option[data-key="kind:text"]').hover();
+	const flyout = panel.locator('.bh-reference-menu.flyout');
+	await flyout.waitFor({ state: 'visible', timeout: 10_000 });
+	const notes = await flyout.evaluate(element => Array.from(element.querySelectorAll('.bh-reference-menu-option')).map(option => `${option.querySelector('.bh-reference-menu-title')?.textContent}${option.querySelector('.bh-reference-menu-label') ? ` = ${option.querySelector('.bh-reference-menu-label').textContent}` : ''}`));
+	if (!notes.includes('idea') || !notes.includes('scene = Connected')) {
+		throw new Error(`Notes must list the notes of the folder, a connected one as Connected: ${JSON.stringify(notes)}`);
+	}
+	await flyout.locator('.bh-reference-menu-option', { hasText: 'idea' }).click();
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, idea]), `choosing ${idea} in the reference menu to connect it`, 10_000);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === `${VIDEO_PROMPT_WITH_NAME} ` && seen.inputs.some(input => input.path === idea) && seen.promptFocused, 'the note\'s tile to appear, and the @ to be taken out with the keyboard in the prompt');
+	if (await readMentionMenu(panel) !== null) {
+		throw new Error('Choosing a note must close the reference menu');
+	}
+
+	// As it was: the prompt, the list, and no note beside the cards.
+	await savePrompt(page, panel, VIDEO, VIDEO_PROMPT_WITH_NAME);
+	await clickBlankCanvas(page);
+	await page.keyboard.press(UNDO);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify(connected), `undo to take away the connection of ${idea}`, 10_000);
+	fs.rmSync(workspaceFile(idea), { force: true });
+	await canvasCard(page, idea).waitFor({ state: 'detached', timeout: 15_000 });
+	panel = await selectGenerationCard(page, VIDEO);
+	await waitForReading(() => readGenerationPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to be as the step found it');
 }
 
 // Criterion 16: opening the panel moves the canvas neither way; it sits 10

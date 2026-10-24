@@ -872,23 +872,36 @@ export async function drawCanvasConnectionInto(page, sourcePath, targetPath) {
 	await page.mouse.up();
 }
 
-/** Chooses Pick on Canvas from a plus of the panel's input row; the panel and the bar over the canvas say what a click does (D69). */
-export async function startPickOnCanvas(page, panel, plus = 'button.bh-input-row-add') {
-	await panel.locator(plus).click();
-	const addMenu = panel.locator('.bh-video-panel-menu.add');
-	await addMenu.waitFor({ state: 'visible', timeout: 10_000 });
-	await addMenu.locator('.bh-video-panel-menu-item[data-key="pick"]').click();
-	await panel.locator('.bh-input-row.picking .bh-input-row-hint[role="status"]').waitFor({ state: 'visible', timeout: 10_000 });
+/** The button of Pick on Canvas at the panel's top right (D71). */
+export const PICK_BUTTON = 'button.bh-input-row-action[data-key="pick"]';
+
+/**
+ * Starts Pick on Canvas with its button at the panel's top right, or from the
+ * menu of an empty frame, `emptyFrame`; the button is highlighted, and the
+ * panel and the bar over the canvas say what a click does (D69, D71).
+ */
+export async function startPickOnCanvas(page, panel, emptyFrame = undefined) {
+	if (emptyFrame) {
+		await panel.locator(emptyFrame).click();
+		const addMenu = panel.locator('.bh-video-panel-menu.add');
+		await addMenu.waitFor({ state: 'visible', timeout: 10_000 });
+		await addMenu.locator('.bh-video-panel-menu-item[data-key="pick"]').click();
+	} else {
+		await panel.locator(PICK_BUTTON).click();
+	}
+	// The row tells assistive technology; the highlighted button shows it (D71).
+	await panel.locator('.bh-input-row.picking .bh-input-row-hint[role="status"]').waitFor({ state: 'attached', timeout: 10_000 });
+	await panel.locator(`${PICK_BUTTON}[aria-pressed="true"]`).waitFor({ state: 'visible', timeout: 10_000 });
 	await page.locator('.basehalf-canvas-pick-bar').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 /**
- * Connects `sourcePath` to the card of the panel with Pick on Canvas, from a
- * plus of its input row: picking stays on and shows the card as connected,
+ * Connects `sourcePath` to the card of the panel with Pick on Canvas, from its
+ * button or an empty frame: picking stays on and shows the card as connected,
  * and Done ends it (D69).
  */
-export async function pickInputOnCanvas(page, panel, sourcePath, plus = 'button.bh-input-row-add') {
-	await startPickOnCanvas(page, panel, plus);
+export async function pickInputOnCanvas(page, panel, sourcePath, emptyFrame = undefined) {
+	await startPickOnCanvas(page, panel, emptyFrame);
 	await clickCanvasCardOnTop(page, sourcePath);
 	await waitForReading(() => readCanvasPick(page), seen => seen?.cards[sourcePath] === 'remove', `Pick on Canvas to show ${sourcePath} as connected`);
 	await page.locator('.basehalf-canvas-pick-done').click();
@@ -919,6 +932,54 @@ export function readCanvasPick(page) {
 			label: label instanceof HTMLElement && !label.hidden ? label.textContent : null
 		};
 	});
+}
+
+/**
+ * Samples every frame while `run` runs: the tile of `tilePath` in the panel's
+ * input row and its picture, and the look above it and its picture, each by
+ * element. Returns the frames with each run of equal ones taken together
+ * (D71).
+ */
+export async function sampleTileAndLook(page, tilePath, run) {
+	await page.evaluate(path => {
+		const token = window.__basehalfTileLook = (window.__basehalfTileLook ?? 0) + 1;
+		window.__basehalfTileLookFrames = [];
+		const ids = new WeakMap();
+		let next = 1;
+		const id = element => {
+			if (!element) {
+				return '-';
+			}
+			if (!ids.has(element)) {
+				ids.set(element, next++);
+			}
+			return String(ids.get(element));
+		};
+		const sample = () => {
+			if (window.__basehalfTileLook !== token) {
+				return;
+			}
+			const tile = Array.from(document.querySelectorAll('.bh-video-panel .bh-input-tile')).find(element => element.getAttribute('data-path') === path);
+			const look = document.querySelector('.bh-input-look');
+			const frame = `tile ${id(tile)} picture ${id(tile?.querySelector('.bh-input-tile-picture img, .bh-input-tile-picture video'))} look ${id(look)} look picture ${id(look?.querySelector('img, video'))}`;
+			const frames = window.__basehalfTileLookFrames;
+			if (frames.at(-1) !== frame) {
+				frames.push(frame);
+			}
+			requestAnimationFrame(sample);
+		};
+		requestAnimationFrame(sample);
+	}, tilePath);
+	let frames = [];
+	try {
+		await run();
+	} finally {
+		frames = await page.evaluate(() => {
+			window.__basehalfTileLook++;
+			return window.__basehalfTileLookFrames;
+		});
+	}
+	return frames;
 }
 
 /**
