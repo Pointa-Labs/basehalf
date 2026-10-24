@@ -82,7 +82,7 @@ suite('StorageDatabaseChannel durable application items', () => {
 		const firstWrite = new DeferredPromise<void>();
 		storage.queueWrite(firstWrite.p);
 
-		const key = 'basehalf.plugins.catalog';
+		const key = 'secret://basehalf.modelServices.byteplus.apiKey';
 		const first = channel.call(undefined, 'compareAndSwapApplicationItem', request(key, undefined, 'one')) as Promise<ISerializableApplicationStorageCompareAndSwapResult>;
 		await timeout(0);
 		const second = channel.call(undefined, 'compareAndSwapApplicationItem', request(key, 'one', 'two')) as Promise<ISerializableApplicationStorageCompareAndSwapResult>;
@@ -107,7 +107,7 @@ suite('StorageDatabaseChannel durable application items', () => {
 
 	test('restores the cache and publishes no event when persistence fails', async () => {
 		const storage = new TestStorage();
-		const key = 'basehalf.plugins.receipt.pointa.example';
+		const key = 'secret://basehalf.modelServices.byteplus.apiKey';
 		storage.items.set(key, 'old');
 		const failedWrite = new DeferredPromise<void>();
 		storage.queueWrite(failedWrite.p);
@@ -129,7 +129,7 @@ suite('StorageDatabaseChannel durable application items', () => {
 
 	test('awaits durable deletion before publishing it', async () => {
 		const storage = new TestStorage();
-		const key = 'basehalf.plugins.receipt.pointa.example';
+		const key = 'secret://basehalf.modelServices.byteplus.apiKey';
 		storage.items.set(key, 'old');
 		const deleteWrite = new DeferredPromise<void>();
 		storage.queueWrite(deleteWrite.p);
@@ -155,6 +155,8 @@ suite('StorageDatabaseChannel durable application items', () => {
 		strictEqual((await channel.call(undefined, 'compareAndSwapApplicationItem', request(credentialKey, undefined, 'encrypted')) as ISerializableApplicationStorageCompareAndSwapResult).swapped, true);
 		strictEqual(await channel.call(undefined, 'getApplicationItem', request(credentialKey)), 'encrypted');
 		await rejects(channel.call(undefined, 'getApplicationItem', request('secret://extension.arbitrary.token')), /invalid/i);
+		// What earlier builds' plugin platform kept is not read (D76).
+		await rejects(channel.call(undefined, 'getApplicationItem', request('basehalf.plugins.catalog')), /invalid/i);
 	});
 
 	test('rejects reads and updates when application storage is in memory', async () => {
@@ -162,7 +164,7 @@ suite('StorageDatabaseChannel durable application items', () => {
 		storage.inMemory = true;
 		storage.durable = false;
 		const channel = createChannel(storage);
-		const key = 'basehalf.plugins.catalog';
+		const key = 'secret://basehalf.modelServices.byteplus.apiKey';
 
 		await rejects(channel.call(undefined, 'getApplicationItem', request(key)), /durable/i);
 		await rejects(channel.call(undefined, 'compareAndSwapApplicationItem', request(key, undefined, 'value')), /durable/i);
@@ -173,7 +175,7 @@ suite('StorageDatabaseChannel durable application items', () => {
 		const storage = new TestStorage();
 		storage.durable = false;
 		const channel = createChannel(storage);
-		const key = 'basehalf.plugins.catalog';
+		const key = 'secret://basehalf.modelServices.byteplus.apiKey';
 
 		await rejects(channel.call(undefined, 'getApplicationItem', request(key)), /durable/i);
 		await rejects(channel.call(undefined, 'compareAndSwapApplicationItem', request(key, undefined, 'value')), /durable/i);

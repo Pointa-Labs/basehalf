@@ -6,7 +6,7 @@
 /**
  * Portable project paths: paths relative to a workspace folder that name the
  * same item on every file system BaseHalf runs on, as templates, the agent
- * command line, and plugin file transitions take them. Pure.
+ * command line, and project file transitions take them. Pure.
  */
 
 /** The longest project path BaseHalf accepts. */

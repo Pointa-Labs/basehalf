@@ -41,7 +41,7 @@ import {
 	IBaseHalfAgentCapabilityRegistryService,
 	validateBaseHalfAgentOperationParameters,
 	validateBaseHalfAgentOperationReturn
-} from '../../plugins/common/basehalfAgentCapabilities.js';
+} from '../../agentArea/common/basehalfAgentCapabilities.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../canvas/common/basehalfCanvasTemplate.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../canvas/common/basehalfCanvasTemplateRegistry.js';
@@ -60,8 +60,8 @@ const MODEL_CATALOG_WAIT = 10_000;
  * generation cards, "Agents"): `--generate` starts a generation of an image
  * or video card exactly as Generate does, without a question, and answers
  * with every card it lands on once its task record is `submitting`.
- * `--list-capabilities` and `--run-operation` describe and run what the host
- * and admitted extensions offer; the description includes what an agent may
+ * `--list-capabilities` and `--run-operation` describe and run what BaseHalf
+ * and its features offer; the description includes what an agent may
  * write to a generation card and the model catalog it chooses from (D59).
  */
 export class BaseHalfNodeCommandHandler {
@@ -143,16 +143,16 @@ export class BaseHalfNodeCommandHandler {
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			const installedExtensions = this.agentCapabilityRegistryService.getCapabilities();
-			if (installedExtensions.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS) {
-				throw new Error('Too many reviewed Agent capabilities are installed to return safely.');
+			const capabilities = this.agentCapabilityRegistryService.getCapabilities();
+			if (capabilities.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS) {
+				throw new Error('Too many Agent capabilities to return safely.');
 			}
-			const installedTemplates = this.canvasTemplateRegistryService.getTemplates();
-			if (installedTemplates.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES) {
-				throw new Error('Too many reviewed canvas templates are installed to return safely.');
+			const registeredTemplates = this.canvasTemplateRegistryService.getTemplates();
+			if (registeredTemplates.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES) {
+				throw new Error('Too many canvas templates to return safely.');
 			}
-			const extensions = Object.freeze(installedExtensions.map(capability => capabilityDiscoveryExtension(capability)));
-			const templates = Object.freeze(installedTemplates.map(template => Object.freeze({
+			const extensions = Object.freeze(capabilities.map(capability => capabilityDiscoveryExtension(capability)));
+			const templates = Object.freeze(registeredTemplates.map(template => Object.freeze({
 				id: template.id,
 				label: template.label,
 				...(template.description === undefined ? {} : { description: template.description })
@@ -233,10 +233,10 @@ export class BaseHalfNodeCommandHandler {
 				throw new CancellationError();
 			}
 			const workspace = await this.resolveCommandWorkspace(request.cwd);
-			const reviewed = this.resolveOperation(request.operationId);
-			const rawParameters = validateBaseHalfAgentOperationParameters(reviewed.operation, request.parameters);
+			const resolved = this.resolveOperation(request.operationId);
+			const rawParameters = validateBaseHalfAgentOperationParameters(resolved.operation, request.parameters);
 			const commandParameters: Record<string, unknown> = { ...rawParameters };
-			for (const parameter of reviewed.operation.parameters ?? []) {
+			for (const parameter of resolved.operation.parameters ?? []) {
 				if (parameter.type !== 'uri' || rawParameters[parameter.name] === undefined) {
 					continue;
 				}
@@ -248,24 +248,24 @@ export class BaseHalfNodeCommandHandler {
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			const argument = reviewed.host === 'template'
+			const argument = resolved.host === 'template'
 				? { templateId: commandParameters.templateId, targetFolder: workspace.cwd, cancellationToken }
 				: Object.freeze(commandParameters);
 			const result = await raceCancellationError(
-				this.commandService.executeCommand(reviewed.operation.command, argument, cancellationToken),
+				this.commandService.executeCommand(resolved.operation.command, argument, cancellationToken),
 				cancellationToken
 			);
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			const validatedResult = validateBaseHalfAgentOperationReturn(reviewed.operation, result);
+			const validatedResult = validateBaseHalfAgentOperationReturn(resolved.operation, result);
 			return {
 				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 				type: 'runOperation',
 				ok: true,
 				outcome: 'succeeded',
-				operationId: reviewed.operation.id,
-				...(reviewed.operation.returns.type === 'void'
+				operationId: resolved.operation.id,
+				...(resolved.operation.returns.type === 'void'
 					? {}
 					: { result: validatedResult })
 			};
@@ -282,7 +282,7 @@ export class BaseHalfNodeCommandHandler {
 		if (normalized === BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID) {
 			const templateIds = this.canvasTemplateRegistryService.getTemplates().map(template => template.id);
 			if (templateIds.length === 0) {
-				throw new Error('No reviewed canvas template is installed.');
+				throw new Error('No canvas template is available.');
 			}
 			return {
 				host: 'template',
@@ -585,13 +585,13 @@ function createFromTemplateOperation(templateIds: readonly string[]): IBaseHalfA
 	return Object.freeze({
 		id: BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID,
 		command: BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID,
-		description: 'Create a project from one installed reviewed canvas template.',
+		description: 'Create a project from one canvas template.',
 		deterministic: true,
 		parameters: Object.freeze([Object.freeze({
 			name: 'templateId',
 			type: 'enum' as const,
 			required: true,
-			description: 'Installed canvas template identifier.',
+			description: 'Canvas template identifier.',
 			values: Object.freeze([...templateIds])
 		})]),
 		returns: Object.freeze({ type: 'object', description: 'Created template id and workspace-relative project path.' })

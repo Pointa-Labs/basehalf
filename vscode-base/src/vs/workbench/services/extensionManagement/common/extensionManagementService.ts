@@ -49,7 +49,7 @@ import { verifiedPublisherIcon } from './extensionsIcons.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { IStringDictionary } from '../../../../base/common/collections.js';
 import { CommontExtensionManagementService } from '../../../../platform/extensionManagement/common/abstractExtensionManagementService.js';
-import { assertBaseHalfGalleryInstallAllowed, assertBaseHalfLocationInstallAllowed, assertBaseHalfReviewedPluginInstallSurface, assertBaseHalfVSIXInstallAllowed } from '../../../basehalf/plugins/common/basehalfExtensionInstallPolicy.js';
+import { assertBaseHalfGalleryInstallAllowed, refuseBaseHalfExtensionInstall } from '../../../basehalf/shell/common/basehalfExtensionInstallPolicy.js';
 
 const TrustedPublishersStorageKey = 'extensions.trustedPublishers';
 
@@ -316,7 +316,7 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installVSIX(vsix: URI, manifest: IExtensionManifest, options?: InstallOptions): Promise<ILocalExtension> {
-		assertBaseHalfVSIXInstallAllowed(this.productService, `${manifest.publisher}.${manifest.name}`, manifest.version, options);
+		refuseBaseHalfExtensionInstall(this.productService);
 		const serversToInstall = this.getServersToInstall(manifest);
 		if (serversToInstall?.length) {
 			await this.checkForWorkspaceTrust(manifest, false);
@@ -349,7 +349,7 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installFromLocation(location: URI): Promise<ILocalExtension> {
-		assertBaseHalfLocationInstallAllowed(this.productService, location);
+		refuseBaseHalfExtensionInstall(this.productService);
 		if (location.scheme === Schemas.file) {
 			if (this.extensionManagementServerService.localExtensionManagementServer) {
 				return this.extensionManagementServerService.localExtensionManagementServer.extensionManagementService.installFromLocation(location, this.userDataProfileService.currentProfile.extensionsResource);
@@ -581,9 +581,7 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installResourceExtension(extension: IResourceExtension, installOptions: InstallOptions): Promise<ILocalExtension> {
-		if (this.productService.basehalfVersion) {
-			assertBaseHalfReviewedPluginInstallSurface(this.productService);
-		}
+		refuseBaseHalfExtensionInstall(this.productService);
 		if (!this.canInstallResourceExtension(extension)) {
 			throw new Error('This extension cannot be installed in the current workspace.');
 		}

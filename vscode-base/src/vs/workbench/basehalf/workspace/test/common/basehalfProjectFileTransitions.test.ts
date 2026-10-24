@@ -13,7 +13,7 @@ import { IUndoRedoElement, IUndoRedoService, UndoRedoGroup, UndoRedoSource } fro
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
 import { IWorkingCopyService } from '../../../../services/workingCopy/common/workingCopyService.js';
 import { BaseHalfProjectFileTransitionService } from '../../common/basehalfProjectFileTransitions.js';
-import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
+import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
 
 suite('BaseHalfProjectFileTransitionService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -104,56 +104,7 @@ suite('BaseHalfProjectFileTransitionService', () => {
 		assert.strictEqual(undo.element, undefined);
 	});
 
-	test('staged rollback preserves a later BaseHalf undo element', async () => {
-		const cleanupResource = URI.file('/workspace/sequence.json');
-		const unrelatedResource = URI.file('/workspace/notes.json');
-		const cleanupFiles = new TestFileService(cleanupResource, 'before cleanup');
-		const unrelatedFiles = new TestFileService(unrelatedResource, 'before edit');
-		const undo = new TestUndoRedoService();
-		const cleanupService = createService(cleanupFiles, undo);
-		const unrelatedService = createService(unrelatedFiles, undo);
-
-		const cleanupTransaction = await cleanupService.stage({
-			resource: cleanupResource,
-			expected: VSBuffer.fromString('before cleanup'),
-			next: VSBuffer.fromString('after cleanup'),
-			label: 'Update Sequence'
-		});
-		await unrelatedService.apply({
-			resource: unrelatedResource,
-			expected: VSBuffer.fromString('before edit'),
-			next: VSBuffer.fromString('after edit'),
-			label: 'Edit notes'
-		});
-
-		await cleanupTransaction.rollback();
-		assert.strictEqual(cleanupFiles.contents.toString(), 'before cleanup');
-		assert.strictEqual(unrelatedFiles.contents.toString(), 'after edit');
-		assert.strictEqual(undo.elements.length, 1);
-		assert.strictEqual(undo.element?.label, 'Edit notes');
-
-		await undo.element?.undo();
-		assert.strictEqual(unrelatedFiles.contents.toString(), 'before edit');
-	});
-
-	test('accepts staged bytes without creating a misleading undo entry', async () => {
-		const resource = URI.file('/workspace/sequence.json');
-		const files = new TestFileService(resource, 'before');
-		const undo = new TestUndoRedoService();
-		const transaction = await createService(files, undo).stage({
-			resource,
-			expected: VSBuffer.fromString('before'),
-			next: VSBuffer.fromString('after'),
-			label: 'Update Sequence'
-		});
-
-		transaction.accept();
-		assert.strictEqual(files.contents.toString(), 'after');
-		assert.deepStrictEqual(undo.elements, []);
-		await assert.rejects(() => transaction.rollback(), /already been completed/);
-	});
-
-	test('rejects plugin transitions that change an upstream value, and exempts only host-originated ones', async () => {
+	test('rejects transitions that change an upstream value (D37)', async () => {
 		const note = '---\ntitle: Note\nupstream:\n  - brief.md\n  - notes/a.md\n---\n# Note\n';
 		const cases: readonly { readonly name: string; readonly path: string; readonly before: string; readonly after: string }[] = [
 			{ name: 'body edit', path: 'note.md', before: note, after: note.replace('# Note', '# Renamed') },
@@ -170,16 +121,12 @@ suite('BaseHalfProjectFileTransitionService', () => {
 			const resource = URI.file(`/workspace/${path}`);
 			const files = new TestFileService(resource, before);
 			try {
-				await createService(files, new TestUndoRedoService()).apply({ resource, expected: VSBuffer.fromString(before), next: VSBuffer.fromString(after), label: 'Plugin edit' });
+				await createService(files, new TestUndoRedoService()).apply({ resource, expected: VSBuffer.fromString(before), next: VSBuffer.fromString(after), label: 'Update Sequence' });
 				outcomes[name] = files.contents.toString() === after ? 'applied' : 'unchanged';
 			} catch (error) {
 				outcomes[name] = files.contents.toString() === before && /cannot change the upstream list/.test(String(error)) ? 'rejected' : `error: ${error}`;
 			}
 		}
-		const resource = URI.file('/workspace/note.md');
-		const hostFiles = new TestFileService(resource, note);
-		await createService(hostFiles, new TestUndoRedoService()).apply({ resource, expected: VSBuffer.fromString(note), next: VSBuffer.fromString(''), label: 'Host edit', origin: 'host' });
-		outcomes['host origin'] = hostFiles.contents.toString() === '' ? 'applied' : 'unchanged';
 
 		assert.deepStrictEqual(outcomes, {
 			'body edit': 'applied',
@@ -189,30 +136,21 @@ suite('BaseHalfProjectFileTransitionService', () => {
 			'reorder entries': 'rejected',
 			'break the fence': 'rejected',
 			'make readable': 'rejected',
-			'unknown format': 'applied',
-			'host origin': 'applied'
+			'unknown format': 'applied'
 		});
 	});
 
-	test('stages under an owned structural lease and replays in the caller undo group', async () => {
+	test('joins the caller\'s undo group, and its undo and redo replay the same bytes', async () => {
 		const resource = URI.file('/workspace/sequence.json');
 		const files = new TestFileService(resource, 'with binding');
 		const undo = new TestUndoRedoService();
-		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
-		const service = createService(files, undo, new TestWorkingCopyService(), coordinator);
-		const reservation = coordinator.reserveStructural(URI.file('/workspace'), [{
-			workspace: URI.file('/workspace'),
-			relativePath: 'input.md'
-		}]);
-		const staged = await reservation.runPrepared(lease => service.stage({
+		const group = new UndoRedoGroup();
+		await createService(files, undo).apply({
 			resource,
 			expected: VSBuffer.fromString('with binding'),
 			next: VSBuffer.fromString('without binding'),
 			label: 'Update sequence clips'
-		}, lease));
-		await reservation.finish(async () => undefined);
-		const group = new UndoRedoGroup();
-		staged.commit(group);
+		}, group);
 
 		assert.strictEqual(files.contents.toString(), 'without binding');
 		assert.strictEqual(undo.groups[0], group);

@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { Event } from '../../../../../base/common/event.js';
 import { FileAccess } from '../../../../../base/common/network.js';
 import { joinPath } from '../../../../../base/common/resources.js';
@@ -14,14 +13,10 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { AllowedExtensionsConfigKey, ILocalExtension } from '../../../../../platform/extensionManagement/common/extensionManagement.js';
 import { IEnvironmentService } from '../../../../../platform/environment/common/environment.js';
-import { IFileService } from '../../../../../platform/files/common/files.js';
 import { ExtensionType, IExtensionManifest } from '../../../../../platform/extensions/common/extensions.js';
 import { IProductService } from '../../../../../platform/product/common/productService.js';
-import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
 import { toExtension, toExtensionDescription } from '../../../../services/extensions/common/extensions.js';
-import { BaseHalfAllowedExtensionsService, getBaseHalfAllowedExtensionsServiceId } from '../../common/basehalfAllowedExtensionsService.js';
-import { BaseHalfPluginAdmissionService, hashBaseHalfPluginInstall } from '../../common/basehalfPluginAdmissionService.js';
-import { BASEHALF_CURATED_PLUGINS } from '../../common/basehalfPluginCatalog.js';
+import { BaseHalfAllowedExtensionsService } from '../../common/basehalfAllowedExtensionsService.js';
 
 const CODEX_GALLERY_UUID = '90b52117-6fd1-4f1c-9e14-256bd6e21d79';
 const CLAUDE_GALLERY_UUID = '3c13ae49-babe-45fe-8c48-5e45077a62bf';
@@ -30,14 +25,10 @@ suite('BaseHalfAllowedExtensionsService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
 	let configurationService: TestConfigurationService;
-	let pluginAdmissionService: BaseHalfPluginAdmissionService;
-	let pluginFiles: IFileService;
 
 	setup(() => {
 		configurationService = new TestConfigurationService();
 		configurationService.setUserConfiguration(AllowedExtensionsConfigKey, '*');
-		pluginFiles = fileService();
-		pluginAdmissionService = disposables.add(new BaseHalfPluginAdmissionService(disposables.add(new InMemoryStorageService()), environment(), pluginFiles));
 	});
 
 	test('allows only BaseHalf curated product extension ids by default', () => {
@@ -88,18 +79,11 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		assert.strictEqual(testObject.isAllowed(aLocalExtension('anthropic.claude-code', ExtensionType.User, '1.0.0', URI.file('anthropic.claude-code'), CLAUDE_GALLERY_UUID, 'gallery')), true);
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('openai.chatgpt', ExtensionType.User, '1.0.0', URI.file('spoofed-openai'), CLAUDE_GALLERY_UUID)), true);
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('pointa.basehalf-ai-video', ExtensionType.System)), true);
-		const official = BASEHALF_CURATED_PLUGINS[0];
-		assert.ok(official.bundledPath);
+		// AI Video is BaseHalf's own code (D75): no copy of it runs, also one where an earlier build kept it.
 		const builtInLocation = joinPath(FileAccess.asFileUri(''), '..', 'extensions', 'basehalf-ai-video');
-		// AI Video is BaseHalf's own code (D75): no copy of it runs, also one where the application kept it.
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(official.extensionId, ExtensionType.System, '0.6.0', builtInLocation)), true);
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(official.extensionId, ExtensionType.User, '0.6.0', builtInLocation)), true);
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(
-			official.extensionId,
-			ExtensionType.User,
-			'0.1.0',
-			joinPath(FileAccess.asFileUri(''), '..', ...official.bundledPath.split('/'))
-		)), true);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('pointa.basehalf-ai-video', ExtensionType.System, '0.6.0', builtInLocation)), true);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('pointa.basehalf-ai-video', ExtensionType.User, '0.6.0', builtInLocation)), true);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('pointa.basehalf-ai-video', ExtensionType.User, '0.5.0', URI.file('/profile/extensions/pointa.basehalf-ai-video-0.5.0'), undefined, 'gallery')), true);
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('github.copilot', ExtensionType.User)), true);
 	});
 
@@ -123,50 +107,14 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		assert.strictEqual(testObject.isAllowed(aLocalExtension('vscode.git', ExtensionType.System)), true);
 	});
 
-	test('admits only exact signed versions, including versions withdrawn from new installation', async () => {
-		const testObject = createService();
-		const extensionId = 'qa-lab.workflow-smoke';
-		const sha256 = 'a'.repeat(64);
-		const installedLocation = URI.file(extensionId);
-		const installedContentSha256 = await hashBaseHalfPluginInstall(pluginFiles, installedLocation);
+	test('runs the extension of an Extension Development Host only at the location it was started with (D76)', () => {
+		const developmentLocation = URI.file('/workspace/workflow');
+		const testObject = createService(environment(true, [developmentLocation]));
 
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.1')), true);
-		pluginAdmissionService.replaceVerifiedPlugins([{ extensionId, versions: [
-			{ version: '0.1.0', sha256: 'b'.repeat(64), installedContentSha256 },
-			{ version: '0.1.1', sha256, installedContentSha256 }
-		] }]);
-
-		assert.strictEqual(testObject.isAllowed({ id: extensionId, publisherDisplayName: 'QA Lab' }), true);
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.1')), true);
-		assert.ok(await pluginAdmissionService.verifyAndRecordInstall({ extensionId, version: '0.1.1', sha256, extensionLocation: installedLocation, expectedInstalledContentSha256: installedContentSha256 }));
-		assert.strictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.1')), true);
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.0')), true);
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.0.9')), true);
-
-		pluginAdmissionService.replaceVerifiedPlugins([]);
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.1')), true);
-	});
-
-	test('recomputes extension enablement when verified catalog admission changes', async () => {
-		const testObject = createService();
-		const promise = Event.toPromise(testObject.onDidChangeAllowedExtensionsConfigValue);
-
-		pluginAdmissionService.replaceVerifiedPlugins([{ extensionId: 'qa-lab.workflow-smoke', versions: [{ version: '0.1.1', sha256: 'a'.repeat(64), installedContentSha256: 'b'.repeat(64) }] }]);
-
-		await promise;
-	});
-
-	test('allows an unpublished plugin only at the exact development-host location', () => {
-		const developmentLocation = URI.file('/workspace/reviewed-workflow');
-		pluginAdmissionService = disposables.add(new BaseHalfPluginAdmissionService(
-			disposables.add(new InMemoryStorageService()),
-			environment(true, [developmentLocation]),
-			fileService()
-		));
-		const testObject = createService();
-
-		assert.strictEqual(testObject.isAllowed(aLocalExtension('reviewed.workflow', ExtensionType.User, '0.0.1', developmentLocation)), true);
-		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('reviewed.workflow', ExtensionType.User, '0.0.1', URI.file('/workspace/reviewed-workflow-copy'))), true);
+		assert.strictEqual(testObject.isAllowed(aLocalExtension('studio.workflow', ExtensionType.User, '0.0.1', developmentLocation)), true);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('studio.workflow', ExtensionType.User, '0.0.1', URI.file('/workspace/workflow-copy'))), true);
+		assert.notStrictEqual(createService(environment(false, [developmentLocation])).isAllowed(aLocalExtension('studio.workflow', ExtensionType.User, '0.0.1', developmentLocation)), true);
+		assert.notStrictEqual(createService().isAllowed(aLocalExtension('studio.workflow', ExtensionType.User, '0.0.1', developmentLocation)), true);
 	});
 
 	test('keeps change events wired through VS Code configuration service', async () => {
@@ -184,12 +132,8 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		await promise;
 	});
 
-	test('exposes a stable service id for logging and diagnostics', () => {
-		assert.strictEqual(getBaseHalfAllowedExtensionsServiceId(), 'basehalf.canvasWorkbench.allowedExtensions');
-	});
-
-	function createService(): BaseHalfAllowedExtensionsService {
-		return disposables.add(new BaseHalfAllowedExtensionsService(aProductService(), configurationService as IConfigurationService, pluginAdmissionService));
+	function createService(environmentService = environment()): BaseHalfAllowedExtensionsService {
+		return disposables.add(new BaseHalfAllowedExtensionsService(aProductService(), configurationService as IConfigurationService, environmentService));
 	}
 
 	function aProductService(): IProductService {
@@ -216,21 +160,5 @@ suite('BaseHalfAllowedExtensionsService', () => {
 
 	function environment(isExtensionDevelopment = false, extensionDevelopmentLocationURI?: URI[]): IEnvironmentService {
 		return { isExtensionDevelopment, extensionDevelopmentLocationURI } as unknown as IEnvironmentService;
-	}
-
-	function fileService(): IFileService {
-		return {
-			onDidFilesChange: Event.None,
-			stat: async (resource: URI) => ({ resource, name: resource.path.split('/').at(-1) ?? '', isDirectory: true, isFile: false, isSymbolicLink: false }),
-			resolve: async (resource: URI) => ({
-				resource,
-				name: resource.path.split('/').at(-1) ?? '',
-				isDirectory: true,
-				isFile: false,
-				isSymbolicLink: false,
-				children: [{ resource: joinPath(resource, 'package.json'), name: 'package.json', isDirectory: false, isFile: true, isSymbolicLink: false }]
-			}),
-			readFile: async (resource: URI) => ({ resource, value: VSBuffer.fromString('{"name":"test"}\n') })
-		} as unknown as IFileService;
 	}
 });

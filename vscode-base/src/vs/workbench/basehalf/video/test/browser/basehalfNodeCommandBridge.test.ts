@@ -17,7 +17,7 @@ import { IWorkingCopyService } from '../../../../services/workingCopy/common/wor
 import { BaseHalfNodeCommandBackendGeneration } from '../../browser/basehalfNodeCommandBridge.contribution.js';
 import { BaseHalfNodeCommandHandler } from '../../browser/basehalfNodeCommandHandler.js';
 import { IBaseHalfAgentAreaService } from '../../../agentArea/common/basehalfAgentArea.js';
-import { IBaseHalfAgentCapabilityRegistryService } from '../../../plugins/common/basehalfAgentCapabilities.js';
+import { IBaseHalfAgentCapabilityRegistryService } from '../../../agentArea/common/basehalfAgentCapabilities.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../../canvas/common/basehalfCanvasTemplateRegistry.js';
 import { readBaseHalfSidecarUpstream } from '../../../references/common/basehalfReferenceStore.js';
 import { BASEHALF_GENERATION_EXTENSIONS, baseHalfGenerationKindOfPath, parseBaseHalfGenerationInfo } from '../../common/basehalfGenerationInfo.js';
@@ -210,8 +210,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 		}
 	});
 
-	test('executes only an installed reviewed operation with validated typed parameters', async () => {
-		const harness = createHarness({ reviewedOperation: true, commandResult: { count: 1 } });
+	test('executes only an operation that discovery offers, with validated typed parameters', async () => {
+		const harness = createHarness({ withOperation: true, commandResult: { count: 1 } });
 		const response = await harness.handler.handle(operationEvent('studio.workflow.sequence-inspect', {
 			sequence: 'workflow/sequence.json',
 			limit: 4,
@@ -246,8 +246,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 		]);
 	});
 
-	test('lists the host contract, the admitted templates, and public reviewed extension metadata after verifying Agent Area ownership and cwd', async () => {
-		const harness = createHarness({ reviewedOperation: true, templates: ['studio.workflow.starter'] });
+	test('lists the host contract, the templates, and the capabilities after verifying Agent Area ownership and cwd', async () => {
+		const harness = createHarness({ withOperation: true, templates: ['studio.workflow.starter'] });
 		const response = await harness.handler.handle(operationDiscoveryEvent());
 		assert.strictEqual(response?.type, 'listCapabilities');
 		if (response?.type !== 'listCapabilities') {
@@ -328,7 +328,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.deepStrictEqual(response.extensions?.[0], {
 			id: 'studio.workflow.capability',
 			label: 'Workflow tools',
-			description: 'Reviewed local workflow operations.',
+			description: 'Local workflow operations.',
 			documents: [{
 				kind: 'studio.workflow.sequence',
 				version: 1,
@@ -359,22 +359,22 @@ suite('BaseHalfNodeCommandBridge', () => {
 
 		const outside = await harness.handler.handle(operationDiscoveryEvent('/outside'));
 		assert.strictEqual(outside?.outcome, 'rejected');
-		const unknown = createHarness({ ownership: 'unknown', reviewedOperation: true });
+		const unknown = createHarness({ ownership: 'unknown', withOperation: true });
 		assert.strictEqual(await unknown.handler.handle(operationDiscoveryEvent()), undefined);
 		const withoutTemplates = await createHarness().handler.handle(operationDiscoveryEvent());
 		assert.strictEqual(withoutTemplates?.type, 'listCapabilities');
 		assert.deepStrictEqual(withoutTemplates?.type === 'listCapabilities' ? withoutTemplates.host?.operations.map(operation => operation.id) : undefined, []);
 	});
 
-	test('rejects operation discovery before serialization when the reviewed capability count exceeds the protocol bound', async () => {
-		const harness = createHarness({ reviewedOperation: true, capabilityCount: 257 });
+	test('rejects operation discovery before serialization when the capability count exceeds the protocol bound', async () => {
+		const harness = createHarness({ withOperation: true, capabilityCount: 257 });
 		const response = await harness.handler.handle(operationDiscoveryEvent());
 		assert.strictEqual(response?.type, 'listCapabilities');
 		assert.strictEqual(response?.outcome, 'rejected');
 		assert.strictEqual(harness.commandCalls.length, 0);
 	});
 
-	test('rejects capability discovery when admitted templates exceed the bounded public contract', async () => {
+	test('rejects capability discovery when the templates exceed the bounded public contract', async () => {
 		const harness = createHarness({ templateCount: 257 });
 		const response = await harness.handler.handle(operationDiscoveryEvent());
 		assert.strictEqual(response?.type, 'listCapabilities');
@@ -383,11 +383,11 @@ suite('BaseHalfNodeCommandBridge', () => {
 
 	test('rejects undeclared operations, unknown parameters, bad types, and unsafe URI paths before command dispatch', async () => {
 		for (const [operationId, parameters, options] of [
-			['studio.workflow.not-reviewed', {}, { reviewedOperation: true }],
-			['studio.workflow.sequence-inspect', { sequence: 'workflow/sequence.json', unknown: true }, { reviewedOperation: true }],
-			['studio.workflow.sequence-inspect', { sequence: 'workflow/sequence.json', limit: 1.5, strict: true, mode: 'current' }, { reviewedOperation: true }],
-			['studio.workflow.sequence-inspect', { sequence: '../outside.json', limit: 1, strict: true, mode: 'current' }, { reviewedOperation: true }],
-			['studio.workflow.sequence-inspect', { sequence: 'linked/sequence.json', limit: 1, strict: true, mode: 'current' }, { reviewedOperation: true, symbolicLinkPath: '/work/linked' }]
+			['studio.workflow.not-offered', {}, { withOperation: true }],
+			['studio.workflow.sequence-inspect', { sequence: 'workflow/sequence.json', unknown: true }, { withOperation: true }],
+			['studio.workflow.sequence-inspect', { sequence: 'workflow/sequence.json', limit: 1.5, strict: true, mode: 'current' }, { withOperation: true }],
+			['studio.workflow.sequence-inspect', { sequence: '../outside.json', limit: 1, strict: true, mode: 'current' }, { withOperation: true }],
+			['studio.workflow.sequence-inspect', { sequence: 'linked/sequence.json', limit: 1, strict: true, mode: 'current' }, { withOperation: true, symbolicLinkPath: '/work/linked' }]
 		] as const) {
 			const harness = createHarness(options);
 			const response = await harness.handler.handle(operationEvent(operationId, parameters));
@@ -396,7 +396,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		}
 	});
 
-	test('maps the host-reviewed template operation to the installed template and command directory', async () => {
+	test('maps the host template operation to the template and the command directory', async () => {
 		const harness = createHarness({ templates: ['studio.workflow.starter'], commandResult: { templateId: 'studio.workflow.starter', projectPath: 'Starter' } });
 		const response = await harness.handler.handle(operationEvent('basehalf.canvas.create-from-template', {
 			templateId: 'studio.workflow.starter'
@@ -443,10 +443,10 @@ suite('BaseHalfNodeCommandBridge', () => {
 		}
 	});
 
-	test('passes cancellation to a reviewed plugin operation and stops waiting for an uncooperative command', async () => {
+	test('passes cancellation to an operation and stops waiting for an uncooperative command', async () => {
 		let settleCommand: ((value: unknown) => void) | undefined;
 		const commandPromise = new Promise<unknown>(resolve => settleCommand = resolve);
-		const harness = createHarness({ reviewedOperation: true, commandPromise });
+		const harness = createHarness({ withOperation: true, commandPromise });
 		const cancellation = new CancellationTokenSource();
 		try {
 			const responsePromise = harness.handler.handle(operationEvent('studio.workflow.sequence-inspect', {
@@ -489,7 +489,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly generated?: readonly string[];
 		readonly generationError?: Error;
 		readonly generationPromise?: Promise<URI>;
-		readonly reviewedOperation?: boolean;
+		readonly withOperation?: boolean;
 		readonly capabilityCount?: number;
 		readonly templates?: readonly string[];
 		readonly templateCount?: number;
@@ -606,7 +606,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 			extensionId: 'studio.workflow',
 			id: 'studio.workflow.capability',
 			label: 'Workflow tools',
-			description: 'Reviewed local workflow operations.',
+			description: 'Local workflow operations.',
 			documents: [{
 				kind: 'studio.workflow.sequence',
 				version: 1,
@@ -616,10 +616,10 @@ suite('BaseHalfNodeCommandBridge', () => {
 			operations: [operation]
 		};
 		const capabilities = {
-			getOperation: (id: string) => options.reviewedOperation && id === operation.id
+			getOperation: (id: string) => options.withOperation && id === operation.id
 				? { capability, operation }
 				: undefined,
-			getCapabilities: () => options.reviewedOperation
+			getCapabilities: () => options.withOperation
 				? Array.from({ length: options.capabilityCount ?? 1 }, (_, index) => ({
 					...capability,
 					id: index === 0 ? capability.id : `studio.workflow.capability-${index}`

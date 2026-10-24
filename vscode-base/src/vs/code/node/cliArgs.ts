@@ -5,13 +5,14 @@
 
 import { NativeParsedArgs } from '../../platform/environment/common/argv.js';
 
-const BASEHALF_EXTENSION_MUTATION_ERROR = 'BaseHalf installs and updates code plugins only through its reviewed Plugins library.';
+const BASEHALF_EXTENSION_MUTATION_ERROR = 'BaseHalf cannot install or update extensions from the command line. It runs only its built-in extensions and the agent extensions it supports.';
 
 type ExtensionMutationArgs = Partial<NativeParsedArgs>;
 
 /**
- * Returns the user-facing error for command-line extension mutations that must
- * go through BaseHalf's reviewed Plugins library.
+ * Returns the user-facing error for a command-line install or update of an
+ * extension, which BaseHalf refuses (D76; built-in AI Video and no plugins,
+ * rule 11).
  */
 export function getBaseHalfExtensionMutationError(args: ExtensionMutationArgs, isBaseHalf: boolean): string | undefined {
 	if (!isBaseHalf) {

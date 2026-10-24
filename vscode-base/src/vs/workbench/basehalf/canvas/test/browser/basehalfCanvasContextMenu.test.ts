@@ -517,9 +517,7 @@ async function createTemplateHarness(
 	const fileService = disposables.add(new FileService(new NullLogService()));
 	disposables.add(fileService.registerProvider(scheme, disposables.add(new InMemoryFileSystemProvider())));
 	const workspaceFolder = URI.from({ scheme, path: '/workspace' });
-	const extensionLocation = URI.from({ scheme, path: '/extension' });
 	await fileService.createFolder(workspaceFolder);
-	await fileService.createFolder(extensionLocation);
 	if (options.marked) {
 		await fileService.createFile(joinPath(workspaceFolder, '.basehalf-no-workspace-setup'), VSBuffer.fromString(''));
 	}
@@ -534,13 +532,13 @@ async function createTemplateHarness(
 		],
 		references: [{ from: 'brief.md', to: 'frame.png', fromAnchor: 'east', toAnchor: 'west' }]
 	});
-	await fileService.createFile(joinPath(extensionLocation, 'starter.json'), VSBuffer.fromString(templateSource));
 
 	const templates = disposables.add(new BaseHalfCanvasTemplateRegistryService());
-	disposables.add(templates.registerTemplate('studio.test', extensionLocation, {
+	disposables.add(templates.registerTemplate({
+		namespace: 'studio.test',
 		id: TEMPLATE_ID,
 		label: 'Starter',
-		resource: 'starter.json'
+		source: templateSource
 	}));
 
 	const mutationCoordinator = new BaseHalfWorkspaceMutationCoordinator();

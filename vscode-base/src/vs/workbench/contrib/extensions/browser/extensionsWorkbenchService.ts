@@ -3293,7 +3293,7 @@ export class ExtensionsWorkbenchService extends Disposable implements IExtension
 			return Promise.resolve(false);
 		}
 		if (this.productService.basehalfVersion) {
-			// BaseHalf has no extension or plugin page. The link is taken so that
+			// BaseHalf has no extension page. The link is taken so that
 			// nothing else opens for it, and it shows nothing.
 			return Promise.resolve(true);
 		}

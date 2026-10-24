@@ -38,7 +38,6 @@ import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMo
 import { IBaseHalfDraftOperations, IBaseHalfGenerationTaskStore } from '../../../video/common/basehalfVideoGeneration.js';
 import { BaseHalfDraftOperations } from '../../../workspace/browser/basehalfDraftOperations.js';
 import { BaseHalfRecordingGenerationTaskStore } from '../../../workspace/test/browser/basehalfGenerationTaskStoreFake.js';
-import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../../plugins/browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceMigrationController } from '../../browser/basehalfReferenceMigration.contribution.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../../markdown/common/basehalfAdhdMirror.js';
@@ -130,7 +129,6 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 	instantiationService.stub(IBaseHalfGenerationTaskStore, new BaseHalfRecordingGenerationTaskStore());
-	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	await index.whenReady(folder);
 	for (const nested of settings.nestedFolders ?? []) {
 		await index.whenReady(nested);

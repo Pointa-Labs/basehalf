@@ -653,7 +653,7 @@ export function readBaseHalfSidecarUpstream(text: string | undefined, options: I
 }
 
 /** The ordered raw entry strings of a read, or `undefined` when unreadable.
- * This is the state the plugin guard and canvas undo compare. */
+ * This is the state the upstream guard and canvas undo compare. */
 export function baseHalfUpstreamReadState(read: IBaseHalfUpstreamStoreRead): readonly IBaseHalfUpstreamItemValue[] | undefined {
 	return read.readable ? read.items.map(item => ({ text: item.text, scalar: item.scalar })) : undefined;
 }
@@ -1288,10 +1288,10 @@ export function planBaseHalfSidecarUpstreamEdit(
 
 //#endregion
 
-//#region Plugin guard
+//#region Upstream guard of project file transitions
 
 /**
- * The upstream state the plugin guard compares: either unreadable, or the
+ * The upstream state the upstream guard compares: either unreadable, or the
  * ordered list of raw entry strings, valid and invalid.
  */
 export type BaseHalfUpstreamRawState =
@@ -1318,9 +1318,10 @@ export function readBaseHalfUpstreamRawState(relativePath: string, text: string 
 }
 
 /**
- * Whether a reviewed plugin's transition of a project file from `expected`
- * to `next` text changes an upstream value, including a change between
- * readable and unreadable. Host-originated operations are exempt from the
+ * Whether a transition of a project file from `expected` to `next` text, such
+ * as a change to a Sequence, changes an upstream value, including a change
+ * between readable and unreadable (reference graph, "Project file
+ * transitions"). BaseHalf's own reference operations are exempt from the
  * guard and do not call this.
  */
 export function baseHalfTransitionChangesUpstream(relativePath: string, expected: string | undefined, next: string | undefined): boolean {

@@ -4,51 +4,54 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IMarkdownString, MarkdownString } from '../../../../base/common/htmlContent.js';
+import { FileAccess } from '../../../../base/common/network.js';
+import { extUri } from '../../../../base/common/resources.js';
+import { URI } from '../../../../base/common/uri.js';
 import * as nls from '../../../../nls.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { AllowedExtensionsService } from '../../../../platform/extensionManagement/common/allowedExtensionsService.js';
 import { IGalleryExtension, IAllowedExtensionsService } from '../../../../platform/extensionManagement/common/extensionManagement.js';
 import { ExtensionType, IExtension, TargetPlatform } from '../../../../platform/extensions/common/extensions.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
-import { IBaseHalfPluginAdmissionService } from './basehalfPluginAdmissionService.js';
-import { BASEHALF_PRODUCT_PROFILE_ID, isBaseHalfAllowedBuiltInExtension, isBaseHalfRequiredBuiltInExtension, isBaseHalfTrustedExternalGalleryIdentity } from '../../shell/common/basehalfWorkbenchProfile.js';
+import { isBaseHalfAllowedBuiltInExtension, isBaseHalfRequiredBuiltInExtension, isBaseHalfTrustedExternalGalleryIdentity } from './basehalfWorkbenchProfile.js';
 
 type BaseHalfAllowedExtensionTarget =
 	| IGalleryExtension
 	| IExtension
 	| { id: string; uuid?: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform };
 
+/**
+ * The extensions that run in BaseHalf (D76; built-in AI Video and no plugins,
+ * rule 10): its built-in extensions, the agent extensions installed from the
+ * gallery with their exact identity, and the extension that an Extension
+ * Development Host was started with, at the location it was started with.
+ * Every other extension does not run, and BaseHalf says why where VS Code
+ * would show it.
+ */
 export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService implements IAllowedExtensionsService {
 
 	constructor(
 		@IProductService productService: IProductService,
 		@IConfigurationService configurationService: IConfigurationService,
-		@IBaseHalfPluginAdmissionService private readonly pluginAdmissionService: IBaseHalfPluginAdmissionService
+		@IEnvironmentService private readonly environmentService: IEnvironmentService
 	) {
 		super(productService, configurationService);
-		this._register(this.pluginAdmissionService.onDidChange(() => this.fireDidChangeAllowedExtensions()));
 	}
 
 	override isAllowed(extension: IGalleryExtension | IExtension): true | IMarkdownString;
 	override isAllowed(extension: { id: string; uuid?: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString;
 	override isAllowed(extension: BaseHalfAllowedExtensionTarget): true | IMarkdownString {
 		const extensionId = getExtensionId(extension);
-		const productBuiltIn = isBaseHalfAllowedBuiltInExtension(extensionId);
-		const trustedExternalGalleryIdentity = isBaseHalfTrustedExternalGalleryIdentity(extensionId, getExtensionUuid(extension));
-		const trustedExternalGalleryInstall = trustedExternalGalleryIdentity && isGalleryInstalledExtension(extension);
-		const admitted = isLocalExtension(extension)
-			? productBuiltIn
+		const builtIn = isBaseHalfAllowedBuiltInExtension(extensionId);
+		const agentExtension = isBaseHalfTrustedExternalGalleryIdentity(extensionId, getExtensionUuid(extension));
+		const allowed = isLocalExtension(extension)
+			? builtIn
 				? extension.type === ExtensionType.System && extension.isBuiltin
-				: trustedExternalGalleryInstall || this.pluginAdmissionService.isAllowedContributor({
-				extensionId,
-				version: extension.manifest.version,
-				extensionLocation: extension.location,
-				isBuiltin: extension.isBuiltin,
-				isUnderDevelopment: true
-				})
-			: productBuiltIn || trustedExternalGalleryIdentity || this.pluginAdmissionService.isAllowed(extensionId, getExtensionVersion(extension));
+				: (agentExtension && extension.source === 'gallery') || this.isDevelopedExtension(extension.location)
+			: builtIn || agentExtension;
 
-		if (!admitted) {
+		if (!allowed) {
 			return new MarkdownString(nls.localize(
 				'basehalf.extensionNotAllowed',
 				"BaseHalf does not run this extension. It runs only its built-in extensions and the agent extensions it supports."
@@ -61,17 +64,19 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 
 		return super.isAllowed(extension);
 	}
+
+	private isDevelopedExtension(location: URI): boolean {
+		return !!this.environmentService.isExtensionDevelopment
+			&& !!this.environmentService.extensionDevelopmentLocationURI?.some(developed => locationKey(developed) === locationKey(location));
+	}
+}
+
+function locationKey(location: URI): string {
+	return extUri.getComparisonKey(FileAccess.uriToFileUri(location));
 }
 
 function getExtensionUuid(extension: BaseHalfAllowedExtensionTarget): string | undefined {
 	return hasExtensionIdentifier(extension) ? extension.identifier.uuid : extension.uuid;
-}
-
-function getExtensionVersion(extension: BaseHalfAllowedExtensionTarget): string | undefined {
-	if (hasExtensionIdentifier(extension)) {
-		return extension.type === 'gallery' ? extension.version : extension.manifest.version;
-	}
-	return extension.version;
 }
 
 function getExtensionId(extension: BaseHalfAllowedExtensionTarget): string {
@@ -91,12 +96,4 @@ function hasExtensionIdentifier(extension: BaseHalfAllowedExtensionTarget): exte
 
 function isLocalExtension(extension: BaseHalfAllowedExtensionTarget): extension is IExtension {
 	return hasExtensionIdentifier(extension) && extension.type !== 'gallery';
-}
-
-function isGalleryInstalledExtension(extension: BaseHalfAllowedExtensionTarget): boolean {
-	return isLocalExtension(extension) && extension.source === 'gallery';
-}
-
-export function getBaseHalfAllowedExtensionsServiceId(): string {
-	return `${BASEHALF_PRODUCT_PROFILE_ID}.allowedExtensions`;
 }

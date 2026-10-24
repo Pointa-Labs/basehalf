@@ -195,9 +195,11 @@ suite('AllowedExtensionsService', () => {
 		assert.strictEqual(testObject.isAllowed(aLocalExtension('pub.name')) === true, true);
 	});
 
-	test('BaseHalf native server rejects an unreviewed gallery extension', () => {
+	test('BaseHalf native server rejects a gallery extension that is not an agent extension (D76)', () => {
 		const testObject = disposables.add(new BaseHalfServerAllowedExtensionsService(aBaseHalfProductService(), configurationService));
-		assert.notStrictEqual(testObject.isAllowed(aGalleryExtension('unreviewed')), true);
+		const allowed = testObject.isAllowed(aGalleryExtension('other'));
+		assert.notStrictEqual(allowed, true);
+		assert.strictEqual(allowed !== true && allowed.value, 'BaseHalf cannot install this extension. It runs only its built-in extensions and the agent extensions it supports.');
 	});
 
 	test('BaseHalf native server allows only an exact trusted external gallery identity', () => {
@@ -212,14 +214,14 @@ suite('AllowedExtensionsService', () => {
 		assert.notStrictEqual(testObject.isAllowed(wrongUuid), true);
 	});
 
-	test('BaseHalf native server keeps verified VSIX metadata on the existing allow-list path', () => {
+	test('BaseHalf native server leaves what is not from the gallery to VS Code\'s allow list', () => {
 		const testObject = disposables.add(new BaseHalfServerAllowedExtensionsService(aBaseHalfProductService(), configurationService));
-		assert.strictEqual(testObject.isAllowed({ id: 'pointa.reviewed-plugin', version: '1.0.0', publisherDisplayName: undefined }), true);
+		assert.strictEqual(testObject.isAllowed({ id: 'publisher.extension', version: '1.0.0', publisherDisplayName: undefined }), true);
 	});
 
 	test('non-BaseHalf native server keeps existing gallery behavior', () => {
 		const testObject = disposables.add(new BaseHalfServerAllowedExtensionsService(aProductService(), configurationService));
-		assert.strictEqual(testObject.isAllowed(aGalleryExtension('unreviewed')), true);
+		assert.strictEqual(testObject.isAllowed(aGalleryExtension('other')), true);
 	});
 
 	test('should trigger change event when allowed list change', async () => {

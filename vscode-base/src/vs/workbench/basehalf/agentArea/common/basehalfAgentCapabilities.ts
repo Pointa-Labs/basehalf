@@ -76,7 +76,7 @@ export interface IBaseHalfAgentOperationDescriptor {
 
 export const BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID = 'basehalf.canvas.create-from-template';
 /**
- * Host operation ids, which no plugin operation may use. `basehalf.workspace.move`
+ * Host operation ids, which no capability's operation may use. `basehalf.workspace.move`
  * was a host operation until BaseHalf followed moved items by itself; the id
  * stays reserved.
  */

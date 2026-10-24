@@ -164,7 +164,7 @@ export class StorageDatabaseChannel extends Disposable implements IServerChannel
 						try {
 							await this.updateApplicationItem(storage, request.key, current);
 						} catch (rollbackError) {
-							this.logService.error('StorageIPC#compareAndSwapApplicationItem: Unable to restore the application plugin state cache.', rollbackError);
+							this.logService.error('StorageIPC#compareAndSwapApplicationItem: Unable to restore the previous value.', rollbackError);
 						}
 						throw error;
 					} finally {
@@ -216,23 +216,23 @@ export class StorageDatabaseChannel extends Disposable implements IServerChannel
 		}
 	}
 
+	/** BaseHalf: the items read and swapped one by one are the encrypted credentials of the model providers. */
 	private validateApplicationItemRequest(request: ISerializableApplicationStorageItemRequest): void {
-		const isPluginState = typeof request.key === 'string' && request.key.startsWith('basehalf.plugins.');
 		const isModelCredential = typeof request.key === 'string'
 			&& (/^secret:\/\/basehalf\.modelConnections\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*){2,}\.[0-9a-fA-F-]{36}\.credentials$/.test(request.key)
 				|| /^secret:\/\/basehalf\.modelServices\.[a-z][a-z0-9.-]{0,63}\.apiKey$/.test(request.key));
 		if (typeof request.key !== 'string'
-			|| (!isPluginState && !isModelCredential)
+			|| !isModelCredential
 			|| request.key.length > 512
 			|| (request.expected !== undefined && (typeof request.expected !== 'string' || Buffer.byteLength(request.expected, 'utf8') > 6 * 1024 * 1024))
 			|| (request.value !== undefined && (typeof request.value !== 'string' || Buffer.byteLength(request.value, 'utf8') > 6 * 1024 * 1024))) {
-			throw new Error('Invalid application plugin state request.');
+			throw new Error('Invalid application item request.');
 		}
 	}
 
 	private async assertDurableApplicationStorage(storage: IStorageMain): Promise<void> {
 		if (storage.isInMemory() || !(await storage.isDurable())) {
-			throw new Error('Durable application plugin state storage is unavailable.');
+			throw new Error('Durable application storage is unavailable.');
 		}
 	}
 

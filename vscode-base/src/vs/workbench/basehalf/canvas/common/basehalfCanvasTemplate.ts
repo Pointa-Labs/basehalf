@@ -92,11 +92,11 @@ export class BaseHalfCanvasTemplateError extends Error {
 }
 
 /**
- * Parses the static, declarative template format accepted from reviewed
- * extensions (reference graph, "Templates"). Templates create text files,
+ * Parses the static, declarative template format of canvas templates
+ * (reference graph, "Templates"). Templates create text files,
  * drafts of image and video cards, card rows, and references; they cannot
  * carry tasks, generated files, settings, credentials, executable code, or
- * private extension state. A template never writes `upstream` itself:
+ * private state. A template never writes `upstream` itself:
  * Markdown text files whose frontmatter has an `upstream` key are rejected.
  * Every folder that holds a draft also holds a file, so that the folder
  * exists wherever the project is cloned.

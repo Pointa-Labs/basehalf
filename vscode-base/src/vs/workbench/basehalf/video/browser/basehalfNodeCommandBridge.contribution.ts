@@ -14,7 +14,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { ITerminalInstanceService } from '../../../contrib/terminal/browser/terminal.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfAgentAreaService } from '../../agentArea/common/basehalfAgentArea.js';
-import { IBaseHalfAgentCapabilityRegistryService } from '../../plugins/common/basehalfAgentCapabilities.js';
+import { IBaseHalfAgentCapabilityRegistryService } from '../../agentArea/common/basehalfAgentCapabilities.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../canvas/common/basehalfCanvasTemplateRegistry.js';
 import { IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 import { BaseHalfNodeCommandHandler } from './basehalfNodeCommandHandler.js';

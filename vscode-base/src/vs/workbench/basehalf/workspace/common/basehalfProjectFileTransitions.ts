@@ -15,8 +15,8 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { baseHalfTransitionChangesUpstream } from '../../references/common/basehalfReferenceStore.js';
-import { baseHalfProjectPathProblem } from '../../workspace/common/basehalfProjectPath.js';
-import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfProjectPathProblem } from './basehalfProjectPath.js';
+import { IBaseHalfWorkspaceMutationCoordinator } from './basehalfWorkspaceMutation.js';
 
 export const BASEHALF_PROJECT_FILE_TRANSITION_MAX_BYTES = 4 * 1024 * 1024;
 
@@ -25,27 +25,12 @@ export interface IBaseHalfProjectFileTransition {
 	readonly expected: VSBuffer;
 	readonly next: VSBuffer;
 	readonly label: string;
-	/**
-	 * Set only by host code for a host-originated operation, which is exempt
-	 * from the upstream guard. Transitions built from reviewed-plugin input
-	 * (project file transitions and structural cleanups) never carry it.
-	 */
-	readonly origin?: 'host';
 }
 
 export const IBaseHalfProjectFileTransitionService = createDecorator<IBaseHalfProjectFileTransitionService>('baseHalfProjectFileTransitionService');
 
-export interface IBaseHalfStagedProjectFileTransition {
-	readonly changed: boolean;
-	commit(undoRedoGroup?: UndoRedoGroup): void;
-	/** Keeps the staged bytes without creating an undo entry. */
-	accept(): void;
-	rollback(lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
-}
-
 export interface IBaseHalfProjectFileTransitionService {
 	readonly _serviceBrand: undefined;
-	stage(transition: IBaseHalfProjectFileTransition, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfStagedProjectFileTransition>;
 	apply(transition: IBaseHalfProjectFileTransition, undoRedoGroup?: UndoRedoGroup): Promise<void>;
 }
 
@@ -61,30 +46,11 @@ export class BaseHalfProjectFileTransitionService implements IBaseHalfProjectFil
 	) { }
 
 	async apply(transition: IBaseHalfProjectFileTransition, undoRedoGroup?: UndoRedoGroup): Promise<void> {
-		const staged = await this.stage(transition);
-		staged.commit(undoRedoGroup);
-	}
-
-	async stage(transition: IBaseHalfProjectFileTransition, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfStagedProjectFileTransition> {
 		const validated = await this.validate(transition);
 		if (validated.expected.equals(validated.next)) {
-			return new BaseHalfStagedProjectFileTransition(false, () => { }, async () => { });
+			return;
 		}
-		const write = async (activeLease: IBaseHalfWorkspaceMutationLease): Promise<void> => {
-			this.workspaceMutationCoordinator.assertLease(activeLease, validated.workspaceFolder);
-			await this.assertSafeResource(validated.workspaceFolder, validated.resource, validated.relativePath);
-			if (this.workingCopyService.isDirty(validated.resource)) {
-				throw new Error(`Save '${basename(validated.resource)}' before changing this project document.`);
-			}
-			await this.commit(validated.resource, validated.expected, validated.next);
-		};
-		if (lease) {
-			await write(lease);
-		} else {
-			const stamp = this.workspaceMutationCoordinator.captureResource(validated.workspaceFolder, validated.relativePath);
-			await this.workspaceMutationCoordinator.runResourceMutation(validated.workspaceFolder, stamp, write);
-		}
-
+		await this.replay(validated, false);
 		const element: IWorkspaceUndoRedoElement = {
 			type: UndoRedoElementType.Workspace,
 			resources: [validated.resource],
@@ -93,30 +59,22 @@ export class BaseHalfProjectFileTransitionService implements IBaseHalfProjectFil
 			undo: () => this.replay(validated, true),
 			redo: () => this.replay(validated, false)
 		};
-		return new BaseHalfStagedProjectFileTransition(
-			true,
-			group => this.undoRedoService.pushElement(element, group, BASEHALF_CANVAS_UNDO_REDO_SOURCE),
-			activeLease => this.replay(validated, true, activeLease)
-		);
+		this.undoRedoService.pushElement(element, undoRedoGroup, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 	}
 
-	private async replay(transition: IBaseHalfValidatedProjectFileTransition, reverse: boolean, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+	/** Writes the transition's bytes, or its expected bytes back when `reverse`, under a mutation lease. */
+	private async replay(transition: IBaseHalfValidatedProjectFileTransition, reverse: boolean): Promise<void> {
 		const expected = reverse ? transition.next : transition.expected;
 		const next = reverse ? transition.expected : transition.next;
-		const write = async (activeLease: IBaseHalfWorkspaceMutationLease): Promise<void> => {
-			this.workspaceMutationCoordinator.assertLease(activeLease, transition.workspaceFolder);
+		const stamp = this.workspaceMutationCoordinator.captureResource(transition.workspaceFolder, transition.relativePath);
+		await this.workspaceMutationCoordinator.runResourceMutation(transition.workspaceFolder, stamp, async lease => {
+			this.workspaceMutationCoordinator.assertLease(lease, transition.workspaceFolder);
 			if (this.workingCopyService.isDirty(transition.resource)) {
 				throw new Error(`Save '${basename(transition.resource)}' before changing this project document.`);
 			}
 			await this.assertSafeResource(transition.workspaceFolder, transition.resource, transition.relativePath);
 			await this.commit(transition.resource, expected, next);
-		};
-		if (lease) {
-			await write(lease);
-		} else {
-			const stamp = this.workspaceMutationCoordinator.captureResource(transition.workspaceFolder, transition.relativePath);
-			await this.workspaceMutationCoordinator.runResourceMutation(transition.workspaceFolder, stamp, write);
-		}
+		});
 	}
 
 	private async validate(transition: IBaseHalfProjectFileTransition): Promise<IBaseHalfValidatedProjectFileTransition> {
@@ -137,12 +95,12 @@ export class BaseHalfProjectFileTransitionService implements IBaseHalfProjectFil
 		if (this.workingCopyService.isDirty(transition.resource)) {
 			throw new Error(`Save '${basename(transition.resource)}' before changing this project document.`);
 		}
-		// D37: a reviewed plugin may not change any upstream value. Compare the
-		// upstream state (unreadable, or the ordered raw entries) of the expected
-		// and next bytes; any difference, including one that makes the store
-		// readable or unreadable, is rejected. Undo and redo replay exactly these
-		// validated bytes, so they never change an upstream value either.
-		if (transition.origin !== 'host' && baseHalfTransitionChangesUpstream(relativePath, transition.expected.toString(), transition.next.toString())) {
+		// D37: a project file transition may not change any upstream value. Compare
+		// the upstream state (unreadable, or the ordered raw entries) of the
+		// expected and next bytes; any difference, including one that makes the
+		// store readable or unreadable, is rejected. Undo and redo replay exactly
+		// these validated bytes, so they never change an upstream value either.
+		if (baseHalfTransitionChangesUpstream(relativePath, transition.expected.toString(), transition.next.toString())) {
 			throw new Error(`Project file transitions cannot change the upstream list of '${relativePath}'. BaseHalf changes upstream entries only through explicit user actions.`);
 		}
 		await this.assertSafeResource(workspace.uri, transition.resource, relativePath);
@@ -185,39 +143,6 @@ export class BaseHalfProjectFileTransitionService implements IBaseHalfProjectFil
 interface IBaseHalfValidatedProjectFileTransition extends IBaseHalfProjectFileTransition {
 	readonly workspaceFolder: URI;
 	readonly relativePath: string;
-}
-
-class BaseHalfStagedProjectFileTransition implements IBaseHalfStagedProjectFileTransition {
-	private state: 'staged' | 'committed' | 'rolledBack' = 'staged';
-
-	constructor(
-		readonly changed: boolean,
-		private readonly commitTransition: (undoRedoGroup?: UndoRedoGroup) => void,
-		private readonly rollbackTransition: (lease?: IBaseHalfWorkspaceMutationLease) => Promise<void>
-	) { }
-
-	commit(undoRedoGroup?: UndoRedoGroup): void {
-		if (this.state !== 'staged') {
-			throw new Error('This project file transition transaction has already been completed.');
-		}
-		this.commitTransition(undoRedoGroup);
-		this.state = 'committed';
-	}
-
-	accept(): void {
-		if (this.state !== 'staged') {
-			throw new Error('This project file transition transaction has already been completed.');
-		}
-		this.state = 'committed';
-	}
-
-	async rollback(lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
-		if (this.state !== 'staged') {
-			throw new Error('This project file transition transaction has already been completed.');
-		}
-		await this.rollbackTransition(lease);
-		this.state = 'rolledBack';
-	}
 }
 
 registerSingleton(IBaseHalfProjectFileTransitionService, BaseHalfProjectFileTransitionService, InstantiationType.Delayed);

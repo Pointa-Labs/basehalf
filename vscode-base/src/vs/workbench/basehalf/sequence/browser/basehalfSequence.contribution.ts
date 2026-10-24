@@ -15,7 +15,7 @@ import { IBaseHalfCanvasTemplateRegistryService } from '../../canvas/common/base
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../canvas/common/basehalfCanvasTemplate.js';
 import { IBaseHalfCardDetailSurfaceRegistryService } from '../../cardDetail/browser/basehalfCardDetailSurface.js';
 import { IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
-import { IBaseHalfAgentCapabilityRegistryService } from '../../plugins/common/basehalfAgentCapabilities.js';
+import { IBaseHalfAgentCapabilityRegistryService } from '../../agentArea/common/basehalfAgentCapabilities.js';
 import {
 	BASEHALF_SEQUENCE_ADD_COMMAND_ID,
 	BASEHALF_SEQUENCE_CREATE_WORKFLOW_COMMAND_ID,
@@ -66,7 +66,7 @@ export class BaseHalfSequenceContribution extends Disposable implements IWorkben
 			}
 		}));
 		// The label is the name of the folder a project made from it gets.
-		this._register(templateRegistryService.registerBuiltInTemplate({
+		this._register(templateRegistryService.registerTemplate({
 			namespace: BASEHALF_SEQUENCE_NAMESPACE,
 			id: BASEHALF_STARTER_WORKFLOW_TEMPLATE_ID,
 			label: 'Video Starter Workflow',

@@ -81,7 +81,7 @@ suite('BaseHalf extension install commands', () => {
 					return product;
 				}
 			} as ServicesAccessor;
-			await assert.rejects(Promise.resolve(command.handler(accessor, { install: ['publisher.plugin'] })), /cannot install this extension/);
+			await assert.rejects(Promise.resolve(command.handler(accessor, { install: ['publisher.extension'] })), /cannot install this extension/);
 		} finally {
 			Object.assign(product, { basehalfVersion: previousBaseHalfVersion });
 		}
@@ -97,6 +97,6 @@ suite('BaseHalf extension install commands', () => {
 			{} as IExtensionManifestPropertiesService,
 			{ ...product, basehalfVersion: 'test' } as unknown as IProductService
 		);
-		assert.throws(() => cli.installExtensions(['publisher.plugin'], [], {}, false), /cannot install this extension/);
+		assert.throws(() => cli.installExtensions(['publisher.extension'], [], {}, false), /cannot install this extension/);
 	});
 });
