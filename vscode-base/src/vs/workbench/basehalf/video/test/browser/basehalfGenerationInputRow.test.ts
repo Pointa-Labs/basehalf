@@ -14,9 +14,9 @@ function tile(path: string, extra: Partial<IBaseHalfInputTile> = {}): IBaseHalfI
 	return { path, kind: 'image', fileName: path.slice(path.lastIndexOf('/') + 1), dimmed: false, ...extra };
 }
 
-const START = tile('shots/start.png', { number: 1, label: '图片1', frame: 'start', file: URI.file('/work/shots/start.png') });
-const END = tile('shots/end.png', { number: 2, label: '图片2', frame: 'end' });
-const CLIP = tile('shots/clip.mp4', { kind: 'video', number: 1, label: '视频1', dimmed: true, note: 'Not used: Acme Motion 2 takes no videos in Frames.' });
+const START = tile('shots/start.png', { label: '图片1', frame: 'start', file: URI.file('/work/shots/start.png') });
+const END = tile('shots/end.png', { label: '图片2', frame: 'end' });
+const CLIP = tile('shots/clip.mp4', { kind: 'video', label: '视频1', dimmed: true, note: 'Not used: Acme Motion 2 takes no videos in Frames.' });
 const NOTE = tile('notes/scene.md', { kind: 'text', fileName: 'scene' });
 
 /** What the row draws, in order. */
@@ -115,13 +115,13 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('draws the frames first, joined by the swap arrow, then the other inputs in order with their numbers, and the plus', () => {
+	test('draws the frames first, joined by the swap arrow, then the other inputs in order, none with a number, and the two buttons (D71)', () => {
 		const row = create({ frames: [{ role: 'start', tile: START, addLabel: 'Add a Start Frame' }, { role: 'end', tile: END, addLabel: 'Add an End Frame' }], canSwap: true, tiles: [CLIP, NOTE], editable: true });
 		assert.deepStrictEqual(drawn(row), [
-			'tile shots/start.png · number 1 · mark Start · remove · name',
+			'tile shots/start.png · mark Start · remove · name',
 			'swap',
-			'tile shots/end.png · number 2 · mark End · remove · name',
-			'tile shots/clip.mp4 · number 1 · remove · name · dimmed',
+			'tile shots/end.png · mark End · remove · name',
+			'tile shots/clip.mp4 · remove · name · dimmed',
 			'tile notes/scene.md · caption scene · remove',
 			'pick',
 			'import'
@@ -136,9 +136,9 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 
 	test('drawing the row again keeps the pictures of the inputs that stay, so nothing blinks; an input that leaves and comes back gets its picture back', () => {
-		const image = tile('shots/a.png', { number: 1, label: '图片1', file: URI.file('/work/shots/a.png') });
-		const clip = tile('shots/clip.mp4', { kind: 'video', number: 1, label: '视频1', file: URI.file('/work/shots/clip.mp4') });
-		const other = tile('shots/b.png', { number: 2, label: '图片2', file: URI.file('/work/shots/b.png') });
+		const image = tile('shots/a.png', { label: '图片1', file: URI.file('/work/shots/a.png') });
+		const clip = tile('shots/clip.mp4', { kind: 'video', label: '视频1', file: URI.file('/work/shots/clip.mp4') });
+		const other = tile('shots/b.png', { label: '图片2', file: URI.file('/work/shots/b.png') });
 		const row = create({ tiles: [image, clip, other], editable: true });
 		const media = () => new Map([...row.element.querySelectorAll<HTMLElement>('.bh-input-tile')].map(element => [element.dataset.path, element.querySelector('img, video')]));
 		const before = media();
@@ -158,9 +158,9 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 
 	test('a video and a sound show their length once their file tells it, and keep it when the row is drawn again (D70)', () => {
-		const clip = tile('shots/clip.mp4', { kind: 'video', number: 1, label: '视频1', file: URI.file('/work/shots/clip.mp4') });
-		const sound = tile('sounds/rain.mp3', { kind: 'audio', number: 1, label: '音频1', file: URI.file('/work/sounds/rain.mp3') });
-		const draft = tile('shots/next.mp4', { kind: 'video', number: 2, label: '视频2' });
+		const clip = tile('shots/clip.mp4', { kind: 'video', label: '视频1', file: URI.file('/work/shots/clip.mp4') });
+		const sound = tile('sounds/rain.mp3', { kind: 'audio', label: '音频1', file: URI.file('/work/sounds/rain.mp3') });
+		const draft = tile('shots/next.mp4', { kind: 'video', label: '视频2' });
 		const row = create({ tiles: [clip, sound, draft], editable: true });
 		const lengths = () => [...row.element.querySelectorAll<HTMLElement>('.bh-input-tile')].map(element => {
 			const label = element.querySelector<HTMLElement>('.bh-input-tile-length');
@@ -209,8 +209,8 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		assert.deepStrictEqual({ names, calls, picking, readOnly: drawn(row) }, {
 			names: [['Pick on Canvas', 'Pick on Canvas'], ['Import File…', 'Import File…']],
 			calls: ['pick', 'import'],
-			picking: ['tile shots/start.png · number 1 · mark Start · remove · name', 'hint Click cards on the canvas. Escape or Done ends.', 'pick (highlighted)', 'import'],
-			readOnly: ['tile shots/start.png · number 1 · mark Start']
+			picking: ['tile shots/start.png · mark Start · remove · name', 'hint Click cards on the canvas. Escape or Done ends.', 'pick (highlighted)', 'import'],
+			readOnly: ['tile shots/start.png · mark Start']
 		});
 	});
 
@@ -219,8 +219,8 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		const style = mainWindow.document.createElement('style');
 		style.textContent = '.bh-input-row-list { position: relative; display: flex; gap: 6px; align-items: center; } .bh-input-row-list > * { position: relative; width: 48px; height: 48px; flex: none; box-sizing: border-box; }';
 		container.append(style);
-		const image = () => tile('shots/a.png', { number: 1, label: '图片1', file: URI.file('/work/shots/a.png') });
-		const other = tile('shots/b.png', { number: 2, label: '图片2', file: URI.file('/work/shots/b.png') });
+		const image = () => tile('shots/a.png', { label: '图片1', file: URI.file('/work/shots/a.png') });
+		const other = tile('shots/b.png', { label: '图片2', file: URI.file('/work/shots/b.png') });
 		const row = create({ tiles: [image(), other], editable: true });
 		const tileOf = (path: string) => row.element.querySelector<HTMLElement>(`.bh-input-tile[data-path="${path}"]`)!;
 		const looks = () => [...layer.querySelectorAll('.bh-input-look')];
@@ -251,13 +251,13 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		});
 	});
 
-	test('read only, the row has no buttons, cross, @, or swap, and its tiles still show their numbers', () => {
+	test('read only, the row has no buttons, cross, @, or swap, and no tile has a number (D71)', () => {
 		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP], editable: false });
 		assert.deepStrictEqual(drawn(row), [
-			'tile shots/start.png · number 1 · mark Start',
+			'tile shots/start.png · mark Start',
 			'arrow',
-			'tile shots/end.png · number 2 · mark End',
-			'tile shots/clip.mp4 · number 1 · dimmed'
+			'tile shots/end.png · mark End',
+			'tile shots/clip.mp4 · dimmed'
 		]);
 	});
 
@@ -269,8 +269,8 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 
 	test('on a focused tile, Delete removes it, Enter names it, and Alt+arrows move it one place', () => {
-		const a = tile('shots/a.png', { number: 1, label: '图片1' });
-		const b = tile('shots/b.png', { number: 2, label: '图片2' });
+		const a = tile('shots/a.png', { label: '图片1' });
+		const b = tile('shots/b.png', { label: '图片2' });
 		const row = create({ tiles: [a, b, CLIP], editable: true });
 		const tiles = [...row.element.querySelectorAll('.bh-input-tile')] as HTMLElement[];
 		const key = (target: HTMLElement, init: KeyboardEventInit) => target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
@@ -310,7 +310,7 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 	});
 
 	test('a drag moves a tile among the other inputs; a press that hardly moves is a click; a dragged frame swaps the frames', () => {
-		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP, NOTE, tile('shots/c.png', { number: 3, label: '图片3' })], editable: true });
+		const row = create({ frames: [{ role: 'start', tile: START, addLabel: '' }, { role: 'end', tile: END, addLabel: '' }], canSwap: true, tiles: [CLIP, NOTE, tile('shots/c.png', { label: '图片3' })], editable: true });
 		layOut(row);
 		const tiles = [...row.element.querySelectorAll('.bh-input-tile')] as HTMLElement[];
 		const left = (element: HTMLElement) => element.getBoundingClientRect().left;

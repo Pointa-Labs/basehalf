@@ -356,22 +356,19 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 
 	/**
 	 * The inputs it was made from, as the tiles of a draft's input row (D68):
-	 * the frames first, with the numbers of their names and the marks of the
-	 * mode that made it, read only. An input that is gone shows its glyph, and
-	 * its look says so.
+	 * the frames first, with the marks of the mode that made it, read only. An
+	 * input that is gone shows its glyph, and its look says so.
 	 */
 	private inputRowModel(presentation: IBaseHalfGenerationRecordPresentation): IBaseHalfInputRowModel | undefined {
 		if (!presentation.inputs.length) {
 			return undefined;
 		}
-		const ordinals = baseHalfInputNameOrdinals(presentation.inputs);
 		const tile = (item: IBaseHalfGenerationRecordInput): IBaseHalfInputTile => {
 			const file = item.gone ? undefined : this.inputs[item.index]?.file;
-			const number = ordinals[item.index];
 			return Object.freeze({
 				path: item.path,
 				kind: item.kind,
-				...(item.label !== undefined && number !== undefined ? { label: item.label, number } : {}),
+				...(item.label !== undefined ? { label: item.label } : {}),
 				fileName: baseHalfVideoPanelInputFileName(item.path),
 				...(file ? { file } : {}),
 				dimmed: item.gone,

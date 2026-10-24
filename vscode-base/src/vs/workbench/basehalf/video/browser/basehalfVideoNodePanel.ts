@@ -875,15 +875,13 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (!presentation || !row) {
 			return undefined;
 		}
-		const ordinals = baseHalfInputNameOrdinals(presentation.plan);
 		const tile = (item: IBaseHalfVideoPanelInputItem, frame?: 'start' | 'end'): IBaseHalfInputTile => {
 			const input = this.inputs[item.index];
 			const file = input?.available ? input.file : undefined;
-			const number = ordinals[item.index];
 			return Object.freeze({
 				path: item.path,
 				kind: item.kind,
-				...(item.label !== undefined && number !== undefined ? { label: item.label, number } : {}),
+				...(item.label !== undefined ? { label: item.label } : {}),
 				fileName: item.fileName,
 				...(file ? { file } : {}),
 				dimmed: !item.used,

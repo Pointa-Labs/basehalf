@@ -168,8 +168,9 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			height: panel.height
 		}, {
 			state: 'ready',
+			// Named in their looks and to a screen reader; no tile has a number (D71).
 			inputs: ['Image 1, Start, a.png', 'Image 2, End, b.png, Not there any more.'],
-			numbers: ['1', '2'],
+			numbers: [undefined, undefined],
 			gone: [false, true],
 			controls: 0,
 			prompt: ['Image 1 rides along the sea to Image 2.'],

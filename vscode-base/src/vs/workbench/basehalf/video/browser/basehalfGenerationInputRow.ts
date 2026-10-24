@@ -19,9 +19,7 @@ export interface IBaseHalfInputTile {
 	/** The upstream entry: who the input is. */
 	readonly path: string;
 	readonly kind: BaseHalfVideoInputKind;
-	/** The number of its name, `1` for 图片1; absent for an input without a name. */
-	readonly number?: number;
-	/** Its name, such as 图片1; absent for an input without a name. */
+	/** Its name, such as 图片1, which its look says; absent for an input without a name. A tile shows no number (D71). */
 	readonly label?: string;
 	/** The name of its file, as BaseHalf shows names. */
 	readonly fileName: string;
@@ -97,11 +95,11 @@ const LOOK_MARGIN = 12;
  * The input row of a generation card's panel (generation cards, "The panel",
  * D68): the card's connections as tiles, in the order of its list, and at its
  * right end, the panel's top right, Pick on Canvas and Import File… (D71). A
- * tile shows the input's picture, the number of its name, and on a frame its
- * mark; pointing at it shows a larger look above it, a cross that removes the
- * connection, and an `@` that puts its name into the prompt; a drag moves it
- * in the list. The row is read only for a card that generates and for the
- * panel of a card with its file.
+ * tile shows the input's picture and on a frame its mark, and no number;
+ * pointing at it shows a larger look above it with its name, a cross that
+ * removes the connection, and an `@` that puts its name into the prompt; a
+ * drag moves it in the list. The row is read only for a card that generates
+ * and for the panel of a card with its file.
  */
 export class BaseHalfGenerationInputRow extends Disposable {
 
@@ -299,9 +297,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			const key = pictureKey(tile);
 			this.lengthLabels.set(key, { tile: element, label, data: tile });
 			this.showLength(key);
-		}
-		if (tile.number !== undefined) {
-			append(element, $('span.bh-input-tile-number')).textContent = String(tile.number);
 		}
 		if (tile.frame) {
 			append(element, $('span.bh-input-tile-mark')).textContent = frameMark(tile.frame);
