@@ -2819,3 +2819,58 @@ its own background work there.
   provider service, with the session that every window uses.
 - A release builds no AI Video of its own, and the check of a packaged
   layout no longer looks for it.
+
+## D80 — A connection pulled off a card and let go on empty canvas is removed, and a marquee over connections alone selects them (NEW, 2026-10-25)
+
+**Decision.** A connection whose end is dragged away from its card and let
+go on empty canvas is removed, as Delete removes it, in one step of undo.
+Let go on a side of a card it can connect to, it is reconnected there, as
+before; let go anywhere else, or cancelled, it goes back. A marquee that
+touches a card still selects only cards. A marquee that touches no card
+selects every connection whose line it crosses, and Delete then removes all
+of them in one step of undo. Cards and connections are still never selected
+together. See
+[canvas connection handles](specs/canvas-connection-handles.md#dragging-an-end-of-a-connection)
+and [canvas selection and arrangement](specs/canvas-selection-and-arrangement.md#the-marquee).
+
+**Why.** The user reported both on 2026-10-25. A line that was pulled off
+its card came back when it was let go, so the only way to remove it was to
+select it and press Delete; and no marquee could select a line, so several
+lines had to be removed one by one. The user judged that a line that is let
+go should disappear.
+
+Six node editors whose behavior was read for this remove a link whose end is
+let go on empty space; one of them first opens a menu and removes the link
+when the menu closes without a choice. The canvas library's own example
+does the same. Whiteboards keep the arrow with a free end, which a
+connection cannot have: it is an entry in the downstream card's upstream
+list. The two canvas products of the same kind that BaseHalf follows let no
+end of a connection be dragged at all, and remove a selected line with a
+button on it or with Delete.
+
+The two products differ on the marquee. The first selects every connection
+its marquee crosses when the marquee touches no card, and only cards
+otherwise. The second selects a connection together with its two cards when
+both are in the marquee, and nothing when only connections are. The user
+chose the first: it is the only one that lets a marquee select lines, and it
+keeps D52's one state for one selection.
+
+**What was set aside.**
+- Opening the Create from Connection menu when a pulled-off end is let go,
+  as a new connection does. The user asked for the line to disappear, and a
+  node editor that opens its menu for a new link keeps it closed for a link
+  that is pulled off an input for the same reason.
+- Keeping a connection when its end is let go, with a free end: an entry has
+  two ends by what it is.
+- Selecting a connection together with the cards at its ends.
+
+**Consequences.**
+- Revises D52: a marquee selects no connection only while it touches a card,
+  and the selection holds one or more connections instead of one.
+- Delete, and Disconnect in the context menu of a selected connection, act on
+  every selected connection. The lines that end at one card are removed from
+  its list in one write, and a connection that cannot change, such as an
+  input of a generation card with its file, stays and says why while the
+  others are removed.
+- A connection that is pulled off and let go is a disconnect like any other:
+  the same refusals, the same undo, the same kept anchor row.
