@@ -13,6 +13,7 @@ import {
 	assertCanvasNewFilesGoToTheEnd,
 	assertCanvasNumericFolderNames
 } from './areas/canvas/creation.mts';
+import { assertDocumentCardsShowCovers, assertDocumentCoverHidesAndShows } from './areas/canvas/documents.mts';
 import { assertCanvasEdgeFollowsCardDragLive, assertCanvasEdgeHalfReconnect, assertEdgeDeleteRemovesReference, assertEdgeDeleteScopedToCanvas } from './areas/canvas/edges.mts';
 import { assertCanvasCardFollowsOutsideRename, assertCanvasCardsFollowManyOutsideRenames, assertCanvasFollowsRenamedOpenFolder } from './areas/canvas/followRenames.mts';
 import { assertCanvasInlineRename } from './areas/canvas/names.mts';
@@ -36,6 +37,7 @@ import {
 	assertSourceCardSaveActionHidden,
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
+import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import {
 	assertMarkdownRichBlockMenuPortal,
 	assertMarkdownRichBlockquoteEditable,
@@ -144,7 +146,7 @@ async function runWorkbenchSuite(page) {
 	await step('settings-about-page', () => assertBaseHalfAboutPage(page));
 }
 
-/** The canvas: creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, and snapping. */
+/** The canvas: creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, snapping, and the covers of PDFs and books. */
 async function runCanvasSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
@@ -178,9 +180,11 @@ async function runCanvasSuite(page) {
 	await step('canvas-selection-and-arrangement', () => assertCanvasSelectionAndArrangement(page));
 	await step('agent-sees-selection', () => assertAgentSeesSelection(page));
 	await step('note-that-cannot-hold-a-list', () => assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page));
+	await step('canvas-document-cards-show-covers', () => assertDocumentCardsShowCovers(page));
+	await step('canvas-document-cover-hides-and-shows', () => assertDocumentCoverHidesAndShows(page));
 }
 
-/** Card Detail and its projections: the rich Markdown editor, source, media, and PDF; back and forward from it. */
+/** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; back and forward from it. */
 async function runCardDetailSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
@@ -229,6 +233,11 @@ async function runCardDetailSuite(page) {
 	await step('pdf-card-detail-projection', () => assertPdfCardDetail(page));
 	await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
 	await step('pdf-grow-three-branches', () => assertPdfGrowsThreeBranches(page));
+	await step('quick-open-book', () => quickOpen(page, 'primer.epub'));
+	await step('book-card-detail', () => assertBookCardDetail(page));
+	await step('book-no-editor-tab', () => assertNoEditorTabFor(page, 'primer.epub'));
+	await step('book-turns-pages', () => assertBookTurnsPages(page));
+	await step('book-grows-branch', () => assertBookGrowsBranch(page));
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	await step('card-detail-rename-is-canvas-undo', () => assertCardDetailRenameIsCanvasUndo(page));
 }

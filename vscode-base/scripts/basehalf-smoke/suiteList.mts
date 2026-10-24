@@ -10,8 +10,8 @@
 
 export const SUITE_LIST = [
 	{ name: 'workbench', description: 'The window at startup, the surfaces BaseHalf hides, the Agent Area, Source Control, and Settings.' },
-	{ name: 'canvas', description: 'The canvas: creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, and snapping.' },
-	{ name: 'cardDetail', description: 'Card Detail and its projections: the rich Markdown editor, source, media, and PDF; back and forward from it.' },
+	{ name: 'canvas', description: 'The canvas: creating, editing Notes, renaming, cards that follow renames, connections, badges, selection, zoom, snapping, and the covers of PDFs and books.' },
+	{ name: 'cardDetail', description: 'Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; back and forward from it.' },
 	{ name: 'navigation', description: 'Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace.' },
 	{ name: 'video', description: 'Generation cards of images and videos: drafts, the panel, generations against the local test provider, Providers, the starter template, and Sequence.' },
 	{ name: 'plugin', description: 'The lifecycle of a reviewed external plugin, refused while the plugin platform is frozen. Only when asked.', onlyWhenAsked: true }

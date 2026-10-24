@@ -10,6 +10,7 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import zlib from 'zlib';
 import { extensionsDir, opts, workspacePath } from './context.mts';
 
 export const FAR_FIXTURE_CONTENT = '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n';
@@ -82,6 +83,7 @@ export function createFixtureWorkspace(workspace) {
 		''
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'textbook.pdf'), createMinimalPdfFixture());
+	fs.writeFileSync(path.join(workspace, 'docs', 'primer.epub'), createMinimalEpubFixture());
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'far.md'), FAR_FIXTURE_CONTENT, 'utf8');
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'README.md'), { recursive: true });
@@ -254,4 +256,91 @@ export function createMinimalPdfFixture() {
 	}
 	body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 	return Buffer.from(body, 'binary');
+}
+
+export const EPUB_FIXTURE_PASSAGE = 'The smoke passage begins here. It goes on long enough to be selected as a whole.';
+
+/** An EPUB 3 of two chapters, with a table of contents and a cover picture. */
+export function createMinimalEpubFixture() {
+	const page = (title, body) => `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>${title}</title></head><body><h1>${title}</h1>${body}</body></html>\n`;
+	return createStoredZip([
+		['mimetype', 'application/epub+zip'],
+		['META-INF/container.xml', '<?xml version="1.0" encoding="UTF-8"?>\n<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>\n'],
+		['OEBPS/content.opf', [
+			'<?xml version="1.0" encoding="UTF-8"?>',
+			'<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">',
+			'<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:basehalf-smoke-primer</dc:identifier><dc:title>A Smoke Primer</dc:title><dc:creator>BaseHalf Smoke</dc:creator><dc:language>en</dc:language><meta property="dcterms:modified">2026-10-25T00:00:00Z</meta></metadata>',
+			'<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/></manifest>',
+			'<spine><itemref idref="one"/><itemref idref="two"/></spine>',
+			'</package>',
+			''
+		].join('\n')],
+		['OEBPS/nav.xhtml', '<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="one.xhtml">Chapter One</a></li><li><a href="two.xhtml">Chapter Two</a></li></ol></nav></body></html>\n'],
+		['OEBPS/one.xhtml', page('Chapter One', `<p id="smoke-passage">${EPUB_FIXTURE_PASSAGE}</p>`)],
+		['OEBPS/two.xhtml', page('Chapter Two', '<p>The second chapter.</p>')],
+		['OEBPS/cover.png', createSolidPng(30, 40, [0x2f, 0x6f, 0xb3])]
+	]);
+}
+
+/** A zip archive whose entries are stored, not deflated, in the given order. */
+function createStoredZip(entries) {
+	const locals = [];
+	const centrals = [];
+	let offset = 0;
+	for (const [name, content] of entries) {
+		const data = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+		const fileName = Buffer.from(name, 'utf8');
+		const crc = zlib.crc32(data);
+		const local = Buffer.alloc(30);
+		local.writeUInt32LE(0x04034b50, 0);
+		local.writeUInt16LE(20, 4);
+		local.writeUInt32LE(crc, 14);
+		local.writeUInt32LE(data.length, 18);
+		local.writeUInt32LE(data.length, 22);
+		local.writeUInt16LE(fileName.length, 26);
+		const central = Buffer.alloc(46);
+		central.writeUInt32LE(0x02014b50, 0);
+		central.writeUInt16LE(20, 4);
+		central.writeUInt16LE(20, 6);
+		central.writeUInt32LE(crc, 16);
+		central.writeUInt32LE(data.length, 20);
+		central.writeUInt32LE(data.length, 24);
+		central.writeUInt16LE(fileName.length, 28);
+		central.writeUInt32LE(offset, 42);
+		locals.push(local, fileName, data);
+		centrals.push(central, fileName);
+		offset += local.length + fileName.length + data.length;
+	}
+	const directory = Buffer.concat(centrals);
+	const end = Buffer.alloc(22);
+	end.writeUInt32LE(0x06054b50, 0);
+	end.writeUInt16LE(entries.length, 8);
+	end.writeUInt16LE(entries.length, 10);
+	end.writeUInt32LE(directory.length, 12);
+	end.writeUInt32LE(offset, 16);
+	return Buffer.concat([...locals, directory, end]);
+}
+
+/** A PNG of one color. */
+function createSolidPng(width, height, [red, green, blue]) {
+	const chunk = (type, data) => {
+		const length = Buffer.alloc(4);
+		length.writeUInt32BE(data.length);
+		const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+		const crc = Buffer.alloc(4);
+		crc.writeUInt32BE(zlib.crc32(body));
+		return Buffer.concat([length, body, crc]);
+	};
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(width, 0);
+	header.writeUInt32BE(height, 4);
+	header[8] = 8;
+	header[9] = 2;
+	const row = Buffer.concat([Buffer.from([0]), Buffer.from(new Array(width).fill([red, green, blue]).flat())]);
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk('IHDR', header),
+		chunk('IDAT', zlib.deflateSync(Buffer.concat(new Array(height).fill(row)))),
+		chunk('IEND', Buffer.alloc(0))
+	]);
 }
