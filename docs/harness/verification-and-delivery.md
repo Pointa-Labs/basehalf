@@ -133,6 +133,29 @@ Package-specific work should run that package's lint, typecheck, and test
 scripts in addition to any cross-package acceptance checks defined by the
 owning specification.
 
+GitHub CI checks the historical pnpm workspace under `packages/`, the action
+pins of the workflows, and `infrastructure/`. It builds nothing of
+`vscode-base/`. A change to `packages/`, `pnpm-lock.yaml`,
+`pnpm-workspace.yaml`, `.github/workflows/`, or `infrastructure/` runs what CI
+runs before the push:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm -r --workspace-concurrency=1 typecheck
+pnpm -r build
+pnpm -r test
+pnpm -r --if-present lint
+node vscode-base/scripts/basehalf-workflow-action-pins.mts
+terraform fmt -check -recursive infrastructure/plugins
+```
+
+CI also runs the tests on Node 24, validates the Terraform configuration, and
+checks the licenses of the workspace's production dependencies
+(`license-check.yml`). A package's tests read only the files of their own
+package and the files they write. CI starts from a fresh checkout, so a test
+that reads `vscode-base/` passes where `vscode-base/` is built and fails in
+CI: from 2026-08-24 to 2026-10-24, every CI run failed on tests of this kind.
+
 ## Before commit
 
 - Review the diff for accidental generated files, workspace initialization,
@@ -154,6 +177,9 @@ review because there is no PR-time review gate on this path.
 `.github/workflows/maintainer-fastlane.yml` satisfies the `CLAAssistant` check
 for allowlisted direct pushes. CI still runs on `main`, but it cannot block a
 change that has already landed, so the quality gate belongs before the push.
+After a push, read CI's result for the pushed commit
+(`gh run list --commit <sha>`). CI is the only check of a fresh checkout, and
+on this path nobody else sees its result. A red run is fixed before other work.
 
 Committing locally does not imply permission to push. Push only when the user or
 maintainer has requested it.
