@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { checkCounts, checkLimits, checkParams, checkPrompt, measureItems, resolveParams } from '../src/providers/check.ts';
+import { checkCounts, checkLimits, checkParams, checkPrompt, fitParams, keptLimits, measureItems, resolveParams } from '../src/providers/check.ts';
 import { ProviderFailure } from '../src/providers/failure.ts';
 import { bufferSource, createMediaInspector, dataUrlOf, imageFormatOf, measure, plannedItems, readMedia } from '../src/providers/media.ts';
 import type { CatalogModel, Media, PlannedMedia } from '../src/providers/types.ts';
@@ -170,4 +170,29 @@ test('the inputs a mode takes, the prompt rule, and the parameter values are che
 	assert.deepEqual(checkParams(MODEL, REFERENCE, { duration: -1 }), []);
 	assert.deepEqual(resolveParams(MODEL, 'reference', { duration: 8 }), { resolution: '720p', duration: 8, ratio: '16:9' });
 	assert.deepEqual(resolveParams(MODEL, 'frames', { seed: 3 }), { resolution: '720p', duration: 5, seed: 3 });
+});
+
+test('a value beyond a limit is fitted to its end on the parameter\'s steps; Auto and a value inside are kept; only a limit that can be used is kept (D70)', () => {
+	const limits = keptLimits(MODEL, { duration: { max: 9.5, reason: ' Room. ' }, ratio: { max: 1, reason: 'Not a number.' }, seed: { min: 3, max: 2, reason: 'No room.' } });
+	const tenths = { ...MODEL, parameters: [{ name: 'strength', label: 'Strength', kind: 'number', min: 0, max: 1, step: 0.1, default: 0.5 }] } as CatalogModel;
+	assert.deepEqual({
+		limits,
+		over: fitParams(MODEL, { duration: 12 }, limits),
+		inside: fitParams(MODEL, { duration: 6 }, limits),
+		auto: fitParams(MODEL, { duration: -1 }, limits),
+		byDefault: fitParams(MODEL, {}, keptLimits(MODEL, { duration: { max: 4, reason: 'Short.' } })),
+		under: fitParams(MODEL, { duration: 4 }, keptLimits(MODEL, { duration: { min: 6.2, reason: 'Long.' } })),
+		// On the steps without their sum's error: 0.3, not 0.30000000000000004.
+		tenths: fitParams(tenths, { strength: 0.1 }, keptLimits(tenths, { strength: { min: 0.25, reason: 'Strong.' } })),
+		none: fitParams(MODEL, { duration: 12 }, undefined)
+	}, {
+		limits: { duration: { max: 9.5, reason: 'Room.' } },
+		over: { duration: 9 },
+		inside: { duration: 6 },
+		auto: { duration: -1 },
+		byDefault: { duration: 4 },
+		under: { duration: 7 },
+		tenths: { strength: 0.3 },
+		none: { duration: 12 }
+	});
 });

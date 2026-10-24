@@ -48,6 +48,7 @@ const CLIPS = [
 	file('take.mov', isoMedia(4.5, { brand: 'qt  ' }), 'video/quicktime')
 ];
 const SOURCE = file('source.mp4', isoMedia(12), 'video/mp4');
+const LONG_SOURCE = file('long-source.mp4', isoMedia(30), 'video/mp4');
 
 const KEY = 'pixverse-test-key-0001';
 const PROMPT = 'A paper lantern drifts over a night market.';
@@ -339,6 +340,11 @@ test('each mode of each model uploads its inputs, then is created once at its en
 				mediaUpload(CLIPS[0], 'reference-video-1.mp4', 'video/mp4'),
 				create('fusion', { model: 'v6', prompt: PROMPT, duration: 0, quality: '720p', aspect_ratio: '21:9', video_references: [{ video_media_id: 201 }], reference_mode: 'omni', generate_audio_switch: false })
 			]
+		},
+		{
+			// The 30-second source leaves room for 10 seconds: 12 are fitted to them (D70).
+			model: 'pixverse-v6', mode: 'extend', params: { resolution: '1080p', duration: 12 }, inputs: { source: LONG_SOURCE },
+			sent: () => [mediaUpload(LONG_SOURCE, 'source-video.mp4', 'video/mp4'), create('extend', { model: 'v6', prompt: PROMPT, duration: 10, quality: '1080p', video_media_id: 201 })]
 		},
 		{
 			// Video Extend takes neither a ratio nor a sound setting.
@@ -811,6 +817,7 @@ test('check refuses what PixVerse cannot take, and submit then uploads and sends
 		const long = [file('nine.mp4', isoMedia(9), 'video/mp4'), file('seven.mp4', isoMedia(7), 'video/mp4')];
 		const thirty = file('thirty.mp4', isoMedia(30), 'video/mp4');
 		const thirtyOne = file('thirty-one.mp4', isoMedia(31), 'video/mp4');
+		const forty = file('forty.mp4', isoMedia(39.5), 'video/mp4');
 		const webm = file('clip.webm', Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0xf7, 0x81]), 'video/webm');
 		// Every input measured from a table: a reference video larger than AI Video uploads.
 		const facts: Readonly<Record<string, MediaFacts>> = {
@@ -827,9 +834,11 @@ test('check refuses what PixVerse cannot take, and submit then uploads and sends
 			unreadableVideo: await withFiles('pixverse-v6', 'reference', {}, { videos: [webm] }),
 			longSource: await withFiles('pixverse-v6', 'extend', {}, { source: thirtyOne }),
 			extendedTooFar: await withFiles('pixverse-v6', 'extend', { duration: 11 }, { source: thirty }),
+			extendedTooFarLimits: value(await providers.check(generation(server.url, 'pixverse-v6', 'extend', { duration: 11 }, { source: thirty }))).limits,
 			extendedToForty: await withFiles('pixverse-v6', 'extend', { duration: 10 }, { source: thirty }),
+			noRoom: await withFiles('pixverse-v6', 'extend', { duration: 5 }, { source: forty }),
 			largeVideo: await withFiles('pixverse-v6', 'reference', {}, { images: REFERENCES.slice(0, 1), videos: CLIPS.slice(0, 1) }, measured),
-			submitted: error(await providers.submit(generation(server.url, 'pixverse-v6', 'extend', { duration: 11 }, { source: thirty }))),
+			submitted: error(await providers.submit(generation(server.url, 'pixverse-v6', 'extend', { duration: 5 }, { source: thirtyOne }))),
 			ruleSubmitted: error(await providers.submit(generation(server.url, 'pixverse-v5.6', 'frames', { duration: 10, resolution: '1080p' }, { startFrame: START })))
 		};
 		assert.deepEqual({ outcomes, sent: server.received.length }, {
@@ -839,10 +848,17 @@ test('check refuses what PixVerse cannot take, and submit then uploads and sends
 				longVideos: ['The videos are 16 seconds long together; at most 15 seconds are allowed.'],
 				unreadableVideo: ['Reference video 1 clip.webm is not a video whose length AI Video can read (MP4 or MOV).'],
 				longSource: ['The videos are 31 seconds long together; at most 30 seconds are allowed.'],
-				extendedTooFar: ['The source video is 30 seconds long and 11 seconds are to be added; PixVerse makes at most 40 seconds in all. Choose a shorter duration.'],
+				// Fitted to the room the source leaves (D70).
+				extendedTooFar: [],
+				extendedTooFarLimits: { duration: { max: 10, reason: 'The source video lasts 30 seconds, and PixVerse makes at most 40 seconds in all.' } },
 				extendedToForty: [],
+				// No duration fits: the source alone is nearly 40 seconds, and longer than a source may be.
+				noRoom: [
+					'The videos are 39.5 seconds long together; at most 30 seconds are allowed.',
+					'The source video lasts 39.5 seconds, and PixVerse makes at most 40 seconds in all, which leaves no room to extend it. Choose a shorter source video.'
+				],
 				largeVideo: ['Reference video 1 clip.mp4 is 130 MiB; AI Video uploads at most 127.9 MiB in one request.'],
-				submitted: { code: 'rejected', message: 'The source video is 30 seconds long and 11 seconds are to be added; PixVerse makes at most 40 seconds in all. Choose a shorter duration.' },
+				submitted: { code: 'rejected', message: 'The videos are 31 seconds long together; at most 30 seconds are allowed.' },
 				ruleSubmitted: { code: 'rejected', message: 'At 1080p, PixVerse V5.6 makes videos of 5 or 8 seconds.' }
 			},
 			sent: 0

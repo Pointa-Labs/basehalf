@@ -798,7 +798,8 @@ test('check refuses what Alibaba Cloud cannot take: videos and audio outside Chi
 		chinaReference: [],
 		r2vNothing: ['Wan 2.7 in References mode needs at least one reference image or video.'],
 		r2vTooMany: ['Wan 2.7 in References mode takes at most 5 reference images and videos together; 6 are planned.'],
-		r2vLongWithVideo: ['With a reference video, Wan 2.7 makes at most 10 seconds; choose 10 seconds or less.'],
+		// A range the inputs narrow is a limit, and the value is fitted to it (D70).
+		r2vLongWithVideo: [],
 		r2vLongWithImages: [],
 		r2vWithoutPrompt: ['Write a prompt: Wan 2.7 needs one in References mode.'],
 		happyHorseReferencesWithoutPrompt: ['Write a prompt: HappyHorse 1.1 needs one in References mode.'],
@@ -832,12 +833,47 @@ test('check refuses M4A audio, videos too long for the result, images too large 
 	assert.deepEqual({ ...results, heavy }, {
 		gif: ['The start frame moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
 		m4a: ['Reference audio 1 voice.m4a is M4A audio; Alibaba Cloud takes WAV or MP3.'],
-		tooLong: ['The video lasts 12 seconds and the result is to be 20 seconds, 32 in all; Wan 3.0 takes at most 30 seconds in all. Choose 18 seconds or less, or Auto.'],
-		twoTooLong: ['The videos last 8 seconds and the result is to be 25 seconds, 33 in all; Wan 3.0 takes at most 30 seconds in all. Choose 22 seconds or less, or Auto.'],
+		// Fitted to the room the videos leave (D70).
+		tooLong: [],
+		twoTooLong: [],
 		autoWithLong: [],
 		fits: [],
 		heavy: ['The images are 173.3 MiB together once encoded; AI Video sends at most 128 MiB in one request. Use fewer or smaller images.']
 	});
+});
+
+test('a duration beyond the room the inputs leave is a limit: check answers it with its reason, and submit sends the longest that fits (D70)', async () => {
+	const providers = commands();
+	const limitsOf = async (request: ReturnType<typeof checkRequest>) => {
+		const checked = value(await providers.check(request));
+		return { problems: checked.problems, limits: checked.limits };
+	};
+	const checks = {
+		oneVideo: await limitsOf(checkRequest('wan3.0', 'reference', { duration: 25 }, 'Like Video 1.', { videos: [video(LONG_CLIP)] })),
+		twoVideos: await limitsOf(checkRequest('wan3.0', 'reference', { duration: 5 }, 'Like Video 1 and Video 2.', { videos: [video(CLIP), video(CLIP)] })),
+		auto: await limitsOf(checkRequest('wan3.0', 'reference', { duration: -1 }, 'Like Video 1.', { videos: [video(LONG_CLIP)] })),
+		noVideo: await limitsOf(checkRequest('wan3.0', 'reference', { duration: 30 }, 'Like Image 1.', plannedFiles({ images: 1 }))),
+		wan27: await limitsOf(checkRequest('wan2.7', 'reference', { duration: 12 }, 'p', plannedFiles({ videos: 1 })))
+	};
+	const provider = await startProvider();
+	try {
+		value(await providers.submit(submitRequest(provider.api.url, 'wan3.0', 'reference', { resolution: '720p', duration: 25 }, 'Like Video 1.', { videos: [video(LONG_CLIP)] })));
+		value(await providers.submit(submitRequest(provider.api.url, 'wan3.0', 'reference', { resolution: '720p', duration: -1 }, 'Like Video 1.', { videos: [video(LONG_CLIP)] })));
+		const sent = creates(provider).map(request => (bodyOf(request) as { parameters: { duration: number } }).parameters.duration);
+		assert.deepEqual({ checks, sent }, {
+			checks: {
+				oneVideo: { problems: [], limits: { duration: { max: 18, reason: 'The connected video lasts 12 seconds, and Wan 3.0 makes at most 30 seconds with it.' } } },
+				twoVideos: { problems: [], limits: { duration: { max: 22, reason: 'The connected videos last 8 seconds, and Wan 3.0 makes at most 30 seconds with them.' } } },
+				auto: { problems: [], limits: { duration: { max: 18, reason: 'The connected video lasts 12 seconds, and Wan 3.0 makes at most 30 seconds with it.' } } },
+				noVideo: { problems: [], limits: undefined },
+				wan27: { problems: [], limits: { duration: { max: 10, reason: 'With a reference video, Wan 2.7 makes at most 10 seconds.' } } }
+			},
+			// Auto is left to the model.
+			sent: [18, -1]
+		});
+	} finally {
+		await provider.close();
+	}
 });
 
 test('a submit that check refuses sends nothing, also outside China', async () => {

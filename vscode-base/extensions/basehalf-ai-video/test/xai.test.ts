@@ -593,7 +593,10 @@ test('check reports the rules between settings and inputs that the declarations 
 		extendTen: await problems(CLASSIC, 'extend', { duration: 10 }, plannedFiles({ source: true })),
 		textWithoutPrompt: await problems(CLASSIC, 'frames', {}, plannedFiles(), ''),
 		startFrameWithoutPrompt: await problems(CLASSIC, 'frames', {}, plannedFiles({ startFrame: true }), ''),
-		sameModelId: Object.hasOwn(await answer(V15, 'reference', {}, plannedFiles({ images: 1 })), 'providerModel')
+		sameModelId: Object.hasOwn(await answer(V15, 'reference', {}, plannedFiles({ images: 1 })), 'providerModel'),
+		referenceLimits: (await answer(CLASSIC, 'reference', { duration: 11 }, plannedFiles({ images: 3 }))).limits,
+		extendLimits: (await answer(CLASSIC, 'extend', { duration: 1 }, plannedFiles({ source: true }))).limits,
+		framesLimits: (await answer(CLASSIC, 'frames', {}, plannedFiles())).limits
 	}, {
 		endFrameAt1080p: ['Grok Imagine Video 1.5 makes a video from a start and an end frame at 480p or 720p.'],
 		endFrameAt720p: [],
@@ -605,20 +608,24 @@ test('check reports the rules between settings and inputs that the declarations 
 		liteEndFrame: ['Grok Imagine Video 1.5 Lite in Frames mode takes no end frame.'],
 		liteReferences: ['Grok Imagine Video 1.5 Lite has no reference mode.'],
 		classicAt1080p: ['Resolution cannot be 1080p for Grok Imagine Video; choose 480p, 720p.'],
-		classicReferences11: ['Grok Imagine Video makes a video from reference images of at most 10 seconds.'],
+		// Ranges the mode narrows are limits, and the value is fitted to them (D70).
+		classicReferences11: [],
 		classicReferences10: [],
 		eightReferences: ['Grok Imagine Video in References mode takes at most 7 reference images; 8 are planned.'],
 		classicReferencesWithoutPrompt: ['Write a prompt: Grok Imagine Video needs one in References mode.'],
 		editWithoutPrompt: ['Write a prompt: Grok Imagine Video needs one in Edit mode.'],
 		editWithDuration: ['Duration does not apply in Edit mode.'],
 		editWithoutClip: ['Grok Imagine Video in Edit mode needs a video to work on.'],
-		extendOneSecond: ['In Extend mode, Grok Imagine Video adds 2 to 10 seconds to the clip.'],
-		extendEleven: ['In Extend mode, Grok Imagine Video adds 2 to 10 seconds to the clip.'],
+		extendOneSecond: [],
+		extendEleven: [],
 		extendWithoutPrompt: ['Write a prompt: Grok Imagine Video needs one in Extend mode.'],
 		extendTen: [],
 		textWithoutPrompt: ['Write a prompt or connect an image: Grok Imagine Video needs one or the other.'],
 		startFrameWithoutPrompt: [],
-		sameModelId: false
+		sameModelId: false,
+		referenceLimits: { duration: { max: 10, reason: 'Grok Imagine Video makes a video from reference images of at most 10 seconds.' } },
+		extendLimits: { duration: { min: 2, max: 10, reason: 'In Extend mode, Grok Imagine Video adds 2 to 10 seconds to the clip.' } },
+		framesLimits: undefined
 	});
 });
 

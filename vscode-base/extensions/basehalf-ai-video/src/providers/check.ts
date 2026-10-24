@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describeBytes, plannedItems, type MediaFacts, type MediaInspector, type PlannedItem } from './media.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CheckLimit, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from './types.ts';
 
 /**
  * What every model is checked against before anything is sent, from its
@@ -67,6 +67,70 @@ export function resolveParams(model: CatalogModel, mode: ModeId, params: Params,
 		}
 	}
 	return resolved;
+}
+
+/**
+ * The limits a module answered that AI Video keeps: of a number parameter of
+ * the model, with a finite end, a reason, and room between its ends.
+ */
+export function keptLimits(model: CatalogModel, limits: unknown): Readonly<Record<string, CheckLimit>> | undefined {
+	if (typeof limits !== 'object' || limits === null) {
+		return undefined;
+	}
+	const kept: Record<string, CheckLimit> = {};
+	for (const [name, limit] of Object.entries(limits as Record<string, unknown>)) {
+		const parameter = model.parameters.find(candidate => candidate.name === name);
+		if (!parameter || (parameter.kind !== 'integer' && parameter.kind !== 'number') || typeof limit !== 'object' || limit === null) {
+			continue;
+		}
+		const { min, max, reason } = limit as { min?: unknown; max?: unknown; reason?: unknown };
+		const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+		if ((min !== undefined && !finite(min)) || (max !== undefined && !finite(max)) || (min === undefined && max === undefined)
+			|| typeof reason !== 'string' || !reason.trim() || (finite(min) && finite(max) && min > max)) {
+			continue;
+		}
+		kept[name] = { ...(finite(min) ? { min } : {}), ...(finite(max) ? { max } : {}), reason: reason.trim().slice(0, 500) };
+	}
+	return Object.keys(kept).length ? kept : undefined;
+}
+
+/**
+ * The parameters with every value beyond a limit fitted to it, the highest
+ * or the lowest it can take on the parameter's steps (D70). A value equal to
+ * the parameter's Auto, or not a number, is kept; a parameter left to its
+ * default is fitted when the default is beyond the limit. The window fits
+ * the same way (`fitBaseHalfVideoParams`).
+ */
+export function fitParams(model: CatalogModel, params: Params, limits: Readonly<Record<string, CheckLimit>> | undefined): Params {
+	if (!limits) {
+		return params;
+	}
+	let fitted: Record<string, ParamValue> | undefined;
+	for (const [name, limit] of Object.entries(limits)) {
+		const parameter = model.parameters.find(candidate => candidate.name === name);
+		if (!parameter || (parameter.kind !== 'integer' && parameter.kind !== 'number')) {
+			continue;
+		}
+		const value = Object.hasOwn(params, name) ? params[name] : parameter.default;
+		if (typeof value !== 'number' || (parameter.auto && value === parameter.auto.value)) {
+			continue;
+		}
+		// The ends the limit leaves on the parameter's steps, inside its declared range, without the
+		// error of adding steps (0.1 × 3 is not 0.3).
+		const onSteps = (end: number, round: (value: number) => number) => {
+			const step = parameter.step > 0 ? parameter.step : 1;
+			const steps = round(Number(((end - parameter.min) / step).toFixed(9)));
+			return Math.min(parameter.max, Math.max(parameter.min, Number((parameter.min + steps * step).toFixed(9))));
+		};
+		const max = limit.max === undefined ? undefined : onSteps(limit.max, Math.floor);
+		const min = limit.min === undefined ? undefined : onSteps(limit.min, Math.ceil);
+		const next = max !== undefined && value > max ? max : min !== undefined && value < min ? min : value;
+		if (next !== value) {
+			fitted ??= { ...params };
+			fitted[name] = next;
+		}
+	}
+	return fitted ?? params;
 }
 
 /** How many files a request with these resolved parameters may make: an image model's `count`, otherwise one. */

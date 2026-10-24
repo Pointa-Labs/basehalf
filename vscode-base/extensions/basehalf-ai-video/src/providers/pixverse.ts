@@ -14,6 +14,7 @@ import type {
 	CatalogModel,
 	CatalogParameter,
 	CatalogProvider,
+	CheckLimit,
 	CheckRequest,
 	CheckResult,
 	ModeId,
@@ -94,7 +95,8 @@ const TEXT = Object.freeze({
 	multiClipEndFrame: (label: string) => `${label} makes multiple clips only without an end frame. Turn Multi-clip off, or leave out the end frame.`,
 	noReferences: (label: string) => `${label} in References mode needs at least one reference image or video.`,
 	tooManyImages: (label: string, limit: number, planned: number) => `Without a reference video, ${label} takes at most ${limit} reference images; ${planned} are planned.`,
-	extendTooLong: (source: number, added: number, limit: number) => `The source video is ${seconds(source)} seconds long and ${added} seconds are to be added; PixVerse makes at most ${limit} seconds in all. Choose a shorter duration.`,
+	extendRoom: (source: number, limit: number) => `The source video lasts ${seconds(source)} seconds, and PixVerse makes at most ${limit} seconds in all.`,
+	extendNoRoom: (source: number, limit: number) => `The source video lasts ${seconds(source)} seconds, and PixVerse makes at most ${limit} seconds in all, which leaves no room to extend it. Choose a shorter source video.`,
 	videoTooLarge: (label: string, size: string, limit: string) => `${label} is ${size}; AI Video uploads at most ${limit} in one request.`,
 	wrongFormat: (label: string, kind: 'image' | 'video') => kind === 'image' ? `${label} is not a JPEG, PNG, or WebP image.` : `${label} is not an MP4 or MOV video.`,
 	noAudio: (label: string) => `PixVerse takes no audio in this mode: ${label}.`,
@@ -639,6 +641,21 @@ function stateOf(task: Record<string, unknown>): PollState {
 
 // --- checks -------------------------------------------------------------------------------------
 
+/**
+ * The ranges that the inputs narrow (D70): in Extend, the seconds that the
+ * source leaves room for. With no room at all, ruleProblems says so.
+ */
+function ruleLimits(model: PixVerseModel, request: CheckRequest, measured: readonly MeasuredItem[]): Record<string, CheckLimit> | undefined {
+	if (request.mode !== 'extend') {
+		return undefined;
+	}
+	const source = measured.find(item => item.slot === 'source')?.facts.seconds;
+	const longest = source === undefined ? undefined : Math.floor(EXTENDED_MAX_SECONDS + 0.05 - source);
+	return source !== undefined && longest !== undefined && longest >= model.duration.min
+		? { duration: { max: longest, reason: TEXT.extendRoom(source, EXTENDED_MAX_SECONDS) } }
+		: undefined;
+}
+
 /** The rules between parameters and inputs that the declarations cannot express (pixverse.md, "Rules between parameters and inputs"). */
 function ruleProblems(model: PixVerseModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
@@ -665,8 +682,9 @@ function ruleProblems(model: PixVerseModel, request: CheckRequest, counts: Plann
 	}
 	if (request.mode === 'extend') {
 		const source = measured.find(item => item.slot === 'source')?.facts.seconds;
-		if (source !== undefined && source + duration > EXTENDED_MAX_SECONDS + 0.05) {
-			problems.push(TEXT.extendTooLong(source, duration, EXTENDED_MAX_SECONDS));
+		// A duration beyond the room the source leaves is fitted to it (ruleLimits): this is the case of no room at all.
+		if (source !== undefined && source + model.duration.min > EXTENDED_MAX_SECONDS + 0.05) {
+			problems.push(TEXT.extendNoRoom(source, EXTENDED_MAX_SECONDS));
 		}
 	}
 	return problems;
@@ -698,7 +716,8 @@ export const PIXVERSE: ProviderModule = Object.freeze({
 		const counts = countsOf(request.inputs);
 		const measured = await measureItems(request.inputs, media);
 		const problems = [...ruleProblems(model, request, counts, measured), ...fileProblems(measured)];
-		return { problems };
+		const limits = ruleLimits(model, request, measured);
+		return { problems, ...(limits ? { limits } : {}) };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { isAbsolute } from 'node:path';
-import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, measureItems, outputCount, resolveParams } from './check.ts';
+import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, fitParams, keptLimits, measureItems, outputCount, resolveParams } from './check.ts';
 import { downloadAddress, downloadFile, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.ts';
 import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.ts';
 import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.ts';
@@ -118,7 +118,8 @@ export class VideoProviderCommands {
 			if (checked.problems.length) {
 				throw rejected(checked.problems[0]);
 			}
-			const params = resolveParams(resolved.model, request.mode, request.params, countsOf(request.inputs));
+			// What is sent is what was checked: a value beyond a limit is fitted to it (D70).
+			const params = resolveParams(resolved.model, request.mode, fitParams(resolved.model, request.params, checked.limits), countsOf(request.inputs));
 			const answersAtOnce = resolved.model.answersAtOnce === true;
 			if (answersAtOnce) {
 				const named = request.targets?.length ?? 0;
@@ -278,10 +279,16 @@ export class VideoProviderCommands {
 			return { problems: [...problems, ...parameterProblems] };
 		}
 		problems.push(...checkLimits(mode, await measureItems(request.inputs, inspector)));
-		const own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params, counts) }, inspector);
+		let own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params, counts) }, inspector);
+		// A value beyond a range the inputs narrow is fitted to it, and the rules are checked with it (D70).
+		const limits = keptLimits(model, own.limits);
+		const fitted = fitParams(model, request.params, limits);
+		if (fitted !== request.params) {
+			own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, fitted, counts) }, inspector);
+		}
 		const all = [...problems, ...own.problems];
 		const providerModel = typeof own.providerModel === 'string' && /^\S{1,256}$/.test(own.providerModel) ? { providerModel: own.providerModel } : {};
-		return { problems: all, ...providerModel };
+		return { problems: all, ...providerModel, ...(limits ? { limits } : {}) };
 	}
 
 	/** A module's state as the contract answers it: progress kept between 0 and 1, messages made plain, and outputs kept. */

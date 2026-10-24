@@ -14,6 +14,7 @@ import type {
 	CatalogModel,
 	CatalogParameter,
 	CatalogProvider,
+	CheckLimit,
 	CheckRequest,
 	CheckResult,
 	ChoiceParameter,
@@ -202,6 +203,8 @@ const MiB = 1024 * 1024;
 const WAN3_AUTO_DURATION = -1;
 const WAN3_SHORTEST_SECONDS = 2;
 const WAN3_LONGEST_SECONDS = 30;
+/** The longest Wan 2.7 References makes with a reference video. */
+const WAN27_LONGEST_WITH_VIDEO = 10;
 /** How far over the longest a measured sum may be, for the rounding of a measured length. */
 const WAN3_MEASURE_SLACK = 0.05;
 
@@ -555,15 +558,28 @@ function regionProblems(request: CheckRequest, counts: PlannedCounts): string[] 
 	return [];
 }
 
-/**
- * Why the videos and the result are too long together for Wan 3.0: how long
- * the videos are, the sum, and the longest duration that fits.
- */
-function wan3TooLong(label: string, videos: number, seconds: number, duration: number): string {
-	const length = videos === 1 ? `The video lasts ${formatSeconds(seconds)} seconds` : `The videos last ${formatSeconds(seconds)} seconds`;
-	const longest = Math.floor(WAN3_LONGEST_SECONDS + WAN3_MEASURE_SLACK - seconds);
-	const fix = longest >= WAN3_SHORTEST_SECONDS ? `Choose ${longest} seconds or less, or Auto.` : 'Choose Auto, or connect shorter videos.';
-	return `${length} and the result is to be ${duration} seconds, ${formatSeconds(seconds + duration)} in all; ${label} takes at most ${WAN3_LONGEST_SECONDS} seconds in all. ${fix}`;
+/** How long the connected videos are, as a limit's reason or a problem begins (alibaba.md, "Ranges that the inputs narrow"). */
+function wan3VideosLast(videos: number, seconds: number): string {
+	return videos === 1 ? `The connected video lasts ${formatSeconds(seconds)} seconds` : `The connected videos last ${formatSeconds(seconds)} seconds`;
+}
+
+/** The ranges that the inputs narrow (D70): the duration that Wan 3.0's videos and Wan 2.7's reference video leave room for. */
+function taskLimits(spec: ModelSpec, routed: Task, counts: PlannedCounts, measured: readonly MeasuredItem[]): Record<string, CheckLimit> {
+	const label = spec.model.label;
+	switch (routed.family) {
+		case 'wan3': {
+			const seconds = knownVideoSeconds(measured);
+			const longest = seconds === undefined ? undefined : Math.floor(WAN3_LONGEST_SECONDS + WAN3_MEASURE_SLACK - seconds);
+			if (seconds !== undefined && seconds > 0 && longest !== undefined && longest >= WAN3_SHORTEST_SECONDS) {
+				return { duration: { max: longest, reason: `${wan3VideosLast(counts.videos, seconds)}, and ${label} makes at most ${WAN3_LONGEST_SECONDS} seconds with ${counts.videos === 1 ? 'it' : 'them'}.` } };
+			}
+			return {};
+		}
+		case 'wan27-r2v':
+			return counts.videos > 0 ? { duration: { max: WAN27_LONGEST_WITH_VIDEO, reason: `With a reference video, ${label} makes at most ${WAN27_LONGEST_WITH_VIDEO} seconds.` } } : {};
+		default:
+			return {};
+	}
 }
 
 /** The total length of the measured videos, when every one is known. */
@@ -589,8 +605,9 @@ function taskProblems(spec: ModelSpec, routed: Task, request: CheckRequest, coun
 	switch (routed.family) {
 		case 'wan3': {
 			const seconds = knownVideoSeconds(measured);
+			// A duration beyond the room the videos leave is fitted to it (taskLimits): this is the case of no room at all.
 			if (typeof params.duration === 'number' && params.duration !== WAN3_AUTO_DURATION && seconds !== undefined && seconds > 0 && seconds + params.duration > WAN3_LONGEST_SECONDS + WAN3_MEASURE_SLACK) {
-				problems.push(wan3TooLong(label, counts.videos, seconds, params.duration));
+				problems.push(`${wan3VideosLast(counts.videos, seconds)}; ${label} makes at most ${WAN3_LONGEST_SECONDS} seconds with ${counts.videos === 1 ? 'it' : 'them'}, which leaves no room for a result. Leave out a video, or choose Auto.`);
 			}
 			break;
 		}
@@ -600,9 +617,6 @@ function taskProblems(spec: ModelSpec, routed: Task, request: CheckRequest, coun
 				problems.push(`${label} in ${mode} mode needs at least one reference image or video.`);
 			} else if (references > 5) {
 				problems.push(`${label} in ${mode} mode takes at most 5 reference images and videos together; ${references} are planned.`);
-			}
-			if (counts.videos > 0 && typeof params.duration === 'number' && params.duration > 10) {
-				problems.push(`With a reference video, ${label} makes at most 10 seconds; choose 10 seconds or less.`);
 			}
 			break;
 		}
@@ -1151,7 +1165,8 @@ export const ALIBABA: ProviderModule = Object.freeze({
 			...taskProblems(spec, routed, request, counts, measured),
 			...formatProblems(measured)
 		];
-		return { problems, providerModel: routed.id };
+		const limits = taskLimits(spec, routed, counts, measured);
+		return { problems, providerModel: routed.id, ...(Object.keys(limits).length ? { limits } : {}) };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string | AnsweredAtOnce> {

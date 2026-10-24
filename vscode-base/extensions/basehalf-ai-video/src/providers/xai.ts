@@ -13,6 +13,7 @@ import type {
 	CatalogModel,
 	CatalogParameter,
 	CatalogProvider,
+	CheckLimit,
 	CheckRequest,
 	CheckResult,
 	ModeId,
@@ -616,22 +617,28 @@ function readXaiError(status: number, body: unknown): ProviderErrorReading | und
 
 // --- checks -------------------------------------------------------------------------------------
 
+/** The ranges that the mode narrows (D70): the length of a video from reference images, and the seconds Extend adds. */
+function ruleLimits(model: XaiModel, request: CheckRequest): Record<string, CheckLimit> | undefined {
+	const label = labelOf(model);
+	if (model.referenceMaxSeconds !== undefined && request.mode === 'reference') {
+		return { duration: { max: model.referenceMaxSeconds, reason: `${label} makes a video from reference images of at most ${model.referenceMaxSeconds} seconds.` } };
+	}
+	if (request.mode === 'extend') {
+		return { duration: { min: EXTEND_ADDED_SECONDS[0], max: EXTEND_ADDED_SECONDS[1], reason: `In ${TEXT.modes.extend} mode, ${label} adds ${EXTEND_ADDED_SECONDS[0]} to ${EXTEND_ADDED_SECONDS[1]} seconds to the clip.` } };
+	}
+	return undefined;
+}
+
 /** The rules between parameters and inputs that the declarations cannot express (xai.md, "Rules between parameters"). */
 function ruleProblems(model: XaiModel, request: CheckRequest, counts: PlannedCounts): string[] {
 	const problems: string[] = [];
 	const label = labelOf(model);
-	const { resolution, duration } = request.params;
+	const { resolution } = request.params;
 	if (model.pinnedUpTo720p && request.mode === 'frames' && counts.endFrame && resolution === '1080p') {
 		problems.push(`${label} makes a video from a start and an end frame at 480p or 720p.`);
 	}
 	if (model.pinnedUpTo720p && request.mode === 'reference' && resolution === '1080p') {
 		problems.push(`${label} makes a video from reference images at 480p or 720p.`);
-	}
-	if (model.referenceMaxSeconds !== undefined && request.mode === 'reference' && typeof duration === 'number' && duration > model.referenceMaxSeconds) {
-		problems.push(`${label} makes a video from reference images of at most ${model.referenceMaxSeconds} seconds.`);
-	}
-	if (request.mode === 'extend' && typeof duration === 'number' && (duration < EXTEND_ADDED_SECONDS[0] || duration > EXTEND_ADDED_SECONDS[1])) {
-		problems.push(`In ${TEXT.modes.extend} mode, ${label} adds ${EXTEND_ADDED_SECONDS[0]} to ${EXTEND_ADDED_SECONDS[1]} seconds to the clip.`);
 	}
 	if (model.promptBeyondFrames && request.mode !== 'frames' && !request.prompt.trim()) {
 		problems.push(`Write a prompt: ${label} needs one in ${TEXT.modes[request.mode]} mode.`);
@@ -704,7 +711,8 @@ export const XAI: ProviderModule = Object.freeze({
 			...ruleProblems(model, request, counts),
 			...fileProblems(model, request, measured)
 		];
-		return { problems };
+		const limits = ruleLimits(model, request);
+		return { problems, ...(limits ? { limits } : {}) };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {

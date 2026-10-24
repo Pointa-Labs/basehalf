@@ -237,6 +237,20 @@ export interface CheckResult {
 	readonly problems: readonly string[];
 	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
 	readonly providerModel?: string;
+	/**
+	 * The ranges of number parameters that the planned inputs or the mode
+	 * narrow, by parameter name (D70; providers, "Requests"). A value beyond one
+	 * is fitted to it before the rules are checked, so it is no problem.
+	 */
+	readonly limits?: Readonly<Record<string, CheckLimit>>;
+}
+
+/** How far a number parameter goes for the planned inputs or the mode, where that is narrower than its declaration. */
+export interface CheckLimit {
+	readonly min?: number;
+	readonly max?: number;
+	/** Why, in one plain sentence, such as "With a reference video, Wan 2.7 makes at most 10 seconds." */
+	readonly reason: string;
 }
 
 export interface SubmitRequest extends ProviderAccess {
