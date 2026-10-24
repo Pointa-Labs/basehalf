@@ -1,8 +1,9 @@
 # Runway
 
-Status: Active (2026-10-19; image models, 2026-10-22)
+Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Runway module of AI Video
@@ -376,8 +377,15 @@ JPEG, and WebP, and the window draws any other image to PNG.
 - Each image is a tagged reference. The tags are `image1`, `image2`, and
   `image3`, in the order of the inputs: lowercase letters and digits, which
   both the pattern of the reference and the wider wording of the guide take.
-- The prompt names a reference with an at-mention of its tag, such as
-  `@image1 in the style of @image2`. Each model's description says so.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  A mention of a reference is written as an at-mention of its tag, `@image1`:
+  "Reference images can be referenced in the text prompt using at-mention
+  syntax referencing the `tag`" (`guides/using-the-api`). A tag is 3 to 16
+  characters, starts with a letter, and holds letters, digits, and
+  underscores (`openapi.json`), which `image1` to `image3` are. The models'
+  descriptions no longer tell the user how to name them. Runway names no
+  frame and no clip of its video models, whose guides call the image "the
+  first frame": the shared names are written.
 - A reference goes inline as a data URI when the URI is at most 5 MiB, and
   otherwise through the upload ([Inputs and the upload](#inputs-and-the-upload)),
   named `reference-image.<png|jpg|webp>`.

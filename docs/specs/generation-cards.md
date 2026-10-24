@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -11,7 +11,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D68](../decisions.md#d68--a-cards-references-are-its-connections-and-a-name-in-its-prompt-follows-its-input-new-2026-10-24),
 [D69](../decisions.md#d69--pick-on-canvas-stays-on-and-shows-what-a-click-does-new-2026-10-24),
 [D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
-[D71](../decisions.md#d71--adding-an-input-is-two-buttons-at-the-panels-top-right-and-notes-are-in-the-reference-menu-new-2026-10-24)
+[D71](../decisions.md#d71--adding-an-input-is-two-buttons-at-the-panels-top-right-and-notes-are-in-the-reference-menu-new-2026-10-24),
+[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -81,6 +82,22 @@ work as the canvas products for media work do (D68):
   name, no larger look, and no way to change the order other than the swap
   arrow of the two frames.
 
+Found on 2026-10-24, when the user asked whether a name in the prompt should
+simply be its file's own name (D74):
+
+- **A name was a number in the list, not the file.** 图片2 said nothing about
+  which file it was, so D71 took the numbers off the tiles, and the chips
+  then named inputs by numbers shown nowhere else. Every change of the list
+  had to write the prompt again (D68).
+- **The models do not read one kind of name.** In their documentation,
+  Kling's omni models read `<<<image_1>>>`, Runway reads `@image1` for a
+  reference tagged `image1`, xAI reads `<IMAGE_0>` counted from 0, and Wan
+  2.6 reads `character1` across its images and videos. The prompt was sent
+  as written, so the same prompt named the right input at one model and
+  nothing at another, and choosing another model left it wrong.
+- **A note could not be named.** Choosing a note in the reference menu
+  connected it and put nothing in the prompt (D71).
+
 ## Goals
 
 - **The file is the card.** A generated image or video is an ordinary file in
@@ -109,9 +126,11 @@ work as the canvas products for media work do (D68):
 - **A card's references are its connections.** The input row above the
   prompt and the connections on the canvas are one list: what is removed in
   one is gone from the other, and what is added in one shows in the other.
-- **A name means its input.** A name in the prompt shows as a chip with the
-  input's picture, and stays with its input when the list changes: renumbered
-  when the input moves, taken out when the input is no longer connected.
+- **A mention is its input's file.** The prompt mentions an input by the
+  path its connection names, shows it as a chip with the file's name and
+  picture, and follows the file when it is renamed or moved; a mention is
+  taken out when its connection is removed. Each provider module writes the
+  mentions as its model reads them when the prompt is sent (D74).
 - Everything the earlier Video node did keeps working: the inputs in the
   order of the connections, the panel, another version beside a card, a
   generation that survives a reload, agents that generate.
@@ -191,7 +210,7 @@ a card with its file, such as one an earlier build left or an agent wrote, is
 not read, and nothing is generated from it.
 
 ```yaml
-prompt: "图片1里的人骑车经过海边，镜头缓慢跟随"
+prompt: "@[frames/start.png] 里的人骑车经过海边，镜头缓慢跟随"
 provider: "bytedance"
 model: "seedance-2.5"
 mode: "frames"
@@ -201,7 +220,9 @@ params:
   generate_audio: true
 ```
 
-- `prompt`: up to 64 KiB.
+- `prompt`: up to 64 KiB. It mentions an input as `@[<entry>]`, the entry of
+  the card's `upstream` list that names it, as the list writes it
+  ([Mentions](#mentions)).
 - `provider` and `model` are ids of the [model catalog](providers.md#the-catalog);
   without `model`, none is chosen. `mode` is one of the model's modes.
   `params` maps parameter names to strings, numbers, or booleans.
@@ -251,7 +272,7 @@ params:
   resolution: "720p"
   duration: 5
   generate_audio: true
-prompt: "图片1里的人骑车经过海边，镜头缓慢跟随"
+prompt: "@[frames/start.png] 里的人骑车经过海边，镜头缓慢跟随"
 inputs:
   - "frames/start.png"
   - "frames/end.png"
@@ -264,11 +285,13 @@ inputs:
 - `copyOf` is in the record of a copy only: the `id` of the record of the
   file it copies, the first one for a copy of a copy. The rest of the record
   is the original's.
-- `prompt` is the card's own prompt as it was sent. The text of the text
-  inputs that joined it is not recorded; `inputs` names those notes, as it
-  names every input, in the order they were listed. So a note's text is never
-  copied into what git shares. The whole prompt as sent stays in the task
-  record on this computer while the generation runs.
+- `prompt` is the card's own prompt as it was sent, with its mentions as the
+  paths they named then, which are the paths of `inputs`. What the provider
+  module wrote for the mentions and the text of the text inputs that joined
+  it are not recorded; `inputs` names those notes, as it names every input,
+  in the order they were listed. So a note's text is never copied into what
+  git shares. The whole prompt as sent, as the module wrote it, stays in the
+  task record on this computer while the generation runs.
 - A `made.yaml` that cannot be read is left as it is, byte for byte, and the
   card shows its file without its record.
 - The panel of a card with its file shows what its `made.yaml` holds
@@ -396,8 +419,11 @@ writes the `generation.yaml` or the `upstream.yaml` of a card with its file,
 and, as for everything under `.bh/`, it never moves, renames, or deletes these
 files: a draft is renamed, moved, or deleted by the user on the canvas.
 Another version of a card with its file is a new draft, which
-`basehalf --generate` makes on its own ([Agents](#agents)). The skill that
-BaseHalf offers to agents describes this subset and the command that
+`basehalf --generate` makes on its own ([Agents](#agents)). A prompt that an
+agent writes mentions an input as `@[<entry>]`, an entry of the draft's
+`upstream.yaml` ([Mentions](#mentions)); the agent writes no model's own
+names, which the provider module writes when the prompt is sent. The skill
+that BaseHalf offers to agents describes this subset and the command that
 generates.
 
 ## Creating a generation card
@@ -456,8 +482,13 @@ from the slots that the [mode that is used](#what-is-connected-is-sent)
 declares ([Modes and inputs](providers.md#modes-and-inputs)), for the panel
 and for the request alike:
 
-- **Text inputs** join the prompt in every mode: the card's prompt, then the
-  text of each text input in order, separated by a blank line. A Markdown
+- **Text inputs** join the prompt in every mode: the card's prompt, then
+  each text input in order, under its name and a colon on a line of its own,
+  such as `scene:`, separated by a blank line (D74). A note's name is the one
+  BaseHalf shows for it, its file's name without `.md`, with as much of its
+  folder as tells it from another note of the card with the same name
+  (`a/scene:`). Neither square brackets nor `@` mark it, since some models
+  read those as names of inputs or as commands of the camera. A Markdown
   note's front matter is left out, and each text input adds at most 16 KiB.
 - **Frames mode** takes the first available image as the start frame and the
   second as the end frame, as far as the mode declares them. Later images,
@@ -467,13 +498,12 @@ and for the request alike:
   mode with no image makes the image from the prompt alone.
 - **Extend** and **Edit** take the first available video as the clip, and Edit
   takes images as references as far as the mode declares them.
-- **Names**: images, videos, and audio are numbered by kind in upstream
-  order, used or not: 图片1, 图片2, 视频1, 音频1 in a Chinese display
-  language, and Image 1, Video 1, Audio 1 otherwise. A prompt refers to an
-  input by its name, as these models expect, and a name stays with its input
-  when BaseHalf changes the list
-  ([Names follow their inputs](#names-follow-their-inputs)). Text and other
-  inputs have no name.
+- **Mentions**: the prompt mentions an input by its file, as `@[<entry>]`
+  ([Mentions](#mentions)). When the prompt is sent, the provider module
+  writes each mention of an image, a video, or a sound as its model reads
+  it ([providers](providers.md#names-in-the-prompt)), and a mention of a note
+  is written as the note's name in double quotes, under which its text
+  follows.
 - An input that cannot be used says why, in the input row and in the reason
   line of the panel: it names nothing, it is a draft without its file, its
   kind cannot be used, the mode that is used does not take it, or it comes
@@ -521,46 +551,71 @@ Every input of a draft is sent; none is left out without a word.
   card with its file is deleted, the card's entry names nothing, and its
   panel shows the input as gone.
 
-### Names follow their inputs
+### Mentions
 
-A name in a draft's prompt means the input it names, not a place in the list.
-What the prompt holds is text, and the names in it are text too: what
-`generation.yaml` stores, what agents write, and what is sent. So when
-BaseHalf changes a draft's list, it writes the names of the draft's prompt
-again in the same step:
+A mention in a draft's prompt is its input's file, not a place in the list
+(D74). It is written `@[<entry>]`: the entry of the card's list that names
+the input, as the list writes it, relative to the workspace folder, with a
+`]` in it written `\]`. That is what `generation.yaml` stores, what agents
+write, and what the panel shows as a chip with the file's name
+([The panel](#the-panel)). No name of a model is stored.
 
-- **What changes the list.** The cross of a tile, a tile dragged to another
-  place, the swap arrow, a connection removed on the canvas or in the badge
-  editor, a connection whose end is moved to another card, **Also remove
-  <name> from their upstream lists** when a card is deleted, and every other
-  remove, reorder, or replace of the [reference graph](reference-graph.md#reference-edits).
-  Adding an input puts it last, so no other name changes then.
-- **A name of an input that is still connected** takes that input's new
-  number: with 图片1, 图片2, and 图片3 connected, removing 图片1 makes 图片2
-  read 图片1 and 图片3 read 图片2; swapping the two frames swaps 图片1 and
-  图片2 in the prompt.
-- **A name of an input that is no longer connected** is taken out of the
-  prompt, with the one space after it, or the one before it when none follows.
-  "图片1里的人骑车，背景是图片2" without 图片1 is "里的人骑车，背景是图片1".
-- **A connection whose source end moved to another card** keeps its place in
-  the list, so its number does too, and the names that meant it mean the new
-  source, when that is of the same kind. A source of another kind takes the
-  old name out and numbers the new one by its kind. A rename of an input
-  rewrites its entry in place, which changes no name.
-- **One step.** The prompt and the list are written together and are one
-  step of undo. Undo brings both back, the names that were taken out too,
-  and redo writes both again. When the prompt was changed since the step,
-  undo and redo keep that change and give its names the numbers of the list
-  they write; a name that the step took out does not come back then.
-- **What is left as it is.** A name that matches no input before the change,
-  such as 图片9 with two images, the prompt of a card with its file, which
-  never changes, and the prompts of other cards. A list that an agent writes
-  itself, in `upstream.yaml`, changes no prompt: the agent writes the prompt
-  it means.
-- A prompt that cannot be read or written keeps its text, and the change of
-  the list is not undone for it: BaseHalf says "BaseHalf could not update the
-  names in the prompt of <name>." Its names may then name other inputs, and
-  the panel shows them as it shows every name.
+- **Which input.** A mention names the input whose entry is the same path,
+  compared in Unicode NFC. Every input can be mentioned: an image, a video,
+  a sound, a note, and an input of another kind, which cannot be used
+  anyway. A mention whose path no entry of the list names is a mention of a
+  file that is not connected: the panel shows it so, and Generate does not
+  run while the prompt holds it.
+- **When the prompt is sent**, the window gives AI Video the prompt's text
+  and, in place of each mention of an image, a video, or a sound, the place
+  of that input in the request: the start frame, the end frame, the clip, or
+  the n-th reference image, video, or sound. The provider module writes each
+  of them as its model reads it, counting by the order of the request
+  ([providers](providers.md#names-in-the-prompt)). A mention of a note is
+  written as the note's name in double quotes, `"scene"`, under which its
+  text follows the prompt ([Inputs](#inputs)). So the same prompt names the
+  right input at every model, and choosing another model changes nothing in
+  it.
+- **A mention follows its input.** When BaseHalf changes a draft's list, it
+  writes the mentions of the draft's prompt again in the same step:
+  - **What changes the list.** The cross of a tile, a connection removed on
+    the canvas or in the badge editor, a connection whose end is moved to
+    another card, **Also remove <name> from their upstream lists** when a
+    card is deleted, a rename or a move of an input, through BaseHalf or
+    followed after a move outside it, **Relink Everywhere…**, and every other
+    remove or replace of the [reference graph](reference-graph.md#reference-edits).
+  - **An input whose entry is rewritten in place**, by a rename, a move, a
+    relink, or a connection whose source end moved to another card, keeps
+    its mentions, which take the new path.
+  - **A mention of an input that is no longer connected** is taken out of
+    the prompt, with the one space after it, or the one before it when none
+    follows. "@[a.png] 里的人骑车，背景是 @[b.png]" without `a.png` is
+    "里的人骑车，背景是 @[b.png]".
+  - **Adding and reordering** change no mention: a tile dragged to another
+    place, the swap arrow, and a connection made anywhere leave the prompt
+    as it is.
+  - **One step.** The prompt and the list are written together and are one
+    step of undo. Undo brings both back, the mentions that were taken out
+    too, and redo writes both again. When the prompt was changed since the
+    step, undo and redo keep that change and write its mentions for the list
+    they write; a mention that the step took out does not come back then.
+  - **What is left as it is.** A mention whose path the list did not name
+    before the change, the prompt of a card with its file, which never
+    changes, and the prompts of cards whose lists did not change. A list
+    that an agent writes itself, in `upstream.yaml`, changes no prompt: the
+    agent writes the prompt it means.
+  - A prompt that cannot be read or written keeps its text, and the change
+    of the list is not undone for it: BaseHalf says "BaseHalf could not
+    update the mentions in the prompt of <name>." Its mentions may then name
+    files that are not connected, and the panel shows them so.
+- **Copies, New Version, and templates.** A copy of a draft keeps its
+  prompt and has no connections, so its mentions name files that are not
+  connected until they are connected again. New Version gives the new draft
+  the prompt of the record with each mention of the n-th recorded input
+  written for the card's n-th entry as it is now, so that a mention of an
+  input renamed since names it where it is. A draft of a template mentions
+  its inputs relative to the template, and its mentions are rebased with the
+  template's references ([reference graph](reference-graph.md#templates)).
 
 ## Providers
 
@@ -577,7 +632,7 @@ The settings of a draft are drawn from its model's
 - **Mode** first, when the model offers more than one. A mode that the
   provider's region does not offer is dimmed with the reason, and can still
   be chosen. A mode that cannot use every input of the card is dimmed with
-  the first input it cannot use, such as "Frames cannot use Video 1.",
+  the first input it cannot use, such as "Frames cannot use clip.mp4.",
   and cannot be chosen. The mode that is used is checked.
 - Then every parameter that is not advanced, in the order the model declares
   them: a choice of up to five values as a row of buttons, of more as a list
@@ -649,10 +704,9 @@ From top to bottom:
    - **A tile** is a 48 px square with rounded corners. An image shows its
      picture and a video its first frame, filling the square; audio, text,
      other kinds, and an input without its file show their glyph, and a text
-     input its name under it. A tile shows no number (D71): numbers by kind
-     read as out of order in a row of several kinds, and as a part of a
-     file's name; the name of an input, such as 图片2, is in its look, on its
-     chip in the prompt, with its picture, and in the reference menu. A video
+     input its name under it. A tile shows no number (D71): an input is
+     named by its file, in its look, on its chip in the prompt, and in the
+     reference menu (D74). A video
      and a sound show their length at the bottom left, such as 6.8s, once
      their file tells it, since a model's limits count it (D70). An input
      that cannot be used is dimmed.
@@ -665,23 +719,22 @@ From top to bottom:
      does.
    - **Pointing at a tile** shows a larger look at the input above it: the
      picture, or a video's first frame, in its own shape, at most
-     176 × 132 px, with the input's name
-     and its file's name under it, and why, for an input that cannot be
-     used; audio, text, and other kinds show the names alone. The look opens
+     176 × 132 px, with its file's name under it, and why, for an input that
+     cannot be used; audio, text, and other kinds show the name alone. The
+     look opens
      below the row when there is no room above it inside the canvas, and
      goes when the pointer leaves the tile. It is BaseHalf's own, as every
      hover is. The row is drawn again only when what it shows changes, and
      the look stays while its input stays, so that nothing blinks when the
      prompt changes, is checked, or is saved (D71).
    - Pointing at a tile also shows a cross at its top right, which removes
-     the connection, and on an input with a name an `@` at its bottom right,
-     which puts its name into the prompt at the caret, or at the end when the
-     prompt has no caret, with a space after it, and moves the keyboard into
-     the prompt.
+     the connection, and an `@` at its bottom right, which puts its mention
+     into the prompt at the caret, or at the end when the prompt has no
+     caret, with a space after it, and moves the keyboard into the prompt.
    - **Dragging a tile** along the row moves its connection to that place in
-     the list. The numbers, the start and the end frame, and the names in the
-     prompt follow it ([Names follow their inputs](#names-follow-their-inputs)),
-     as one step of undo. A press that moves less than 4 px is a click. A
+     the list, and the start and the end frame follow it, as one step of
+     undo; the prompt's mentions stay as they are ([Mentions](#mentions)). A
+     press that moves less than 4 px is a click. A
      drag of a tile never moves the card or the canvas. The pointer over a
      tile is the arrow, also while it is dragged, since a tile is no card
      that moves; over its cross and its `@` it is the pointing hand (D71).
@@ -710,15 +763,17 @@ From top to bottom:
    - The tiles scroll sideways when they do not fit; the two buttons stay at
      the right.
 2. **Prompt**: a text field that grows to five lines and then scrolls.
-   - **Names are chips.** Each name in it of an input the card has (图片1,
-     Image 1, 视频2…) shows as a chip: the input's picture, 14 px, or its
-     glyph, and the name. A chip is one piece of the text: the caret steps
+   - **Mentions are chips** (D74). Each mention in it shows as a chip: the
+     input's picture, 14 px, or its glyph, and its file's name, with as much
+     of its folder as tells it from another input of the card with the same
+     name (`a/hero.png`). A chip is one piece of the text: the caret steps
      over it, Backspace and Delete remove it whole, and it is selected,
-     copied, and cut as its name. A name typed by hand is the same text and
-     shows as a chip once it is typed; nothing turns into a chip while an
-     input method composes. A name that matches no input shows as text with
-     a warning underline. Pasting puts in the text alone, as far as the
-     prompt's 64 KiB.
+     copied, and cut as its mention, `@[<entry>]`, so that pasting it into a
+     prompt puts in the same mention. A mention of a file that is not
+     connected shows as a chip with the file's glyph and name and a warning
+     underline. A mention typed by hand is the same text and shows as a chip
+     once its `]` is typed; nothing turns into a chip while an input method
+     composes. Pasting puts in the text alone, as far as the prompt's 64 KiB.
    - **Undo** in the prompt undoes its own typing, in runs as a text field
      does, and redo redoes it; neither undoes a step of the canvas while the
      prompt has the keyboard. **Select All** selects the whole prompt.
@@ -726,14 +781,13 @@ From top to bottom:
      the prompt, a space, or anything that is not a Latin letter or digit, so
      that an e-mail address does not; a full-width `＠` opens it too. The
      keyboard moves into the menu's search field.
-     - The menu lists **Connected**: the card's inputs that have a name and
-       its notes, in the order of the input row, each with its picture or glyph,
-       its file's name, and its name at the right, for an input that has
-       one; and **On This Canvas**: **Images**, **Videos**, **Audio**, and
-       **Notes** (D71), each opening the list of the cards of that kind on
-       the canvas of the card's folder, drafts too, by name, apart from the
-       card itself. A card that is connected shows its name at the right, and
-       a connected note says Connected. A card that the draft's model cannot
+     - The menu lists **Connected**: the card's images, videos, sounds, and
+       notes, in the order of the input row, each with its picture or glyph
+       and its file's name; and **On This Canvas**: **Images**, **Videos**,
+       **Audio**, and **Notes** (D71), each opening the list of the cards of
+       that kind on the canvas of the card's folder, drafts too, by name,
+       apart from the card itself. A card that is connected says Connected
+       at the right. A card that the draft's model cannot
        use is dimmed with the reason and cannot be chosen, and so is a kind
        of which the model takes none.
      - Typing in the search field shows, in place of the two parts, the
@@ -742,14 +796,13 @@ From top to bottom:
        found, it says "Nothing here has that name."; with nothing to list,
        "Connect an image, a video, audio, or a note, or add one to this
        canvas."
-     - Choosing a connected input puts its name in place of the `@`, as a
-       chip with a space after it. Choosing a card that is not connected
+     - Choosing a connected input puts its mention in place of the `@`, as
+       a chip with a space after it. Choosing a card that is not connected
        connects it, so its tile and its connection appear, and then puts its
-       new name there; when the connection is refused, the reason is shown
-       and the `@` stays. Choosing a note connects it when it is not
-       connected, as a card is; a note has no name, so the `@` is taken out
-       and nothing takes its place, and the note's text is sent after the
-       prompt, as the text of every connected note is.
+       mention there; when the connection is refused, the reason is shown and
+       the `@` stays. A note is chosen as a card is (D74): its chip names it,
+       and its text follows the prompt under its name when the prompt is
+       sent, as the text of every connected note does.
      - Up and Down move through the items, and the first item is current
        when the menu opens. Right or Enter on a kind opens its list, and Left
        goes back. Enter chooses. Escape, or a click outside the menu, closes
@@ -795,12 +848,12 @@ From top to bottom:
      stop square that stops the generation. A tooltip it showed goes when it
      changes under the pointer, so that it never names what it did before.
 
-The rows share the panel's edges. The tiles, the text of the prompt, a name
+The rows share the panel's edges. The tiles, the text of the prompt, a chip
 at the start of a line of it, the warning icon of the reason that Generate
 cannot run, and the model button begin at one left edge, and the reason's
 action ends where the Generate button ends; in the panel of a card with its
 file, the line under the prompt and the model's name begin there too. A
-name in the prompt stands on the line of its text: its name and the text
+chip in the prompt stands on the line of its text: its name and the text
 around it share a baseline.
 
 The Generate button is enabled only when the card can generate. Otherwise its
@@ -812,8 +865,10 @@ provider's region does not offer the model; the provider's region does not
 offer the mode; there is nothing to send, since the prompt is empty and
 nothing is connected; an input is missing, is a draft without its file, or is
 not a file on this computer; an input cannot be used, by its name and why,
-such as "Video 1 cannot be sent: Wan 3.0 takes at most 5 videos."; or the
-first problem that the provider module reports for the planned generation
+such as "clip.mp4 cannot be sent: Wan 3.0 takes at most 5 videos."; the
+prompt mentions a file that is not connected, "The prompt mentions hero.png,
+which is not connected." (D74); or the first problem that the provider
+module reports for the planned generation
 ([check](providers.md#requests)); there is nothing to send. A new card therefore says nothing about the prompt its
 model needs before the user has written or connected anything. For no model,
 no such model, a model of the other kind, the provider, and the region, the
@@ -852,8 +907,8 @@ Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
 open, returns focus to the card. The input row is one stop of Tab: Left and
 Right move between its tiles and buttons, Delete or Backspace on a tile
-removes its connection, Enter on a tile with a name puts the name into the
-prompt, and Alt+Left and Alt+Right move the tile one place. Menus follow the
+removes its connection, Enter on a tile puts its mention into the prompt,
+and Alt+Left and Alt+Right move the tile one place. Menus follow the
 arrow keys, Home, End, and Enter. A menu starts at its checked item; without one, a menu opened from
 the keyboard starts at its first item, and a menu opened by a click has no
 current item until Down chooses the first or Up the last.
@@ -908,8 +963,8 @@ While the draft picks:
 
 A click on a card that can be connected connects it at the end of the list,
 as a line drawn on the canvas does. A click on a connected card removes its
-connection, and its names leave the prompt, as its tile's cross does
-([Names follow their inputs](#names-follow-their-inputs)). Each is one step
+connection, and its mentions leave the prompt, as its tile's cross does
+([Mentions](#mentions)). Each is one step
 of undo; the card, its line, and the row change at once, and picking goes
 on. A click on a card that cannot be an input, on the draft, or on the blank
 canvas changes nothing.
@@ -931,7 +986,7 @@ top to bottom:
    arrow, or dragging. Pointing at a tile shows its larger look. An input
    that is gone shows its glyph, and its look says it is gone.
 2. **Prompt**: the prompt it was made with, as text that can be selected and
-   copied, five lines tall at most and then scrolling, with its names as
+   copied, five lines tall at most and then scrolling, with its mentions as
    chips of the inputs it was made from, as in a draft's prompt. A card made
    without a prompt says "No prompt".
 3. **A line**, when one applies: which image of how many it is, such as
@@ -1076,8 +1131,10 @@ Frame**, with First Frame, Current Frame, and Last Frame.
   user can connect to another card.
 - **Open** shows the image or the video large in Card Detail, with what made
   it, from `made.yaml`: model and the id sent to the provider, provider and
-  region, mode, settings, the prompt, the inputs in order, which image of how
-  many it is, and when it started and finished. The names of the provider,
+  region, mode, settings, the prompt with each mention as its file's name,
+  the inputs in order by their files' names, a frame with its Start or End,
+  which image of how many it is, and when it started and finished. The names
+  of the provider,
   region, model, mode, and each parameter and value come from the catalog
   when it has them, and are the recorded ids otherwise. A file without
   `made.yaml` says that it was not generated by BaseHalf. Card Detail lies
@@ -1122,11 +1179,16 @@ version of it first and generates that draft ([Agents](#agents)).
    and stops with "This card is already generating." Then make the new drafts
    of step 4, one undo step together, named Generate.
 6. Read the provider's region, endpoint, and credentials. Plan the inputs
-   with the mode that is used, read the text inputs, and build the prompt.
-   Stop when an input is missing or cannot be used, with the reason the panel
-   shows ([What is connected is sent](#what-is-connected-is-sent)). Prepare
-   the images, videos, and audio, and have the provider module check the
-   planned generation with its files; stop with the first problem. The values
+   with the mode that is used, read the text inputs, and build the prompt:
+   its text, each mention of an image, a video, or a sound as that input's
+   place in the request, and each note under its name
+   ([Mentions](#mentions)). Stop when an input is missing or cannot be used,
+   or when the prompt mentions a file that is not connected, with the reason
+   the panel shows ([What is connected is sent](#what-is-connected-is-sent)).
+   Prepare the images, videos, and audio, and have the provider module check
+   the planned generation with its files; stop with the first problem. The
+   module's check answers the prompt as it writes it, which the task record
+   keeps and the request sends. The values
    sent are the card's `params` made legal for the model and the mode that is
    used, with every default filled in.
 7. Check the claim again, since another window may have written its record
@@ -1473,16 +1535,18 @@ is a file does:
   extensions of each kind; where `generation.yaml` and the inputs of the card
   at `<path>` are; that `made.yaml` and `.bh/cache/generation/` are
   BaseHalf's; the command that generates; and the authoring contract of
-  `generation.yaml` (contract version 6): its schema, an example of a draft's
+  `generation.yaml` (contract version 7): its schema, an example of a draft's
   `generation.yaml` and `upstream.yaml` built through BaseHalf's own writer
   with a model of the catalog, and the rules: the draft rule, that only a
   draft has a `generation.yaml`, that the inputs of a card with its file stay
-  as they are, that every input of a draft is sent, and the mode that is
-  used. Version 5 let a card with its file keep a `generation.yaml` for its
-  next generation.
+  as they are, that every input of a draft is sent, the mode that is used,
+  and that a prompt mentions an input as `@[<entry>]` of its `upstream.yaml`
+  and writes no model's names (D74). Version 5 let a card with its file keep
+  a `generation.yaml` for its next generation; version 6 named inputs by
+  kind and order, as 图片1 and Image 1.
 - The skill that BaseHalf offers to agents describes drafts,
-  `generation.yaml`, `made.yaml`, the input order and names, the mode that is
-  used, the catalog, and this command. An agent that makes an image with a tool of its own, such as
+  `generation.yaml`, `made.yaml`, the input order and mentions, the mode
+  that is used, the catalog, and this command. An agent that makes an image with a tool of its own, such as
   its own image generation, puts the image in the folder of the canvas the user
   works on, where it is a card.
 
@@ -1792,7 +1856,7 @@ A draft and a card with its file (D67)
 48. A selected draft, image or video, shows no toolbar above it: no Upload
     Image or Upload Video (D71).
 
-References and names (D68)
+References and mentions (D68, D74)
 
 49. With three images, a video, and a note connected to a draft in
     references mode, the input row shows five tiles in the order of the
@@ -1800,19 +1864,21 @@ References and names (D68)
     adds its tile at the end, and a connection removed on the canvas takes
     its tile away.
 50. The cross of a tile removes its connection from the canvas, and undo
-    brings back the connection, the tile, and the names the prompt lost.
+    brings back the connection, the tile, and the mentions the prompt lost.
 51. Pointing at a tile shows its larger look above it, or below the row when
-    there is no room above, with its name and its file's name; for an input
-    that cannot be used, it also says why.
-52. With "图片1里的人骑车，背景是图片3" and three images connected, removing
-    the connection of 图片1 on the canvas writes "里的人骑车，背景是图片2" to
-    `generation.yaml` in the same step of undo; dragging the tile of 图片2
-    before 图片1 swaps the two names in the prompt; moving the source end of
-    the connection of 图片1 to another image keeps the name 图片1.
-53. A name typed by hand that matches an input shows as a chip with its
-    picture; Backspace after a chip removes it whole; copying a prompt with
-    chips copies their names as text; and `generation.yaml` holds the names
-    as text.
+    there is no room above, with its file's name; for an input that cannot
+    be used, it also says why.
+52. With "@[a.png] 里的人骑车，背景是 @[c.png]" and the images `a.png`,
+    `b.png`, and `c.png` connected, removing the connection of `a.png` on the
+    canvas writes "里的人骑车，背景是 @[c.png]" to `generation.yaml` in the
+    same step of undo; dragging the tile of `c.png` before `b.png` changes
+    nothing in the prompt; moving the source end of the connection of
+    `c.png` to `d.png` writes `@[d.png]` in its place.
+53. A mention typed by hand of a connected input shows as a chip with its
+    picture and its file's name; Backspace after a chip removes it whole;
+    copying a prompt with chips copies their mentions as text, and pasting
+    it puts the same chips in; and `generation.yaml` holds the mentions as
+    `@[<entry>]`.
 54. Typing `@` opens the reference menu with its search field focused; Enter
     on a connected input puts its chip in place of the `@`; choosing an image
     card of the canvas that is not connected connects it, shows its tile and
@@ -1826,16 +1892,16 @@ References and names (D68)
     canvas; with the canvas focused, it undoes the canvas's step.
     `Cmd/Ctrl+A` in the prompt selects the whole prompt, and what is typed
     next takes its place.
-57. The `@` of a tile puts its name at the caret; on a focused tile,
+57. The `@` of a tile puts its mention at the caret; on a focused tile,
     Alt+Right moves it one place and Delete removes its connection.
 58. While a draft generates, its tiles have no cross, `@`, or dragging, and
     its prompt opens no menu; the panel of a card with its file shows its
-    inputs as tiles and the names of its prompt as chips, read only.
+    inputs as tiles and the mentions of its prompt as chips, read only.
 
 Pick on Canvas (D69)
 
 59. Pick on Canvas stays on: clicks on two cards connect both, in that
-    order; a click on a connected card removes it and its names; each is one
+    order; a click on a connected card removes it and its mentions; each is one
     step of undo; and a click on the blank canvas, the draft, or a card the
     model cannot use changes nothing. Escape and Done end it.
 60. While picking, the pointer over a card that a click connects or removes
@@ -1850,10 +1916,10 @@ Pick on Canvas (D69)
 62. While picking, a click that connects or removes the card under the
     pointer changes its look in one frame: the accent outline appears or
     goes once, and the card's element, picture, and video stay.
-63. The tiles, the prompt's text and a name at its start, the reason's icon,
+63. The tiles, the prompt's text and a chip at its start, the reason's icon,
     and the model button begin at one left edge, within half a pixel, and
     the reason's action and the Generate button end at one right edge; a
-    name's text and the prompt's text share a baseline.
+    chip's text and the prompt's text share a baseline.
 64. A connection made or removed in the panel, and its undo, shows on the
     canvas's line within two frames of the tile at 60 Hz, 34 ms.
 
@@ -1880,14 +1946,45 @@ Adding inputs and notes (D71)
     ends picking.
 70. The reference menu lists Notes under On This Canvas with the notes of
     the card's folder; choosing one connects it, so its tile and its line
-    appear, and takes the `@` out; a connected note is listed under
-    Connected and says Connected in the list of Notes.
+    appear, and puts its chip in place of the `@` (D74); a connected note
+    is listed under Connected and says Connected in the list of Notes.
 71. The pointer over a tile is the arrow, and over its cross and its `@` the
     pointing hand.
-72. Clicking the `@` of a tile while pointing at it puts its name in the
+72. Clicking the `@` of a tile while pointing at it puts its mention in the
     prompt, and for two seconds after, through the check and the save of the
     prompt, the row is not drawn again: the tile, its picture, the look, and
     the look's picture stay the same elements.
+
+Mentions (D74)
+
+73. Renaming a connected image in Files, and moving it to another folder,
+    writes its new path into the mention of the draft's prompt, and its chip
+    shows the new name; undoing the rename puts both back. A rename outside
+    BaseHalf that BaseHalf follows does the same.
+74. A mention of a file that is not connected, as an agent may write it or
+    a copy of a draft keeps it, shows as a chip with the file's glyph and
+    name and a warning underline, and Generate is dimmed with "The prompt
+    mentions <name>, which is not connected."; connecting the file shows its
+    picture on the chip and lets Generate run.
+75. A generation sends the prompt as its provider module writes it, and
+    `made.yaml` and the panel of the card with its file keep the mentions:
+    through the ByteDance module, a mention of the end frame of a Seedance
+    2.5 draft is sent as `the last frame`, and one of its second reference
+    image as `@Image 2` ([ByteDance](providers/bytedance.md)); the task
+    record holds the prompt so written.
+76. A mentioned note is sent as its name in double quotes, and its text
+    follows the prompt under that name: `Shoot @[notes/scene.md] at dusk.`
+    with a note that says `A rider on the coast.` is sent as
+    `Shoot "scene" at dusk.`, a blank line, `scene:`, and the note's text.
+77. Two connected inputs with the same file name in different folders show
+    chips with their folders, such as `a/hero.png` and `b/hero.png`.
+78. Card Detail shows the prompt of a generated file with each mention as
+    its file's name. New Version of a card whose input was renamed after the
+    card was made gives the new draft a prompt that mentions the input at its
+    new path, and the new draft can generate.
+79. `basehalf --list-capabilities` gives the authoring contract of
+    `generation.yaml` as version 7, whose example prompt mentions an input as
+    `@[<entry>]` of the example's `upstream.yaml`.
 
 ## Verification
 
@@ -1929,11 +2026,12 @@ Adding inputs and notes (D71)
   removes `generation.yaml` and `--generate` on a card with its file
   (`basehalfVideoGenerationService.test.ts`), and the connections the canvas
   refuses.
-- Unit tests for D68: names that follow a change of the list
-  (`basehalfGenerationInputNames.test.ts`); a participant of the reference
+- Unit tests for D68 and D74: mentions that follow a change of the list,
+  the names of notes, and the prompt in parts
+  (`basehalfGenerationMentions.test.ts`); a participant of the reference
   edit service and its undo and redo (`basehalfReferenceServices.test.ts`);
   the follower that writes a draft's prompt
-  (`basehalfGenerationNameFollower.test.ts`); the prompt with chips, an input
+  (`basehalfGenerationMentionFollower.test.ts`); the prompt with chips, an input
   method, paste, and its own undo (`basehalfGenerationPromptEditor.test.ts`);
   the tiles, their look, and dragging (`basehalfGenerationInputRow.test.ts`);
   the reference menu (`basehalfGenerationReferenceMenu.test.ts`); and the
@@ -1945,7 +2043,7 @@ Adding inputs and notes (D71)
   `basehalfGenerationPromptEditor.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
-  42 to 46, 49, 50, 52, 54, 56, 59, 60, and 62 to 64, against the local test provider through the ByteDance module, with a
+  42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 73 to 76, and 78, against the local test provider through the ByteDance module, with a
   test key; no paid provider is called. The test provider answers every task
   and image with a file of its own, as a real provider does, so that a file
   moved outside BaseHalf is told from another by its content. After a
@@ -1965,7 +2063,9 @@ Adding inputs and notes (D71)
   video draft, and a connection into a card with its file; and for D68, the
   tiles and their look, a drag of a tile, the reference menu typed with the
   real keyboard and with an input method, and the names of a prompt after a
-  connection is removed on the canvas and after undo; and for D69, Pick on
+  connection is removed on the canvas and after undo; for D74, mentions of
+  images and a note, a rename in Files and in Finder, and the prompt the test
+  provider received; and for D69, Pick on
   Canvas on a canvas of large images and videos, with every frame of the row
   sampled while cards are connected and removed (criterion 61).
 - A generation with a real provider is run by a person with their own key

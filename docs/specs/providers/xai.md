@@ -1,8 +1,9 @@
 # xAI
 
-Status: Active (2026-10-19; image models 2026-10-22)
+Status: Active (2026-10-19; image models 2026-10-22; names in the prompt, 2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the xAI module of AI Video
@@ -127,6 +128,13 @@ URL or base64-encoded data URL"), so nothing is uploaded: the Files API
 bill its storage, and is blocked for teams with Zero Data Retention. xAI
 states no largest request; AI Video sends at most 128 MiB, and `check`
 reports a request whose inputs, encoded, would be larger.
+
+**Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+A mention of the n-th reference image is written `<IMAGE_n>`, counted from 0:
+"Refer to reference images in the prompt by their position in the list,
+starting at `<IMAGE_0>`" (reference-to-video guide, 2026-10-19). xAI names
+no start frame, end frame, or clip, and BaseHalf sends no frame with
+references, so those take the shared names.
 
 ## Parameters
 
@@ -266,8 +274,6 @@ as a failed task with one of the codes above.
 - **A first or last frame with references, or a last frame alone**: the
   node's References mode takes no frames, and an end frame needs a start
   frame.
-- **xAI's `<IMAGE_0>` tags**: the prompt is sent as written; a prompt may use
-  the tags itself, counting from 0 in the order the images are sent.
 - **The Files API** (`file_id` inputs) and **storage of results**
   (`storage_options`, `output`): inputs travel inline, and BaseHalf keeps the
   video it downloads.
@@ -384,8 +390,9 @@ is the page's own "Last updated".
   video inputs do; nothing is uploaded. The window draws any other image to
   PNG.
 - One image is sent as `image`, two or more as `images`, in the order of the
-  plan. A prompt may name them with xAI's tags, `<IMAGE_0>` for the first;
-  the prompt is sent as written.
+  plan. A mention of the n-th is written `<IMAGE_n>`, from 0: "When multiple
+  images are provided, refer to them as <IMAGE_0>, <IMAGE_1>, etc." (images
+  API reference, 2026-10-02); one image is named the same way.
 - A request whose inputs as data URLs would pass 128 MiB is refused, as for
   video. xAI states no largest source image (the 20 MiB of the models page is
   for images sent to its chat models).

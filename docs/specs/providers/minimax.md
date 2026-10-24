@@ -1,8 +1,9 @@
 # MiniMax (Hailuo)
 
-Status: Active (2026-10-19); image models Draft (2026-10-22)
+Status: Active (2026-10-19); image models Draft (2026-10-22); names in the prompt (2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Related: [Providers and the model catalog](../providers.md),
 [generation cards](../generation-cards.md#a-generation)
 
@@ -178,6 +179,18 @@ Images travel as data URLs of the format their header shows
 stays within 64 MB, counted as 64,000,000 bytes; when it would not, the
 largest images are uploaded, one at a time, until it does. Videos and audio
 are always uploaded. An uploaded file is sent as `mm_file://{file_id}`.
+
+**Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+The V2 pages state no rule; their examples call the references by role,
+kind, and number, from 1 by kind: "the character's appearance follows
+reference images 1 and 2", "following the motion in reference video 1",
+"Voice timbre follows reference audio 1", and 参考图1, 参考视频1, and
+参考音频1 in Chinese (`guides/video-generation` and the V2 create page, read
+2026-10-24). So a mention is written `reference image 1`, `reference video
+1`, or `reference audio 1`, or the Chinese names in a Chinese prompt. The
+examples never name a frame, and V1 names nothing; those take the shared
+names. A name in square brackets is never written for V1, whose
+`[command]` syntax moves the camera.
 
 ### Hailuo (V1)
 

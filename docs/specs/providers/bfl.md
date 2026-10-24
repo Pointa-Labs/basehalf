@@ -1,8 +1,9 @@
 # Black Forest Labs
 
-Status: Active (2026-10-19; image models, 2026-10-22)
+Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Black Forest Labs module of AI Video
@@ -407,10 +408,18 @@ are PNG, JPEG, or WebP, and the window draws any other image to PNG.
 
 - **FLUX 3 Image**: each image at least 256 px a side (`imageMinSide: 256`)
   and at most 16 megapixels, counted as 16,777,216 px, which `check` reports.
-  The prompt names each image by its position, "image 1" to "image 10".
 - **FLUX.2**: BFL states no limit for an input and resizes one above 4
-  megapixels. The prompt names the images by their order.
-- Each model's description says how the prompt names its images.
+  megapixels.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  A mention of the n-th image of FLUX 3 Image is written `Image n`: ""Image
+  1" is the first entry in `images`, "image 2" the second, and so on. Use the
+  same words every time" (`guides/prompting_editing_multi_reference`,
+  2026-10-01). FLUX.2's is written `image n`: "Refer to each input as "image
+  1", "image 2", etc. in your prompt"
+  (`guides/usecases_editing_multi_image_compositing`, 2026-10-01). Both are
+  written in English in every prompt, as BFL defines them. The descriptions
+  no longer tell the user how to name the images. FLUX 3's video frames and
+  clip have no names there and take the shared ones.
 - Images go inline as plain base64, the form BFL's samples send: FLUX 3 Image
   in `images`, a list in the order of the inputs; FLUX.2 in `input_image`,
   `input_image_2`, and so on. `check` refuses a request larger than the 128

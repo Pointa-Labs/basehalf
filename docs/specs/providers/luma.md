@@ -1,8 +1,9 @@
 # Luma
 
-Status: Active (2026-10-19; image models, 2026-10-22)
+Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Luma module of AI Video
@@ -436,8 +437,18 @@ and still GIF, and the window draws any other image to PNG.
 - **With images** the request is `type: "image_edit"`: the first image is the
   `source`, which the result edits and whose size it keeps, and the others,
   up to 8, are `image_ref` references for the edit. The models' description
-  says so. Luma advises naming each reference's role in the prompt by its
-  order ("the first reference …").
+  says so, and asks for the role of each image in the prompt.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  Luma's guides name an edit's first image "the source image" and its
+  references by their order, "the first reference", "the second
+  reference": "Apply the lighting from the first reference and the texture
+  from the second to the source image" (`guides/images/editing`, read
+  2026-10-24), and "Without labels, the model guesses"
+  (`guides/images/generation`). The ordinals count the references alone,
+  which is Luma's example and BaseHalf's reading; the module writes them in
+  English, as the guides do. The one image of a video edit is its start frame
+  (`video.start_frame`), written `the start frame`; Ray's other frames and
+  its clip take the shared names.
 - A new image guided by references (`type: "image"` with `image_ref`) is not
   offered: a card's connected images could mean either, and BaseHalf takes
   the first one as the image to edit.

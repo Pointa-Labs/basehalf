@@ -1,7 +1,8 @@
 # PixVerse
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; names in the prompt, 2026-10-24)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the PixVerse module of AI Video
@@ -185,15 +186,23 @@ Image-to-Video. Then:
 | Text-to-Video | `aspect_ratio` |
 | Image-to-Video | `img_id` (the start frame) |
 | First and Last Frame Video | `first_frame_img`, `last_frame_img` |
-| Fusion | `aspect_ratio`; `image_references`, one `{img_id}` per image in order, when there are images; with reference videos also `video_references`, one `{video_media_id}` per video in order, `reference_mode: "omni"`, and `duration: 0` |
+| Fusion | `aspect_ratio`; `image_references`, one `{img_id, ref_name}` per image in order, `ref_name` `image1` onward, when there are images; with reference videos also `video_references`, one `{video_media_id, ref_name}` per video in order, `ref_name` `video1` onward, `reference_mode: "omni"`, and `duration: 0` |
 | Video Extend | `video_media_id` (the source) |
 
 ```json
 { "model": "v6", "prompt": "<prompt>", "duration": 5, "quality": "720p", "aspect_ratio": "16:9", "generate_audio_switch": false, "generate_multi_clip_switch": false }
 ```
 
-- `webhook_id`, `template_id`, `img_ids`, `source_video_id`, `ref_name`, and
-  `type` are never sent.
+- `webhook_id`, `template_id`, `img_ids`, `source_video_id`, and `type` are
+  never sent.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  A mention of a reference is written `@` and its `ref_name`, followed by a
+  space: "Use `@ref_name` followed by a space", each reference with a
+  unique `ref_name`, and a mention that matches none is an error (Error
+  Details, added 2026-10-23). The pages state no characters or length for
+  `ref_name`; `image1` and `video1` are lowercase letters and digits, unique
+  across both lists. Frames and the clip of Extend have no name there, so
+  the shared names are written.
 - The answer is `{ErrCode: 0, ErrMsg, Resp: {video_id, credits}}`; the task id
   is `video_id`, as its digits. A 2xx answer with another `ErrCode` is read as
   in [Errors](#errors): a refusal made no task; a server code, a code the
@@ -264,9 +273,8 @@ and plan; the console shows it.
   references.
 - **The `auto` ratio of V6 Omni**: it applies only with reference videos; a
   ratio is always chosen, and the video takes it.
-- **`ref_name` and `type` of references** (both optional): the prompt is sent
-  as written. BaseHalf names its inputs Image 1 and Video 1, and PixVerse's
-  `@name` syntax for inputs is not added.
+- **`type` of references** (`subject` or `background`, optional): what it
+  changes on V6 is not documented, and a connection has no such role.
 - **Videos PixVerse made as sources** (`source_video_id`): a node's inputs are
   files, which are uploaded.
 - **Templates and effects** (`template_id`, `img_ids`, the template list, Image

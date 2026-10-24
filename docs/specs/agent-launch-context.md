@@ -1,9 +1,10 @@
 # Agent launch context
 
-Status: Active (2026-09-27; canvas workflows revised 2026-10-22 for D63 and 2026-10-23 for D67)
+Status: Active (2026-09-27; canvas workflows revised 2026-10-22 for D63, 2026-10-23 for D67, and 2026-10-24 for D74)
 Decisions: [D36](../decisions.md#d36--basehalf-stops-writing-agent-guides-into-workspaces-new-2026-09-27),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
-[D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23)
+[D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23),
+[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Related: [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [generation cards](generation-cards.md#agents)
@@ -154,12 +155,12 @@ The instruction covers the following, in this order.
      never write `made.yaml`. A generated file keeps the inputs that made
      it: leave its `upstream.yaml` alone. A draft's inputs are the entries
      of its `upstream.yaml`, in order, and every one is sent: when its mode
-     cannot use them all, the first mode that can is used. The user renames,
-     moves, or deletes a draft on the canvas
+     cannot use them all, the first mode that can is used. Mention an input
+     in a prompt as `@[<entry>]`. The user renames, moves, or deletes a
+     draft on the canvas
      ([generation cards](generation-cards.md#what-an-agent-may-write)).
    - Choose `provider`, `model`, `mode`, and `params` from
-     `host.modelCatalog` of `basehalf --list-capabilities`: a model of the
-     card's kind, one of its modes, and values its parameters accept; a
+     `host.modelCatalog`: a model of the card's kind, one of its modes, and values its parameters accept; a
      parameter left out takes its default. A provider that is not set up
      there runs once the user sets it up in Providers
      ([generation cards, Agents](generation-cards.md#agents)).
@@ -198,6 +199,7 @@ The instruction covers the following, in this order.
    - `.bh/mirror/<path>/generation.yaml` and `never write \`made.yaml\``
    - `` Write `prompt`, `provider`, `model`, `mode`, and `params` `` and
      `host.modelCatalog`
+   - `` Mention an input in a prompt as `@[<entry>]`. ``
    - `basehalf --generate`
    - the example block
 

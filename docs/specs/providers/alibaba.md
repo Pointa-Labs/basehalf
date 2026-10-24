@@ -1,8 +1,9 @@
 # Alibaba (Wan, Qwen-Image)
 
-Status: Active (2026-10-19; image models, 2026-10-22)
+Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Related: [providers and the model catalog](../providers.md),
 [generation cards](../generation-cards.md)
 
@@ -285,6 +286,23 @@ Every path is under `{endpoint}/api/v1`.
 - **Limits**: 5 requests a second and 5 running tasks per account and model,
   for every model here; over either, HTTP 429 `Throttling.*`. A
   rate-limited message says so. The task query takes 20 requests a second.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  The pages count each kind from 1 in the order of `media`, images and
+  videos apart:
+  - Wan 3.0 and Prime: `Image 1`, `Video 1`, and `Audio 1`, or `图片1`,
+    `视频1`, and `音频1` in a Chinese prompt ("Images and videos are counted
+    separately"; Wan 3.0 API reference, 2026-10-15; the Chinese guide gives
+    both 图片 1 and 图 1). The clip of an edit or an extension is sent first,
+    so it is `Video 1`, as the pages' examples call it, and a start frame is
+    `Image 1`, as an example of the first-frame mode calls it.
+  - Wan 2.7 References: `Image 1` and `Video 1`, "a space between the word
+    and the number" and the first letter capitalized, or `图1` and `视频1`
+    (Wan video-to-video API reference, 2026-10-11).
+  - HappyHorse References: `[Image 1]`, in Chinese prompts too, as the
+    Chinese page writes it (HappyHorse reference-to-video API reference,
+    2026-10-12).
+  - Wan 2.7 Edit and Frames, Wan 2.6, and HappyHorse Frames: no page names
+    the inputs, so the shared names are written.
 
 ## What is left out, and why
 
@@ -295,7 +313,9 @@ Every path is under `{endpoint}/api/v1`.
   recommends unless the video is to be cut short.
 - Wan 2.6 reference to video (`wan2.6-r2v`, `wan2.6-r2v-flash`): their prompts name
   references `character1`, `character2` across images and videos together,
-  which the node's names (Image 1, Video 1) cannot say.
+  which the names BaseHalf wrote could not say. Since D74 the module writes
+  each model's names, so it could write these; offering the models is left
+  for later.
 - HappyHorse 1.0 video editing (`happyhorse-1.0-video-edit`): its video is a public URL only, in both regions;
   no page offers the temporary upload for it.
 - Wan 2.5, 2.2, and 2.1 models, and the dated snapshots of Wan 2.7: earlier
@@ -400,6 +420,9 @@ published.
 - References are data URLs of their own format, read from the bytes, in the
   order of the inputs, before the text. The window draws an image of another
   format to PNG first.
+- A mention of the n-th image is written `image n`, or `图n` in a Chinese
+  prompt: "the first image is "image 1", the second is "image 2""
+  (Qwen-Image editing and Wan image editing guides, 2026-10-11).
 - Wan's pages document PNG "without an alpha channel"; AI Video sends a PNG
   as it is, as for the video models.
 - `check` refuses images whose encoding is larger than the 128 MiB AI Video

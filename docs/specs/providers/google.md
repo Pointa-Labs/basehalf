@@ -1,6 +1,6 @@
 # Google (Gemini API)
 
-Status: implemented (D59; image models D64, 2026-10-22). Part of
+Status: implemented (D59; image models D64, 2026-10-22; names in the prompt D74, 2026-10-24). Part of
 [providers and the model catalog](../providers.md), which defines
 the catalog, the requests, and the rules every provider follows.
 
@@ -201,6 +201,13 @@ Rules that `check` reports:
 - `input` lists the media in the plan's order (start frame, end frame,
   reference images, reference videos, or the clip), then the prompt as the
   last part, as every example of the guide does.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  A mention is written as the tag of its role, as the guide recommends:
+  `<FIRST_FRAME>`, `<LAST_FRAME>`, and `<IMAGE_REF_n>` and `<VIDEO_REF_n>`
+  counted from 0 by kind ("Image references start from 0."; "Using tags in
+  prompts to set image and video roles", `gemini-api/docs/omni`, 2026-09-23).
+  The clip of an edit or an extension has no simple tag, so the shared name
+  is written.
 - An image is sent as `{"type": "image", "mime_type", "data"}` with the type
   its header shows (`image/png`, `image/jpeg`, `image/webp`, `image/gif`); a
   video as `{"type": "video", "mime_type", "data"}` with `video/mp4` or
@@ -362,6 +369,11 @@ for each page, with the date each gives as its last update:
   "mime_type", "data"}` with the type its bytes show (`image/png`,
   `image/jpeg`, `image/webp`; the window draws any other image to PNG), in
   the order of the plan, after the prompt.
+- A mention of the n-th image is written with the shared names, `Image n`
+  or `图片n`: the guide names images in words, such as "the first image" or
+  "image 1", and documents no tag (`gemini-api/docs/image-generation`,
+  2026-10-09). Its examples that name images put them before the text, and
+  the module puts them after it; whether that matters is not documented.
 - At most 14, the guide's limit for every image model. The guide also splits
   the 14 by use (objects, characters, style) per model, which the card does
   not tell apart, so only the total is checked.

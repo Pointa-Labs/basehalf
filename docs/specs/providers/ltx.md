@@ -1,7 +1,8 @@
 # LTX
 
-Status: Active (2026-10-19)
-Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Status: Active (2026-10-19; names in the prompt, 2026-10-24)
+Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the LTX module of AI Video
@@ -230,6 +231,11 @@ supported". `check` measures lengths only and cannot tell.
 
 All requests carry `Authorization: Bearer <key>`; a create carries
 `Content-Type: application/json` and is sent once.
+
+**Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+LTX documents no names for its inputs: each input's role is its field, and
+the examples name none ("Continue the motion smoothly"; `openapi.json` and
+the prompting guide, read 2026-10-24). The shared names are written.
 
 **Frames without a start frame:** `POST /v2/text-to-video` with
 

@@ -2,11 +2,13 @@
 
 Status: Active (2026-09-27; Open File removed 2026-10-10 for D41; a note that
 cannot hold its list keeps it in its sidecar, 2026-10-10 for D42; node
-documents removed and drafts added, 2026-10-22 for D63)
+documents removed and drafts added, 2026-10-22 for D63; the mentions in a
+draft's prompt follow its entries, 2026-10-24 for D74)
 Decisions: [D37](../decisions.md#d37--references-are-stored-once-by-the-downstream-node-new-2026-09-27),
 [D41](../decisions.md#d41--users-are-not-expected-to-read-code-or-open-hidden-files-new-2026-10-10),
 [D42](../decisions.md#d42--a-note-that-cannot-hold-its-upstream-list-keeps-it-with-basehalf-new-2026-10-10),
-[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22)
+[D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
+[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Related: [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [agent launch context](agent-launch-context.md),
 [generation cards](generation-cards.md)
@@ -679,8 +681,8 @@ resume. Entries that were not yet updated stay visible as issues.
   lists: the canvas step, and the Undo of a rename's report too. Putting
   back or writing again what a participant wrote changes nothing that is so
   already, so a step whose lists were restored another way leaves it right.
-  Generation cards do this for the names in a draft's prompt
-  ([generation cards](generation-cards.md#names-follow-their-inputs)).
+  Generation cards do this for the mentions in a draft's prompt
+  ([generation cards](generation-cards.md#mentions)).
   A participant never takes part in undo, redo, or a rollback, which put
   back what it wrote instead; an operation that was refused or wrote no
   store never reaches it; and when it cannot write, the lists stay written
@@ -1128,7 +1130,11 @@ A template is one JSON document of version 1 with four lists:
 - `drafts`: the generation cards it creates without a file, each
   `{ path, prompt }`. The path has a generation extension, which gives the
   draft its kind ([generation cards](generation-cards.md#terms)). `prompt`
-  is at most 64 KiB and may be left out, which is an empty prompt. A draft
+  is at most 64 KiB and may be left out, which is an empty prompt. It
+  mentions an input as `@[<path>]` with the path relative to the template,
+  as its references name it; instantiation rebases each mention as it
+  rebases the references, so the draft's prompt mentions the entries of its
+  `upstream.yaml` ([generation cards](generation-cards.md#mentions)). A draft
   declares nothing else: its provider, model, mode, and values are this
   computer's.
 - `cards`: a card row `{ path, x, y, width, height }` for a file or a draft.
@@ -1183,9 +1189,10 @@ folder exists on every computer the project reaches through git
   change a generation that runs or the record of a file that exists.
 - Markdown inputs are read without their frontmatter when the generation
   starts, as [Inputs](generation-cards.md#inputs) says.
-- A name in a draft's prompt follows its input when a reference edit removes,
-  reorders, or replaces an entry of the draft's list
-  ([generation cards](generation-cards.md#names-follow-their-inputs)).
+- A mention in a draft's prompt follows its input when a reference edit
+  removes or replaces an entry of the draft's list, a rename and a relink
+  included: it takes the new path, or it is taken out with the entry
+  ([generation cards](generation-cards.md#mentions)).
 
 ## Capability discovery
 

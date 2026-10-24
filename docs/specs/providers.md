@@ -1,9 +1,11 @@
 # Providers and the model catalog
 
-Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64)
+Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74)
 Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
-[D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
+[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Related: [generation cards](generation-cards.md),
 [built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md),
 [BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
@@ -348,9 +350,11 @@ answer cross-origin requests from the window.
 | `basehalf.video.provider.cancel` | asks the provider to cancel a task, where it can |
 | `basehalf.video.provider.place` | puts a received file into its card's place, never replacing anything |
 
-- `check` takes the provider, region, model, mode, parameters, the prompt as
-  sent, and the planned inputs with their files. It answers the problems, in
-  order, as plain sentences. It reads image sizes and video
+- `check` takes the provider, region, model, mode, parameters, the prompt in
+  parts ([Names in the prompt](#names-in-the-prompt)), and the planned inputs
+  with their files. It answers the problems, in order, as plain sentences,
+  and the prompt as the provider module writes it, which is what the
+  declarations and the module check and what `submit` sends. It reads image sizes and video
   and audio lengths from the files and checks them against the mode's
   limits. For a model
   whose modes and inputs choose among several provider ids, it also answers
@@ -454,6 +458,40 @@ answer cross-origin requests from the window.
   the mode's limits) before the provider module adds the rules
   between parameters and the provider's own input rules.
 
+### Names in the prompt
+
+A prompt mentions its inputs by their files ([generation
+cards](generation-cards.md#mentions), D74), and the models name their inputs
+in different ways. So the window sends the prompt in parts, and the provider
+module writes the names:
+
+```json
+"prompt": [{ "input": "images", "index": 1 }, " wears the coat of ", { "input": "images", "index": 0 }, ".\n\nscene:\nA rider on the coast."]
+```
+
+- A part is text, or a mention of an input of the request: `startFrame`,
+  `endFrame`, or `source`, without an index, or `images`, `videos`, or
+  `audios` with the input's place among them, from 0. The window has written
+  the notes already: a mention of a note is its name in double quotes, and
+  the notes' texts follow under their names. A prompt that mentions nothing
+  may be sent as one string.
+- A mention of an input that the request does not send is refused, and so is
+  a part AI Video cannot read; nothing is sent then.
+- The module writes each mention as its provider's documentation names that
+  input, for the model and the mode (`writePrompt`), and the commands join
+  the parts. A module whose provider documents no names writes the shared
+  ones: a reference by its kind and its number among the references of its
+  kind in the request, from 1, `Image 2`, `Video 1`, `Audio 1`; the start and
+  the end frame as `the first frame` and `the last frame`; and the clip as
+  `the source video`. The shared names are in Chinese when the prompt's own
+  text has a Chinese character, `图片2`, `视频1`, `音频1`, `首帧`, `尾帧`,
+  and `原视频`, and in English otherwise.
+- Where a provider ties a name to a field of the request, such as a tag or a
+  reference's name, the module sets the field to the name it writes.
+- Each provider's specification says how its module names the inputs, with
+  the pages that say so. The descriptions of the models no longer tell the
+  user how to name inputs: the user mentions files.
+
 ## Providers
 
 Every provider below is reached on its own API with the user's credentials.
@@ -539,6 +577,16 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
    each provider's models under Images and Videos.
 9. An image request with `count` above 1 lands one file per output, and an
    output the provider refused alone is reported while the others land.
+10. A prompt in parts is written by the provider module of the request:
+    `check` answers the prompt so written, `submit` sends it, a prompt of one
+    string is sent as it is, and a mention of an input that the request does
+    not send is refused before anything is sent. Each module's names are its
+    provider's own (`promptNames.test.ts`): `@图片1` for Seedance 2.5, `@image_1`
+    for Kling's omni video models with each image item's `id`, `<<<image_1>>>`
+    for Kling's omni image models, `@image1` for Runway's tagged references,
+    `@image1` and its `ref_name` for PixVerse, `<IMAGE_0>` for xAI,
+    `<FIRST_FRAME>` and `<IMAGE_REF_0>` for Gemini Omni, and the shared names
+    where a provider documents none (D74).
 
 ## Verification
 

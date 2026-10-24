@@ -1,8 +1,9 @@
 # Vidu
 
-Status: Active (2026-10-19; image models, 2026-10-22)
+Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Owner: [Providers and the model catalog](../providers.md), which
 this page details for the provider `vidu`
 Module: `vscode-base/extensions/basehalf-ai-video/src/providers/vidu.ts`
@@ -179,6 +180,14 @@ Tooltips, in English like every label of the module:
 The catalog declares the largest number and `withoutMedia` or `always`; the
 module reports the rest.
 
+**Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+Q4 Preview's example names its references `[@reference_image_1]` and
+`[reference_audio_1]` in English and 参考图1 and 参考音频1 in Chinese, counted
+by kind in order (`vidu-q4-preview/reference-to-video`, read 2026-10-24), and
+the module writes those. Vidu documents no names for the references of Q3,
+Q3 Mix, and Q3 Turbo, whose example names none ("Santa Claus and the bear
+hug by the lakeside."), or for frames: the shared names are written.
+
 ### Rules between parameters and inputs
 
 `check` reports, after the declarations' own checks:
@@ -280,9 +289,10 @@ create it answers has an unknown outcome. The same meanings describe the
   `viduq2-pro-fast`.
 - **`viduq3-ad` and `viduq3-drama`**: models tuned for advertising and comic
   drama; not in this phase.
-- **Subjects** (`subjects`, `auto_subjects`, the subject library): BaseHalf
-  names its inputs Image 1, Audio 1, and so on; subjects are another way of
-  naming them in the prompt.
+- **Subjects** (`subjects`, `auto_subjects`, the subject library): another
+  request body, in which a name of the request is mentioned as `[@name]`;
+  the prompt mentions the inputs themselves, and the module names them
+  (D74).
 - **Video extension and smart multi-frame**: the function list names them, but
   the API reference of 2026-10-19 has no page for either.
 - **Off-peak mode** (`off_peak`): its tasks run within 48 hours, longer than a

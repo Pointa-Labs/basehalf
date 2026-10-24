@@ -1,7 +1,8 @@
 # OpenAI
 
-Status: Draft (2026-10-22)
-Decision: [D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+Status: Draft (2026-10-22; names in the prompt, 2026-10-24)
+Decisions: [D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the OpenAI module of AI Video
@@ -122,6 +123,12 @@ Rules that `check` reports:
   each image as an `image[]` file part in the order of the inputs, named by
   its place and format (`image-1.png`, `image-2.jpg`) with its MIME type. No
   mask is sent: an edit is described in the prompt.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  A mention of the n-th image is written with the shared names, `Image n` or
+  `图片n`: the prompting guide numbers the images in words, "Pass the scene
+  photograph as image 1 and the dog photograph as image 2", and asks to
+  identify "each input by number and purpose" rather than by "special
+  syntax" (`api/docs/guides/image-prompting`, read 2026-10-24).
 - Not sent: `response_format` and `style` (unsupported for GPT Image models),
   `output_compression` (PNG has none), `input_fidelity` (to be omitted for
   GPT Image 2, and not stated for 2.5), `partial_images`, `stream`,

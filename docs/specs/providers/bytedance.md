@@ -1,8 +1,9 @@
 # ByteDance (Seedance, Seedream)
 
-Status: Active (2026-10-19); image models Draft (2026-10-22)
+Status: Active (2026-10-19); image models Draft (2026-10-22); names in the prompt (2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 Implemented in `extensions/basehalf-ai-video/src/providers/bytedance.ts`:
@@ -127,6 +128,26 @@ The prompt has no documented length limit; the pages advise at most 500
 Chinese characters or 1,000 English words. The catalog bounds it at 20,000
 characters, text inputs included.
 
+**Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+A reference is numbered by its kind, from 1, in the order of its kind's
+items in `content`, which is the order of the references: "序号为请求体中该素材在同类素材中的排序"
+(Seedance 2.0 tutorial, Volcengine Ark, updated 2026-09-29; BytePlus says
+the same, 2026-09-29).
+
+- Seedance 2.5 reads `@图片1`, `@视频1`, and `@音频1`, and `@Image 1`,
+  `@Video 1`, and `@Audio 1` in English (Seedance 2.5 tutorials, Volcengine
+  Ark 2026-10-19, BytePlus 2026-10-20).
+- The 2.0 series reads `图片1`, `视频1`, and `音频1`, and `Image 1`,
+  `Video 1`, and `Audio 1` (Seedance 2.0 prompt guides, Volcengine Ark
+  2026-09-22, BytePlus 2026-09-28).
+- The Chinese names are written when the prompt's own text has a Chinese
+  character, and the English ones otherwise. The examples of both sites vary
+  (`[Image 1]`, `@图片 1`, `<video1>`); the module writes the form the
+  tutorials state.
+- No page names a frame, and frames and references cannot be sent together
+  ("3 种互斥场景，不可混用"): a frame is written as the shared names write it,
+  `the first frame` or `首帧`, and the examples describe the frame in words.
+
 ## Image models
 
 The Seedream models run on the same regions, keys, and base URLs as Seedance
@@ -174,9 +195,13 @@ where they differ, the difference is named below.
 - Each model must be activated in the provider's console. A model that is not
   is refused with the provider's message, as for Seedance.
 
-**References.** The images connected to the card, in order; the prompt names
-them Image 1, Image 2 ([generation cards, Inputs](../generation-cards.md#inputs)),
-as Seedream expects. 5.0 Pro and Flash take up to 10, the others up to 14.
+**References.** The images connected to the card, in order. A mention of the
+n-th is written `图n` in a Chinese prompt and `Image n` otherwise
+([providers](../providers.md#names-in-the-prompt)): no page states a rule,
+and the official examples and the editing guide's sample code number the
+images that way by the order they are sent (`图${n}`, `Image ${n}`; Seedream
+editing guide, Volcengine Ark and BytePlus, 2026-10-13). 5.0 Pro and Flash
+take up to 10, the others up to 14.
 Each is a PNG, JPEG, or WebP (Seedream also takes BMP, TIFF, GIF, HEIC, and
 HEIF, which the window draws to PNG), more than 14 px on each side, 1/16 to 16
 in width over height, at most 36,000,000 pixels, and at most 30 MiB. Images

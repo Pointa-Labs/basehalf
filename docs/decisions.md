@@ -2400,7 +2400,7 @@ draft's prompt their inputs' new numbers and takes out the names of inputs
 that are no longer connected, in the same step of undo, through a
 participant of the reference edit service. See [generation
 cards](specs/generation-cards.md#the-panel),
-["Names follow their inputs"](specs/generation-cards.md#names-follow-their-inputs),
+["Names follow their inputs"](specs/generation-cards.md#mentions) (since D74, "Mentions"),
 and the [reference graph](specs/reference-graph.md#undo).
 
 **Why.** On 2026-10-24 the user asked for the prompt field and its references
@@ -2681,3 +2681,69 @@ smoke step.
 - Revises the rule of 2026-07-12 that a click on the current place, on a
   chevron, or on the box's free room did nothing.
 - A press on the box no longer takes the keyboard. Tab still reaches it.
+
+## D74 — A prompt mentions its inputs' files, and each provider module names them as its model reads them (NEW, 2026-10-24)
+
+**Decision.** A mention in a draft's prompt is its input's file. It is
+stored as `@[<entry>]`, the entry of the card's `upstream` list that names
+the input, and shows as a chip with the file's picture or glyph and its
+name. Every input can be mentioned, a note too: the reference menu and the
+`@` of a tile put the mention in. When a generation is sent, the window
+gives AI Video the prompt's text and, for each mention of an image, a video,
+or a sound, that input's place in the request; the provider module writes
+it as its model reads it, counting by the order of the request, and the
+check answers the prompt so written. A mention of a note is written as the
+note's name in double quotes, and every note's text follows the prompt
+under its name and a colon. A mention follows its input: a rename or a move of the
+file, a relink, or a connection whose source moved to another card writes
+the new path into it, and a removed connection takes it out, in the same
+step of undo; adding and reordering change no mention. A mention of a file
+that is not connected keeps Generate from running. See [generation
+cards](specs/generation-cards.md#mentions) and [providers and the model
+catalog](specs/providers.md#names-in-the-prompt).
+
+**Why.** On 2026-10-24, after the tiles lost their numbers (D71), the user
+asked whether a name in the prompt should simply be the file's own name, and
+then, when the first answer translated the names for each provider, why
+anything had to be translated at all and what the essential way was. 图片2
+was a number in the list standing for a file: it told the user nothing
+about which file, it had to be written again whenever the list changed
+(D68), and only some models read names of that form. In their own
+documentation, Kling's omni models read `<<<image_1>>>`, Runway reads
+`@image1` for a reference tagged `image1`, xAI reads `<IMAGE_0>` counted
+from 0, and Wan 2.6 reads `character1` across its images and videos;
+BaseHalf sent the prompt as written, so a prompt named its input at one
+model and nothing at another. An open canvas app for media generation
+stores a mention as the node it names, shows the node on the chip, and
+numbers the mentions only when it sends; a node-graph tool rewrites
+`@image1` into Kling's `<<<image_1>>>` before it sends.
+
+**What was set aside.**
+- Keeping 图片1 in the prompt and translating it for each provider when
+  it is sent: the name would still be a number of the list, which changes
+  with the list and says nothing about the file.
+- One sequence of numbers for all inputs, shown on the chips: the user
+  chose no numbers on the tiles (D71), and a number reads as a part of a
+  file's name.
+- Sending only the inputs the prompt mentions, as the open canvas app does:
+  what is connected is sent (D67), and a connection is a mention's input.
+- Writing a note's text where it is mentioned: a note can be long and
+  mentioned twice; its text follows the prompt under its name.
+- A bare `@path` without brackets: where a path ends cannot be told from
+  the text after it, as in `@a.png，然后`, and a mention of a file that is not
+  connected could not be told from text.
+- A path relative to the card's folder: an entry is relative to the
+  workspace folder, and a mention is the same path as its entry, so that
+  the rename refactor and the follower rewrite both alike.
+
+**Consequences.**
+- Revises D68: the prompt holds mentions, not names; the follower writes a
+  new path into a mention or takes it out, and reordering writes nothing.
+- Revises D71: a note has a name in the prompt, its file's name, and
+  choosing it in the reference menu puts its chip in.
+- `check` and `submit` of AI Video take the prompt in parts, each provider
+  module names its inputs, and `check` answers the prompt as written; the
+  task record keeps that prompt.
+- The authoring contract of `generation.yaml` is version 7.
+- Prompts written before name inputs as text, such as 图片1, and are sent as
+  they are: the product has not launched, and nothing is converted.

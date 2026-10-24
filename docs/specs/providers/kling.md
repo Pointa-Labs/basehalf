@@ -1,8 +1,9 @@
 # Kling
 
-Status: Active (2026-10-19; image models, 2026-10-22)
+Status: Active (2026-10-19; image models, 2026-10-22; names in the prompt, 2026-10-24)
 Decisions: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
-[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
+[D64](../../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
+[D74](../../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
 Parent: [Providers and the model catalog](../providers.md)
 
 This specification owns the Kling module of AI Video
@@ -167,7 +168,7 @@ base64, without a `data:` prefix, in the `url` field.
 {
 	"contents": [
 		{ "type": "prompt", "text": "<prompt>" },
-		{ "type": "refer_image", "url": "<base64>" }
+		{ "type": "refer_image", "url": "<base64>", "id": "image_1" }
 	],
 	"settings": { "resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "audio": "off" }
 }
@@ -176,9 +177,16 @@ base64, without a `data:` prefix, in the `url` field.
 - `audio` is sent only by models with the Sound setting.
 - The prompt item is sent only when the prompt has text other than spaces.
 - Frames on the omni endpoint send `first_frame` and `last_frame` items;
-  References send one `refer_image` item per image, in order. Items carry no
-  `id`, and the prompt is sent as written: Kling's `@name` syntax for inputs
-  is not added.
+  References send one `refer_image` item per image, in order.
+- **Names in the prompt** ([providers](../providers.md#names-in-the-prompt)).
+  Every image item of the omni endpoint has an `id`, `image_1` onward in the
+  order of `contents`, the frames included, and a mention is written `@` and
+  that id: "Specify an image, an Element, a video in the format of @xxx,
+  such as @image_1"; the `id` is the "input index ID, used to specify in
+  prompt", unique in the task (3.0 Omni and O1 video pages, read
+  2026-10-24). With at most 7 images, no id is a part of another. The other
+  video models' frames have no `id` and no name in the documentation, so the
+  shared names are written.
 - The answer is `{code: 0, message, request_id, data: {id, status, …}}`; the
   task id is `data.id`, a string. A 2xx answer with another code is read as
   in [Errors](#errors): a code that says the request was refused made no task;
@@ -319,8 +327,11 @@ limit. Only the capability map shows a date.
 - An image is its file's bytes as plain base64 without a `data:` prefix: the
   one `image` of Kling Image 3.0, and `image_list` items `{ "image": … }` of
   the omni models, in order.
-- An omni prompt names inputs `<<<image_1>>>`; the prompt is sent as written,
-  as for the video models.
+- A mention of the n-th image of an omni image model is written
+  `<<<image_n>>>`: "Specify an image in the format of <<<>>>, such as
+  <<<image_1>>>" (Image 3.0 Omni and Image O1 pages, read 2026-10-24),
+  counted in the order of `image_list`. Kling Image 3.0 takes one image,
+  which no page names: the shared names are written.
 - `check` reports a request whose JSON with its images in base64 would be
   larger than the 128 MiB AI Video sends.
 
