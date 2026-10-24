@@ -135,7 +135,8 @@ suite('BaseHalf providers: openai', () => {
 			qualities: labels('quality'),
 			backgrounds: labels('background'),
 			videoLocation: OPENAI.videoLocation,
-			last: PROVIDER_MODULES.at(-1) === OPENAI,
+			// The last of the providers of images and videos; those of audio alone follow it (D78).
+			last: PROVIDER_MODULES.filter(module => module.describe().models.some(model => model.kind !== 'audio')).at(-1) === OPENAI,
 			deprecated: provider.models.some(model => model.deprecated)
 		}, {
 			resolutions: ['1K', '2K', '4K'],
