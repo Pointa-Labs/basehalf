@@ -10,14 +10,23 @@ import { localize } from '../../../../nls.js';
 import type { ListedVoice, VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { isVoiceId, MAX_SAMPLE_ADDRESS_LENGTH } from '../../../../platform/basehalfProviders/common/basehalfProviderVoices.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { BaseHalfVideoModeId, baseHalfVideoModeParameters, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from './basehalfVideoCatalog.js';
+import type { IBaseHalfGenerationRequest } from './basehalfGenerationInfo.js';
+import {
+	BaseHalfVideoModeId,
+	baseHalfVideoModeParameters,
+	findBaseHalfVideoModel,
+	IBaseHalfVideoCatalog,
+	IBaseHalfVideoCatalogModel,
+	IBaseHalfVideoCatalogProvider,
+	IBaseHalfVideoModelRef
+} from './basehalfVideoCatalog.js';
 
 /**
  * The voices of speech models (D78; generation cards, "The panel"; providers,
  * "Voices"): the voice of a model, a voice's name, the window's service that
  * lists a provider's voices and plays their samples, and what the voice menu
- * lists. Apart from the service's interface, pure: the panels and the menu
- * draw it, and the tests check it.
+ * lists. Apart from the service's interface, pure: the panels, the menu, and
+ * Card Detail draw it, and the tests check it.
  */
 
 /** The most voices a list keeps (providers, "Requests"). */
@@ -34,14 +43,41 @@ export function baseHalfVoiceParameter(model: IBaseHalfVideoCatalogModel, modeId
 }
 
 /**
- * A voice's name, as the voice button and the panel of a card with its file
- * say it: the one the catalog gives it, or the provider's last list, or its
- * id when neither has it.
+ * A voice's name, as the voice button, the panel of a card with its file, and
+ * Card Detail say it: the one the catalog gives it, or the provider's last
+ * list, or its id when neither has it.
  */
 export function baseHalfVoiceLabel(parameter: VoiceParameter | undefined, id: string, list: VoicesResult | undefined): string {
 	return parameter?.options.find(option => option.value === id)?.label
 		?? list?.voices.find(voice => voice.id === id)?.label
 		?? id;
+}
+
+/**
+ * Whether only the provider's list names the voice `id` (D78): a voice of a
+ * model whose provider lists voices, which none of the catalog's voices is,
+ * as one of the user's account. Both panels and Card Detail then have the
+ * window ask for that list once ({@link IBaseHalfGenerationVoiceService.askOnce}),
+ * so that they name it before a voice menu opened in the window.
+ */
+export function baseHalfVoiceNeedsList(parameter: VoiceParameter, id: string): boolean {
+	return parameter.listed === true && id !== '' && !parameter.options.some(option => option.value === id);
+}
+
+/**
+ * The model and the region whose list of voices names the voice a generation
+ * was made in, when only that list can ({@link baseHalfVoiceNeedsList}): the
+ * panel of a card with its file and Card Detail have the window ask for it
+ * once. `undefined` for a voice of the catalog, a model whose voices are the
+ * catalog's alone, and a model the catalog does not have.
+ */
+export function baseHalfRecordedVoiceList(catalog: IBaseHalfVideoCatalog | undefined, made: Pick<IBaseHalfGenerationRequest, 'provider' | 'region' | 'model' | 'params'>): (IBaseHalfVideoModelRef & { readonly region: string }) | undefined {
+	const ref = findBaseHalfVideoModel(catalog, made.provider, made.model);
+	const parameter = ref ? baseHalfVoiceParameter(ref.model) : undefined;
+	const voice = parameter ? made.params[parameter.name] : undefined;
+	return ref && parameter && typeof voice === 'string' && baseHalfVoiceNeedsList(parameter, voice)
+		? Object.freeze({ provider: ref.provider, model: ref.model, region: made.region })
+		: undefined;
 }
 
 // --- The service ---------------------------------------------------------------------------------
@@ -98,6 +134,19 @@ export interface IBaseHalfGenerationVoiceService {
 	 * has an answer, which {@link voices} then holds.
 	 */
 	refresh(provider: IBaseHalfVideoCatalogProvider, model: IBaseHalfVideoCatalogModel): Promise<void>;
+
+	/**
+	 * Asks as {@link refresh} does, once, so that a voice that only the
+	 * provider's list names is named ({@link baseHalfVoiceNeedsList}): a
+	 * draft's voice, or the one a card's file was made in. It asks only when
+	 * `region`, the region of the draft or the one its record names, is the one
+	 * in use, the provider is set up, and the window has never asked for the
+	 * voices there: no list, no request on its way, no failure. After an answer
+	 * or a failure it asks nothing more, so that drawing again never asks in a
+	 * loop; the voice menu asks each time it opens. Resolves when the request it
+	 * starts, or the one on its way, has its answer, and at once otherwise.
+	 */
+	askOnce(provider: IBaseHalfVideoCatalogProvider, model: IBaseHalfVideoCatalogModel, region: string): Promise<void>;
 
 	/** The sample that loads or plays. */
 	readonly sample: IBaseHalfVoiceSample | undefined;

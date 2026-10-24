@@ -84,7 +84,7 @@ import {
 } from '../common/basehalfVideoNodePanelPresentation.js';
 import { baseHalfPromptMention, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { BaseHalfReferenceMenuKind, IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
-import { IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
+import { baseHalfVoiceNeedsList, IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
 import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
@@ -868,6 +868,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				this.pickKey = key;
 				this._onDidChangePick.fire();
 			}
+		}
+		// A voice that only the provider's list names, as one of the account, even before the voice menu opened in this window (D78).
+		const { ref, region, voice } = this.presentation;
+		if (ref && region && voice && baseHalfVoiceNeedsList(voice.parameter, voice.value)) {
+			void this.voiceService.askOnce(ref.provider, ref.model, region.id);
 		}
 	}
 

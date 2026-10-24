@@ -36,10 +36,11 @@ import {
  * The window's voice service (D78; generation cards, "The panel"; providers,
  * "Voices"): it lists the voices of a provider and of the user's account
  * through the provider service, keeps the last list per provider and region
- * for the window, which the voice menu and both panels name voices from, and
- * plays the samples through an audio graph of its own. It registers here, in
- * a module that the Providers contribution loads with the other generation
- * services, so that it is there whichever panel the window draws first.
+ * for the window, which the voice menu, both panels, and Card Detail name
+ * voices from, and plays the samples through an audio graph of its own. It
+ * registers here, in a module that the Providers contribution loads with the
+ * other generation services, so that it is there whichever panel the window
+ * draws first.
  */
 
 // --- The window's audio graph for samples --------------------------------------------------------
@@ -223,6 +224,17 @@ export class BaseHalfGenerationVoiceService extends Disposable implements IBaseH
 		});
 		asked.request = request;
 		return request;
+	}
+
+	askOnce(provider: IBaseHalfVideoCatalogProvider, model: IBaseHalfVideoCatalogModel, region: string): Promise<void> {
+		// Asked there before: a list, a request on its way, or a failure.
+		const asked = this.lists.get(voicesKey(provider.id, region));
+		if (asked) {
+			return asked.request ?? Promise.resolve();
+		}
+		// The list of the region in use names none of another region's voices, and a provider not set up lists none of the account's.
+		const status = this.providerSettings.getStatus(provider);
+		return region === status.region.id && status.setUp ? this.refresh(provider, model) : Promise.resolve();
 	}
 
 	get sample(): IBaseHalfVoiceSample | undefined {

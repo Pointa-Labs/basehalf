@@ -50,10 +50,10 @@
 
 /* The voice a speech model spoke in (D78): its glyph and its name, between the model and the settings. */
 .monaco-workbench .bh-record-panel-voice {
+	/* The voice's name stays whole up to its width, as the model's does; the summary of the settings gives way first. */
 	display: inline-flex;
-	min-width: 0;
 	max-width: 148px;
-	flex: 0 1 auto;
+	flex: 0 0 auto;
 	align-items: center;
 	gap: 5px;
 	padding: 0 4px;

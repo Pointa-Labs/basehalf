@@ -26,7 +26,7 @@ import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH } from '../common/basehalfGenerat
 import { IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { createBaseHalfGenerationRecordPresentation, IBaseHalfGenerationRecordInput, IBaseHalfGenerationRecordPresentation } from '../common/basehalfGenerationRecordPresentation.js';
 import { BaseHalfModelKind } from '../common/basehalfVideoCatalog.js';
-import { IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
+import { baseHalfRecordedVoiceList, IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
 import {
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
@@ -333,11 +333,12 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			this.updateHeight();
 			return;
 		}
+		const catalog = this.catalogService.state;
 		const presentation = this.presentation = createBaseHalfGenerationRecordPresentation({
 			kind: snapshot.kind,
 			...(snapshot.made ? { made: snapshot.made } : {}),
 			inputs: this.inputs,
-			catalog: this.catalogService.state,
+			catalog,
 			voices: (provider, region) => this.voiceService.voices(provider, region).list
 		});
 		// The card was read; whether its record could be is a state of its own.
@@ -364,6 +365,11 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this.newVersionButton.setAttribute('aria-disabled', String(this.making));
 		this.newVersionButton.classList.toggle('busy', this.making);
 		this.updateHeight();
+		// A voice that only the provider's list names, as one of the account, even before a voice menu opened in this window (D78).
+		const list = snapshot.made ? baseHalfRecordedVoiceList(catalog.kind === 'ready' ? catalog.catalog : undefined, snapshot.made) : undefined;
+		if (list) {
+			void this.voiceService.askOnce(list.provider, list.model, list.region);
+		}
 	}
 
 	/**

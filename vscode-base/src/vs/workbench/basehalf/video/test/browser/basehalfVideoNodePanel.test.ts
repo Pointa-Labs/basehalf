@@ -331,7 +331,7 @@ class RecordingNotificationService extends TestNotificationService {
 	}
 }
 
-/** The voices of the window as a panel reads them: the last list per provider and region, and what the menu asked for (D78). */
+/** The voices of the window as a panel reads them: the last list per provider and region, and what the menu and the panel asked for (D78). */
 class FakeVoiceService extends Disposable implements IBaseHalfGenerationVoiceService {
 	declare readonly _serviceBrand: undefined;
 	private readonly voicesChanged = this._register(new Emitter<void>());
@@ -341,6 +341,8 @@ class FakeVoiceService extends Disposable implements IBaseHalfGenerationVoiceSer
 	readonly sample: IBaseHalfVoiceSample | undefined = undefined;
 	readonly sampleFailure: IBaseHalfVoiceSampleFailure | undefined = undefined;
 	readonly refreshed: string[] = [];
+	/** What the panel had the window ask for once, to name a voice only a list names, each once. */
+	readonly askedOnce = new Set<string>();
 	stops = 0;
 	private readonly lists = new Map<string, VoicesResult>();
 
@@ -351,6 +353,10 @@ class FakeVoiceService extends Disposable implements IBaseHalfGenerationVoiceSer
 
 	async refresh(provider: IBaseHalfVideoCatalogProvider, model: { readonly id: string }): Promise<void> {
 		this.refreshed.push(`${provider.id}/${model.id}`);
+	}
+
+	async askOnce(provider: IBaseHalfVideoCatalogProvider, model: { readonly id: string }, region: string): Promise<void> {
+		this.askedOnce.add(`${provider.id}/${region}/${model.id}`);
 	}
 
 	async playSample(): Promise<void> { }
@@ -1599,6 +1605,24 @@ suite('BaseHalfVideoNodePanel', () => {
 			button: ['My Narrator', 'Voice: My Narrator'],
 			summary: 'From Text · Speed 1',
 			checked: { voice: 'own-narrator', speed: 1 }
+		});
+	});
+
+	test('a voice that only the provider\'s list names has the window ask for that list once, in the region in use, before the voice menu opens; a voice of the catalog asks nothing (D78)', async () => {
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH, params: { voice: 'own-narrator', speed: 1 } });
+		const voice = find(panel, '.bh-video-panel-voice');
+		const ofAccount = { asked: [...voices.askedOnce], label: voice.textContent, menus: voices.refreshed.length };
+		voices.answer('dunlin', 'main', { voices: [{ id: 'own-narrator', label: 'My Narrator', own: true }] });
+		await settle();
+		const named = voice.textContent;
+		voices.askedOnce.clear();
+		store.writeFromElsewhere({ prompt: 'Welcome to the coast.', ...SPEECH, params: { voice: 'vx-pike', speed: 1 } });
+		await settle();
+		assert.deepStrictEqual({ ofAccount, named, ofCatalog: { asked: [...voices.askedOnce], label: voice.textContent } }, {
+			// By its id until the list comes, which the voice menu has not asked for.
+			ofAccount: { asked: ['dunlin/main/dunlin-voice'], label: 'own-narrator', menus: 0 },
+			named: 'My Narrator',
+			ofCatalog: { asked: [], label: 'Pike' }
 		});
 	});
 

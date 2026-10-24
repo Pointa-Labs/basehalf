@@ -16,6 +16,7 @@ import { basename, dirname, isEqual } from '../../../../base/common/resources.js
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
+import type { VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { FileChangeType, IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -43,6 +44,7 @@ import {
 	planBaseHalfVideoInputs
 } from '../../video/common/basehalfVideoCatalog.js';
 import { baseHalfPromptAsText } from '../../video/common/basehalfGenerationMentions.js';
+import { baseHalfRecordedVoiceList, baseHalfVoiceLabel, IBaseHalfGenerationVoiceService } from '../../video/common/basehalfGenerationVoices.js';
 import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../video/common/basehalfVideoGeneration.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
@@ -88,15 +90,19 @@ export interface IBaseHalfGenerationProvenance {
  * provider and its region, the mode, the settings, the prompt, which image of
  * how many it is, when it started and finished, and the inputs in order. The
  * names come from the model catalog when it has them, and are the recorded
- * ids otherwise. The prompt shows each mention as its file's name, and each
- * input says what it was used as; `kindOf` tells the kind of an input. A card
- * without a record says that BaseHalf did not generate its file, and one whose
- * record cannot be read says that.
+ * ids otherwise; a speech model's voice that the catalog does not name, as
+ * one of the account, is named by `voices`, the provider's last list of
+ * voices in a region, as the panel of the card names it (D78). The prompt
+ * shows each mention as its file's name, and each input says what it was
+ * used as; `kindOf` tells the kind of an input. A card without a record says
+ * that BaseHalf did not generate its file, and one whose record cannot be
+ * read says that.
  */
 export function baseHalfGenerationProvenance(
 	card: Pick<IBaseHalfGenerationCardSnapshot, 'kind' | 'made' | 'madeUnreadable'>,
 	displayLanguage: string = language,
 	catalog?: IBaseHalfVideoCatalog,
+	voices?: (provider: string, region: string) => VoicesResult | undefined,
 	kindOf: (path: string) => BaseHalfVideoInputKind = baseHalfVideoInputKindOfPath
 ): IBaseHalfGenerationProvenance {
 	const made = card.made;
@@ -117,9 +123,13 @@ export function baseHalfGenerationProvenance(
 	const mode = model?.modes.find(candidate => candidate.id === made.mode);
 	const settings = Object.entries(made.params).map(([name, value]) => {
 		const parameter = model?.parameters.find(candidate => candidate.name === name);
-		return parameter
-			? localize('basehalf.generation.detail.setting', "{0} {1}", parameter.label, baseHalfVideoParamValueLabel(parameter, value))
-			: `${name}: ${String(value)}`;
+		if (!parameter) {
+			return `${name}: ${String(value)}`;
+		}
+		const shown = parameter.kind === 'voice' && typeof value === 'string'
+			? baseHalfVoiceLabel(parameter, value, voices?.(made.provider, made.region))
+			: baseHalfVideoParamValueLabel(parameter, value);
+		return localize('basehalf.generation.detail.setting', "{0} {1}", parameter.label, shown);
 	});
 	const started = Date.parse(made.startedAt);
 	const finished = Date.parse(made.finishedAt);
@@ -198,6 +208,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		@ILogService private readonly logService: ILogService,
 		@IBaseHalfGenerationCardStore private readonly generationCardStore: IBaseHalfGenerationCardStore,
 		@IBaseHalfVideoCatalogService private readonly videoCatalogService: IBaseHalfVideoCatalogService,
+		@IBaseHalfGenerationVoiceService private readonly voiceService: IBaseHalfGenerationVoiceService,
 		@IHoverService private readonly hoverService: IHoverService
 	) {
 		super();
@@ -421,15 +432,19 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	/**
 	 * Below the image, the video, or the sound of a generation card: what made
 	 * its file (generation cards, "The toolbar"), drawn again when its card
-	 * information changes. A file that is no generation card shows nothing
-	 * more.
+	 * information changes, and when the window's lists of voices do, which
+	 * name a voice of the account (D78). A file that is no generation card
+	 * shows nothing more.
 	 */
 	private followGenerationProvenance(state: IBaseHalfCardDetailState): void {
-		this.provenanceListener.value = this.generationCardStore.onDidChange(card => {
+		const listeners = new DisposableStore();
+		this.provenanceListener.value = listeners;
+		listeners.add(this.generationCardStore.onDidChange(card => {
 			if (isEqual(card, state.resource)) {
 				void this.renderGenerationProvenance(state);
 			}
-		});
+		}));
+		listeners.add(this.voiceService.onDidChangeVoices(() => { void this.renderGenerationProvenance(state); }));
 		void this.renderGenerationProvenance(state);
 	}
 
@@ -453,7 +468,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (!card) {
 			return;
 		}
-		const provenance = baseHalfGenerationProvenance(card, language, catalog);
+		const provenance = baseHalfGenerationProvenance(card, language, catalog, (provider, region) => this.voiceService.voices(provider, region).list);
 		const section = this.provenance = append(this.root, $('section.bh-generation-provenance'));
 		section.setAttribute('aria-label', card.kind === 'image'
 			? localize('basehalf.generation.detail.labelImage', "What made this image")
@@ -480,6 +495,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				append(item, $('span.bh-generation-provenance-input-name')).textContent = input.name;
 				append(item, $('span.bh-generation-provenance-input-path')).textContent = input.path;
 			}
+		}
+		// A voice that only the provider's list names, as one of the account, even before a voice menu opened in this window (D78).
+		const voices = card.made ? baseHalfRecordedVoiceList(catalog, card.made) : undefined;
+		if (voices) {
+			void this.voiceService.askOnce(voices.provider, voices.model, voices.region);
 		}
 	}
 }

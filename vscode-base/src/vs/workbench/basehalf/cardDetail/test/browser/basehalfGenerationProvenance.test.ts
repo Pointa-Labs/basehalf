@@ -6,6 +6,7 @@
 import assert from 'assert';
 import { safeIntl } from '../../../../../base/common/date.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { baseHalfGenerationProvenance } from '../../browser/basehalfMediaCardDetail.js';
 import { baseHalfGenerationMadeCopy, IBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
 import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../../../video/test/common/basehalfVideoCatalogFixture.js';
@@ -173,6 +174,27 @@ suite('BaseHalfGenerationProvenance', () => {
 			speech: { label: 'Settings', value: 'Voice Pike · Speed 1.25' },
 			withoutCatalog: ['Note', 'Sound', 'Image'],
 			copy: 'This sound is a copy of a generated sound; this is what made that one.'
+		});
+	});
+
+	test('names a voice of the account as the provider\'s last list of the region it was made in names it, as the panel of the card does, and by its id without such a list (D78)', () => {
+		const lists = new Map<string, VoicesResult>([
+			['dunlin/main', { voices: [{ id: 'narrator-7', label: 'My Narrator', own: true }, { id: 'vx-pike', label: 'Pike of the account', own: false }] }],
+			['dunlin/elsewhere', { voices: [{ id: 'gone-since', label: 'Elsewhere', own: true }] }]
+		]);
+		const voices = (provider: string, region: string) => lists.get(`${provider}/${region}`);
+		const settings = (voice: string, list: typeof voices = voices) => baseHalfGenerationProvenance({ kind: 'audio', made: { ...speech, params: { voice, speed: 1.25 } } }, 'en', TEST_AUDIO_CATALOG, list).rows.find(row => row.label === 'Settings')?.value;
+		assert.deepStrictEqual({
+			byList: settings('narrator-7'),
+			byCatalog: settings('vx-pike'),
+			withoutList: settings('narrator-7', () => undefined),
+			// The list of another region names none of this one's voices.
+			notListed: settings('gone-since')
+		}, {
+			byList: 'Voice My Narrator · Speed 1.25',
+			byCatalog: 'Voice Pike · Speed 1.25',
+			withoutList: 'Voice narrator-7 · Speed 1.25',
+			notListed: 'Voice gone-since · Speed 1.25'
 		});
 	});
 });

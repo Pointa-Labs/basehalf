@@ -365,7 +365,9 @@ listed voice has:
 The voices of an account change outside BaseHalf, so the window asks for
 them each time the voice menu opens and keeps the last answer for that
 provider and region while it asks again
-([generation cards, The panel](generation-cards.md#the-panel)). A voice that
+([generation cards, The panel](generation-cards.md#the-panel)); it also asks
+once, to name a voice of the account that a card shows before any menu
+opened. A voice that
 the card stores and that no answer lists is still sent; the provider says
 whether it knows it.
 

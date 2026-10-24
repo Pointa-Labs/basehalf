@@ -664,6 +664,46 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		});
 	});
 
+	test('asks once to name a voice that only the list names: one request while it is on its way, none after an answer or a failure, none for another region than the one in use, and none until the provider is set up (D78)', async () => {
+		// A provider that is not set up is not asked, and nothing kept stops the window from asking once it is.
+		settings.notSetUp.add('dunlin');
+		await service.askOnce(DUNLIN, SPEECH, 'main');
+		const notSetUp = { asked: providers.listed.length, voices: service.voices('dunlin', 'main') };
+		settings.notSetUp.delete('dunlin');
+		// The list of the region in use names none of another region's voices.
+		await service.askOnce(TWO_REGIONS, SPEECH, 'south');
+		const otherRegion = providers.listed.length;
+		const answer = new DeferredPromise<unknown>();
+		providers.voices = () => answer.p;
+		const first = service.askOnce(DUNLIN, SPEECH, 'main');
+		const second = service.askOnce(DUNLIN, SPEECH, 'main');
+		const whileAsked = service.voices('dunlin', 'main');
+		answer.complete({ ok: true, value: LIST });
+		await Promise.all([first, second]);
+		const answered = { asked: providers.listed.map(request => request.region), voices: service.voices('dunlin', 'main').list?.voices.length };
+		// Drawing again asks nothing more after an answer, nor after a failure.
+		await service.askOnce(DUNLIN, SPEECH, 'main');
+		settings.regions.set('dunlin', 'south');
+		providers.voices = () => ({ ok: false, error: { code: 'network', message: 'The network is down.' } });
+		await service.askOnce(TWO_REGIONS, SPEECH, 'south');
+		await service.askOnce(TWO_REGIONS, SPEECH, 'south');
+		assert.deepStrictEqual({
+			notSetUp,
+			otherRegion,
+			whileAsked,
+			answered,
+			afterwards: providers.listed.map(request => request.region),
+			failed: service.voices('dunlin', 'south')
+		}, {
+			notSetUp: { asked: 0, voices: { loading: false } },
+			otherRegion: 0,
+			whileAsked: { loading: true },
+			answered: { asked: ['main'], voices: 4 },
+			afterwards: ['main', 'south'],
+			failed: { loading: false, error: 'The network is down.' }
+		});
+	});
+
 	test('the window\'s sound output for samples stops five seconds after the last one ended', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 		await service.playSample(DUNLIN, SPEECH, 'rachel', 'https://cdn.dunlin.example/rachel.mp3');
 		const playing = context.state;
