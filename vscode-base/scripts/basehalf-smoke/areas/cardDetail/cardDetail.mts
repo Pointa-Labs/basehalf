@@ -491,3 +491,27 @@ export async function assertSourceCardSaveActionHidden(page) {
 		throw new Error(`Source card detail should not expose a manual Save button, count=${saveButtonCount}`);
 	}
 }
+
+// Canvas card name, criterion 28: a rename in the title of Card Detail is a
+// step of the canvas's undo once Card Detail is closed.
+export async function assertCardDetailRenameIsCanvasUndo(page) {
+	await quickOpen(page, 'README.md');
+	await assertCardDetail(page, 'README.md');
+	await page.locator('.basehalf-card-detail-title-button').click();
+	const input = page.locator('.basehalf-card-detail-title-input input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	await input.fill('README-detail');
+	await input.press('Enter');
+	const readme = path.join(workspacePath, 'README.md');
+	const renamed = path.join(workspacePath, 'README-detail.md');
+	await waitUntil(() => fs.existsSync(renamed) && !fs.existsSync(readme), 'the title of Card Detail to rename the note');
+	await assertCardDetail(page, 'README-detail.md');
+	await page.locator('.basehalf-card-detail-close').click();
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 10_000 });
+	const card = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README-detail.md"]');
+	await card.waitFor({ state: 'visible', timeout: 10_000 });
+	await card.focus();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => fs.existsSync(readme) && !fs.existsSync(renamed), 'undo on the canvas to give the note its old name back');
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]').waitFor({ state: 'visible', timeout: 10_000 });
+}

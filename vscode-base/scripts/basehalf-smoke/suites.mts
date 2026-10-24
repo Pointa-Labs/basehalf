@@ -28,6 +28,7 @@ import {
 	assertCardDetailCompactHeader,
 	assertCardDetailCoversCanvasViewport,
 	assertCardDetailHoldsNoLayoutControl,
+	assertCardDetailRenameIsCanvasUndo,
 	assertMediaCardDetail,
 	assertPdfCardDetail,
 	assertPdfGrowsThreeBranches,
@@ -228,6 +229,7 @@ async function runCardDetailSuite(page) {
 	await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
 	await step('pdf-grow-three-branches', () => assertPdfGrowsThreeBranches(page));
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
+	await step('card-detail-rename-is-canvas-undo', () => assertCardDetailRenameIsCanvasUndo(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */

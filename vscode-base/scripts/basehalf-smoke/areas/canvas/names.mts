@@ -41,6 +41,16 @@ export async function assertCanvasInlineRename(page) {
 	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to commit');
 	const renamed = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README-renamed.md"]');
 	await renamed.waitFor({ state: 'visible', timeout: 10_000 });
+	// A step of the canvas's undo (criterion 28): Undo gives the note its old
+	// name back, and Redo renames it again.
+	await renamed.focus();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'undo on the canvas to give the note its old name back');
+	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.focus();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y');
+	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'redo on the canvas to rename the note again');
+	await renamed.waitFor({ state: 'visible', timeout: 10_000 });
 
 	await renamed.focus();
 	await page.keyboard.press('F2');
