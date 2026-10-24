@@ -17,6 +17,7 @@ import { LTX } from './ltx.js';
 import { BFL } from './bfl.js';
 import { OPENAI } from './openai.js';
 import { ELEVENLABS } from './elevenlabs.js';
+import { FISH_AUDIO } from './fishaudio.js';
 import type { ProviderModule } from './module.js';
 import { isVoiceId } from '../common/basehalfProviderVoices.js';
 import type { AudioFormat, AudioMakes, Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId, ModelKind } from '../common/basehalfProviderTypes.js';
@@ -26,7 +27,7 @@ import type { AudioFormat, AudioMakes, Catalog, CatalogMode, CatalogModel, Catal
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
-export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, RUNWAY, XAI, LTX, BFL, OPENAI, ELEVENLABS]);
+export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, RUNWAY, XAI, LTX, BFL, OPENAI, ELEVENLABS, FISH_AUDIO]);
 
 /** The most files one request makes: the largest `count` an image or a music model may declare. */
 export const MAX_OUTPUTS = 16;
