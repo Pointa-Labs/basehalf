@@ -117,7 +117,8 @@ export class BaseHalfSequenceView extends Disposable implements IBaseHalfCardDet
 		}));
 		webview.mountTo(this.container, mainWindow);
 		if (!workspaceFolder || workspaceFolder.scheme !== Schemas.file) {
-			webview.setHtml(errorDocument(localize('basehalf.sequence.view.notLocal', "Sequence must be an ordinary file inside an open local workspace.")));
+			// Nothing to try again: the file is where no Sequence can be.
+			webview.setHtml(errorDocument(localize('basehalf.sequence.view.notLocal', "Sequence must be an ordinary file inside an open local workspace."), false));
 			return;
 		}
 		this._register(webview.onMessage(event => void this.handleMessage(event.message)));
@@ -324,8 +325,9 @@ function loadingDocument(): string {
 	return shellDocument(`<main class="state">${escape(localize('basehalf.sequence.view.loading', "Loading playback order…"))}</main>`, '');
 }
 
-function errorDocument(message: string): string {
-	return shellDocument(`<main class="state error"><strong>${escape(localize('basehalf.sequence.view.couldNotOpen', "Sequence could not be opened"))}</strong><span>${escape(message)}</span><button data-refresh>${escape(localize('basehalf.sequence.view.tryAgain', "Try Again"))}</button></main>`, refreshScript());
+function errorDocument(message: string, canTryAgain = true): string {
+	const tryAgain = canTryAgain ? `<button data-refresh>${escape(localize('basehalf.sequence.view.tryAgain', "Try Again"))}</button>` : '';
+	return shellDocument(`<main class="state error"><strong>${escape(localize('basehalf.sequence.view.couldNotOpen', "Sequence could not be opened"))}</strong><span>${escape(message)}</span>${tryAgain}</main>`, canTryAgain ? refreshScript() : '');
 }
 
 function sequenceDocument(items: readonly IViewItem[], totalItems: number, truncated: boolean): string {
