@@ -678,7 +678,12 @@ The settings of a draft are drawn from its model's
   does not take gives way to its default, as any value does: for a parameter
   that is not listed, one that is none of its options, and for any, an
   empty one, which names no voice
-  ([providers, Parameters](providers.md#parameters)).
+  ([providers, Parameters](providers.md#parameters)). A voice is its
+  provider's: choosing a model of another provider keeps the card's voice
+  only when it is one of that model's voices, and otherwise gives it the
+  model's default, since another provider does not know its id. So a draft
+  that went from Eleven v4 to Gemini 3.8 Flash TTS and back speaks in
+  ElevenLabs' default voice, not in Gemini's.
 
 **A range the inputs narrow** (D70). A rule of the provider can narrow how
 far a number goes for what is connected, such as Wan 3.0, whose input videos

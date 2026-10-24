@@ -726,6 +726,37 @@ suite('BaseHalfVideoCatalog', () => {
 			});
 		});
 
+		test('a voice is its provider\'s: a model of another provider takes its own default for a voice of another account or provider, and keeps one of its own voices; a model of the same provider keeps the voice', () => {
+			// A second provider whose speech model lists its voices, one of them with an id that Dunlin has too.
+			const egret = parseBaseHalfVideoCatalog({
+				schema: 1,
+				providers: [{
+					...DUNLIN, id: 'egret', label: 'Egret', models: [{
+						...DUNLIN_VOICE, id: 'egret-voice', label: 'Egret Voice', parameters: [
+							{ name: 'voice', label: 'Voice', kind: 'voice', default: 'eg-kite', listed: true, options: [{ value: 'eg-kite', label: 'Kite' }, { value: 'vx-pike', label: 'Pike' }] },
+							{ name: 'speed', label: 'Speed', kind: 'number', min: 0.5, max: 2, step: 0.05, default: 1 }
+						]
+					}]
+				}]
+			}).catalog.providers[0];
+			const egretVoice = { provider: egret, model: egret.models[0] };
+			const dunlinVoice = { provider: dunlin, model: speech };
+			const spoken = (voiceId: string) => ({ provider: 'dunlin', model: 'dunlin-voice', mode: 'reference' as const, params: { voice: voiceId, speed: 1.25 } });
+			assert.deepStrictEqual({
+				accountVoice: baseHalfVideoChooseModel(spoken('own-narrator'), egretVoice).params,
+				catalogVoice: baseHalfVideoChooseModel(spoken('vx-ember'), egretVoice).params,
+				sharedVoice: baseHalfVideoChooseModel(spoken('vx-pike'), egretVoice).params,
+				sameProvider: baseHalfVideoChooseModel(spoken('own-narrator'), dunlinVoice).params,
+				backFromAnother: baseHalfVideoChooseModel({ provider: 'egret', model: 'egret-voice', mode: 'reference', params: { voice: 'eg-kite' } }, dunlinVoice).params
+			}, {
+				accountVoice: { voice: 'eg-kite', speed: 1.25 },
+				catalogVoice: { voice: 'eg-kite', speed: 1.25 },
+				sharedVoice: { voice: 'vx-pike', speed: 1.25 },
+				sameProvider: { voice: 'own-narrator', speed: 1.25 },
+				backFromAnother: { voice: 'vx-ember', speed: 1 }
+			});
+		});
+
 		test('the settings name no voice: its button shows it, by the name the catalog or the provider\'s list gives it, or its id', () => {
 			assert.deepStrictEqual({
 				summary: baseHalfVideoSettingsSummary(speech, 'reference', { voice: 'vx-pike', speed: 1.25 }),

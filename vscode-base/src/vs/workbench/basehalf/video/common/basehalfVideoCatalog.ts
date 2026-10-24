@@ -595,15 +595,31 @@ export function normalizeBaseHalfVideoParams(model: IBaseHalfVideoCatalogModel, 
 	return Object.freeze(result);
 }
 
-/** The generation after the user chose a model: every value the new model and mode accept is kept, the others take their defaults. */
+/**
+ * The generation after the user chose a model: every value the new model and
+ * mode accept is kept, the others take their defaults. A voice is its
+ * provider's (D78): a model of another provider keeps it only when it is one
+ * of the model's own voices, since that provider does not know another's ids.
+ */
 export function baseHalfVideoChooseModel(generation: IBaseHalfVideoGenerationChoice | undefined, ref: IBaseHalfVideoModelRef): IBaseHalfVideoGenerationChoice {
 	const mode = baseHalfVideoModeOf(ref.model, generation?.mode);
+	const params = generation?.provider === ref.provider.id ? generation.params : withoutAnotherProvidersVoice(ref.model, generation?.params);
 	return Object.freeze({
 		provider: ref.provider.id,
 		model: ref.model.id,
 		mode: mode.id,
-		params: normalizeBaseHalfVideoParams(ref.model, mode.id, generation?.params)
+		params: normalizeBaseHalfVideoParams(ref.model, mode.id, params)
 	});
+}
+
+/** The values without a voice that is none of the model's own voices, as the voice of another provider's model is. */
+function withoutAnotherProvidersVoice(model: IBaseHalfVideoCatalogModel, params: IBaseHalfVideoGenerationChoice['params']): IBaseHalfVideoGenerationChoice['params'] {
+	const voice = model.parameters.find((parameter): parameter is IBaseHalfVideoVoiceParameter => parameter.kind === 'voice');
+	if (!params || !voice || !Object.prototype.hasOwnProperty.call(params, voice.name) || voice.options.some(option => option.value === params[voice.name])) {
+		return params;
+	}
+	const { [voice.name]: _another, ...others } = params;
+	return others;
 }
 
 /** The generation after the user chose a mode of its model. */
