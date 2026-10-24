@@ -304,7 +304,6 @@ inputs:
   ([reference graph](reference-graph.md#rename-refactor)). BaseHalf did not
   make a file that appears there, so it has no `made.yaml`: its card is an
   ordinary file's, and the draft's `generation.yaml` is no longer read.
-  **Upload** removes it ([The toolbar](#the-toolbar)).
 - **A missing file**: when the file of a card that has a `made.yaml`
   disappears (deleted in Finder, deleted to the trash, not pulled from git),
   the card is gone from the canvas like any card whose file is gone, and its
@@ -690,7 +689,10 @@ From top to bottom:
      them ([Pick on Canvas](#pick-on-canvas)), and is highlighted while the
      draft picks; and **Import File…**, which copies a file into the card's
      folder and connects it. Each is an icon whose name is its tooltip and
-     its accessible name. A card or a file that the model cannot use is
+     its accessible name: an arrow in a frame for Pick on Canvas, and a
+     paperclip for Import File…, as an attachment has, since nothing is
+     uploaded anywhere. Import File… is the one way to add a file from the
+     panel or the card. A card or a file that the model cannot use is
      refused with the reason, as a connection on the canvas is, and Import
      File… copies nothing then.
    - A connection made or removed changes the row at once. The tiles that
@@ -894,8 +896,8 @@ While the draft picks:
   so the outline under the pointer never blinks. The draft stays selected,
   with its panel.
 - **The canvas is not edited**: no card moves or resizes, the handles that
-  draw a connection and the toolbars of the selection, such as a draft's
-  Upload Image, do not show, the blank canvas starts no selection box, a
+  draw a connection and the toolbars of the selection do not show, the
+  blank canvas starts no selection box, a
   double click does nothing, and no menu opens on the canvas. The view moves
   and zooms as at other times, by the wheel, the trackpad, or a drag with
   the middle or the right button, and the panel's tiles and prompt work as
@@ -1057,21 +1059,12 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
 
 ### The toolbar
 
-Above a selected draft that does not generate, the toolbar shows **Upload
-Image** or **Upload Video**. Above a generation card with its file it shows
-**Reveal in Finder** (Explorer on Windows, the file manager elsewhere) and
-**Open**, and on a video **Capture Frame**, with First Frame, Current Frame,
-and Last Frame.
+A selected draft has no toolbar: what it takes is added from its panel,
+whose Import File… is its one way to add a file (D71). Above a generation
+card with its file the toolbar shows **Reveal in Finder** (Explorer on
+Windows, the file manager elsewhere) and **Open**, and on a video **Capture
+Frame**, with First Frame, Current Frame, and Last Frame.
 
-- **Upload** copies the chosen file to the draft's path. It takes a file with
-  a generation extension of the draft's kind, and refuses another with "An
-  image card takes a PNG, JPEG, WebP, GIF, AVIF, or BMP file." or "A video
-  card takes an MP4, MOV, M4V, or WebM file." When the file's extension
-  differs from the draft's, the draft is first renamed to that extension, as
-  a rename does. The card is then the card of an ordinary file, which
-  BaseHalf did not make: the draft's `generation.yaml` and its connections
-  are removed with the upload, since the file was not made from them, and it
-  has no panel. It can be connected to another card as an input.
 - **Capture Frame** writes a PNG of that frame into the card's folder, named
   after the card and the frame (`shot first frame.png`, `shot last
   frame.png`, or `shot frame at 3.2s.png` for the current frame, with a
@@ -1387,8 +1380,7 @@ is a file does:
 - **Undo.** Creating, renaming, moving, deleting, and copying a draft are each
   one step of the canvas undo stack, which keeps all of the draft's card
   information; so is New Version, and so are the drafts a generation made,
-  together, as one step named Generate. A generation itself is not undone, and **Upload** is not a
-  step of undo: the file it copied is the card's file from then on.
+  together, as one step named Generate. A generation itself is not undone.
   - While a draft of a step generates, undo refuses, says why, and keeps the
     step for later.
   - Once a draft of a step has its file, or its prompt or settings changed
@@ -1795,8 +1787,8 @@ A draft and a card with its file (D67)
     is unchanged; the same is refused for a draft while it generates.
 47. A mode that cannot use every input of the draft is dimmed in the
     settings with the first input it cannot use, and cannot be chosen.
-48. Upload leaves an ordinary file: the draft's `generation.yaml` and its
-    connections are gone, and the card has no panel.
+48. A selected draft, image or video, shows no toolbar above it: no Upload
+    Image or Upload Video (D71).
 
 References and names (D68)
 
@@ -1880,8 +1872,10 @@ Adding inputs and notes (D71)
 
 69. A draft's panel has Pick on Canvas and Import File… as two icon buttons
     at its top right, at the end of the input row, with their names as
-    tooltips, and no plus; a click on Pick on Canvas starts picking and
-    highlights it with the accent, and a second click ends picking.
+    tooltips, and no plus; Import File…'s icon is the paperclip, and no
+    control of a generation card shows a cloud; a click on Pick on Canvas
+    starts picking and highlights it with the accent, and a second click
+    ends picking.
 70. The reference menu lists Notes under On This Canvas with the notes of
     the card's folder; choosing one connects it, so its tile and its line
     appear, and takes the `@` out; a connected note is listed under
@@ -1928,8 +1922,8 @@ Adding inputs and notes (D71)
   seed (`basehalfGenerationInfo.test.ts`), the panel of a card with its file
   (`basehalfGenerationRecordPanel.test.ts`), the panel host choosing the
   panel and selecting the new version
-  (`basehalfCanvasVideoPanel.contribution.test.ts`), New Version and Upload
-  as actions (`basehalfGenerationCardActions.test.ts`), the landing that
+  (`basehalfCanvasVideoPanel.contribution.test.ts`), New Version as an
+  action (`basehalfGenerationCardActions.test.ts`), the landing that
   removes `generation.yaml` and `--generate` on a card with its file
   (`basehalfVideoGenerationService.test.ts`), and the connections the canvas
   refuses.

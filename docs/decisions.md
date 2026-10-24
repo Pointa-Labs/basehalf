@@ -2552,7 +2552,11 @@ icon buttons at the panel's top right, at the row's right end: **Pick on
 Canvas**, which is highlighted with the accent while the draft picks and
 ends picking when it is clicked again, and **Import File…**. While the
 draft picks, the row's hint is read by assistive technology and not shown,
-so the tiles keep their room. An empty frame still opens a menu of the two. The reference menu lists notes: a connected
+so the tiles keep their room. An empty frame still opens a menu of the two.
+Import File… is a draft's one upload: its toolbar no longer offers Upload
+Image or Upload Video, so a selected draft has no toolbar. Its icon is a
+paperclip, not a cloud: nothing is uploaded anywhere, the file is copied
+into the card's folder. The reference menu lists notes: a connected
 note under Connected, and **Notes** under On This Canvas. Choosing a note
 connects it; a note has no name, so the `@` is taken out and nothing takes
 its place, and its text is sent after the prompt as every connected note's
@@ -2575,6 +2579,13 @@ the view ([D50](#d50--a-place-the-user-points-at-is-taken-as-it-is-new-2026-10-1
 so the arrow. The second starts picking from an empty frame's plus, which
 stays highlighted while it picks.
 
+Later the same day the user found that the card still had Upload Video
+above it, beside the panel's new button, and asked to keep only the one at
+the panel's top right, and to change its icon, which looked like an upload
+to a cloud. The two did different things, one put a file in the draft's
+place and the other connects one to it, and read as one button twice. No
+other kind of card shows an upload or a cloud.
+
 The blink: the row compared what it draws by a key in which a file's address
 carried the fields it caches. The check reads a file's path, which adds one,
 and a save reads the inputs again, which drops it: two redraws half a second
@@ -2588,7 +2599,12 @@ apart, each building the look anew with a picture to decode.
   row; the tooltip and the accessible name say them.
 - A name for a note in the prompt, such as Note 1: a note's text is sent
   after the prompt, so a name there would point the provider at nothing.
+- Keeping Upload above a draft, which put the chosen file in the draft's
+  place: a file the user already has goes on the canvas by a drop, and the
+  draft is deleted.
 
 **Consequences.**
 - The input row has no plus; the smoke starts picking with the button.
 - A note can be connected from the prompt as a card is, by `@`.
+- Revises D67: no file is uploaded into a draft, so the draft's toolbar,
+  its Upload, and the service behind it are gone.
