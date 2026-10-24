@@ -8,7 +8,7 @@ import { safeIntl } from '../../../../../base/common/date.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { baseHalfGenerationProvenance } from '../../browser/basehalfMediaCardDetail.js';
 import { baseHalfGenerationMadeCopy, IBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
-import { TEST_GENERATION_CATALOG } from '../../../video/test/common/basehalfVideoCatalogFixture.js';
+import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../../../video/test/common/basehalfVideoCatalogFixture.js';
 
 const startedAt = '2026-10-15T08:00:00.000Z';
 const finishedAt = '2026-10-15T08:02:31.000Z';
@@ -42,6 +42,37 @@ const image: IBaseHalfGenerationMade = {
 	inputs: [],
 	output: 2,
 	outputs: 4
+};
+
+const song: IBaseHalfGenerationMade = {
+	id: '20261025T080000-50e6a1b2-1',
+	startedAt,
+	finishedAt,
+	remoteId: 'song-task-1',
+	provider: 'dunlin',
+	region: 'main',
+	model: 'dunlin-song',
+	providerModel: 'song-1',
+	mode: 'lyrics',
+	params: { style: 'sea shanty', count: 2 },
+	prompt: '@[notes/lyrics.md]',
+	inputs: ['notes/lyrics.md', 'refs/tune.mp3', 'refs/cover.png'],
+	output: 1,
+	outputs: 2
+};
+
+const speech: IBaseHalfGenerationMade = {
+	id: '20261025T080500-50e6a1b3',
+	startedAt,
+	finishedAt,
+	provider: 'dunlin',
+	region: 'main',
+	model: 'dunlin-voice',
+	providerModel: 'voice-1',
+	mode: 'reference',
+	params: { voice: 'vx-pike', speed: 1.25 },
+	prompt: '@[notes/intro.md]',
+	inputs: ['notes/intro.md']
 };
 
 suite('BaseHalfGenerationProvenance', () => {
@@ -114,6 +145,34 @@ suite('BaseHalfGenerationProvenance', () => {
 				note: 'This video is a copy of a generated video; this is what made that one.',
 				model: { label: 'Model', value: 'Acme Motion 2 (acme-motion-2-w-260101)' }
 			}
+		});
+	});
+
+	test('says what made a sound: which song of how many, the voice it spoke in, its references, and that a copy is a copy of a sound (D78)', () => {
+		const songShown = baseHalfGenerationProvenance({ kind: 'audio', made: song }, 'en', TEST_AUDIO_CATALOG);
+		const speechShown = baseHalfGenerationProvenance({ kind: 'audio', made: speech }, 'en', TEST_AUDIO_CATALOG);
+		assert.deepStrictEqual({
+			song: songShown.rows.filter(row => ['Mode', 'Settings', 'Song', 'Prompt'].includes(row.label)),
+			inputs: songShown.inputs,
+			speech: speechShown.rows.find(row => row.label === 'Settings'),
+			// Without the catalog, a sound's inputs are still its references.
+			withoutCatalog: baseHalfGenerationProvenance({ kind: 'audio', made: { ...song, mode: 'reference' } }, 'en').inputs.map(input => input.name),
+			copy: baseHalfGenerationProvenance({ kind: 'audio', made: baseHalfGenerationMadeCopy(song, '20261026T090000-feedbeef') }, 'en', TEST_AUDIO_CATALOG).note
+		}, {
+			song: [
+				{ label: 'Mode', value: 'From Lyrics' },
+				{ label: 'Settings', value: 'Style sea shanty · Songs 2' },
+				{ label: 'Prompt', value: 'lyrics' },
+				{ label: 'Song', value: '1 of 2' }
+			],
+			inputs: [
+				{ name: 'Note', path: 'notes/lyrics.md' },
+				{ name: 'Sound', path: 'refs/tune.mp3' },
+				{ name: 'Image', path: 'refs/cover.png' }
+			],
+			speech: { label: 'Settings', value: 'Voice Pike · Speed 1.25' },
+			withoutCatalog: ['Note', 'Sound', 'Image'],
+			copy: 'This sound is a copy of a generated sound; this is what made that one.'
 		});
 	});
 });

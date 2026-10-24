@@ -8,6 +8,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import {
 	baseHalfGenerationCardPresentation,
 	baseHalfGenerationCardToolbarActions,
+	baseHalfGenerationKindLabel,
 	baseHalfGenerationPhase,
 	formatBaseHalfVideoElapsed,
 	IBaseHalfGenerationCardInput
@@ -95,13 +96,32 @@ suite('BaseHalfVideoCardPresentation', () => {
 				generating: baseHalfGenerationCardToolbarActions('image', 'generating'),
 				failed: baseHalfGenerationCardToolbarActions('video', 'failed'),
 				image: baseHalfGenerationCardToolbarActions('image', 'file'),
-				video: baseHalfGenerationCardToolbarActions('video', 'file')
+				video: baseHalfGenerationCardToolbarActions('video', 'file'),
+				audioDraft: baseHalfGenerationCardToolbarActions('audio', 'draft'),
+				audio: baseHalfGenerationCardToolbarActions('audio', 'file')
 			}, {
 				imageDraft: [],
 				generating: [],
 				failed: [],
 				image: ['revealVideo', 'openFullPreview'],
-				video: ['captureFrame', 'revealVideo', 'openFullPreview']
+				video: ['captureFrame', 'revealVideo', 'openFullPreview'],
+				audioDraft: [],
+				audio: ['revealVideo', 'openFullPreview']
+			});
+		});
+
+		test('an audio card is named Audio, and a sound that cannot be played here says so (D78)', () => {
+			const sound = (extra: Partial<IBaseHalfGenerationCardInput>) => baseHalfGenerationCardPresentation({ name: 'audio.mp3', kind: 'audio', path: 'voice/audio.mp3', hasFile: false, now, ...extra });
+			assert.deepStrictEqual({
+				draft: sound({}).ariaLabel,
+				file: sound({ hasFile: true }).ariaLabel,
+				unshowable: [sound({ hasFile: true, fileShowable: false }).message, sound({ hasFile: true, fileShowable: false }).ariaLabel],
+				kinds: (['image', 'video', 'audio'] as const).map(baseHalfGenerationKindLabel)
+			}, {
+				draft: 'audio.mp3, Audio, draft',
+				file: 'audio.mp3, Audio',
+				unshowable: ['This sound cannot be played here', 'audio.mp3, Audio, This sound cannot be played here: voice/audio.mp3'],
+				kinds: ['Image', 'Video', 'Audio']
 			});
 		});
 	});

@@ -13,8 +13,13 @@ import { IBaseHalfCanvasActionContext } from './basehalfCanvasActionContext.js';
 export const BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID = 'basehalf.canvas.newNote';
 export const BASEHALF_CANVAS_UNDO_REDO_SOURCE = new UndoRedoSource();
 
-/** What the canvas creates: a note, a draft of an image or a video (generation cards, "Creating a generation card"), or a file or folder the user names. */
-export type BaseHalfCanvasCreateKind = 'note' | 'image' | 'video' | 'file' | 'folder';
+/** What the canvas creates: a note, a draft of an image, a video, or a sound (generation cards, "Creating a generation card"), or a file or folder the user names. */
+export type BaseHalfCanvasCreateKind = 'note' | 'image' | 'video' | 'audio' | 'file' | 'folder';
+
+/** Whether the canvas creates a draft of a generation card for a kind: New Image, New Video, and New Audio. */
+export function isBaseHalfCanvasDraftCreateKind(kind: BaseHalfCanvasCreateKind): kind is 'image' | 'video' | 'audio' {
+	return kind === 'image' || kind === 'video' || kind === 'audio';
+}
 
 export const IBaseHalfCanvasEditingService = createDecorator<IBaseHalfCanvasEditingService>('baseHalfCanvasEditingService');
 

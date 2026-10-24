@@ -16,7 +16,7 @@ import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../canvas/common/ba
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfBadgeMirrorService } from '../../references/common/basehalfBadgeMirror.js';
 import { baseHalfIsDraft, baseHalfIsDraftInformation, baseHalfReadDraftFacts } from '../../video/common/basehalfGenerationDraft.js';
-import { BASEHALF_GENERATION_INFO_FILE, baseHalfGenerationKindOfPath, isBaseHalfGenerationTaskEnded } from '../../video/common/basehalfGenerationInfo.js';
+import { BASEHALF_GENERATION_INFO_FILE, baseHalfGenerationDraftNameRule, baseHalfGenerationKindOfPath, isBaseHalfGenerationTaskEnded } from '../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfDraftMoveOptions, IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationTaskStore } from '../../video/common/basehalfVideoGeneration.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfRelocateBadgeText } from '../common/basehalfMirrorCascadeOperation.js';
@@ -175,10 +175,8 @@ export class BaseHalfDraftOperations implements IBaseHalfDraftOperations {
 	private async moveLocked(workspaceFolder: URI, from: string, to: string, lease: IBaseHalfWorkspaceMutationLease, aside: boolean): Promise<void> {
 		await this.assertDraft(workspaceFolder, from, aside);
 		const kind = baseHalfGenerationKindOfPath(from);
-		if (baseHalfGenerationKindOfPath(to) !== kind) {
-			throw new BaseHalfDraftOperationError(kind === 'image'
-				? localize('basehalf.draft.imageName', "An image card needs a name that ends in .png, .jpg, .jpeg, .webp, .gif, .avif, or .bmp.")
-				: localize('basehalf.draft.videoName', "A video card needs a name that ends in .mp4, .mov, .m4v, or .webm."));
+		if (kind && baseHalfGenerationKindOfPath(to) !== kind) {
+			throw new BaseHalfDraftOperationError(baseHalfGenerationDraftNameRule(kind));
 		}
 		const facts = await baseHalfReadDraftFacts(this.fileService, workspaceFolder, to);
 		// A generated file that is in the trash or missing keeps its record: its card comes back with the file.

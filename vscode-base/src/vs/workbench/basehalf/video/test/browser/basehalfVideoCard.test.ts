@@ -104,7 +104,7 @@ suite('BaseHalfGenerationCardFace', () => {
 		return { ...createBaseHalfGenerationTask({ id: '20261022T080000-1a2b3c4d', kind: 'video', cards: [PATH], follower: 'window-1', now: new Date(Date.now() - 42_000).toISOString() }), state: 'running' };
 	}
 
-	function render(generation: FakeGenerationService, tasks: FakeTaskStore, input: { readonly kind?: 'image' | 'video'; readonly hasFile?: boolean; readonly name?: string; readonly carried?: IBaseHalfGenerationCardPresentation } = {}) {
+	function render(generation: FakeGenerationService, tasks: FakeTaskStore, input: { readonly kind?: 'image' | 'video' | 'audio'; readonly hasFile?: boolean; readonly name?: string; readonly carried?: IBaseHalfGenerationCardPresentation } = {}) {
 		return disposables.add(renderBaseHalfGenerationCardFace(container, {
 			resource: CARD,
 			path: PATH,
@@ -122,12 +122,18 @@ suite('BaseHalfGenerationCardFace', () => {
 		const videoFace = { state: video.element.dataset.state, kind: video.element.dataset.kind, glyph: !!video.element.querySelector('.bh-generation-card-glyph svg'), text: video.element.textContent, label: video.element.getAttribute('aria-label') };
 		video.dispose();
 		const image = render(generation, tasks, { kind: 'image', name: 'image.png' });
+		const imageFace = { state: image.element.dataset.state, kind: image.element.dataset.kind, label: image.element.getAttribute('aria-label') };
+		image.dispose();
+		// A sound shows the glyph of a sound (D78).
+		const sound = render(generation, tasks, { kind: 'audio', name: 'audio.mp3' });
 		assert.deepStrictEqual({
 			videoFace,
-			imageFace: { state: image.element.dataset.state, kind: image.element.dataset.kind, label: image.element.getAttribute('aria-label') }
+			imageFace,
+			soundFace: { state: sound.element.dataset.state, kind: sound.element.dataset.kind, glyph: sound.element.firstElementChild?.classList.contains('bh-generation-card-glyph') && sound.element.firstElementChild.firstElementChild?.tagName === 'svg', label: sound.element.getAttribute('aria-label') }
 		}, {
 			videoFace: { state: 'draft', kind: 'video', glyph: true, text: '', label: 'shot.mp4, Video, draft' },
-			imageFace: { state: 'draft', kind: 'image', label: 'image.png, Image, draft' }
+			imageFace: { state: 'draft', kind: 'image', label: 'image.png, Image, draft' },
+			soundFace: { state: 'draft', kind: 'audio', glyph: true, label: 'audio.mp3, Audio, draft' }
 		});
 	});
 
@@ -211,10 +217,14 @@ suite('BaseHalfGenerationCardFace', () => {
 		const videoFace = { state: video.element.dataset.state, message: text('.bh-generation-card-message'), hovers: hovers.size };
 		video.dispose();
 		const image = render(generation, tasks, { kind: 'image', hasFile: true, name: 'still.png' });
-		assert.deepStrictEqual({ videoFace, image: text('.bh-generation-card-message') }, {
-			videoFace: { state: 'unshowable', message: 'This video cannot be played here', hovers: 0 },
-			image: 'This image cannot be shown here'
-		});
+		const imageMessage = text('.bh-generation-card-message');
 		image.dispose();
+		const sound = render(generation, tasks, { kind: 'audio', hasFile: true, name: 'audio.mp3' });
+		assert.deepStrictEqual({ videoFace, image: imageMessage, sound: text('.bh-generation-card-message') }, {
+			videoFace: { state: 'unshowable', message: 'This video cannot be played here', hovers: 0 },
+			image: 'This image cannot be shown here',
+			sound: 'This sound cannot be played here'
+		});
+		sound.dispose();
 	});
 });

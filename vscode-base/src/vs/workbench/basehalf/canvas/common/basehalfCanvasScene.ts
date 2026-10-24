@@ -75,11 +75,11 @@ export type BaseHalfCanvasSceneCardControls =
 		readonly background?: BaseHalfCanvasNoteBackground;
 	}
 	| {
-		/** A generation card, of an image or a video: the panel goes beside it. */
+		/** A generation card, of an image, a video, or a sound: the panel goes beside it. */
 		readonly kind: 'video';
 		readonly actions: readonly BaseHalfCanvasSceneVideoAction[];
-		/** What the card makes, so that its toolbar is named for an image or a video. A video when absent. */
-		readonly media?: 'image' | 'video';
+		/** What the card makes, so that its toolbar is named for an image, a video, or a sound. A video when absent. */
+		readonly media?: 'image' | 'video' | 'audio';
 	};
 
 export type BaseHalfCanvasSceneSelectionSurface = 'none' | 'pending' | 'structural' | 'note' | 'video';
