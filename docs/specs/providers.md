@@ -1,19 +1,21 @@
 # Providers and the model catalog
 
-Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74)
+Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78)
 Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
 [D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
-[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24)
+[D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
+[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)
 Related: [generation cards](generation-cards.md),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
 Providers page)
 
 This specification owns which providers BaseHalf runs, the catalog that
-declares their image and video models, the credentials users enter for them,
-and how a request reaches a provider and comes back. The
+declares their image, video, and audio models, the credentials users enter
+for them, the voices a speech model speaks in, and how a request reaches a
+provider and comes back. The
 [generation cards](generation-cards.md) specification owns the card, its
 panel, and the life of a generation; it reads everything about providers and
 models from the catalog described here.
@@ -38,7 +40,8 @@ price (D61).
 
 Until D64 the catalog held only video models, and BaseHalf made no images,
 although ten of its twelve video providers sell image models under the same
-key.
+key. Until D78 it held no audio models, and BaseHalf made no sound apart from
+the sound of a video.
 
 ## Goals
 
@@ -50,7 +53,8 @@ key.
   panel offers nothing else.
 - Users set up a provider once: a region, their own credentials, and, when
   they use a relay or a private gateway, its endpoint. The same setup serves
-  the provider's image models and its video models.
+  the provider's image, video, and audio models, and lists the voices of the
+  user's account.
 - Inputs reach the provider without any service of BaseHalf in between.
 
 ## Non-goals
@@ -63,7 +67,13 @@ key.
 - Inputs that a provider takes only as public URLs and for which it has no
   upload endpoint. Such inputs are not offered for that provider.
 - Editing tools that are not generation: upscaling, background removal,
-  masks, layers, lip sync on an existing video.
+  masks, layers, lip sync on an existing video, changing the voice of a
+  recording, dubbing, stems, and extending or editing a song.
+- Making a voice from BaseHalf, by cloning a recording or describing it. A
+  voice is made in the provider's own app, which asks for the speaker's
+  consent and stores the voice; it then is among the voices of the account
+  ([Voices](#voices)).
+- A stream without an end, such as live music, which has no file.
 - A ChatGPT or Codex login as credentials. OpenAI's Sign in with ChatGPT
   offers no image generation, and BaseHalf never reads or forwards the login
   of the user's Codex (D64).
@@ -85,12 +95,16 @@ key.
   unless the user enters another one.
 - **Model**: an entry of the catalog, such as Seedance 2.5 or Seedream 5.0
   Pro. Its id is stable in BaseHalf; the id sent to the provider may differ by
-  region. Its **kind** is `image` or `video`.
+  region. Its **kind** is `image`, `video`, or `audio`; an audio model also
+  says what it **makes**: `speech`, `music`, or `sound` (sound effects).
 - **Mode**: how the card's inputs are used: `frames`, `reference`, `extend`,
-  or `edit` ([Modes and inputs](#modes-and-inputs)).
+  `edit`, or `lyrics` ([Modes and inputs](#modes-and-inputs)).
 - **Parameter**: a setting a model declares, such as `resolution`.
+- **Voice**: a voice a speech model speaks in: one of the provider's own, or
+  one of the user's account, which the user cloned, designed, or saved in the
+  provider's app. Its id is the provider's.
 - **Output**: one file a generation makes. A video model makes one; an image
-  model makes as many as its `count`.
+  model and a music model make as many as their `count`.
 
 ## The catalog
 
@@ -137,8 +151,12 @@ descriptions, and tooltips are in the window's display language.
 }
 ```
 
-- `kind`: `image` or `video`. A card offers only the models of its kind, and
-  a card's kind never changes with its model.
+- `kind`: `image`, `video`, or `audio`. A card offers only the models of its
+  kind, and a card's kind never changes with its model.
+- `makes`, for an audio model: `speech` (a voice that says the prompt),
+  `music` (a song or an instrumental), or `sound` (sound effects). The
+  window names it in the model menu and in the prompt's placeholder
+  ([generation cards, The panel](generation-cards.md#the-panel)).
 - `providerModels`: for each region that offers the model, the id sent to
   the provider there. A card whose provider is set up in another region shows
   the model as unavailable there. Where the provider has one id per task for
@@ -153,7 +171,8 @@ descriptions, and tooltips are in the window's display language.
   `deprecatedIn` lists the regions that retire a model when not all do; the
   model is then deprecated only there. Agents read both.
 - `outputFormat`, for an image model: the format its module asks the provider
-  for, `png`, `jpeg`, or `webp` ([Image format](#image-format)). A draft takes
+  for, `png`, `jpeg`, or `webp` ([Image format](#image-format)); for an
+  audio model, `mp3` or `wav` ([Audio format](#audio-format)). A draft takes
   its extension from it ([generation cards](generation-cards.md#creating-a-generation-card)).
 
 ### Modes and inputs
@@ -164,14 +183,21 @@ the card's connections ([generation cards, Inputs](generation-cards.md#inputs)):
 | Mode | Kind | Uses |
 | --- | --- | --- |
 | `frames` | video | the first image as the start frame and the second as the end frame, as far as the mode takes them; with no image, the prompt alone |
-| `reference` | image, video | images, videos, and audio as references, in order; an image model's references are images, and with none the prompt alone makes the image |
+| `reference` | image, video, audio | images, videos, and audio as references, in order; an image model's references are images, and with none the prompt alone makes the image; an audio model's are the images and sounds its mode takes, such as the song whose style a song follows, and with none the prompt alone makes the sound |
 | `extend` | video | the first video as the clip to continue |
 | `edit` | video | the first video as the clip to change, and images as references |
+| `lyrics` | audio | the prompt as the lyrics a song sings, and references as `reference` takes them |
 
 An image model offers the one mode `reference`, whose `images.min` is 0 when
 the model also makes an image from the prompt alone. The provider module
 sends a request without images to the provider's text-to-image call, where
 the provider has one of its own.
+
+An audio model offers `reference`, in which its prompt is what the voice
+says, or describes the music or the sound. A music model that sings given
+lyrics also offers `lyrics`, labeled **From Lyrics**, and then labels
+`reference` **From a Description**: in it the provider writes the lyrics, or
+makes an instrumental when `instrumental` is on.
 
 ```json
 {
@@ -214,9 +240,19 @@ the provider has one of its own.
 { "name": "sound", "label": "Sound", "kind": "boolean", "default": true }
 { "name": "seed", "label": "Seed", "kind": "integer", "min": 0, "max": 2147483647, "optional": true, "advanced": true }
 { "name": "negative_prompt", "label": "Negative Prompt", "kind": "text", "maxLength": 2500, "optional": true, "advanced": true }
+{ "name": "voice", "label": "Voice", "kind": "voice", "options": [{ "value": "Kore", "label": "Kore", "description": "Firm" }], "default": "Kore", "listed": false }
 ```
 
-- `kind` is `choice`, `integer`, `number`, `boolean`, or `text`.
+- `kind` is `choice`, `integer`, `number`, `boolean`, `text`, or `voice`.
+- A `voice` parameter is the voice of a speech model
+  ([Voices](#voices)). Its `options` are the voices the catalog declares for
+  the model, at least its `default`, each with a `description` of a few
+  words where the provider gives one. `listed` says that the provider also
+  lists voices through the `voices` call: its own and those of the user's
+  account. A value that is not among the options is accepted for a listed
+  parameter when it is at most 256 characters without control characters,
+  since it may be a voice of the account; for one that is not listed, only
+  an option is.
 - `default` is used when the card has no value. `optional` parameters may be
   left unset, and nothing is sent for them.
 - `modes` limits a parameter to some modes; without it the parameter applies
@@ -246,8 +282,8 @@ provider module maps it to its provider's field and value.
 | --- | --- | --- | --- |
 | `resolution` | choice | lower case: for videos `360p`, `480p`, `512p`, `540p`, `720p`, `768p`, `1080p`, `2k`, `4k`; for images `1k`, `1.5k`, `2k`, `3k`, `4k`, and `720p` and `1080p` where the provider names its image sizes that way (Runway, Vidu); labeled the same at every provider: 720p, 1080p, 1K, 1.5K, 2K, 3K, 4K | the size of the video or of the image |
 | `ratio` | choice, drawn as ratio shapes | width to height, such as `16:9`; `adaptive` (**Adaptive**) when the provider takes the shape from the inputs or the prompt | the shape of the video or of the image |
-| `duration` | whole seconds | the model's range; Auto is `-1` where the provider can choose | the length of the video |
-| `count` | whole number | 1 to the most images one request makes | how many images one generation makes |
+| `duration` | whole seconds | the model's range; Auto is `-1` where the provider can choose | the length of the video, of the music, or of the sound |
+| `count` | whole number | 1 to the most images or songs one request makes | how many images or songs one generation makes |
 | `quality` | choice | `low`, `medium`, `high`, `xhigh`, `max`, and `auto` where the provider can choose | how much effort and detail the provider spends on an image |
 | `background` | choice | `opaque`, `transparent`, and `auto` where the provider can choose | whether the image may be transparent |
 | `sound` | boolean | | the model makes voices, effects, or music with the video |
@@ -255,6 +291,10 @@ provider module maps it to its provider's field and value.
 | `negative_prompt` | text, optional, advanced | | what the result should not show |
 | `prompt_extend` | boolean | | the provider rewrites or extends the prompt before it generates |
 | `watermark` | boolean, advanced | | the provider marks the result as made by AI |
+| `voice` | voice | the provider's voice ids | the voice a speech model speaks in |
+| `speed` | number | from 0.5 to 2 in steps of 0.05, 1 being the voice's own pace; a narrower range where the provider has one | how fast the voice speaks |
+| `instrumental` | boolean | | music without singing |
+| `style` | text, optional | | the style of the music in `lyrics` mode, where the prompt is the lyrics |
 
 A parameter only one provider has is named as that provider's field.
 
@@ -266,6 +306,41 @@ model declares the result as `outputFormat`, so that a draft has its final
 name before it generates. A file that arrives in another format still lands,
 under the extension of its format
 ([generation cards, Landing](generation-cards.md#landing)).
+
+### Audio format
+
+An audio model has no format parameter either. Its module asks for MP3, at
+the best quality that every plan of the provider allows, since an MP3 plays
+everywhere and is small enough for a folder that git keeps; a provider that
+gives only WAV, or only raw samples, which the module writes as WAV, delivers
+WAV. The model declares the result as `outputFormat`, and a file that arrives
+in another format lands under the extension of its format, as an image does.
+
+### Voices
+
+A speech model speaks in one voice, its `voice` parameter. The catalog
+declares the voices every account of the provider has, at least the
+model's default, so that a draft has a voice before anything is asked. A
+provider whose API lists voices answers, through the `voices` call
+([Requests](#requests)), its own voices and those of the user's account:
+the voices the user cloned, designed, or saved in the provider's app. Each
+listed voice has:
+
+- its `id`, the provider's, which is what the card stores and sends;
+- its `label`, the name the provider gives it;
+- a `description` of a few words from the provider's labels, such as its
+  gender, age, accent, language, or style, as far as the provider gives
+  them;
+- `own`, whether it is a voice of the account rather than the provider's;
+- `sample`, the address of a short recording of it, where the provider
+  gives one.
+
+The voices of an account change outside BaseHalf, so the window asks for
+them each time the voice menu opens and keeps the last answer for that
+provider and region while it asks again
+([generation cards, The panel](generation-cards.md#the-panel)). A voice that
+the card stores and that no answer lists is still sent; the provider says
+whether it knows it.
 
 ## Credentials, regions, and endpoints
 
@@ -284,8 +359,8 @@ lists the providers of the catalog. For each:
 - A link to the provider's console for the region, named by the provider, and
   by the region too when the provider has more than one ("Get credentials in
   the console of OpenAI", "Get credentials in the console of Kling (China)").
-- The provider's models, by name, under Images and Videos, so that the user
-  can tell which provider to get credentials from. A kind the provider has
+- The provider's models, by name, under Images, Videos, and Audio, so that
+  the user can tell which provider to get credentials from. A kind the provider has
   no model of has no line; a model the region does not offer is dimmed and
   says so.
 
@@ -328,8 +403,9 @@ endpoint, and the ids of the credential values that are set, never the
 values, are stored in the application storage of this computer under
 `basehalf.video.providers.v1`, so every window knows at once whether a
 provider is set up. The last provider, model, mode, and values used for a
-video are stored there under `basehalf.video.lastUsed.v2`, and for an image
-under `basehalf.image.lastUsed.v1`. A value is visible ASCII without spaces,
+video are stored there under `basehalf.video.lastUsed.v2`, for an image
+under `basehalf.image.lastUsed.v1`, and for a sound under
+`basehalf.audio.lastUsed.v1`. A value is visible ASCII without spaces,
 at most 16 KiB.
 
 ## Requests
@@ -387,6 +463,8 @@ every call that needs them.
 | `download` | downloads one output to a given file |
 | `cancel` | asks the provider to cancel a task, where it can |
 | `place` | puts a received file into its card's place, never replacing anything |
+| `voices` | lists the voices of a speech model's provider and of the user's account |
+| `voicePreview` | fetches the sample of a listed voice, for the window to play |
 
 - `check` takes the provider, region, model, mode, parameters, the prompt in
   parts ([Names in the prompt](#names-in-the-prompt)), and the planned inputs
@@ -408,7 +486,7 @@ every call that needs them.
   ([generation cards, Settings](generation-cards.md#settings)). `submit`
   fits the parameters as `check` does before it sends them.
 - `submit` takes, with the request, one target file per output the request
-  may make (the `count` of an image model, otherwise one), each a new `.part`
+  may make (the `count` of an image or a music model, otherwise one), each a new `.part`
   file under `.bh/cache/generation/`; for a model that answers at once, it
   sends nothing when the request names fewer. It answers either a task to
   poll, or the outputs at once, in the provider's order: an address to
@@ -447,7 +525,8 @@ every call that needs them.
 - A download follows at most five redirects, sends the credentials only to
   the endpoint's own origin, never to a CDN, and keeps only a file of the
   model's kind: a video that starts like an MP4, at most 512 MiB; an image
-  that starts like a PNG, JPEG, or WebP, at most 64 MiB. A refusal from another
+  that starts like a PNG, JPEG, or WebP, at most 64 MiB; a sound that starts
+  like an MP3, a WAV, a FLAC, an Ogg, or an M4A, at most 256 MiB. A refusal from another
   origin means the address expired. `download` takes the kind and the
   output's address; a video without an address is found by the provider
   module where it can find one, and an output that has an address needs no
@@ -468,6 +547,18 @@ every call that needs them.
   partial file at `to`. It answers `{placed: true}`, or `exists` when a file
   already has the name, which the window turns into the next free name
   beside it.
+- `voices` takes the access and a speech model whose `voice` is `listed`,
+  and answers its provider's voices and the account's
+  ([Voices](#voices)), at most 2,000, with `truncated` when the provider
+  had more. It asks the provider's list calls, as many pages as that takes,
+  is retried as `poll` is, and writes nothing. A model whose voices are not
+  listed is refused.
+- `voicePreview` takes the access, the model, and the `sample` address of a
+  listed voice, and answers the sample's bytes: an `https` address, or
+  `http` on this computer; the credentials go only to the endpoint's own
+  origin, as for a download; at most 5 MiB; and only bytes that start like a
+  sound, as a downloaded sound must. The window decodes and plays them
+  itself, so that no address of a provider is ever played by the window.
 - A provider module maps its own task states to `pending`, `running`,
   `succeeded` with the addresses of the outputs, or `failed` and `cancelled`
   with the provider's message, and reports progress when the provider does.
@@ -485,8 +576,9 @@ every call that needs them.
   it states one), insufficient balance (`balance`, 402 or the provider's own
   code), unknown task (`notFound`, 404 when asking about a task), unknown
   outcome, network failure, unreadable answer, and a download that is not a
-  video (`notVideo`), not an image (`notImage`), or too large (`tooLarge`), and
-  a name that a file already has (`exists`, from `place`). A provider module
+  video (`notVideo`), not an image (`notImage`), not a sound (`notAudio`), or
+  too large (`tooLarge`), and a name that a file already has (`exists`, from
+  `place`). A provider module
   reads the provider's own error codes where they say more than the status.
 - Nothing is logged except, in the shared process's log **BaseHalf
   Providers**, the method, the path without query, the status, and the time
@@ -511,8 +603,11 @@ module writes the names:
   `endFrame`, or `source`, without an index, or `images`, `videos`, or
   `audios` with the input's place among them, from 0. The window has written
   the notes already: a mention of a note is its name in double quotes, and
-  the notes' texts follow under their names. A prompt that mentions nothing
-  may be sent as one string.
+  the notes' texts follow under their names; in a prompt that is spoken or
+  sung, the mention is the note's text itself, and the other notes' texts
+  follow without their names
+  ([generation cards, Inputs](generation-cards.md#inputs)). A prompt that
+  mentions nothing may be sent as one string.
 - A mention of an input that the request does not send is refused, and so is
   a part BaseHalf cannot read; nothing is sent then.
 - The module writes each mention as its provider's documentation names that
@@ -550,6 +645,9 @@ states:
 - [LTX](providers/ltx.md)
 - [Black Forest Labs (FLUX)](providers/bfl.md)
 - [OpenAI (GPT Image)](providers/openai.md)
+- [ElevenLabs](providers/elevenlabs.md)
+- [Fish Audio](providers/fishaudio.md)
+- [Mureka](providers/mureka.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Image models | Cancel |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -567,9 +665,20 @@ states:
 | Black Forest Labs | `https://api.bfl.ai/v1` | API key, `x-key` | data URL for the video, plain base64 for the image models | clip of Edit and Extend as a data URL | FLUX 3 Image and FLUX.2, tasks | no |
 | OpenAI | `https://api.openai.com/v1` | API key, `Authorization: Bearer` | multipart files | none | GPT Image, answered at once | no |
 
+The audio models, of three new providers and of two that BaseHalf has for
+images and videos:
+
+| Provider | Base URL | Credentials | Audio models | Inputs | Voices listed |
+| --- | --- | --- | --- | --- | --- |
+| ElevenLabs | `https://api.elevenlabs.io` | API key, `xi-api-key` | speech (Eleven v4, Eleven v3, Multilingual v2, Flash v2.5) and sound effects, answered at once | none | yes, with samples |
+| Fish Audio | `https://api.fish.audio` | API key, `Authorization: Bearer` | speech (Drama 3, S2.1 Pro, S2 Pro), answered at once | none | yes, with samples |
+| Mureka | `https://api.mureka.ai` | API key, `Authorization: Bearer` | music (Mureka 9.5, Mureka O2), tasks | a reference song, by upload | – |
+| MiniMax | as above | as above | speech (Speech 2.8 HD and Turbo, Speech 2.6 HD and Turbo), answered at once | none | yes, without samples |
+| Google | as above | as above | speech (Gemini 3.8 Flash TTS and Flash-Lite TTS), answered at once; music (Lyria 3.5, Lyria 3 Clip), interactions | images, inline (music) | no: 30 voices in the catalog |
+
 The video facts were read from each provider's documentation on 2026-10-18,
-and the image facts on 2026-10-22; each provider's specification records the
-pages it follows. OpenAI's video API closed on 2026-09-24 and is not offered;
+the image facts on 2026-10-22, and the audio facts on 2026-10-25; each
+provider's specification records the pages it follows. OpenAI's video API closed on 2026-09-24 and is not offered;
 its image models are. Google's Veo models on the Gemini API are previews
 retiring from 2026-10-22; Google is offered through the model that replaces
 them.
@@ -583,6 +692,14 @@ them.
    once, the Providers page, the image models of ByteDance, Kling, Alibaba,
    MiniMax, Vidu, Google, Luma, Runway, xAI, and Black Forest Labs, and
    OpenAI.
+4. Audio models (D78): the audio kind and what a model makes, the audio
+   format, voices and the `voices` and `voicePreview` calls, Lyrics mode,
+   the speech models of MiniMax and Google, Google's Lyria, and ElevenLabs,
+   Fish Audio, and Mureka.
+
+Later, and not in the catalog until then: the speech and sound effects that
+xAI, Kling, Vidu, and Runway sell under the keys BaseHalf already stores;
+dialogue with several voices; and sound made for a connected video.
 
 Phases 1 and 2 are implemented (2026-10-19). A provider added later is in the
 catalog once its module is in `PROVIDER_MODULES`, and not before.
@@ -612,7 +729,7 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
    reload or a restart, not by a second window, and not when an agent and the
    user start the same card at once.
 8. A card offers only the models of its kind, and the Providers page lists
-   each provider's models under Images and Videos.
+   each provider's models under Images, Videos, and Audio.
 9. An image request with `count` above 1 lands one file per output, and an
    output the provider refused alone is reported while the others land.
 10. A prompt in parts is written by the provider module of the request:
@@ -639,14 +756,31 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     window, and so does every later call.
 14. When the window that made a call closes or reloads, the call's requests
     stop, and a download it leaves removes only the file it made.
+15. An audio model makes one file of the format it declares, and a music
+    model with `count` above 1 one file per song; a download or an answer
+    with the file that does not start like a sound, or is larger than
+    256 MiB, is refused as `notAudio` or `tooLarge`, and the other outputs
+    land.
+16. `voices` answers, for a speech model whose voice is listed, the
+    provider's voices and the account's, the account's marked as its own,
+    with their samples where the provider gives them, at most 2,000;
+    `voicePreview` answers a sample's bytes, at most 5 MiB, and refuses bytes
+    that do not start like a sound. Neither sends the credentials to another
+    origin than the endpoint's.
+17. A `voice` value that is not among a listed parameter's options passes
+    `check` when it is at most 256 characters without control characters;
+    for a parameter that is not listed, only an option passes.
+18. In `lyrics` mode, the prompt reaches the provider as the lyrics and
+    `style` as the style, in the fields or the form the provider documents.
 
 ## Verification
 
 - Unit tests of the catalog contract, of the window's drawing and planning
   from declarations, and of each provider module.
 - The smoke runs the generation card steps against the local test provider
-  through the ByteDance module, for a video and for an image, and reads the
-  extension host's log for criterion 12.
+  through the ByteDance module, for a video and for an image, and through
+  the ElevenLabs and Mureka modules for sounds, and reads the extension
+  host's log for criterion 12.
 - A unit test of the window's answer when a call does not reach the service,
   and of the window's connection, which fails every waiting and later call
   once the shared process stopped (criterion 13).
@@ -669,4 +803,12 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   and that a proxy's authentication is asked of the main process, was read in
   the code.
 - A search of the window's code for criterion 11.
+- Unit tests of the audio checks of a download and of an answer with the
+  file (criterion 15), of `voices` and `voicePreview` against a local server
+  (criterion 16), of the `voice` value in `check` (criterion 17), and of each
+  audio module, Lyrics mode among them (criterion 18).
+- The smoke generates speech through the ElevenLabs module, with its voices
+  and a sample, and two songs in Lyrics mode through the Mureka module,
+  against the local test provider, which answers like each of them under a
+  path of its own, as it answers like ModelArk under `/api/v3`.
 - No real provider is called by tests.

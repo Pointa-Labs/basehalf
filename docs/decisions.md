@@ -2883,3 +2883,75 @@ to tell them apart first.
   does nothing else.
 - Builds that are already distributed keep reading the registry for as long
   as it is online.
+
+## D78 — BaseHalf makes speech, music, and sound effects with the same cards, panel, and providers (NEW, 2026-10-25)
+
+**Decision.** A sound is generated the way an image or a video is: an audio
+generation card with the panel under it, its inputs in the order of its
+connections, and a model from the catalog that BaseHalf ships, run with the
+user's own key. The catalog's third kind, audio, has models that say what
+they make: speech, music, or sound effects. The first ones are ElevenLabs'
+speech and sound effects, Fish Audio's speech, and Mureka's music, from
+three new providers, and MiniMax's speech and Google's Gemini speech and
+Lyria music, under keys that users already set up. A speech model speaks in
+a voice chosen with the panel's voice button: one of the provider's voices
+or one of the user's account, which the provider lists, with its sample. A
+music model that sings given lyrics takes them as its prompt in Lyrics mode.
+A note connected to a speech card is what the voice says. See
+[generation cards](specs/generation-cards.md) and
+[providers and the model catalog](specs/providers.md).
+
+**Why.** On 2026-10-25 the user asked for audio cards made the way image and
+video cards are, with Fish Audio, MiniMax, ElevenLabs, and music models,
+after research into other products and these models. A canvas product for
+media work has one audio node whose panel follows the model: the prompt is
+the text to speak, the description of a sound, or the lyrics; a speech
+model's voice is chosen from the provider's voices, with samples, and the
+account's own; and a song model chooses between a description and lyrics.
+The node-graph product makes one node per task and passes voices between
+them; BaseHalf keeps one card per kind drawn from the catalog's exact
+declarations, as for images. MiniMax and Google sell speech under the keys
+BaseHalf stores, and Google sells songs; ElevenLabs, Fish Audio, and Mureka
+are reached with keys of their own, bought without a subscription to
+another product. BaseHalf is a canvas of notes, so a script or lyrics
+written in a note are its natural input.
+
+**What was set aside.**
+- MiniMax's music. Since 2026-08-20 its music and lyrics APIs serve only
+  users who paid for them before, and its model list marks the models
+  retired.
+- ElevenLabs' music. Its Music Terms forbid "offering any Music Model
+  alongside third-party models" as model resale, which a model menu of
+  several providers does even with the user's own key; it waits until
+  ElevenLabs says that such a client may offer it.
+- OpenAI's speech models, which shut down on 2027-01-06; two music apps
+  that offer no public API; Lyria RealTime, a stream without a file; and
+  Lyria 2 and ByteDance's Seed Audio, which need credentials other than the
+  key BaseHalf stores for the provider.
+- Making a voice from a recording on the canvas. Cloning stores a voice at
+  the provider, which some charge for at its first use and delete when it
+  is not used within days, and the provider asks for the speaker's consent;
+  the user makes the voice in the provider's own app, and it then is among
+  the account's voices in the voice menu.
+- A list of voices in the catalog for providers that list them. Their
+  libraries hold hundreds to thousands of voices that change, and the
+  account's own voices are only known to the provider.
+- A sound's own card with a waveform. A sound keeps the card of a sound
+  file and its player.
+- For later: dialogue with several voices; sound made for a connected video;
+  and the speech and sound effects that xAI, Kling, Vidu, and Runway sell
+  under keys BaseHalf already stores.
+
+**Consequences.**
+- A model of the catalog has a kind, image, video, or audio, and an audio
+  model says what it makes; a card offers the models of its kind.
+- An audio model declares the format it delivers, MP3 unless the provider
+  gives only WAV, so that a draft has its final name before it generates.
+- New shared parameters: `voice`, `speed`, `instrumental`, and `style`;
+  `duration` and `count` also measure sounds and songs, and several songs
+  of one generation are one card each, as several images are.
+- The provider service lists a provider's voices and the account's, and
+  fetches a voice's sample for the window to play, with the requests and
+  rules of a generation.
+- In a prompt that is spoken or sung, a note joins as its text alone, where
+  it is mentioned or after the prompt.
