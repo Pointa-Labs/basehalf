@@ -112,6 +112,21 @@ The commands keep the ids they had in the extension
 and the capability for agents (`pointa.basehalf-ai-video.sequence-capability`):
 agents, the skill, and saved Card Detail states name them.
 
+## The Sequence view
+
+A `video-sequence.json` opens in Card Detail in the Sequence view. It lists
+the clips in their order, each with its state; it plays one clip or, when
+every clip is available, the whole order; and it offers Add for the
+Sequence and, for each clip, Open for its video, Move, Repair, and Remove.
+It shows at most the first 200 clips; a longer Sequence stays whole in its
+file. It inspects the Sequence again when the file, a clip's video, the
+last video verified for a clip, or the generation record of a clip's video
+changes, which the card store reports; a change while the view is hidden
+waits until it is shown. Escape in the view closes Card Detail, as anywhere
+in Card Detail
+([opening and closing Card Detail](card-detail-opening.md#the-keyboard));
+a player in full screen takes it first.
+
 ## Starter template and local data
 
 The starter template creates ordinary briefs and scripts as Markdown notes,
@@ -155,15 +170,20 @@ All project files and videos stay readable without BaseHalf. The retired
 7. The commands, the view, the capability for agents, and the template are
    there on the first start of a fresh profile, with no extension, and keep
    their ids.
+8. Escape in the Sequence view closes Card Detail.
 
 ## Verification
 
 - Unit tests under `src/vs/workbench/basehalf/sequence/test/` for criteria 1
-  to 6, moved from the extension's tests.
+  to 6, moved from the extension's tests, and for criterion 7 the test of
+  what the contribution registers, with the ids, the projection a Sequence
+  file opens in, and the titles in the Command Palette.
 - The smoke steps `video-workflow-template` and
   `video-sequence-adds-generated-video` run the template, Add Video Result
   to Sequence, Show Video Sequence Status, and Repair Moved Video Sequence
-  Clip in the real window (criterion 7).
+  Clip in the real window, open the Sequence file in the Sequence view,
+  which shows the clip available with its video, and close it with Escape
+  in its page (criteria 7 and 8).
 
 ## Where this lands
 

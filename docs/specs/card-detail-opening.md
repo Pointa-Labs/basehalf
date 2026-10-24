@@ -89,11 +89,12 @@ another.
   was, as a click in Files does, or when the keyboard went out of the canvas
   meanwhile.
 - Escape closes Card Detail, wherever in it the keyboard is: in its header,
-  in the player, in a note's editor, in an image, or in a PDF. What uses
-  Escape itself takes it first: a menu or a list of the editor (slash, files,
-  emoji, a block's or a table's menu), a field of its own, such as that of a
-  link or the page number of a PDF, a menu or a dialog of the PDF viewer, the
-  composition of an input method, and full screen.
+  in the player, in a note's editor, in an image, in a PDF, or in the
+  Sequence view ([Video Sequence](video-sequence.md#the-sequence-view)).
+  What uses Escape itself takes it first: a menu or a list of the editor
+  (slash, files, emoji, a block's or a table's menu), a field of its own,
+  such as that of a link or the page number of a PDF, a menu or a dialog of
+  the PDF viewer, the composition of an input method, and full screen.
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the canvas, where the keys of the selected card work again.
 

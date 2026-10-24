@@ -34,8 +34,8 @@ Three things were true on 2026-10-11.
 - Nothing can publish or sign a plugin without a person starting it.
 - The freeze can be lifted without rebuilding what exists.
 - Since D75: AI Video is BaseHalf's own code. No extension of its own is
-  built, packaged, started, or admitted, and nothing of it waits for the
-  extension host.
+  built, packaged, started, or admitted, and nothing of it waits for an
+  extension to activate.
 
 ## Non-goals
 
@@ -79,7 +79,9 @@ Three things were true on 2026-10-11.
    registered by the workbench ([Video Sequence](video-sequence.md)). A
    packaged build has no AI Video extension and no separate payload folder.
 2. No extension is admitted to the frozen platform's contribution points, in
-   packaged and in development builds, whatever its identity or location.
+   packaged and in development builds, whatever its identity or location;
+   only an Extension Development Host admits the extension it was started
+   with (13).
 3. On the first start of a fresh profile, with no network and no user action,
    the starter template, the Sequence view, the Sequence capability for
    agents, and the providers of generation cards are available. A window
@@ -229,9 +231,12 @@ Services:
 
 - Unit tests for admission (criteria 7 and 8) and for the product
   configuration (criterion 6, first half).
-- A unit test that scans every compiled module for an import of the frozen
-  surface and for a call of a provider command (criterion 12, first half).
-  The smoke reads the extension host's log for the second half.
+- Unit tests that scan every compiled module for an import of the frozen
+  surface and for a call of a provider command
+  (`basehalfPluginPlatformBoundary.test.ts`, criterion 12, first half). The
+  smoke step `video-requests-from-provider-service` reads the extension
+  host's log for the second half, and the log of the provider service for
+  the requests it sent (criterion 11).
 - The smoke asserts the three Activity Bar items and the missing command, and
   runs the generation card flows on a fresh profile (criteria 3, 4, and 11).
 - A packaged macOS arm64 build for criteria 1 and 2:
@@ -255,10 +260,16 @@ Paths are under `vscode-base/` unless they start with a dot.
   `src/vs/workbench/basehalf/sequence/`. The shared process registers the
   service in `src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts`.
 - Admission: `isAllowedContributor` in `basehalfPluginAdmissionService.ts`
-  admits no extension; the list of built-in capabilities is empty, and AI
-  Video is not in the profile's list of extensions that are allowed by id.
-- Packaging: `build/gulpfile.vscode.ts` ships no AI Video and copies no
-  payload folder.
+  admits no extension of the application, and no other without a catalog
+  grant, which no window has; only an Extension Development Host admits the
+  extension it was started with. There is no list of built-in capabilities
+  any more, nor the step that enabled AI Video at start, and AI Video is not
+  in the profile's list of extensions that are allowed by id.
+- Packaging: the repository has no AI Video extension, so
+  `build/gulpfile.vscode.ts` ships none, and it copies no payload folder.
+  The release script packages an official plugin only from a folder it is
+  given, which `npm run basehalf:plugin:fixture` makes of its own, and the
+  publish workflow refuses to publish AI Video.
 - No plugin surface: `electron-browser/basehalfPluginPlatform.contribution.ts`
   loads only the credential store, which keeps the keys of the providers
   (D58, D64). The catalog service, the plugin state store, the

@@ -2756,7 +2756,8 @@ application starts once for all of its windows, as a BaseHalf service that
 every window calls directly. The Video Sequence document, its view, its
 commands, and its agent capability, and the starter template, are the
 workbench's own. The extension `pointa.basehalf-ai-video` and its folder
-are gone, and the frozen plugin platform admits no extension at all.
+are gone, and the frozen plugin platform admits no extension, except the
+one that an Extension Development Host was started with, as before.
 Requests to providers are Node's own, one connection each and never sent
 again by themselves, with VS Code's proxy agent, as they were in the
 extension host: the system's proxy settings and certificates apply, and the
@@ -2799,9 +2800,10 @@ its own background work there.
 - Keeping the extension and only starting it earlier: the seam stays.
 
 **Consequences.**
-- Revises D45: AI Video is no built-in extension, and no extension is
-  admitted to the frozen platform's contribution points, whose code and
-  tests stay. Revises how D28 packages AI Video.
+- Revises D45: AI Video is no built-in extension, and outside an Extension
+  Development Host no extension is admitted to the frozen platform's
+  contribution points, whose code and tests stay. Revises how D28 packages
+  AI Video.
 - The `basehalf.video.provider.*` commands are gone. The window calls the
   provider service, whose answers keep their form, `{ok: true, value}` or
   `{ok: false, error}`. The catalog and each request and answer have one
