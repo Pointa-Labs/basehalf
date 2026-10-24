@@ -63,7 +63,6 @@ const BASEHALF_CANVAS_OPEN_COMMAND_ID = 'basehalf.canvas.openResource';
 /** New Image and New Video of the canvas menu (generation cards, "Creating a generation card"). */
 export const BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID = 'basehalf.canvas.newImage';
 export const BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID = 'basehalf.canvas.newVideo';
-const BASEHALF_CANVAS_NEW_FILE_COMMAND_ID = 'basehalf.canvas.newFile';
 const BASEHALF_CANVAS_NEW_FOLDER_COMMAND_ID = 'basehalf.canvas.newFolder';
 const BASEHALF_CANVAS_PASTE_COMMAND_ID = 'basehalf.canvas.paste';
 const BASEHALF_CANVAS_IMPORT_COMMAND_ID = 'basehalf.canvas.importFiles';
@@ -493,23 +492,6 @@ registerAction2(class BaseHalfCanvasNewNoteAction extends Action2 {
 	}
 });
 
-registerAction2(class BaseHalfCanvasNewFileAction extends Action2 {
-	constructor() {
-		super({
-			id: BASEHALF_CANVAS_NEW_FILE_COMMAND_ID,
-			title: localize2('basehalf.canvas.context.newFile', "New File..."),
-			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 20 }
-		});
-	}
-
-	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
-		if (isBaseHalfCanvasActionContext(argument)) {
-			const editingService = accessor.get(IBaseHalfCanvasEditingService);
-			await editingService.requestCreate(argument, 'file');
-		}
-	}
-});
-
 function registerBaseHalfCanvasNewDraftAction(id: string, title: ReturnType<typeof localize2>, kind: 'image' | 'video', order: number): void {
 	registerAction2(class BaseHalfCanvasNewDraftAction extends Action2 {
 		constructor() {
@@ -529,11 +511,13 @@ function registerBaseHalfCanvasNewDraftAction(id: string, title: ReturnType<type
 registerBaseHalfCanvasNewDraftAction(BASEHALF_CANVAS_NEW_IMAGE_COMMAND_ID, localize2('basehalf.canvas.context.newImage', "New Image"), 'image', 12);
 registerBaseHalfCanvasNewDraftAction(BASEHALF_CANVAS_NEW_VIDEO_COMMAND_ID, localize2('basehalf.canvas.context.newVideo', "New Video"), 'video', 14);
 
+// New Folder makes `untitled folder` at once. The canvas makes no file from a
+// typed name: files of other kinds are made in Files (canvas Create menu).
 registerAction2(class BaseHalfCanvasNewFolderAction extends Action2 {
 	constructor() {
 		super({
 			id: BASEHALF_CANVAS_NEW_FOLDER_COMMAND_ID,
-			title: localize2('basehalf.canvas.context.newFolder', "New Folder..."),
+			title: localize2('basehalf.canvas.context.newFolder', "New Folder"),
 			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 30 }
 		});
 	}

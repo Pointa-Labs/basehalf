@@ -258,24 +258,11 @@ export class BaseHalfCanvasCreation {
 			await this.createDraftCard(folder, context, placement.canvasPosition, request.createKind, requestOwner, computed);
 			return;
 		}
-		if (this.view.canvasNavigationService.state.cardDetail) {
+		// A folder's card is shown where it is made: not behind Card Detail.
+		if (this.view.canvasNavigationService.state.cardDetail || !this.view.isCanvasPostCreateOwnerCurrent(requestOwner)) {
 			return;
 		}
-
-		const surfaceRect = this.view.surface.getBoundingClientRect();
-		this.view.inlineEdit = {
-			kind: 'create',
-			context,
-			parent: context.resource,
-			createKind: request.createKind,
-			initialValue: '',
-			anchor: { x: placement.screenPosition.x - surfaceRect.left, y: placement.screenPosition.y - surfaceRect.top },
-			canvasPosition: placement.canvasPosition,
-			...(computed ? { reveal: true } : {}),
-			value: '',
-			selectionPending: true
-		};
-		this.view.requestRender();
+		await this.createUntitledFolder(folder, context, placement.canvasPosition, requestOwner, computed);
 	}
 
 	/**
@@ -316,7 +303,6 @@ export class BaseHalfCanvasCreation {
 	 * placement, "Pointing").
 	 */
 	private canvasCreatePlacement(context: IBaseHalfCanvasActionContext | undefined): {
-		readonly screenPosition: { readonly x: number; readonly y: number };
 		readonly canvasPosition: { readonly x: number; readonly y: number };
 		readonly pointed: boolean;
 	} {
@@ -327,7 +313,6 @@ export class BaseHalfCanvasCreation {
 			: undefined;
 		const screenPosition = menuPosition ?? { x: surfaceRect.left + surfaceRect.width / 2, y: surfaceRect.top + surfaceRect.height / 2 };
 		return {
-			screenPosition,
 			canvasPosition: this.view.canvasScene.screenToCanvasPosition(screenPosition.x, screenPosition.y),
 			pointed: menuPosition !== undefined && !menu?.createPositionComputed
 		};
@@ -368,22 +353,15 @@ export class BaseHalfCanvasCreation {
 	 * (canvas card placement, "Pointing" and "The nearest open place"): the
 	 * card centered on `placement`, the middle of the visible part of the
 	 * canvas, when it is open there and inside the visible part, and otherwise
-	 * the nearest open place inside it, or the end of the canvas. The screen
-	 * position is the card's top left corner.
+	 * the nearest open place inside it, or the end of the canvas. The position
+	 * is the card's top left corner.
 	 */
 	private computedCanvasCreatePlacement(
-		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
+		placement: { readonly canvasPosition: { readonly x: number; readonly y: number } },
 		kind: BaseHalfCanvasCreateKind
-	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
+	): { readonly canvasPosition: { readonly x: number; readonly y: number } } {
 		const size = this.createSize(kind);
-		const canvasPosition = baseHalfCanvasCenteredPlace(placement.canvasPosition, size);
-		return this.avoidCanvasCreateOverlap({
-			canvasPosition,
-			screenPosition: {
-				x: placement.screenPosition.x + (canvasPosition.x - placement.canvasPosition.x) * this.view.canvasZoom,
-				y: placement.screenPosition.y + (canvasPosition.y - placement.canvasPosition.y) * this.view.canvasZoom
-			}
-		}, kind, size);
+		return this.avoidCanvasCreateOverlap({ canvasPosition: baseHalfCanvasCenteredPlace(placement.canvasPosition, size) }, kind, size);
 	}
 
 	/**
@@ -393,10 +371,10 @@ export class BaseHalfCanvasCreation {
 	 * place").
 	 */
 	private avoidCanvasCreateOverlap(
-		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
+		placement: { readonly canvasPosition: { readonly x: number; readonly y: number } },
 		kind: BaseHalfCanvasCreateKind,
 		sizeOverride?: { readonly width: number; readonly height: number }
-	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
+	): { readonly canvasPosition: { readonly x: number; readonly y: number } } {
 		const occupied = this.takenCanvasPlaces();
 		const size = sizeOverride ?? this.createSize(kind);
 		const surface = this.view.surface.getBoundingClientRect();
@@ -409,14 +387,7 @@ export class BaseHalfCanvasCreation {
 			width: Math.max(0, viewportEnd.x - viewportStart.x),
 			height: Math.max(0, viewportEnd.y - viewportStart.y)
 		};
-		const canvasPosition = baseHalfCanvasOpenPosition(placement.canvasPosition, size, occupied, viewport);
-		return {
-			canvasPosition,
-			screenPosition: {
-				x: placement.screenPosition.x + (canvasPosition.x - placement.canvasPosition.x) * this.view.canvasZoom,
-				y: placement.screenPosition.y + (canvasPosition.y - placement.canvasPosition.y) * this.view.canvasZoom
-			}
-		};
+		return { canvasPosition: baseHalfCanvasOpenPosition(placement.canvasPosition, size, occupied, viewport) };
 	}
 
 	async createUntitledNote(
@@ -534,6 +505,37 @@ export class BaseHalfCanvasCreation {
 	}
 
 	/**
+	 * New Folder (canvas Create menu): the folder `untitled folder`, or the
+	 * first free `untitled folder <n>`, made at once in the folder of the
+	 * canvas, placed as a card the user creates is placed, and selected. Its
+	 * name is changed on its card.
+	 */
+	private async createUntitledFolder(
+		folder: IBaseHalfCanvasFolderState,
+		context: IBaseHalfCanvasActionContext,
+		canvasPosition: { readonly x: number; readonly y: number },
+		postCreateOwner: IBaseHalfCanvasPostCreateOwner,
+		reveal: boolean
+	): Promise<void> {
+		await this.view.canvasActionContextService.assertCurrent(context);
+		if (!this.view.uriIdentityService.extUri.isEqual(this.view.getCurrentFolder()?.resource, folder.resource)) {
+			return;
+		}
+		let name: string | undefined;
+		for (let index = 1; index <= 1000; index++) {
+			const candidate = index === 1 ? 'untitled folder' : `untitled folder ${index}`;
+			if (!await this.view.fileService.exists(joinPath(folder.resource, candidate))) {
+				name = candidate;
+				break;
+			}
+		}
+		if (!name) {
+			throw new Error(localize('basehalf.canvas.newFolder.exhausted', "Too many untitled folders. Rename one before creating another."));
+		}
+		await this.createCanvasEntry(folder, context, name, 'folder', canvasPosition, { postCreateOwner, reveal });
+	}
+
+	/**
 	 * New Image and New Video (generation cards, "Creating a generation card"):
 	 * a draft of the folder of the canvas, placed as a card the user creates is
 	 * placed, selected, and with its prompt focused when its panel shows. The
@@ -622,10 +624,7 @@ export class BaseHalfCanvasCreation {
 		const defaultPlacement = this.canvasCreatePlacement(undefined);
 		// Beside the PDF's card, or, without it, centered on the middle of the visible part.
 		const placement = sourceBounds
-			? this.avoidCanvasCreateOverlap({
-				screenPosition: defaultPlacement.screenPosition,
-				canvasPosition: { x: sourceBounds.x + sourceBounds.width + 72, y: sourceBounds.y }
-			}, 'note')
+			? this.avoidCanvasCreateOverlap({ canvasPosition: { x: sourceBounds.x + sourceBounds.width + 72, y: sourceBounds.y } }, 'note')
 			: this.computedCanvasCreatePlacement(defaultPlacement, 'note');
 		// The note's first bytes list the PDF as upstream (D37): the create is
 		// the connection, so there is no "created but not connected" state.
@@ -667,7 +666,7 @@ export class BaseHalfCanvasCreation {
 
 	renderInlineRenameEditor(card: HTMLElement, item: IBaseHalfCanvasItem): void {
 		const edit = this.view.inlineEdit;
-		if (!edit || edit.kind !== 'rename' || edit.path !== item.path
+		if (!edit || edit.path !== item.path
 			|| !this.view.uriIdentityService.extUri.isEqual(edit.resource, item.stat.resource)) {
 			return;
 		}
@@ -697,7 +696,7 @@ export class BaseHalfCanvasCreation {
 	 */
 	mountInlineRenameEditor(path: string, card: HTMLElement): void {
 		const editor = this.view.inlineRenameEditor;
-		if (!editor || editor.edit !== this.view.inlineEdit || editor.edit.kind !== 'rename' || editor.edit.path !== path
+		if (!editor || editor.edit !== this.view.inlineEdit || editor.edit.path !== path
 			|| !card.classList.contains('inline-editing')) {
 			return;
 		}
@@ -717,45 +716,24 @@ export class BaseHalfCanvasCreation {
 		}
 	}
 
-	renderInlineCreateEditor(folder: IBaseHalfCanvasFolderState): void {
-		const edit = this.view.inlineEdit;
-		if (!edit) {
-			return;
-		}
-		if (!this.view.uriIdentityService.extUri.isEqual(edit.parent, folder.resource)) {
-			this.view.inlineEdit = undefined;
-			return;
-		}
-		if (edit.kind !== 'create') {
-			return;
-		}
-		const host = append(this.view.inlineEditLayer, $('.basehalf-canvas-inline-create-card'));
-		host.style.left = `${Math.max(12, Math.min(edit.anchor.x, this.view.surface.clientWidth - 292))}px`;
-		host.style.top = `${Math.max(12, Math.min(edit.anchor.y, this.view.surface.clientHeight - 64))}px`;
-		const focus = this.renderInlineNameInput(host, edit, edit.createKind === 'folder', this.view.inlineEditListeners);
-		mainWindow.setTimeout(focus, 0);
-	}
-
 	/**
-	 * Builds the name input of an inline edit into `host`.
+	 * Builds the name input of a rename into `host`.
 	 * @returns a function that gives the input the keyboard once it is in the
 	 * document. An input that lost the keyboard because its card was replaced
 	 * gets its caret back.
 	 */
 	private renderInlineNameInput(host: HTMLElement, edit: BaseHalfCanvasInlineEdit, folder: boolean, store: DisposableStore): () => void {
 		host.classList.add('nodrag', 'nopan', 'nowheel');
-		const icon = append(host, $(`span.basehalf-canvas-inline-name-icon.codicon.${folder ? 'codicon-folder' : 'codicon-file'}`));
-		icon.setAttribute('aria-hidden', 'true');
 		const inputHost = append(host, $('.basehalf-canvas-inline-name-input'));
 		// A note is renamed by its name: the file keeps the extension it has.
-		const noteExtension = edit.kind === 'rename' ? edit.extension : '';
+		const noteExtension = edit.extension;
 		const fileNameOf = (typed: string) => noteExtension ? baseHalfNoteFileName(typed, noteExtension) : typed;
 		// An empty name is refused as it is, before an extension makes it a name.
 		const validateTyped = (typed: string) => this.validateCanvasEntryName(
 			edit.parent,
 			typed.trim().length === 0 ? typed : fileNameOf(typed),
-			edit.kind === 'rename' ? edit.resource : undefined,
-			edit.kind === 'rename' ? edit.draft : undefined
+			edit.resource,
+			edit.draft
 		);
 		const inputBox = new InputBox(inputHost, this.view.contextViewService, {
 			ariaLabel: folder
@@ -765,9 +743,7 @@ export class BaseHalfCanvasCreation {
 					: localize('basehalf.canvas.fileNameInput', "File name. Press Enter to confirm or Escape to cancel."),
 			// The editor of a card's name is the name made editable: it has the
 			// colors of the caption around it and no frame of its own.
-			inputBoxStyles: edit.kind === 'rename'
-				? { ...defaultInputBoxStyles, inputBackground: 'transparent', inputForeground: 'inherit', inputBorder: 'transparent' }
-				: defaultInputBoxStyles,
+			inputBoxStyles: { ...defaultInputBoxStyles, inputBackground: 'transparent', inputForeground: 'inherit', inputBorder: 'transparent' },
 			placeholder: folder
 				? localize('basehalf.canvas.folderNamePlaceholder', "Folder name")
 				: noteExtension
@@ -795,17 +771,11 @@ export class BaseHalfCanvasCreation {
 			if (sequence !== validationSequence || this.view.inlineEdit !== edit) {
 				return;
 			}
-			if (edit.kind === 'rename') {
-				// While the name of a card is typed, a name that cannot be used is
-				// only marked in the text. The reason is said when Enter is refused:
-				// a box that comes and goes with every letter is not editing in place.
-				inputBox.hideMessage();
-				host.classList.toggle('unusable', result?.type === MessageType.ERROR);
-			} else if (result) {
-				inputBox.showMessage({ content: result.content, type: result.type });
-			} else {
-				inputBox.hideMessage();
-			}
+			// While the name of a card is typed, a name that cannot be used is
+			// only marked in the text. The reason is said when Enter is refused:
+			// a box that comes and goes with every letter is not editing in place.
+			inputBox.hideMessage();
+			host.classList.toggle('unusable', result?.type === MessageType.ERROR);
 		};
 
 		const finish = async (keepOpenOnError: boolean) => {
@@ -813,7 +783,7 @@ export class BaseHalfCanvasCreation {
 				return;
 			}
 			finishing = true;
-			const postCreateOwner = edit.kind === 'create' || keepOpenOnError ? this.view.captureCanvasPostCreateOwner() : undefined;
+			const enterOwner = keepOpenOnError ? this.view.captureCanvasPostCreateOwner() : undefined;
 			const name = inputBox.value;
 			edit.value = name;
 			inputBox.disable();
@@ -837,18 +807,18 @@ export class BaseHalfCanvasCreation {
 				}
 				return;
 			}
-			if (edit.kind === 'rename' && (name === edit.initialValue || fileNameOf(name) === basename(edit.resource))) {
+			if (name === edit.initialValue || fileNameOf(name) === basename(edit.resource)) {
 				this.cancelCanvasInlineEdit(edit);
 				return;
 			}
 			this.view.inlineEdit = undefined;
 			try {
-				await this.commitCanvasInlineEdit(edit, fileNameOf(name), postCreateOwner);
+				await this.commitCanvasInlineEdit(edit, fileNameOf(name));
 				this.view.lastCanvasContextMenu = undefined;
 				this.view.requestRender();
 				// Enter gives the keyboard back to the canvas, as Escape does, so
 				// the renamed card answers the keys of a selected card.
-				if (edit.kind === 'rename' && postCreateOwner && this.view.isCanvasPostCreateOwnerCurrent(postCreateOwner)) {
+				if (enterOwner && this.view.isCanvasPostCreateOwnerCurrent(enterOwner)) {
 					this.view.cards.focus({ preventScroll: true });
 				}
 			} catch (error) {
@@ -859,7 +829,7 @@ export class BaseHalfCanvasCreation {
 				// While the name was being applied, the card may have been drawn
 				// without its editor, and a render may have released the editor.
 				// The next render shows the editor again, and the failure with it.
-				if (inputBox.element.isConnected && (edit.kind !== 'rename' || this.view.inlineRenameEditor?.edit === edit)) {
+				if (inputBox.element.isConnected && this.view.inlineRenameEditor?.edit === edit) {
 					inputBox.showMessage({ content: failure, type: MessageType.ERROR }, true);
 					inputBox.focus();
 				} else {
@@ -927,7 +897,7 @@ export class BaseHalfCanvasCreation {
 				edit.failure = undefined;
 				validated = true;
 			} else if (!validated) {
-				// Once for every input: the create editor is built by every render.
+				// Once for every input: this runs whenever the scene mounts the card.
 				validated = true;
 				void refreshValidation();
 			}
@@ -978,52 +948,37 @@ export class BaseHalfCanvasCreation {
 		return undefined;
 	}
 
-	private async commitCanvasInlineEdit(
-		edit: BaseHalfCanvasInlineEdit,
-		name: string,
-		postCreateOwner?: IBaseHalfCanvasPostCreateOwner
-	): Promise<void> {
+	private async commitCanvasInlineEdit(edit: BaseHalfCanvasInlineEdit, name: string): Promise<void> {
 		const target = joinPath(edit.parent, name);
-		if (edit.kind === 'rename') {
-			// A name does not depend on what the file holds: an agent may write a
-			// note while its name is edited. The stamp refuses an item that was
-			// moved or removed, and one that another operation is changing.
-			const gone = localize('basehalf.canvas.rename.gone', "This item was moved or removed while its name was edited.");
-			if (!this.view.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
-				throw new Error(gone);
-			}
-			if (edit.draft) {
-				// A draft has no file: its card information and its row move to the new name, as one step of undo.
-				await this.view.generationCardActions.moveDraft(edit.resource, target);
-				return;
-			}
-			let isDirectory: boolean | undefined;
-			try {
-				isDirectory = (await this.view.fileService.stat(edit.resource)).isDirectory;
-			} catch {
-				// Not there: refused below.
-			}
-			if (isDirectory !== edit.context.snapshot.isDirectory
-				|| !this.view.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
-				throw new Error(gone);
-			}
-			const fileName = basename(edit.resource);
-			// A step of the canvas's undo, as a delete on the canvas is.
-			await this.view.explorerService.applyBulkEdit([new ResourceFileEdit(edit.resource, target)], {
-				undoLabel: localize('basehalf.canvas.rename.undo', "Rename {0} to {1}", fileName, name),
-				progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", fileName),
-				confirmBeforeUndo: this.confirmExplorerUndo(),
-				undoRedoSource: this.view.canvasUndoRedoSource
-			});
+		// A name does not depend on what the file holds: an agent may write a
+		// note while its name is edited. The stamp refuses an item that was
+		// moved or removed, and one that another operation is changing.
+		const gone = localize('basehalf.canvas.rename.gone', "This item was moved or removed while its name was edited.");
+		if (!this.view.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
+			throw new Error(gone);
+		}
+		if (edit.draft) {
+			// A draft has no file: its card information and its row move to the new name, as one step of undo.
+			await this.view.generationCardActions.moveDraft(edit.resource, target);
 			return;
 		}
-		const folder = this.view.getCurrentFolder();
-		if (!folder || !this.view.uriIdentityService.extUri.isEqual(folder.resource, edit.parent)) {
-			throw new Error(localize('basehalf.canvas.create.folderChanged', "The canvas changed before the item could be created."));
+		let isDirectory: boolean | undefined;
+		try {
+			isDirectory = (await this.view.fileService.stat(edit.resource)).isDirectory;
+		} catch {
+			// Not there: refused below.
 		}
-		await this.createCanvasEntry(folder, edit.context, name, edit.createKind, edit.canvasPosition, {
-			postCreateOwner: postCreateOwner ?? this.view.captureCanvasPostCreateOwner(),
-			reveal: edit.reveal === true
+		if (isDirectory !== edit.context.snapshot.isDirectory
+			|| !this.view.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
+			throw new Error(gone);
+		}
+		const fileName = basename(edit.resource);
+		// A step of the canvas's undo, as a delete on the canvas is.
+		await this.view.explorerService.applyBulkEdit([new ResourceFileEdit(edit.resource, target)], {
+			undoLabel: localize('basehalf.canvas.rename.undo', "Rename {0} to {1}", fileName, name),
+			progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", fileName),
+			confirmBeforeUndo: this.confirmExplorerUndo(),
+			undoRedoSource: this.view.canvasUndoRedoSource
 		});
 	}
 
@@ -1057,7 +1012,12 @@ export class BaseHalfCanvasCreation {
 			progressLabel: kind === 'folder'
 				? localize('basehalf.canvas.newFolder.progress', "Creating folder {0}", name)
 				: localize('basehalf.canvas.newFile.progress', "Creating file {0}", name),
-			confirmBeforeUndo: this.confirmExplorerUndo()
+			confirmBeforeUndo: this.confirmExplorerUndo(),
+			// A new folder is a step of the canvas's undo, as a rename on the canvas
+			// is (canvas Create menu, "Undo"). Its undo deletes it only while it is
+			// empty. A new note stays in the undo of Files: its undo would delete
+			// what was typed into it since.
+			...(kind === 'folder' ? { undoRedoSource: this.view.canvasUndoRedoSource } : {})
 		});
 
 		const path = baseHalfCanvasChildPath(folder.relativePath, name);

@@ -153,7 +153,6 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	private readonly viewControls: HTMLElement;
 	readonly surface: HTMLElement;
 	readonly cards: HTMLElement;
-	readonly inlineEditLayer: HTMLElement;
 	readonly canvasOverlay: HTMLElement;
 	readonly canvasScene: BaseHalfCanvasReactScene;
 	readonly detail: HTMLElement;
@@ -167,7 +166,6 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	readonly cardListenerStores = this._register(new BaseHalfCanvasCardListenerStores());
-	readonly inlineEditListeners = this._register(new DisposableStore());
 	/**
 	 * The rename editor of a card. It lives as long as its edit: a card that
 	 * shows it is kept across renders, and a card that is built anew takes it
@@ -387,7 +385,6 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(toDisposable(() => this.inlineRenameEditor?.store.dispose()));
 		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
 		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
-		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
 		this.canvasOverlay = DOM.append(this.surface, DOM.$('.basehalf-canvas-overlay'));
 		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
 			commitGeometry: (sceneKey, structuralEpoch, geometries, reason) => this.geometry.commitSceneGeometry(sceneKey, structuralEpoch, geometries, reason),

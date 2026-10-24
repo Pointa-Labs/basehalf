@@ -18,7 +18,6 @@ import { IBaseHalfBadgeNode } from '../../../references/common/basehalfBadgeMirr
 import { IBaseHalfCanvasDamage, IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
 import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasNavigationState, IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNoteFormatNavigationOwnership, IBaseHalfCanvasNoteFocusLease } from '../../common/basehalfCanvasNoteFormatLifecycle.js';
-import { BaseHalfCanvasCreateKind } from '../../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { baseHalfItemDisplayName } from '../../../cardDetail/common/basehalfCardDetail.js';
 import { BaseHalfItemKindIcon, baseHalfItemIcon } from '../../../agentArea/common/basehalfAgentSelection.js';
@@ -176,41 +175,30 @@ export interface IBaseHalfCanvasUndoNode {
 	readonly kind: IBaseHalfCanvasItem['kind'];
 }
 
-export type BaseHalfCanvasInlineEdit =
-	| {
-		readonly kind: 'rename';
-		readonly context: IBaseHalfCanvasActionContext;
-		readonly resource: URI;
-		readonly parent: URI;
-		readonly path: string;
-		/**
-		 * The extension that the file of a note keeps. The editor then holds the
-		 * name without it. Empty for an item that is renamed by its file name.
-		 */
-		readonly extension: string;
-		/** The item is a draft of this kind: renaming it moves its card information, and its name keeps an extension of its kind. */
-		readonly draft?: 'image' | 'video';
-		readonly initialValue: string;
-		value: string;
-		selectionPending: boolean;
-		/** Why the name could not be applied, until an editor has shown it. */
-		failure?: string;
-	}
-	| {
-		readonly kind: 'create';
-		readonly context: IBaseHalfCanvasActionContext;
-		readonly parent: URI;
-		readonly createKind: Extract<BaseHalfCanvasCreateKind, 'file' | 'folder'>;
-		readonly initialValue: string;
-		readonly anchor: { readonly x: number; readonly y: number };
-		readonly canvasPosition: { readonly x: number; readonly y: number };
-		/** BaseHalf computed the place: the view goes to the new card when it is out of sight. */
-		readonly reveal?: boolean;
-		value: string;
-		selectionPending: boolean;
-		/** Why the name could not be applied, until an editor has shown it. */
-		failure?: string;
-	};
+/**
+ * A card's name while it is changed in place (canvas card name). It is the
+ * canvas's only name editor: a new item is made with a name of its own and
+ * renamed afterwards (canvas Create menu).
+ */
+export type BaseHalfCanvasInlineEdit = {
+	readonly kind: 'rename';
+	readonly context: IBaseHalfCanvasActionContext;
+	readonly resource: URI;
+	readonly parent: URI;
+	readonly path: string;
+	/**
+	 * The extension that the file of a note keeps. The editor then holds the
+	 * name without it. Empty for an item that is renamed by its file name.
+	 */
+	readonly extension: string;
+	/** The item is a draft of this kind: renaming it moves its card information, and its name keeps an extension of its kind. */
+	readonly draft?: 'image' | 'video';
+	readonly initialValue: string;
+	value: string;
+	selectionPending: boolean;
+	/** Why the name could not be applied, until an editor has shown it. */
+	failure?: string;
+};
 
 export const CANVAS_MARKDOWN_FULL_EDITOR_LABEL = localize(
 	'basehalf.canvas.note.fullEditorRequired',
