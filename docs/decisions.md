@@ -2608,3 +2608,29 @@ apart, each building the look anew with a picture to decode.
 - A note can be connected from the prompt as a card is, by `@`.
 - Revises D67: no file is uploaded into a draft, so the draft's toolbar,
   its Upload, and the service behind it are gone.
+
+## D72 — The title bar has no control of the panel (NEW, 2026-10-24)
+
+**Decision.** The right group of the title bar no longer shows Toggle Panel,
+and the View menu's Appearance submenu no longer lists Panel. The control
+of the Agent Area is the one control of the right side. Cmd+J and the
+command stay. See [layout controls](specs/layout-controls.md#the-panel).
+
+**Why.** On 2026-10-24 the user asked what to do with the two buttons at the
+top right, and said that the one for the terminal below could go, since the
+terminal is in the Agent Area. BaseHalf shows no panel under the canvas: its
+command has opened and closed the Agent Area since
+[D21](#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30)
+routed the terminal there. The two buttons did the same thing, and the
+panel's icon never showed the Agent Area open. One part has one control
+([D56](#d56--a-layout-control-is-in-the-title-bar-on-the-side-of-its-part-new-2026-10-13)).
+
+**What was set aside.**
+- One button that shows the panel's icon: the icon stands for a part under
+  the editor, which BaseHalf does not have.
+- Taking Cmd+J away: it does what VS Code users expect of it, opening the
+  terminal, and is shown nowhere.
+
+**Consequences.**
+- Revises the scope of D56, which left the panel's control as it was.
+- Customize Layout, in the command palette, still lists the panel.
