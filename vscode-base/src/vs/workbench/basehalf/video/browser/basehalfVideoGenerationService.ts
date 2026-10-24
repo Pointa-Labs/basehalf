@@ -386,19 +386,23 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		if (this.isGenerating(resource)) {
 			throw generatingError();
 		}
-		// 3. The model, the provider's setup, and the blockers known without the inputs.
+		// 3. The model, the provider's setup, and the blockers known without the
+		// inputs, of the mode that is used: it follows the inputs (generation
+		// cards, "What is connected is sent"), as in the panel; the card keeps its own.
 		const catalog = await this.catalog();
 		const info = snapshot.info;
+		const ref = findBaseHalfVideoModel(catalog, info.provider, info.model);
+		const mode = ref ? baseHalfVideoModeThatIsUsed(ref.model, info.mode, await this.cardStore.resolveInputs(snapshot)) : undefined;
 		const blocker = getBaseHalfVideoGenerateBlocker({
 			generating: false,
 			catalog: { kind: 'ready', catalog },
 			generation: baseHalfGenerationChoice(info),
 			kind: snapshot.kind,
 			setup: provider => this.providerSettings.getStatus(provider),
-			prompt: info.prompt
+			prompt: info.prompt,
+			...(mode ? { mode } : {})
 		});
-		const ref = findBaseHalfVideoModel(catalog, info.provider, info.model);
-		if (blocker || !ref) {
+		if (blocker || !ref || !mode) {
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText(blocker ?? { kind: 'noModel' }));
 		}
 		if (options.agent) {
@@ -407,8 +411,6 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 				throw new BaseHalfVideoGenerationError(refused);
 			}
 		}
-		// The mode that is used follows the inputs (generation cards, "What is connected is sent"); the card keeps its own.
-		const mode = baseHalfVideoModeThatIsUsed(ref.model, info.mode, await this.cardStore.resolveInputs(snapshot));
 		const params = normalizeBaseHalfVideoParams(ref.model, mode.id, info.params);
 		// 4. The cards it lands on.
 		const planned = await this.planCards(snapshot, ref, mode.id, params);

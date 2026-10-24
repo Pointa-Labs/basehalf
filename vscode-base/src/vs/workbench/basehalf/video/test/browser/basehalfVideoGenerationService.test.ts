@@ -52,7 +52,7 @@ import {
 	stopBaseHalfGenerationTask,
 	submitBaseHalfGenerationTask
 } from '../../common/basehalfGenerationInfo.js';
-import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_PROVIDER_COMMANDS, IBaseHalfVideoCatalogProvider, IBaseHalfVideoDownloadRequest, IBaseHalfVideoPlaceRequest, IBaseHalfVideoSubmitRequest, IBaseHalfVideoTaskRef, planBaseHalfVideoInputs } from '../../common/basehalfVideoCatalog.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
 import { ACME, BOREALIS, CORVID, TEST_GENERATION_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import {
@@ -121,7 +121,7 @@ suite('BaseHalfVideoGenerationService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 	const root = URI.file('/workspace');
 
-	async function createHarness(options: { readonly records?: readonly IBaseHalfGenerationTask[]; readonly files?: Readonly<Record<string, string | VSBuffer>>; readonly caseInsensitive?: boolean } = {}): Promise<IHarness> {
+	async function createHarness(options: { readonly records?: readonly IBaseHalfGenerationTask[]; readonly files?: Readonly<Record<string, string | VSBuffer>>; readonly caseInsensitive?: boolean; readonly catalogProviders?: readonly IBaseHalfVideoCatalogProvider[] } = {}): Promise<IHarness> {
 		const owner = disposables.add(new DisposableStore());
 		const fileService = owner.add(new FileService(new NullLogService()));
 		const provider = owner.add(new BaseHalfTestFileSystemProvider({ caseInsensitive: options.caseInsensitive }));
@@ -148,7 +148,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		await providers.setCredential(CORVID_PROVIDER, 'apiKey', CORVID_KEY);
 		const window = (): IWindow => {
 			const commands = new FakeProviderCommands(fileService);
-			commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [ACME, BOREALIS, CORVID] } });
+			commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [...(options.catalogProviders ?? [ACME, BOREALIS, CORVID])] } });
 			const context = new TestContextService(testWorkspace(root));
 			const catalogService = owner.add(new BaseHalfVideoCatalogService(0, commands, new NullLogService()));
 			const tasks = owner.add(new BaseHalfGenerationTaskStore(fileService, context, uriIdentity, new NullLogService()));
@@ -723,6 +723,30 @@ suite('BaseHalfVideoGenerationService', () => {
 			sentMode: ['reference'],
 			recordedMode: 'reference',
 			ownMode: true
+		});
+		await service.stop(card);
+		harness.dispose();
+	}));
+
+	test('Generate asks the region about the mode that is used, as the panel does (D67)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		// Frames only in the west, and the key is set up in the east.
+		const westFrames: IBaseHalfVideoCatalogProvider = { ...ACME, models: ACME.models.map(model => model.id === 'acme-motion-2' ? { ...model, modes: model.modes.map(mode => mode.id === 'frames' ? { ...mode, regions: ['west'] } : mode) } : model) };
+		const harness = await createHarness({ catalogProviders: [westFrames, BOREALIS, CORVID] });
+		await harness.write('refs/a.png', FAKE_PNG);
+		await harness.write('refs/clip.mp4', FAKE_MP4);
+		const framesOnly = await harness.card('shots/frames.mp4', VIDEO, ['refs/a.png']);
+		// A video among the inputs: the references mode is used, which the east offers.
+		const withVideo = await harness.card('shots/with.mp4', VIDEO, ['refs/a.png', 'refs/clip.mp4']);
+		const { service, commands } = harness.first;
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const refusal = await service.generate(framesOnly).then(() => 'started', (error: Error) => error.message);
+		const [card] = await service.generate(withVideo);
+		assert.deepStrictEqual({
+			refusal,
+			sentMode: commands.calls.filter(call => call.id === SUBMIT).map(call => (call.argument as IBaseHalfVideoSubmitRequest).mode)
+		}, {
+			refusal: 'Acme Motion 2 offers Frames mode only in West · Acme Global. Choose another mode, or another region in Providers.',
+			sentMode: ['reference']
 		});
 		await service.stop(card);
 		harness.dispose();
