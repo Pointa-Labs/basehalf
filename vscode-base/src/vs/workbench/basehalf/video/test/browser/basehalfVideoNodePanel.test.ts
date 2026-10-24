@@ -717,7 +717,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			connected: { action: 'remove', label: 'Remove a.png' },
 			image: { action: 'connect', label: 'Connect c.png' },
 			video: { action: 'refused', label: 'Acme Motion 2 takes one video at most.' },
-			unusable: { action: 'refused', label: 'An image or video card cannot use brief.pdf.' },
+			unusable: { action: 'refused', label: 'An image, video, or audio card cannot use brief.pdf.' },
 			folder: { action: 'refused', label: 'A folder cannot be an input.' },
 			pressed: 'true',
 			hint: 'Click cards on the canvas. Escape or Done ends.'

@@ -484,6 +484,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 				case 'boolean':
 					return 'boolean';
 				case 'text':
+				case 'voice':
 					return 'string';
 				default:
 					return undefined;

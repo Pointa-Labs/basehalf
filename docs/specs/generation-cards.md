@@ -674,7 +674,11 @@ The settings of a draft are drawn from its model's
   steps, and an optional choice adds **None**.
 - The **voice** of a speech model is not among the settings: it has its own
   button in the panel's footer ([The panel](#the-panel)), and the summary of
-  the settings leaves it out.
+  the settings leaves it out. A voice the card stores that the parameter
+  does not take gives way to its default, as any value does: for a parameter
+  that is not listed, one that is none of its options, and for any, an
+  empty one, which names no voice
+  ([providers, Parameters](providers.md#parameters)).
 
 **A range the inputs narrow** (D70). A rule of the provider can narrow how
 far a number goes for what is connected, such as Wan 3.0, whose input videos

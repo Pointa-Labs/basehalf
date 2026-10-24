@@ -26,7 +26,9 @@ import {
 	IBaseHalfVideoDownloadRequest,
 	IBaseHalfVideoPlaceRequest,
 	IBaseHalfVideoSubmitRequest,
-	IBaseHalfVideoTaskRef
+	IBaseHalfVideoTaskRef,
+	IBaseHalfVideoVoicePreviewRequest,
+	IBaseHalfVideoVoicesRequest
 } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfDraftMoveOptions, IBaseHalfDraftOperations, IBaseHalfDraftSnapshot, IBaseHalfGenerationTaskStore } from '../../common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditOptions, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfReferenceStoreResult } from '../../../references/common/basehalfReferenceEdit.js';
@@ -39,6 +41,12 @@ export const FAKE_MP4 = VSBuffer.wrap(Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 
 export const FAKE_PNG = VSBuffer.wrap(Uint8Array.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]));
 /** The first bytes of a JPEG. */
 export const FAKE_JPEG = VSBuffer.wrap(Uint8Array.from([0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1]));
+/** The first bytes of an MP3: its ID3 tag. */
+export const FAKE_MP3 = VSBuffer.wrap(Uint8Array.from([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0, 0xFF, 0xFB, 0x90, 0x64, 0, 0]));
+/** The first bytes of a WAV: its RIFF header of the WAVE form. */
+export const FAKE_WAV = VSBuffer.wrap(Uint8Array.from([0x52, 0x49, 0x46, 0x46, 36, 0, 0, 0, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20]));
+/** The first bytes of a FLAC. */
+export const FAKE_FLAC = VSBuffer.wrap(Uint8Array.from([0x66, 0x4C, 0x61, 0x43, 0, 0, 0, 34, 16, 0, 16, 0, 0, 0, 0, 0]));
 
 export class InMemoryCredentialStore implements IBaseHalfModelCredentialStore {
 	declare readonly _serviceBrand: undefined;
@@ -316,6 +324,13 @@ export class FakeReferenceEditService {
 
 type Handler<T> = (argument: T) => Promise<unknown> | unknown;
 
+/** The voices the fake provider service lists by default: one of the account first, then two of the provider's, all with samples (D78). */
+export const FAKE_LISTED_VOICES = Object.freeze([
+	Object.freeze({ id: 'own-narrator', label: 'My Narrator', description: 'Cloned', own: true, sample: 'https://cdn.dunlin.example/samples/own-narrator.mp3' }),
+	Object.freeze({ id: 'vx-ember', label: 'Ember', description: 'Warm, low', own: false, sample: 'https://cdn.dunlin.example/samples/vx-ember.mp3' }),
+	Object.freeze({ id: 'vx-harbor', label: 'Harbor', description: 'Calm, deep', own: false, sample: 'https://cdn.dunlin.example/samples/vx-harbor.mp3' })
+]);
+
 /** The prompt as a provider module of the tests writes it: its text as it is, and each mention as `<slot>` or `<slot n>` (D74). */
 export function fakeWrittenPrompt(prompt: IBaseHalfVideoCheckRequest['prompt']): string {
 	return prompt.map(part => typeof part === 'string' ? part : `<${part.input}${part.index !== undefined ? ` ${part.index}` : ''}>`).join('');
@@ -329,15 +344,24 @@ export const PROVIDER_CALL = Object.freeze({
 	poll: 'poll',
 	download: 'download',
 	cancel: 'cancel',
-	place: 'place'
+	place: 'place',
+	voices: 'voices',
+	voicePreview: 'voicePreview'
 } as const);
+
+/** The format a fake file of the tests starts like, as the provider service answers it. */
+export function fakeFileFormat(bytes: VSBuffer): 'png' | 'jpeg' | 'mp4' | 'mp3' | 'wav' | 'flac' {
+	return bytes === FAKE_JPEG ? 'jpeg' : bytes === FAKE_MP4 ? 'mp4' : bytes === FAKE_MP3 ? 'mp3' : bytes === FAKE_WAV ? 'wav' : bytes === FAKE_FLAC ? 'flac' : 'png';
+}
 
 /**
  * The provider service of the shared process (D75), scripted by the handlers
  * below, with the test catalog of invented providers: {@link service} answers
  * through them. The default check finds no problem, the default submit makes
- * a task, and the default download writes an MP4, or a PNG for an image,
- * where it is asked to. It is a command service too, for what else the
+ * a task, and the default download writes an MP4, a PNG for an image, or an
+ * MP3 for a sound, where it is asked to. The default voices are the
+ * provider's two and one of the account, with samples, and the default
+ * sample is an MP3 (D78). It is a command service too, for what else the
  * window runs as a command.
  */
 export class FakeProviderCommands implements ICommandService {
@@ -354,6 +378,8 @@ export class FakeProviderCommands implements ICommandService {
 	cancel: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { cancelled: true } });
 	/** As the provider service puts a file in place: under a name no file has, and the partial download goes. */
 	place: Handler<IBaseHalfVideoPlaceRequest>;
+	voices: Handler<IBaseHalfVideoVoicesRequest> = () => ({ ok: true, value: { voices: FAKE_LISTED_VOICES } });
+	voicePreview: Handler<IBaseHalfVideoVoicePreviewRequest> = () => ({ ok: true, value: { bytes: FAKE_MP3, format: 'mp3' } });
 	other: Handler<unknown> = () => undefined;
 
 	constructor(private readonly fileService: IFileService) {
@@ -365,16 +391,16 @@ export class FakeProviderCommands implements ICommandService {
 			return { ok: true, value: { placed: true } };
 		};
 		this.download = async request => {
-			const bytes = request.kind === 'image' ? FAKE_PNG : FAKE_MP4;
+			const bytes = request.kind === 'image' ? FAKE_PNG : request.kind === 'audio' ? FAKE_MP3 : FAKE_MP4;
 			await fileService.writeFile(URI.file(request.targetFsPath), bytes);
-			return { ok: true, value: { size: bytes.byteLength, format: request.kind === 'image' ? 'png' : 'mp4' } };
+			return { ok: true, value: { size: bytes.byteLength, format: fakeFileFormat(bytes) } };
 		};
 	}
 
 	/** Writes a file into a target, as the provider service writes a file the provider answered with. */
-	async write(target: string, bytes: VSBuffer): Promise<{ readonly written: string; readonly size: number; readonly format: 'png' | 'jpeg' | 'mp4' }> {
+	async write(target: string, bytes: VSBuffer): Promise<{ readonly written: string; readonly size: number; readonly format: 'png' | 'jpeg' | 'mp4' | 'mp3' | 'wav' | 'flac' }> {
 		await this.fileService.writeFile(URI.file(target), bytes);
-		return { written: target, size: bytes.byteLength, format: bytes === FAKE_JPEG ? 'jpeg' : bytes === FAKE_MP4 ? 'mp4' : 'png' };
+		return { written: target, size: bytes.byteLength, format: fakeFileFormat(bytes) };
 	}
 
 	count(id: string): number {
@@ -390,7 +416,9 @@ export class FakeProviderCommands implements ICommandService {
 		poll: task => this.answer(PROVIDER_CALL.poll, task, () => this.poll(task)),
 		download: request => this.answer(PROVIDER_CALL.download, request, () => this.download(request)),
 		cancel: task => this.answer(PROVIDER_CALL.cancel, task, () => this.cancel(task)),
-		place: request => this.answer(PROVIDER_CALL.place, request, () => this.place(request))
+		place: request => this.answer(PROVIDER_CALL.place, request, () => this.place(request)),
+		voices: request => this.answer(PROVIDER_CALL.voices, request, () => this.voices(request)),
+		voicePreview: request => this.answer(PROVIDER_CALL.voicePreview, request, () => this.voicePreview(request))
 	};
 
 	/** A handler may answer anything, as a broken service would. */

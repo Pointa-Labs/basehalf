@@ -215,6 +215,16 @@ export interface IBaseHalfPromptParts {
 	readonly empty: boolean;
 }
 
+/** How the prompt is written for the provider service. */
+export interface IBaseHalfPromptPartsOptions {
+	/**
+	 * The prompt is spoken or sung (generation cards, "Terms";
+	 * `isBaseHalfSpokenOrSungPrompt`): a note joins it as its text alone,
+	 * since the voice would say a name and the song would sing it.
+	 */
+	readonly spokenOrSung?: boolean;
+}
+
 /**
  * The prompt as the provider service receives it (generation cards, "Inputs" and
  * "Mentions"): the card's prompt without the spaces around it, with each
@@ -228,11 +238,17 @@ export interface IBaseHalfPromptParts {
  * request does not send, such as one that is missing or that the mode does
  * not use, is written as its file's name; Generate does not run while there
  * is one, for the reason that input gives.
+ *
+ * In a prompt that is spoken or sung (`options.spokenOrSung`), a mention of a
+ * note stands for the note's text, in its place, as often as it is
+ * mentioned, and the text of each connected note that the prompt does not
+ * mention follows the prompt, in order, after a blank line, without names.
  */
 export function buildBaseHalfPromptParts(
 	prompt: string,
 	plan: readonly IBaseHalfVideoInputPlanItem[],
-	textOf: (item: IBaseHalfVideoInputPlanItem, index: number) => string | undefined
+	textOf: (item: IBaseHalfVideoInputPlanItem, index: number) => string | undefined,
+	options: IBaseHalfPromptPartsOptions = {}
 ): IBaseHalfPromptParts {
 	const slots = new Map<number, IBaseHalfVideoPromptInput>();
 	const counts = { image: 0, video: 0, audio: 0 };
@@ -271,6 +287,14 @@ export function buildBaseHalfPromptParts(
 		}
 	};
 	let unconnected: string | undefined;
+	const spokenOrSung = options.spokenOrSung === true;
+	// The text a note adds: its head of at most 16 KiB, without the spaces around it.
+	const noteText = (index: number) => {
+		const value = textOf(plan[index], index) ?? '';
+		return (value.length > BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH ? value.slice(0, BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH) : value).trim();
+	};
+	/** The notes that a spoken or sung prompt says in place: they do not follow it again. */
+	const said = new Set<number>();
 	const start = prompt.length - prompt.trimStart().length;
 	const end = prompt.trimEnd().length;
 	let offset = start;
@@ -285,7 +309,12 @@ export function buildBaseHalfPromptParts(
 		if (slot) {
 			parts.push(slot);
 		} else if (index !== undefined && plan[index].use === 'text') {
-			text(`"${noteNames.get(plan[index].path)}"`);
+			if (spokenOrSung) {
+				said.add(index);
+				text(noteText(index));
+			} else {
+				text(`"${noteNames.get(plan[index].path)}"`);
+			}
 		} else {
 			if (index === undefined) {
 				unconnected ??= mention.path;
@@ -295,12 +324,11 @@ export function buildBaseHalfPromptParts(
 	}
 	text(prompt.slice(offset, Math.max(offset, end)));
 	const notes = plan.flatMap((item, index) => {
-		if (item.use !== 'text') {
+		if (item.use !== 'text' || said.has(index)) {
 			return [];
 		}
-		const value = textOf(item, index) ?? '';
-		const note = (value.length > BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH ? value.slice(0, BASEHALF_VIDEO_TEXT_INPUT_MAX_LENGTH) : value).trim();
-		return note ? [`${noteNames.get(item.path)}:\n${note}`] : [];
+		const note = noteText(index);
+		return !note ? [] : spokenOrSung ? [note] : [`${noteNames.get(item.path)}:\n${note}`];
 	});
 	if (notes.length) {
 		text(`${parts.length ? '\n\n' : ''}${notes.join('\n\n')}`);

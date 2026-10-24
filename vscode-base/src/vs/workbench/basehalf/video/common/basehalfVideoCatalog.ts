@@ -3,8 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { safeIntl } from '../../../../base/common/date.js';
+import { language } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import type {
+	AudioFormat as BaseHalfAudioFormat,
+	AudioMakes as BaseHalfAudioMakes,
+	AudioOutputFormat as BaseHalfAudioOutputFormat,
 	ModelKind as BaseHalfModelKind,
 	CatalogParameter as BaseHalfVideoCatalogParameter,
 	ImageFormat as BaseHalfVideoImageFormat,
@@ -48,7 +53,14 @@ import type {
 	SubmitPayload as IBaseHalfVideoSubmitRequest,
 	SubmitResult as IBaseHalfVideoSubmitResult,
 	TaskRef as IBaseHalfVideoTaskRef,
-	TextParameter as IBaseHalfVideoTextParameter
+	TextParameter as IBaseHalfVideoTextParameter,
+	CatalogVoiceOption as IBaseHalfVideoCatalogVoiceOption,
+	ListedVoice as IBaseHalfVideoListedVoice,
+	VoiceParameter as IBaseHalfVideoVoiceParameter,
+	VoicePreviewRequest as IBaseHalfVideoVoicePreviewRequest,
+	VoicePreviewResult as IBaseHalfVideoVoicePreviewResult,
+	VoicesRequest as IBaseHalfVideoVoicesRequest,
+	VoicesResult as IBaseHalfVideoVoicesResult
 } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 
 /**
@@ -66,6 +78,9 @@ import type {
  * specification, "Settings", "Inputs", and "The panel").
  */
 export type {
+	BaseHalfAudioFormat,
+	BaseHalfAudioMakes,
+	BaseHalfAudioOutputFormat,
 	BaseHalfModelKind,
 	BaseHalfVideoCatalogParameter,
 	BaseHalfVideoImageFormat,
@@ -109,7 +124,14 @@ export type {
 	IBaseHalfVideoSubmitRequest,
 	IBaseHalfVideoSubmitResult,
 	IBaseHalfVideoTaskRef,
-	IBaseHalfVideoTextParameter
+	IBaseHalfVideoTextParameter,
+	IBaseHalfVideoCatalogVoiceOption,
+	IBaseHalfVideoListedVoice,
+	IBaseHalfVideoVoiceParameter,
+	IBaseHalfVideoVoicePreviewRequest,
+	IBaseHalfVideoVoicePreviewResult,
+	IBaseHalfVideoVoicesRequest,
+	IBaseHalfVideoVoicesResult
 };
 
 /**
@@ -161,7 +183,19 @@ export function baseHalfVideoLimitRange(parameter: IBaseHalfVideoNumberParameter
 // The window's functions over the catalog. Not mirrored by the extension.
 // ================================================================================================
 
-export const BASEHALF_VIDEO_MODE_IDS: readonly BaseHalfVideoModeId[] = Object.freeze(['frames', 'reference', 'extend', 'edit']);
+export const BASEHALF_VIDEO_MODE_IDS: readonly BaseHalfVideoModeId[] = Object.freeze(['frames', 'reference', 'extend', 'edit', 'lyrics']);
+
+/** What a model makes, in the order the canvas offers the cards of each kind (D64, D78). */
+export const BASEHALF_MODEL_KINDS: readonly BaseHalfModelKind[] = Object.freeze(['image', 'video', 'audio']);
+
+/** What an audio model makes (D78): speech, music, or sound effects. */
+export const BASEHALF_AUDIO_MAKES: readonly BaseHalfAudioMakes[] = Object.freeze(['speech', 'music', 'sound']);
+
+/** The formats an audio model declares that it delivers (providers, "Audio format"). */
+export const BASEHALF_AUDIO_FORMATS: readonly BaseHalfAudioFormat[] = Object.freeze(['mp3', 'wav']);
+
+/** The longest voice id a listed `voice` parameter takes that is not among its options (providers, "Parameters"). */
+export const BASEHALF_VOICE_ID_MAX_LENGTH = 256;
 
 /** What the window knows of the catalog: still asking, the answer, or why there is none. */
 export type BaseHalfVideoCatalogState =
@@ -250,12 +284,17 @@ const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p
 
 /**
  * A model's abilities in one line, from its declarations (generation cards,
- * "The panel"): for a video its modes, its longest duration, its largest
+ * "The panel"): for a video its modes, its range of durations, its largest
  * resolution, and Sound when it makes sound, such as `Frames · References ·
- * 15s · 1080p · Sound`; for an image its largest resolution and how many
- * images one generation can make, when more than one, such as `4K · Up to 4`.
+ * 4–15s · 1080p · Sound`; for an image its largest resolution, how many
+ * images one generation can make, when more than one, and how many
+ * references it takes, such as `4K · Up to 4 images · 14 references`; for an
+ * audio model what it makes first ({@link baseHalfAudioModelAbilities}).
  */
 export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): string {
+	if (model.kind === 'audio') {
+		return baseHalfAudioModelAbilities(model);
+	}
 	const image = model.kind === 'image';
 	const parts = image ? [] : model.modes.map(mode => mode.label);
 	// The range of durations, as the two canvas products for media work list their models (D70).
@@ -289,6 +328,93 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 	return parts.join(' · ');
 }
 
+/**
+ * An audio model's abilities in one line (generation cards, "The panel"):
+ * what it makes, Speech, Music, or Sound Effects; then for speech the most
+ * characters its prompt takes, and otherwise its modes when it has more than
+ * one, its longest duration, how many songs one generation can make when that
+ * is more than one, and how many reference images and sounds it takes, such
+ * as `Speech · Up to 10,000 characters` and `Music · From a Description ·
+ * From Lyrics · Up to 3 songs · 1 reference sound`.
+ */
+export function baseHalfAudioModelAbilities(model: IBaseHalfVideoCatalogModel): string {
+	const parts = [baseHalfAudioMakesLabel(model.makes)];
+	if (model.makes === 'speech') {
+		parts.push(localize('basehalf.video.catalog.abilityCharacters', "Up to {0} characters", safeIntl.NumberFormat(language).value.format(model.prompt.maxLength)));
+		return parts.join(' · ');
+	}
+	if (model.modes.length > 1) {
+		parts.push(...model.modes.map(mode => mode.label));
+	}
+	const durations = durationRange(model.parameters.find(parameter => parameter.name === 'duration'));
+	if (durations) {
+		parts.push(localize('basehalf.video.catalog.abilityLongest', "Up to {0}s", durations.max));
+	}
+	const most = baseHalfModelMostOutputs(model);
+	if (most > 1) {
+		parts.push(localize('basehalf.video.catalog.abilitySongs', "Up to {0} songs", most));
+	}
+	const images = Math.max(0, ...model.modes.map(mode => mode.inputs.images.max));
+	if (images === 1) {
+		parts.push(localize('basehalf.video.catalog.abilityReferenceImage', "1 reference image"));
+	} else if (images > 1) {
+		parts.push(localize('basehalf.video.catalog.abilityReferenceImages', "{0} reference images", images));
+	}
+	const sounds = Math.max(0, ...model.modes.map(mode => mode.inputs.audios.max));
+	if (sounds === 1) {
+		parts.push(localize('basehalf.video.catalog.abilityReferenceSound', "1 reference sound"));
+	} else if (sounds > 1) {
+		parts.push(localize('basehalf.video.catalog.abilityReferenceSounds', "{0} reference sounds", sounds));
+	}
+	return parts.join(' · ');
+}
+
+/** What an audio model makes, in words: Speech, Music, or Sound Effects. */
+export function baseHalfAudioMakesLabel(makes: BaseHalfAudioMakes | undefined): string {
+	switch (makes) {
+		case 'speech': return localize('basehalf.video.catalog.makesSpeech', "Speech");
+		case 'music': return localize('basehalf.video.catalog.makesMusic', "Music");
+		default: return localize('basehalf.video.catalog.makesSound', "Sound Effects");
+	}
+}
+
+/**
+ * Whether the prompt of a generation is spoken or sung (generation cards,
+ * "Terms"): the prompt of a speech model, which the voice says, and the
+ * prompt in Lyrics mode, which the song sings. A note then joins it as its
+ * text alone, without its name (generation cards, "Inputs"). `modeId` is the
+ * mode that is used.
+ */
+export function isBaseHalfSpokenOrSungPrompt(model: IBaseHalfVideoCatalogModel | undefined, modeId: BaseHalfVideoModeId | string | undefined): boolean {
+	return model?.kind === 'audio' && (model.makes === 'speech' || modeId === 'lyrics');
+}
+
+/**
+ * The placeholder of a draft's prompt (generation cards, "The panel"): what
+ * the prompt is, by the card's kind, what its model makes, and the mode that
+ * is used, followed by "Type @ to mention an input.". An audio card without
+ * a model describes a sound.
+ */
+export function baseHalfVideoPromptPlaceholder(kind: BaseHalfModelKind, model: IBaseHalfVideoCatalogModel | undefined, modeId: BaseHalfVideoModeId | string | undefined): string {
+	const audio = model?.kind === 'audio' ? model : undefined;
+	if (kind === 'image') {
+		return localize('basehalf.video.catalog.placeholder.image', "Describe the image. Type @ to mention an input.");
+	}
+	if (kind === 'video') {
+		return localize('basehalf.video.catalog.placeholder.video', "Describe the video. Type @ to mention an input.");
+	}
+	if (audio?.makes === 'speech') {
+		return localize('basehalf.video.catalog.placeholder.speech', "Write what the voice says. Type @ to mention an input.");
+	}
+	if (audio && modeId === 'lyrics') {
+		return localize('basehalf.video.catalog.placeholder.lyrics', "Write the lyrics. Type @ to mention an input.");
+	}
+	if (audio?.makes === 'music') {
+		return localize('basehalf.video.catalog.placeholder.music', "Describe the music. Type @ to mention an input.");
+	}
+	return localize('basehalf.video.catalog.placeholder.sound', "Describe the sound. Type @ to mention an input.");
+}
+
 /** The shortest and the longest duration a parameter declares: a number's range, or a choice's numbers. */
 function durationRange(parameter: BaseHalfVideoCatalogParameter | undefined): { readonly min: number; readonly max: number } | undefined {
 	if (parameter?.kind === 'integer' || parameter?.kind === 'number') {
@@ -301,9 +427,18 @@ function durationRange(parameter: BaseHalfVideoCatalogParameter | undefined): { 
 	return undefined;
 }
 
-/** The most images one generation of a model makes: the highest `count` it declares, at most 16; 1 for a video model. */
+/**
+ * Whether a generation of a model may make several files (providers,
+ * "Output"): an image model and a music model make as many as their `count`;
+ * a video, speech, or sound-effect model makes one.
+ */
+export function baseHalfModelMakesSeveral(model: IBaseHalfVideoCatalogModel): boolean {
+	return model.kind === 'image' || (model.kind === 'audio' && model.makes === 'music');
+}
+
+/** The most images or songs one generation of a model makes: the highest `count` it declares, at most 16; 1 for a model that makes one file. */
 export function baseHalfModelMostOutputs(model: IBaseHalfVideoCatalogModel): number {
-	if (model.kind !== 'image') {
+	if (!baseHalfModelMakesSeveral(model)) {
 		return 1;
 	}
 	const count = model.parameters.find(parameter => parameter.name === 'count' && (parameter.kind === 'integer' || parameter.kind === 'number'));
@@ -311,12 +446,12 @@ export function baseHalfModelMostOutputs(model: IBaseHalfVideoCatalogModel): num
 }
 
 /**
- * How many files a generation makes (providers, "Output"): a video model
- * one, an image model as many as its `count`, made legal for the model and
- * mode, from 1 to 16.
+ * How many files a generation makes (providers, "Output"): a video, speech,
+ * or sound-effect model one, an image or a music model as many as its
+ * `count`, made legal for the model and mode, from 1 to 16.
  */
 export function baseHalfModelOutputCount(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined): number {
-	if (model.kind !== 'image') {
+	if (!baseHalfModelMakesSeveral(model)) {
 		return 1;
 	}
 	const count = normalizeBaseHalfVideoParams(model, modeId, params).count;
@@ -327,12 +462,20 @@ function clampOutputs(value: number): number {
 	return Number.isFinite(value) ? Math.min(16, Math.max(1, value)) : 1;
 }
 
-/** The extension of the file a model makes: its image format's (`png`, `jpg`, `webp`), or `mp4`. */
+/**
+ * The extension of the file a model makes, from the format it declares: an
+ * image's `png`, `jpg`, or `webp`, a sound's `mp3` or `wav`, and a video's
+ * `mp4`.
+ */
 export function baseHalfModelFileExtension(model: IBaseHalfVideoCatalogModel): string {
-	if (model.kind !== 'image') {
-		return 'mp4';
+	switch (model.kind) {
+		case 'image':
+			return model.outputFormat === 'jpeg' ? 'jpg' : model.outputFormat === 'webp' ? 'webp' : 'png';
+		case 'audio':
+			return model.outputFormat === 'wav' ? 'wav' : 'mp3';
+		default:
+			return 'mp4';
 	}
-	return model.outputFormat === 'jpeg' ? 'jpg' : model.outputFormat ?? 'png';
 }
 
 /** Whether the model is retired, everywhere or in the region given (providers, "Model"). */
@@ -385,9 +528,16 @@ export function baseHalfVideoListedModels(provider: IBaseHalfVideoCatalogProvide
 
 // --- Values ----------------------------------------------------------------------------------------
 
-/** Whether a parameter takes a value: a choice of its options, a number in its range and on its steps (or its Auto), a boolean, or text within its length. */
+/**
+ * Whether a parameter takes a value: a choice of its options, a number in its
+ * range and on its steps (or its Auto), a boolean, text within its length, or
+ * a voice of its options, and for a voice the provider lists, any other voice
+ * id ({@link isBaseHalfVoiceId}), which may be one of the account's.
+ */
 export function isBaseHalfVideoParamValueAccepted(parameter: BaseHalfVideoCatalogParameter, value: unknown): value is BaseHalfVideoParamValue {
 	switch (parameter.kind) {
+		case 'voice':
+			return typeof value === 'string' && (parameter.options.some(option => option.value === value) || (parameter.listed === true && isBaseHalfVoiceId(value)));
 		case 'choice':
 			return (typeof value === 'string' || typeof value === 'number') && parameter.options.some(option => option.value === value);
 		case 'integer':
@@ -411,15 +561,40 @@ export function isBaseHalfVideoParamValueAccepted(parameter: BaseHalfVideoCatalo
 }
 
 /**
+ * Whether a value can be the id of a voice that a provider lists, beyond the
+ * voices the catalog declares (providers, "Parameters"): 1 to 256 characters
+ * without control characters. An empty value names no voice.
+ */
+export function isBaseHalfVoiceId(value: string): boolean {
+	return value.length > 0 && value.length <= BASEHALF_VOICE_ID_MAX_LENGTH && !/[\u0000-\u001F\u007F-\u009F]/.test(value);
+}
+
+/** The `voice` parameter of a speech model, which its voice button chooses instead of the settings (D78). */
+export function baseHalfModelVoiceParameter(model: IBaseHalfVideoCatalogModel | undefined, modeId?: BaseHalfVideoModeId): IBaseHalfVideoVoiceParameter | undefined {
+	const parameters = model ? (modeId !== undefined ? baseHalfVideoModeParameters(model, modeId) : model.parameters) : [];
+	return parameters.find((parameter): parameter is IBaseHalfVideoVoiceParameter => parameter.kind === 'voice');
+}
+
+/**
+ * The name of a voice as the voice button, the panel of a card with its
+ * file, and Card Detail say it: the name the catalog gives it, then the one
+ * of `listed`, the provider's last list of voices, and otherwise its id.
+ */
+export function baseHalfVoiceLabel(parameter: IBaseHalfVideoVoiceParameter, value: string, listed?: readonly IBaseHalfVideoListedVoice[]): string {
+	return parameter.options.find(option => option.value === value)?.label ?? listed?.find(voice => voice.id === value)?.label ?? value;
+}
+
+/**
  * The value a parameter that is not optional has when the node gives none:
  * its default, or for one that declares none, its first choice, its lowest
- * number, off, or empty text. For an optional parameter, its declared
- * default, which is never filled in: an optional parameter the node leaves
- * unset sends nothing.
+ * number, off, empty text, or its first voice. For an optional parameter, its
+ * declared default, which is never filled in: an optional parameter the node
+ * leaves unset sends nothing.
  */
 export function baseHalfVideoParameterDefault(parameter: BaseHalfVideoCatalogParameter): BaseHalfVideoParamValue | undefined {
-	if (parameter.default !== undefined && isBaseHalfVideoParamValueAccepted(parameter, parameter.default)) {
-		return parameter.default;
+	const declared: unknown = parameter.default;
+	if (declared !== undefined && isBaseHalfVideoParamValueAccepted(parameter, declared)) {
+		return declared;
 	}
 	if (parameter.optional) {
 		return undefined;
@@ -430,6 +605,7 @@ export function baseHalfVideoParameterDefault(parameter: BaseHalfVideoCatalogPar
 		case 'number': return parameter.min;
 		case 'boolean': return false;
 		case 'text': return '';
+		case 'voice': return parameter.options[0]?.value;
 	}
 }
 
@@ -496,7 +672,7 @@ export function baseHalfVideoChangeParam(generation: IBaseHalfVideoGenerationCho
  * The generation a new card of a kind starts with (generation cards,
  * "Creating a generation card"): the last one of that kind on this computer,
  * made legal for its model. A model that is deprecated, in the region in use
- * when `region` tells it, of the other kind, or no longer in the catalog is
+ * when `region` tells it, of another kind, or no longer in the catalog is
  * not chosen. Without the catalog, the last values are kept as they were
  * stored: they were legal when they were used.
  */
@@ -588,10 +764,13 @@ export function formatBaseHalfVideoNumber(parameter: IBaseHalfVideoNumberParamet
 /**
  * A value as the settings button and Card Detail say it: a choice by its
  * option's label, Auto by its label, seconds as `5s`, any other number as the
- * number, a boolean as on or off, and text with its whitespace collapsed.
+ * number, a boolean as on or off, text with its whitespace collapsed, and a
+ * voice by the name the catalog gives it, or its id.
  */
 export function baseHalfVideoParamValueLabel(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue): string {
 	switch (parameter.kind) {
+		case 'voice':
+			return baseHalfVoiceLabel(parameter, String(value));
 		case 'choice':
 			return parameter.options.find(option => option.value === value)?.label ?? String(value);
 		case 'integer':
@@ -615,9 +794,10 @@ export function baseHalfVideoParamValueLabel(parameter: BaseHalfVideoCatalogPara
 }
 
 /**
- * The summary of the settings (video node specification, "Settings"): the
- * mode, then each parameter that is not advanced and has a value, such as
- * `Frames · 720p · 5s · Sound`.
+ * The summary of the settings (generation cards, "Settings"): the mode, then
+ * each parameter that is not advanced and has a value, such as `Frames ·
+ * 720p · 5s · Sound`. The voice of a speech model is not among the settings:
+ * its own button shows it, and the summary leaves it out (D78).
  */
 export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined, startFrame = false): readonly string[] {
 	const mode = baseHalfVideoModeOf(model, modeId);
@@ -625,7 +805,7 @@ export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, 
 	const parts = [mode.label];
 	for (const parameter of baseHalfVideoModeParameters(model, mode.id)) {
 		const value = values[parameter.name];
-		if (parameter.advanced || value === undefined || (startFrame && parameter.setByStartFrame)) {
+		if (parameter.advanced || parameter.kind === 'voice' || value === undefined || (startFrame && parameter.setByStartFrame)) {
 			continue;
 		}
 		const part = summaryPart(parameter, value);
@@ -641,13 +821,14 @@ export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, 
  * "The panel of a card with its file"): the mode, then the values as they
  * were sent, never made legal again, in the model's order with the catalog's
  * names, then the values the catalog does not know by their recorded names.
- * The advanced ones only with `advanced`.
+ * The advanced ones only with `advanced`. The voice of a speech model is left
+ * out: the panel names it beside the model (D78).
  */
 export function baseHalfVideoRecordedSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: string, params: BaseHalfVideoParams, advanced = false): readonly string[] {
 	const parts = [model.modes.find(mode => mode.id === modeId)?.label ?? modeId];
 	for (const parameter of model.parameters) {
 		const value = params[parameter.name];
-		if (value === undefined || (parameter.advanced && !advanced)) {
+		if (value === undefined || parameter.kind === 'voice' || (parameter.advanced && !advanced)) {
 			continue;
 		}
 		const part = summaryPart(parameter, value);
@@ -666,6 +847,7 @@ export function baseHalfVideoRecordedSettingsSummary(model: IBaseHalfVideoCatalo
 function summaryPart(parameter: BaseHalfVideoCatalogParameter, value: BaseHalfVideoParamValue): string {
 	switch (parameter.kind) {
 		case 'choice':
+		case 'voice':
 			return baseHalfVideoParamValueLabel(parameter, value);
 		case 'integer':
 		case 'number':
@@ -767,6 +949,36 @@ export const BASEHALF_IMAGE_DEFAULT_MODE_INPUTS: IBaseHalfVideoModeInputs = Obje
 	audios: Object.freeze({ min: 0, max: 0 }),
 	source: 'none'
 });
+
+/**
+ * What an audio card assumes while no model is chosen: references mode, with
+ * images and sounds as references, as many as are connected, as an audio
+ * model's references are (generation cards, "Inputs"). It is no model's
+ * declaration either.
+ */
+export const BASEHALF_AUDIO_DEFAULT_MODE_INPUTS: IBaseHalfVideoModeInputs = Object.freeze({
+	startFrame: 'none',
+	endFrame: 'none',
+	images: Object.freeze({ min: 0, max: Number.MAX_SAFE_INTEGER }),
+	videos: Object.freeze({ min: 0, max: 0 }),
+	audios: Object.freeze({ min: 0, max: Number.MAX_SAFE_INTEGER }),
+	source: 'none'
+});
+
+/**
+ * The slots a card of a kind shows its inputs in while it has no model, or
+ * its model is not in the catalog (generation cards, "The panel"): an image
+ * card and an audio card as references mode does, and a video card as
+ * frames mode does.
+ */
+export function baseHalfDefaultModeInputs(kind: BaseHalfModelKind): IBaseHalfVideoModeInputs {
+	return kind === 'image' ? BASEHALF_IMAGE_DEFAULT_MODE_INPUTS : kind === 'audio' ? BASEHALF_AUDIO_DEFAULT_MODE_INPUTS : BASEHALF_VIDEO_DEFAULT_MODE_INPUTS;
+}
+
+/** The mode a card of a kind shows while it has no model: References for an image or a sound, Frames for a video. */
+export function baseHalfDefaultModeId(kind: BaseHalfModelKind): BaseHalfVideoModeId {
+	return kind === 'video' ? 'frames' : 'reference';
+}
 
 /**
  * How a generation uses each input, in upstream order, from the slots the
@@ -897,9 +1109,9 @@ function modeTakes(inputs: IBaseHalfVideoModeInputs, kind: 'image' | 'video' | '
 	}
 }
 
-/** Why no image or video card can take the file at `path` as an input: it is neither an image, a video, a sound, nor text. */
+/** Why no generation card can take the file at `path` as an input: it is neither an image, a video, a sound, nor text. */
 export function baseHalfVideoUnusableKindReason(path: string): string {
-	return localize('basehalf.video.catalog.input.kind', "An image or video card cannot use {0}.", path.slice(path.lastIndexOf('/') + 1) || path);
+	return localize('basehalf.video.catalog.input.kind', "An image, video, or audio card cannot use {0}.", path.slice(path.lastIndexOf('/') + 1) || path);
 }
 
 /**
@@ -978,8 +1190,8 @@ export type BaseHalfVideoGenerateBlocker =
 	| { readonly kind: 'catalogFailed'; readonly message: string }
 	| { readonly kind: 'noModel' }
 	| { readonly kind: 'unknownModel'; readonly model: string }
-	/** The model makes the other kind than the card's. */
-	| { readonly kind: 'otherKind'; readonly model: IBaseHalfVideoCatalogModel }
+	/** The model makes another kind than the card's, `cardKind`. */
+	| { readonly kind: 'otherKind'; readonly model: IBaseHalfVideoCatalogModel; readonly cardKind: BaseHalfModelKind }
 	| { readonly kind: 'notSetUp'; readonly provider: IBaseHalfVideoCatalogProvider }
 	| { readonly kind: 'region'; readonly model: IBaseHalfVideoCatalogModel; readonly region: IBaseHalfVideoCatalogRegion }
 	/** The region offers the model, not its mode; `where` names the regions that do. */
@@ -999,7 +1211,7 @@ export interface IBaseHalfVideoGenerateBlockerInput {
 	readonly generating: boolean;
 	readonly catalog: BaseHalfVideoCatalogState;
 	readonly generation: IBaseHalfVideoGenerationChoice | undefined;
-	/** The card's kind; a model of the other kind blocks. */
+	/** The card's kind; a model of another kind blocks. */
 	readonly kind?: BaseHalfModelKind;
 	readonly setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup;
 	/** What `check` reported for the planned generation, when it was asked. */
@@ -1033,7 +1245,7 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 		return { kind: 'unknownModel', model: modelId };
 	}
 	if (input.kind !== undefined && ref.model.kind !== input.kind) {
-		return { kind: 'otherKind', model: ref.model };
+		return { kind: 'otherKind', model: ref.model, cardKind: input.kind };
 	}
 	const setup = input.setup(ref.provider);
 	if (!setup.setUp) {
@@ -1092,9 +1304,7 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
 		case 'unknownModel':
 			return localize('basehalf.video.catalog.blocker.unknownModel', "{0} is not a model BaseHalf offers. Choose another model.", blocker.model);
 		case 'otherKind':
-			return blocker.model.kind === 'image'
-				? localize('basehalf.video.catalog.blocker.imageModel', "{0} makes images. Choose a video model.", blocker.model.label)
-				: localize('basehalf.video.catalog.blocker.videoModel', "{0} makes videos. Choose an image model.", blocker.model.label);
+			return otherKindText(blocker.model, blocker.cardKind);
 		case 'notSetUp':
 			return localize('basehalf.video.catalog.blocker.notSetUp', "{0} is not set up. Set it up in Providers.", blocker.provider.label);
 		case 'region':
@@ -1114,6 +1324,24 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
 	}
 }
 
+/** Why a model of another kind than the card's does not generate it: what the model makes, and what to choose. */
+function otherKindText(model: IBaseHalfVideoCatalogModel, cardKind: BaseHalfModelKind): string {
+	switch (model.kind) {
+		case 'image':
+			return cardKind === 'audio'
+				? localize('basehalf.video.catalog.blocker.imageModelForAudio', "{0} makes images. Choose an audio model.", model.label)
+				: localize('basehalf.video.catalog.blocker.imageModel', "{0} makes images. Choose a video model.", model.label);
+		case 'video':
+			return cardKind === 'audio'
+				? localize('basehalf.video.catalog.blocker.videoModelForAudio', "{0} makes videos. Choose an audio model.", model.label)
+				: localize('basehalf.video.catalog.blocker.videoModel', "{0} makes videos. Choose an image model.", model.label);
+		case 'audio':
+			return cardKind === 'image'
+				? localize('basehalf.video.catalog.blocker.audioModelForImage', "{0} makes sounds. Choose an image model.", model.label)
+				: localize('basehalf.video.catalog.blocker.audioModelForVideo', "{0} makes sounds. Choose a video model.", model.label);
+	}
+}
+
 /** Why an input that names a draft keeps a card from generating. */
 export function baseHalfVideoDraftInputText(path: string): string {
 	return localize('basehalf.video.catalog.blocker.draftInput', "{0} has no file yet. Generate it first, or remove its connection.", path.slice(path.lastIndexOf('/') + 1) || path);
@@ -1124,12 +1352,13 @@ export function baseHalfVideoDraftInputText(path: string): string {
 /**
  * The catalog as `basehalf --list-capabilities` gives it to agents
  * (generation cards, "Agents"): each provider with whether it is set up, its
- * regions and the one in use, and each model with its kind, the regions that
- * offer it and those that retire it, the format an image model delivers,
- * whether the provider answers with the files at once, its prompt rule, its
- * modes with their slots and limits, its parameters, and whether it is
- * deprecated. It holds no credential, endpoint, id sent to a provider, or
- * price.
+ * regions and the one in use, and each model with its kind, what an audio
+ * model makes, the regions that offer it and those that retire it, the
+ * format an image or an audio model delivers, whether the provider answers
+ * with the files at once, its prompt rule, its modes with their slots and
+ * limits, its parameters, a speech model's `voice` with the catalog's voices
+ * and whether the provider lists more, and whether it is deprecated. It holds
+ * no credential, endpoint, id sent to a provider, or price.
  */
 export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup): readonly Readonly<Record<string, unknown>>[] {
 	return Object.freeze(catalog.providers.map(provider => {
@@ -1143,6 +1372,7 @@ export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, se
 			models: provider.models.map(model => ({
 				id: model.id,
 				kind: model.kind,
+				...(model.makes ? { makes: model.makes } : {}),
 				label: model.label,
 				...(model.description ? { description: model.description } : {}),
 				regions: provider.regions.filter(region => baseHalfVideoRegionOffersModel(model, region.id)).map(region => region.id),
@@ -1348,10 +1578,20 @@ function parseModel(value: unknown, path: string, problems: string[]): IBaseHalf
 			}
 		});
 		const description = typeof record.description === 'string' && record.description.trim() ? record.description.trim() : undefined;
-		const kind: BaseHalfModelKind = record.kind === undefined ? 'video' : record.kind === 'image' || record.kind === 'video' ? record.kind : (() => { throw new Error(`${path}.kind must be image or video.`); })();
-		const outputFormat = record.outputFormat === undefined ? undefined : BASEHALF_VIDEO_IMAGE_FORMATS.includes(record.outputFormat as BaseHalfVideoImageFormat) ? record.outputFormat as BaseHalfVideoImageFormat : undefined;
+		const kind: BaseHalfModelKind = record.kind === undefined ? 'video' : BASEHALF_MODEL_KINDS.includes(record.kind as BaseHalfModelKind) ? record.kind as BaseHalfModelKind : (() => { throw new Error(`${path}.kind must be image, video, or audio.`); })();
+		// A draft takes its extension from the format an image or an audio model delivers (providers, "Model").
+		const outputFormat = kind === 'image'
+			? BASEHALF_VIDEO_IMAGE_FORMATS.find(format => format === record.outputFormat)
+			: kind === 'audio' ? BASEHALF_AUDIO_FORMATS.find(format => format === record.outputFormat) : undefined;
 		if (kind === 'image' && outputFormat === undefined) {
 			throw new Error(`${path}.outputFormat must be png, jpeg, or webp for an image model.`);
+		}
+		if (kind === 'audio' && outputFormat === undefined) {
+			throw new Error(`${path}.outputFormat must be mp3 or wav for an audio model.`);
+		}
+		const makes = kind === 'audio' ? BASEHALF_AUDIO_MAKES.find(candidate => candidate === record.makes) : undefined;
+		if (kind === 'audio' && makes === undefined) {
+			throw new Error(`${path}.makes must be speech, music, or sound for an audio model.`);
 		}
 		const deprecatedIn = Array.isArray(record.deprecatedIn) ? record.deprecatedIn.filter((region): region is string => typeof region === 'string' && offered[region] !== undefined) : [];
 		return Object.freeze({
@@ -1364,7 +1604,8 @@ function parseModel(value: unknown, path: string, problems: string[]): IBaseHalf
 			parameters: Object.freeze(parameters),
 			...(record.deprecated === true ? { deprecated: true } : {}),
 			kind,
-			...(kind === 'image' ? { outputFormat } : {}),
+			...(makes !== undefined ? { makes } : {}),
+			...(outputFormat !== undefined ? { outputFormat } : {}),
 			...(record.answersAtOnce === true ? { answersAtOnce: true } : {}),
 			...(deprecatedIn.length ? { deprecatedIn: Object.freeze(deprecatedIn) } : {})
 		});
@@ -1516,8 +1757,31 @@ function parseParameter(value: unknown, path: string): BaseHalfVideoCatalogParam
 			});
 			return parameter;
 		}
+		case 'voice': {
+			// The voices the catalog declares for a speech model, at least its default (providers, "Voices").
+			const options = requireArray(record.options, `${path}.options`).map((option, index): IBaseHalfVideoCatalogVoiceOption => {
+				const candidate = requireRecord(option, `${path}.options[${index}]`);
+				if (typeof candidate.value !== 'string' || !isBaseHalfVoiceId(candidate.value)) {
+					throw new Error(`${path}.options[${index}].value must be a voice id of 1 to ${BASEHALF_VOICE_ID_MAX_LENGTH} characters without control characters.`);
+				}
+				const description = typeof candidate.description === 'string' && candidate.description.trim() ? plainText(candidate.description, 200) : undefined;
+				return Object.freeze({ value: candidate.value, label: requireText(candidate.label, `${path}.options[${index}].label`), ...(description ? { description } : {}) });
+			});
+			if (!options.length || new Set(options.map(option => option.value)).size !== options.length) {
+				throw new Error(`${path}.options must list at least one voice, each once.`);
+			}
+			const parameter: IBaseHalfVideoVoiceParameter = Object.freeze({
+				...base,
+				kind: 'voice',
+				options: Object.freeze(options),
+				// The default is one of the voices; a default that is not stands for the first.
+				default: options.find(option => option.value === record.default)?.value ?? options[0].value,
+				...(record.listed === true ? { listed: true } : {})
+			});
+			return parameter;
+		}
 		default:
-			throw new Error(`${path}.kind must be choice, integer, number, boolean, or text.`);
+			throw new Error(`${path}.kind must be choice, integer, number, boolean, text, or voice.`);
 	}
 }
 

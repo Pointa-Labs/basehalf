@@ -387,7 +387,7 @@ suite('BaseHalfGenerationCardActions', () => {
 			video: 'Acme Still takes no videos.',
 			replaced: undefined,
 			disconnected: undefined,
-			noModelPdf: 'An image or video card cannot use brief.pdf.',
+			noModelPdf: 'An image, video, or audio card cannot use brief.pdf.',
 			noModelVideo: undefined,
 			generated: 'shot.mp4 was made from these inputs. To change them, make a new version.',
 			generatedDisconnect: 'shot.mp4 was made from these inputs. To change them, make a new version.',
