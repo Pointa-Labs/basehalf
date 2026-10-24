@@ -1012,13 +1012,15 @@ export async function sampleTileAndLook(page, tilePath, run) {
  */
 export async function sampleCardLooks(page, cardPath, run) {
 	await page.evaluate(path => {
+		// A WeakMap has no size: the elements are numbered as they are first seen.
 		const ids = new WeakMap();
+		let seen = 0;
 		const id = element => {
 			if (!element) {
 				return 0;
 			}
 			if (!ids.has(element)) {
-				ids.set(element, ids.size + 1);
+				ids.set(element, ++seen);
 			}
 			return ids.get(element);
 		};
