@@ -5,12 +5,12 @@
 
 import './media/basehalfVideoNode.css';
 import './media/basehalfGenerationRecordPanel.css';
-import { $, addDisposableListener, append, clearNode } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, getWindow } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { basename, isEqual } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
@@ -23,7 +23,10 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../canvas/common/basehalfCanvasScene.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { BASEHALF_GENERATION_PROMPT_MAX_LENGTH } from '../common/basehalfGenerationInfo.js';
+import { baseHalfInputNameOrdinals } from '../common/basehalfGenerationInputNames.js';
 import { createBaseHalfGenerationRecordPresentation, IBaseHalfGenerationRecordInput, IBaseHalfGenerationRecordPresentation } from '../common/basehalfGenerationRecordPresentation.js';
+import { IBaseHalfVideoLabelToken } from '../common/basehalfVideoCatalog.js';
 import {
 	IBaseHalfGenerationCardActions,
 	IBaseHalfGenerationCardSnapshot,
@@ -31,7 +34,10 @@ import {
 	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
+import { baseHalfVideoPanelInputFileName } from '../common/basehalfVideoNodePanelPresentation.js';
 import { BASEHALF_VIDEO_PANEL_MAX_HEIGHT, BASEHALF_VIDEO_PANEL_MIN_HEIGHT } from '../common/basehalfVideoNodePanelPlacement.js';
+import { BaseHalfGenerationInputRow, IBaseHalfInputFrameSlot, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
+import { BaseHalfGenerationPromptEditor, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 
 /** What the panel of a card with its file needs from the canvas. The workbench implements it. */
 export interface IBaseHalfGenerationRecordPanelHost {
@@ -43,7 +49,7 @@ export interface IBaseHalfGenerationRecordPanelHost {
 
 const PANEL_PADDING = 12;
 const SECTION_GAP = 8;
-const INPUT_ROW_HEIGHT = 40;
+const INPUT_ROW_HEIGHT = 48;
 const LINE_HEIGHT = 16;
 const FOOTER_HEIGHT = 32;
 const PROMPT_LINE_HEIGHT = 20;
@@ -55,11 +61,12 @@ const HOVER_GROUP = 'basehalf-video-panel';
 /**
  * The panel under a selected card with its file (D67, generation cards, "The
  * panel of a card with its file"): what made the file, from its `made.yaml`,
- * where a draft's panel has the same parts. The inputs in order without a
- * plus, a cross, or a swap arrow, the prompt as text that can be selected and
- * copied, which image of how many it is or that it is a copy, and a footer
- * with the model and the settings as text and New Version where a draft has
- * Generate. Nothing in it changes the card.
+ * where a draft's panel has the same parts. The inputs in order as the tiles
+ * of a draft's input row, and the prompt with its names as chips (D68), both
+ * read only; the prompt can be selected and copied. Then which image of how
+ * many it is or that it is a copy, and a footer with the model and the
+ * settings as text and New Version where a draft has Generate. Nothing in it
+ * changes the card.
  *
  * The workbench creates one for the only selected card with its file, gives
  * the scene its {@link element} and {@link height}, and disposes it.
@@ -72,9 +79,11 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 	/** Fires when the panel's height changes; the workbench publishes the scene surface again. */
 	readonly onDidChangeHeight: Event<number> = this._onDidChangeHeight.event;
 
-	private readonly inputRow: HTMLElement;
+	/** The look at an input lies over everything else of the panel; the layer is added last. */
+	private readonly layer: HTMLElement;
+	private readonly inputRow: BaseHalfGenerationInputRow;
 	private readonly promptBox: HTMLElement;
-	private readonly promptText: HTMLElement;
+	private readonly editor: BaseHalfGenerationPromptEditor;
 	private readonly line: HTMLElement;
 	private readonly notice: HTMLElement;
 	private readonly footer: HTMLElement;
@@ -82,17 +91,17 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 	private readonly settingsLabel: HTMLElement;
 	private readonly newVersionButton: HTMLButtonElement;
 
-	private readonly rowStore = this._register(new DisposableStore());
 	private readonly refreshScheduler = this._register(new RunOnceScheduler(() => { void this.refresh(); }, 0));
 	private snapshot: IBaseHalfGenerationCardSnapshot | undefined;
 	private inputs: readonly IBaseHalfVideoResolvedInput[] = [];
 	private presentation: IBaseHalfGenerationRecordPresentation | undefined;
 	private readError: string | undefined;
 	private refreshSequence = 0;
-	/** What the input row shows, so it is drawn again only when that changes (thumbnails keep loaded). */
-	private renderedRowKey: string | undefined;
+	/** The inputs the chips of the prompt were drawn from, so they are drawn again only when that changes. */
+	private renderedChipsKey: string | undefined;
 	private promptLines = PROMPT_MIN_LINES;
 	private currentHeight: number;
+	private layout: IBaseHalfCanvasSceneVideoPanelLayout | undefined;
 	/** The panel's width when the prompt was last measured. */
 	private measuredWidth: number | undefined;
 	private making = false;
@@ -118,19 +127,35 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this.element.setAttribute('role', 'group');
 		this.element.dataset.state = 'loading';
 
-		this.inputRow = append(this.element, $('.bh-video-panel-inputs'));
-		this.inputRow.setAttribute('role', 'list');
-		this.inputRow.setAttribute('aria-label', localize('basehalf.generation.record.inputs', "Inputs"));
-		this.inputRow.hidden = true;
+		this.layer = $('.bh-video-panel-layer');
+		// Read only: no plus, cross, `@`, swap, or dragging, and nothing that the row asks for changes the card.
+		this.inputRow = this._register(new BaseHalfGenerationInputRow({
+			remove: () => { },
+			insertName: () => { },
+			move: () => { },
+			swap: () => { },
+			openAddMenu: () => { },
+			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
+		}, this.layer));
+		this.inputRow.element.hidden = true;
+		append(this.element, this.inputRow.element);
 
 		this.promptBox = append(this.element, $('.bh-video-panel-prompt'));
-		this.promptText = append(this.promptBox, $('.bh-record-panel-prompt'));
+		this.editor = this._register(new BaseHalfGenerationPromptEditor({
+			ariaLabel: localize('basehalf.generation.record.prompt', "Prompt it was made with"),
+			placeholder: localize('basehalf.generation.record.noPrompt', "No prompt"),
+			maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
+			chipOf: name => this.chipOf(name)
+		}));
 		// A field that can be read, selected, and copied with the keyboard, and not changed.
-		this.promptText.tabIndex = 0;
-		this.promptText.setAttribute('role', 'textbox');
-		this.promptText.setAttribute('aria-readonly', 'true');
-		this.promptText.setAttribute('aria-multiline', 'true');
-		this.promptText.setAttribute('aria-label', localize('basehalf.generation.record.prompt', "Prompt it was made with"));
+		this.editor.readOnly = true;
+		this.editor.element.tabIndex = 0;
+		Object.assign(this.editor.element.style, {
+			height: 'auto',
+			minHeight: `${PROMPT_MIN_LINES * PROMPT_LINE_HEIGHT + PROMPT_PADDING * 2}px`,
+			maxHeight: `${PROMPT_MAX_LINES * PROMPT_LINE_HEIGHT + PROMPT_PADDING * 2}px`
+		});
+		this.promptBox.append(this.editor.element);
 
 		this.line = append(this.element, $('.bh-record-panel-line'));
 		this.line.hidden = true;
@@ -152,6 +177,8 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this._register(this.hoverService.setupDelayedHover(this.settingsLabel, () => ({ content: this.presentation?.settingsTitle ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.newVersionButton, () => ({ content: newVersionTitle }), { groupId: HOVER_GROUP }));
 
+		append(this.element, this.layer);
+
 		this.currentHeight = this.computeHeight();
 		this.element.style.height = `${this.currentHeight}px`;
 
@@ -159,7 +186,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		void this.refresh();
 	}
 
-	/** The panel's height in screen pixels, from 132 to 260 as for a draft's panel. */
+	/** The panel's height in screen pixels, from 132 to 268 as for a draft's panel. */
 	get height(): number {
 		return this.currentHeight;
 	}
@@ -258,12 +285,24 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 	}
 
 	private didLayout(layout: IBaseHalfCanvasSceneVideoPanelLayout): void {
+		this.layout = layout;
 		this.element.dataset.placement = layout.placement;
 		// The scene reports a layout at every frame of a pan; the text wraps differently only when the width changes.
 		if (layout.width !== this.measuredWidth) {
 			this.measuredWidth = layout.width;
 			this.updatePromptLines();
+			this.inputRow.layout();
 		}
+	}
+
+	/** The canvas in window coordinates: what the scene reported, or the window itself before the scene places the panel. */
+	private canvasRect(panel: DOMRect): { readonly left: number; readonly top: number; readonly width: number; readonly height: number } {
+		const layout = this.layout;
+		if (layout && layout.canvasWidth > 0 && layout.canvasHeight > 0) {
+			return { left: panel.left - layout.left, top: panel.top - layout.top, width: layout.canvasWidth, height: layout.canvasHeight };
+		}
+		const targetWindow = getWindow(this.element);
+		return { left: 0, top: 0, width: targetWindow.innerWidth, height: targetWindow.innerHeight };
 	}
 
 	private render(): void {
@@ -299,7 +338,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this.notice.textContent = presentation.readable ? '' : localize('basehalf.generation.record.unreadable', "BaseHalf could not read what made this file.");
 		this.promptBox.hidden = !presentation.readable;
 		this.footer.hidden = !presentation.readable;
-		this.renderInputRow(presentation);
+		this.inputRow.update(this.inputRowModel(presentation));
 		this.renderPrompt(presentation);
 		this.line.hidden = presentation.line === undefined;
 		this.line.textContent = presentation.line ?? '';
@@ -312,109 +351,79 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this.updateHeight();
 	}
 
+	/**
+	 * The inputs it was made from, as the tiles of a draft's input row (D68):
+	 * the frames first, with the numbers of their names and the marks of the
+	 * mode that made it, read only. An input that is gone shows its glyph, and
+	 * its look says so.
+	 */
+	private inputRowModel(presentation: IBaseHalfGenerationRecordPresentation): IBaseHalfInputRowModel | undefined {
+		if (!presentation.inputs.length) {
+			return undefined;
+		}
+		const ordinals = baseHalfInputNameOrdinals(presentation.inputs);
+		const tile = (item: IBaseHalfGenerationRecordInput): IBaseHalfInputTile => {
+			const file = item.gone ? undefined : this.inputs[item.index]?.file;
+			const number = ordinals[item.index];
+			return Object.freeze({
+				path: item.path,
+				kind: item.kind,
+				...(item.label !== undefined && number !== undefined ? { label: item.label, number } : {}),
+				fileName: baseHalfVideoPanelInputFileName(item.path),
+				...(file ? { file } : {}),
+				dimmed: item.gone,
+				...(item.gone ? { note: localize('basehalf.generation.record.inputGone', "Not there any more.") } : {}),
+				...(item.frame ? { frame: item.frame } : {})
+			});
+		};
+		const frames: IBaseHalfInputFrameSlot[] = [];
+		const tiles: IBaseHalfInputTile[] = [];
+		for (const item of presentation.inputs) {
+			if (item.frame) {
+				frames.push(Object.freeze({ role: item.frame, addLabel: '', tile: tile(item) }));
+			} else {
+				tiles.push(tile(item));
+			}
+		}
+		return Object.freeze({
+			...(frames.length ? { frames } : {}),
+			tiles,
+			editable: false
+		});
+	}
+
 	private renderPrompt(presentation: IBaseHalfGenerationRecordPresentation): void {
 		const prompt = presentation.prompt.trim() ? presentation.prompt : '';
-		const text = prompt || localize('basehalf.generation.record.noPrompt', "No prompt");
-		this.promptText.classList.toggle('empty', !prompt);
-		if (this.promptText.textContent !== text) {
-			this.promptText.textContent = text;
+		// The chips show the pictures of the inputs, which change when one is gone or comes back.
+		const chipsKey = JSON.stringify(this.inputs.map(input => [input.path, input.available, input.file?.toString() ?? '']));
+		if (this.editor.value !== prompt) {
+			this.renderedChipsKey = chipsKey;
+			this.editor.setValue(prompt);
 			this.updatePromptLines();
+		} else if (chipsKey !== this.renderedChipsKey) {
+			this.renderedChipsKey = chipsKey;
+			this.editor.refreshChips();
 		}
 	}
 
-	private renderInputRow(presentation: IBaseHalfGenerationRecordPresentation): void {
-		const key = JSON.stringify({ inputs: presentation.inputs, files: this.inputs.map(input => input.file?.toString() ?? '') });
-		if (key === this.renderedRowKey) {
-			return;
+	/** The chip of a name in the prompt: the input it was made from of that kind and number, with its picture while it is there (D68). */
+	private chipOf(name: IBaseHalfVideoLabelToken): IBaseHalfPromptChip | undefined {
+		const ordinals = baseHalfInputNameOrdinals(this.inputs);
+		const index = this.inputs.findIndex((input, position) => input.kind === name.kind && ordinals[position] === name.ordinal);
+		if (index < 0) {
+			return undefined;
 		}
-		this.renderedRowKey = key;
-		this.rowStore.clear();
-		clearNode(this.inputRow);
-		this.inputRow.hidden = presentation.inputs.length === 0;
-		if (!presentation.inputs.length) {
-			return;
-		}
-		const list = append(this.inputRow, $('.bh-video-panel-inputs-list'));
-		for (const item of presentation.inputs) {
-			this.renderInput(list, item);
-		}
-		this.rowStore.add(addDisposableListener(this.inputRow, 'wheel', event => {
-			// A vertical wheel scrolls the inputs sideways.
-			if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && list.scrollWidth > list.clientWidth) {
-				list.scrollLeft += event.deltaY;
-				event.preventDefault();
-			}
-		}, { passive: false }));
-	}
-
-	private renderInput(parent: HTMLElement, item: IBaseHalfGenerationRecordInput): void {
-		const element = append(parent, $(item.title !== undefined ? '.bh-video-panel-slot' : '.bh-video-panel-input'));
-		element.setAttribute('role', 'listitem');
-		element.dataset.kind = item.kind;
-		element.classList.toggle('unused', item.gone);
-		element.classList.toggle('gone', item.gone);
-		element.classList.toggle('chip', item.kind === 'text' || item.kind === 'other');
-		if (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio') {
-			const thumb = append(element, $('.bh-video-panel-thumb'));
-			this.renderThumbnail(thumb, item.kind, item.gone ? undefined : this.inputs[item.index]?.file);
-		} else {
-			element.append(renderCodicon(item.kind === 'text' ? Codicon.fileText : Codicon.file, 'bh-video-panel-input-icon'));
-		}
-		const text = append(element, $('.bh-video-panel-input-text'));
-		const title = item.gone
-			? item.title !== undefined
-				? localize('basehalf.generation.record.slotGone', "{0} · Gone", item.title)
-				: localize('basehalf.generation.record.gone', "Gone")
-			: item.title;
-		if (title !== undefined) {
-			append(text, $('span.bh-video-panel-slot-title')).textContent = title;
-		}
-		append(text, $('span.bh-video-panel-input-name')).textContent = item.name;
-		element.setAttribute('aria-label', title !== undefined ? `${title}: ${item.name}` : item.name);
-		element.setAttribute('aria-description', item.tooltip);
-		this.rowStore.add(this.hoverService.setupDelayedHover(element, () => ({ content: item.tooltip }), { groupId: HOVER_GROUP }));
-	}
-
-	private renderThumbnail(container: HTMLElement, kind: 'image' | 'video' | 'audio', file: URI | undefined): void {
-		const glyph = () => {
-			clearNode(container);
-			container.append(renderCodicon(kind === 'audio' ? Codicon.unmute : kind === 'video' ? Codicon.play : Codicon.fileMedia, 'bh-video-panel-thumb-glyph'));
-		};
-		if (!file || kind === 'audio') {
-			glyph();
-			return;
-		}
-		const source = FileAccess.uriToBrowserUri(file).toString(true);
-		if (kind === 'image') {
-			const image = append(container, $<HTMLImageElement>('img'));
-			image.alt = '';
-			image.draggable = false;
-			image.decoding = 'async';
-			image.loading = 'lazy';
-			image.addEventListener('error', glyph, { once: true });
-			image.src = source;
-			return;
-		}
-		const video = append(container, $<HTMLVideoElement>('video'));
-		video.muted = true;
-		video.preload = 'metadata';
-		video.playsInline = true;
-		video.tabIndex = -1;
-		video.setAttribute('aria-hidden', 'true');
-		video.addEventListener('error', glyph, { once: true });
-		// The first frame stands for the video.
-		video.src = `${source}#t=0.1`;
-		this.rowStore.add(toDisposable(() => {
-			video.removeAttribute('src');
-			video.load();
-		}));
+		const input = this.inputs[index];
+		const picture = name.kind === 'image' && input.available && input.file ? FileAccess.uriToBrowserUri(input.file).toString(true) : undefined;
+		return Object.freeze({ kind: name.kind, ...(picture ? { picture } : {}) });
 	}
 
 	/** The lines the prompt takes, from three to five; beyond five it scrolls. */
 	private updatePromptLines(): void {
-		if (this.promptText.isConnected && this.promptText.clientWidth > 0) {
+		const element = this.editor.element;
+		if (element.isConnected && element.clientWidth > 0) {
 			// The text's own height, whatever height the field has now.
-			const height = this.promptText.scrollHeight - PROMPT_PADDING * 2;
+			const height = this.editor.contentHeight() - PROMPT_PADDING * 2;
 			this.promptLines = Math.min(PROMPT_MAX_LINES, Math.max(PROMPT_MIN_LINES, Math.round(height / PROMPT_LINE_HEIGHT)));
 		}
 		this.promptBox.style.height = `${this.promptLines * PROMPT_LINE_HEIGHT + PROMPT_PADDING * 2}px`;
@@ -423,7 +432,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 
 	private computeHeight(): number {
 		const readable = this.presentation?.readable ?? true;
-		const row = !this.inputRow.hidden ? INPUT_ROW_HEIGHT + SECTION_GAP : 0;
+		const row = !this.inputRow.element.hidden ? INPUT_ROW_HEIGHT + SECTION_GAP : 0;
 		const prompt = readable ? this.promptLines * PROMPT_LINE_HEIGHT + PROMPT_PADDING * 2 + SECTION_GAP : 0;
 		const line = !this.line.hidden ? LINE_HEIGHT + SECTION_GAP : 0;
 		const height = PANEL_PADDING + row + prompt + line + FOOTER_HEIGHT + PANEL_PADDING;

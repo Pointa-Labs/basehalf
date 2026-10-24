@@ -16,7 +16,6 @@ import {
 	planBaseHalfVideoInputs
 } from './basehalfVideoCatalog.js';
 import { BaseHalfGenerationKind, IBaseHalfGenerationMade } from './basehalfGenerationInfo.js';
-import { baseHalfVideoPanelInputFileName } from './basehalfVideoNodePanelPresentation.js';
 
 /**
  * What the panel of a card with its file draws (D67, generation cards, "The
@@ -41,13 +40,12 @@ export interface IBaseHalfGenerationRecordInput {
 	readonly index: number;
 	readonly path: string;
 	readonly kind: BaseHalfVideoInputKind;
-	/** `Start` or `End`, for a frame of a mode with frames. */
-	readonly title?: string;
-	/** The name the prompt had for it, such as `图片1`, or its file name. */
-	readonly name: string;
+	/** The start or the end frame, for a mode with frames. */
+	readonly frame?: 'start' | 'end';
+	/** The name the prompt had for it, such as `图片1`; absent for an input without a name. */
+	readonly label?: string;
 	/** Its file is not there any more. */
 	readonly gone: boolean;
-	readonly tooltip: string;
 }
 
 export interface IBaseHalfGenerationRecordPresentation {
@@ -91,18 +89,14 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 	const modeInputs = mode?.inputs ?? (made.mode === 'frames' ? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS : BASEHALF_IMAGE_DEFAULT_MODE_INPUTS);
 	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs.map(input => ({ path: input.path, kind: input.kind, available: true })), displayLanguage);
 	const inputs = plan.map((item, index): IBaseHalfGenerationRecordInput => {
-		const gone = !state.inputs[index].available;
-		const title = item.use === 'start-frame'
-			? localize('basehalf.generation.record.start', "Start")
-			: item.use === 'end-frame' ? localize('basehalf.generation.record.end', "End") : undefined;
+		const frame = item.use === 'start-frame' ? 'start' : item.use === 'end-frame' ? 'end' : undefined;
 		return Object.freeze({
 			index,
 			path: item.path,
 			kind: item.kind,
-			...(title !== undefined ? { title } : {}),
-			name: item.label ?? baseHalfVideoPanelInputFileName(item.path),
-			gone,
-			tooltip: gone ? localize('basehalf.generation.record.inputGone', "Not there any more: {0}", item.path) : item.path
+			...(frame !== undefined ? { frame } : {}),
+			...(item.label !== undefined ? { label: item.label } : {}),
+			gone: !state.inputs[index].available
 		});
 	});
 	const line = made.copyOf !== undefined

@@ -604,9 +604,10 @@ export function readGenerationPanel(panel) {
 
 /**
  * The panel of a card with its file (D67): what made it, read only. Its
- * inputs by their accessible names (`Start: Image 1`, a gone one with
- * `Gone`), the prompt, the line under it, the model and the settings as
- * text, its buttons, and how many of its parts take typing.
+ * inputs as its tiles name them (`Start: Image 1`, a text input by its
+ * file's name), the gone ones among them, the prompt with its chips as their
+ * names (D68), the line under it, the model and the settings as text, its
+ * buttons, and how many of its parts take typing.
  */
 export function readRecordPanel(panel) {
 	return panel.evaluate(element => {
@@ -614,16 +615,24 @@ export function readRecordPanel(panel) {
 			const found = element.querySelector(selector);
 			return found && !found.closest('[hidden]') ? found.textContent : null;
 		};
+		const nameOf = tile => {
+			const name = tile.getAttribute('data-label') ?? tile.querySelector('.bh-input-tile-caption')?.textContent ?? tile.getAttribute('data-path');
+			const frame = tile.getAttribute('data-frame');
+			return frame ? `${frame === 'start' ? 'Start' : 'End'}: ${name}` : name;
+		};
+		const tiles = Array.from(element.querySelectorAll('.bh-input-tile[data-path]')).filter(tile => !tile.closest('[hidden]'));
+		const prompt = element.querySelector('.bh-prompt-editor');
+		const promptText = prompt ? (prompt.textContent ?? '').replaceAll('\u200b', '') : null;
 		return {
 			record: element.classList.contains('bh-record-panel'),
 			state: element.getAttribute('data-state'),
 			readable: element.getAttribute('data-record') === 'readable',
 			kind: element.getAttribute('data-kind'),
 			notice: shown('.bh-video-panel-notice'),
-			inputs: Array.from(element.querySelectorAll('.bh-video-panel-inputs [role="listitem"]')).filter(item => !item.closest('[hidden]')).map(item => item.getAttribute('aria-label')),
-			gone: Array.from(element.querySelectorAll('.bh-video-panel-inputs [role="listitem"].gone')).map(item => item.getAttribute('aria-label')),
-			prompt: shown('.bh-record-panel-prompt'),
-			promptEmpty: element.querySelector('.bh-record-panel-prompt')?.classList.contains('empty') ?? null,
+			inputs: tiles.map(nameOf),
+			gone: tiles.filter(tile => tile.classList.contains('dimmed')).map(nameOf),
+			prompt: prompt && !prompt.closest('[hidden]') ? promptText : null,
+			promptEmpty: promptText === null ? null : promptText === '',
 			line: shown('.bh-record-panel-line'),
 			model: shown('.bh-record-panel-model'),
 			settings: shown('.bh-record-panel-settings'),

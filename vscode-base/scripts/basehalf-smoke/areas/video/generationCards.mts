@@ -1277,7 +1277,7 @@ async function assertCardKeepsItsPlayer(page) {
 	let panel = await selectGenerationCard(page, VIDEO);
 	const read = () => readCardVideoPlayer(page, VIDEO);
 	// The panel's prompt has the keyboard while the pointer rests on the picture, which plays the video.
-	await panel.locator('.bh-record-panel-prompt').click();
+	await panel.locator('.bh-prompt-editor').click();
 	const picture = await cardVideoPicturePoint(page, VIDEO);
 	await page.mouse.move(picture.x, picture.y, { steps: 4 });
 	await waitForReading(read, seen => seen?.paused === false && seen.muted, 'the pointer on the card to play its video without sound');
@@ -1615,14 +1615,16 @@ async function assertFilePanelShowsWhatMadeIt(page) {
 		|| JSON.stringify(shown.buttons) !== JSON.stringify(['New Version']) || shown.fields !== 0 || await panel.locator('button.bh-video-panel-generate').count() !== 0) {
 		throw new Error(`The panel of a card with its file must show what its record says made it, and offer New Version only: ${JSON.stringify({ shown, made })}`);
 	}
-	const prompt = panel.locator('.bh-record-panel-prompt');
+	// The prompt field of a draft, read only, with its names as chips (D68).
+	const prompt = panel.locator('.bh-prompt-editor');
 	const selected = await prompt.evaluate(element => {
 		const selection = element.ownerDocument.getSelection();
 		const range = element.ownerDocument.createRange();
 		range.selectNodeContents(element);
 		selection?.removeAllRanges();
 		selection?.addRange(range);
-		const text = selection?.toString() ?? '';
+		// The caret holder after a chip at the end of a line is no part of the text, and copying leaves it out.
+		const text = (selection?.toString() ?? '').replaceAll('\u200b', '');
 		selection?.removeAllRanges();
 		return { text, userSelect: getComputedStyle(element).userSelect };
 	});

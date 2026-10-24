@@ -144,14 +144,21 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		return [...panel.element.querySelectorAll<HTMLElement>(selector)].filter(element => !element.closest('[hidden]')).map(element => element.textContent ?? '');
 	}
 
-	test('shows what made the file, from its record and not from a generation.yaml beside it, and nothing in it changes the card (criterion 42)', async () => {
+	test('shows what made the file, from its record and not from a generation.yaml beside it, and nothing in it changes the card (criteria 42 and 58)', async () => {
 		gone.add('frames/b.png');
+		snapshot = { ...snapshot, made: { ...MADE, prompt: 'Image 1 rides along the sea to Image 2.' } };
 		const panel = await createPanel();
+		const tiles = [...panel.element.querySelectorAll<HTMLElement>('.bh-input-tile')];
 		assert.deepStrictEqual({
 			state: panel.element.dataset.state,
-			inputs: [...panel.element.querySelectorAll<HTMLElement>('.bh-video-panel-inputs [role="listitem"]')].map(item => item.getAttribute('aria-label')),
-			gone: [...panel.element.querySelectorAll<HTMLElement>('.bh-video-panel-inputs [role="listitem"]')].map(item => item.classList.contains('gone')),
-			prompt: texts(panel, '.bh-record-panel-prompt'),
+			// The tiles of a draft's input row, read only: no plus, cross, @, or swap (D68).
+			inputs: tiles.map(tile => tile.getAttribute('aria-label')),
+			numbers: tiles.map(tile => tile.querySelector('.bh-input-tile-number')?.textContent),
+			gone: tiles.map(tile => tile.classList.contains('dimmed')),
+			controls: panel.element.querySelectorAll('.bh-input-row-add, .bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-swap').length,
+			prompt: texts(panel, '.bh-prompt-editor'),
+			// Its names are chips of the inputs it was made from, the one that is gone too.
+			chips: [...panel.element.querySelectorAll<HTMLElement>('.bh-prompt-chip')].map(chip => chip.dataset.name),
 			model: texts(panel, '.bh-record-panel-model'),
 			settings: texts(panel, '.bh-record-panel-settings'),
 			buttons: [...panel.element.querySelectorAll('button')].map(button => button.textContent),
@@ -161,9 +168,12 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			height: panel.height
 		}, {
 			state: 'ready',
-			inputs: ['Start: Image 1', 'End · Gone: Image 2'],
+			inputs: ['Image 1, Start, a.png', 'Image 2, End, b.png, Not there any more.'],
+			numbers: ['1', '2'],
 			gone: [false, true],
-			prompt: ['Image 1 rides along the sea.'],
+			controls: 0,
+			prompt: ['Image 1 rides along the sea to Image 2.'],
+			chips: ['Image 1', 'Image 2'],
 			model: ['Acme Motion 2'],
 			settings: ['Frames · 720p · 5s · Sound'],
 			buttons: ['New Version'],
@@ -171,16 +181,18 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			newVersionTitle: 'Make a new draft beside this card from what made it.',
 			settingsTitle: 'Made with: Frames · 720p · 5s · Sound · Seed 7',
 			// The input row, three lines of prompt, and the footer.
-			height: 12 + 48 + 68 + 8 + 32 + 12
+			height: 12 + 56 + 68 + 8 + 32 + 12
 		});
 	});
 
 	test('says which image of how many it is, that a card had no prompt, and that a record cannot be read, which has no New Version', async () => {
 		snapshot = { ...snapshot, kind: 'image', made: { ...MADE, provider: 'corvid', region: 'north', model: 'corvid-paint', providerModel: 'paint-n-1', mode: 'reference', params: { resolution: '1k', count: 2 }, prompt: '', inputs: [], output: 2, outputs: 2 } };
 		const panel = await createPanel();
-		assert.deepStrictEqual({ line: texts(panel, '.bh-record-panel-line'), prompt: texts(panel, '.bh-record-panel-prompt'), row: panel.element.querySelector<HTMLElement>('.bh-video-panel-inputs')?.hidden }, {
+		const prompt = panel.element.querySelector<HTMLElement>('.bh-prompt-editor');
+		assert.deepStrictEqual({ line: texts(panel, '.bh-record-panel-line'), prompt: prompt?.textContent, placeholder: prompt?.dataset.placeholder, row: panel.element.querySelector<HTMLElement>('.bh-input-row')?.hidden }, {
 			line: ['Image 2 of 2'],
-			prompt: ['No prompt'],
+			prompt: '',
+			placeholder: 'No prompt',
 			row: true
 		});
 
@@ -207,7 +219,7 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		await panel.newVersion();
 		assert.deepStrictEqual([host.drafts.length, notifications.shown], [1, ['BaseHalf could not read what made shot.mp4, so it cannot make a new version of it.']]);
 
-		panel.element.querySelector<HTMLElement>('.bh-record-panel-prompt')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		panel.element.querySelector<HTMLElement>('.bh-prompt-editor')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 		assert.strictEqual(host.cardFocused, 1);
 	});
 
@@ -215,11 +227,11 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		catalogState = { kind: 'loading' };
 		gone.add('frames/a.png');
 		const panel = await createPanel();
-		assert.deepStrictEqual([texts(panel, '.bh-record-panel-model'), panel.element.querySelectorAll('.gone').length], [['acme-motion-2'], 1]);
+		assert.deepStrictEqual([texts(panel, '.bh-record-panel-model'), panel.element.querySelectorAll('.bh-input-tile.dimmed').length], [['acme-motion-2'], 1]);
 		catalogState = { kind: 'ready', catalog: TEST_GENERATION_CATALOG };
 		gone.clear();
 		changed.fire(CARD);
 		await settle();
-		assert.deepStrictEqual([texts(panel, '.bh-record-panel-model'), panel.element.querySelectorAll('.gone').length], [['Acme Motion 2'], 0]);
+		assert.deepStrictEqual([texts(panel, '.bh-record-panel-model'), panel.element.querySelectorAll('.bh-input-tile.dimmed').length], [['Acme Motion 2'], 0]);
 	});
 });

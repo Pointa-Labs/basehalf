@@ -39,9 +39,9 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 		assert.deepStrictEqual(presentation, {
 			readable: true,
 			inputs: [
-				{ index: 0, path: 'frames/a.png', kind: 'image', title: 'Start', name: 'Image 1', gone: false, tooltip: 'frames/a.png' },
-				{ index: 1, path: 'frames/b.png', kind: 'image', title: 'End', name: 'Image 2', gone: true, tooltip: 'Not there any more: frames/b.png' },
-				{ index: 2, path: 'notes/scene.md', kind: 'text', name: 'scene', gone: false, tooltip: 'notes/scene.md' }
+				{ index: 0, path: 'frames/a.png', kind: 'image', frame: 'start', label: 'Image 1', gone: false },
+				{ index: 1, path: 'frames/b.png', kind: 'image', frame: 'end', label: 'Image 2', gone: true },
+				{ index: 2, path: 'notes/scene.md', kind: 'text', gone: false }
 			],
 			prompt: 'Image 1 rides along the sea.',
 			model: 'Acme Motion 2',
@@ -51,7 +51,7 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 			settingsTitle: 'Made with: Frames · 720p · 5s · Sound · Seed 7'
 		});
 		const chinese = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: ready, displayLanguage: 'zh-cn' });
-		assert.deepStrictEqual(chinese.inputs.map(input => input.name), ['图片1', '图片2', 'scene']);
+		assert.deepStrictEqual(chinese.inputs.map(input => input.label), ['图片1', '图片2', undefined]);
 	});
 
 	test('shows the values as they were sent, never made legal again, and the recorded ids while the catalog does not have the model', () => {
@@ -62,19 +62,19 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 			catalog: ready,
 			displayLanguage: 'en'
 		});
-		assert.deepStrictEqual([unknownValue.settings, unknownValue.inputs.map(input => `${input.title ?? '-'} ${input.name}`)], ['References · 1080p · 20s · style film', ['- Image 1']]);
+		assert.deepStrictEqual([unknownValue.settings, unknownValue.inputs.map(input => `${input.frame ?? '-'} ${input.label}`)], ['References · 1080p · 20s · style film', ['- Image 1']]);
 
 		const loading = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: { kind: 'loading' }, displayLanguage: 'en' });
 		assert.deepStrictEqual({
 			model: loading.model,
 			modelTitle: loading.modelTitle,
 			settings: loading.settings,
-			titles: loading.inputs.map(input => input.title)
+			frames: loading.inputs.map(input => input.frame)
 		}, {
 			model: 'acme-motion-2',
 			modelTitle: 'Made with acme-motion-2 on acme, east',
 			settings: 'frames · resolution 720p · duration 5 · sound true · seed 7',
-			titles: ['Start', 'End', undefined]
+			frames: ['start', 'end', undefined]
 		});
 	});
 
