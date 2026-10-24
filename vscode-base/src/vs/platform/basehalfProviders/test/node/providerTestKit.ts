@@ -26,6 +26,7 @@ import { ProviderFailure } from '../../node/failure.js';
 import { audioFormatOf, imageFormatOf, MEDIA_MIME_TYPES } from '../../node/media.js';
 import type { OutputLocation, ProviderModule } from '../../node/module.js';
 import type { AudioOutputFormat, CatalogMode, CatalogProvider, ListedVoice, Media, ModeId, Params, PlannedMedia, PromptPart, ProviderAccess, ProviderResponse, SubmitPayload, SubmitResult, VoicesResult } from '../../common/basehalfProviderTypes.js';
+import { multipartFormParts, silentMp3, type MockFormPart } from './mockVideoProvider.js';
 
 export interface Received {
 	readonly method: string;
@@ -791,36 +792,28 @@ export function wav(seconds: number): Buffer {
 
 /**
  * An MPEG-1 Layer III stream at 128 kbps and 44.1 kHz, joint stereo, of
- * `frames` frames of 1152 samples (417 or 418 bytes each), with an ID3v2 tag
- * first when asked and a Xing header in the first frame when asked.
+ * `frames` frames of 1152 samples (417 or 418 bytes each), as the local test
+ * provider writes its sounds (`silentMp3`), with an ID3v2 tag first when
+ * asked and a Xing header in the first frame when asked.
  */
 export function mp3(frames: number, options: { readonly id3?: boolean; readonly xingFrames?: number } = {}): Buffer {
-	const parts: Buffer[] = [];
-	if (options.id3) {
-		const tag = Buffer.alloc(10 + 300);
-		tag.write('ID3', 0, 'latin1');
-		tag[3] = 4;
-		// The size, syncsafe: 300 = 2 * 128 + 44.
-		tag[8] = 2;
-		tag[9] = 44;
-		parts.push(tag);
+	const stream = silentMp3(frames);
+	if (frames > 0 && options.xingFrames !== undefined) {
+		// After the frame's header and the 32 bytes of its side information.
+		stream.write('Xing', 4 + 32, 'latin1');
+		stream.writeUInt32BE(1, 4 + 32 + 4);
+		stream.writeUInt32BE(options.xingFrames, 4 + 32 + 8);
 	}
-	for (let index = 0; index < frames; index++) {
-		// Every third frame is padded, as an encoder does to keep 128 kbps at 44.1 kHz.
-		const padding = index % 3 === 0 ? 1 : 0;
-		const frame = Buffer.alloc(417 + padding);
-		frame[0] = 0xff;
-		frame[1] = 0xfb;
-		frame[2] = 0x90 | (padding << 1);
-		frame[3] = 0x44;
-		if (index === 0 && options.xingFrames !== undefined) {
-			frame.write('Xing', 4 + 32, 'latin1');
-			frame.writeUInt32BE(1, 4 + 32 + 4);
-			frame.writeUInt32BE(options.xingFrames, 4 + 32 + 8);
-		}
-		parts.push(frame);
+	if (!options.id3) {
+		return stream;
 	}
-	return Buffer.concat(parts);
+	const tag = Buffer.alloc(10 + 300);
+	tag.write('ID3', 0, 'latin1');
+	tag[3] = 4;
+	// The size, syncsafe: 300 = 2 * 128 + 44.
+	tag[8] = 2;
+	tag[9] = 44;
+	return Buffer.concat([tag, stream]);
 }
 
 /** A valid MP3 of silence, as a speech API answers it: four MPEG-1 Layer III frames at 128 kbps and 44.1 kHz, about a tenth of a second, 1,670 bytes. */
@@ -915,38 +908,11 @@ export function plannedFiles(count: PlannedCount = {}): PlannedMedia {
 // --- multipart forms ----------------------------------------------------------------------------
 
 /** One part of a multipart form a test server received: its name, a file's name and type, and its bytes. */
-export interface ReceivedPart {
-	readonly name: string;
-	readonly fileName?: string;
-	readonly contentType?: string;
-	readonly bytes: Buffer;
-}
+export type ReceivedPart = MockFormPart;
 
-/** The parts of a multipart form a test server received, in order, also when several share a name (`image[]`). */
+/** The parts of a multipart form a test server received, in order, also when several share a name (`image[]`), as the local test provider reads them. */
 export function multipartParts(request: Received): ReceivedPart[] {
-	const boundary = /boundary=(?<boundary>[^;\s]+)/.exec(String(request.headers['content-type']))?.groups?.boundary;
-	assert.ok(boundary, 'a multipart form has a boundary');
-	const delimiter = Buffer.from(`--${boundary}`, 'latin1');
-	const parts: ReceivedPart[] = [];
-	let start = request.body.indexOf(delimiter);
-	while (start >= 0) {
-		const next = request.body.indexOf(delimiter, start + delimiter.length);
-		if (next < 0) {
-			break;
-		}
-		// Each part starts after the delimiter's line break and ends before the next delimiter's.
-		const part = request.body.subarray(start + delimiter.length + 2, next - 2);
-		const headerEnd = part.indexOf('\r\n\r\n');
-		const head = part.subarray(0, headerEnd).toString('utf8');
-		const fileName = /filename="(?<file>[^"]*)"/.exec(head)?.groups?.file;
-		const contentType = /Content-Type: (?<type>.+)/i.exec(head)?.groups?.type.trim();
-		parts.push({
-			name: / name="(?<name>[^"]*)"/.exec(head)?.groups?.name ?? '',
-			...(fileName !== undefined ? { fileName } : {}),
-			...(contentType !== undefined ? { contentType } : {}),
-			bytes: part.subarray(headerEnd + 4)
-		});
-		start = next;
-	}
+	const parts = multipartFormParts(String(request.headers['content-type']), request.body);
+	assert.ok(parts, 'a multipart form has a boundary');
 	return parts;
 }

@@ -317,4 +317,9 @@ entry and its place among the providers, the request of each model with its
 headers, query, and body, the MP3 answered at once, the default voice, the
 pages of voices with the account's and ElevenLabs' own, their descriptions
 and samples, a sample fetched without the key, the errors above, a request
-that never answers, and that `poll` and `cancel` send nothing.
+that never answers, and that `poll` and `cancel` send nothing. It also
+generates speech against the local test provider
+(`scripts/basehalf-video-mock-provider.mts`), which answers like ElevenLabs
+under `/elevenlabs`: the voices it lists and a sample, the request in a
+voice of the account, and a voice it does not know. The smoke speaks a note
+through it ([generation cards](../generation-cards.md#verification)).

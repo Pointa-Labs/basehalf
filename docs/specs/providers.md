@@ -873,5 +873,8 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
 - The smoke generates speech through the ElevenLabs module, with its voices
   and a sample, and two songs in Lyrics mode through the Mureka module,
   against the local test provider, which answers like each of them under a
-  path of its own, as it answers like ModelArk under `/api/v3`.
+  path of its own, `/elevenlabs` and `/mureka`, as it answers like ModelArk
+  under `/api/v3`. The tests of the two modules generate against it too, as
+  the ByteDance module's do: speech in a voice of the account it lists, and
+  two songs with a reference song it takes as an upload.
 - No real provider is called by tests.

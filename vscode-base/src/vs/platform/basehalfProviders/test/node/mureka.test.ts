@@ -12,7 +12,7 @@
  */
 
 import { strict as assert } from 'assert';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from '../../../../base/common/path.js';
 import { hasKey } from '../../../../base/common/types.js';
@@ -20,6 +20,7 @@ import { VideoProviderCommands, type VideoProviderCommandOptions } from '../../n
 import { MUREKA } from '../../node/mureka.js';
 import { buildCatalog, PROVIDER_MODULES } from '../../node/registry.js';
 import type { CatalogParameter, PollState } from '../../common/basehalfProviderTypes.js';
+import { MOCK_VIDEO_PROVIDER_KEY, mockSoundTag, startMockVideoProvider } from './mockVideoProvider.js';
 import { audioRequest, error, isoMedia, mp3, multipartParts, partTargets, recordingSleep, remoteIdOf, sendJson, startServer, testAccess, tinyMp3, value, wav, type AudioRequestOptions, type Received } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
@@ -332,6 +333,45 @@ suite('BaseHalf providers: mureka', () => {
 			});
 		} finally {
 			await fake.close();
+		}
+	});
+
+	test('two songs with a reference song generate against the local test provider: the upload before the task, the task through its states, and each song downloaded', async () => {
+		const mock = await startMockVideoProvider({ durationMs: 600, uniqueFiles: true });
+		try {
+			const providers = commands();
+			const access = testAccess(MUREKA, mock.murekaUrl, { apiKey: MOCK_VIDEO_PROVIDER_KEY });
+			const remoteId = remoteIdOf(await providers.submit(audioRequest(access, 'mureka-9.5', { prompt: ['A song like ', { input: 'audios', index: 0 }, ', about the sea'], params: { count: 2 }, inputs: { audios: [SONG] }, targets: 0 })));
+			const ref = { ...access, model: 'mureka-9.5', remoteId };
+			const states: PollState[] = [];
+			while (states.length < 200 && (!states.length || ['pending', 'running'].includes(states.at(-1)!.state))) {
+				states.push(value(await providers.poll(ref)));
+				await new Promise(resolve => setTimeout(resolve, 20));
+			}
+			const last = states.at(-1);
+			const songs = [];
+			for (const output of last?.state === 'succeeded' ? last.outputs ?? [] : []) {
+				const target = partTargets(1)[0];
+				const url = hasKey(output, { url: true }) ? output.url : '';
+				const downloaded = value(await providers.download({ ...ref, kind: 'audio', url, targetFsPath: target }));
+				songs.push({ format: downloaded.format, whole: downloaded.size === readFileSync(target).byteLength, tag: mockSoundTag(readFileSync(target)) });
+			}
+			const [uploaded, created] = mock.requests;
+			assert.deepEqual({
+				states: [...new Set(states.map(state => state.state))],
+				requests: mock.requests.map(entry => entry.kind),
+				uploaded: [uploaded?.parts, uploaded?.body],
+				created: [created?.taskId === remoteId.replace('song/', ''), created?.model, created?.prompt, created?.body],
+				songs
+			}, {
+				states: ['pending', 'running', 'succeeded'],
+				requests: ['upload', 'song'],
+				uploaded: [['purpose=reference', `file=reference-song.mp3 audio/mpeg ${SONG_BYTES.byteLength} bytes`], { purpose: 'reference', file: 'reference-song.mp3' }],
+				created: [true, 'mureka-9.5', 'A song like Audio 1, about the sea', { model: 'mureka-9.5', prompt: 'A song like Audio 1, about the sea', n: 2, reference_id: '542321' }],
+				songs: [0, 1].map(index => ({ format: 'mp3', whole: true, tag: `${remoteId.replace('/', '-')}-${index}` }))
+			});
+		} finally {
+			await mock.close();
 		}
 	});
 

@@ -7,12 +7,14 @@ import { strict as assert } from 'assert';
 import { readFileSync } from 'fs';
 import type { ServerResponse } from 'http';
 import { VSBuffer } from '../../../../base/common/buffer.js';
+import { hasKey } from '../../../../base/common/types.js';
 import { VideoProviderCommands } from '../../node/commands.js';
 import { ELEVENLABS } from '../../node/elevenlabs.js';
 import type { HttpOptions } from '../../node/http.js';
 import { OPENAI } from '../../node/openai.js';
 import { buildCatalog, PROVIDER_MODULES } from '../../node/registry.js';
 import type { CatalogModel, CatalogParameter, ChoiceParameter, Output, VoiceParameter } from '../../common/basehalfProviderTypes.js';
+import { MOCK_VIDEO_PROVIDER_KEY, mockSoundTag, startMockVideoProvider } from './mockVideoProvider.js';
 import { audioRequest, error, listVoicesAgainst, routed, sendJson, serveFiles, startServer, testAccess, tinyMp3, value, type Received, type TestRoute } from './providerTestKit.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
@@ -211,6 +213,45 @@ suite('BaseHalf providers: elevenlabs', () => {
 			});
 		} finally {
 			await server.close();
+		}
+	});
+
+	test('speech generates against the local test provider: the voices with their samples, a voice of the account, and the MP3 it answers, which it received with the text, the voice, and the settings', async () => {
+		const mock = await startMockVideoProvider({ uniqueFiles: true });
+		try {
+			const providers = commands();
+			const access = testAccess(ELEVENLABS, mock.elevenLabsUrl, { apiKey: MOCK_VIDEO_PROVIDER_KEY });
+			const listed = value(await providers.voices({ ...access, model: 'eleven-v4' }));
+			const captain = listed.voices.find(voice => voice.label === 'Sea Captain');
+			const sample = value(await providers.voicePreview({ ...access, model: 'eleven-v4', sample: captain?.sample ?? '' }));
+			const request = audioRequest(access, 'eleven-v4', { params: { voice: captain?.id ?? '', stability: 0.3 }, prompt: 'Welcome to the coast.' });
+			const outputs = outputsOf(value(await providers.submit(request)));
+			const unknown = error(await providers.submit(audioRequest(access, 'eleven-flash-v2.5', { params: { voice: 'nobody' }, prompt: 'Welcome to the coast.' })));
+			assert.deepEqual({
+				voices: listed.voices.map(voice => `${voice.label}: ${voice.description}${voice.own ? ', own' : ''}${voice.sample?.startsWith(`${mock.url}/files/voices/`) ? ', with a sample' : ''}`),
+				sample: [sample.format, mockSoundTag(Buffer.from(sample.bytes.buffer))],
+				outputs: outputs.map(output => hasKey(output, { written: true }) ? `${output.format} ${output.size === readFileSync(output.written).byteLength}` : output),
+				tag: mockSoundTag(readFileSync(request.targets![0]))?.split('-')[0],
+				received: mock.requests.map(entry => ({ kind: entry.kind, model: entry.model, prompt: entry.prompt, voice: entry.voice, settings: entry.body?.voice_settings })),
+				unknown
+			}, {
+				voices: [
+					'Coast Narrator: My own voice, read slowly., own, with a sample',
+					'Sea Captain: Male, Old, Gravelly, own, with a sample',
+					'Eldrin: Male, Middle aged, British, Crisp, Narrative story, own, with a sample',
+					'George: Male, Middle aged, British, Warm, Narrative story, with a sample'
+				],
+				sample: ['mp3', 'sample-bhSeaCaptain00000002'],
+				outputs: ['mp3 true'],
+				tag: 'speech',
+				received: [
+					{ kind: 'speech', model: 'eleven_v4', prompt: 'Welcome to the coast.', voice: 'bhSeaCaptain00000002', settings: { stability: 0.3, similarity_boost: 0.75 } },
+					{ kind: 'speech', model: 'eleven_flash_v2_5', prompt: 'Welcome to the coast.', voice: 'nobody', settings: { speed: 1, stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true } }
+				],
+				unknown: { code: 'rejected', message: 'ElevenLabs does not know this voice, or this account cannot use it: choose another voice. ElevenLabs says: A voice with the voice_id nobody was not found.', status: 404 }
+			});
+		} finally {
+			await mock.close();
 		}
 	});
 

@@ -315,7 +315,14 @@ Mureka's API and its file host:
   which is sent once and has an unknown outcome, and a poll whose answer
   never comes;
 - `cancel`, which sends nothing, and a task id that names no query;
-- the rules of `check`.
+- the rules of `check`;
+- a generation against the local test provider
+  (`scripts/basehalf-video-mock-provider.mts`), which answers like Mureka
+  under `/mureka`: a reference song uploaded before the task, the task
+  through preparing, running, and succeeded, and both songs downloaded.
+
+The smoke makes two songs in From Lyrics through it
+([generation cards](../generation-cards.md#verification)).
 
 A generation with Mureka's own API is run by a person with their own key
 before a release ([generation cards](../generation-cards.md#verification)).
