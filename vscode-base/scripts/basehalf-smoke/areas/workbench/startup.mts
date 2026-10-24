@@ -115,6 +115,12 @@ export async function assertLayoutControlAtTheLeftEnd(page) {
 	if (shown.right.some(label => label.startsWith('Toggle Primary Side Bar'))) {
 		throw new Error(`The right group of the title bar still holds the control of the sidebar: ${JSON.stringify(shown.right)}`);
 	}
+	// The panel's command opens the Agent Area, which has its own control
+	// there, so the right group has no control of the panel.
+	const firstToggle = shown.right.find(label => label.startsWith('Toggle '));
+	if (shown.right.some(label => label.startsWith('Toggle Panel')) || !firstToggle?.startsWith('Toggle Secondary Side Bar')) {
+		throw new Error(`The right group of the title bar must start its layout controls with the Agent Area's and hold none of the panel: ${JSON.stringify(shown.right)}`);
+	}
 	// On macOS it follows the window buttons.
 	if (process.platform === 'darwin' && !shown.fullscreen && Math.abs(shown.rect[0] - 80) > 0.5) {
 		throw new Error(`The control of the sidebar is not 80 px from the left edge of the window: ${JSON.stringify(shown.rect)}`);
