@@ -198,7 +198,8 @@ Each entry is in one of four states:
 - **copy**: a folder, such as the copy that an earlier release wrote there;
 - **other**: a link to anywhere else, or a file.
 
-The skill is **installed** while at least one entry is linked.
+An entry that cannot be read counts as other, and decides nothing for the
+other entry. The skill is **installed** while at least one entry is linked.
 
 ## Keeping it current
 
@@ -215,8 +216,9 @@ only when the user installs or removes the skill.
   BaseHalf beside a newer one, such as a release beside a development build,
   never writes an older text over it. A copy of the same version with other
   bytes takes the bundled text.
-- The copy is written whole through a temporary file, so that an agent never
-  reads half of it.
+- The copy is written whole through a temporary file of the write's own, so
+  that an agent never reads half of it, also while another BaseHalf writes
+  it.
 - An agent reads the new text the next time it loads the skill. Claude Code
   notices a changed skill within a session. Codex notices it too, and
   otherwise after a restart.
@@ -268,6 +270,12 @@ says that agents cannot see the selection, and a click on it shows the
 offer again. That notification is shown even while Do Not Disturb is on,
 because the user asked for it.
 
+- An answer given in another window, Don't Ask Again or Install Agent Skill,
+  counts in every window at once. A skill that another window installs or
+  removes counts when this window gains focus.
+- A look for the skill that fails changes nothing that is shown: what was
+  unanswered stays unanswered.
+
 The notification follows the wording rules of D41: it names no path, no file
 format, and no hidden folder.
 
@@ -278,8 +286,8 @@ format, and no hidden folder.
 - **BaseHalf: Remove Agent Skill** removes both links, a copy that an earlier
   release left in an agent's folder, and BaseHalf's own copy. It counts as
   Don't Ask Again.
-- The status bar entry runs a command that shows the offer. It is not listed
-  in the Command Palette.
+- The status bar entry runs `basehalf.agentSkill.showOffer`, which shows the
+  offer. It is not in the Command Palette.
 
 ## Installing and removing
 
@@ -287,10 +295,12 @@ format, and no hidden folder.
   version, and then makes each link on its own: missing folders are created,
   and a link to anywhere else is replaced.
 - A copy that an earlier release left in an agent's folder is replaced by the
-  link: BaseHalf deletes its `SKILL.md` and the folder. When the folder holds
-  anything else, BaseHalf changes nothing there and reports that location
-  with the reason "a folder of that name holds files of your own". A file at
-  the entry is reported with "a file of that name is in the way".
+  link: BaseHalf deletes its `SKILL.md` and the folder. It is such a copy only
+  when the folder holds nothing but a `SKILL.md` whose front matter names
+  `basehalf` and states a version. Otherwise, such as for a skill of the
+  user's own with that name, BaseHalf changes nothing there and reports that
+  location with the reason "a folder of that name holds files of your own".
+  A file at the entry is reported with "a file of that name is in the way".
 - A location that cannot be made does not stop the other. BaseHalf then says
   "The BaseHalf skill could not be installed for <agent>: <reason>", with a
   plain reason from
@@ -302,9 +312,10 @@ format, and no hidden folder.
   now on can use it. To take it away, use Remove Agent Skill in the Command
   Palette."
 - Removing deletes the links, never what they point at, then an earlier
-  release's copy where one is (its `SKILL.md`, and the folder when it is
-  then empty), then BaseHalf's own copy and those of its folders that are
-  then empty. A link to anywhere else is left. Removing a skill that is not
+  release's copy where one is (its `SKILL.md` when it is BaseHalf's text, and
+  the folder when it is then empty), then BaseHalf's own copy, whole, and
+  its parent folder when that is then empty. A link to anywhere else and a
+  skill of the user's own are left. Removing a skill that is not
   installed says "The BaseHalf skill is not installed." Otherwise it says
   "The BaseHalf skill was removed. BaseHalf won't offer it again; Install
   Agent Skill brings it back."
@@ -346,22 +357,28 @@ the user's home folder.
    version is `10`. Unit test.
 2. Installing writes BaseHalf's own copy with exactly the bundled bytes and
    links both entries to its folder, creating missing folders. The states
-   are missing before and linked after. An earlier copy that holds only
-   `SKILL.md` becomes the link; one that holds other files is left as it is
-   and reported, and the other location is still linked. A link to anywhere
-   else is replaced. Removing deletes both links, the earlier copies, and the
-   own copy, and leaves a link to anywhere else; removing again reports that
-   the skill is not installed. Unit test on an in-memory file system, with
-   the link service faked.
+   are missing before and linked after. An earlier copy of BaseHalf's text
+   that holds only `SKILL.md` becomes the link; one that holds other files,
+   and a skill of the user's own with that name, are left as they are and
+   reported, and the other location is still linked. A link to anywhere else
+   is replaced. Reasons are plain words. An entry that cannot be read counts
+   as other and leaves the other location linked. Removing deletes both
+   links, the earlier copies, and the whole own copy, also with a temporary
+   file left in it, and leaves a link to anywhere else and a skill of the
+   user's own; removing again reports that the skill is not installed. Unit
+   test on an in-memory file system, with the link service faked.
 3. Keeping it current: while an entry is linked, the copy takes the bundled
    text when it is missing, of a lower version, or of the same version with
    other bytes, and keeps a higher version. Without a link nothing is
-   written. Unit test.
+   written. The window does this when it starts and when it gains focus, not
+   when it loses focus. Unit test.
 4. The link service, on the disk: it tells a missing entry, a link with its
    target, and a file or a folder apart; it makes a link and its parent
    folders, replaces a link, refuses a file or a folder, and changes nothing
    when the link is there already; removing a link leaves what it pointed
-   at; it refuses what is not on the disk. Unit test.
+   at; it refuses what is not on the disk; a refusal of the disk, such as a
+   folder that may not be written, reaches the window as a missing
+   permission, through the name of the error alone. Unit test.
 5. The offer is a notification that stays (sticky), shown once per window:
    Install when an entry is missing, Update when an earlier copy is in
    every place, and none when an entry is linked, when the setting is off,
@@ -369,7 +386,9 @@ the user's home folder.
    or after Remove Agent Skill. Install Agent Skill installs after Don't Ask
    Again and forgets it. Shown on demand, it has the priority that Do Not
    Disturb does not hold back. The unanswered offer that the status bar
-   shows follows each of these. Unit test.
+   shows follows each of these, an answer stored by another window at once,
+   and a link that another window made or removed when the window gains
+   focus. Unit test.
 6. Nothing is written into the workspace by the offer, the install, or the
    removal. Unit test; the smoke's fixture turns the offer off and still
    finds nothing installed after the session.
@@ -389,6 +408,22 @@ the user's home folder.
     seconds after it appeared, with the window in front.
 
 ## Recorded trials
+
+**A skill folder that is a link, 2026-10-26 (criterion 9).** A probe skill,
+`bh-link-probe`, held a word that nothing else on the machine holds, in a
+folder that the agents reached only through a symbolic link. Each agent was
+asked "What is the probe word of this folder? Answer with the word only."
+once, in a folder that had nothing else of the probe.
+
+| Agent | Where the link was | What the agent did |
+| --- | --- | --- |
+| Claude Code 2.1.296, its default model | `.claude/skills/bh-link-probe` of the project, with the personal `basehalf` skill turned off for the session | Listed `bh-link-probe` among its skills when the session started, loaded it with its Skill tool, and answered with the word. |
+| Codex CLI 0.157.1, `gpt-6-sol`, read-only sandbox | `.agents/skills/bh-link-probe` of a stand-in home folder, the place BaseHalf links for Codex | Read `SKILL.md` through the link, at the path it listed itself, and answered with the word. |
+
+Claude Code's documentation says that a personal entry follows a link as a
+project entry does; the trial used the project's folder, so that nothing was
+written into the machine's own skill folders. One run of each is a small
+sample.
 
 The trials below are of version 1 of the skill text, which told agents to
 move files through `basehalf.workspace.move`. Version 2 says that ordinary

@@ -102,7 +102,7 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			default: true,
 			scope: ConfigurationScope.WINDOW,
 			tags: [BASEHALF_SETTINGS_TAG],
-			description: localize('basehalf.agents.offerSkill', 'Controls whether BaseHalf offers to install its skill for your agents when you open a folder. The skill tells agents such as Claude Code and Codex where a card\'s description and connections are.')
+			description: localize('basehalf.agents.offerSkill', 'Controls whether BaseHalf offers to install its skill for your agents: in a notification when you open a folder, and in the status bar until you answer. The skill tells agents such as Claude Code and Codex what you select and where a card\'s description and connections are.')
 		}
 	}
 };

@@ -152,6 +152,9 @@ import { BaseHalfProviderService } from '../../../platform/basehalfProviders/ele
 // BaseHalf: the times of files, which a step of undo sets and a window cannot (exact undo, D82).
 import { BASEHALF_FILE_TIMES_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { BaseHalfFileTimesService } from '../../../platform/basehalfFiles/node/basehalfFileTimesService.js';
+// BaseHalf: the links that install the agent skill, which a window cannot make (D83).
+import { BASEHALF_FILE_LINKS_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileLinks.js';
+import { BaseHalfFileLinksService } from '../../../platform/basehalfFiles/node/basehalfFileLinksService.js';
 
 class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
@@ -521,6 +524,9 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
 		// BaseHalf: the times of files that a step of undo sets (D82)
 		this.server.registerChannel(BASEHALF_FILE_TIMES_CHANNEL, ProxyChannel.fromService(new BaseHalfFileTimesService(), this._store));
+
+		// BaseHalf: the links that install the agent skill (D83)
+		this.server.registerChannel(BASEHALF_FILE_LINKS_CHANNEL, ProxyChannel.fromService(new BaseHalfFileLinksService(), this._store));
 
 		// SSH Remote Agent Host
 		const sshRemoteAgentHostChannel = ProxyChannel.fromService(accessor.get(ISSHRemoteAgentHostMainService), this._store);

@@ -15,6 +15,7 @@ import { gitStatusOfWorkspace } from '../../fixture.mts';
 import { assertCanvasEdgeVisible, waitForCanvasCardSelection, waitForCanvasNoteInlineEditor, zoomCanvas } from '../../lib/canvas.mts';
 import { assertCardDetail, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame } from '../../lib/markdownRich.mts';
+import { clickNotificationAction } from '../../lib/notifications.mts';
 import { quickOpen, runCommand } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { openExplorerRow, readWorkspaceFile } from '../../lib/workspace.mts';
@@ -28,12 +29,24 @@ export const AGENT_CREATED_CARD_CONTENT = [
 ].join('\n');
 
 // The selection agents can see: what the user selected is recorded in
-// .bh/cache/selection.yaml while the current skill is installed, the status
-// bar under the Agent Area shows it, and nothing reaches git.
+// .bh/cache/selection.yaml while the skill is installed, as a link to
+// BaseHalf's own copy, the status bar under the Agent Area shows it, and
+// nothing reaches git. Until then, while the offer is on, the entry says that
+// agents can't see the selection and leads to the offer.
 export async function assertAgentSeesSelection(page) {
 	await closeCardDetailIfOpen(page);
 	const recordPath = path.join(workspacePath, '.bh', 'cache', 'selection.yaml');
-	const skillPath = path.join(smokeHome, '.claude', 'skills', 'basehalf', 'SKILL.md');
+	const skillLink = path.join(smokeHome, '.claude', 'skills', 'basehalf');
+	const sharedSkillLink = path.join(smokeHome, '.agents', 'skills', 'basehalf');
+	const skillCopy = path.join(smokeHome, '.basehalf', 'agent-skill', 'basehalf');
+	const settingsPath = path.join(workspacePath, '.vscode', 'settings.json');
+	const isLink = target => {
+		try {
+			return fs.lstatSync(target).isSymbolicLink();
+		} catch {
+			return false;
+		}
+	};
 	const header = '# What the user selected last in BaseHalf. BaseHalf rewrites this file; see the basehalf skill.\n';
 	const readRecord = () => {
 		try {
@@ -55,15 +68,46 @@ export async function assertAgentSeesSelection(page) {
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 
-	// Without the skill there is no record and nothing in the status bar.
+	// Without the skill and with the offer turned off, as the fixture has it,
+	// there is no record and nothing in the status bar.
 	await pane.click({ position: { x: 16, y: 16 } });
 	await page.waitForTimeout(500);
-	if (readRecord() !== undefined || await statusText() !== null) {
+	const entryShown = () => page.evaluate(() => document.getElementById('basehalf.agentSelection') !== null);
+	if (readRecord() !== undefined || await entryShown()) {
 		throw new Error(`Without the skill, nothing may be recorded or shown: ${JSON.stringify({ record: readRecord(), shown: await statusText() })}`);
 	}
 
-	await runCommand(page, 'BaseHalf: Install Agent Skill');
-	await waitUntil(() => fs.existsSync(skillPath), 'the skill in the window\'s home folder', 10_000);
+	// With the offer turned on, the entry says that agents can't see the
+	// selection, as an entry of the status bar's own with a command, which
+	// shows the offer.
+	const settingsBefore = fs.readFileSync(settingsPath, 'utf8');
+	fs.writeFileSync(settingsPath, JSON.stringify({ ...JSON.parse(settingsBefore), 'basehalf.agents.offerSkill': true }, null, '\t'), 'utf8');
+	const offerLabel = page.locator('#basehalf\\.agentSelection .statusbar-item-label');
+	const offerText = () => page.evaluate(() => document.getElementById('basehalf.agentSelection')?.querySelector('.statusbar-item-label')?.textContent?.trim() ?? null);
+	await page.waitForFunction(() => document.getElementById('basehalf.agentSelection')?.querySelector('.statusbar-item-label')?.textContent?.trim() === 'Agents can\'t see your selection', null, { timeout: 10_000 }).catch(async error => {
+		throw new Error(`With the offer on and no skill, the entry must say that agents can't see the selection: it shows ${JSON.stringify(await offerText())}`, { cause: error });
+	});
+	const offerEntry = await offerLabel.evaluate(label => ({
+		cursor: getComputedStyle(label).cursor,
+		icon: !!label.querySelector('.codicon-eye-closed'),
+		// The entry of a selection draws its own content; this one is the status bar's.
+		ownContent: !!label.closest('.statusbar-item')?.querySelector('.basehalf-agent-selection')
+	}));
+	if (readRecord() !== undefined || offerEntry.cursor !== 'pointer' || !offerEntry.icon || offerEntry.ownContent) {
+		throw new Error(`Before the skill, nothing may be recorded and the entry must lead to the offer: ${JSON.stringify({ record: readRecord(), offerEntry })}`);
+	}
+	await offerLabel.click();
+	await clickNotificationAction(page, 'Install the BaseHalf skill for your agents?', 'Install');
+	await waitUntil(() => isLink(skillLink) && isLink(sharedSkillLink), 'both skill folders to become links', 10_000);
+	const installedSkill = {
+		target: fs.readlinkSync(skillLink),
+		sharedTarget: fs.readlinkSync(sharedSkillLink),
+		throughLink: fs.readFileSync(path.join(skillLink, 'SKILL.md'), 'utf8'),
+		copy: fs.readFileSync(path.join(skillCopy, 'SKILL.md'), 'utf8')
+	};
+	if (installedSkill.target !== skillCopy || installedSkill.sharedTarget !== skillCopy || installedSkill.throughLink !== installedSkill.copy || !installedSkill.copy.startsWith('---\nname: basehalf\n')) {
+		throw new Error(`Both skill folders must be links to BaseHalf's own copy: ${JSON.stringify({ target: installedSkill.target, sharedTarget: installedSkill.sharedTarget, skillCopy, startsWith: installedSkill.copy.slice(0, 40) })}`);
+	}
 	await zoomCanvas(page, 'reset');
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
 	await src.waitFor({ state: 'visible', timeout: 20_000 });
@@ -281,10 +325,16 @@ export async function assertAgentSeesSelection(page) {
 		throw new Error(`The record must stay out of git: ${gitStatusOfWorkspace()}`);
 	}
 
-	// Without the skill the record and the entry go.
+	// Without the skill the record and the entry go: a removal answers the
+	// offer, so the entry does not show the offer either. The link and
+	// BaseHalf's own copy go with it.
 	await runCommand(page, 'BaseHalf: Remove Agent Skill');
 	await waitUntil(() => readRecord() === undefined, 'the record to go with the skill', 10_000);
-	await page.waitForFunction(() => document.querySelector('.basehalf-agent-selection-text') === null, null, { timeout: 10_000 });
+	await page.waitForFunction(() => document.getElementById('basehalf.agentSelection') === null, null, { timeout: 10_000 });
+	if (isLink(skillLink) || isLink(sharedSkillLink) || fs.existsSync(skillCopy)) {
+		throw new Error(`Remove Agent Skill must take away the links and BaseHalf's own copy: ${JSON.stringify({ link: isLink(skillLink), sharedLink: isLink(sharedSkillLink), copy: fs.existsSync(skillCopy) })}`);
+	}
+	fs.writeFileSync(settingsPath, settingsBefore, 'utf8');
 	await pane.click({ position: { x: 16, y: 16 } });
 }
 

@@ -33,6 +33,7 @@ import {
 	serializeBaseHalfAgentSelection
 } from '../common/basehalfAgentSelection.js';
 import { IBaseHalfAgentSkillService } from '../common/basehalfAgentSkill.js';
+import { BASEHALF_SHOW_AGENT_SKILL_OFFER_COMMAND_ID, IBaseHalfAgentSkillNotifier } from './basehalfAgentSkill.contribution.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink } from '../../workspace/common/basehalfMirrorTree.js';
@@ -45,8 +46,8 @@ export function baseHalfAgentSelectionResource(workspaceFolder: URI): URI {
 /**
  * Keeps the record of what the user selected last in this window, in
  * `.bh/cache/selection.yaml` of the workspace folder (the selection agents can
- * see, "The record"). It writes the record only while the current BaseHalf
- * skill is installed for at least one agent, never in a marked folder, and
+ * see, "The record"). It writes the record only while the BaseHalf skill is
+ * installed, linked for at least one agent, never in a marked folder, and
  * removes it when the window closes.
  */
 export class BaseHalfAgentSelectionService extends Disposable implements IBaseHalfAgentSelectionService {
@@ -126,7 +127,7 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 		const check = ++this.skillChecks;
 		let installed = false;
 		try {
-			installed = this.skillService.available && (await this.skillService.inspect()).some(location => location.state === 'current');
+			installed = this.skillService.available && (await this.skillService.inspect()).some(location => location.state === 'linked');
 		} catch (error) {
 			this.logService.warn('[BaseHalf] could not check whether the agent skill is installed', error);
 		}
@@ -193,7 +194,7 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 	}
 
 	/**
-	 * Without the current skill no window of this machine keeps a record, so
+	 * Without the skill no window of this machine keeps a record, so
 	 * one in a folder of this window was left by a window that ended without
 	 * closing, such as in a crash.
 	 */
@@ -267,12 +268,16 @@ const STATUS_ALONE_MAX_WIDTH = 240;
 /**
  * Shows at the right end of the status bar, under the Agent Area, what the
  * record holds, exactly while it exists (the selection agents can see, "What
- * the window shows"). It is a reminder: it has no command.
+ * the window shows"). It is a reminder: it has no command. While agents can
+ * see nothing because the skill is not installed, it says so as long as the
+ * skill's offer is unanswered, as an entry whose command shows the offer.
  */
 export class BaseHalfAgentSelectionStatusContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalfAgentSelectionStatus';
 
 	private readonly entry = this._register(new MutableDisposable<IStatusbarEntryAccessor>());
+	/** What the entry shows; an entry keeps the content it was added with, so each kind is added anew. */
+	private shows: 'selection' | 'offer' | undefined;
 	private readonly element = $('span.basehalf-agent-selection');
 	private readonly icon = append(this.element, $('span.basehalf-agent-selection-icon'));
 	private readonly text = append(this.element, $('span.basehalf-agent-selection-text'));
@@ -280,23 +285,40 @@ export class BaseHalfAgentSelectionStatusContribution extends Disposable impleme
 	private readonly pendingLayout = this._register(new MutableDisposable<IDisposable>());
 
 	constructor(
-		@IBaseHalfAgentSelectionService selectionService: IBaseHalfAgentSelectionService,
+		@IBaseHalfAgentSelectionService private readonly selectionService: IBaseHalfAgentSelectionService,
+		@IBaseHalfAgentSkillNotifier private readonly skillNotifier: IBaseHalfAgentSkillNotifier,
 		@IStatusbarService private readonly statusbarService: IStatusbarService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService
 	) {
 		super();
-		this._register(selectionService.onDidChange(selection => this.show(selection)));
+		this._register(selectionService.onDidChange(() => this.show()));
+		this._register(skillNotifier.onDidChangePendingOffer(() => this.show()));
 		this._register(layoutService.onDidChangePartVisibility(() => this.layout()));
-		this.show(selectionService.current);
+		this.show();
 	}
 
-	private show(selection: BaseHalfAgentSelection | undefined): void {
-		if (!selection) {
+	private show(): void {
+		const selection = this.selectionService.current;
+		const shows = selection ? 'selection' : this.skillNotifier.pendingOffer ? 'offer' : undefined;
+		if (shows !== this.shows) {
+			this.shows = shows;
 			this.entry.clear();
 			this.observer.clear();
 			this.pendingLayout.clear();
+		}
+		if (!shows) {
 			return;
 		}
+		const entry = selection ? this.selectionEntry(selection) : this.offerEntry();
+		if (this.entry.value) {
+			this.entry.value.update(entry);
+		} else {
+			this.entry.value = this.statusbarService.addEntry(entry, BASEHALF_AGENT_SELECTION_STATUS_ID, StatusbarAlignment.RIGHT, Number.MAX_SAFE_INTEGER);
+		}
+		this.layout();
+	}
+
+	private selectionEntry(selection: BaseHalfAgentSelection): IStatusbarEntry {
 		const label = baseHalfAgentSelectionLabel(selection);
 		const text = label.count !== undefined
 			? localize('basehalf.agentSelection.cards', "{0} cards selected", label.count)
@@ -304,19 +326,31 @@ export class BaseHalfAgentSelectionStatusContribution extends Disposable impleme
 		clearNode(this.icon);
 		renderBaseHalfItemGlyph(this.icon, label.icon, 'currentColor', 14);
 		this.text.textContent = text;
-		const entry: IStatusbarEntry = {
+		return {
 			name: localize('basehalf.agentSelection.name', "Selection Agents Can See"),
 			text: '',
 			ariaLabel: localize('basehalf.agentSelection.ariaLabel', "Agents can see: {0}", text),
 			tooltip: localize('basehalf.agentSelection.tooltip', "Agents that use the BaseHalf skill can see this."),
 			content: this.element
 		};
-		if (this.entry.value) {
-			this.entry.value.update(entry);
-		} else {
-			this.entry.value = this.statusbarService.addEntry(entry, BASEHALF_AGENT_SELECTION_STATUS_ID, StatusbarAlignment.RIGHT, Number.MAX_SAFE_INTEGER);
-		}
-		this.layout();
+	}
+
+	/**
+	 * While the skill is not installed and its offer is unanswered (agent
+	 * skill, "Offer"): an entry of the status bar's own kind, with a command,
+	 * so that the pointer, the keyboard, and screen readers reach it as any
+	 * such entry.
+	 */
+	private offerEntry(): IStatusbarEntry {
+		const text = localize('basehalf.agentSelection.unseen', "Agents can't see your selection");
+		const tooltip = localize('basehalf.agentSelection.unseenTooltip', "Install the BaseHalf skill so that agents can see what you select.");
+		return {
+			name: localize('basehalf.agentSelection.name', "Selection Agents Can See"),
+			text: `$(eye-closed) ${text}`,
+			ariaLabel: localize('basehalf.agentSelection.unseenAriaLabel', "{0}. {1}", text, tooltip),
+			tooltip,
+			command: BASEHALF_SHOW_AGENT_SKILL_OFFER_COMMAND_ID
+		};
 	}
 
 	/** Lays the entry out at the next frame: after the status bar has put it in the window, or after a size changed. */
@@ -341,7 +375,8 @@ export class BaseHalfAgentSelectionStatusContribution extends Disposable impleme
 	 * the share of the room under the Agent Area, so that it stays to the right.
 	 */
 	private layout(): void {
-		const item = this.element.parentElement;
+		// The entry of the offer is the status bar's own, as wide as its text.
+		const item = this.shows === 'selection' ? this.element.parentElement : undefined;
 		if (!item || !this.entry.value) {
 			return;
 		}

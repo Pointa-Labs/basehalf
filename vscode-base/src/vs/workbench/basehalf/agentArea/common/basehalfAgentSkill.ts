@@ -4,15 +4,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../../base/common/event.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { BaseHalfFileLinkEntry } from '../../../../platform/basehalfFiles/common/basehalfFileLinks.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { BASEHALF_AGENT_SHARED_SECTIONS } from './basehalfAgentLaunchInstructions.js';
 
 /** The name of the agent skill, and of its folder. */
 export const BASEHALF_AGENT_SKILL_NAME = 'basehalf';
 export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
-/** Changes whenever the skill text changes, so that an installed copy of an
- * earlier text is offered an update. */
+/** A whole number that grows whenever the skill text changes. BaseHalf's own
+ * copy never takes the text of a lower version (agent skill, "Keeping it
+ * current"). */
 export const BASEHALF_AGENT_SKILL_VERSION = '10';
 
 /**
@@ -106,38 +109,93 @@ export interface IBaseHalfAgentSkillTarget {
 	readonly agent: BaseHalfAgentSkillAgent;
 	/** The agent's name in messages. */
 	readonly label: string;
-	/** The path of `SKILL.md` below the home folder. */
+	/** The path of the skill's folder below the home folder. */
 	readonly segments: readonly string[];
 }
 
 /**
  * Where the skill is installed (agent skill, "Where it is installed"): Claude
  * Code's own skill folder, and the location that Codex and other agents share.
+ * Each is a link to BaseHalf's own copy.
  */
 export const BASEHALF_AGENT_SKILL_TARGETS: readonly IBaseHalfAgentSkillTarget[] = [
-	{ agent: 'claude', label: 'Claude Code', segments: ['.claude', 'skills', BASEHALF_AGENT_SKILL_NAME, BASEHALF_AGENT_SKILL_FILE_NAME] },
-	{ agent: 'shared', label: 'Codex', segments: ['.agents', 'skills', BASEHALF_AGENT_SKILL_NAME, BASEHALF_AGENT_SKILL_FILE_NAME] }
+	{ agent: 'claude', label: 'Claude Code', segments: ['.claude', 'skills', BASEHALF_AGENT_SKILL_NAME] },
+	{ agent: 'shared', label: 'Codex', segments: ['.agents', 'skills', BASEHALF_AGENT_SKILL_NAME] }
 ];
 
-/** `current`: the bundled text. `outdated`: any other content, also an edited copy. */
-export type BaseHalfAgentSkillState = 'missing' | 'current' | 'outdated';
-
-export function baseHalfAgentSkillState(contents: string | undefined): BaseHalfAgentSkillState {
-	return contents === undefined ? 'missing' : contents === BASEHALF_AGENT_SKILL_MARKDOWN ? 'current' : 'outdated';
-}
+/**
+ * BaseHalf's own copy of the skill below the home folder, which the links
+ * point at. Every BaseHalf on the machine, a development build included, uses
+ * this one folder, outside the application bundle.
+ */
+export const BASEHALF_AGENT_SKILL_COPY_SEGMENTS: readonly string[] = ['.basehalf', 'agent-skill', BASEHALF_AGENT_SKILL_NAME];
 
 /**
- * What to offer for the skill's states: nothing when every location is
- * current, an update when none is missing, and otherwise an install.
+ * `linked`: a link to BaseHalf's own copy. `copy`: a folder, such as the copy
+ * that an earlier release wrote there. `other`: a link to anywhere else, or a
+ * file.
  */
-export function baseHalfAgentSkillOffer(states: readonly BaseHalfAgentSkillState[]): 'install' | 'update' | undefined {
-	if (states.every(state => state === 'current')) {
+export type BaseHalfAgentSkillState = 'missing' | 'linked' | 'copy' | 'other';
+
+export function baseHalfAgentSkillState(entry: BaseHalfFileLinkEntry, copy: URI): BaseHalfAgentSkillState {
+	switch (entry.kind) {
+		case 'missing': return 'missing';
+		case 'link': return isEqual(entry.target, copy) ? 'linked' : 'other';
+		case 'folder': return 'copy';
+		default: return 'other';
+	}
+}
+
+export type BaseHalfAgentSkillOffer = 'install' | 'update';
+
+/**
+ * What to offer for the skill's states: nothing once a location is linked,
+ * an update when an earlier copy is in every place, and otherwise an install.
+ */
+export function baseHalfAgentSkillOffer(states: readonly BaseHalfAgentSkillState[]): BaseHalfAgentSkillOffer | undefined {
+	if (states.includes('linked')) {
 		return undefined;
 	}
 	return states.includes('missing') ? 'install' : 'update';
 }
 
+function frontMatterOf(text: string): string | undefined {
+	return /^---\n(?<fields>[\s\S]*?)\n---\n/.exec(text)?.groups?.fields;
+}
+
+/** The version a skill text states in its front matter, as a number; `undefined` when it states none. */
+export function baseHalfAgentSkillVersion(text: string): number | undefined {
+	const frontMatter = frontMatterOf(text);
+	const version = frontMatter !== undefined ? /^[ \t]+version:[ \t]*"(?<number>\d+)"[ \t]*$/m.exec(frontMatter)?.groups?.number : undefined;
+	return version !== undefined ? Number(version) : undefined;
+}
+
+/**
+ * Whether a text is BaseHalf's skill, of any version: its front matter names
+ * `basehalf` and states a version. Only such a copy, which an earlier release
+ * wrote, is BaseHalf's to replace or remove (agent skill, "Installing and
+ * removing").
+ */
+export function baseHalfIsAgentSkillText(text: string): boolean {
+	const frontMatter = frontMatterOf(text);
+	return frontMatter !== undefined && new RegExp(`^name:[ \\t]*${BASEHALF_AGENT_SKILL_NAME}[ \\t]*$`, 'm').test(frontMatter) && baseHalfAgentSkillVersion(text) !== undefined;
+}
+
+/**
+ * Whether BaseHalf's own copy takes the bundled text: unless it holds it
+ * already or states a higher version, so that an older BaseHalf never
+ * writes over the text of a newer one (agent skill, "Keeping it current").
+ */
+export function baseHalfAgentSkillCopyTakesBundledText(copy: string | undefined): boolean {
+	if (copy === BASEHALF_AGENT_SKILL_MARKDOWN) {
+		return false;
+	}
+	const version = copy === undefined ? undefined : baseHalfAgentSkillVersion(copy);
+	return version === undefined || version <= Number(BASEHALF_AGENT_SKILL_VERSION);
+}
+
 export interface IBaseHalfAgentSkillLocation extends IBaseHalfAgentSkillTarget {
+	/** The skill's folder in the agent's own folder. */
 	readonly resource: URI;
 	readonly state: BaseHalfAgentSkillState;
 }
@@ -152,8 +210,9 @@ export const IBaseHalfAgentSkillService = createDecorator<IBaseHalfAgentSkillSer
 
 /**
  * Installs the BaseHalf agent skill into the agents' own skill folders in the
- * user's home folder, only when the user asks. Nothing is ever written into a
- * workspace.
+ * user's home folder, only when the user asks, as links to BaseHalf's own
+ * copy, and keeps that copy at the bundled text. Nothing is ever written into
+ * a workspace.
  */
 export interface IBaseHalfAgentSkillService {
 	readonly _serviceBrand: undefined;
@@ -166,8 +225,10 @@ export interface IBaseHalfAgentSkillService {
 	inspect(): Promise<readonly IBaseHalfAgentSkillLocation[]>;
 	/** Whether the skill is installed for an agent, in any state but missing. */
 	isInstalledFor(agent: BaseHalfAgentSkillAgent): Promise<boolean>;
-	/** Writes the bundled text to every location. */
+	/** While a location is linked, writes the bundled text into BaseHalf's own copy, unless the copy holds it or a higher version. */
+	refresh(): Promise<void>;
+	/** Writes BaseHalf's own copy and links every location to it. */
 	install(): Promise<IBaseHalfAgentSkillInstallResult>;
-	/** Deletes the skill from every location. Resolves `false` when it was not installed. */
+	/** Removes the links, earlier copies, and BaseHalf's own copy. Resolves `false` when nothing was installed. */
 	remove(): Promise<boolean>;
 }

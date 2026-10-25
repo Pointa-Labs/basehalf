@@ -4,17 +4,22 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { URI } from '../../../../../base/common/uri.js';
 import { parse as parseYaml } from '../../../../../base/common/yaml.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { BASEHALF_AGENT_SHARED_SECTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
 import {
 	BASEHALF_AGENT_OWN_IMAGE_SECTION,
+	BASEHALF_AGENT_SKILL_COPY_SEGMENTS,
 	BASEHALF_AGENT_SKILL_DESCRIPTION,
 	BASEHALF_AGENT_SKILL_MARKDOWN,
 	BASEHALF_AGENT_SKILL_TARGETS,
 	BASEHALF_AGENT_SKILL_VERSION,
+	baseHalfAgentSkillCopyTakesBundledText,
 	baseHalfAgentSkillOffer,
-	baseHalfAgentSkillState
+	baseHalfAgentSkillState,
+	baseHalfAgentSkillVersion,
+	baseHalfIsAgentSkillText
 } from '../../common/basehalfAgentSkill.js';
 
 suite('BaseHalfAgentSkill', () => {
@@ -119,21 +124,64 @@ suite('BaseHalfAgentSkill', () => {
 		}, { version: '10', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
 	});
 
-	test('goes to Claude Code\'s folder and the shared one, and is offered while a location lacks the bundled text', () => {
+	test('links Claude Code\'s folder and the shared one to BaseHalf\'s own copy, and is offered until one of them is linked', () => {
+		const copy = URI.file('/home/user/.basehalf/agent-skill/basehalf');
 		assert.deepStrictEqual({
 			targets: BASEHALF_AGENT_SKILL_TARGETS.map(target => [target.label, target.segments.join('/')]),
-			states: [baseHalfAgentSkillState(undefined), baseHalfAgentSkillState(BASEHALF_AGENT_SKILL_MARKDOWN), baseHalfAgentSkillState(`${BASEHALF_AGENT_SKILL_MARKDOWN}edited`), baseHalfAgentSkillState('')],
+			copy: BASEHALF_AGENT_SKILL_COPY_SEGMENTS.join('/'),
+			states: [
+				baseHalfAgentSkillState({ kind: 'missing' }, copy),
+				baseHalfAgentSkillState({ kind: 'link', target: copy }, copy),
+				baseHalfAgentSkillState({ kind: 'link', target: URI.file('/home/user/my-skills/basehalf') }, copy),
+				baseHalfAgentSkillState({ kind: 'folder' }, copy),
+				baseHalfAgentSkillState({ kind: 'file' }, copy)
+			],
 			offers: [
 				baseHalfAgentSkillOffer(['missing', 'missing']),
-				baseHalfAgentSkillOffer(['current', 'missing']),
-				baseHalfAgentSkillOffer(['outdated', 'current']),
-				baseHalfAgentSkillOffer(['outdated', 'missing']),
-				baseHalfAgentSkillOffer(['current', 'current'])
+				baseHalfAgentSkillOffer(['copy', 'missing']),
+				baseHalfAgentSkillOffer(['copy', 'copy']),
+				baseHalfAgentSkillOffer(['other', 'copy']),
+				// A link the user removed for one agent stays removed.
+				baseHalfAgentSkillOffer(['linked', 'missing']),
+				baseHalfAgentSkillOffer(['linked', 'linked'])
 			]
 		}, {
-			targets: [['Claude Code', '.claude/skills/basehalf/SKILL.md'], ['Codex', '.agents/skills/basehalf/SKILL.md']],
-			states: ['missing', 'current', 'outdated', 'outdated'],
-			offers: ['install', 'install', 'update', 'install', undefined]
+			targets: [['Claude Code', '.claude/skills/basehalf'], ['Codex', '.agents/skills/basehalf']],
+			copy: '.basehalf/agent-skill/basehalf',
+			states: ['missing', 'linked', 'other', 'copy', 'other'],
+			offers: ['install', 'install', 'update', 'update', undefined, undefined]
+		});
+	});
+
+	test('keeps BaseHalf\'s own copy at the bundled text, never over a higher version', () => {
+		const withVersion = (version: string) => BASEHALF_AGENT_SKILL_MARKDOWN.replace(`version: "${BASEHALF_AGENT_SKILL_VERSION}"`, `version: "${version}"`);
+		const ours = Number(BASEHALF_AGENT_SKILL_VERSION);
+		assert.deepStrictEqual({
+			version: baseHalfAgentSkillVersion(BASEHALF_AGENT_SKILL_MARKDOWN),
+			lower: baseHalfAgentSkillVersion(withVersion(String(ours - 1))),
+			none: baseHalfAgentSkillVersion('# no front matter\n'),
+			takes: {
+				missing: baseHalfAgentSkillCopyTakesBundledText(undefined),
+				unreadable: baseHalfAgentSkillCopyTakesBundledText(''),
+				lower: baseHalfAgentSkillCopyTakesBundledText(withVersion(String(ours - 1))),
+				sameOtherBytes: baseHalfAgentSkillCopyTakesBundledText(`${BASEHALF_AGENT_SKILL_MARKDOWN}edited\n`),
+				same: baseHalfAgentSkillCopyTakesBundledText(BASEHALF_AGENT_SKILL_MARKDOWN),
+				higher: baseHalfAgentSkillCopyTakesBundledText(withVersion(String(ours + 1)))
+			},
+			// Only BaseHalf's own text, of any version, is BaseHalf's to replace.
+			isBaseHalfs: {
+				bundled: baseHalfIsAgentSkillText(BASEHALF_AGENT_SKILL_MARKDOWN),
+				earlier: baseHalfIsAgentSkillText(withVersion('3')),
+				anotherSkill: baseHalfIsAgentSkillText('---\nname: basehalf-notes\nmetadata:\n  version: "1"\n---\n\nMine.\n'),
+				noVersion: baseHalfIsAgentSkillText('---\nname: basehalf\n---\n\nMine.\n'),
+				noFrontMatter: baseHalfIsAgentSkillText('name: basehalf\n')
+			}
+		}, {
+			version: ours,
+			lower: ours - 1,
+			none: undefined,
+			takes: { missing: true, unreadable: true, lower: true, sameOtherBytes: true, same: false, higher: false },
+			isBaseHalfs: { bundled: true, earlier: true, anotherSkill: false, noVersion: false, noFrontMatter: false }
 		});
 	});
 });

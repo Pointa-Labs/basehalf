@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { timeout } from '../../../../../base/common/async.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
-import { Emitter } from '../../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../../base/common/network.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -16,10 +16,13 @@ import { InMemoryFileSystemProvider } from '../../../../../platform/files/common
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { testWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
 import { IHostService } from '../../../../services/host/browser/host.js';
+import { IWorkbenchLayoutService } from '../../../../services/layout/browser/layoutService.js';
+import { IStatusbarEntry, IStatusbarService } from '../../../../services/statusbar/browser/statusbar.js';
 import { TestContextService, TestLifecycleService } from '../../../../test/common/workbenchTestServices.js';
-import { baseHalfAgentSelectionResource, BaseHalfAgentSelectionService } from '../../browser/basehalfAgentSelection.contribution.js';
-import { baseHalfAgentSelectionFor, IBaseHalfAgentSelectionInput, serializeBaseHalfAgentSelection } from '../../common/basehalfAgentSelection.js';
-import { BaseHalfAgentSkillState, BASEHALF_AGENT_SKILL_TARGETS, IBaseHalfAgentSkillService } from '../../common/basehalfAgentSkill.js';
+import { baseHalfAgentSelectionResource, BaseHalfAgentSelectionService, BaseHalfAgentSelectionStatusContribution } from '../../browser/basehalfAgentSelection.contribution.js';
+import { BASEHALF_SHOW_AGENT_SKILL_OFFER_COMMAND_ID, IBaseHalfAgentSkillNotifier } from '../../browser/basehalfAgentSkill.contribution.js';
+import { BaseHalfAgentSelection, baseHalfAgentSelectionFor, IBaseHalfAgentSelectionInput, IBaseHalfAgentSelectionService, serializeBaseHalfAgentSelection } from '../../common/basehalfAgentSelection.js';
+import { BaseHalfAgentSkillOffer, BaseHalfAgentSkillState, BASEHALF_AGENT_SKILL_TARGETS, IBaseHalfAgentSkillService } from '../../common/basehalfAgentSkill.js';
 
 suite('BaseHalfAgentSelectionService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -88,7 +91,7 @@ suite('BaseHalfAgentSelectionService', () => {
 	});
 	const recordOf = (value: IBaseHalfAgentSelectionInput) => serializeBaseHalfAgentSelection(baseHalfAgentSelectionFor(value));
 
-	test('writes the record only while the current skill is installed for an agent, after BaseHalf\'s ignore file', async () => {
+	test('writes the record only while the skill is linked for an agent, after BaseHalf\'s ignore file', async () => {
 		const store = disposables.add(new DisposableStore());
 		const { fileService, service, read, setSkill } = await setup(store, ['missing', 'missing']);
 		const selected = input(notes, [{ path: 'untitled.md', isFolder: false }]);
@@ -98,7 +101,7 @@ suite('BaseHalfAgentSelectionService', () => {
 		await service.flush();
 		steps.push({ record: await read(notes), shown: service.current });
 
-		await setSkill(['missing', 'current']);
+		await setSkill(['missing', 'linked']);
 		await service.flush();
 		steps.push({
 			record: await read(notes),
@@ -106,7 +109,8 @@ suite('BaseHalfAgentSelectionService', () => {
 			ignoreFile: (await fileService.readFile(URI.joinPath(notes, '.bh', '.gitignore'))).value.toString().includes('/cache/')
 		});
 
-		await setSkill(['outdated', 'missing']);
+		// An earlier release's copy is not the installed skill until it is a link.
+		await setSkill(['copy', 'missing']);
 		await service.flush();
 		steps.push({ record: await read(notes), shown: service.current });
 
@@ -119,7 +123,7 @@ suite('BaseHalfAgentSelectionService', () => {
 
 	test('keeps one record, in the workspace folder of the selection, and none in a marked folder', async () => {
 		const store = disposables.add(new DisposableStore());
-		const { service, read } = await setup(store, ['current', 'current']);
+		const { service, read } = await setup(store, ['linked', 'linked']);
 		const steps: unknown[] = [];
 		const snapshot = async () => steps.push({ notes: await read(notes), marked: await read(marked), shown: service.current?.selected });
 
@@ -157,23 +161,23 @@ suite('BaseHalfAgentSelectionService', () => {
 		await missing.service.flush();
 		const afterStart = await missing.read(notes);
 
-		const current = await setup(store, ['current', 'missing']);
-		current.service.update(input(notes));
-		await current.service.flush();
-		const written = await current.read(notes);
-		current.writes.fail = true;
-		current.service.update(input(notes, [{ path: 'b.md', isFolder: false }]));
-		await current.service.flush();
+		const installed = await setup(store, ['linked', 'missing']);
+		installed.service.update(input(notes));
+		await installed.service.flush();
+		const written = await installed.read(notes);
+		installed.writes.fail = true;
+		installed.service.update(input(notes, [{ path: 'b.md', isFolder: false }]));
+		await installed.service.flush();
 
 		assert.deepStrictEqual(
-			{ afterStart, written, afterFailedWrite: await current.read(notes), shown: current.service.current },
+			{ afterStart, written, afterFailedWrite: await installed.read(notes), shown: installed.service.current },
 			{ afterStart: undefined, written: recordOf(input(notes)), afterFailedWrite: undefined, shown: undefined }
 		);
 	});
 
 	test('removes its record when the window closes, but not a record another window wrote since', async () => {
 		const store = disposables.add(new DisposableStore());
-		const first = await setup(store, ['current', 'missing']);
+		const first = await setup(store, ['linked', 'missing']);
 		first.service.update(input(notes));
 		await first.service.flush();
 		const before = await first.read(notes);
@@ -181,7 +185,7 @@ suite('BaseHalfAgentSelectionService', () => {
 		await Promise.all(first.lifecycle.shutdownJoiners);
 		const afterOwnClose = await first.read(notes);
 
-		const second = await setup(store, ['current', 'missing']);
+		const second = await setup(store, ['linked', 'missing']);
 		second.service.update(input(notes));
 		await second.service.flush();
 		const other = recordOf(input(notes, [{ path: 'b.md', isFolder: false }]));
@@ -193,5 +197,53 @@ suite('BaseHalfAgentSelectionService', () => {
 			{ before, afterOwnClose, afterAnotherWindowWrote: await second.read(notes) },
 			{ before: recordOf(input(notes)), afterOwnClose: undefined, afterAnotherWindowWrote: other }
 		);
+	});
+});
+
+suite('BaseHalfAgentSelectionStatusContribution', () => {
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('shows a selection with no command, the unanswered offer with the command that shows it, and nothing otherwise', () => {
+		const store = disposables.add(new DisposableStore());
+		const selectionChanged = store.add(new Emitter<BaseHalfAgentSelection | undefined>());
+		const offerChanged = store.add(new Emitter<void>());
+		const selection: { current: BaseHalfAgentSelection | undefined; onDidChange: Event<BaseHalfAgentSelection | undefined> } = { current: undefined, onDidChange: selectionChanged.event };
+		const notifier: { pendingOffer: BaseHalfAgentSkillOffer | undefined; onDidChangePendingOffer: Event<void> } = { pendingOffer: undefined, onDidChangePendingOffer: offerChanged.event };
+		const added: string[] = [];
+		let shown: IStatusbarEntry | undefined;
+		const statusbar = {
+			addEntry: (entry: IStatusbarEntry) => {
+				added.push(entry.command ? 'offer' : 'selection');
+				shown = entry;
+				return { update: (next: IStatusbarEntry) => { shown = next; }, dispose: () => { shown = undefined; } };
+			}
+		};
+		store.add(new BaseHalfAgentSelectionStatusContribution(
+			selection as unknown as IBaseHalfAgentSelectionService,
+			notifier as unknown as IBaseHalfAgentSkillNotifier,
+			statusbar as unknown as IStatusbarService,
+			{ onDidChangePartVisibility: Event.None } as unknown as IWorkbenchLayoutService
+		));
+		const describe = () => shown ? { text: shown.text, command: shown.command, content: shown.content?.textContent } : undefined;
+		const steps: unknown[] = [describe()];
+		notifier.pendingOffer = 'install';
+		offerChanged.fire();
+		steps.push(describe());
+		selection.current = { selected: 'card', path: 'README.md', isFolder: false };
+		selectionChanged.fire(selection.current);
+		steps.push(describe());
+		selection.current = undefined;
+		selectionChanged.fire(undefined);
+		steps.push(describe());
+		notifier.pendingOffer = undefined;
+		offerChanged.fire();
+		steps.push(describe());
+
+		const offer = { text: '$(eye-closed) Agents can\'t see your selection', command: BASEHALF_SHOW_AGENT_SKILL_OFFER_COMMAND_ID, content: undefined };
+		assert.deepStrictEqual({ steps, added }, {
+			steps: [undefined, offer, { text: '', command: undefined, content: 'README' }, offer, undefined],
+			// Each kind of entry is added anew: an entry keeps the content it was added with.
+			added: ['offer', 'selection', 'offer']
+		});
 	});
 });

@@ -97,11 +97,13 @@ import './services/browserView/electron-browser/playwrightWorkbenchService.js';
 import './services/process/electron-browser/processService.js';
 import './services/power/electron-browser/powerService.js';
 // BaseHalf: where the credentials of providers are kept, and the window's
-// connection to the provider service in the shared process (D75), and to the
-// service there that sets the times of files (D82).
+// connection to the provider service in the shared process (D75), to the
+// service there that sets the times of files (D82), and to the one that makes
+// the links of the agent skill (D83).
 import './basehalf/video/electron-browser/basehalfModelCredentialStore.js';
 import '../platform/basehalfProviders/electron-browser/basehalfProviderService.js';
 import '../platform/basehalfFiles/electron-browser/basehalfFileTimesService.js';
+import '../platform/basehalfFiles/electron-browser/basehalfFileLinksService.js';
 
 import { registerSingleton } from '../platform/instantiation/common/extensions.js';
 import { IUserDataInitializationService, UserDataInitializationService } from './services/userData/browser/userDataInit.js';

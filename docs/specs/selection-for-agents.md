@@ -201,7 +201,9 @@ are there already. It shows the icon and the text of the table above.
   unanswered, the entry shows an eye with a line through it and "Agents
   can't see your selection". Resting the pointer on it shows "Install the
   BaseHalf skill so that agents can see what you select." A click shows the
-  offer. It is laid out as the entry of a selection is.
+  offer. It is an entry of the status bar's own kind, with a command, as
+  wide as its text, so that the pointer, the keyboard, and screen readers
+  reach it as they reach any entry with a command.
 - The entry shows nothing in a marked folder, after a write failed, and
   without the skill once the offer does not apply: after Don't Ask Again,
   after Remove Agent Skill, or while the setting turns the offer off.
@@ -217,7 +219,7 @@ The [agent skill](agent-skill.md#the-skill) describes the record:
   where the record is, what each field means, that it is what the user
   selected last in BaseHalf and that it exists only while BaseHalf is open,
   and that the user's own words win when they name something else.
-- Its version becomes 3, so BaseHalf offers the update.
+- Its version became 3, so BaseHalf offered the update.
 - Version 9 (D81) adds what `first_page`, `last_page`, and `chapter` mean
   for text in a PDF or a book.
 - Since D83 the installed skill is a link to BaseHalf's own copy, which
@@ -325,8 +327,12 @@ card draws (`renderBaseHalfItemGlyph`, shared with the canvas) and the text.
 It sets the entry's largest width from the room under the Agent Area
 whenever the Agent Area or the status bar changes size or visibility.
 Without a selection it shows the unanswered offer that the skill's notifier
-holds (`IBaseHalfAgentSkillNotifier.pendingOffer`): the codicon
-`eye-closed`, the text, and the command that shows the offer.
+holds (`IBaseHalfAgentSkillNotifier.pendingOffer`), as an entry with the
+codicon `eye-closed` in its text and the command
+`basehalf.agentSkill.showOffer`. An entry keeps the content that it was added
+with, and the status bar runs a command only from the label that it draws,
+which content of the entry's own hides, so the entry of a selection and the
+entry of the offer are each added anew when the one replaces the other.
 
 ## Acceptance criteria
 
@@ -357,7 +363,11 @@ holds (`IBaseHalfAgentSkillNotifier.pendingOffer`): the codicon
    - closing the window removes the record, but not a record whose content
      another window wrote since;
    - a record left in the folder is removed once the skill is found missing;
-     after a failed write no record is left and nothing is shown.
+     after a failed write no record is left and nothing is shown;
+   - the entry: a selection with its own content and no command, the
+     unanswered offer as the status bar's own entry with the command that
+     shows it, nothing without either, and each kind added anew when it
+     replaces the other.
 3. The note editor on a card, in its own test script: a selection follows
    text added before it, covers the text that replaced it, stays when the
    change is after it, and follows its text when a block kept as it is
@@ -374,10 +384,11 @@ holds (`IBaseHalfAgentSkillNotifier.pendingOffer`): the codicon
    - with the offer turned off, as the fixture has it, nothing is recorded
      or shown;
    - with the offer turned on, nothing is recorded and the entry shows
-     "Agents can't see your selection" with a command; its click puts the
-     offer in the notification center, and the offer's **Install** makes
-     Claude Code's entry a link to BaseHalf's own copy, through which
-     `SKILL.md` reads as the bundled text;
+     "Agents can't see your selection" with the eye, as the status bar's own
+     entry with a pointer of a button; its click puts the offer in the
+     notification center, and the offer's **Install** makes both entries
+     links to BaseHalf's own copy, through which `SKILL.md` reads as the
+     bundled text;
    - then nothing selected records the folder `.` and shows the workspace
      folder's name;
    - the entry is in the status bar and has no label of its own; with the
