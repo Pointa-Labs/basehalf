@@ -30,8 +30,8 @@ a new card and leaves the old video playable and unchanged.
 
 The output of this capability is a set of independently usable shot
 materials and an explicit clip order. Trimming one video is Card Detail's
-([trimming a video](video-trimming.md)); joining clips and final movie
-assembly are out of scope.
+([editing media](media-editing.md)); joining clips and final movie assembly
+are out of scope.
 
 ## Sequence document
 

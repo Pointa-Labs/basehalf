@@ -2995,6 +2995,14 @@ written in a note are its natural input.
 
 ## D79 — Card Detail trims a video in place, and undo puts it back (NEW, 2026-10-25)
 
+> **Revised by D84 (2026-10-26).** The trim bar is the frame viewer of Card
+> Detail's edit mode, shown after Edit, and Done takes the place of Trim. The
+> video before a trim is no longer kept only for undo until the window
+> closes: its original stays in its card information until it is reverted,
+> and every edit starts from it. `made.yaml` no longer gets `trimStart` and
+> `trimEnd`; the edit record (`edit.yaml`) says how any edited file was made
+> from its original. See [editing media](specs/media-editing.md).
+
 **Decision.** Card Detail of a video has a trim bar under its player: a strip
 of the video's frames, a selection with two handles, a playhead, and Trim.
 Trim replaces the video with the selected part, under its name, in its
@@ -3005,8 +3013,8 @@ the canvas's undo: undo puts the video back byte for byte from the kept
 versions, and redo trims it again
 ([D82](#d82--a-delete-on-the-canvas-asks-nothing-and-undo-brings-back-exactly-what-a-step-took-new-2026-10-25)).
 A generated video keeps its `made.yaml`, which then also records the part of
-what was generated that the video holds. See
-[trimming a video](specs/video-trimming.md).
+what was generated that the video holds. Its specification is now part of
+[editing media](specs/media-editing.md).
 
 **Why.** The user asked for simple editing in the room under the enlarged
 video. The canvas products for media work trim the same way: a strip of
@@ -3298,3 +3306,76 @@ unanswered offer in view after the notification is closed.
   Skill takes them away.
 - A window cannot make links, so a service of the shared process does
   (`platform/basehalfFiles/`).
+
+## D84 — A video, an image, or a sound is edited in Card Detail, and its original is kept (NEW, 2026-10-26)
+
+**Decision.** Card Detail of a video, an image, or a sound has Edit in its
+header. Edit shows the editor of its kind: the frame viewer of a video, with
+a yellow frame around the part kept and a sound button to mute it; the crop
+view of an image, with ratios, a quarter turn, a flip, and a dial that
+straightens it; and the waveform of a sound, with Trim and Delete. Done writes
+the edit into the file, which keeps its name, its card, and its connections,
+and keeps the file as it was before its first edit as its original,
+`original.<extension>`, with an edit record, `edit.yaml`, in its card
+information. Edit on an edited file starts from the whole original with the
+choices of its edit, so a trim can be widened again; Revert puts the original
+back at any time; Save as New writes the edit into a new file beside it and
+leaves the file as it was. Each of them is one step of the canvas undo. See
+[editing media](specs/media-editing.md).
+
+**Why.** On 2026-10-26 the user asked for the editing of D79 to follow a
+phone's photo editor as closely as possible, for videos, and also for
+cropping images and editing sounds: after a trim, the original was lost,
+while the phone keeps it. D79 kept the video before a trim only for undo,
+until the window closed. A phone's photo editor keeps the original of every
+edit, shows it again with the earlier choices when the edit is opened again,
+and reverts to it at any time; its crop tool crops to ratios, turns, flips,
+and straightens; its voice recorder trims a recording or deletes a part of it;
+and both can save an edit as a new item instead. The user asked that this be
+built without asking back, after research.
+
+**What was set aside.**
+- Keeping the original only until the window closes, as D79 did: an edit
+  could not be widened again or reverted later.
+- Keeping the file as it is and storing only the choices, drawing the edit at
+  every view, as a photo library does: the file is the card (D63), so Files,
+  agents, and providers would see the original where the card shows the edit.
+- Keeping originals only on the computer that made them (`.bh/cache/`, or the
+  application's data folder): a clone or a second computer could not revert,
+  and a lost computer would lose them. An original is card information and
+  travels with the file, through git too; a workspace that keeps videos with
+  git's large file storage keeps their originals there as well.
+- Asking at every Done whether to save in place or as new, as the phone does
+  for a video: Done saves in place, which can always be reverted, and Save as
+  New is in Done's menu.
+- A confirmation before Revert and before Cancel: Revert is a step of undo,
+  and Cancel only forgets choices.
+- Perspective correction, adjusting light and color, and filters, which the
+  phone's editor also has: the user asked for trimming, cropping, and editing
+  sound.
+- Encoding an MP3 again to cut it: the window has no MP3 encoder, and copying
+  its frames keeps it as it was.
+
+**Consequences.**
+- Revises D79: the trim bar is the frame viewer of the edit mode, Done takes
+  the place of Trim, the original is kept until it is reverted, and
+  `made.yaml` gets no `trimStart` or `trimEnd`.
+- Restores D63's rule that what made a generated file never changes:
+  `made.yaml` is written once, and the edit record says how the file was
+  edited.
+- Revises the non-goals of [generation cards](specs/generation-cards.md#non-goals)
+  that excluded editing images and sounds: trimming, cropping, turning,
+  flipping, straightening, and cutting sound are BaseHalf's edits.
+- The steps of [exact undo](specs/exact-undo.md#changing-files-in-place) that
+  change files in place can also create and remove files, so that one step
+  writes a file, its original, and its record, or takes them away.
+- A copy of an edited file copies its original and its record. A window
+  cannot clone a file, so a service of the shared process does
+  (`platform/basehalfFiles/`); on a disk that can clone, the copy takes no
+  room.
+- The card information that a delete to the Trash leaves in `.bh/mirror/`
+  includes the edit record and the original.
+- In edit mode, Escape cancels the edit before it closes Card Detail, and
+  Command+Z undoes the editor's last change.
+- The code of D79's `videoTrim/` becomes the feature folder `mediaEdit/`
+  ([code organization](harness/code-organization.md)).

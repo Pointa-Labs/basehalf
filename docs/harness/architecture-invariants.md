@@ -65,10 +65,10 @@ See [code organization](code-organization.md) and public decision D60.
 - On the canvas, a focus ring is for the keyboard. The workbench rings every
   focused button, field, and element with a tab index, also after a click;
   on the canvas surface, its own buttons, and the toolbars, menus, and Video
-  panel over its cards, and in BaseHalf's player and its trim bar, also in
-  Card Detail, a control shows a ring only when the keyboard moved the focus
-  there. A text field shows its focus by its caret, and a field with a border
-  by its border alone. A menu that BaseHalf draws on the
+  panel over its cards, and in BaseHalf's player and the editors of Card
+  Detail's edit mode, a control shows a ring only when the keyboard moved
+  the focus there. A text field shows its focus by its caret, and a field
+  with a border by its border alone. A menu that BaseHalf draws on the
   canvas starts at its checked item. Without one, it has no current item
   when a click opened it, until an arrow key chooses one, as the
   workbench's context menus do, and it starts at its first item when the

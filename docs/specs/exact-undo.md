@@ -194,11 +194,13 @@ Not in scope, and unchanged:
 - What goes to the Trash leaves behind the card information that a delete
   to the Trash has always kept, so that a restore from the Trash brings the
   card back whole ([mirror file resilience](mirror-file-resilience.md)): the
-  upstream list, the color, and the prompt and settings with the generation
-  record. Prompt and settings stay only beside a generation record: without
-  one they would make a draft. The rest of the card information goes, as a
-  delete has always taken it. Nothing of it stays when the item is deleted
-  for good.
+  upstream list, the color, the prompt and settings with the generation
+  record, and the edit record with the original of an edited file
+  ([editing media](media-editing.md#copies-deletes-and-the-trash)). Prompt
+  and settings stay only beside a generation record: without one they would
+  make a draft; an original stays only beside its edit record. The rest of
+  the card information goes, as a delete has always taken it. Nothing of it
+  stays when the item is deleted for good.
 
 ### What the canvas made
 
@@ -222,9 +224,22 @@ Not in scope, and unchanged:
 - A feature that changes the bytes of files does it as one step. The version
   of each file before the step goes into the kept versions, and the new
   bytes take its place. Undo swaps them back, and redo again. Several files
-  change in one step, such as a video and its `made.yaml`.
-- A file that is not there, has changes that are not saved, or is not an
-  ordinary file of the workspace is refused, and nothing changes.
+  change in one step, such as a video, its original, and its edit record
+  ([editing media](media-editing.md#done-save-as-new-revert-and-cancel)).
+- A step can also create a file where none is, and remove one: no file is
+  then one of its two versions, and undo and redo swap it as they swap
+  bytes. The window is told the file's creation or its delete, as for an
+  item. A file that undo would put where none was, while another file is
+  there again, is no file of the step any more: the step says so and changes
+  nothing, as for an item.
+- New bytes come from memory, or from a file the feature wrote into
+  `.bh/cache/` first, which is moved into place. A file of the workspace is
+  never moved from one path of the step to another: a version that moves is
+  copied into `.bh/cache/` first, by a clone on a disk that can clone files,
+  which takes no room.
+- A file that has changes that are not saved, or is not an ordinary file of
+  the workspace, is refused, and nothing changes. So is a file to change or
+  to remove that is not there.
 - A version that the step, its undo, or its redo moves into the place of a
   file takes the time of then as its modification time, as a save would.
   Its bytes are those it had. A move keeps the time a version had, and the
@@ -237,8 +252,9 @@ Not in scope, and unchanged:
 
 - Cmd+Z and Shift+Cmd+Z undo and redo the steps of the canvas also while
   Card Detail is open, as long as the keyboard is not in an editor of text,
-  which has its own undo. The player and the trim bar of a video are no
-  editors of text.
+  which has its own undo, and Card Detail is not in edit mode, whose editor
+  undoes its own changes ([editing media](media-editing.md#the-keyboard)).
+  The player is no editor of text.
 
 ## Failure
 

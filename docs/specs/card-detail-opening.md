@@ -89,16 +89,16 @@ another.
   was, as a click in Files does, or when the keyboard went out of the canvas
   meanwhile.
 - Escape closes Card Detail, wherever in it the keyboard is: in its header,
-  in the player, on the trim bar of a video
-  ([trimming a video](video-trimming.md#the-keyboard)), in a note's editor,
-  in an image, in a PDF, in a book, or in the Sequence view
-  ([Video Sequence](video-sequence.md#the-sequence-view)).
+  in the player, in a note's editor, in an image, in a PDF, in a book, or in
+  the Sequence view ([Video Sequence](video-sequence.md#the-sequence-view)).
   What uses Escape itself takes it first: a menu or a list of the editor
   (slash, files, emoji, a block's or a table's menu), a field of its own,
   such as that of a link or the page number of a PDF, a menu or a dialog of
   the PDF viewer, the contents and the search of the book reader
   ([PDFs and books](documents-and-books.md#the-book-reader)), the
-  composition of an input method, a drag on the trim bar, and full screen.
+  composition of an input method, full screen, and the edit mode of a video,
+  an image, or a sound, which Escape cancels first
+  ([editing media](media-editing.md#the-keyboard)).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the canvas, where the keys of the selected card work again.
 

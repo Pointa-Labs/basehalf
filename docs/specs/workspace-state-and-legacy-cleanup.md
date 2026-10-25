@@ -55,6 +55,8 @@ In the workspace, under `.bh/`:
 | `.bh/mirror/<path>/upstream.yaml` | project metadata | the upstream list of a non-Markdown node (reference truth, [reference graph](reference-graph.md#sidecar-store)) |
 | `.bh/mirror/<path>/generation.yaml` | project metadata | what the next generation of a generation card uses: its prompt, model, and settings. Without a `made.yaml` and without a file at `<path>`, it is a draft ([generation cards](generation-cards.md#generationyaml)) |
 | `.bh/mirror/<path>/made.yaml` | project metadata | the record of the generation that made the file at `<path>`, written once by BaseHalf ([generation cards](generation-cards.md#madeyaml)) |
+| `.bh/mirror/<path>/edit.yaml` | project metadata | how the media file at `<path>` was edited from its original ([editing media](media-editing.md#the-edit-record)) |
+| `.bh/mirror/<path>/original.<extension>` | project metadata | the original of an edited media file, byte for byte as it was before its first edit, kept until it is reverted ([editing media](media-editing.md#what-is-kept)) |
 | `.bh/mirror/<folder>/canvas.yaml` | kept in the folder, not shared through git | the place and size of every card, and edge anchor memory ([canvas card placement](canvas-card-placement.md)) |
 | `.bh/mirror/<file>/adhd.yaml` | project metadata | reading aids |
 | `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation: the background of a note's card, or whether the card of a PDF or a book shows its cover ([PDFs and books](documents-and-books.md#hiding-and-showing-the-cover)) |

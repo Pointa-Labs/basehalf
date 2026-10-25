@@ -95,8 +95,9 @@ listed A in `referenced_by`. That design had three problems:
      on an issue;
    - creating a connected node (PDF branch, Create from Connection, the
      draft that New Version makes from a generation card with its file, the
-     drafts a generation of several images makes, and the image that Capture
-     Frame takes from a video);
+     drafts a generation of several images makes, the image that Capture
+     Frame takes from a video, and the file that Save as New makes from an
+     edit in Card Detail, [editing media](media-editing.md#done-save-as-new-revert-and-cancel));
    - Upload into a draft, which removes the draft's entries with its
      `generation.yaml`, since the uploaded file was not made from them;
    - renaming a draft whose model delivers another format, or whose image
