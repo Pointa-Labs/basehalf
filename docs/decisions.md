@@ -3150,3 +3150,8 @@ new file.
   video in place through the kept versions instead of saving a new clip.
 - Until its window closes, what was deleted is in the kept versions, not
   yet in the Trash.
+- One line of VS Code's undo service changes: an undo went on through a
+  group as if it came from no source, so the second element of a group of
+  the canvas asked "Would you like to undo ...?". A delete or a Duplicate
+  of files with drafts is such a group. A group now goes on with the source
+  of the element it undid (marked `// BaseHalf:`).

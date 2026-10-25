@@ -256,6 +256,37 @@ suite('UndoRedoService', () => {
 		});
 	});
 
+	test('one undo of a source undoes a group of that source without asking', async () => {
+		const source = new UndoRedoSource();
+		const group = new UndoRedoGroup();
+		let questions = 0;
+		const service = createUndoRedoService(new class extends mock<IDialogService>() {
+			override async confirm() {
+				questions++;
+				return { confirmed: false };
+			}
+		});
+		const calls: string[] = [];
+		const element = (label: string, file: string): IUndoRedoElement => ({
+			type: UndoRedoElementType.Workspace,
+			resources: [URI.file(file)],
+			label,
+			code: 'test',
+			undo: () => { calls.push(`undo ${label}`); },
+			redo: () => { calls.push(`redo ${label}`); }
+		});
+
+		service.pushElement(element('delete draft', 'draft/generation.yaml'), group, source);
+		service.pushElement(element('delete files', 'note.md'), group, source);
+		await service.undo(source);
+		await service.redo(source);
+
+		assert.deepStrictEqual({ calls, questions }, {
+			calls: ['undo delete files', 'undo delete draft', 'redo delete draft', 'redo delete files'],
+			questions: 0
+		});
+	});
+
 	test('UndoRedoGroup.None uses id 0', () => {
 		assert.strictEqual(UndoRedoGroup.None.id, 0);
 		assert.strictEqual(UndoRedoGroup.None.nextOrder(), 0);

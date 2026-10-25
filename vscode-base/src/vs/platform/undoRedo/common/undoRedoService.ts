@@ -1027,7 +1027,7 @@ export class UndoRedoService implements IUndoRedoService {
 		for (const editStack of editStackSnapshot.editStacks) {
 			editStack.moveBackward(element);
 		}
-		return this._safeInvokeWithLocks(element, () => element.actual.undo(), editStackSnapshot, cleanup, () => this._continueUndoInGroup(element.groupId, undoConfirmed));
+		return this._safeInvokeWithLocks(element, () => element.actual.undo(), editStackSnapshot, cleanup, () => this._continueUndoInGroup(element.groupId, element.sourceId, undoConfirmed));
 	}
 
 	private _resourceUndo(editStack: ResourceEditStack, element: ResourceStackElement, undoConfirmed: boolean): Promise<void> | void {
@@ -1046,7 +1046,7 @@ export class UndoRedoService implements IUndoRedoService {
 		}
 		return this._invokeResourcePrepare(element, (cleanup) => {
 			editStack.moveBackward(element);
-			return this._safeInvokeWithLocks(element, () => element.actual.undo(), new EditStackSnapshot([editStack]), cleanup, () => this._continueUndoInGroup(element.groupId, undoConfirmed));
+			return this._safeInvokeWithLocks(element, () => element.actual.undo(), new EditStackSnapshot([editStack]), cleanup, () => this._continueUndoInGroup(element.groupId, element.sourceId, undoConfirmed));
 		});
 	}
 
@@ -1075,14 +1075,19 @@ export class UndoRedoService implements IUndoRedoService {
 		return [matchedElement, matchedStrResource];
 	}
 
-	private _continueUndoInGroup(groupId: number, undoConfirmed: boolean): Promise<void> | void {
+	private _continueUndoInGroup(groupId: number, sourceId: number, undoConfirmed: boolean): Promise<void> | void {
 		if (!groupId) {
 			return;
 		}
 
 		const [, matchedStrResource] = this._findClosestUndoElementInGroup(groupId);
 		if (matchedStrResource) {
-			return this._undo(matchedStrResource, 0, undoConfirmed);
+			// BaseHalf: the group goes on with the source of the element it undid,
+			// so one undo of a group of one source asks nothing. With no source
+			// here, every element after the first one of a source's group asked
+			// "Would you like to undo ...?" (exact undo, a delete of files and
+			// drafts on the canvas).
+			return this._undo(matchedStrResource, sourceId, undoConfirmed);
 		}
 	}
 

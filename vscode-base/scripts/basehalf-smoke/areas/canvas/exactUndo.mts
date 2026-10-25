@@ -19,20 +19,74 @@ const REDO = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y';
 const NOTE = 'undo-note.md';
 const BIG = 'undo-big.bin';
 const BOX = 'undo-box';
+const DRAFT = 'undo-draft.png';
+const CARDS = [NOTE, BIG, BOX, DRAFT];
 
 const at = name => path.join(workspacePath, ...name.split('/'));
 const mirror = (name, file) => path.join(workspacePath, '.bh', 'mirror', ...name.split('/'), file);
 const layout = () => fs.readFileSync(path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml'), 'utf8');
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const text = file => fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+const orders = names => names.length <= 1 ? [names] : names.flatMap((first, index) => orders([...names.slice(0, index), ...names.slice(index + 1)]).map(rest => [first, ...rest]));
+
+/**
+ * Selects the cards of `names` with a click on the first and a click with
+ * Shift on each next one. Each card is brought to the middle of the view
+ * first, as cards far apart do not fit into it, and is clicked at a point
+ * that nothing lies over, such as the set box of the cards selected before
+ * it. The orders that select the last name last come first: a draft selected
+ * alone shows its panel, which can lie over other cards.
+ */
+async function selectCanvasCards(page, names) {
+	const tried = orders(names).sort((a, b) => Number(a.at(-1) !== names.at(-1)) - Number(b.at(-1) !== names.at(-1)));
+	for (const order of tried) {
+		let selected = 0;
+		for (const name of order) {
+			await centerCanvasCards(page, [page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`)]);
+			const point = await page.evaluate(cardPath => {
+				const element = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`);
+				const rect = element?.getBoundingClientRect();
+				for (let fy = 0.2; rect && fy < 0.85; fy += 0.15) {
+					for (let fx = 0.2; fx < 0.85; fx += 0.15) {
+						const x = rect.left + rect.width * fx;
+						const y = rect.top + rect.height * fy;
+						if (document.elementFromPoint(x, y)?.closest('.basehalf-canvas-card') === element) {
+							return { x, y };
+						}
+					}
+				}
+				return undefined;
+			}, name);
+			if (!point) {
+				break;
+			}
+			if (selected > 0) {
+				await page.keyboard.down('Shift');
+			}
+			await page.mouse.click(point.x, point.y);
+			if (selected > 0) {
+				await page.keyboard.up('Shift');
+			}
+			await waitForCanvasCardSelection(page, name);
+			await page.waitForTimeout(150);
+			selected++;
+		}
+		if (selected === order.length) {
+			return;
+		}
+	}
+	throw new Error(`No order selects ${names.join(', ')} with clicks: a card lies under others in each`);
+}
 
 /**
  * Exact undo, criteria 1 to 6: Delete in a card's menu, the selection
  * toolbar's Delete, and the Delete key delete at once, with no dialog in any
  * frame. One undo brings back a note with its description, its color, and its
- * place, a file of 6 MB byte for byte, and a folder with the two notes it
- * holds; redo deletes them again, and undo brings them back again. Undo of a
- * New Note into which text was typed takes it away, and redo brings it back
- * with the text at its place.
+ * place, and a set of a file of 6 MB byte for byte, a folder with the two
+ * notes it holds, and a draft with its prompt, deleted in one step; redo
+ * deletes the set again, and undo brings it back again. Undo of a New Note
+ * into which text was typed takes it away, and redo brings it back with the
+ * text at its place.
  */
 export async function assertCanvasExactUndo(page) {
 	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
@@ -44,31 +98,28 @@ export async function assertCanvasExactUndo(page) {
 	fs.mkdirSync(at(BOX), { recursive: true });
 	fs.writeFileSync(at(`${BOX}/a.md`), '# A\n', 'utf8');
 	fs.writeFileSync(at(`${BOX}/b.md`), '# B\n', 'utf8');
-	for (const name of [NOTE, BIG, BOX]) {
+	fs.mkdirSync(path.dirname(mirror(DRAFT, 'generation.yaml')), { recursive: true });
+	fs.writeFileSync(mirror(DRAFT, 'generation.yaml'), 'prompt: "Kept with the set"\n', 'utf8');
+	for (const name of CARDS) {
 		await card(name).waitFor({ state: 'visible', timeout: 15_000 });
 	}
-	await waitUntil(() => [NOTE, BIG, BOX].every(name => readCanvasCardGeometry(layout(), name) !== undefined), 'the three cards to get their places');
-	const before = {
-		note: fs.readFileSync(at(NOTE), 'utf8'),
-		badge: fs.readFileSync(mirror(NOTE, 'badge.yaml'), 'utf8'),
-		appearance: fs.readFileSync(mirror(NOTE, 'appearance.yaml'), 'utf8'),
-		big: hash(at(BIG)),
-		box: fs.readdirSync(at(BOX)).sort(),
-		rows: Object.fromEntries([NOTE, BIG, BOX].map(name => [name, readCanvasCardGeometry(layout(), name)]))
-	};
+	await waitUntil(() => CARDS.every(name => readCanvasCardGeometry(layout(), name) !== undefined), 'the four cards to get their places');
 	const now = () => ({
-		note: fs.existsSync(at(NOTE)) ? fs.readFileSync(at(NOTE), 'utf8') : null,
-		badge: fs.existsSync(mirror(NOTE, 'badge.yaml')) ? fs.readFileSync(mirror(NOTE, 'badge.yaml'), 'utf8') : null,
-		appearance: fs.existsSync(mirror(NOTE, 'appearance.yaml')) ? fs.readFileSync(mirror(NOTE, 'appearance.yaml'), 'utf8') : null,
+		note: text(at(NOTE)),
+		badge: text(mirror(NOTE, 'badge.yaml')),
+		appearance: text(mirror(NOTE, 'appearance.yaml')),
 		big: fs.existsSync(at(BIG)) ? hash(at(BIG)) : null,
 		box: fs.existsSync(at(BOX)) ? fs.readdirSync(at(BOX)).sort() : null,
-		rows: Object.fromEntries([NOTE, BIG, BOX].map(name => [name, readCanvasCardGeometry(layout(), name)]))
+		draft: text(mirror(DRAFT, 'generation.yaml')),
+		rows: Object.fromEntries(CARDS.map(name => [name, readCanvasCardGeometry(layout(), name)]))
 	});
+	const before = now();
+	const setGone = () => !fs.existsSync(at(BIG)) && !fs.existsSync(at(BOX)) && !fs.existsSync(mirror(DRAFT, 'generation.yaml'));
 	const assertBack = async what => {
 		await waitUntil(() => JSON.stringify(now()) === JSON.stringify(before), what, 15_000).catch(() => {
 			throw new Error(`${what}: ${JSON.stringify({ before, now: now() })}`);
 		});
-		for (const name of [NOTE, BIG, BOX]) {
+		for (const name of CARDS) {
 			await card(name).waitFor({ state: 'visible', timeout: 15_000 });
 		}
 	};
@@ -104,19 +155,15 @@ export async function assertCanvasExactUndo(page) {
 	await page.keyboard.press(UNDO);
 	await assertBack('one undo to bring the note back with its description, its color, and its place');
 
-	// The Delete key, on a set: the large file and the folder, one step.
-	await centerCanvasCards(page, [card(BIG), card(BOX)]);
-	await card(BIG).click();
-	await card(BOX).click({ modifiers: ['Shift'] });
-	await waitForCanvasCardSelection(page, BIG);
-	await waitForCanvasCardSelection(page, BOX);
+	// The Delete key, on a set: the large file, the folder, and the draft, one step.
+	await selectCanvasCards(page, [BIG, BOX, DRAFT]);
 	await page.keyboard.press('Delete');
-	await waitUntil(() => !fs.existsSync(at(BIG)) && !fs.existsSync(at(BOX)), 'the Delete key to delete the set at once');
+	await waitUntil(setGone, 'the Delete key to delete the set at once');
 	await keyboardOnCanvas();
 	await page.keyboard.press(UNDO);
-	await assertBack('one undo to bring back the file of 6 MB byte for byte and the folder with its notes');
+	await assertBack('one undo to bring back the file of 6 MB byte for byte, the folder with its notes, and the draft with its prompt');
 	await page.keyboard.press(REDO);
-	await waitUntil(() => !fs.existsSync(at(BIG)) && !fs.existsSync(at(BOX)), 'redo to delete the set again');
+	await waitUntil(setGone, 'redo to delete the set again');
 	await page.keyboard.press(UNDO);
 	await assertBack('undo after redo to bring the set back again');
 
@@ -163,7 +210,7 @@ export async function assertCanvasExactUndo(page) {
 		throw new Error(`No delete and no undo may open a dialog: ${JSON.stringify(watch)}`);
 	}
 
-	for (const name of ['untitled.md', NOTE, BIG, BOX]) {
+	for (const name of ['untitled.md', ...CARDS]) {
 		await centerCanvasCards(page, [card(name)]);
 		await deleteCanvasCardFromItsMenu(page, name);
 	}

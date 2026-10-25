@@ -112,9 +112,9 @@ Not in scope, and unchanged:
   the Delete and Backspace keys delete what is selected at once. No dialog,
   question, or notice shows.
 - The card's menu says **Delete**, without an ellipsis: it asks nothing.
-- A delete is one step, named "Delete <name>" for one item and "Delete <n>
-  items" for more. A set of files, folders, and drafts is one step: one undo
-  brings all of them back.
+- A delete is one step, named "Delete `<name>`" for one item and "Delete
+  `<n>` items" for more. A set of files, folders, and drafts is one step:
+  one undo brings all of them back.
 - Entries of other items that name a deleted item stay as they are. They
   show as broken until undo brings the item back
   ([reference graph](reference-graph.md#deleting)). The dialog's checkbox
@@ -139,10 +139,10 @@ Not in scope, and unchanged:
 - A step that cannot be undone as it was says why and changes nothing, and
   the next undo goes to the step before:
   - an item is at the path again, as after a New Note with the same name:
-    "'<name>' is there again. Undo did not replace it.";
+    "'`<name>`' is there again. Undo did not replace it.";
   - what the step kept is gone from the kept versions, as when another
-    window sent it to the Trash: "'<name>' is in the Trash now. Restore it
-    from there."
+    window sent it to the Trash: "'`<name>`' is in the Trash now. Restore
+    it from there."
 
 ### When the kept versions go to the Trash
 
@@ -242,7 +242,11 @@ Not in scope, and unchanged:
 - Unit tests of the kept versions: delete, undo, and redo of a file, a large
   file, a folder, and card information; the refusals; the marks and the
   sweep of old ones; a change of files in place.
+- Unit test of VS Code's undo service: one undo of a source takes back a
+  group of steps of that source and asks nothing.
 - Smoke, canvas suite: a step that deletes with the menu, the toolbar, and
-  the key, watches every frame for a dialog, and undoes and redoes; the
-  steps that deleted with the dialog delete without it.
-- The window: criteria 3, 6, 7, 10, 11, and 13.
+  the key, a set of a file, a folder, and a draft among them, watches every
+  frame for a dialog, and undoes and redoes; the steps that deleted with the
+  dialog delete without it.
+- The window: criteria 3 to 7, 10, 11, and 13, and Duplicate of a file with
+  a draft for criterion 8.
