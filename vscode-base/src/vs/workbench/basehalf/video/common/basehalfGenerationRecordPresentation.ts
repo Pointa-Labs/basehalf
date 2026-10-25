@@ -56,7 +56,7 @@ export interface IBaseHalfGenerationRecordPresentation {
 	readonly inputs: readonly IBaseHalfGenerationRecordInput[];
 	/** The prompt it was made with, as it was sent; empty when there was none. */
 	readonly prompt: string;
-	/** Which image or song of how many it is, or that it is a copy. */
+	/** Which image or song of how many it is, or that it is a copy; and which part of the generated video a trimmed video holds. */
 	readonly line?: string;
 	/** The model's name, or its recorded id. */
 	readonly model: string;
@@ -101,11 +101,15 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 			gone: !state.inputs[index].available
 		});
 	});
-	const line = made.copyOf !== undefined
+	const base = made.copyOf !== undefined
 		? localize('basehalf.generation.record.copy', "A copy. This is what made the original.")
 		: made.output !== undefined && made.outputs !== undefined && made.outputs > 1
 			? outputLine(state.kind, made.output, made.outputs)
 			: undefined;
+	// A trimmed video holds a part of what was generated (trimming a video, "A generated video").
+	const part = baseHalfGenerationTrimmedPart(made);
+	const trimmed = part !== undefined ? localize('basehalf.generation.record.trimmed', "Trimmed to {0} of the generated video.", part) : undefined;
+	const line = base !== undefined && trimmed !== undefined ? localize('basehalf.generation.record.lineTrimmed', "{0} {1}", base, trimmed) : base ?? trimmed;
 	const region = ref?.provider.regions.find(candidate => candidate.id === made.region);
 	const recorded = () => [made.mode, ...Object.entries(made.params).map(([name, value]) => `${name} ${String(value)}`)];
 	const settings = ref ? baseHalfVideoRecordedSettingsSummary(ref.model, made.mode, made.params) : recorded();
@@ -129,6 +133,19 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 		settings: settings.join(' · '),
 		settingsTitle: localize('basehalf.generation.record.settings', "Made with: {0}", everySetting.join(' · '))
 	});
+}
+
+/**
+ * The part of the generated video that a trimmed video holds, as `1.0s–4.5s`,
+ * in tenths as the player shows times; none when it was not trimmed.
+ */
+export function baseHalfGenerationTrimmedPart(made: Pick<IBaseHalfGenerationMade, 'trimStart' | 'trimEnd'>): string | undefined {
+	if (made.trimStart === undefined || made.trimEnd === undefined) {
+		return undefined;
+	}
+	// The record is to the millisecond: a tenth is never shown above the time.
+	const tenths = (seconds: number) => (Math.floor(seconds * 10 + 1e-5) / 10).toFixed(1);
+	return localize('basehalf.generation.record.trimmedPart', "{0}s–{1}s", tenths(made.trimStart), tenths(made.trimEnd));
 }
 
 /** Which output of how many a file is, by what the card makes: "Image 2 of 4", "Song 1 of 2". */

@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCardDetailProjections.css';
-import { $, append, clearNode } from '../../../../base/browser/dom.js';
+import { $, append, clearNode, getActiveElement } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
-import { disposableTimeout } from '../../../../base/common/async.js';
+import { disposableTimeout, RunOnceScheduler } from '../../../../base/common/async.js';
 import { safeIntl } from '../../../../base/common/date.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -19,6 +19,7 @@ import { localize } from '../../../../nls.js';
 import type { VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { FileChangeType, IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
@@ -51,8 +52,10 @@ import {
 	planBaseHalfVideoInputs
 } from '../../video/common/basehalfVideoCatalog.js';
 import { baseHalfPromptAsText } from '../../video/common/basehalfGenerationMentions.js';
+import { baseHalfGenerationTrimmedPart } from '../../video/common/basehalfGenerationRecordPresentation.js';
 import { baseHalfRecordedVoiceList, baseHalfVoiceLabel, IBaseHalfGenerationVoiceService } from '../../video/common/basehalfGenerationVoices.js';
 import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../video/common/basehalfVideoGeneration.js';
+import { BaseHalfVideoTrimBar } from '../../videoTrim/browser/basehalfVideoTrimBar.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
@@ -65,6 +68,10 @@ const BOOK_VIEW_STATE_STORAGE_PREFIX = 'basehalf.bookViewState.';
 const BOOK_READER_PREFERENCES_STORAGE_KEY = 'basehalf.bookReader.preferences';
 /** The schemes of a link in a book that the browser opens (PDFs and books, "The book reader"). */
 const BOOK_LINK_SCHEMES = new Set(['http', 'https', 'mailto']);
+/** How long a video or a sound may be away before Card Detail says it no longer exists. */
+const MEDIA_GONE_DELAY_MS = 500;
+/** The changes of a video's or a sound's file within this time are looked at once. */
+const MEDIA_CHANGE_DELAY_MS = 50;
 /** What the page of an image says once it can be drawn. */
 const BASEHALF_MEDIA_DRAWN_MESSAGE = 'basehalf.media.drawn';
 /** What the page of an image says of an Escape it did not use. */
@@ -152,6 +159,7 @@ export function baseHalfGenerationProvenance(
 	const modeInputs = mode?.inputs ?? (made.mode === 'frames' ? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS : card.kind === 'audio' ? BASEHALF_AUDIO_DEFAULT_MODE_INPUTS : BASEHALF_IMAGE_DEFAULT_MODE_INPUTS);
 	const plan = planBaseHalfVideoInputs(modeInputs, made.inputs.map(path => ({ path, kind: kindOf(path), available: true })));
 	const inputs = plan.map((item): IBaseHalfGenerationProvenanceInput => Object.freeze({ name: provenanceUse(item), path: item.path }));
+	const trimmed = baseHalfGenerationTrimmedPart(made);
 	const rows: IBaseHalfGenerationProvenanceRow[] = [
 		{ label: localize('basehalf.generation.detail.model', "Model"), value: localize('basehalf.generation.detail.modelValue', "{0} ({1})", model?.label ?? made.model, made.providerModel) },
 		{ label: localize('basehalf.generation.detail.provider', "Provider"), value: localize('basehalf.generation.detail.providerValue', "{0} · {1}", provider?.label ?? made.provider, region?.label ?? made.region) },
@@ -163,6 +171,13 @@ export function baseHalfGenerationProvenance(
 				// Which image or song of how many (generation cards, "Several images from one generation").
 				label: card.kind === 'audio' ? localize('basehalf.generation.detail.song', "Song") : localize('basehalf.generation.detail.image', "Image"),
 				value: localize('basehalf.generation.detail.imageOf', "{0} of {1}", made.output, made.outputs)
+			}]
+			: []),
+		...(trimmed !== undefined
+			? [{
+				// The part of the generated video that a trimmed video holds (trimming a video, "A generated video").
+				label: localize('basehalf.generation.detail.trimmed', "Trimmed"),
+				value: localize('basehalf.generation.detail.trimmedPart', "{0} of the generated video", trimmed)
 			}]
 			: []),
 		{ label: localize('basehalf.generation.detail.started', "Started"), value: time(started, made.startedAt) },
@@ -195,6 +210,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private webview: IWebviewElement | undefined;
 	private readonly playerStore = this._register(new MutableDisposable<DisposableStore>());
 	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
+	/** The trim bar under the player of a video. */
+	private trimBar: BaseHalfVideoTrimBar | undefined;
 	private playerVersion = 0;
 	/** The image of the webview can be drawn: its page says so (opening and closing Card Detail). */
 	private drawn: (() => void) | undefined;
@@ -221,6 +238,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@ILogService private readonly logService: ILogService,
 		@IBaseHalfGenerationCardStore private readonly generationCardStore: IBaseHalfGenerationCardStore,
@@ -257,15 +275,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			if (kind === 'video' || kind === 'audio') {
 				// What made a generated video or sound shows below its player (D78).
 				this.followGenerationProvenance(state);
-				this._register(this.fileService.onDidFilesChange(event => {
-					if (event.contains(state.resource, FileChangeType.DELETED)) {
-						this.renderNotice('This media file no longer exists.');
-						return;
-					}
-					if (event.contains(state.resource, FileChangeType.UPDATED, FileChangeType.ADDED)) {
-						void this.renderPlayer(state.resource, kind === 'audio');
-					}
-				}));
+				this.followMediaFile(state, stat, kind === 'audio');
 				// Card Detail is drawn once the video has the frame it starts at, or the sound its length.
 				await this.renderPlayer(state.resource, kind === 'audio');
 				return;
@@ -355,23 +365,85 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		this.webview?.focus();
 	}
 
-	/** The video or the sound in the player of Card Detail; resolves when it has the frame it starts at. */
-	private renderPlayer(resource: URI, sound: boolean): Promise<void> {
+	/**
+	 * Shows a video or a sound anew when its file changes, from its start: a
+	 * time of the file before means nothing in the new one. This window's own
+	 * moves and writes of the file count at once, as those of a trim and its
+	 * undo (exact undo), and the watcher of the system's files reports the
+	 * rest; the player is drawn again only when the file's size or time of
+	 * change differs from the one it shows. A file that is away for a moment
+	 * between two moves is looked for again before Card Detail says that it no
+	 * longer exists.
+	 */
+	private followMediaFile(state: IBaseHalfCardDetailState, stat: { readonly mtime?: number; readonly size?: number }, sound: boolean): void {
+		const versionOf = (file: { readonly mtime?: number; readonly size?: number }) => `${file.mtime ?? 0}-${file.size ?? 0}`;
+		let shown: string | undefined = versionOf(stat);
+		let away = false;
+		const current = () => !this.disposed && this.state?.resource.toString() === state.resource.toString();
+		const check: RunOnceScheduler = this._register(new RunOnceScheduler(() => {
+			this.fileService.stat(state.resource).then(next => {
+				away = false;
+				const version = versionOf(next);
+				if (current() && version !== shown) {
+					shown = version;
+					void this.renderPlayer(state.resource, sound, 0);
+				}
+			}, () => {
+				if (!current()) {
+					return;
+				}
+				if (!away) {
+					away = true;
+					check.schedule(MEDIA_GONE_DELAY_MS);
+					return;
+				}
+				away = false;
+				shown = undefined;
+				this.renderNotice('This media file no longer exists.');
+			});
+		}, MEDIA_CHANGE_DELAY_MS));
+		this._register(this.fileService.onDidFilesChange(event => {
+			if (event.contains(state.resource)) {
+				check.schedule();
+			}
+		}));
+		this._register(this.fileService.onDidRunOperation(event => {
+			if (isEqual(event.resource, state.resource) || (event.target && isEqual(event.target.resource, state.resource))) {
+				check.schedule();
+			}
+		}));
+	}
+
+	/** The video or the sound in the player of Card Detail, from `start` or the frame its card shows; resolves when it has the frame it starts at. */
+	private renderPlayer(resource: URI, sound: boolean, start?: number): Promise<void> {
+		// A file shown anew keeps the keyboard where it was: on the same control of the player or the trim bar.
+		const active = getActiveElement();
+		const focused = active && this.webviewHost.contains(active) ? this.trimBar?.controlOf(active) ?? 'player' : undefined;
 		const store = new DisposableStore();
 		this.playerStore.value = store;
+		this.trimBar = undefined;
 		clearNode(this.webviewHost);
 		this.webviewHost.classList.add('holds-player');
 		// A file that changed is asked for anew, not from the cache: a version in the query, as the webview's.
 		const version = ++this.playerVersion;
-		const player = this.player = store.add(createBaseHalfCanvasCardVideoPlayer(this.webviewHost, null, {
+		// A video plays with the trim bar under it, both centered together (trimming a video); a sound plays alone.
+		const stage = sound ? this.webviewHost : append(this.webviewHost, $('.basehalf-card-detail-video-stage'));
+		const player = this.player = store.add(createBaseHalfCanvasCardVideoPlayer(stage, null, {
 			source: resource.with({ query: [resource.query, `basehalfMediaVersion=${version}`].filter(Boolean).join('&') }),
 			videoClasses: [],
 			detail: true,
 			sound,
+			...(start !== undefined ? { start } : {}),
 			open: () => { /* Card Detail is open already. */ },
 			onError: () => this.renderNotice('The media file could not be decoded by this system.'),
 			hoverService: this.hoverService
 		}));
+		const state = this.state;
+		const bar = !sound && state ? this.trimBar = store.add(this.instantiationService.createInstance(BaseHalfVideoTrimBar, stage, { video: state, player, stage })) : undefined;
+		// A handle shows once the bar has read the video: the player holds the keyboard until then.
+		if (focused && (focused === 'player' || !bar || !bar.focusControl(focused))) {
+			player.focus();
+		}
 		return new Promise<void>(resolve => {
 			store.add(toDisposable(resolve));
 			whenBaseHalfCanvasMediaDrawn(player.video, store, resolve);
@@ -542,6 +614,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		this.webview = undefined;
 		this.playerStore.clear();
 		this.player = undefined;
+		this.trimBar = undefined;
 		this.webviewHost.classList.remove('holds-player');
 		clearNode(this.webviewHost);
 		const notice = append(this.webviewHost, $('.basehalf-card-detail-source-notice'));

@@ -155,6 +155,8 @@ function windowSoundContext(targetWindow: Window): IBaseHalfVideoSoundContext | 
 export class BaseHalfCanvasVideoSound extends Disposable {
 	private route: (IDisposable & { readonly level: IBaseHalfVideoSoundLevel }) | undefined;
 	private going: { pause: boolean; mute: boolean; readonly timer: ReturnType<typeof setTimeout> } | undefined;
+	/** Where the sound has gone down by, in seconds of the video: its end, or the end of a part that plays (trimming a video, "Playing"). */
+	private end: number | undefined;
 
 	constructor(
 		private readonly video: HTMLVideoElement,
@@ -244,6 +246,18 @@ export class BaseHalfCanvasVideoSound extends Disposable {
 			return;
 		}
 		this.goQuiet('pause');
+	}
+
+	/**
+	 * Makes the sound go down before `end`, in seconds of the video, instead of
+	 * before the video's end: the end of a part of the video that plays over
+	 * and over. Nothing puts the video's own end back.
+	 */
+	setEnd(end: number | undefined): void {
+		this.end = end;
+		if (!this.video.paused && !this.going) {
+			this.comeUp();
+		}
 	}
 
 	/** Turns the sound off once it has gone down, or on, coming up. */
@@ -342,7 +356,7 @@ export class BaseHalfCanvasVideoSound extends Disposable {
 		}
 		const now = context.currentTime;
 		holdBaseHalfVideoSoundLevel(level, now, from);
-		const remaining = (this.video.duration - this.video.currentTime) / (this.video.playbackRate || 1);
+		const remaining = ((this.end ?? this.video.duration) - this.video.currentTime) / (this.video.playbackRate || 1);
 		const end = Number.isFinite(remaining) && !this.video.loop ? now + remaining - END_MARGIN_SECONDS : undefined;
 		const up = now + BASEHALF_VIDEO_SOUND_FADE_IN_SECONDS;
 		if (end !== undefined && end - BASEHALF_VIDEO_SOUND_END_SECONDS <= up) {

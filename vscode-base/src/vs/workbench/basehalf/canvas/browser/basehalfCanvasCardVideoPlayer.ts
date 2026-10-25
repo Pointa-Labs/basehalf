@@ -23,6 +23,20 @@ export const BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH = 160;
 /** How far Left and Right move the position slider, in seconds. */
 const SLIDER_STEP_SECONDS = 1;
 
+/** Two times of a part that plays closer than this are the same, in seconds. */
+const RANGE_EPSILON = 0.0005;
+/**
+ * A jump to a part's start goes this far into its first frame, in seconds: a
+ * time a hair before a frame's own time shows the frame before it.
+ */
+const RANGE_START_INSIDE = 0.0002;
+/**
+ * How much of the length of a part's last frame passes before the part starts
+ * again: a timer can be late, and a jump at its time would show the frame
+ * after the part.
+ */
+const RANGE_JUMP_AFTER = 0.5;
+
 export interface IBaseHalfCanvasCardVideoPlayerOptions {
 	/** The video file, or the sound file. */
 	readonly source: URI;
@@ -50,8 +64,18 @@ export interface IBaseHalfCanvasCardVideoPlayerOptions {
 	 * Screen.
 	 */
 	readonly sound?: boolean;
+	/** Where it starts, in seconds, as for a file that was replaced; by default where its card or its last player stood. */
+	readonly start?: number;
 	/** The audio graph the sound plays through, for a test; the window's by default. */
 	readonly soundGraph?: () => BaseHalfVideoSoundGraph | undefined;
+}
+
+/** A part of a video that the player plays over and over (trimming a video, "Playing"), in seconds. */
+export interface IBaseHalfCanvasVideoPlayRange {
+	readonly start: number;
+	readonly end: number;
+	/** Where the part's last frame starts: once it has been shown for its length, the part starts again. */
+	readonly lastFrame: number;
 }
 
 /** A video on a card (video node, "The player"). Dispose it with the card's body. */
@@ -64,6 +88,12 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
 	setSelected(selected: boolean): void;
 	/** Pauses the video, once its sound has gone down. */
 	pause(): void;
+	/** Plays or pauses the video, as Play does. */
+	togglePlay(): void;
+	/** Shows the frame at a time, in seconds. */
+	seek(time: number): void;
+	/** Plays only a part of the video, over and over, or the whole video again. */
+	setPlayRange(range: IBaseHalfCanvasVideoPlayRange | undefined): void;
 	/** Puts the keyboard on the play button, as Card Detail does when it opens. */
 	focus(): void;
 }
@@ -156,6 +186,9 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	private selected = false;
 	private muted = true;
 	private scrubbing: number | undefined;
+	private range: IBaseHalfCanvasVideoPlayRange | undefined;
+	private rangeFrame: number | undefined;
+	private rangeJump: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
 		container: HTMLElement,
@@ -183,7 +216,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		// The frame where the video last stopped stands for it, at first its first frame.
 		// Card Detail starts at the frame its card shows, with the sound on.
 		const last = lastPlayed.get(options.source);
-		const time = detail ? cardPlayerOf(options.source)?.currentTime ?? last?.time : last?.time;
+		const time = options.start ?? (detail ? cardPlayerOf(options.source)?.currentTime ?? last?.time : last?.time);
 		this.muted = detail || isSound ? false : last?.muted ?? true;
 		this.video.src = `${FileAccess.uriToBrowserUri(options.source).toString(true)}#t=${time !== undefined && time > 0 ? time : 0.001}`;
 		this.sound = this._register(new BaseHalfCanvasVideoSound(this.video, options.soundGraph));
@@ -227,6 +260,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		livePlayers.add(this);
 		this._register(toDisposable(() => {
 			livePlayers.delete(this);
+			this.stopWatchingRange();
 			this.rememberWhereItStands();
 			releaseBaseHalfCanvasCardMedia(this.video);
 			this.element.remove();
@@ -268,8 +302,68 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		this.updatePlayButton();
 	}
 
+	seek(time: number): void {
+		const duration = this.duration();
+		this.video.currentTime = Math.max(0, duration === undefined ? time : Math.min(time, duration));
+		this.updateTime();
+	}
+
+	setPlayRange(range: IBaseHalfCanvasVideoPlayRange | undefined): void {
+		this.range = range;
+		this.stopWatchingRange();
+		this.sound.setEnd(range?.end);
+		if (range && !this.video.paused) {
+			const time = this.video.currentTime;
+			if (time < range.start - RANGE_EPSILON || time >= range.lastFrame - RANGE_EPSILON) {
+				this.video.currentTime = range.start + RANGE_START_INSIDE;
+			}
+			this.watchRange();
+		}
+	}
+
 	focus(): void {
 		this.playButton.focus({ preventScroll: true });
+	}
+
+	/**
+	 * Watches each frame shown while a part plays: once the part's last frame
+	 * is on screen, the part starts again when that frame has been shown for
+	 * its length, so that no frame after the part is shown.
+	 */
+	private watchRange(): void {
+		const range = this.range;
+		if (!range || this.video.paused || this.rangeFrame !== undefined || this.rangeJump !== undefined) {
+			return;
+		}
+		this.rangeFrame = this.video.requestVideoFrameCallback((_now, metadata) => {
+			this.rangeFrame = undefined;
+			const current = this.range;
+			if (!current || this.video.paused) {
+				return;
+			}
+			if (metadata.mediaTime >= current.lastFrame - RANGE_EPSILON) {
+				const remaining = Math.max(0, (current.end - metadata.mediaTime) / (this.video.playbackRate || 1));
+				this.rangeJump = setTimeout(() => {
+					this.rangeJump = undefined;
+					if (this.range && !this.video.paused) {
+						this.video.currentTime = this.range.start + RANGE_START_INSIDE;
+					}
+				}, remaining * 1000 * RANGE_JUMP_AFTER);
+				return;
+			}
+			this.watchRange();
+		});
+	}
+
+	private stopWatchingRange(): void {
+		if (this.rangeFrame !== undefined) {
+			this.video.cancelVideoFrameCallback(this.rangeFrame);
+			this.rangeFrame = undefined;
+		}
+		if (this.rangeJump !== undefined) {
+			clearTimeout(this.rangeJump);
+			this.rangeJump = undefined;
+		}
 	}
 
 	setSelected(selected: boolean): void {
@@ -364,7 +458,23 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		for (const type of ['play', 'pause'] as const) {
 			this._register(addDisposableListener(video, type, () => this.updatePlayButton()));
 		}
-		this._register(addDisposableListener(video, 'ended', () => this.updatePlayButton()));
+		this._register(addDisposableListener(video, 'ended', () => {
+			// A part that ends where the video does starts again too.
+			if (this.range) {
+				video.currentTime = this.range.start + RANGE_START_INSIDE;
+				this.play();
+				return;
+			}
+			this.updatePlayButton();
+		}));
+		// A part that plays is watched from each start and after each jump.
+		for (const type of ['playing', 'seeked'] as const) {
+			this._register(addDisposableListener(video, type, () => {
+				this.stopWatchingRange();
+				this.watchRange();
+			}));
+		}
+		this._register(addDisposableListener(video, 'pause', () => this.stopWatchingRange()));
 		for (const type of ['timeupdate', 'durationchange', 'loadedmetadata', 'seeked'] as const) {
 			this._register(addDisposableListener(video, type, () => this.updateTime()));
 		}
@@ -455,6 +565,11 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	}
 
 	private play(): void {
+		// A part plays from its start when the video stands outside it or at its end, its last frame.
+		const range = this.range;
+		if (range && (this.video.currentTime < range.start - RANGE_EPSILON || this.video.currentTime >= range.lastFrame - RANGE_EPSILON)) {
+			this.video.currentTime = range.start + RANGE_START_INSIDE;
+		}
 		this.sound.play(this.muted).catch((error: unknown) => {
 			// A video drawn again with its sound on may not start with sound by
 			// itself, before a click: it plays without, and its button says so.
@@ -468,7 +583,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		this.updatePlayButton();
 	}
 
-	private togglePlay(): void {
+	togglePlay(): void {
 		if (this.video.paused || this.video.ended || this.sound.pausing) {
 			this.play();
 		} else {

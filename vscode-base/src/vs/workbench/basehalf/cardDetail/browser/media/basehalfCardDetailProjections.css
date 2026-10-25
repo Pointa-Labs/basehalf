@@ -206,6 +206,19 @@
 	container-type: size;
 }
 
+/*
+ * A video plays with the trim bar under it (trimming a video, "Where it is"):
+ * the two are centered together, the bar as wide as the player, and the
+ * player leaves the bar's height of the space.
+ */
+.monaco-workbench .basehalf-card-detail-video-stage {
+	--basehalf-video-trim-space: 84px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+}
+
 /* --- What made the file of a generation card ---------------------------------------------- */
 
 .monaco-workbench .basehalf-card-detail-media.has-generation-provenance {

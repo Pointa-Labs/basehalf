@@ -86,6 +86,8 @@ const MAX_PATH_LENGTH = 1024;
 const MAX_TIMESTAMP_LENGTH = 64;
 const MAX_PARAMS = 64;
 const MAX_PARAM_TEXT_LENGTH = 16 * 1024;
+/** The latest second a trimmed video's part of what was generated can end at: a day. */
+const MAX_TRIM_MS = 24 * 60 * 60 * 1000;
 const PARAM_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -558,6 +560,9 @@ export interface IBaseHalfGenerationMade extends IBaseHalfGenerationRequest {
 	readonly outputs?: number;
 	/** The `id` of the record of the file this one is a copy of. */
 	readonly copyOf?: string;
+	/** The part of the generated video that a trimmed video holds, in seconds of the generated video; both or neither. */
+	readonly trimStart?: number;
+	readonly trimEnd?: number;
 }
 
 const MADE_STRING_FIELDS = ['id', 'startedAt', 'finishedAt', 'remoteId', 'provider', 'region', 'model', 'providerModel', 'mode', 'prompt', 'copyOf'] as const;
@@ -589,6 +594,8 @@ export function parseBaseHalfGenerationMade(text: string): IBaseHalfGenerationMa
 	const params = baseHalfMirrorYamlAbsent(paramsNode) ? {} : readParams(paramsNode!, undefined, []);
 	const output = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(root, 'output'));
 	const outputs = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(root, 'outputs'));
+	const trimStart = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(root, 'trimStart'));
+	const trimEnd = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(root, 'trimEnd'));
 	if (!inputs || inputs.some(input => input === undefined) || !params) {
 		return undefined;
 	}
@@ -608,7 +615,9 @@ export function parseBaseHalfGenerationMade(text: string): IBaseHalfGenerationMa
 			inputs: inputs as string[],
 			...(output !== undefined ? { output } : {}),
 			...(outputs !== undefined ? { outputs } : {}),
-			...(strings.copyOf !== undefined ? { copyOf: strings.copyOf } : {})
+			...(strings.copyOf !== undefined ? { copyOf: strings.copyOf } : {}),
+			...(trimStart !== undefined ? { trimStart } : {}),
+			...(trimEnd !== undefined ? { trimEnd } : {})
 		});
 	} catch (error) {
 		if (error instanceof BaseHalfGenerationInfoError) {
@@ -628,6 +637,7 @@ export function serializeBaseHalfGenerationMade(value: IBaseHalfGenerationMade):
 		`finishedAt: ${baseHalfMirrorYamlQuote(made.finishedAt)}`,
 		...(made.remoteId !== undefined ? [`remoteId: ${baseHalfMirrorYamlQuote(made.remoteId)}`] : []),
 		...(made.output !== undefined ? [`output: ${made.output}`, `outputs: ${made.outputs}`] : []),
+		...(made.trimStart !== undefined ? [`trimStart: ${made.trimStart}`, `trimEnd: ${made.trimEnd}`] : []),
 		`provider: ${baseHalfMirrorYamlQuote(made.provider)}`,
 		`region: ${baseHalfMirrorYamlQuote(made.region)}`,
 		`model: ${baseHalfMirrorYamlQuote(made.model)}`,
@@ -661,6 +671,10 @@ export function normalizeBaseHalfGenerationMade(value: IBaseHalfGenerationMade):
 			throw error('output must be a whole number from 1 to outputs, and outputs from 2 to 16.');
 		}
 	}
+	if ((value.trimStart === undefined) !== (value.trimEnd === undefined)) {
+		throw error('trimStart and trimEnd are written together.');
+	}
+	const trim = value.trimStart !== undefined && value.trimEnd !== undefined ? trimmedPart(value.trimStart, value.trimEnd) : undefined;
 	return Object.freeze({
 		id: id(value.id, 'id'),
 		...(copyOf !== undefined ? { copyOf } : {}),
@@ -668,8 +682,19 @@ export function normalizeBaseHalfGenerationMade(value: IBaseHalfGenerationMade):
 		finishedAt: timestamp(value.finishedAt, 'finishedAt'),
 		...(remoteId !== undefined ? { remoteId } : {}),
 		...(value.output !== undefined ? { output: value.output, outputs: value.outputs } : {}),
+		...(trim ?? {}),
 		...request
 	});
+}
+
+/** The part of the generated video a trimmed video holds, to the millisecond. */
+function trimmedPart(start: number, end: number): { readonly trimStart: number; readonly trimEnd: number } {
+	const startMs = Math.round(start * 1000);
+	const endMs = Math.round(end * 1000);
+	if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs < 0 || endMs <= startMs || endMs > MAX_TRIM_MS) {
+		throw error('trimStart and trimEnd must be seconds from 0, with trimEnd after trimStart.');
+	}
+	return { trimStart: startMs / 1000, trimEnd: endMs / 1000 };
 }
 
 /** Validates what a generation sent. Throws a {@link BaseHalfGenerationInfoError} with the field. */
@@ -696,6 +721,17 @@ export function normalizeBaseHalfGenerationRequest(value: IBaseHalfGenerationReq
 /** The record of a copy of a generated file: the same request, a new id, and the id it copies. */
 export function baseHalfGenerationMadeCopy(original: IBaseHalfGenerationMade, newId: string): IBaseHalfGenerationMade {
 	return normalizeBaseHalfGenerationMade({ ...original, id: newId, copyOf: original.copyOf ?? original.id });
+}
+
+/**
+ * The record of a generated video trimmed to `start` and `end`, seconds of the
+ * video as it is (trimming a video, "A generated video"): what made it, and
+ * the part of the generated video it holds then. A trimmed video's part
+ * narrows within the part it held.
+ */
+export function baseHalfGenerationMadeTrimmed(made: IBaseHalfGenerationMade, start: number, end: number): IBaseHalfGenerationMade {
+	const from = made.trimStart ?? 0;
+	return normalizeBaseHalfGenerationMade({ ...made, trimStart: from + start, trimEnd: from + end });
 }
 
 /** The parameter a new version leaves out, so that it makes another result (D59's shared name of the seed). */

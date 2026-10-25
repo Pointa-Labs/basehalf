@@ -188,10 +188,11 @@
 /*
  * The player of Card Detail (generation cards, "The player"): the picture is
  * the player's and is fitted into the space Card Detail gives it, which is
- * its container (`.holds-player`).
+ * its container (`.holds-player`), less the height of the trim bar under a
+ * video (trimming a video, "Where it is").
  */
 .monaco-workbench .basehalf-canvas-video-player.detail {
-	width: min(calc(100cqw - 48px), calc((100cqh - 48px) * var(--basehalf-video-aspect, 1.7778)), calc(900px * var(--basehalf-video-aspect, 1.7778)), 1280px);
+	width: min(calc(100cqw - 48px), calc((100cqh - 48px - var(--basehalf-video-trim-space, 0px)) * var(--basehalf-video-aspect, 1.7778)), calc(900px * var(--basehalf-video-aspect, 1.7778)), 1280px);
 	height: auto;
 	flex: none;
 	aspect-ratio: var(--basehalf-video-aspect, 16 / 9);

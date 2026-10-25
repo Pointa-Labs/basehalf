@@ -90,6 +90,17 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 		assert.deepStrictEqual([unreadable.readable, unreadable.inputs.length, unreadable.model], [false, 0, '']);
 	});
 
+	test('says which part of the generated video a trimmed video holds, after that it is a copy (D79)', () => {
+		const trimmed = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: { ...MADE, trimStart: 1, trimEnd: 4.5 }, inputs: INPUTS, catalog: ready });
+		const copy = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: { ...MADE, trimStart: 1.25, trimEnd: 3.04, copyOf: '20261023T080000-made0000' }, inputs: INPUTS, catalog: ready });
+		assert.deepStrictEqual([trimmed.line, trimmed.settings, copy.line], [
+			'Trimmed to 1.0s–4.5s of the generated video.',
+			// The settings are what was sent: the generated video was 5 s.
+			'Frames · 720p · 5s · Sound',
+			'A copy. This is what made the original. Trimmed to 1.2s–3.0s of the generated video.'
+		]);
+	});
+
 	test('names the voice a speech model spoke in by the catalog, the provider\'s last list, or its recorded id, apart from the settings, and says which song of how many it is (D78)', () => {
 		const audio: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
 		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'vx-pike', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };

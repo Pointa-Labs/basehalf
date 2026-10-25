@@ -8,7 +8,7 @@ import { safeIntl } from '../../../../../base/common/date.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { baseHalfGenerationProvenance } from '../../browser/basehalfMediaCardDetail.js';
-import { baseHalfGenerationMadeCopy, IBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
+import { baseHalfGenerationMadeCopy, baseHalfGenerationMadeTrimmed, IBaseHalfGenerationMade } from '../../../video/common/basehalfGenerationInfo.js';
 import { TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG } from '../../../video/test/common/basehalfVideoCatalogFixture.js';
 
 const startedAt = '2026-10-15T08:00:00.000Z';
@@ -147,6 +147,14 @@ suite('BaseHalfGenerationProvenance', () => {
 				model: { label: 'Model', value: 'Acme Motion 2 (acme-motion-2-w-260101)' }
 			}
 		});
+	});
+
+	test('says which part of the generated video a trimmed video holds, before when it was made (D79)', () => {
+		const rows = baseHalfGenerationProvenance({ kind: 'video', made: baseHalfGenerationMadeTrimmed(video, 1, 4.5) }, 'en', TEST_GENERATION_CATALOG).rows;
+		assert.deepStrictEqual(rows.slice(4, 6), [
+			{ label: 'Prompt', value: 'start.png rides along the sea, as scene says.' },
+			{ label: 'Trimmed', value: '1.0s–4.5s of the generated video' }
+		]);
 	});
 
 	test('says what made a sound: which song of how many, the voice it spoke in, its references, and that a copy is a copy of a sound (D78)', () => {

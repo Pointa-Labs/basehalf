@@ -1,0 +1,239 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The trim bar under the player of a video in Card Detail (trimming a video,
+ * "What it shows"): the strip of the picture's frames, the selection with a
+ * frame around it and the strip dimmed outside it, a handle just outside each
+ * of its edges, the playhead, the selection's length, Save Clip, and a line of
+ * status that keeps its height while it is empty.
+ */
+.monaco-workbench .basehalf-video-trim {
+	display: flex;
+	flex-direction: column;
+	/* As wide as the player above it, which the stage is. */
+	align-self: stretch;
+	gap: 6px;
+	min-width: min(280px, calc(100cqw - 48px));
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	user-select: none;
+}
+
+.monaco-workbench .basehalf-video-trim-row {
+	display: flex;
+	align-items: center;
+	/* Room for a handle that stands outside the strip's end. */
+	gap: 22px;
+	padding: 0 0 0 14px;
+}
+
+.monaco-workbench .basehalf-video-trim-strip {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+	height: 48px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent);
+	touch-action: none;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-trim-pictures {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	overflow: hidden;
+	border-radius: 8px;
+}
+
+.monaco-workbench .basehalf-video-trim-picture {
+	display: block;
+	flex: 1 1 0;
+	min-width: 0;
+	height: 100%;
+}
+
+.monaco-workbench .basehalf-video-trim-shade {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	background: color-mix(in srgb, var(--vscode-editor-background) 62%, transparent);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-trim-shade.before {
+	left: 0;
+	width: var(--basehalf-video-trim-start, 0%);
+	border-radius: 8px 0 0 8px;
+}
+
+.monaco-workbench .basehalf-video-trim-shade.after {
+	left: var(--basehalf-video-trim-end, 100%);
+	right: 0;
+	border-radius: 0 8px 8px 0;
+}
+
+.monaco-workbench .basehalf-video-trim-selection {
+	position: absolute;
+	top: -2px;
+	bottom: -2px;
+	left: var(--basehalf-video-trim-start, 0%);
+	width: calc(var(--basehalf-video-trim-end, 100%) - var(--basehalf-video-trim-start, 0%));
+	box-sizing: border-box;
+	border: 2px solid var(--vscode-editor-foreground);
+	border-radius: 6px;
+	pointer-events: none;
+}
+
+/* A selection shorter than the picture can be moved with its length. */
+.monaco-workbench .basehalf-video-trim:not(.whole):not(.unavailable) .basehalf-video-trim-selection {
+	pointer-events: auto;
+	cursor: grab;
+}
+
+.monaco-workbench .basehalf-video-trim.dragging .basehalf-video-trim-selection,
+.monaco-workbench .basehalf-video-trim.dragging .basehalf-video-trim-strip {
+	cursor: grabbing;
+}
+
+.monaco-workbench .basehalf-video-trim-handle {
+	position: absolute;
+	z-index: 2;
+	top: -2px;
+	bottom: -2px;
+	display: grid;
+	width: 14px;
+	box-sizing: border-box;
+	place-items: center;
+	background: var(--vscode-editor-foreground);
+	cursor: ew-resize;
+}
+
+.monaco-workbench .basehalf-video-trim-handle.start {
+	left: calc(var(--basehalf-video-trim-start, 0%) - 14px);
+	border-radius: 6px 0 0 6px;
+}
+
+.monaco-workbench .basehalf-video-trim-handle.end {
+	left: var(--basehalf-video-trim-end, 100%);
+	border-radius: 0 6px 6px 0;
+}
+
+.monaco-workbench .basehalf-video-trim.dragging .basehalf-video-trim-handle {
+	cursor: ew-resize;
+}
+
+.monaco-workbench .basehalf-video-trim-grip {
+	width: 2px;
+	height: 18px;
+	border-radius: 1px;
+	background: var(--vscode-editor-background);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-trim.loading .basehalf-video-trim-handle,
+.monaco-workbench .basehalf-video-trim.unavailable .basehalf-video-trim-handle,
+.monaco-workbench .basehalf-video-trim.loading .basehalf-video-trim-selection,
+.monaco-workbench .basehalf-video-trim.unavailable .basehalf-video-trim-selection,
+.monaco-workbench .basehalf-video-trim.loading .basehalf-video-trim-length,
+.monaco-workbench .basehalf-video-trim.unavailable .basehalf-video-trim-length {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-video-trim.unavailable .basehalf-video-trim-strip {
+	opacity: 0.5;
+}
+
+.monaco-workbench .basehalf-video-trim-playhead {
+	position: absolute;
+	z-index: 1;
+	top: -4px;
+	bottom: -4px;
+	width: 2px;
+	margin-left: -1px;
+	border-radius: 1px;
+	background: var(--vscode-editor-foreground);
+	box-shadow: 0 0 4px color-mix(in srgb, var(--vscode-editor-background) 60%, transparent);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-trim-length {
+	position: absolute;
+	z-index: 1;
+	top: 50%;
+	left: calc((var(--basehalf-video-trim-start, 0%) + var(--basehalf-video-trim-end, 100%)) / 2);
+	padding: 2px 8px;
+	border-radius: 6px;
+	color: #fff;
+	background: rgb(0 0 0 / 66%);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	line-height: 16px;
+	white-space: nowrap;
+	transform: translate(-50%, -50%);
+	pointer-events: none;
+}
+
+/* Over a short selection the length stands above the strip. */
+.monaco-workbench .basehalf-video-trim-length.outside {
+	top: -6px;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editorWidget-background);
+	box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+	transform: translate(-50%, -100%);
+}
+
+.monaco-workbench .basehalf-video-trim-confirm {
+	display: grid;
+	width: 32px;
+	height: 32px;
+	flex: none;
+	place-items: center;
+	padding: 0;
+	color: var(--vscode-editor-background);
+	background: var(--vscode-editor-foreground);
+	border: 0;
+	border-radius: 50%;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-trim-confirm.disabled {
+	color: color-mix(in srgb, var(--vscode-editor-foreground) 40%, transparent);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 12%, transparent);
+}
+
+.monaco-workbench .basehalf-video-trim-icon {
+	width: 18px;
+	height: 18px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-trim-status {
+	min-height: 18px;
+	padding-left: 14px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	line-height: 18px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-trim-status.error {
+	color: var(--vscode-errorForeground);
+}
+
+/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
+.monaco-workbench .basehalf-video-trim :focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-video-trim-handle:focus-visible,
+.monaco-workbench .basehalf-video-trim-confirm:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}

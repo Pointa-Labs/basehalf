@@ -40,6 +40,7 @@ import {
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
+import { assertCardDetailVideoTrim } from './areas/cardDetail/videoTrim.mts';
 import {
 	assertMarkdownRichBlockMenuPortal,
 	assertMarkdownRichBlockquoteEditable,
@@ -189,7 +190,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-document-cover-hides-and-shows', () => assertDocumentCoverHidesAndShows(page));
 }
 
-/** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; back and forward from it. */
+/** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the trim bar of a video; back and forward from it. */
 async function runCardDetailSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
@@ -245,6 +246,7 @@ async function runCardDetailSuite(page) {
 	await step('book-grows-branch', () => assertBookGrowsBranch(page));
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	await step('card-detail-rename-is-canvas-undo', () => assertCardDetailRenameIsCanvasUndo(page));
+	await step('card-detail-video-trim', () => assertCardDetailVideoTrim(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */
