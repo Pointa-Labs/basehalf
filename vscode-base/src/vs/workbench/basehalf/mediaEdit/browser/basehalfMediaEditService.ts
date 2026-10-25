@@ -45,12 +45,14 @@ import {
 	parseBaseHalfEditRecord,
 	serializeBaseHalfEditRecord
 } from '../common/basehalfEditRecord.js';
+import { baseHalfOrientedSize, IBaseHalfImageInfo, readBaseHalfImageInfo } from '../common/basehalfImageFile.js';
 import { readBaseHalfIsoBmffFile } from '../common/basehalfIsoBmffReader.js';
-import { baseHalfMediaChoicesAreNoEdit, baseHalfMediaEditExtension, baseHalfMediaEditKind } from '../common/basehalfMediaEditFormats.js';
+import { baseHalfMediaChoicesAreNoEdit, baseHalfMediaEditExtension, baseHalfMediaEditKind, baseHalfMediaEditRefusal } from '../common/basehalfMediaEditFormats.js';
 import { planBaseHalfVideoClip } from '../common/basehalfVideoClipPlan.js';
 import { baseHalfVideoFrameEdges, BaseHalfVideoFileError, IBaseHalfVideoByteSource, IBaseHalfVideoFile } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimTimeline } from '../common/basehalfVideoTrimSelection.js';
 import { readBaseHalfWebmFile } from '../common/basehalfWebmReader.js';
+import { BASEHALF_IMAGE_MAX_PIXELS, BASEHALF_IMAGE_MAX_SIDE, BaseHalfImageCropError, encodeBaseHalfImageCrop } from './basehalfImageCropEncoder.js';
 import { encodeBaseHalfVideoClip } from './basehalfVideoClipEncoder.js';
 
 /**
@@ -73,6 +75,13 @@ export interface IBaseHalfEditVideo {
 	readonly source: IBaseHalfVideoByteSource;
 }
 
+/** An image read as an edit reads it: what its file says, and its size upright as its camera gave it. */
+export interface IBaseHalfEditImage {
+	readonly info: IBaseHalfImageInfo;
+	readonly width: number;
+	readonly height: number;
+}
+
 /** What Edit starts from. */
 export interface IBaseHalfMediaEditState {
 	readonly kind: BaseHalfMediaKind;
@@ -84,6 +93,8 @@ export interface IBaseHalfMediaEditState {
 	readonly record?: IBaseHalfEditRecord;
 	/** The video of `source`, read. */
 	readonly video?: IBaseHalfEditVideo;
+	/** The image of `source`, read. */
+	readonly image?: IBaseHalfEditImage;
 	/** Why the file cannot be edited, in the words of Edit's hover. */
 	readonly unavailable?: string;
 }
@@ -139,6 +150,8 @@ export class BaseHalfMediaEditError extends Error {
 
 /** How many files the window keeps the last step for. */
 const MAX_KEPT_FILES = 100;
+/** The first bytes of an image, which hold its size and its information in nearly every file. */
+const IMAGE_HEADER_BYTES = 256 * 1024;
 /** A file in the cache folder of edits this old was left by a save that a closed window stopped. */
 const LEFTOVER_AGE_MS = 60 * 60 * 1000;
 
@@ -213,7 +226,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		const version = stat ? baseHalfMediaVersion(stat) : '';
 		const refuse = (unavailable: string): IBaseHalfMediaEditState => ({ kind: kind ?? 'image', version, source: file.resource, unavailable });
 		if (!kind) {
-			return refuse(localize('basehalf.mediaEdit.unavailable.kind', "BaseHalf can't edit this file."));
+			return refuse(baseHalfMediaEditRefusal(file.resource));
 		}
 		if (!stat?.isFile) {
 			return refuse(localize('basehalf.mediaEdit.unavailable.read', "BaseHalf can't edit this file: it could not be read."));
@@ -226,8 +239,31 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		const read = { kind, version, source: record ? joinPath(this.cardInformation(file), record.original) : file.resource, ...(record ? { record } : {}) };
 		switch (kind) {
 			case 'video': return { ...read, ...await this.videoState(read.source) };
+			case 'image': return { ...read, ...await this.imageState(read.source) };
 			default: return { ...read, unavailable: localize('basehalf.mediaEdit.unavailable.kind', "BaseHalf can't edit this file.") };
 		}
+	}
+
+	/** The image that Edit shows, or why it cannot. */
+	private async imageState(source: URI): Promise<Pick<IBaseHalfMediaEditState, 'image' | 'unavailable'>> {
+		const refusal = (reason: string) => ({ unavailable: localize('basehalf.mediaEdit.unavailable.image', "BaseHalf can't edit this image: {0}", reason) });
+		let info: IBaseHalfImageInfo | undefined;
+		try {
+			// Its header is enough: the size, the orientation, and the information it keeps.
+			info = readBaseHalfImageInfo((await readBaseHalfFileRange(this.fileService, source, 0, IMAGE_HEADER_BYTES)).buffer)
+				?? readBaseHalfImageInfo((await this.fileService.readFile(source)).value.buffer);
+		} catch (error) {
+			this.logService.warn(`[BaseHalf] could not read ${source.toString()} for an edit`, error);
+			return refusal(localize('basehalf.mediaEdit.unavailable.readImage', "its file could not be read."));
+		}
+		if (!info) {
+			return refusal(localize('basehalf.mediaEdit.unavailable.formatImage', "its file could not be read as PNG, JPEG, or WebP."));
+		}
+		const { width, height } = baseHalfOrientedSize(info);
+		if (width > BASEHALF_IMAGE_MAX_SIDE || height > BASEHALF_IMAGE_MAX_SIDE || width * height > BASEHALF_IMAGE_MAX_PIXELS) {
+			return refusal(localize('basehalf.mediaEdit.unavailable.largeImage', "it is larger than 16,384 pixels on a side or 256 million pixels."));
+		}
+		return { image: { info, width, height } };
 	}
 
 	/** The video that Edit shows, or why it cannot. */
@@ -522,9 +558,32 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		if (state.unavailable) {
 			throw new BaseHalfMediaEditError(state.unavailable);
 		}
-		if (state.kind !== 'video') {
-			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.kind', "BaseHalf can't edit this file."));
+		switch (state.kind) {
+			case 'video': return this.renderVideo(file, state, choices, kind);
+			case 'image': return this.renderImage(file, state, choices, kind);
+			default: throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.kind', "BaseHalf can't edit this file."));
 		}
+	}
+
+	/** Crops, turns, flips, and straightens an image, in its format, with its information. */
+	private async renderImage(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, kind: BaseHalfMediaSaveKind): Promise<IRenderedEdit> {
+		const bytes = (await this.fileService.readFile(state.source)).value.buffer;
+		const info = readBaseHalfImageInfo(bytes);
+		if (!info) {
+			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.formatImage', "the image could not be read as PNG, JPEG, or WebP."));
+		}
+		this.setProgress(file.resource, kind, 0.3);
+		try {
+			const encoding = await encodeBaseHalfImageCrop(bytes, info, choices);
+			this.setProgress(file.resource, kind, 0.9);
+			return { bytes: encoding.bytes, soundDropped: false, cardSize: baseHalfCanvasGenerationCardSize('image', encoding.width / encoding.height) };
+		} catch (error) {
+			throw error instanceof BaseHalfImageCropError ? new BaseHalfMediaEditError(error.message) : error;
+		}
+	}
+
+	/** Trims a video, and takes its sound away when it is muted. */
+	private async renderVideo(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, kind: BaseHalfMediaSaveKind): Promise<IRenderedEdit> {
 		const video = state.video ?? await this.readVideo(state.source);
 		const picture = video.file.video;
 		if (!picture) {

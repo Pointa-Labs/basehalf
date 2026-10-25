@@ -208,9 +208,13 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private readonly webviewHost: HTMLElement;
 	private state: IBaseHalfCardDetailState | undefined;
 	private webview: IWebviewElement | undefined;
+	/** The page of an image, a PDF, or a book, with its listeners: an image's goes while it is edited. */
+	private readonly webviewStore = this._register(new MutableDisposable<DisposableStore>());
+	/** Under an image: the line that says what the last step of its edit did. */
+	private imageNote: HTMLElement | undefined;
 	private readonly playerStore = this._register(new MutableDisposable<DisposableStore>());
 	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
-	/** The edit mode of a video (editing media). */
+	/** The edit mode of a video or an image (editing media). */
 	private editMode: BaseHalfMediaEditMode | undefined;
 	/** The version of the file that the player shows. */
 	private shownVersion: string | undefined;
@@ -305,36 +309,29 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			}
 			this.pdfViewState = kind === 'pdf' ? this.readPdfViewState(state.resource) : undefined;
 			this.bookViewState = kind === 'book' ? this.readBookViewState(state.resource) : undefined;
-			this.webview = this._register(this.webviewService.createWebviewElement({
-				providedViewType: 'basehalf.media',
-				title: state.relativePath || state.resource.path,
-				options: {
-					purpose: WebviewContentPurpose.CustomEditor,
-					retainContextWhenHidden: true
-				},
-				contentOptions: {
-					allowScripts: true,
-					allowForms: false,
-					localResourceRoots: [dirname(state.resource), contentViewerMediaRoot]
-				},
-				extension: undefined
-			}));
-			this.webview.mountTo(this.webviewHost, mainWindow);
-			this._register(this.webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
-			this.renderWebview(kind);
+			this.createWebview(state, kind);
 			if (kind === 'image') {
 				this.followGenerationProvenance(state);
+				this.editMode = this._register(this.instantiationService.createInstance(BaseHalfMediaEditMode, {
+					file: state,
+					header: this.editActions,
+					detail: this.root.closest<HTMLElement>('.basehalf-card-detail') ?? this.root,
+					// The crop view reads the original itself; the page shows the file.
+					show: () => this.showImage(state)
+				}));
+				this.showImageNote();
 			}
-			this._register(this.webview.onFatalError(error => {
-				this.logService.error(`[BaseHalf] media webview failed: ${error.message}`);
-			}));
 			this._register(this.fileService.onDidFilesChange(event => {
 				if (event.contains(state.resource, FileChangeType.DELETED)) {
 					this.renderNotice('This media file no longer exists.');
 					return;
 				}
-				if (event.contains(state.resource, FileChangeType.UPDATED, FileChangeType.ADDED)) {
+				// Edit mode shows the original and keeps it on screen: a save then finds that the file changed (editing media, "Failure").
+				if (event.contains(state.resource, FileChangeType.UPDATED, FileChangeType.ADDED) && !this.editMode?.isEditing) {
 					this.renderWebview(kind);
+					if (kind === 'image') {
+						this.showImageNote();
+					}
 				}
 			}));
 			if (kind === 'pdf' || kind === 'book') {
@@ -357,6 +354,71 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	override dispose(): void {
 		this.disposed = true;
 		super.dispose();
+	}
+
+	/** The page that shows an image, a PDF, or a book. */
+	private createWebview(state: IBaseHalfCardDetailState, kind: BaseHalfWebviewContentKind): void {
+		const store = new DisposableStore();
+		this.webviewStore.value = store;
+		const webview = this.webview = store.add(this.webviewService.createWebviewElement({
+			providedViewType: 'basehalf.media',
+			title: state.relativePath || state.resource.path,
+			options: {
+				purpose: WebviewContentPurpose.CustomEditor,
+				retainContextWhenHidden: true
+			},
+			contentOptions: {
+				allowScripts: true,
+				allowForms: false,
+				localResourceRoots: [dirname(state.resource), contentViewerMediaRoot]
+			},
+			extension: undefined
+		}));
+		store.add(toDisposable(() => {
+			if (this.webview === webview) {
+				this.webview = undefined;
+			}
+		}));
+		webview.mountTo(this.webviewHost, mainWindow);
+		store.add(webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
+		store.add(webview.onFatalError(error => {
+			this.logService.error(`[BaseHalf] media webview failed: ${error.message}`);
+		}));
+		this.renderWebview(kind);
+	}
+
+	/**
+	 * Shows an image anew, as edit mode asks: in edit mode its crop view takes
+	 * the place of its page, and out of it the page shows the file again, with
+	 * the line of the last step under it.
+	 */
+	private showImage(state: IBaseHalfCardDetailState): void {
+		if (this.disposed || this.state?.resource.toString() !== state.resource.toString()) {
+			return;
+		}
+		if (this.editMode?.isEditing) {
+			// The crop view is drawn by the window itself: no page of its own stands over it.
+			this.webviewStore.clear();
+			this.imageNote?.remove();
+			this.imageNote = undefined;
+			clearNode(this.webviewHost);
+			this.webviewHost.classList.add('holds-editor');
+			this.editMode.didShow({ stage: append(this.webviewHost, $('.basehalf-card-detail-image-stage')) });
+			return;
+		}
+		clearNode(this.webviewHost);
+		this.webviewHost.classList.remove('holds-editor');
+		this.createWebview(state, 'image');
+		this.showImageNote();
+	}
+
+	/** Under an image: what the last step of its edit did, until Card Detail closes. */
+	private showImageNote(): void {
+		if (!this.imageNote) {
+			this.imageNote = $('.basehalf-card-detail-image-note');
+			this.root.insertBefore(this.imageNote, this.webviewHost.nextSibling);
+		}
+		this.editMode?.didShow({ stage: this.imageNote });
 	}
 
 	activate(state: IBaseHalfCardDetailState): void {
@@ -636,8 +698,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	}
 
 	private renderNotice(message: string): void {
-		this.webview?.dispose();
+		this.webviewStore.clear();
 		this.webview = undefined;
+		this.imageNote?.remove();
+		this.imageNote = undefined;
+		this.webviewHost.classList.remove('holds-editor');
 		this.playerStore.clear();
 		this.player = undefined;
 		this.webviewHost.classList.remove('holds-player');

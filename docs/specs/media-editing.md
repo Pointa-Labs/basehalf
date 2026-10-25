@@ -399,7 +399,8 @@ crop:
   5:3, and 3:2, with Tall and Wide at its top for the ratios that have both;
   the menu says which is set. A ratio makes the frame the largest part of that
   ratio around its center that the picture holds. At first the ratio is
-  Freeform, and Original for an edit that had kept the original's ratio.
+  Freeform, or the one an edit before kept: Original, or a ratio of the
+  menu, tall or wide as it was.
 - **The Straighten dial** turns the picture under the frame by up to 45° each
   way, in steps of 0.1°, with a mark at every degree and the angle above it
   (`−2.5°`). The frame keeps its ratio and grows smaller as far as it must to

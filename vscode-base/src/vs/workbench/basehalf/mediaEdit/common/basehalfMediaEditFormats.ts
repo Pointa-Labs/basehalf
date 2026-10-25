@@ -6,6 +6,7 @@
 import { extname } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { BASEHALF_MEDIA_FILE_EXTENSIONS } from '../../../../platform/protocol/common/basehalfMediaFiles.js';
 import { BaseHalfMediaKind, IBaseHalfMediaChoices } from './basehalfEditRecord.js';
 
 /**
@@ -33,6 +34,17 @@ export function baseHalfMediaEditKind(resource: URI): BaseHalfMediaKind | undefi
 		}
 	}
 	return undefined;
+}
+
+/** Why Card Detail does not edit a file, in the words of Edit's hover: by its format for a media file it shows. */
+export function baseHalfMediaEditRefusal(resource: URI): string {
+	const extension = `.${baseHalfMediaEditExtension(resource)}`;
+	for (const kind of ['image', 'video', 'audio'] as const) {
+		if (BASEHALF_MEDIA_FILE_EXTENSIONS[kind].includes(extension)) {
+			return baseHalfMediaEditFormatRefusal(kind, resource);
+		}
+	}
+	return localize('basehalf.mediaEdit.unavailable.kind', "BaseHalf can't edit this file.");
 }
 
 /** Why a media file of a kind that Card Detail shows is not edited, in the words of Edit's hover. */

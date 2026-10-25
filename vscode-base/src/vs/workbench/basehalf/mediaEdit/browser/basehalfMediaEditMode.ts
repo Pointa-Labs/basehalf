@@ -24,6 +24,7 @@ import { IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../common/
 import { baseHalfMediaChoicesAreNoEdit } from '../common/basehalfMediaEditFormats.js';
 import { IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfMediaEditService, IBaseHalfMediaEditState, IBaseHalfMediaSaved } from './basehalfMediaEditService.js';
+import { BaseHalfImageCropView } from './basehalfImageCropView.js';
 import { BaseHalfVideoFrameViewer } from './basehalfVideoFrameViewer.js';
 
 /**
@@ -48,10 +49,13 @@ export interface IBaseHalfMediaEditHost {
 	show(source: URI): void;
 }
 
-/** What Card Detail drew: the stage under which the editor or the line of the last step stands, and the player in it. */
+/**
+ * What Card Detail drew: the stage that the editor, or out of edit mode the
+ * line of the last step, goes into, and the player of a video in it.
+ */
 export interface IBaseHalfMediaEditView {
 	readonly stage: HTMLElement;
-	readonly player: IBaseHalfCanvasCardVideoPlayer;
+	readonly player?: IBaseHalfCanvasCardVideoPlayer;
 }
 
 /** Above the undo of the canvas and of the editors of text, which have no keyboard while edit mode has it. */
@@ -146,15 +150,16 @@ export class BaseHalfMediaEditMode extends Disposable {
 			}
 			return;
 		}
-		if (!editing.state.video) {
+		const choices = editing.choices ?? editing.initial;
+		let editor: IBaseHalfMediaEditor;
+		if (editing.state.video && view.player) {
+			editor = store.add(this.instantiationService.createInstance(BaseHalfVideoFrameViewer, view.stage, { video: editing.state.video, player: view.player, stage: view.stage, choices }));
+		} else if (editing.state.image) {
+			const { width, height } = editing.state.image;
+			editor = store.add(this.instantiationService.createInstance(BaseHalfImageCropView, view.stage, { source: editing.state.source, size: { width, height }, choices }));
+		} else {
 			return;
 		}
-		const editor = store.add(this.instantiationService.createInstance(BaseHalfVideoFrameViewer, view.stage, {
-			video: editing.state.video,
-			player: view.player,
-			stage: view.stage,
-			choices: editing.choices ?? editing.initial
-		}));
 		editing.editor = editor;
 		store.add(toDisposable(() => {
 			if (editing.editor === editor) {

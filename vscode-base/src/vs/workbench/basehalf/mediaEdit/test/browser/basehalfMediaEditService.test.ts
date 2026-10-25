@@ -318,7 +318,7 @@ suite('BaseHalfMediaEditService', () => {
 		await fileService.writeFile(VIDEO, VSBuffer.fromString('not a video'));
 		const damaged = await service.readEditState(FILE);
 		assert.deepStrictEqual([gif.unavailable, gone.unavailable, damaged.unavailable?.startsWith('BaseHalf can\'t edit this video: ')], [
-			'BaseHalf can\'t edit this file.',
+			'BaseHalf can\'t edit GIF images',
 			'BaseHalf can\'t edit this file: it could not be read.',
 			true
 		]);

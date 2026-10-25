@@ -300,3 +300,29 @@
 .monaco-workbench .bh-generation-provenance-input-path {
 	color: var(--vscode-descriptionForeground);
 }
+
+/*
+ * An image in edit mode: its crop view takes the place of its page (editing
+ * media, "The crop view"). Out of edit mode the line of its last edit stands
+ * under it, and takes no room while it says nothing.
+ */
+.monaco-workbench .basehalf-card-detail-media-webview.holds-editor {
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-card-detail-image-stage {
+	position: absolute;
+	inset: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-image-note {
+	flex: none;
+}
+
+.monaco-workbench .basehalf-card-detail-image-note > .basehalf-media-edit-note {
+	padding: 6px 14px 10px;
+}
+
+.monaco-workbench .basehalf-card-detail-image-note > .basehalf-media-edit-note:empty {
+	display: none;
+}

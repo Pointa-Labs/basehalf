@@ -1,0 +1,322 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The crop view of an image in Card Detail's edit mode (editing media, "The
+ * crop view"): the picture under the crop frame, dimmed outside it, with
+ * thick corners and a handle in the middle of each side, lines in thirds
+ * while it is adjusted, the size of the part, and the row of tools under it.
+ */
+.monaco-workbench .basehalf-image-crop {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	user-select: none;
+}
+
+.monaco-workbench .basehalf-image-crop-view {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: hidden;
+	touch-action: none;
+	cursor: grab;
+}
+
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-view {
+	cursor: grabbing;
+}
+
+.monaco-workbench .basehalf-image-crop-picture {
+	position: absolute;
+	left: 0;
+	top: 0;
+	max-width: none;
+	max-height: none;
+	transform-origin: 0 0;
+	image-orientation: from-image;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-image-crop-frame {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1px solid rgb(255 255 255 / 85%);
+	/* Everything outside the frame is dimmed. */
+	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 55%);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-image-crop-grid {
+	position: absolute;
+	background: rgb(255 255 255 / 45%);
+	opacity: 0;
+	transition: opacity 120ms ease;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-grid {
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-image-crop-grid.v1,
+.monaco-workbench .basehalf-image-crop-grid.v2 {
+	top: 0;
+	bottom: 0;
+	width: 1px;
+}
+
+.monaco-workbench .basehalf-image-crop-grid.v1 { left: 33.333%; }
+.monaco-workbench .basehalf-image-crop-grid.v2 { left: 66.667%; }
+
+.monaco-workbench .basehalf-image-crop-grid.h1,
+.monaco-workbench .basehalf-image-crop-grid.h2 {
+	left: 0;
+	right: 0;
+	height: 1px;
+}
+
+.monaco-workbench .basehalf-image-crop-grid.h1 { top: 33.333%; }
+.monaco-workbench .basehalf-image-crop-grid.h2 { top: 66.667%; }
+
+/* Each corner is thick and L-shaped, a little outside the frame; its pointer area is larger than what it draws. */
+.monaco-workbench .basehalf-image-crop-corner {
+	position: absolute;
+	width: 22px;
+	height: 22px;
+	box-sizing: border-box;
+	border: 0 solid #fff;
+	outline: none;
+}
+
+.monaco-workbench .basehalf-image-crop-corner::before {
+	content: '';
+	position: absolute;
+	inset: -10px;
+}
+
+.monaco-workbench .basehalf-image-crop-corner.topLeft { left: -4px; top: -4px; border-left-width: 4px; border-top-width: 4px; cursor: nwse-resize; }
+.monaco-workbench .basehalf-image-crop-corner.topRight { right: -4px; top: -4px; border-right-width: 4px; border-top-width: 4px; cursor: nesw-resize; }
+.monaco-workbench .basehalf-image-crop-corner.bottomLeft { left: -4px; bottom: -4px; border-left-width: 4px; border-bottom-width: 4px; cursor: nesw-resize; }
+.monaco-workbench .basehalf-image-crop-corner.bottomRight { right: -4px; bottom: -4px; border-right-width: 4px; border-bottom-width: 4px; cursor: nwse-resize; }
+
+.monaco-workbench .basehalf-image-crop-side {
+	position: absolute;
+	background: #fff;
+}
+
+.monaco-workbench .basehalf-image-crop-side::before {
+	content: '';
+	position: absolute;
+	inset: -10px;
+}
+
+.monaco-workbench .basehalf-image-crop-side.top,
+.monaco-workbench .basehalf-image-crop-side.bottom {
+	left: calc(50% - 12px);
+	width: 24px;
+	height: 4px;
+	cursor: ns-resize;
+}
+
+.monaco-workbench .basehalf-image-crop-side.top { top: -4px; }
+.monaco-workbench .basehalf-image-crop-side.bottom { bottom: -4px; }
+
+.monaco-workbench .basehalf-image-crop-side.left,
+.monaco-workbench .basehalf-image-crop-side.right {
+	top: calc(50% - 12px);
+	width: 4px;
+	height: 24px;
+	cursor: ew-resize;
+}
+
+.monaco-workbench .basehalf-image-crop-side.left { left: -4px; }
+.monaco-workbench .basehalf-image-crop-side.right { right: -4px; }
+
+.monaco-workbench .basehalf-image-crop-size {
+	position: absolute;
+	padding: 2px 8px;
+	border-radius: 6px;
+	color: #fff;
+	background: rgb(0 0 0 / 66%);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	line-height: 16px;
+	white-space: nowrap;
+	transform: translateX(-50%);
+	opacity: 0;
+	transition: opacity 120ms ease;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-size {
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-image-crop-tools {
+	display: flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: 56px;
+	padding: 0 16px;
+}
+
+.monaco-workbench .basehalf-image-crop-tool {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 32px;
+	min-width: 32px;
+	padding: 0 7px;
+	box-sizing: border-box;
+	justify-content: center;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	font: inherit;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-image-crop-tool:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-image-crop-icon {
+	width: 20px;
+	height: 20px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-image-crop-ratio-label {
+	min-width: 52px;
+	text-align: left;
+	font-variant-numeric: tabular-nums;
+}
+
+/* The Straighten dial: the angle above a ruler of degrees that moves under a mark. */
+.monaco-workbench .basehalf-image-crop-dial {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	width: 240px;
+	margin: 0 14px;
+	outline: none;
+	cursor: ew-resize;
+	touch-action: none;
+}
+
+.monaco-workbench .basehalf-image-crop-dial-value {
+	min-height: 14px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	line-height: 14px;
+}
+
+.monaco-workbench .basehalf-image-crop-dial.turned .basehalf-image-crop-dial-value {
+	color: var(--vscode-foreground);
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-image-crop-dial-window {
+	position: relative;
+	width: 100%;
+	height: 18px;
+	overflow: hidden;
+	-webkit-mask-image: linear-gradient(to right, transparent, #000 22%, #000 78%, transparent);
+	mask-image: linear-gradient(to right, transparent, #000 22%, #000 78%, transparent);
+}
+
+/* 90 degrees at 6 px each, centered on 0 at the window's middle; a long tick every 5 degrees. */
+.monaco-workbench .basehalf-image-crop-dial-ruler {
+	position: absolute;
+	top: 4px;
+	left: calc(50% - 270px);
+	width: 541px;
+	height: 10px;
+	background:
+		repeating-linear-gradient(to right, var(--vscode-foreground) 0 1px, transparent 1px 30px) 0 0 / 100% 10px no-repeat,
+		repeating-linear-gradient(to right, var(--vscode-descriptionForeground) 0 1px, transparent 1px 6px) 0 4px / 100% 6px no-repeat;
+	opacity: 0.8;
+}
+
+.monaco-workbench .basehalf-image-crop-dial-mark {
+	position: absolute;
+	top: 0;
+	left: calc(50% - 1px);
+	width: 2px;
+	height: 18px;
+	border-radius: 1px;
+	background: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-image-crop-reset {
+	height: 28px;
+	padding: 0 10px;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	font: inherit;
+	font-weight: 500;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-image-crop-reset:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-image-crop-reset.disabled,
+.monaco-workbench .basehalf-image-crop-reset.disabled:hover {
+	color: var(--vscode-disabledForeground);
+	background-color: transparent;
+}
+
+.monaco-workbench .basehalf-image-crop.busy .basehalf-image-crop-tools,
+.monaco-workbench .basehalf-image-crop.busy .basehalf-image-crop-frame {
+	opacity: 0.6;
+}
+
+.monaco-workbench .basehalf-image-crop-status {
+	flex: none;
+	min-height: 18px;
+	padding: 0 16px 8px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	line-height: 18px;
+	text-align: center;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-image-crop-status.error {
+	color: var(--vscode-errorForeground);
+}
+
+/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
+.monaco-workbench .basehalf-image-crop :focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-image-crop-corner:focus-visible,
+.monaco-workbench .basehalf-image-crop-tool:focus-visible,
+.monaco-workbench .basehalf-image-crop-reset:focus-visible,
+.monaco-workbench .basehalf-image-crop-dial:focus-visible .basehalf-image-crop-dial-window {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-image-crop-frame:focus-visible {
+	border-color: var(--vscode-focusBorder);
+}

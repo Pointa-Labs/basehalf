@@ -40,6 +40,7 @@ import {
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
+import { assertCardDetailImageEdit } from './areas/cardDetail/imageEdit.mts';
 import { assertCardDetailVideoEdit } from './areas/cardDetail/videoEdit.mts';
 import {
 	assertMarkdownRichBlockMenuPortal,
@@ -191,7 +192,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-document-cover-hides-and-shows', () => assertDocumentCoverHidesAndShows(page));
 }
 
-/** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the edit mode of a video; back and forward from it. */
+/** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the edit mode of a video and an image; back and forward from it. */
 async function runCardDetailSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
@@ -248,6 +249,7 @@ async function runCardDetailSuite(page) {
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	await step('card-detail-rename-is-canvas-undo', () => assertCardDetailRenameIsCanvasUndo(page));
 	await step('card-detail-video-edit', () => assertCardDetailVideoEdit(page));
+	await step('card-detail-image-edit', () => assertCardDetailImageEdit(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */
