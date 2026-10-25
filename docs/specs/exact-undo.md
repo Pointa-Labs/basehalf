@@ -190,6 +190,13 @@ Not in scope, and unchanged:
   change in one step, such as a video and its `made.yaml`.
 - A file that is not there, has changes that are not saved, or is not an
   ordinary file of the workspace is refused, and nothing changes.
+- A version that the step, its undo, or its redo moves into the place of a
+  file takes the time of then as its modification time, as a save would.
+  Its bytes are those it had. A move keeps the time a version had, and the
+  file watcher of macOS tells a change by that time: a version that came
+  back with a time the watcher had seen at that path before was no change
+  to it. On 2026-10-25, after a trim, an undo, and a redo, the video was the
+  trimmed one, and its card still showed the version before.
 
 ### Undo while Card Detail is open
 
@@ -232,7 +239,8 @@ Not in scope, and unchanged:
 11. What a window kept whose mark is older than five minutes goes to the
     Trash when another window opens the folder.
 12. A change of a file in place is one step: undo puts the version before
-    back, and redo the new one.
+    back, and redo the new one. After each, the card and Card Detail show
+    the version that is there, also after undo and redo again.
 13. Cmd+Z with Card Detail open on a video undoes the last step of the
     canvas.
 14. A delete in Files in the sidebar still asks, and its undo is VS Code's.
@@ -241,12 +249,17 @@ Not in scope, and unchanged:
 
 - Unit tests of the kept versions: delete, undo, and redo of a file, a large
   file, a folder, and card information; the refusals; the marks and the
-  sweep of old ones; a change of files in place.
+  sweep of old ones; a change of files in place, each version moved into
+  place with the time of then.
+- Unit test of the service that sets file times: a file takes the time of
+  now and keeps its bytes.
 - Unit test of VS Code's undo service: one undo of a source takes back a
   group of steps of that source and asks nothing.
 - Smoke, canvas suite: a step that deletes with the menu, the toolbar, and
   the key, a set of a file, a folder, and a draft among them, watches every
   frame for a dialog, and undoes and redoes; the steps that deleted with the
   dialog delete without it.
-- The window: criteria 3 to 7, 10, 11, and 13, and Duplicate of a file with
-  a draft for criterion 8.
+- The window: criteria 3 to 7, 10, 11, and 13, Duplicate of a file with a
+  draft for criterion 8, and criterion 12 with the trimming of a video
+  (D79): trim, undo, redo, undo, redo, the card and Card Detail looked at
+  after each.

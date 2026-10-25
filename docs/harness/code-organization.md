@@ -68,7 +68,9 @@ history still finds its file.
   `platform/basehalfProviders/`, with its interface and the definitions it
   shares with the window in `common/`, the provider modules in `node/`, the
   service that the shared process runs in `electron-utility/`, and the
-  window's connection to it in `electron-browser/` (D75).
+  window's connection to it in `electron-browser/` (D75). The setting of
+  file times, which the undo of a change in place needs and a window cannot
+  do, is `platform/basehalfFiles/` (D82).
 
 ## What may import what
 

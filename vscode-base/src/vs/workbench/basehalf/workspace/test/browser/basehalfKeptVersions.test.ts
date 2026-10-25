@@ -10,6 +10,7 @@ import { Schemas } from '../../../../../base/common/network.js';
 import { joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { IBaseHalfFileTimesService } from '../../../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { TestDialogService } from '../../../../../platform/dialogs/test/common/testDialogService.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
@@ -79,8 +80,17 @@ suite('BaseHalfKeptVersions', () => {
 		const lifecycleService = store.add(new TestLifecycleService());
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const mirror = store.add(new BaseHalfCanvasMirrorService(fileService, coordinator));
+		// The files that were given the time of now, by path; the disk here has no times to set.
+		const touched: string[] = [];
+		const fileTimesService: IBaseHalfFileTimesService = {
+			_serviceBrand: undefined,
+			touch: async resources => {
+				touched.push(...resources.map(resource => resource.path.slice(folder.path.length + 1)));
+			}
+		};
 		const service = store.add(new BaseHalfKeptVersionsService(
 			fileService,
+			fileTimesService,
 			new TestContextService(testWorkspace(folder)),
 			store.add(new WorkingCopyService()),
 			coordinator,
@@ -98,6 +108,7 @@ suite('BaseHalfKeptVersions', () => {
 			service,
 			notifications,
 			deletes,
+			touched,
 			lifecycleService,
 			undo: () => undoRedoService.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE),
 			redo: () => undoRedoService.redo(BASEHALF_CANVAS_UNDO_REDO_SOURCE),
@@ -196,7 +207,7 @@ suite('BaseHalfKeptVersions', () => {
 		assert.deepStrictEqual(await harness.shown(), { 'keep.md': '# A new note\n' });
 	});
 
-	test('changes files in place as one step: undo puts the version before back, and redo the new one', async () => {
+	test('changes files in place as one step: undo puts the version before back, and redo the new one, each with the time of now', async () => {
 		const harness = await open({ 'clip.mp4': 'the video', '.bh/mirror/clip.mp4/made.yaml': 'id: "a"\n' });
 		await harness.fileService.writeFile(resource('.bh/cache/trim.mp4'), VSBuffer.fromString('the trimmed video'));
 
@@ -210,6 +221,9 @@ suite('BaseHalfKeptVersions', () => {
 		assert.deepStrictEqual(await harness.shown(), { 'clip.mp4': 'the video', '.bh/mirror/clip.mp4/made.yaml': 'id: "a"\n' });
 		await harness.redo();
 		assert.deepStrictEqual(await harness.shown(), changed);
+		// Each version that is moved into place is given the time of now, so that
+		// the file watcher sees it; the new made.yaml was written, which does that.
+		assert.deepStrictEqual(harness.touched, ['clip.mp4', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml']);
 	});
 
 	test('sends what it kept to the Trash when the window closes, and leaves the card information that a delete to the Trash keeps', async () => {

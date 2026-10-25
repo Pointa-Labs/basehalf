@@ -149,6 +149,9 @@ import { LocalGitService } from '../../../platform/git/node/localGitService.js';
 import { BaseHalfProviderChannel } from '../../../platform/basehalfProviders/common/basehalfProviderChannel.js';
 import { BASEHALF_PROVIDERS_CHANNEL, IBaseHalfProviderService } from '../../../platform/basehalfProviders/common/basehalfProviders.js';
 import { BaseHalfProviderService } from '../../../platform/basehalfProviders/electron-utility/basehalfProviderService.js';
+// BaseHalf: the times of files, which a step of undo sets and a window cannot (exact undo, D82).
+import { BASEHALF_FILE_TIMES_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileTimes.js';
+import { BaseHalfFileTimesService } from '../../../platform/basehalfFiles/node/basehalfFileTimesService.js';
 
 class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
@@ -515,6 +518,9 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
 		// BaseHalf: the provider service of generation cards (D75)
 		this.server.registerChannel(BASEHALF_PROVIDERS_CHANNEL, new BaseHalfProviderChannel(accessor.get(IBaseHalfProviderService)));
+
+		// BaseHalf: the times of files that a step of undo sets (D82)
+		this.server.registerChannel(BASEHALF_FILE_TIMES_CHANNEL, ProxyChannel.fromService(new BaseHalfFileTimesService(), this._store));
 
 		// SSH Remote Agent Host
 		const sshRemoteAgentHostChannel = ProxyChannel.fromService(accessor.get(ISSHRemoteAgentHostMainService), this._store);

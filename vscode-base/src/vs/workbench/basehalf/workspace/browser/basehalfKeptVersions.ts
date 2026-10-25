@@ -10,6 +10,7 @@ import { basename, dirname, isEqualOrParent, joinPath, relativePath as getRelati
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
+import { IBaseHalfFileTimesService } from '../../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { FileOperation, FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -121,6 +122,7 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
+		@IBaseHalfFileTimesService private readonly fileTimesService: IBaseHalfFileTimesService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
@@ -182,6 +184,7 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 					try {
 						if (URI.isUri(contents)) {
 							await this.fileService.move(contents, file.resource, false);
+							await this.touch(file.resource);
 						} else {
 							await this.fileService.writeFile(file.resource, contents);
 						}
@@ -279,10 +282,26 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 				await this.fileService.move(file.resource, aside, false);
 			}
 			await this.fileService.move(file.kept, file.resource, false);
+			await this.touch(file.resource);
 			if (present) {
 				await this.fileService.move(aside, file.kept, false);
 			}
 		});
+	}
+
+	/**
+	 * Gives a version that was moved into the place of a file the time of
+	 * now. A move keeps the time a version had, and the file watcher of macOS
+	 * tells a change by that time: a version that comes back with a time the
+	 * watcher saw at that path before is no change to it, and no view of the
+	 * file would hear of it. Its bytes stay as they are.
+	 */
+	private async touch(resource: URI): Promise<void> {
+		try {
+			await this.fileTimesService.touch([resource]);
+		} catch (error) {
+			this.logService.warn(`[BaseHalf] could not give ${resource.toString()} the time of now: a view of it may still show the version before`, error);
+		}
 	}
 
 	notify(message: string): void {
