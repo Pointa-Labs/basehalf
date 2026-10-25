@@ -24,6 +24,9 @@ const BASEHALF_CANVAS_MOVED_ITEMS_EDIT_HOLD_MS = 2000;
 
 const BASEHALF_CANVAS_ZOOM_STEP = 0.1;
 
+/** What has an undo of its own: a code editor, a field, an editable element, or an editor in a frame. */
+const TEXT_EDITING_SELECTOR = '.monaco-editor, input, textarea, select, [contenteditable=""], [contenteditable="true"], iframe, webview';
+
 function canvasStateTransitionChangesAnything(transition: IBaseHalfCanvasStateTransition): boolean {
 	return (transition.cards ?? []).some(card => !canvasCardsEqual(card.expected, card.next))
 		|| (transition.edges ?? []).some(edge => !canvasEdgesEqual(edge.expected, edge.next));
@@ -101,10 +104,13 @@ export class BaseHalfCanvasGeometry {
 
 	isCanvasUndoRedoActive(): boolean {
 		const active = this.view.root.ownerDocument.activeElement;
-		return this.view.canvasNavigationService.isSurfaceActive
-			&& !this.view.canvasNavigationService.state.cardDetail
-			&& !!active
-			&& this.view.root.contains(active);
+		if (!this.view.canvasNavigationService.isSurfaceActive || !active || !this.view.root.contains(active)) {
+			return false;
+		}
+		// While Card Detail is open, its steps and the canvas's are one history:
+		// they are undone unless the keyboard is in an editor of text, whose own
+		// undo goes first (exact undo, "Undo while Card Detail is open").
+		return !this.view.canvasNavigationService.state.cardDetail || !active.closest(TEXT_EDITING_SELECTOR);
 	}
 
 	private pushCanvasUndoElement(

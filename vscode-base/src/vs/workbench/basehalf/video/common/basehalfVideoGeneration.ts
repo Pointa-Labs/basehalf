@@ -7,6 +7,7 @@ import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 import {
 	BaseHalfVideoCatalogState,
 	BaseHalfVideoImageFormat,
@@ -475,15 +476,20 @@ export interface IBaseHalfGenerationCardActions {
 	 */
 	moveDraft(draft: URI, target: URI): Promise<URI>;
 
-	/** Deletes drafts with all of their card information and their card rows; a generation that lands on one is released first. */
-	deleteDrafts(drafts: readonly URI[]): Promise<void>;
+	/**
+	 * Deletes drafts with all of their card information and their card rows;
+	 * a generation that lands on one is released first. With `undoRedoGroup`,
+	 * one undo takes the step back with the other steps of the group.
+	 */
+	deleteDrafts(drafts: readonly URI[], undoRedoGroup?: UndoRedoGroup): Promise<void>;
 
 	/**
 	 * A copy of a draft in `folder`: a new draft with the same prompt and
 	 * settings and no upstream list, named like it with the next free number.
-	 * `undoLabel` names the step. Resolves with the copy.
+	 * `undoLabel` names the step, and `undoRedoGroup` joins it to others.
+	 * Resolves with the copy.
 	 */
-	copyDraft(draft: URI, folder: URI, undoLabel: string): Promise<URI>;
+	copyDraft(draft: URI, folder: URI, undoLabel: string, undoRedoGroup?: UndoRedoGroup): Promise<URI>;
 
 	/**
 	 * New Version (generation cards, "New Version"): a new draft beside a card

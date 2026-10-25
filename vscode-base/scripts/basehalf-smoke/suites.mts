@@ -15,6 +15,7 @@ import {
 	assertCanvasNumericFolderNames
 } from './areas/canvas/creation.mts';
 import { assertDocumentCardsShowCovers, assertDocumentCoverHidesAndShows } from './areas/canvas/documents.mts';
+import { assertCanvasExactUndo } from './areas/canvas/exactUndo.mts';
 import { assertCanvasEdgeFollowsCardDragLive, assertCanvasEdgeHalfReconnect, assertCanvasEdgeLetGoOnEmptyCanvas, assertEdgeDeleteRemovesReference, assertEdgeDeleteScopedToCanvas } from './areas/canvas/edges.mts';
 import { assertCanvasCardFollowsOutsideRename, assertCanvasCardsFollowManyOutsideRenames, assertCanvasFollowsRenamedOpenFolder } from './areas/canvas/followRenames.mts';
 import { assertCanvasInlineRename } from './areas/canvas/names.mts';
@@ -152,6 +153,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 	await step('canvas-create-menu-makes-drafts', () => assertCanvasCreateMenuMakesDrafts(page));
 	await step('canvas-new-folder', () => assertCanvasNewFolder(page));
+	await step('canvas-exact-undo', () => assertCanvasExactUndo(page));
 	await step('canvas-create-note', () => assertCanvasCreateNote(page));
 	await step('canvas-note-selection-controls', () => assertCanvasNoteInlineWysiwygEditor(page));
 	await step('canvas-numeric-folder-names', () => assertCanvasNumericFolderNames(page));

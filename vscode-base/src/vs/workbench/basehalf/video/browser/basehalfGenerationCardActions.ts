@@ -10,7 +10,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
+import { IUndoRedoService, UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
@@ -104,7 +104,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		return moved;
 	}
 
-	async deleteDrafts(drafts: readonly URI[]): Promise<void> {
+	async deleteDrafts(drafts: readonly URI[], undoRedoGroup?: UndoRedoGroup): Promise<void> {
 		const snapshots: IBaseHalfDraftSnapshot[] = [];
 		try {
 			for (const draft of drafts) {
@@ -117,12 +117,12 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 				// What was deleted comes back with undo, also when a later draft could not be deleted.
 				await this.pushUndo(snapshots.length === 1
 					? localize('basehalf.generation.actions.deleteOne', "Delete {0}", basename(snapshots[0].resource))
-					: localize('basehalf.generation.actions.deleteMany', "Delete {0} items", snapshots.length), 'basehalf.generation.deleteDrafts', snapshots.map(snapshot => snapshot.resource), { kind: 'deleted', snapshots });
+					: localize('basehalf.generation.actions.deleteMany', "Delete {0} items", snapshots.length), 'basehalf.generation.deleteDrafts', snapshots.map(snapshot => snapshot.resource), { kind: 'deleted', snapshots }, undoRedoGroup);
 			}
 		}
 	}
 
-	async copyDraft(draft: URI, folder: URI, undoLabel: string): Promise<URI> {
+	async copyDraft(draft: URI, folder: URI, undoLabel: string, undoRedoGroup?: UndoRedoGroup): Promise<URI> {
 		const snapshot = await this.cardStore.read(draft);
 		if (snapshot.hasFile || snapshot.made) {
 			throw new Error(localize('basehalf.generation.actions.notDraft', "{0} is not a draft any more.", basename(draft)));
@@ -134,7 +134,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 			const copy = joinPath(folder, name);
 			// A draft has no record: the id of a copy's record is not used.
 			if (await this.cardStore.writeCopy(draft, copy, '')) {
-				await this.pushUndo(undoLabel, 'basehalf.generation.copyDraft', [copy], { kind: 'made', drafts: [copy] });
+				await this.pushUndo(undoLabel, 'basehalf.generation.copyDraft', [copy], { kind: 'made', drafts: [copy] }, undoRedoGroup);
 				return copy;
 			}
 			if (attempt >= NAME_ATTEMPTS) {
@@ -222,7 +222,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		return { info, extension: baseHalfGenerationDraftExtension(kind, ref?.model) };
 	}
 
-	private async pushUndo(label: string, code: string, cards: readonly URI[], change: BaseHalfDraftUndoChange): Promise<void> {
+	private async pushUndo(label: string, code: string, cards: readonly URI[], change: BaseHalfDraftUndoChange, undoRedoGroup?: UndoRedoGroup): Promise<void> {
 		const canvases = new Map<string, URI>();
 		for (const card of cards) {
 			const canvas = this.canvasOf(card);
@@ -230,7 +230,7 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 				canvases.set(canvas.toString(), canvas);
 			}
 		}
-		await BaseHalfDraftUndoElement.push(label, code, [...canvases.values(), ...cards], change, this.undoServices());
+		await BaseHalfDraftUndoElement.push(label, code, [...canvases.values(), ...cards], change, this.undoServices(), undefined, undoRedoGroup);
 	}
 
 	/** The layout of the canvas the card is on, the resource its undo step goes with. */

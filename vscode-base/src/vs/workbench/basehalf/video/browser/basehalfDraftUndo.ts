@@ -82,16 +82,17 @@ export class BaseHalfDraftUndoElement implements IWorkspaceUndoRedoElement {
 	 * Pushes the step onto the canvas undo stack once the prompt and settings
 	 * of the drafts it made or moved are known, so that a later change of them
 	 * is seen: from `captured` when the caller knows them, which pushes the
-	 * step at once, or read from the drafts.
+	 * step at once, or read from the drafts. With `group`, one undo takes it
+	 * back with the other steps of the group (exact undo, "Deleting").
 	 */
-	static async push(label: string, code: string, resources: readonly URI[], change: BaseHalfDraftUndoChange, services: IBaseHalfDraftUndoServices, captured?: ReadonlyMap<string, IBaseHalfGenerationInfo>): Promise<void> {
+	static async push(label: string, code: string, resources: readonly URI[], change: BaseHalfDraftUndoChange, services: IBaseHalfDraftUndoServices, captured?: ReadonlyMap<string, IBaseHalfGenerationInfo>, group = UndoRedoGroup.None): Promise<void> {
 		const element = new BaseHalfDraftUndoElement(label, code, resources, change, services, 'done');
 		if (captured) {
 			element.captured = captured;
 		} else {
 			await element.capture();
 		}
-		services.undoRedoService.pushElement(element, UndoRedoGroup.None, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+		services.undoRedoService.pushElement(element, group, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 	}
 
 	async undo(): Promise<void> {

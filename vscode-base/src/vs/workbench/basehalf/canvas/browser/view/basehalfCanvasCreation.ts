@@ -11,10 +11,12 @@ import { IKeyboardEvent } from '../../../../../base/browser/keyboardEvent.js';
 import { KeyCode } from '../../../../../base/common/keyCodes.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
+import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { getPathForFile } from '../../../../../platform/dnd/browser/dnd.js';
 import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/defaultStyles.js';
 import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove } from '../../../../contrib/files/browser/fileActions.js';
@@ -1002,22 +1004,18 @@ export class BaseHalfCanvasCreation {
 		const postCreateOwner = options.postCreateOwner ?? this.view.captureCanvasPostCreateOwner();
 		await this.view.canvasActionContextService.assertCurrent(context);
 		const target = joinPath(folder.resource, name);
-		await this.view.explorerService.applyBulkEdit([new ResourceFileEdit(undefined, target, {
-			folder: kind === 'folder',
-			contents: options.contents ? Promise.resolve(options.contents) : undefined
-		})], {
-			undoLabel: kind === 'folder'
+		if (kind === 'folder') {
+			await this.view.workingCopyFileService.createFolder([{ resource: target }], CancellationToken.None);
+		} else {
+			await this.view.workingCopyFileService.create([{ resource: target, contents: options.contents }], CancellationToken.None);
+		}
+		// One step of the canvas's undo: undo keeps what it made, with what was
+		// typed or put into it since, and redo brings it back to its place
+		// (exact undo, "What the canvas made").
+		this.view.keptVersions.recordMade([target], {
+			label: kind === 'folder'
 				? localize('basehalf.canvas.newFolder.undo', "Create Folder {0}", name)
-				: localize('basehalf.canvas.newFile.undo', "Create File {0}", name),
-			progressLabel: kind === 'folder'
-				? localize('basehalf.canvas.newFolder.progress', "Creating folder {0}", name)
-				: localize('basehalf.canvas.newFile.progress', "Creating file {0}", name),
-			confirmBeforeUndo: this.confirmExplorerUndo(),
-			// A new folder is a step of the canvas's undo, as a rename on the canvas
-			// is (canvas Create menu, "Undo"). Its undo deletes it only while it is
-			// empty. A new note stays in the undo of Files: its undo would delete
-			// what was typed into it since.
-			...(kind === 'folder' ? { undoRedoSource: this.view.canvasUndoRedoSource } : {})
+				: localize('basehalf.canvas.newFile.undo', "Create File {0}", name)
 		});
 
 		const path = baseHalfCanvasChildPath(folder.relativePath, name);
@@ -1095,7 +1093,11 @@ export class BaseHalfCanvasCreation {
 		if (!this.view.uriIdentityService.extUri.isEqual(this.view.getCurrentFolder()?.resource, folder.resource)) {
 			return;
 		}
-		const incrementalNaming = this.view.configurationService.getValue<IFilesConfiguration>().explorer.incrementalNaming;
+		// An item that is there is never replaced: undo could not give it back
+		// (exact undo, "What the canvas made"). A name that is taken gets the next
+		// free one, as Duplicate does.
+		const configuredNaming = this.view.configurationService.getValue<IFilesConfiguration>().explorer.incrementalNaming;
+		const incrementalNaming = configuredNaming === 'disabled' ? 'smart' : configuredNaming;
 		const uniqueResources = [...new Map(resources.map(resource => [resource.toString(), resource])).values()];
 		const transfers: { readonly source: URI; readonly target: URI; readonly kind: 'file' | 'folder' }[] = [];
 		const drafts: URI[] = [];
@@ -1124,8 +1126,8 @@ export class BaseHalfCanvasCreation {
 				throw new Error(localize('basehalf.canvas.import.ancestor', "A folder cannot be imported into itself or one of its descendants."));
 			}
 			const target = operation === 'copy'
-				? await this.copyTarget(folder, source, stat.isDirectory, incrementalNaming === 'disabled', incrementalNaming, reserved)
-				: await this.freeTransferTarget(folder, source, stat.isDirectory, true, incrementalNaming, reserved);
+				? await this.copyTarget(folder, source, stat.isDirectory, false, incrementalNaming, reserved)
+				: await this.freeTransferTarget(folder, source, stat.isDirectory, false, incrementalNaming, reserved);
 			if (target) {
 				reserved.add(this.view.uriIdentityService.extUri.getComparisonKey(target));
 				transfers.push({ source, target, kind: stat.isDirectory ? 'folder' : 'file' });
@@ -1137,10 +1139,12 @@ export class BaseHalfCanvasCreation {
 			}
 			return;
 		}
-		await this.transferResources(transfers, operation, incrementalNaming);
+		// One undo takes back the files and the drafts of the paste together.
+		const undoRedoGroup = new UndoRedoGroup();
+		await this.transferResources(transfers, operation, undoRedoGroup);
 		const placed: { readonly target: URI; readonly kind: 'file' | 'folder' }[] = [...transfers];
 		for (const draft of drafts) {
-			placed.push({ target: await this.transferDraft(folder, draft, operation), kind: 'file' });
+			placed.push({ target: await this.transferDraft(folder, draft, operation, undoRedoGroup), kind: 'file' });
 		}
 		if (operation === 'move') {
 			await clearExplorerFileClipboardCut(this.view.explorerService);
@@ -1196,9 +1200,9 @@ export class BaseHalfCanvasCreation {
 	 * settings, and a draft that was cut moves here, under its name or the next
 	 * free one; each is one step of the canvas undo stack.
 	 */
-	private async transferDraft(folder: IBaseHalfCanvasFolderState, draft: URI, operation: 'copy' | 'move'): Promise<URI> {
+	private async transferDraft(folder: IBaseHalfCanvasFolderState, draft: URI, operation: 'copy' | 'move', undoRedoGroup: UndoRedoGroup): Promise<URI> {
 		if (operation === 'copy') {
-			return this.view.generationCardActions.copyDraft(draft, folder.resource, localize('basehalf.canvas.paste.draftUndo', "Paste {0}", basename(draft)));
+			return this.view.generationCardActions.copyDraft(draft, folder.resource, localize('basehalf.canvas.paste.draftUndo', "Paste {0}", basename(draft)), undoRedoGroup);
 		}
 		// It keeps its name where that is free.
 		const { base, extension } = baseHalfGenerationNameParts(basename(draft));
@@ -1206,34 +1210,41 @@ export class BaseHalfCanvasCreation {
 		return this.view.generationCardActions.moveDraft(draft, joinPath(folder.resource, name));
 	}
 
-	/** Copies or moves files and folders onto the canvas's folder through the workbench, as one step of the Explorer's undo. */
+	/**
+	 * Copies or moves files and folders onto the canvas's folder, as one step
+	 * of the canvas undo (exact undo, "What the canvas made"): undo keeps the
+	 * copies, with what was put into them since, and moves what was moved
+	 * back.
+	 */
 	private async transferResources(
 		transfers: readonly { readonly source: URI; readonly target: URI }[],
 		operation: 'copy' | 'move',
-		incrementalNaming: IFilesConfiguration['explorer']['incrementalNaming']
+		undoRedoGroup: UndoRedoGroup
 	): Promise<void> {
 		if (transfers.length === 0) {
 			return;
 		}
-		await this.view.explorerService.applyBulkEdit(transfers.map(transfer => new ResourceFileEdit(transfer.source, transfer.target, {
-			copy: operation === 'copy',
-			overwrite: incrementalNaming === 'disabled'
-		})), {
-			undoLabel: transfers.length === 1
-				? operation === 'move'
-					? localize('basehalf.canvas.move.undoOne', "Move {0}", basename(transfers[0].target))
-					: localize('basehalf.canvas.import.undoOne', "Import {0}", basename(transfers[0].target))
-				: operation === 'move'
-					? localize('basehalf.canvas.move.undoMany', "Move {0} items", transfers.length)
-					: localize('basehalf.canvas.import.undoMany', "Import {0} items", transfers.length),
+		const label = transfers.length === 1
+			? operation === 'move'
+				? localize('basehalf.canvas.move.undoOne', "Move {0}", basename(transfers[0].target))
+				: localize('basehalf.canvas.import.undoOne', "Import {0}", basename(transfers[0].target))
+			: operation === 'move'
+				? localize('basehalf.canvas.move.undoMany', "Move {0} items", transfers.length)
+				: localize('basehalf.canvas.import.undoMany', "Import {0} items", transfers.length);
+		if (operation === 'copy') {
+			await this.view.workingCopyFileService.copy(transfers.map(transfer => ({ file: { source: transfer.source, target: transfer.target }, overwrite: false })), CancellationToken.None);
+			this.view.keptVersions.recordMade(transfers.map(transfer => transfer.target), { label, undoRedoGroup });
+			return;
+		}
+		// The undo of a move moves it back, and the mirror cascade carries the
+		// cards' information both ways. A cut draft moves in a step of its own.
+		await this.view.explorerService.applyBulkEdit(transfers.map(transfer => new ResourceFileEdit(transfer.source, transfer.target, { overwrite: false })), {
+			undoLabel: label,
 			progressLabel: transfers.length === 1
-				? operation === 'move'
-					? localize('basehalf.canvas.move.progressOne', "Moving {0}", basename(transfers[0].target))
-					: localize('basehalf.canvas.import.progressOne', "Importing {0}", basename(transfers[0].target))
-				: operation === 'move'
-					? localize('basehalf.canvas.move.progressMany', "Moving {0} items", transfers.length)
-					: localize('basehalf.canvas.import.progressMany', "Importing {0} items", transfers.length),
-			confirmBeforeUndo: this.confirmExplorerUndo()
+				? localize('basehalf.canvas.move.progressOne', "Moving {0}", basename(transfers[0].target))
+				: localize('basehalf.canvas.move.progressMany', "Moving {0} items", transfers.length),
+			confirmBeforeUndo: this.confirmExplorerUndo(),
+			undoRedoSource: this.view.canvasUndoRedoSource
 		});
 	}
 

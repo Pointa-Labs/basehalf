@@ -789,23 +789,24 @@ export async function assertCanvasCreateNote(page) {
 }
 
 /**
- * Deletes an item with Delete... in its card's menu, as a user does. Its row
- * leaves the layout with it at once; a file removed from disk would leave a
- * row that BaseHalf placed, removed a minute later in a write of its own.
+ * Deletes an item with Delete in its card's menu, as a user does: at once,
+ * with no dialog (exact undo, "Deleting"). Its row leaves the layout with it
+ * at once; a file removed from disk would leave a row that BaseHalf placed,
+ * removed a minute later in a write of its own.
  */
-async function deleteCanvasCardFromItsMenu(page, name) {
+export async function deleteCanvasCardFromItsMenu(page, name) {
 	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
 	await card.click({ button: 'right' });
-	await clickCanvasMenuAction(page, 'Delete...');
-	const dialog = page.locator('.monaco-dialog-box', { hasText: `'${name}'` }).first();
-	await dialog.waitFor({ state: 'visible', timeout: 10_000 });
-	await dialog.locator('.monaco-button', { hasText: /^(Delete Permanently|Move to Trash)$/ }).click();
+	await clickCanvasMenuAction(page, 'Delete');
 	await waitUntil(() => !fs.existsSync(path.join(workspacePath, name)), `${name} to be deleted`);
 	await card.waitFor({ state: 'hidden', timeout: 10_000 });
+	if (await page.locator('.monaco-dialog-box').count() !== 0) {
+		throw new Error(`Deleting ${name} opened a dialog: ${await page.locator('.monaco-dialog-box').first().innerText()}`);
+	}
 }
 
 /** Runs an action of the canvas menu that is open. */
-async function clickCanvasMenuAction(page, label) {
+export async function clickCanvasMenuAction(page, label) {
 	const action = page.locator('.context-view.monaco-menu-container .action-label')
 		.filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })
 		.filter({ visible: true })

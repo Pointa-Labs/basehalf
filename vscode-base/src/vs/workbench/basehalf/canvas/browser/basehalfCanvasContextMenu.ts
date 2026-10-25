@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { basename, dirname, isEqualOrParent, joinPath, relativePath as getRelativePath } from '../../../../base/common/resources.js';
-import { isWindows } from '../../../../base/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -14,7 +13,7 @@ import { localize, localize2 } from '../../../../nls.js';
 import { MenuId, Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -50,7 +49,7 @@ import { baseHalfVideoInitialGeneration } from '../../video/common/basehalfVideo
 import { IBaseHalfGenerationCardActions, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../../video/common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
-import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
+import { IBaseHalfKeptVersionsService } from '../../workspace/browser/basehalfKeptVersions.js';
 import { COPY_PATH_COMMAND_ID, COPY_RELATIVE_PATH_COMMAND_ID, REVEAL_IN_EXPLORER_COMMAND_ID } from '../../../contrib/files/browser/fileConstants.js';
 import { IExplorerService } from '../../../contrib/files/browser/files.js';
 import { setExplorerFileClipboard } from '../../../contrib/files/browser/fileActions.js';
@@ -440,14 +439,6 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 	}
 });
 
-interface IBaseHalfCanvasFileActionServices {
-	readonly configurationService: IConfigurationService;
-	readonly dialogService: IDialogService;
-	readonly fileService: IFileService;
-	readonly actionContextService: IBaseHalfCanvasActionContextService;
-	readonly resourceDeletionService: IBaseHalfCanvasResourceDeletionService;
-}
-
 registerAction2(class BaseHalfCanvasOpenResourceAction extends Action2 {
 	constructor() {
 		super({
@@ -589,7 +580,8 @@ registerAction2(class BaseHalfCanvasDeleteResourceAction extends Action2 {
 	constructor() {
 		super({
 			id: BASEHALF_CANVAS_DELETE_COMMAND_ID,
-			title: localize2('basehalf.canvas.context.delete', "Delete..."),
+			// A delete asks nothing: one undo brings back what it took (exact undo, "Deleting").
+			title: localize2('basehalf.canvas.context.delete', "Delete"),
 			menu: { id: BASEHALF_CANVAS_CARD_CONTEXT_MENU, group: '7_modification', order: 20 }
 		});
 	}
@@ -598,69 +590,16 @@ registerAction2(class BaseHalfCanvasDeleteResourceAction extends Action2 {
 		if (!isBaseHalfCanvasActionContext(argument)) {
 			return;
 		}
-		const services = canvasFileActionServices(accessor);
+		const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
 		const generationCardActions = accessor.get(IBaseHalfGenerationCardActions);
-		const stat = await services.actionContextService.assertCurrent(argument);
-		const name = basename(argument.resource);
+		const keptVersions = accessor.get(IBaseHalfKeptVersionsService);
+		await actionContextService.assertCurrent(argument);
 		if (argument.snapshot.draft) {
-			// A draft goes with all of its card information, and undo brings it back (generation cards, "Deleting").
-			const { confirmed } = await services.dialogService.confirm({
-				type: 'warning',
-				message: localize('basehalf.canvas.deleteDraft.message', "Delete '{0}'?", name),
-				detail: localize('basehalf.canvas.deleteDraft.detail', "Its prompt, settings, and inputs go with it. You can undo this."),
-				primaryButton: localize('basehalf.canvas.deleteDraft.primaryButton', "&&Delete")
-			});
-			if (confirmed) {
-				await services.actionContextService.assertCurrent(argument);
-				await generationCardActions.deleteDrafts([argument.resource]);
-			}
+			// A draft goes with all of its card information (generation cards, "Deleting").
+			await generationCardActions.deleteDrafts([argument.resource]);
 			return;
 		}
-		const useTrash = services.configurationService.getValue<boolean>('files.enableTrash')
-			&& services.fileService.hasCapability(argument.resource, FileSystemProviderCapabilities.Trash);
-		const confirmation = await services.dialogService.confirm({
-			type: 'warning',
-			message: useTrash
-				? stat.isDirectory
-					? localize('basehalf.canvas.deleteFolder.message', "Move '{0}' and its contents to the Trash?", name)
-					: localize('basehalf.canvas.deleteFile.message', "Move '{0}' to the Trash?", name)
-				: stat.isDirectory
-					? localize('basehalf.canvas.deleteFolderPermanently.message', "Permanently delete '{0}' and its contents?", name)
-					: localize('basehalf.canvas.deleteFilePermanently.message', "Permanently delete '{0}'?", name),
-			detail: useTrash
-				? localize('basehalf.canvas.delete.detail', "You can restore it from the Trash.")
-				: localize('basehalf.canvas.deletePermanently.detail', "This action cannot be undone from the Trash."),
-			primaryButton: useTrash
-				? localize('basehalf.canvas.delete.primaryButton', "&&Move to Trash")
-				: localize('basehalf.canvas.deletePermanently.primaryButton', "&&Delete Permanently")
-		});
-		if (!confirmation.confirmed) {
-			return;
-		}
-		const currentStat = await services.actionContextService.assertCurrent(argument);
-
-		if (!useTrash) {
-			await deleteCanvasResource(services, argument.resource, currentStat.isDirectory, true);
-			return;
-		}
-
-		try {
-			await deleteCanvasResource(services, argument.resource, currentStat.isDirectory, false);
-		} catch (error) {
-			const fallback = await services.dialogService.confirm({
-				type: 'warning',
-				message: isWindows
-					? localize('basehalf.canvas.recycleBinFailed', "The Recycle Bin operation failed. Delete '{0}' permanently?", name)
-					: localize('basehalf.canvas.trashFailed', "The Trash operation failed. Delete '{0}' permanently?", name),
-				detail: error instanceof Error ? error.message : String(error),
-				primaryButton: localize('basehalf.canvas.deletePermanently.primaryButton', "&&Delete Permanently")
-			});
-			if (!fallback.confirmed) {
-				return;
-			}
-			await services.actionContextService.assertCurrent(argument);
-			await deleteCanvasResource(services, argument.resource, currentStat.isDirectory, true);
-		}
+		await keptVersions.deleteItems([argument.resource], { label: localize('basehalf.canvas.delete.undo', "Delete {0}", basename(argument.resource)) });
 	}
 });
 
@@ -758,25 +697,6 @@ registerAction2(class BaseHalfCanvasCopyRelativePathAction extends Action2 {
 		return undefined;
 	}
 });
-
-async function deleteCanvasResource(services: IBaseHalfCanvasFileActionServices, resource: URI, folder: boolean, permanently: boolean): Promise<void> {
-	await services.resourceDeletionService.delete([{ resource, folder, maxSize: MAX_UNDO_FILE_SIZE }], {
-		permanently,
-		undoLabel: localize('basehalf.canvas.delete.undo', "Delete {0}", basename(resource)),
-		progressLabel: localize('basehalf.canvas.delete.progress', "Deleting {0}", basename(resource)),
-		confirmBeforeUndo: services.configurationService.getValue<IFilesConfiguration>().explorer.confirmUndo === UndoConfirmLevel.Verbose
-	});
-}
-
-function canvasFileActionServices(accessor: ServicesAccessor): IBaseHalfCanvasFileActionServices {
-	return {
-		configurationService: accessor.get(IConfigurationService),
-		dialogService: accessor.get(IDialogService),
-		fileService: accessor.get(IFileService),
-		actionContextService: accessor.get(IBaseHalfCanvasActionContextService),
-		resourceDeletionService: accessor.get(IBaseHalfCanvasResourceDeletionService)
-	};
-}
 
 interface IBaseHalfTemplateSetupRuntime {
 	readonly pending: IBaseHalfPendingTemplateSetup;

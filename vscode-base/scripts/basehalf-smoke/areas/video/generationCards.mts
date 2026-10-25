@@ -2729,21 +2729,19 @@ async function assertFileAtDraftPath(page) {
 }
 
 // Criterion 32: deleting a draft takes its card information, its connections,
-// and its place, after asking; undo brings back its prompt, settings,
-// connections, and place.
+// and its place, at once and without a question (exact undo, "Deleting");
+// undo brings back its prompt, settings, connections, and place.
 async function assertDeleteDraftAndUndo(page) {
 	await clickBlankCanvas(page);
 	await showCardOnCanvas(page, STORM);
 	const before = { info: readGenerationInfo(STORM), upstream: readUpstreamSidecar(STORM), row: readCardRow(STORM) };
 	const card = canvasCard(page, STORM);
 	await card.click({ button: 'right' });
-	const deleteAction = page.locator('.context-view.monaco-menu-container .action-label').filter({ hasText: /^Delete\.\.\.$/ }).filter({ visible: true }).last();
+	const deleteAction = page.locator('.context-view.monaco-menu-container .action-label').filter({ hasText: /^Delete$/ }).filter({ visible: true }).last();
 	await deleteAction.waitFor({ state: 'visible', timeout: 10_000 });
 	await page.waitForTimeout(150);
 	await deleteAction.click();
-	const dialog = page.locator('.monaco-dialog-box', { hasText: 'Delete \'storm.mp4\'?' }).first();
-	await dialog.waitFor({ state: 'visible', timeout: 10_000 });
-	await dialog.locator('.monaco-button', { hasText: /^Delete$/ }).click();
+	await assertNoDialog(page, 'Deleting a draft');
 	await waitUntil(() => !fs.existsSync(mirrorFolder(STORM)) && readCardRow(STORM) === undefined, `deleting the draft to take its card information and its place`, 10_000);
 	await card.waitFor({ state: 'detached', timeout: 10_000 });
 	await assertCanvasEdgeGone(page, START_IMAGE, STORM);

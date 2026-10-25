@@ -4,11 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	baseHalfCanvasConnectionSummary,
-	baseHalfCanvasDeleteImpact,
 	baseHalfCanvasResolveSiblingUpstream,
 	baseHalfOrderUpstreamPickerCandidates,
 	baseHalfUniqueUpstreamNameMatch,
@@ -17,8 +15,6 @@ import {
 	IBaseHalfUpstreamPickerCandidate
 } from '../../common/basehalfCanvasUpstream.js';
 import { IBaseHalfUpstreamIdentity } from '../../common/basehalfReferenceEntries.js';
-import { IBaseHalfIndexedStore } from '../../common/basehalfReferenceIndex.js';
-import { readBaseHalfMarkdownUpstream } from '../../common/basehalfReferenceStore.js';
 
 const CASE_INSENSITIVE: IBaseHalfUpstreamIdentity = { key: path => path.normalize('NFC').toLowerCase() };
 
@@ -117,36 +113,4 @@ suite('BaseHalfCanvasUpstream', () => {
 			['brief.md', 'docs/far.md']
 		);
 	});
-
-	test('finds the downstream stores that name deleted items, generation cards included, leaving deleted stores alone', () => {
-		const stores: IBaseHalfIndexedStore[] = [
-			markdownStore('notes/a.md', ['book.pdf', 'other.md']),
-			markdownStore('notes/b.md', ['src', 'src/inner.md', 'book.pdf']),
-			// Inside a deleted folder: it goes away with the folder.
-			markdownStore('src/inside.md', ['book.pdf']),
-			// A generation card's entries are removed whatever its phase.
-			{ ...markdownStore('shots/video.mp4', ['book.pdf', 'src/inner.md']), storeKind: 'sidecar', sidecarState: 'active' },
-			// An inactive sidecar contributes nothing.
-			{ ...markdownStore('folder', ['book.pdf']), storeKind: 'sidecar', sidecarState: 'missingNode' }
-		];
-		assert.deepStrictEqual(
-			baseHalfCanvasDeleteImpact(stores, ['book.pdf', 'src']).map(store => ({ node: store.node.relativePath, entries: store.entries.map(entry => entry.path) })),
-			[
-				{ node: 'notes/a.md', entries: ['book.pdf'] },
-				{ node: 'notes/b.md', entries: ['src', 'src/inner.md', 'book.pdf'] },
-				{ node: 'shots/video.mp4', entries: ['book.pdf', 'src/inner.md'] }
-			]
-		);
-	});
-
-	function markdownStore(relativePath: string, entries: readonly string[]): IBaseHalfIndexedStore {
-		const text = `---\nupstream:\n${entries.map(entry => `  - ${entry}`).join('\n')}\n---\n`;
-		const resource = URI.file(`/workspace/${relativePath}`);
-		return {
-			node: { resource, workspaceFolder: URI.file('/workspace'), relativePath },
-			storeKind: 'markdown',
-			storeResource: resource,
-			read: readBaseHalfMarkdownUpstream(text, { nodePath: relativePath })
-		};
-	}
 });

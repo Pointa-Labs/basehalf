@@ -37,6 +37,7 @@ import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
+import { IWorkingCopyFileService } from '../../../services/workingCopy/common/workingCopyFileService.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeFile, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../../references/common/basehalfBadgeMirror.js';
@@ -80,7 +81,7 @@ import { layoutBaseHalfCanvasCardVideoPlayers } from './basehalfCanvasCardVideoP
 import { playBaseHalfCanvasMediaOneAtATime } from './basehalfCanvasCardMedia.js';
 import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
 import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
-import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
+import { IBaseHalfKeptVersionsService } from '../../workspace/browser/basehalfKeptVersions.js';
 import { baseHalfStructuralResourceOutcome, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationStamp, IBaseHalfWorkspaceResourceMutationStamp } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfCanvasRenderer } from './view/basehalfCanvasRenderer.js';
 import { BaseHalfCanvasPreviews } from './view/basehalfCanvasPreviews.js';
@@ -286,6 +287,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@ILogService public readonly logService: ILogService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkingCopyService public readonly workingCopyService: IWorkingCopyService,
+		@IWorkingCopyFileService public readonly workingCopyFileService: IWorkingCopyFileService,
 		@ITextFileService public readonly textFileService: ITextFileService,
 		@IBaseHalfBadgeMirrorService public readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
 		@IBaseHalfReferenceIndexService public readonly referenceIndexService: IBaseHalfReferenceIndexService,
@@ -309,7 +311,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IBaseHalfEditorFlushService public readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfCardProjectionRegistryService public readonly cardProjectionRegistryService: IBaseHalfCardProjectionRegistryService,
 		@IBaseHalfCardDetailSurfaceRegistryService public readonly cardDetailSurfaceRegistryService: IBaseHalfCardDetailSurfaceRegistryService,
-		@IBaseHalfCanvasResourceDeletionService public readonly canvasResourceDeletionService: IBaseHalfCanvasResourceDeletionService,
+		@IBaseHalfKeptVersionsService public readonly keptVersions: IBaseHalfKeptVersionsService,
 		@IUndoRedoService public readonly undoRedoService: IUndoRedoService,
 		@ILifecycleService lifecycleService: ILifecycleService,
 		@IBaseHalfMovedItemsService public readonly movedItemsService: IBaseHalfMovedItemsService,

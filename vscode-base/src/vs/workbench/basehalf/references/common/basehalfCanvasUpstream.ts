@@ -4,8 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import type { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import type { IBaseHalfIndexedStore, IBaseHalfUpstreamEntryView } from './basehalfReferenceIndex.js';
+import type { IBaseHalfUpstreamEntryView } from './basehalfReferenceIndex.js';
 import { BASEHALF_EXACT_UPSTREAM_IDENTITY, BaseHalfUpstreamEntryProblem, IBaseHalfUpstreamIdentity } from './basehalfReferenceEntries.js';
 import type { BaseHalfUpstreamStoreKind, BaseHalfUpstreamStoreProblem } from './basehalfReferenceStore.js';
 
@@ -232,49 +231,6 @@ export function baseHalfUpstreamStoreCanRebuild(storeKind: BaseHalfUpstreamStore
 		case 'sidecar':
 			return true;
 	}
-}
-
-/** One store that lists a node about to be deleted. */
-export interface IBaseHalfCanvasDeleteImpactStore {
-	readonly node: IBaseHalfWorkspaceResource;
-	/** The entries naming a deleted node (or a node inside a deleted folder), in list order. */
-	readonly entries: readonly { readonly index: number; readonly text: string; readonly path: string }[];
-}
-
-/**
- * The downstream stores that name any of `deletedPaths` (or a path inside a
- * deleted folder). Stores that are themselves deleted and inactive sidecars
- * are left out: removing those would change no user-visible connection.
- */
-export function baseHalfCanvasDeleteImpact(
-	stores: readonly IBaseHalfIndexedStore[],
-	deletedPaths: readonly string[],
-	identity: IBaseHalfUpstreamIdentity = BASEHALF_EXACT_UPSTREAM_IDENTITY
-): IBaseHalfCanvasDeleteImpactStore[] {
-	const deletedKeys = new Set(deletedPaths.map(path => identity.key(path)));
-	const isDeleted = (path: string): boolean => {
-		let current = path;
-		while (current !== '') {
-			if (deletedKeys.has(identity.key(current))) {
-				return true;
-			}
-			current = parentPath(current);
-		}
-		return false;
-	};
-	const impact: IBaseHalfCanvasDeleteImpactStore[] = [];
-	for (const store of stores) {
-		if ((store.sidecarState !== undefined && store.sidecarState !== 'active') || !store.read.readable || isDeleted(store.node.relativePath)) {
-			continue;
-		}
-		const entries = store.read.items.flatMap(item => item.path !== undefined && isDeleted(item.path)
-			? [{ index: item.index, text: item.text, path: item.path }]
-			: []);
-		if (entries.length > 0) {
-			impact.push({ node: store.node, entries });
-		}
-	}
-	return impact.sort((left, right) => comparePaths(left.node.relativePath, right.node.relativePath));
 }
 
 /**

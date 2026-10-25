@@ -7,18 +7,14 @@ import '../media/basehalfCanvasCardPick.css';
 import * as DOM from '../../../../../base/browser/dom.js';
 import { DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { toAction } from '../../../../../base/common/actions.js';
+import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { basename, dirname } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
-import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
-import { FileSystemProviderCapabilities } from '../../../../../platform/files/common/files.js';
+import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { IFilesConfiguration } from '../../../../contrib/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasChildPath, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
-import { baseHalfCanvasDeleteImpact, IBaseHalfCanvasDeleteImpactStore } from '../../../references/common/basehalfCanvasUpstream.js';
-import { IBaseHalfReferenceStoreEdit } from '../../../references/common/basehalfReferenceEdit.js';
-import { baseHalfNormalizeUpstreamEntry } from '../../../references/common/basehalfReferenceEntries.js';
-import { BaseHalfReferenceIndexState } from '../../../references/common/basehalfReferenceIndex.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_CARD_IS_DRAFT, IBaseHalfCanvasActionContext } from '../../common/basehalfCanvasActionContext.js';
 import { isBaseHalfMarkdownResource } from '../../../cardDetail/common/basehalfCardDetail.js';
@@ -29,7 +25,6 @@ import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } 
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { IBaseHalfCanvasPostCreateOwner, badgeType, cardDisplayName } from './basehalfCanvasViewShared.js';
 
-const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
 const CARD_SELECTOR = '.basehalf-canvas-card[data-basehalf-card-path]';
 /** How far a press of Pick on Canvas may move and still be a click, in screen pixels. */
 const CLICK_SLOP = 4;
@@ -203,7 +198,7 @@ export class BaseHalfCanvasSelectionActions {
 			await this.duplicateSceneSelection(sceneKey, structuralEpoch, folder, items, duplicateOwner!);
 			return;
 		}
-		await this.deleteSceneSelection(sceneKey, structuralEpoch, folder, items);
+		await this.deleteSceneSelection(sceneKey, structuralEpoch, items);
 	}
 
 	async resolveSceneSelection(
@@ -267,23 +262,21 @@ export class BaseHalfCanvasSelectionActions {
 		}
 
 		await this.resolveSceneSelection(sceneKey, structuralEpoch, items.map(item => item.path));
+		// One step of the canvas undo, the copies of drafts with it: undo keeps
+		// the copies, with what was put into them since (exact undo).
+		const undoRedoGroup = new UndoRedoGroup();
 		if (copies.length) {
-			await this.view.explorerService.applyBulkEdit(copies.map(copy => new ResourceFileEdit(copy.item.stat.resource, copy.target, {
-				copy: true,
-				overwrite: false
-			})), {
-				undoLabel: copies.length === 1
+			await this.view.workingCopyFileService.copy(copies.map(copy => ({ file: { source: copy.item.stat.resource, target: copy.target }, overwrite: false })), CancellationToken.None);
+			this.view.keptVersions.recordMade(copies.map(copy => copy.target), {
+				label: copies.length === 1
 					? localize('basehalf.canvas.duplicate.undoOne', "Duplicate {0}", basename(copies[0].target))
 					: localize('basehalf.canvas.duplicate.undoMany', "Duplicate {0} items", copies.length),
-				progressLabel: copies.length === 1
-					? localize('basehalf.canvas.duplicate.progressOne', "Duplicating {0}", copies[0].item.name)
-					: localize('basehalf.canvas.duplicate.progressMany', "Duplicating {0} items", copies.length),
-				confirmBeforeUndo: this.view.creation.confirmExplorerUndo()
+				undoRedoGroup
 			});
 		}
 		const draftCopies: URI[] = [];
 		for (const draft of drafts) {
-			draftCopies.push(await this.view.generationCardActions.copyDraft(draft.stat.resource, folder.resource, localize('basehalf.canvas.duplicate.draftUndo', "Duplicate {0}", draft.name)));
+			draftCopies.push(await this.view.generationCardActions.copyDraft(draft.stat.resource, folder.resource, localize('basehalf.canvas.duplicate.draftUndo', "Duplicate {0}", draft.name), undoRedoGroup));
 		}
 		const paths = [...copies.map(copy => copy.target), ...draftCopies].map(target => baseHalfCanvasChildPath(folder.relativePath, basename(target)));
 		this.queueCanvasSelection(sceneKey, paths, postCreateOwner);
@@ -316,61 +309,13 @@ export class BaseHalfCanvasSelectionActions {
 	private async deleteSceneSelection(
 		sceneKey: string,
 		structuralEpoch: number,
-		folder: IBaseHalfCanvasFolderState,
 		items: readonly IBaseHalfCanvasItem[]
 	): Promise<void> {
-		// A draft has no file to move to the Trash: it is deleted with all of its
-		// card information, as a step that undo takes back (generation cards, "Deleting").
+		// A delete asks nothing, and one undo brings the whole set back, its
+		// drafts too (exact undo, "Deleting"). Entries of other items that name a
+		// deleted item stay, and resolve again when undo brings it back (D37).
 		const drafts = items.filter(item => item.generation?.draft);
 		const files = items.filter(item => !item.generation?.draft);
-		const useTrash = files.length > 0
-			&& this.view.configurationService.getValue<boolean>('files.enableTrash')
-			&& files.every(item => this.view.fileService.hasCapability(item.stat.resource, FileSystemProviderCapabilities.Trash));
-		const names = items.map(item => item.name);
-		const selectionLabel = items.length === 1
-			? localize('basehalf.canvas.selection.deleteOne.label', "'{0}'", names[0])
-			: localize('basehalf.canvas.selection.deleteMany.label', "{0} selected items", items.length);
-		const scopeDetail = items.some(item => item.kind === 'folder')
-			? localize('basehalf.canvas.selection.deleteFolder.scopeUpstream', "Selected folders include all their contents. Other project files are not changed.")
-			: localize('basehalf.canvas.selection.deleteFile.scopeUpstream', "Other project files are not changed.");
-		const recoveryDetail = files.length === 0
-			? localize('basehalf.canvas.selection.deleteDrafts.recovery', "You can undo this.")
-			: useTrash
-				? localize('basehalf.canvas.selection.deleteTrash.recovery', "You can restore the selected items from the Trash.")
-				: localize('basehalf.canvas.selection.deletePermanent.recovery', "This action cannot be undone from the Trash.");
-		// Deleting a node never changes another node's store: entries that name
-		// it become dangling (D37). The user may remove them in one separate step.
-		const impact = this.canvasDeleteImpact(folder, items);
-		const impactDetail = this.canvasDeleteImpactDetail(items, impact);
-		const detailParts = [impactDetail, scopeDetail, recoveryDetail].filter(part => !!part).join(' ');
-		const confirmation = await this.view.dialogService.confirm({
-			type: 'warning',
-			message: files.length === 0
-				? localize('basehalf.canvas.selection.deleteDrafts.message', "Delete {0}?", selectionLabel)
-				: useTrash
-					? localize('basehalf.canvas.selection.deleteTrash.message', "Move {0} to the Trash?", selectionLabel)
-					: localize('basehalf.canvas.selection.deletePermanent.message', "Permanently delete {0}?", selectionLabel),
-			detail: items.length === 1
-				? detailParts
-				: `${names.slice(0, 12).join('\n')}${names.length > 12 ? localize('basehalf.canvas.selection.delete.more', "\n+{0} more", names.length - 12) : ''}\n\n${detailParts}`,
-			primaryButton: files.length === 0
-				? localize('basehalf.canvas.selection.deleteDrafts.primary', "&&Delete")
-				: useTrash
-					? localize('basehalf.canvas.selection.deleteTrash.primary', "&&Move to Trash")
-					: localize('basehalf.canvas.selection.deletePermanent.primary', "&&Delete Permanently"),
-			...(impact.stores.length > 0 ? {
-				checkbox: {
-					label: items.length === 1
-						? localize('basehalf.canvas.selection.delete.removeUpstreamOne', "Also remove {0} from their upstream lists", items[0].name)
-						: localize('basehalf.canvas.selection.delete.removeUpstreamMany', "Also remove the selected items from their upstream lists"),
-					checked: false
-				}
-			} : {})
-		});
-		if (!confirmation.confirmed) {
-			return;
-		}
-		const removeUpstreamEntries = confirmation.checkboxChecked === true && impact.stores.length > 0;
 		const hadActiveNote = !!this.view.activeCanvasNoteEditor;
 		if (hadActiveNote && !await this.view.noteEditing.closeActiveCanvasNoteEditorAfterFormats(false)) {
 			return;
@@ -379,154 +324,20 @@ export class BaseHalfCanvasSelectionActions {
 			this.view.canvasScene.select({ cardPaths: [] });
 		}
 		await this.resolveSceneSelection(sceneKey, structuralEpoch, items.map(item => item.path));
+		const undoRedoGroup = new UndoRedoGroup();
 		if (drafts.length) {
-			await this.view.generationCardActions.deleteDrafts(drafts.map(item => item.stat.resource));
+			await this.view.generationCardActions.deleteDrafts(drafts.map(item => item.stat.resource), undoRedoGroup);
 		}
-		const apply = (permanently: boolean) => this.view.canvasResourceDeletionService.delete(files.map(item => ({
-			resource: item.stat.resource,
-			folder: item.kind === 'folder',
-			maxSize: BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE
-		})), {
-			permanently,
-			undoLabel: files.length === 1
-				? localize('basehalf.canvas.selection.delete.undoOne', "Delete {0}", files[0].name)
-				: localize('basehalf.canvas.selection.delete.undoMany', "Delete {0} items", files.length),
-			progressLabel: files.length === 1
-				? localize('basehalf.canvas.selection.delete.progressOne', "Deleting {0}", files[0].name)
-				: localize('basehalf.canvas.selection.delete.progressMany', "Deleting {0} items", files.length),
-			confirmBeforeUndo: this.view.creation.confirmExplorerUndo()
-		});
-
-		if (files.length === 0) {
-			// Nothing goes to the Trash.
-		} else if (!useTrash) {
-			await apply(true);
-		} else {
-			try {
-				await apply(false);
-			} catch (error) {
-				const fallback = await this.view.dialogService.confirm({
-					type: 'warning',
-					message: localize('basehalf.canvas.selection.trashFailed', "The Trash operation failed. Permanently delete {0}?", selectionLabel),
-					detail: error instanceof Error ? error.message : String(error),
-					primaryButton: localize('basehalf.canvas.selection.deletePermanent.primary', "&&Delete Permanently")
-				});
-				if (!fallback.confirmed) {
-					return;
-				}
-				await this.resolveSceneSelection(sceneKey, structuralEpoch, files.map(item => item.path));
-				await apply(true);
-			}
-		}
-		this.view.canvasScene.select({ cardPaths: [] });
-		if (removeUpstreamEntries) {
-			await this.removeDeletedUpstreamEntries(folder, items, impact.stores);
-		}
-		this.view.requestRender();
-	}
-
-	/**
-	 * The downstream stores that name the items about to be deleted. While the
-	 * index is building the answer is unknown; while it is partial it is a
-	 * lower bound.
-	 */
-	private canvasDeleteImpact(folder: IBaseHalfCanvasFolderState, items: readonly IBaseHalfCanvasItem[]): {
-		readonly state: BaseHalfReferenceIndexState | undefined;
-		readonly stores: readonly IBaseHalfCanvasDeleteImpactStore[];
-	} {
-		const state = this.view.referenceIndexService.getState(folder.workspaceFolder);
-		if (state === undefined || state === 'building') {
-			return { state, stores: [] };
-		}
-		return {
-			state,
-			stores: baseHalfCanvasDeleteImpact(
-				this.view.referenceIndexService.getStores(folder.workspaceFolder),
-				items.map(item => item.path),
-				this.view.upstreamIdentity(folder.workspaceFolder)
-			)
-		};
-	}
-
-	private canvasDeleteImpactDetail(
-		items: readonly IBaseHalfCanvasItem[],
-		impact: { readonly state: BaseHalfReferenceIndexState | undefined; readonly stores: readonly IBaseHalfCanvasDeleteImpactStore[] }
-	): string {
-		if (impact.state === 'building') {
-			return localize('basehalf.canvas.selection.delete.checkingConnections', "Checking connections…");
-		}
-		const count = impact.stores.length;
-		if (count === 0) {
-			return '';
-		}
-		if (items.length > 1) {
-			if (count === 1) {
-				return impact.state === 'partial'
-					? localize('basehalf.canvas.selection.delete.manyUpstreamOfAtLeastOne', "The selected items are upstream of at least 1 item. It will show a broken upstream entry that you can fix later.")
-					: localize('basehalf.canvas.selection.delete.manyUpstreamOfOne', "The selected items are upstream of 1 item. It will show a broken upstream entry that you can fix later.");
-			}
-			return impact.state === 'partial'
-				? localize('basehalf.canvas.selection.delete.manyUpstreamOfAtLeast', "The selected items are upstream of at least {0} items. They will show a broken upstream entry that you can fix later.", count)
-				: localize('basehalf.canvas.selection.delete.manyUpstreamOf', "The selected items are upstream of {0} items. They will show a broken upstream entry that you can fix later.", count);
-		}
-		const name = items[0].name;
-		if (impact.state === 'partial') {
-			return count === 1
-				? localize('basehalf.canvas.selection.delete.upstreamOfAtLeastOne', "{0} is upstream of at least 1 item. It will show a broken upstream entry that you can fix later.", name)
-				: localize('basehalf.canvas.selection.delete.upstreamOfAtLeast', "{0} is upstream of at least {1} items. They will show a broken upstream entry that you can fix later.", name, count);
-		}
-		return count === 1
-			? localize('basehalf.canvas.selection.delete.upstreamOfOne', "{0} is upstream of 1 item. It will show a broken upstream entry that you can fix later.", name)
-			: localize('basehalf.canvas.selection.delete.upstreamOf', "{0} is upstream of {1} items. They will show a broken upstream entry that you can fix later.", name, count);
-	}
-
-	/**
-	 * "Also remove <name> from their upstream lists": one bulk edit after the
-	 * delete, as a separate canvas undo step. A generation card with its file
-	 * keeps the inputs that made it, and a draft that generates keeps its
-	 * inputs until it is done (D67): their entries then name nothing.
-	 */
-	private async removeDeletedUpstreamEntries(
-		folder: IBaseHalfCanvasFolderState,
-		items: readonly IBaseHalfCanvasItem[],
-		stores: readonly IBaseHalfCanvasDeleteImpactStore[]
-	): Promise<void> {
-		const label = items.length === 1
-			? localize('basehalf.canvas.selection.delete.removeUpstreamUndoOne', "Remove {0} from upstream lists", items[0].name)
-			: localize('basehalf.canvas.selection.delete.removeUpstreamUndoMany', "Remove {0} items from upstream lists", items.length);
-		const identity = this.view.upstreamIdentity(folder.workspaceFolder);
-		const edits: IBaseHalfReferenceStoreEdit[] = [];
-		for (const store of stores) {
-			if (await this.view.generationCardActions.inputRefusal(store.node.resource, { remove: store.entries[0].path }).catch(() => undefined)) {
-				continue;
-			}
-			if (store.entries.length === 1) {
-				edits.push({ node: store.node, operation: { kind: 'remove', entry: store.entries[0].path } });
-				continue;
-			}
-			// One store may change only once per operation: remove all of its
-			// entries that name deleted items in one transition.
-			const snapshot = await this.view.referenceEditService.readSnapshot(store.node);
-			if (!snapshot) {
-				continue;
-			}
-			const removed = new Set(store.entries.map(entry => identity.key(entry.path)));
-			edits.push({
-				node: store.node,
-				operation: {
-					kind: 'transition',
-					from: snapshot,
-					to: {
-						items: snapshot.items.filter(item => !(item.scalar && removed.has(identity.key(baseHalfNormalizeUpstreamEntry(item.text)))))
-					}
-				}
+		if (files.length) {
+			await this.view.keptVersions.deleteItems(files.map(item => item.stat.resource), {
+				label: items.length === 1
+					? localize('basehalf.canvas.selection.delete.undoOne', "Delete {0}", items[0].name)
+					: localize('basehalf.canvas.selection.delete.undoMany', "Delete {0} items", items.length),
+				undoRedoGroup
 			});
 		}
-		if (edits.length === 0) {
-			return;
-		}
-		const target = this.view.workspaceNode(folder.workspaceFolder, stores[0].node.relativePath, 'file');
-		await this.view.upstreamActions.run(label, target, this.view.connections.upstreamActionContext(folder, () => this.view.renderer.scheduleBackgroundRender()), () => this.view.referenceEditService.apply(edits, { label }));
+		this.view.canvasScene.select({ cardPaths: [] });
+		this.view.requestRender();
 	}
 
 	showSceneContextMenu(
