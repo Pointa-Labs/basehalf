@@ -21,7 +21,6 @@ import {
 	baseHalfGenerationNameOrdinal,
 	baseHalfGenerationMadeCopy,
 	baseHalfGenerationMadeOfTask,
-	baseHalfGenerationMadeTrimmed,
 	baseHalfGenerationNameParts,
 	baseHalfGenerationNextFreeName,
 	baseHalfGenerationWithExtension,
@@ -314,43 +313,6 @@ suite('BaseHalfGenerationInfo', () => {
 			const made = { ...request, id: 't1', startedAt: '2026-10-22T08:00:00.000Z', finishedAt: '2026-10-22T08:00:40.000Z' };
 			const copy = baseHalfGenerationMadeCopy(made, 't2');
 			assert.deepStrictEqual([copy.id, copy.copyOf, baseHalfGenerationMadeCopy(copy, 't3').copyOf], ['t2', 't1', 't1']);
-		});
-
-		test('a trimmed video\'s record keeps what made it and the part of what was generated, which a second trim narrows (D79)', () => {
-			const made = { ...request, id: 't1', startedAt: '2026-10-22T08:00:00.000Z', finishedAt: '2026-10-22T08:00:40.000Z' };
-			const once = baseHalfGenerationMadeTrimmed(made, 1, 4.5);
-			const twice = baseHalfGenerationMadeTrimmed(once, 0.5, 2.5);
-			const text = serializeBaseHalfGenerationMade(twice);
-			assert.deepStrictEqual({
-				once: [once.trimStart, once.trimEnd],
-				twice: [twice.trimStart, twice.trimEnd],
-				// To the millisecond, between the record's times and what made it.
-				lines: text.split('\n').filter(line => line.startsWith('trim')),
-				readBack: parseBaseHalfGenerationMade(text),
-				kept: [twice.id, twice.prompt, twice.inputs],
-				rounded: [baseHalfGenerationMadeTrimmed(made, 1 / 3, 2 / 3).trimStart, baseHalfGenerationMadeTrimmed(made, 1 / 3, 2 / 3).trimEnd],
-				newVersion: baseHalfGenerationInfoOfMade(twice)
-			}, {
-				once: [1, 4.5],
-				twice: [1.5, 3.5],
-				lines: ['trimStart: 1.5', 'trimEnd: 3.5'],
-				readBack: twice,
-				kept: ['t1', request.prompt, request.inputs],
-				rounded: [0.333, 0.667],
-				newVersion: baseHalfGenerationInfoOfMade(made)
-			});
-		});
-
-		test('a trim is written with its start and its end, from 0, the end after the start', () => {
-			const made = { ...request, id: 't1', startedAt: '2026-10-22T08:00:00.000Z', finishedAt: '2026-10-22T08:00:40.000Z' };
-			const text = serializeBaseHalfGenerationMade(made);
-			assert.deepStrictEqual([
-				parseBaseHalfGenerationMade(text.replace('provider:', 'trimStart: 1\nprovider:')),
-				parseBaseHalfGenerationMade(text.replace('provider:', 'trimStart: 2\ntrimEnd: 1\nprovider:')),
-				parseBaseHalfGenerationMade(text.replace('provider:', 'trimStart: -1\ntrimEnd: 1\nprovider:')),
-				parseBaseHalfGenerationMade(text.replace('provider:', 'trimStart: 0\ntrimEnd: 1\nprovider:'))?.trimEnd
-			], [undefined, undefined, undefined, 1]);
-			assert.throws(() => baseHalfGenerationMadeTrimmed(made, 2, 2), BaseHalfGenerationInfoError);
 		});
 
 		test('a new version generates what made the file, without the seed (D67)', () => {

@@ -103,7 +103,7 @@ suite('BaseHalfMediaCardDetail', () => {
 		const container = mainWindow.document.createElement('div');
 		mainWindow.document.body.append(container);
 		mounted.push(container);
-		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }));
+		const detail = disposables.add(instantiationService.createInstance(BaseHalfMediaCardDetail, container, async () => { }, () => { }, () => { }, () => { }, mainWindow.document.createElement('div')));
 		void detail.open({ resource: SOUND, workspaceFolder: WORKSPACE, relativePath: 'shots/speech.mp3', source: 'explorer', projection: 'media' });
 		await settle();
 		return container;

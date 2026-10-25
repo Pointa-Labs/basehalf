@@ -94,6 +94,8 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
 	seek(time: number): void;
 	/** Plays only a part of the video, over and over, or the whole video again. */
 	setPlayRange(range: IBaseHalfCanvasVideoPlayRange | undefined): void;
+	/** Turns the sound off or on, as its sound button does: for an edit that saves a video without its sound (editing media). */
+	setMuted(muted: boolean): void;
 	/** Puts the keyboard on the play button, as Card Detail does when it opens. */
 	focus(): void;
 }
@@ -318,6 +320,14 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 				this.video.currentTime = range.start + RANGE_START_INSIDE;
 			}
 			this.watchRange();
+		}
+	}
+
+	setMuted(muted: boolean): void {
+		if (this.muted !== muted) {
+			this.muted = muted;
+			this.sound.setMuted(muted);
+			this.updateSoundButton();
 		}
 	}
 

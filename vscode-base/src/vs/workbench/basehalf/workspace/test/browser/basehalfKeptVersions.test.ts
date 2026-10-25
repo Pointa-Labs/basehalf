@@ -226,6 +226,59 @@ suite('BaseHalfKeptVersions', () => {
 		assert.deepStrictEqual(harness.touched, ['clip.mp4', '.bh/mirror/clip.mp4/made.yaml', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml']);
 	});
 
+	test('creates and removes files in a step as it changes them: undo takes away what it created and puts back what it removed, and redo does it again (D84)', async () => {
+		const harness = await open({ 'clip.mp4': 'the trimmed video', '.bh/mirror/clip.mp4/original.mp4': 'the video', '.bh/mirror/clip.mp4/edit.yaml': 'original: "original.mp4"\n' });
+		const edited = await harness.shown();
+		await harness.fileService.writeFile(resource('.bh/cache/edit/copy.mp4'), VSBuffer.fromString('the video'));
+		await harness.service.replaceFiles([
+			{ resource: resource('clip.mp4'), contents: resource('.bh/cache/edit/copy.mp4') },
+			{ resource: resource('.bh/mirror/clip.mp4/original.mp4'), contents: null },
+			{ resource: resource('.bh/mirror/clip.mp4/edit.yaml'), contents: null }
+		], { label: 'Revert clip.mp4' });
+		const reverted = await harness.shown();
+		await harness.undo();
+		const undone = await harness.shown();
+		await harness.redo();
+		const redone = await harness.shown();
+		// A first edit creates the original and the record beside the file.
+		await harness.fileService.writeFile(resource('.bh/cache/edit/trim.mp4'), VSBuffer.fromString('a new trim'));
+		await harness.fileService.writeFile(resource('.bh/cache/edit/original.mp4'), VSBuffer.fromString('the video'));
+		await harness.service.replaceFiles([
+			{ resource: resource('clip.mp4'), contents: resource('.bh/cache/edit/trim.mp4') },
+			{ resource: resource('.bh/mirror/clip.mp4/edit.yaml'), contents: VSBuffer.fromString('original: "original.mp4"\n') },
+			{ resource: resource('.bh/mirror/clip.mp4/original.mp4'), contents: resource('.bh/cache/edit/original.mp4') }
+		], { label: 'Edit clip.mp4' });
+		const editedAgain = await harness.shown();
+		await harness.undo();
+		const undoneAgain = await harness.shown();
+		await harness.redo();
+		assert.deepStrictEqual({ reverted, undone, redone, editedAgain, undoneAgain, redoneAgain: await harness.shown() }, {
+			reverted: { 'clip.mp4': 'the video' },
+			undone: edited,
+			redone: { 'clip.mp4': 'the video' },
+			editedAgain: { 'clip.mp4': 'a new trim', '.bh/mirror/clip.mp4/original.mp4': 'the video', '.bh/mirror/clip.mp4/edit.yaml': 'original: "original.mp4"\n' },
+			undoneAgain: { 'clip.mp4': 'the video' },
+			redoneAgain: { 'clip.mp4': 'a new trim', '.bh/mirror/clip.mp4/original.mp4': 'the video', '.bh/mirror/clip.mp4/edit.yaml': 'original: "original.mp4"\n' }
+		});
+	});
+
+	test('does not put a removed file back where another file is now, says why, changes nothing of the step, and refuses to remove a file that is not there (D84)', async () => {
+		const harness = await open({ 'clip.mp4': 'the trimmed video', '.bh/mirror/clip.mp4/original.mp4': 'the video', '.bh/mirror/clip.mp4/edit.yaml': 'original: "original.mp4"\n' });
+		await harness.fileService.writeFile(resource('.bh/cache/edit/copy.mp4'), VSBuffer.fromString('the video'));
+		await harness.service.replaceFiles([
+			{ resource: resource('clip.mp4'), contents: resource('.bh/cache/edit/copy.mp4') },
+			{ resource: resource('.bh/mirror/clip.mp4/edit.yaml'), contents: null }
+		], { label: 'Revert clip.mp4' });
+		await harness.fileService.writeFile(resource('.bh/mirror/clip.mp4/edit.yaml'), VSBuffer.fromString('original: "original.mp4"\nmute: true\n'));
+		await harness.undo();
+		const refused = await harness.service.replaceFiles([{ resource: resource('gone.mp4'), contents: null }], { label: 'Revert gone.mp4' }).then(() => undefined, (error: Error) => error.message);
+		assert.deepStrictEqual({ shown: await harness.shown(), notifications: harness.notifications, refused }, {
+			shown: { 'clip.mp4': 'the video', '.bh/mirror/clip.mp4/original.mp4': 'the video', '.bh/mirror/clip.mp4/edit.yaml': 'original: "original.mp4"\nmute: true\n' },
+			notifications: ['\'edit.yaml\' is there again. Undo did not replace it.'],
+			refused: '\'gone.mp4\' is no file of this workspace.'
+		});
+	});
+
 	test('tells the window a delete, a creation, or a write for each item of a step, and never a move into or out of the kept versions', async () => {
 		const harness = await open({
 			'keep.md': '# Keep\n',
@@ -236,7 +289,7 @@ suite('BaseHalfKeptVersions', () => {
 		await harness.fileService.writeFile(resource('.bh/cache/trim.mp4'), VSBuffer.fromString('the trimmed video'));
 		const names = new Map([[FileOperation.CREATE, 'create'], [FileOperation.DELETE, 'delete'], [FileOperation.MOVE, 'move'], [FileOperation.COPY, 'copy'], [FileOperation.WRITE, 'write']]);
 		const pathOf = (uri: URI) => uri.path.slice(folder.path.length + 1);
-		const items = new Set(['keep.md', 'box', 'clip.mp4', '.bh/mirror/keep.md']);
+		const items = new Set(['keep.md', 'box', 'clip.mp4', 'original.mp4', '.bh/mirror/keep.md']);
 		let told: string[] = [];
 		const moves: string[] = [];
 		disposables.add(harness.fileService.onDidRunOperation(e => {
@@ -261,6 +314,12 @@ suite('BaseHalfKeptVersions', () => {
 			trimmed: await during(() => harness.service.replaceFiles([{ resource: resource('clip.mp4'), contents: resource('.bh/cache/trim.mp4') }], { label: 'Trim clip.mp4' })),
 			trimUndone: await during(() => harness.undo()),
 			trimRedone: await during(() => harness.redo()),
+			created: await during(() => harness.service.replaceFiles([{ resource: resource('original.mp4'), contents: VSBuffer.fromString('the original') }], { label: 'Edit clip.mp4' })),
+			createUndone: await during(() => harness.undo()),
+			createRedone: await during(() => harness.redo()),
+			removed: await during(() => harness.service.replaceFiles([{ resource: resource('original.mp4'), contents: null }], { label: 'Revert clip.mp4' })),
+			removeUndone: await during(() => harness.undo()),
+			removeRedone: await during(() => harness.redo()),
 			moves
 		}, {
 			deleted: ['delete .bh/mirror/keep.md', 'delete box', 'delete keep.md'],
@@ -269,6 +328,12 @@ suite('BaseHalfKeptVersions', () => {
 			trimmed: ['write clip.mp4'],
 			trimUndone: ['write clip.mp4'],
 			trimRedone: ['write clip.mp4'],
+			created: ['create original.mp4'],
+			createUndone: ['delete original.mp4'],
+			createRedone: ['create original.mp4'],
+			removed: ['delete original.mp4'],
+			removeUndone: ['create original.mp4'],
+			removeRedone: ['delete original.mp4'],
 			moves: []
 		});
 	});
@@ -280,8 +345,11 @@ suite('BaseHalfKeptVersions', () => {
 			'.bh/mirror/shot.mp4/upstream.yaml': 'upstream:\n  - brief.md\n',
 			'.bh/mirror/shot.mp4/generation.yaml': 'prompt: "a shot"\n',
 			'.bh/mirror/shot.mp4/made.yaml': 'id: "a"\n',
+			'.bh/mirror/shot.mp4/original.mp4': 'the video before its edit',
+			'.bh/mirror/shot.mp4/edit.yaml': 'original: "original.mp4"\n',
 			'note.md': '# Note\n',
-			'.bh/mirror/note.md/generation.yaml': 'prompt: "uploaded"\n'
+			'.bh/mirror/note.md/generation.yaml': 'prompt: "uploaded"\n',
+			'.bh/mirror/note.md/original.md': '# An original without its record\n'
 		});
 		await harness.service.deleteItems([resource('shot.mp4'), resource('note.md')], { label: 'Delete 2 items' });
 
@@ -290,11 +358,13 @@ suite('BaseHalfKeptVersions', () => {
 		// The Trash keeps the place an item had when it went in, which Put Back returns it to.
 		assert.deepStrictEqual({ trashed: [...harness.provider.trashed].sort(), files: await harness.shown() }, {
 			trashed: ['note.md', 'shot.mp4'],
-			// A generation.yaml without a made.yaml would be a draft: it goes.
+			// A generation.yaml without a made.yaml would be a draft, and an original without its edit record is of no edit: they go.
 			files: {
 				'.bh/mirror/shot.mp4/upstream.yaml': 'upstream:\n  - brief.md\n',
 				'.bh/mirror/shot.mp4/generation.yaml': 'prompt: "a shot"\n',
-				'.bh/mirror/shot.mp4/made.yaml': 'id: "a"\n'
+				'.bh/mirror/shot.mp4/made.yaml': 'id: "a"\n',
+				'.bh/mirror/shot.mp4/original.mp4': 'the video before its edit',
+				'.bh/mirror/shot.mp4/edit.yaml': 'original: "original.mp4"\n'
 			}
 		});
 	});

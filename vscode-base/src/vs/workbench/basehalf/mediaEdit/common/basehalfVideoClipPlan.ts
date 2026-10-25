@@ -153,9 +153,9 @@ export function baseHalfVideoClipContainer(extension: string): BaseHalfVideoClip
 /**
  * The plan of a clip of `range` of a video file with the extension
  * `extension`. The range's times are frame edges; a time between two edges
- * keeps the frame shown at it.
+ * keeps the frame shown at it. A muted clip has no sound.
  */
-export function planBaseHalfVideoClip(file: IBaseHalfVideoFile, extension: string, range: IBaseHalfVideoTrimRange): IBaseHalfVideoClipPlan {
+export function planBaseHalfVideoClip(file: IBaseHalfVideoFile, extension: string, range: IBaseHalfVideoTrimRange, options?: { readonly mute?: boolean }): IBaseHalfVideoClipPlan {
 	const video = file.video;
 	if (!video) {
 		throw new Error('A video without a picture has no clip.');
@@ -209,7 +209,7 @@ export function planBaseHalfVideoClip(file: IBaseHalfVideoFile, extension: strin
 	const pixelsPerSecond = video.width * video.height * frameRate;
 	const bitrate = baseHalfVideoClipBitrate(sourceBitrate, sourceFamily, codec, pixelsPerSecond);
 
-	const sound = planSound(file.audio, start, end);
+	const sound = options?.mute ? undefined : planSound(file.audio, start, end);
 	// The estimate takes the bitrate of H.264, which is the higher one when HEVC cannot be encoded.
 	const largest = Math.max(bitrate, codec === 'hevc' ? baseHalfVideoClipBitrate(sourceBitrate, sourceFamily, 'avc', pixelsPerSecond) : 0);
 	const estimatedBytes = Math.round((largest + (sound?.bitrate ?? 0)) / 8 * (end - start)) + kept.length * 64;

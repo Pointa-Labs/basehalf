@@ -155,6 +155,9 @@ import { BaseHalfFileTimesService } from '../../../platform/basehalfFiles/node/b
 // BaseHalf: the links that install the agent skill, which a window cannot make (D83).
 import { BASEHALF_FILE_LINKS_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileLinks.js';
 import { BaseHalfFileLinksService } from '../../../platform/basehalfFiles/node/basehalfFileLinksService.js';
+// BaseHalf: the clones of files, which keep the original of an edited file and a window cannot make (D84).
+import { BASEHALF_FILE_CLONES_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileClones.js';
+import { BaseHalfFileClonesService } from '../../../platform/basehalfFiles/node/basehalfFileClonesService.js';
 
 class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
@@ -527,6 +530,9 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
 		// BaseHalf: the links that install the agent skill (D83)
 		this.server.registerChannel(BASEHALF_FILE_LINKS_CHANNEL, ProxyChannel.fromService(new BaseHalfFileLinksService(), this._store));
+
+		// BaseHalf: the clones of files that keep the original of an edited file (D84)
+		this.server.registerChannel(BASEHALF_FILE_CLONES_CHANNEL, ProxyChannel.fromService(new BaseHalfFileClonesService(), this._store));
 
 		// SSH Remote Agent Host
 		const sshRemoteAgentHostChannel = ProxyChannel.fromService(accessor.get(ISSHRemoteAgentHostMainService), this._store);

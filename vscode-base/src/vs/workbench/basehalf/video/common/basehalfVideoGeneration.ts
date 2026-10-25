@@ -25,6 +25,7 @@ import {
 import { BaseHalfGenerationKind, IBaseHalfGenerationInfo, IBaseHalfGenerationMade, IBaseHalfGenerationTask } from './basehalfGenerationInfo.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
+import { IBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord.js';
 
 /**
  * The services of generation cards (D63, D64): the catalog service holds the
@@ -267,6 +268,8 @@ export interface IBaseHalfGenerationCardSnapshot {
 	readonly made?: IBaseHalfGenerationMade;
 	/** A `made.yaml` is there but cannot be read; it is left as it is. */
 	readonly madeUnreadable?: boolean;
+	/** What an edit of the file in Card Detail did, from its edit record, while the file is of the record's size (editing media). */
+	readonly edit?: IBaseHalfMediaChoices;
 	/** The valid upstream entries, in order: the card's inputs. */
 	readonly upstream: readonly string[];
 }

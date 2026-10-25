@@ -26,6 +26,7 @@ import { BaseHalfCanvasStateConflict, IBaseHalfCanvasMirrorService } from '../..
 import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BASEHALF_UPSTREAM_SIDECAR_FILE_NAME } from '../../references/common/basehalfReferenceStore.js';
+import { BASEHALF_EDIT_RECORD_FILE, baseHalfIsEditOriginalName } from '../../mediaEdit/common/basehalfEditRecord.js';
 import { BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE } from '../../video/common/basehalfGenerationInfo.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../common/basehalfMirrorIgnore.js';
@@ -46,16 +47,21 @@ const KEPT_PLACE_FILE = 'place.json';
  * The card information that a delete to the Trash leaves in `.bh/mirror/`,
  * so that a restore from the Trash brings the card back whole (mirror file
  * resilience). `generation.yaml` stays only beside a `made.yaml`: without
- * one it would be a draft.
+ * one it would be a draft; an edited file's original stays beside its edit
+ * record (editing media).
  */
-const KEPT_ON_TRASH = new Set([BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, 'appearance.yaml']);
+const KEPT_ON_TRASH = new Set([BASEHALF_UPSTREAM_SIDECAR_FILE_NAME, BASEHALF_GENERATION_INFO_FILE, BASEHALF_GENERATION_MADE_FILE, 'appearance.yaml', BASEHALF_EDIT_RECORD_FILE]);
 
 export const IBaseHalfKeptVersionsService = createDecorator<IBaseHalfKeptVersionsService>('baseHalfKeptVersionsService');
 
-/** What one step changes in one file: its new bytes, or a file on the same disk that is moved into its place. */
+/**
+ * What one step changes in one file: its new bytes, or a file that the step
+ * wrote into `.bh/cache/` first and moves into its place; `null` removes the
+ * file. A file that is not there is created.
+ */
 export interface IBaseHalfFileReplacement {
 	readonly resource: URI;
-	readonly contents: VSBuffer | URI;
+	readonly contents: VSBuffer | URI | null;
 }
 
 export interface IBaseHalfKeptStepOptions {
@@ -77,7 +83,11 @@ export interface IBaseHalfKeptVersionsService {
 	deleteItems(items: readonly URI[], options: IBaseHalfKeptStepOptions): Promise<void>;
 	/** Records items the canvas has just made as one step: undo keeps them with what was put into them since, and redo brings them back. */
 	recordMade(items: readonly URI[], options: IBaseHalfKeptStepOptions): void;
-	/** Changes the bytes of files as one step: the version of each before goes into the kept versions, and undo swaps it back. */
+	/**
+	 * Changes, creates, or removes files as one step: the version of each
+	 * before goes into the kept versions, no file being one too, and undo swaps
+	 * it back.
+	 */
 	replaceFiles(changes: readonly IBaseHalfFileReplacement[], options: IBaseHalfKeptStepOptions): Promise<void>;
 	/** Sends to the Trash what windows that are gone kept. */
 	sweep(): Promise<void>;
@@ -103,6 +113,12 @@ interface IBaseHalfKeptFile {
 	readonly workspaceFolder: URI;
 	readonly resource: URI;
 	readonly kept: URI;
+	/**
+	 * Which side holds no file by what the step did: the file's place, after a
+	 * step that removed it, or the keep, after one that created it. It turns
+	 * over with every swap.
+	 */
+	absent?: 'resource' | 'kept';
 }
 
 interface IBaseHalfItemLocation {
@@ -164,38 +180,57 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 			return;
 		}
 		const files: IBaseHalfKeptFile[] = [];
+		const present: boolean[] = [];
 		for (const change of changes) {
 			const workspaceFolder = this.contextService.getWorkspaceFolder(change.resource)?.uri;
-			if (!workspaceFolder || !(await this.fileService.stat(change.resource).catch(() => undefined))?.isFile) {
+			const stat = await this.fileService.stat(change.resource).catch(() => undefined);
+			// A file to change or to remove is an ordinary file; one to create is not there.
+			if (!workspaceFolder || (stat ? !stat.isFile : change.contents === null)) {
 				throw new BaseHalfKeptRefusal(localize('basehalf.kept.notAFile', "'{0}' is no file of this workspace.", basename(change.resource)));
 			}
-			if (this.workingCopyService.isDirty(change.resource)) {
+			if (stat && this.workingCopyService.isDirty(change.resource)) {
 				throw new BaseHalfKeptRefusal(localize('basehalf.kept.replaceUnsaved', "Save '{0}' before it is changed.", basename(change.resource)));
 			}
 			files.push({ workspaceFolder, resource: change.resource, kept: joinPath(await this.newSlot(workspaceFolder), basename(change.resource)) });
+			present.push(!!stat);
 		}
 		const done: IBaseHalfKeptFile[] = [];
 		try {
 			for (const [index, file] of files.entries()) {
+				const contents = changes[index].contents;
+				const was = present[index];
 				await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, async () => {
-					// The version before goes first, so that a failure leaves the file as it was.
-					// The window is told one write of the file, and nothing of the moves that carry it out.
-					await this.fileService.move(file.resource, file.kept, false, 'nothing');
-					const contents = changes[index].contents;
+					// The version before goes first, so that a failure leaves the file as it was. The window is
+					// told one write of the file, its creation, or its delete, and nothing of the moves that carry it out.
+					if (was) {
+						await this.fileService.move(file.resource, file.kept, false, contents === null ? FileOperation.DELETE : 'nothing');
+					}
+					if (contents === null) {
+						file.absent = 'resource';
+						return;
+					}
 					// New bytes are written beside the version before and moved into place, as a new version from elsewhere is.
 					const next = URI.isUri(contents) ? contents : joinPath(dirname(file.kept), `${generateUuid()}-${basename(file.resource)}`);
 					try {
 						if (!URI.isUri(contents)) {
 							await this.fileService.writeFile(next, contents);
 						}
-						await this.fileService.move(next, file.resource, false, FileOperation.WRITE);
+						if (!was) {
+							await this.fileService.createFolder(dirname(file.resource));
+						}
+						await this.fileService.move(next, file.resource, false, was ? FileOperation.WRITE : FileOperation.CREATE);
 						await this.touch(file.resource);
 					} catch (error) {
 						if (!URI.isUri(contents)) {
 							await this.fileService.del(next).catch(() => undefined);
 						}
-						await this.fileService.move(file.kept, file.resource, true, FileOperation.WRITE);
+						if (was) {
+							await this.fileService.move(file.kept, file.resource, true, FileOperation.WRITE);
+						}
 						throw error;
+					}
+					if (!was) {
+						file.absent = 'kept';
 					}
 				});
 				done.push(file);
@@ -272,26 +307,45 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 		}
 	}
 
-	/** Swaps a file that a step changed in place with its other version. */
+	/**
+	 * Swaps a file that a step changed in place with its other version, which
+	 * is no file for a file that the step created or removed.
+	 */
 	async swap(file: IBaseHalfKeptFile): Promise<void> {
-		if (!await this.fileService.exists(file.kept)) {
+		if (file.absent !== 'kept' && !await this.fileService.exists(file.kept)) {
 			throw new BaseHalfKeptRefusal(localize('basehalf.kept.gone', "'{0}' is in the Trash now. Restore it from there.", basename(file.resource)));
 		}
-		if (this.workingCopyService.isDirty(file.resource)) {
+		const present = await this.fileService.exists(file.resource);
+		if (present && this.workingCopyService.isDirty(file.resource)) {
 			throw new BaseHalfKeptRefusal(localize('basehalf.kept.replaceUnsaved', "Save '{0}' before it is changed.", basename(file.resource)));
 		}
+		// Another file took the place of one that the step removed: undo replaces nothing.
+		if (file.absent === 'resource' && present) {
+			throw new BaseHalfKeptRefusal(localize('basehalf.kept.taken', "'{0}' is there again. Undo did not replace it.", basename(file.resource)));
+		}
 		await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, async () => {
+			// The window is told one write of the file, its creation, or its delete.
+			if (file.absent === 'kept') {
+				if (present) {
+					await this.fileService.move(file.resource, file.kept, false, FileOperation.DELETE);
+				}
+				file.absent = 'resource';
+				return;
+			}
+			if (file.absent === 'resource' || !present) {
+				await this.fileService.createFolder(dirname(file.resource));
+				await this.fileService.move(file.kept, file.resource, false, FileOperation.CREATE);
+				await this.touch(file.resource);
+				if (file.absent === 'resource') {
+					file.absent = 'kept';
+				}
+				return;
+			}
 			const aside = joinPath(dirname(file.kept), `${generateUuid()}-${basename(file.resource)}`);
-			const present = await this.fileService.exists(file.resource);
-			// The window is told one write of the file, or its creation when it was not there.
-			if (present) {
-				await this.fileService.move(file.resource, aside, false, 'nothing');
-			}
-			await this.fileService.move(file.kept, file.resource, false, present ? FileOperation.WRITE : FileOperation.CREATE);
+			await this.fileService.move(file.resource, aside, false, 'nothing');
+			await this.fileService.move(file.kept, file.resource, false, FileOperation.WRITE);
 			await this.touch(file.resource);
-			if (present) {
-				await this.fileService.move(aside, file.kept, false, 'nothing');
-			}
+			await this.fileService.move(aside, file.kept, false, 'nothing');
 		});
 	}
 
@@ -585,7 +639,7 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 			for (const child of stat?.children ?? []) {
 				if (child.isDirectory) {
 					await walk(child.resource, [...below, child.name]);
-				} else if (KEPT_ON_TRASH.has(child.name) && (child.name !== BASEHALF_GENERATION_INFO_FILE || names.has(BASEHALF_GENERATION_MADE_FILE))) {
+				} else if (keptOnTrash(child.name, names)) {
 					const target = joinPath(this.mirrorDirectory(workspaceFolder, path), ...below, child.name);
 					if (!await this.fileService.exists(target)) {
 						await this.fileService.createFolder(dirname(target));
@@ -719,6 +773,17 @@ class BaseHalfReplaceStep implements IWorkspaceUndoRedoElement {
 			this.state = 'over';
 		}
 	}
+}
+
+/** Whether a file of a kept item's card information, beside files with these names, stays in `.bh/mirror/` when the item goes to the Trash. */
+function keptOnTrash(name: string, names: ReadonlySet<string>): boolean {
+	if (name === BASEHALF_GENERATION_INFO_FILE) {
+		return names.has(BASEHALF_GENERATION_MADE_FILE);
+	}
+	if (baseHalfIsEditOriginalName(name)) {
+		return names.has(BASEHALF_EDIT_RECORD_FILE);
+	}
+	return KEPT_ON_TRASH.has(name);
 }
 
 /** The items that are not inside another of them, each once. */

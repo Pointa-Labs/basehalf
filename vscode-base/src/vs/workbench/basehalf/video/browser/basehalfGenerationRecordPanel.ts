@@ -339,7 +339,8 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			...(snapshot.made ? { made: snapshot.made } : {}),
 			inputs: this.inputs,
 			catalog,
-			voices: (provider, region) => this.voiceService.voices(provider, region).list
+			voices: (provider, region) => this.voiceService.voices(provider, region).list,
+			...(snapshot.edit ? { edit: snapshot.edit } : {})
 		});
 		// The card was read; whether its record could be is a state of its own.
 		this.element.dataset.state = 'ready';

@@ -1,0 +1,268 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The frame viewer under the player of a video in Card Detail's edit mode
+ * (editing media, "The frame viewer"): the sound button, the strip of the
+ * original's frames, the part kept in a yellow frame with a handle on each
+ * side and the strip dimmed outside it, the playhead, the part's length, and a
+ * line of status that keeps its height while it is empty. While the whole
+ * video is kept, the frame is white.
+ */
+.monaco-workbench .basehalf-video-frames {
+	--basehalf-video-frames-yellow: #f5c400;
+	--basehalf-video-frames-frame: var(--basehalf-video-frames-yellow);
+	--basehalf-video-frames-chevron: rgb(0 0 0 / 78%);
+	display: flex;
+	flex-direction: column;
+	/* As wide as the player above it, which the stage is. */
+	align-self: stretch;
+	gap: 6px;
+	min-width: min(280px, calc(100cqw - 48px));
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	user-select: none;
+}
+
+.monaco-workbench.vs-dark .basehalf-video-frames,
+.monaco-workbench.hc-black .basehalf-video-frames {
+	--basehalf-video-frames-yellow: #ffd60a;
+}
+
+.monaco-workbench .basehalf-video-frames.whole {
+	--basehalf-video-frames-frame: #fff;
+}
+
+.monaco-workbench .basehalf-video-frames-row {
+	display: flex;
+	align-items: center;
+	/* Room for a handle that stands outside the strip's ends. */
+	gap: 22px;
+	padding: 0 14px;
+}
+
+.monaco-workbench .basehalf-video-frames-sound {
+	display: grid;
+	width: 32px;
+	height: 32px;
+	flex: none;
+	place-items: center;
+	margin-right: -8px;
+	padding: 0;
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+	border: 0;
+	border-radius: 50%;
+	font-size: 16px;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-frames-sound:hover {
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 18%, transparent);
+}
+
+.monaco-workbench .basehalf-video-frames-sound[aria-pressed="true"] {
+	color: var(--vscode-editor-background);
+	background: var(--vscode-editor-foreground);
+}
+
+.monaco-workbench .basehalf-video-frames-strip {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+	height: 48px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent);
+	touch-action: none;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-frames-pictures {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	overflow: hidden;
+	border-radius: 6px;
+}
+
+/* While a held handle spreads the viewer out, its own pictures stand over the whole video's. */
+.monaco-workbench .basehalf-video-frames-pictures.spread {
+	visibility: hidden;
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 8%, var(--vscode-editor-background));
+}
+
+.monaco-workbench .basehalf-video-frames.spread .basehalf-video-frames-pictures.spread {
+	visibility: visible;
+}
+
+.monaco-workbench .basehalf-video-frames-picture {
+	display: block;
+	flex: 1 1 0;
+	min-width: 0;
+	height: 100%;
+}
+
+.monaco-workbench .basehalf-video-frames-shade {
+	position: absolute;
+	z-index: 1;
+	top: 0;
+	bottom: 0;
+	background: color-mix(in srgb, var(--vscode-editor-background) 66%, transparent);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-frames-shade.before {
+	left: 0;
+	width: var(--basehalf-video-frames-start, 0%);
+	border-radius: 6px 0 0 6px;
+}
+
+.monaco-workbench .basehalf-video-frames-shade.after {
+	left: var(--basehalf-video-frames-end, 100%);
+	right: 0;
+	border-radius: 0 6px 6px 0;
+}
+
+.monaco-workbench .basehalf-video-frames-part {
+	position: absolute;
+	z-index: 1;
+	top: -3px;
+	bottom: -3px;
+	left: var(--basehalf-video-frames-start, 0%);
+	width: calc(var(--basehalf-video-frames-end, 100%) - var(--basehalf-video-frames-start, 0%));
+	box-sizing: border-box;
+	border-top: 3px solid var(--basehalf-video-frames-frame);
+	border-bottom: 3px solid var(--basehalf-video-frames-frame);
+	pointer-events: none;
+}
+
+/* A part shorter than the video can be moved with its length. */
+.monaco-workbench .basehalf-video-frames:not(.whole):not(.busy) .basehalf-video-frames-part {
+	pointer-events: auto;
+	cursor: grab;
+}
+
+.monaco-workbench .basehalf-video-frames.dragging .basehalf-video-frames-part,
+.monaco-workbench .basehalf-video-frames.dragging .basehalf-video-frames-strip {
+	cursor: grabbing;
+}
+
+.monaco-workbench .basehalf-video-frames-handle {
+	position: absolute;
+	z-index: 3;
+	top: -3px;
+	bottom: -3px;
+	display: grid;
+	width: 14px;
+	box-sizing: border-box;
+	place-items: center;
+	color: var(--basehalf-video-frames-chevron);
+	background: var(--basehalf-video-frames-frame);
+	cursor: ew-resize;
+}
+
+.monaco-workbench .basehalf-video-frames-handle.start {
+	left: calc(var(--basehalf-video-frames-start, 0%) - 14px);
+	border-radius: 6px 0 0 6px;
+}
+
+.monaco-workbench .basehalf-video-frames-handle.end {
+	left: var(--basehalf-video-frames-end, 100%);
+	border-radius: 0 6px 6px 0;
+}
+
+/* A handle at a time that the spread viewer does not show waits at its edge. */
+.monaco-workbench .basehalf-video-frames-handle.outside {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-video-frames.dragging .basehalf-video-frames-handle {
+	cursor: ew-resize;
+}
+
+.monaco-workbench .basehalf-video-frames-chevron {
+	width: 8px;
+	height: 14px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-frames.busy .basehalf-video-frames-strip,
+.monaco-workbench .basehalf-video-frames.busy .basehalf-video-frames-sound {
+	opacity: 0.6;
+}
+
+.monaco-workbench .basehalf-video-frames.busy .basehalf-video-frames-handle {
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-frames-playhead {
+	position: absolute;
+	z-index: 2;
+	top: -5px;
+	bottom: -5px;
+	width: 2px;
+	margin-left: -1px;
+	border-radius: 1px;
+	background: #fff;
+	box-shadow: 0 0 3px rgb(0 0 0 / 55%);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-frames-playhead.outside {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-video-frames-length {
+	position: absolute;
+	z-index: 2;
+	top: 50%;
+	left: calc((var(--basehalf-video-frames-start, 0%) + var(--basehalf-video-frames-end, 100%)) / 2);
+	padding: 2px 8px;
+	border-radius: 6px;
+	color: #fff;
+	background: rgb(0 0 0 / 66%);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	line-height: 16px;
+	white-space: nowrap;
+	transform: translate(-50%, -50%);
+	pointer-events: none;
+}
+
+/* Over a short part the length stands above the strip. */
+.monaco-workbench .basehalf-video-frames-length.outside {
+	top: -7px;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editorWidget-background);
+	box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+	transform: translate(-50%, -100%);
+}
+
+.monaco-workbench .basehalf-video-frames-status {
+	min-height: 18px;
+	padding: 0 14px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	line-height: 18px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-frames-status.error {
+	color: var(--vscode-errorForeground);
+}
+
+/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
+.monaco-workbench .basehalf-video-frames :focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-video-frames-handle:focus-visible,
+.monaco-workbench .basehalf-video-frames-sound:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}

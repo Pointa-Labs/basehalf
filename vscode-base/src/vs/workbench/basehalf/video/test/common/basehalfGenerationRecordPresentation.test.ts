@@ -90,14 +90,16 @@ suite('BaseHalfGenerationRecordPresentation', () => {
 		assert.deepStrictEqual([unreadable.readable, unreadable.inputs.length, unreadable.model], [false, 0, '']);
 	});
 
-	test('says which part of the generated video a trimmed video holds, after that it is a copy (D79)', () => {
-		const trimmed = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: { ...MADE, trimStart: 1, trimEnd: 4.5 }, inputs: INPUTS, catalog: ready });
-		const copy = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: { ...MADE, trimStart: 1.25, trimEnd: 3.04, copyOf: '20261023T080000-made0000' }, inputs: INPUTS, catalog: ready });
-		assert.deepStrictEqual([trimmed.line, trimmed.settings, copy.line], [
-			'Trimmed to 1.0s–4.5s of the generated video.',
+	test('says how an edited file differs from what was generated, after that it is a copy (D84)', () => {
+		const trimmed = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: MADE, inputs: INPUTS, catalog: ready, edit: { keep: [{ start: 1, end: 4.5 }] } });
+		const copy = createBaseHalfGenerationRecordPresentation({ kind: 'video', made: { ...MADE, copyOf: '20261023T080000-made0000' }, inputs: INPUTS, catalog: ready, edit: { keep: [{ start: 1.25, end: 3.04 }] } });
+		const cropped = createBaseHalfGenerationRecordPresentation({ kind: 'image', made: MADE, inputs: INPUTS, catalog: ready, edit: { turn: 1, crop: { x: 800, y: 450, width: 1600, height: 900 } } });
+		assert.deepStrictEqual([trimmed.line, trimmed.settings, copy.line, cropped.line], [
+			'Edited: Trimmed to 1.0s–4.5s.',
 			// The settings are what was sent: the generated video was 5 s.
 			'Frames · 720p · 5s · Sound',
-			'A copy. This is what made the original. Trimmed to 1.2s–3.0s of the generated video.'
+			'A copy. This is what made the original. Edited: Trimmed to 1.2s–3.0s.',
+			'Edited: Turned · Cropped to 1600 × 900.'
 		]);
 	});
 

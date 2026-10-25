@@ -52,10 +52,10 @@ import {
 	planBaseHalfVideoInputs
 } from '../../video/common/basehalfVideoCatalog.js';
 import { baseHalfPromptAsText } from '../../video/common/basehalfGenerationMentions.js';
-import { baseHalfGenerationTrimmedPart } from '../../video/common/basehalfGenerationRecordPresentation.js';
 import { baseHalfRecordedVoiceList, baseHalfVoiceLabel, IBaseHalfGenerationVoiceService } from '../../video/common/basehalfGenerationVoices.js';
 import { IBaseHalfGenerationCardSnapshot, IBaseHalfGenerationCardStore, IBaseHalfVideoCatalogService } from '../../video/common/basehalfVideoGeneration.js';
-import { BaseHalfVideoTrimBar } from '../../videoTrim/browser/basehalfVideoTrimBar.js';
+import { BaseHalfMediaEditMode } from '../../mediaEdit/browser/basehalfMediaEditMode.js';
+import { baseHalfEditSummary } from '../../mediaEdit/common/basehalfEditRecord.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
@@ -119,7 +119,7 @@ export interface IBaseHalfGenerationProvenance {
  * read says that.
  */
 export function baseHalfGenerationProvenance(
-	card: Pick<IBaseHalfGenerationCardSnapshot, 'kind' | 'made' | 'madeUnreadable'>,
+	card: Pick<IBaseHalfGenerationCardSnapshot, 'kind' | 'made' | 'madeUnreadable' | 'edit'>,
 	displayLanguage: string = language,
 	catalog?: IBaseHalfVideoCatalog,
 	voices?: (provider: string, region: string) => VoicesResult | undefined,
@@ -159,7 +159,7 @@ export function baseHalfGenerationProvenance(
 	const modeInputs = mode?.inputs ?? (made.mode === 'frames' ? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS : card.kind === 'audio' ? BASEHALF_AUDIO_DEFAULT_MODE_INPUTS : BASEHALF_IMAGE_DEFAULT_MODE_INPUTS);
 	const plan = planBaseHalfVideoInputs(modeInputs, made.inputs.map(path => ({ path, kind: kindOf(path), available: true })));
 	const inputs = plan.map((item): IBaseHalfGenerationProvenanceInput => Object.freeze({ name: provenanceUse(item), path: item.path }));
-	const trimmed = baseHalfGenerationTrimmedPart(made);
+	const edited = card.edit ? baseHalfEditSummary(card.edit) : undefined;
 	const rows: IBaseHalfGenerationProvenanceRow[] = [
 		{ label: localize('basehalf.generation.detail.model', "Model"), value: localize('basehalf.generation.detail.modelValue', "{0} ({1})", model?.label ?? made.model, made.providerModel) },
 		{ label: localize('basehalf.generation.detail.provider', "Provider"), value: localize('basehalf.generation.detail.providerValue', "{0} · {1}", provider?.label ?? made.provider, region?.label ?? made.region) },
@@ -173,11 +173,11 @@ export function baseHalfGenerationProvenance(
 				value: localize('basehalf.generation.detail.imageOf', "{0} of {1}", made.output, made.outputs)
 			}]
 			: []),
-		...(trimmed !== undefined
+		...(edited !== undefined
 			? [{
-				// The part of the generated video that a trimmed video holds (trimming a video, "A generated video").
-				label: localize('basehalf.generation.detail.trimmed', "Trimmed"),
-				value: localize('basehalf.generation.detail.trimmedPart', "{0} of the generated video", trimmed)
+				// How an edited file differs from what was generated (editing media, "Generation cards").
+				label: localize('basehalf.generation.detail.edited', "Edited"),
+				value: edited
 			}]
 			: []),
 		{ label: localize('basehalf.generation.detail.started', "Started"), value: time(started, made.startedAt) },
@@ -210,8 +210,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private webview: IWebviewElement | undefined;
 	private readonly playerStore = this._register(new MutableDisposable<DisposableStore>());
 	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
-	/** The trim bar under the player of a video. */
-	private trimBar: BaseHalfVideoTrimBar | undefined;
+	/** The edit mode of a video (editing media). */
+	private editMode: BaseHalfMediaEditMode | undefined;
+	/** The version of the file that the player shows. */
+	private shownVersion: string | undefined;
 	private playerVersion = 0;
 	/** The image of the webview can be drawn: its page says so (opening and closing Card Detail). */
 	private drawn: (() => void) | undefined;
@@ -235,6 +237,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		private readonly onEscape: () => void,
 		/** The text selected in a PDF or a book, which agents can see (PDFs and books, "What agents can see"). */
 		private readonly onSelectionChange: (selected: IBaseHalfAgentSelectionDocumentText | undefined) => void,
+		/** The group of Card Detail's header where Edit stands, before Close (editing media, "Entering and leaving"). */
+		private readonly editActions: HTMLElement,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
@@ -276,6 +280,14 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				// What made a generated video or sound shows below its player (D78).
 				this.followGenerationProvenance(state);
 				this.followMediaFile(state, stat, kind === 'audio');
+				if (kind === 'video') {
+					this.editMode = this._register(this.instantiationService.createInstance(BaseHalfMediaEditMode, {
+						file: state,
+						header: this.editActions,
+						detail: this.root.closest<HTMLElement>('.basehalf-card-detail') ?? this.root,
+						show: source => void this.showMedia(state, source, false)
+					}));
+				}
 				// Card Detail is drawn once the video has the frame it starts at, or the sound its length.
 				await this.renderPlayer(state.resource, kind === 'audio');
 				return;
@@ -376,16 +388,16 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	 * longer exists.
 	 */
 	private followMediaFile(state: IBaseHalfCardDetailState, stat: { readonly mtime?: number; readonly size?: number }, sound: boolean): void {
-		const versionOf = (file: { readonly mtime?: number; readonly size?: number }) => `${file.mtime ?? 0}-${file.size ?? 0}`;
-		let shown: string | undefined = versionOf(stat);
+		this.shownVersion = mediaVersion(stat);
 		let away = false;
 		const current = () => !this.disposed && this.state?.resource.toString() === state.resource.toString();
 		const check: RunOnceScheduler = this._register(new RunOnceScheduler(() => {
 			this.fileService.stat(state.resource).then(next => {
 				away = false;
-				const version = versionOf(next);
-				if (current() && version !== shown) {
-					shown = version;
+				const version = mediaVersion(next);
+				// Edit mode shows the original and keeps it on screen: a save then finds that the file changed (editing media, "Failure").
+				if (current() && version !== this.shownVersion && !this.editMode?.isEditing) {
+					this.shownVersion = version;
 					void this.renderPlayer(state.resource, sound, 0);
 				}
 			}, () => {
@@ -398,7 +410,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 					return;
 				}
 				away = false;
-				shown = undefined;
+				this.shownVersion = undefined;
 				this.renderNotice('This media file no longer exists.');
 			});
 		}, MEDIA_CHANGE_DELAY_MS));
@@ -414,19 +426,33 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		}));
 	}
 
+	/**
+	 * Shows `source` anew from its start, as edit mode asks: the original of an
+	 * edited file in edit mode, and the file out of it, at its version now.
+	 */
+	private async showMedia(state: IBaseHalfCardDetailState, source: URI, sound: boolean): Promise<void> {
+		const stat = await this.fileService.stat(state.resource).catch(() => undefined);
+		if (this.disposed || this.state?.resource.toString() !== state.resource.toString()) {
+			return;
+		}
+		if (stat) {
+			this.shownVersion = mediaVersion(stat);
+		}
+		await this.renderPlayer(source, sound, 0);
+	}
+
 	/** The video or the sound in the player of Card Detail, from `start` or the frame its card shows; resolves when it has the frame it starts at. */
 	private renderPlayer(resource: URI, sound: boolean, start?: number): Promise<void> {
-		// A file shown anew keeps the keyboard where it was: on the same control of the player or the trim bar.
+		// A file shown anew keeps the keyboard where it was: on the player; edit mode puts it on its editor itself.
 		const active = getActiveElement();
-		const focused = active && this.webviewHost.contains(active) ? this.trimBar?.controlOf(active) ?? 'player' : undefined;
+		const focused = !!active && this.webviewHost.contains(active);
 		const store = new DisposableStore();
 		this.playerStore.value = store;
-		this.trimBar = undefined;
 		clearNode(this.webviewHost);
 		this.webviewHost.classList.add('holds-player');
 		// A file that changed is asked for anew, not from the cache: a version in the query, as the webview's.
 		const version = ++this.playerVersion;
-		// A video plays with the trim bar under it, both centered together (trimming a video); a sound plays alone.
+		// A video plays with its frame viewer, or the line of its last edit, under it (editing media); a sound plays alone.
 		const stage = sound ? this.webviewHost : append(this.webviewHost, $('.basehalf-card-detail-video-stage'));
 		const player = this.player = store.add(createBaseHalfCanvasCardVideoPlayer(stage, null, {
 			source: resource.with({ query: [resource.query, `basehalfMediaVersion=${version}`].filter(Boolean).join('&') }),
@@ -438,11 +464,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			onError: () => this.renderNotice('The media file could not be decoded by this system.'),
 			hoverService: this.hoverService
 		}));
-		const state = this.state;
-		const bar = !sound && state ? this.trimBar = store.add(this.instantiationService.createInstance(BaseHalfVideoTrimBar, stage, { video: state, player, stage })) : undefined;
-		// A handle shows once the bar has read the video: the player holds the keyboard until then.
-		if (focused && (focused === 'player' || !bar || !bar.focusControl(focused))) {
+		if (focused) {
 			player.focus();
+		}
+		if (!sound) {
+			this.editMode?.didShow({ stage, player });
 		}
 		return new Promise<void>(resolve => {
 			store.add(toDisposable(resolve));
@@ -614,7 +640,6 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		this.webview = undefined;
 		this.playerStore.clear();
 		this.player = undefined;
-		this.trimBar = undefined;
 		this.webviewHost.classList.remove('holds-player');
 		clearNode(this.webviewHost);
 		const notice = append(this.webviewHost, $('.basehalf-card-detail-source-notice'));
@@ -694,6 +719,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			void this.voiceService.askOnce(voices.provider, voices.model, voices.region);
 		}
 	}
+}
+
+/** The version of a file that the player shows: a file of another size or time of change is shown anew. */
+function mediaVersion(stat: { readonly mtime?: number; readonly size?: number }): string {
+	return `${stat.mtime ?? 0}-${stat.size ?? 0}`;
 }
 
 /** What the record of a copy says: what it shows made the original. */

@@ -28,6 +28,7 @@ import { baseHalfCommitMirrorFile } from '../../workspace/common/basehalfMirrorF
 import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { BaseHalfMirrorWriteRejected } from '../../workspace/common/basehalfMirrorYaml.js';
+import { BASEHALF_EDIT_RECORD_FILE, IBaseHalfMediaChoices, parseBaseHalfEditRecord } from '../../mediaEdit/common/basehalfEditRecord.js';
 import { baseHalfIsDraft, baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import {
 	BASEHALF_GENERATION_FILE_MAX_BYTES,
@@ -136,7 +137,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		if (stat?.isDirectory || (info.kind === 'absent' && made.kind === 'absent')) {
 			throw new Error(localize('basehalf.generation.store.notCard', "{0} is not an image, video, or audio card.", this.label(card)));
 		}
-		return this.snapshot(card, !!stat, this.readInfo(info), made);
+		return this.snapshot(card, stat, this.readInfo(info), made);
 	}
 
 	async listDrafts(folder: URI): Promise<readonly IBaseHalfGenerationDraft[]> {
@@ -206,7 +207,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			const read = this.readInfo(current);
 			const next = normalizeBaseHalfGenerationInfo(mutate(read.info));
 			if (baseHalfGenerationInfoChangedFields(read.info, next).length === 0) {
-				return this.snapshot(card, !!stat, read, made);
+				return this.snapshot(card, stat, read, made);
 			}
 			const expected = current.kind === 'bytes' ? current.bytes : null;
 			let text: string;
@@ -243,7 +244,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 				this.notificationService.info(localize('basehalf.generation.store.recovered', "BaseHalf could not read the saved prompt and settings of {0}, so it saved the new ones. A copy of the old ones is kept.", this.label(card)));
 			}
 			this._onDidChange.fire(resource);
-			return this.snapshot(card, !!stat, { info: next, readable: true, ignored: [] }, made);
+			return this.snapshot(card, stat, { info: next, readable: true, ignored: [] }, made);
 		}
 		throw new Error(localize('basehalf.generation.store.busy', "The prompt and settings of {0} kept changing while BaseHalf saved them. Try again.", this.label(card)));
 	}
@@ -405,7 +406,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 
 	// --- events ----------------------------------------------------------------------------------
 
-	/** Fires for every card whose `generation.yaml` or `made.yaml` changed, and for a card whose mirror directory was removed. */
+	/** Fires for every card whose `generation.yaml`, `made.yaml`, or edit record changed, and for a card whose mirror directory was removed. */
 	private onDidFilesChange(event: FileChangesEvent): void {
 		const fired = new Set<string>();
 		const consider = (resource: URI, deleted: boolean) => {
@@ -435,7 +436,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 		}
 		const slash = relative.lastIndexOf('/');
 		const name = relative.slice(slash + 1);
-		const cardPath = name === BASEHALF_GENERATION_INFO_FILE || name === BASEHALF_GENERATION_MADE_FILE
+		const cardPath = name === BASEHALF_GENERATION_INFO_FILE || name === BASEHALF_GENERATION_MADE_FILE || name === BASEHALF_EDIT_RECORD_FILE
 			? (slash < 0 ? '' : relative.slice(0, slash))
 			: deleted ? relative : '';
 		return cardPath && baseHalfGenerationKindOfPath(cardPath) ? URI.joinPath(folder, ...cardPath.split('/')) : undefined;
@@ -443,19 +444,35 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 
 	// --- helpers ---------------------------------------------------------------------------------
 
-	private snapshot(card: ICardLocation, hasFile: boolean, read: IBaseHalfGenerationInfoRead, madeBytes: MirrorBytes): Promise<IBaseHalfGenerationCardSnapshot> {
+	private snapshot(card: ICardLocation, stat: IFileStatWithPartialMetadata | undefined, read: IBaseHalfGenerationInfoRead, madeBytes: MirrorBytes): Promise<IBaseHalfGenerationCardSnapshot> {
 		const made = madeBytes.kind === 'bytes' ? parseBaseHalfGenerationMade(madeBytes.bytes.toString()) : undefined;
-		return this.readUpstream(card).then(upstream => Object.freeze({
+		return Promise.all([this.readUpstream(card), stat ? this.readEdit(card, stat.size) : undefined]).then(([upstream, edit]) => Object.freeze({
 			resource: card.resource,
 			path: card.relativePath,
 			kind: card.kind,
-			hasFile,
+			hasFile: !!stat,
 			info: read.info,
 			infoReadable: read.readable,
 			...(made ? { made } : {}),
 			...(madeBytes.kind !== 'absent' && !made ? { madeUnreadable: true } : {}),
+			...(edit ? { edit } : {}),
 			upstream
 		}));
+	}
+
+	/**
+	 * What an edit in Card Detail did to the card's file, from its edit record
+	 * (editing media, "Generation cards"), while the file has the size the edit
+	 * gave it: a file that another program changed is no longer the edit's.
+	 */
+	private async readEdit(card: ICardLocation, size: number): Promise<IBaseHalfMediaChoices | undefined> {
+		const bytes = await this.readMirror(card, BASEHALF_EDIT_RECORD_FILE).catch(() => undefined);
+		const record = bytes?.kind === 'bytes' ? parseBaseHalfEditRecord(bytes.bytes.toString()) : undefined;
+		if (!record || record.result.size !== size) {
+			return undefined;
+		}
+		const { original: _original, result: _result, ...choices } = record;
+		return choices;
 	}
 
 	/** Reads `generation.yaml` field by field, each value of `params` by the type its model declares when the catalog knows it. */

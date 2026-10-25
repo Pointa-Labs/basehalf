@@ -164,6 +164,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly detailSaveStatusIcon: HTMLElement;
 	readonly detailSaveStatusLabel: HTMLElement;
 	readonly detailProjectionActions: HTMLElement;
+	/** Where Card Detail's projection of a media file puts Edit, or Revert, Cancel, and Done (editing media). */
+	readonly detailEditActions: HTMLElement;
 	readonly detailBadgeZone: HTMLElement;
 	readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
@@ -459,6 +461,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.detailSaveStatusIcon.setAttribute('aria-hidden', 'true');
 		this.detailSaveStatusLabel = append(this.detailSaveStatus, $('span.basehalf-card-detail-save-status-label'));
 		this.detailProjectionActions = append(detailActions, $('.basehalf-card-detail-projections'));
+		this.detailEditActions = append(detailActions, $('.basehalf-card-detail-edit-actions'));
 		// No layout control here: the sidebar belongs to the window, and its
 		// control is in the title bar (docs/specs/layout-controls.md).
 		const close = append(detailActions, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
