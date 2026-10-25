@@ -273,7 +273,7 @@ suite('BaseHalfKeptVersions', () => {
 		});
 	});
 
-	test('sends what it kept to the Trash when the window closes, and leaves the card information that a delete to the Trash keeps', async () => {
+	test('sends what it kept to the Trash from where each item was when the window closes, and leaves the card information that a delete to the Trash keeps', async () => {
 		const harness = await open({
 			'shot.mp4': 'the video',
 			'.bh/mirror/shot.mp4/badge.yaml': 'path: "shot.mp4"\nkind: file\ndescription: "Shot"\n',
@@ -287,8 +287,9 @@ suite('BaseHalfKeptVersions', () => {
 
 		harness.lifecycleService.fireShutdown();
 		await Promise.all(harness.lifecycleService.shutdownJoiners);
-		assert.deepStrictEqual({ trashed: harness.provider.trashed.map(path => path.replace(/kept\/[^/]+\/[^/]+\//, 'kept/<keep>/')).sort(), files: await harness.shown() }, {
-			trashed: ['.bh/cache/kept/<keep>/item/note.md', '.bh/cache/kept/<keep>/item/shot.mp4'],
+		// The Trash keeps the place an item had when it went in, which Put Back returns it to.
+		assert.deepStrictEqual({ trashed: [...harness.provider.trashed].sort(), files: await harness.shown() }, {
+			trashed: ['note.md', 'shot.mp4'],
 			// A generation.yaml without a made.yaml would be a draft: it goes.
 			files: {
 				'.bh/mirror/shot.mp4/upstream.yaml': 'upstream:\n  - brief.md\n',
@@ -310,8 +311,22 @@ suite('BaseHalfKeptVersions', () => {
 
 		await harness.service.sweep();
 		assert.deepStrictEqual({ trashed: harness.provider.trashed, kept: Object.keys(await harness.files()).filter(path => path.startsWith('.bh/cache/kept/')).sort() }, {
-			trashed: ['.bh/cache/kept/gone/one/item/old.md'],
+			trashed: ['old.md'],
 			kept: ['.bh/cache/kept/open/one/item/open.md', '.bh/cache/kept/open/one/place.json', '.bh/cache/kept/open/owner.json']
+		});
+	});
+
+	test('sends an item to the Trash from the kept versions when another item took its path or its folder is gone', async () => {
+		const harness = await open({ 'keep.md': '# Keep\n', 'box/a.md': '# A\n', 'box/b.md': '# B\n' });
+		await harness.service.deleteItems([resource('keep.md'), resource('box/a.md')], { label: 'Delete 2 items' });
+		await harness.fileService.writeFile(resource('keep.md'), VSBuffer.fromString('# A new note\n'));
+		await harness.fileService.del(resource('box'), { recursive: true });
+
+		harness.lifecycleService.fireShutdown();
+		await Promise.all(harness.lifecycleService.shutdownJoiners);
+		assert.deepStrictEqual({ trashed: harness.provider.trashed.map(path => path.replace(/kept\/[^/]+\/[^/]+\//, 'kept/<keep>/')).sort(), files: await harness.shown() }, {
+			trashed: ['.bh/cache/kept/<keep>/item/a.md', '.bh/cache/kept/<keep>/item/keep.md'],
+			files: { 'keep.md': '# A new note\n' }
 		});
 	});
 

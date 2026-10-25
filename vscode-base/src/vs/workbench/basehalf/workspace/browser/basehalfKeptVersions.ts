@@ -535,7 +535,7 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 		}
 		const trash = this.configurationService.getValue<boolean>('files.enableTrash') && this.fileService.hasCapability(slot, FileSystemProviderCapabilities.Trash);
 		for (const item of items?.children ?? []) {
-			await this.fileService.del(item.resource, { recursive: true, useTrash: trash });
+			await this.discard(workspaceFolder, path, item.resource, trash);
 		}
 		if (trash && path !== undefined) {
 			await this.leaveCardInformationForTheTrash(workspaceFolder, path, joinPath(slot, KEPT_MIRROR_FOLDER));
@@ -548,6 +548,33 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 			}
 		}
 		await this.fileService.del(slot, { recursive: true });
+	}
+
+	/**
+	 * Sends a kept item to the Trash from its path, so that Put Back in Finder
+	 * returns it there: the Trash keeps the place an item had when it went in.
+	 * An item whose path another item took, or whose folder is gone, goes from
+	 * the kept versions. Without the Trash, it is deleted for good where it is.
+	 * The window was told the item's delete when it was kept, and is told
+	 * nothing of its way back to its path.
+	 */
+	private async discard(workspaceFolder: URI, path: string | undefined, kept: URI, trash: boolean): Promise<void> {
+		const home = trash && path !== undefined ? joinPath(workspaceFolder, ...path.split('/')) : undefined;
+		const atHome = home !== undefined && await this.fileService.exists(dirname(home))
+			&& await this.fileService.move(kept, home, false, 'nothing').then(() => true, () => false);
+		if (!home || !atHome) {
+			await this.fileService.del(kept, { recursive: true, useTrash: trash });
+			return;
+		}
+		try {
+			// What disappears is no move to recognize.
+			this.movedItemsService.acceptWorkbenchDelete(workspaceFolder, path!);
+			await this.fileService.del(home, { recursive: true, useTrash: true });
+		} catch (error) {
+			// What the Trash refused stays kept, and the next window tries again.
+			await this.fileService.move(home, kept, false, 'nothing');
+			throw error;
+		}
 	}
 
 	/** Puts the card information that a delete to the Trash keeps back into `.bh/mirror/`, where nothing took its place. */

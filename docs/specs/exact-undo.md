@@ -184,6 +184,13 @@ Not in scope, and unchanged:
 - An item that the Trash refuses stays kept, and the next window that opens
   the folder tries again. BaseHalf never deletes for good what the Trash
   should have held.
+- An item goes to the Trash from where it was, so that Put Back in Finder
+  returns it there: the Trash keeps the place an item had when it went in.
+  BaseHalf moves it back to its path first, and sends it to the Trash from
+  the kept versions only when another item took its path or its folder is
+  gone. On 2026-10-25 the Trash kept the kept versions as the place of
+  items that BaseHalf sent there, a folder that is gone by then, so Put
+  Back could not return them.
 - What goes to the Trash leaves behind the card information that a delete
   to the Trash has always kept, so that a restore from the Trash brings the
   card back whole ([mirror file resilience](mirror-file-resilience.md)): the
@@ -263,7 +270,8 @@ Not in scope, and unchanged:
 9. Undo after a new item took the path of a deleted one replaces nothing and
    says why.
 10. When the window closes, what it kept is in the Trash, and its part of the
-    kept versions is gone.
+    kept versions is gone. The Trash keeps the folder where each item was
+    as its place to put it back.
 11. What a window kept whose mark is older than five minutes goes to the
     Trash when another window opens the folder.
 12. A change of a file in place is one step: undo puts the version before
