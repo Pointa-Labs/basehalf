@@ -1,10 +1,12 @@
 # The selection agents can see
 
 Status: Active (2026-10-14; a selected draft, 2026-10-22 for D63; text in a
-PDF or a book, 2026-10-25 for D81)
+PDF or a book, 2026-10-25 for D81; the entry while the skill is not
+installed, 2026-10-26 for D83)
 Decisions: [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D63](../decisions.md#d63--a-generated-file-is-its-card-new-2026-10-22),
-[D81](../decisions.md)
+[D81](../decisions.md),
+[D83](../decisions.md#d83--the-agent-skill-is-a-link-to-basehalfs-own-copy-which-follows-each-release-and-its-offer-stays-until-it-is-answered-new-2026-10-26)
 Related: [agent skill](agent-skill.md),
 [PDFs and books](documents-and-books.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -24,7 +26,10 @@ card.
 status bar, under the Agent Area, BaseHalf shows the name of what is
 selected, or the start of the selected text, or how many cards are
 selected. It is a reminder and nothing else: it has no button and does not
-open.
+open. When agents can see nothing because the
+[BaseHalf skill](agent-skill.md) is not installed, the entry says so until
+the user installs the skill or declines it, and a click on it offers the
+skill.
 
 ## Problem
 
@@ -113,8 +118,9 @@ the canvas or the note the user is in, and removes it from the others.
 
 **When it exists.** BaseHalf writes the record only while all of these hold:
 
-- the [BaseHalf skill](agent-skill.md) is installed, at its current version,
-  for at least one agent;
+- the [BaseHalf skill](agent-skill.md) is installed for at least one agent:
+  its entry is a link to BaseHalf's own copy, which BaseHalf keeps at the
+  text of its release ([agent skill](agent-skill.md#keeping-it-current));
 - the window is a local desktop window;
 - the workspace folder is not marked with `.basehalf-no-workspace-setup`
   ([source-tree contract](spec-driven-development.md)).
@@ -190,9 +196,15 @@ are there already. It shows the icon and the text of the table above.
 - The start of the selected text is the text with each run of white space,
   line breaks included, made one space.
 - Resting the pointer on the entry shows "Agents that use the BaseHalf skill
-  can see this." A click does nothing.
-- The entry shows nothing while no record can be written: without the
-  current skill, in a marked folder, or after a write failed.
+  can see this." A click on a selection does nothing.
+- While the skill is not installed and its [offer](agent-skill.md#offer) is
+  unanswered, the entry shows an eye with a line through it and "Agents
+  can't see your selection". Resting the pointer on it shows "Install the
+  BaseHalf skill so that agents can see what you select." A click shows the
+  offer. It is laid out as the entry of a selection is.
+- The entry shows nothing in a marked folder, after a write failed, and
+  without the skill once the offer does not apply: after Don't Ask Again,
+  after Remove Agent Skill, or while the setting turns the offer off.
 
 ## The skill
 
@@ -208,6 +220,9 @@ The [agent skill](agent-skill.md#the-skill) describes the record:
 - Its version becomes 3, so BaseHalf offers the update.
 - Version 9 (D81) adds what `first_page`, `last_page`, and `chapter` mean
   for text in a PDF or a book.
+- Since D83 the installed skill is a link to BaseHalf's own copy, which
+  takes each release's text without an offer, so a new version no longer
+  takes the record away.
 
 The [launch instruction](agent-launch-context.md) does not describe the
 record: without the skill there is no record.
@@ -265,8 +280,8 @@ record: without the skill there is no record.
   its own text, and the one shown counts.
 
 **Showing.** The service hands the status bar a new selection as soon as it
-is given one, while the current skill is installed and the folder is not
-known to be marked; the record follows.
+is given one, while the skill is installed and the folder is not known to
+be marked; the record follows.
 
 **Writing.** The service writes the record 200 ms after the last change it
 was given. It looks for the marker of the source tree each time, writes
@@ -278,8 +293,8 @@ last, or when the window gained focus since. When a write fails, it removes
 what it wrote before, so nothing is stored that the window does not show. It
 checks whether the skill is installed when it starts, when this window
 installs or removes the skill, and when the window gains focus; a check that
-ends after a later one is ignored. Each time it finds the current skill
-missing, it removes records left in the folders of its window.
+ends after a later one is ignored. Each time it finds the skill missing, it
+removes records left in the folders of its window.
 
 **Removing.** Before removing its record, the service reads the file and
 removes it only when it holds what this window wrote. Closing the window
@@ -309,6 +324,9 @@ right group, and draws its content itself: the glyph that the caption of a
 card draws (`renderBaseHalfItemGlyph`, shared with the canvas) and the text.
 It sets the entry's largest width from the room under the Agent Area
 whenever the Agent Area or the status bar changes size or visibility.
+Without a selection it shows the unanswered offer that the skill's notifier
+holds (`IBaseHalfAgentSkillNotifier.pendingOffer`): the codicon
+`eye-closed`, the text, and the command that shows the offer.
 
 ## Acceptance criteria
 
@@ -331,8 +349,9 @@ whenever the Agent Area or the status bar changes size or visibility.
      starts inside a link's text whose words a later line repeats, which must
      not narrow to that later line.
 2. The writer, on an in-memory file system. Unit tests:
-   - no record while the skill is missing or only outdated; a record, and
-     BaseHalf's ignore file before it, while it is current for one agent;
+   - no record while the skill is missing or only an earlier copy; a
+     record, and BaseHalf's ignore file before it, while one agent's entry
+     is linked;
    - one record per window: a selection in a marked folder removes the
      record of the other folder and writes none; no canvas removes it;
    - closing the window removes the record, but not a record whose content
@@ -352,9 +371,15 @@ whenever the Agent Area or the status bar changes size or visibility.
 6. Smoke step `agent-sees-selection`, in the `canvas` suite. The smoke installs the skill into a folder of its own run
    (`BASEHALF_SMOKE_AGENT_SKILL_HOME`, which the product never sets), so the
    agents' settings of the machine are neither read nor changed:
-   - nothing is recorded or shown before the skill is installed;
-   - after **BaseHalf: Install Agent Skill**, nothing selected records the
-     folder `.` and shows the workspace folder's name;
+   - with the offer turned off, as the fixture has it, nothing is recorded
+     or shown;
+   - with the offer turned on, nothing is recorded and the entry shows
+     "Agents can't see your selection" with a command; its click puts the
+     offer in the notification center, and the offer's **Install** makes
+     Claude Code's entry a link to BaseHalf's own copy, through which
+     `SKILL.md` reads as the bundled text;
+   - then nothing selected records the folder `.` and shows the workspace
+     folder's name;
    - the entry is in the status bar and has no label of its own; with the
      Agent Area hidden it is at most 240 pixels wide, and with it shown at
      most 60% of the room under it, never left of it;
@@ -373,7 +398,9 @@ whenever the Agent Area or the status bar changes size or visibility.
      differs from its focused style and is not transparent; a press on the
      page beside the document records the card again;
    - git shows nothing under `.bh/cache/`;
-   - **BaseHalf: Remove Agent Skill** removes the record and the entry.
+   - **BaseHalf: Remove Agent Skill** removes the record, the links, and
+     the copy, and the entry shows nothing, since a removal declines the
+     offer.
 7. Checked in the real window once per release of this behaviour, not
    automated: text selected in Card Detail's rich and source projections is
    recorded with its lines; the entry in the light and the dark theme; a

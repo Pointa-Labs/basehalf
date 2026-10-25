@@ -10,7 +10,8 @@ version 8, 2026-10-24, D74: a prompt mentions an input as `@[<entry>]`;
 version 9, 2026-10-25, D78: a generation card is an image, a video, or a
 sound, and a sound an agent makes itself goes where an image does;
 version 10, 2026-10-25, D81: selected text in a PDF names its pages and in
-a book its chapter)
+a book its chapter; installed as a link to BaseHalf's own copy, which
+follows every release, and offered until the user answers, 2026-10-26, D83)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
 [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
@@ -20,8 +21,10 @@ Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-s
 [D67](../decisions.md#d67--a-draft-is-what-will-be-made-a-generated-file-shows-what-made-it-new-2026-10-23),
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
 [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
-[D81](../decisions.md#d81--a-pdf-or-a-book-shows-its-cover-at-one-size-and-a-book-opens-to-be-read-new-2026-10-25)
+[D81](../decisions.md#d81--a-pdf-or-a-book-shows-its-cover-at-one-size-and-a-book-opens-to-be-read-new-2026-10-25),
+[D83](../decisions.md#d83--the-agent-skill-is-a-link-to-basehalfs-own-copy-which-follows-each-release-and-its-offer-stays-until-it-is-answered-new-2026-10-26)
 Related: [agent launch context](agent-launch-context.md),
+[the selection agents can see](selection-for-agents.md),
 [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [generation cards](generation-cards.md#agents)
@@ -51,6 +54,8 @@ skill, which the user installs and the agent loads when a task calls for it.
   a card's badge is and how to keep it intact.
 - The user installs it. BaseHalf offers it when a workspace opens and never
   installs it unasked.
+- Once installed, it follows every release of BaseHalf, and BaseHalf never
+  changes the agents' folders again unless the user asks.
 - It works for an agent started anywhere, not only in Agent Area.
 - Where BaseHalf stores a badge does not change.
 
@@ -66,7 +71,9 @@ skill, which the user installs and the agent loads when a task calls for it.
 ## The skill
 
 The skill is one folder named `basehalf` that holds one file, `SKILL.md`. Its
-text is part of the application bundle, so no local process can change it.
+text is part of the application bundle. BaseHalf writes it into a folder of
+its own, which the agents' folders link to
+([where it is installed](#where-it-is-installed)).
 
 **Front matter.** The opening `---` is the first line of the file.
 
@@ -83,7 +90,8 @@ text is part of the application bundle, so no local process can change it.
   skill also applies to a request that does not say which file or text it
   is about, such as "this", "here", or "improve it", because BaseHalf
   records what the user selected.
-- `metadata.version`: a string that changes whenever the text changes.
+- `metadata.version`: a whole number, written as a string, that grows
+  whenever the text changes. BaseHalf compares versions as numbers.
 
 **Body.** In this order:
 
@@ -166,24 +174,56 @@ nothing else that BaseHalf writes.
 
 ## Where it is installed
 
-| For | File |
+| For | Entry |
 | --- | --- |
-| Claude Code | `<home>/.claude/skills/basehalf/SKILL.md` |
-| Codex, and other agents that read the shared location | `<home>/.agents/skills/basehalf/SKILL.md` |
+| Claude Code | `<home>/.claude/skills/basehalf` |
+| Codex, and other agents that read the shared location | `<home>/.agents/skills/basehalf` |
 
-`<home>` is the user's home folder on this machine. Installing writes both
-files. Nothing is written into a workspace.
+`<home>` is the user's home folder on this machine. Each entry is a symbolic
+link to BaseHalf's own copy of the skill, the folder
+`<home>/.basehalf/agent-skill/basehalf/`, which holds `SKILL.md`. Claude
+Code and Codex both read a skill folder through a link: their documentation
+says so, and the [recorded trials](#recorded-trials) show it. Installing
+writes the copy and the two links. Nothing is written into a workspace.
 
-Each location is in one of three states:
+The copy is not inside the application bundle: macOS may run an application
+from a temporary path, and a development build's bundle is somewhere else.
+Every BaseHalf on the machine uses the same folder, a development build
+included.
 
-- **missing**: the file does not exist;
-- **current**: its bytes equal the bundled text;
-- **outdated**: anything else, including a file the user edited.
+Each entry is in one of four states:
+
+- **missing**: nothing is there;
+- **linked**: a link to BaseHalf's own copy;
+- **copy**: a folder, such as the copy that an earlier release wrote there;
+- **other**: a link to anywhere else, or a file.
+
+The skill is **installed** while at least one entry is linked.
+
+## Keeping it current
+
+**A release changes only BaseHalf's own copy.** The agents' folders change
+only when the user installs or removes the skill.
+
+- When a window starts, and whenever it gains focus, BaseHalf writes the
+  bundled text into its own copy if at least one entry is linked and the
+  copy holds neither this text nor a higher version. A copy that is missing
+  is written again: the link is the user's choice, and the copy is
+  BaseHalf's.
+- A copy of a higher version is left as it is. The copy therefore holds the
+  text of the newest BaseHalf that ran on this machine, and an older
+  BaseHalf beside a newer one, such as a release beside a development build,
+  never writes an older text over it. A copy of the same version with other
+  bytes takes the bundled text.
+- The copy is written whole through a temporary file, so that an agent never
+  reads half of it.
+- An agent reads the new text the next time it loads the skill. Claude Code
+  notices a changed skill within a session. Codex notices it too, and
+  otherwise after a restart.
 
 ## Offer
 
-BaseHalf offers the skill once per window, after the workbench has restored,
-when all of these hold:
+BaseHalf offers the skill while all of these hold:
 
 - a workspace folder is open;
 - the window is local and runs on the desktop (not a remote connection, not
@@ -191,25 +231,42 @@ when all of these hold:
 - no workspace folder is marked with `.basehalf-no-workspace-setup`;
 - the setting `basehalf.agents.offerSkill` is `true` (the default; a
   workspace can turn it off for itself);
-- at least one location is not current;
-- the user has not chosen **Don't Ask Again** for this version of the skill.
+- no entry is linked;
+- the user has not answered with **Don't Ask Again** and has not removed the
+  skill with **Remove Agent Skill**.
 
-The offer is one information notification:
+The offer is one information notification. It appears once per window,
+after the workbench has restored, and **it stays until the user chooses one
+of its buttons or closes it**: it does not hide after a time.
 
 > Install the BaseHalf skill for your agents? It tells Claude Code and Codex
-> where a card's description and connections are. It is added to your agents'
-> own settings on this computer, not to this folder.
+> what you select and where a card's description and connections are. It is
+> added to your agents' own settings on this computer, not to this folder,
+> and BaseHalf keeps it up to date.
 >
 > Install · Not Now · Don't Ask Again
 
-When no location is missing and at least one is outdated, the first sentence
-reads "A newer BaseHalf skill is available for your agents." and the first
-button reads **Update**.
+When no entry is missing, which means that an earlier release left its copy
+there, it reads:
+
+> Update the BaseHalf skill for your agents? It tells Claude Code and Codex
+> what you select and where a card's description and connections are. After
+> this update, BaseHalf keeps it up to date by itself.
+>
+> Update · Not Now · Don't Ask Again
 
 - **Install** or **Update** installs the skill.
-- **Not Now**, or closing the notification, asks again in the next window.
-- **Don't Ask Again** stores the declined version in application storage. A
-  later version of the skill is offered again.
+- **Not Now**, or closing the notification, closes it in this window. The
+  status bar entry stays, and the next window offers the skill again.
+- **Don't Ask Again** stores the answer in application storage. No version of
+  the skill is offered again, and the status bar entry goes.
+  **Install Agent Skill** still installs it.
+
+**While the offer is unanswered**, the status bar entry of
+[the selection agents can see](selection-for-agents.md#what-the-window-shows)
+says that agents cannot see the selection, and a click on it shows the
+offer again. That notification is shown even while Do Not Disturb is on,
+because the user asked for it.
 
 The notification follows the wording rules of D41: it names no path, no file
 format, and no hidden folder.
@@ -217,22 +274,46 @@ format, and no hidden folder.
 ## Commands
 
 - **BaseHalf: Install Agent Skill** installs the skill whatever the setting
-  and the stored answer are.
-- **BaseHalf: Remove Agent Skill** deletes both `SKILL.md` files and each
-  `basehalf` folder that is then empty.
+  and the stored answer are, and forgets a stored Don't Ask Again.
+- **BaseHalf: Remove Agent Skill** removes both links, a copy that an earlier
+  release left in an agent's folder, and BaseHalf's own copy. It counts as
+  Don't Ask Again.
+- The status bar entry runs a command that shows the offer. It is not listed
+  in the Command Palette.
 
 ## Installing and removing
 
-- Each location is written on its own: missing folders are created and the
-  file replaces any earlier one.
-- A location that cannot be written does not stop the other. BaseHalf then
-  says "The BaseHalf skill could not be installed for <agent>: <plain failure
-  reason>", with the reason from
-  [mirror file resilience](mirror-file-resilience.md#failure-reasons-in-messages).
-- When both are written it says "The BaseHalf skill is installed for Claude
-  Code and Codex. Agent sessions you start from now on can use it."
-- Removing a skill that is not installed says "The BaseHalf skill is not
-  installed." Otherwise it says "The BaseHalf skill was removed."
+- Installing writes BaseHalf's own copy first, unless it holds a higher
+  version, and then makes each link on its own: missing folders are created,
+  and a link to anywhere else is replaced.
+- A copy that an earlier release left in an agent's folder is replaced by the
+  link: BaseHalf deletes its `SKILL.md` and the folder. When the folder holds
+  anything else, BaseHalf changes nothing there and reports that location
+  with the reason "a folder of that name holds files of your own". A file at
+  the entry is reported with "a file of that name is in the way".
+- A location that cannot be made does not stop the other. BaseHalf then says
+  "The BaseHalf skill could not be installed for <agent>: <reason>", with a
+  plain reason from
+  [mirror file resilience](mirror-file-resilience.md#failure-reasons-in-messages)
+  or one of the two above. When its own copy cannot be written, both
+  locations are reported with that reason.
+- When both are made it says "The BaseHalf skill is installed for Claude Code
+  and Codex, and BaseHalf keeps it up to date. Agent sessions you start from
+  now on can use it. To take it away, use Remove Agent Skill in the Command
+  Palette."
+- Removing deletes the links, never what they point at, then an earlier
+  release's copy where one is (its `SKILL.md`, and the folder when it is
+  then empty), then BaseHalf's own copy and those of its folders that are
+  then empty. A link to anywhere else is left. Removing a skill that is not
+  installed says "The BaseHalf skill is not installed." Otherwise it says
+  "The BaseHalf skill was removed. BaseHalf won't offer it again; Install
+  Agent Skill brings it back."
+- A window cannot make a link. A service in the shared process inspects,
+  makes, and removes links (`platform/basehalfFiles/`, beside the setting of
+  file times of D82). It changes links only, never a file or a folder.
+- Moving BaseHalf to the Trash leaves the links and the copy, as it leaves
+  the other folders that BaseHalf keeps on the machine. Remove Agent Skill
+  takes them away.
 
 ## Agent Area sessions
 
@@ -243,8 +324,9 @@ instruction. See [agent launch context](agent-launch-context.md#mechanism).
 
 ## Source-tree guard
 
-A marked workspace gets no offer, as it gets no launch context. The commands
-still work there, because they write only to the user's home folder.
+A marked workspace gets no offer and no status bar entry for it, as it gets
+no launch context. The commands still work there, because they write only to
+the user's home folder.
 
 ## Acceptance criteria
 
@@ -262,27 +344,49 @@ still work there, because they write only to the user's home folder.
    contains every line of the launch instruction's shared sections, and has
    fewer than 500 lines. It names no `.bhnode` and no `--run-node`. Its
    version is `10`. Unit test.
-2. Installing writes both files with exactly the bundled bytes and creates
-   missing folders. The states are missing before, current after, and
-   outdated after the file is changed. Removing deletes both files and the
-   empty folders. A location that cannot be written is reported and does not
-   stop the other. Unit test on an in-memory file system.
-3. The offer appears once when a location is missing, says Update when one is
-   outdated and none is missing, and does not appear when both are current,
-   when the setting is off, in a marked workspace, without a workspace folder,
-   or after Don't Ask Again for this version. A newer version is offered
-   again. Unit test.
-4. Nothing is written into the workspace by the offer, the install, or the
+2. Installing writes BaseHalf's own copy with exactly the bundled bytes and
+   links both entries to its folder, creating missing folders. The states
+   are missing before and linked after. An earlier copy that holds only
+   `SKILL.md` becomes the link; one that holds other files is left as it is
+   and reported, and the other location is still linked. A link to anywhere
+   else is replaced. Removing deletes both links, the earlier copies, and the
+   own copy, and leaves a link to anywhere else; removing again reports that
+   the skill is not installed. Unit test on an in-memory file system, with
+   the link service faked.
+3. Keeping it current: while an entry is linked, the copy takes the bundled
+   text when it is missing, of a lower version, or of the same version with
+   other bytes, and keeps a higher version. Without a link nothing is
+   written. Unit test.
+4. The link service, on the disk: it tells a missing entry, a link with its
+   target, and a file or a folder apart; it makes a link and its parent
+   folders, replaces a link, refuses a file or a folder, and changes nothing
+   when the link is there already; removing a link leaves what it pointed
+   at; it refuses what is not on the disk. Unit test.
+5. The offer is a notification that stays (sticky), shown once per window:
+   Install when an entry is missing, Update when an earlier copy is in
+   every place, and none when an entry is linked, when the setting is off,
+   in a marked workspace, without a workspace folder, after Don't Ask Again,
+   or after Remove Agent Skill. Install Agent Skill installs after Don't Ask
+   Again and forgets it. Shown on demand, it has the priority that Do Not
+   Disturb does not hold back. The unanswered offer that the status bar
+   shows follows each of these. Unit test.
+6. Nothing is written into the workspace by the offer, the install, or the
    removal. Unit test; the smoke's fixture turns the offer off and still
    finds nothing installed after the session.
-5. Launch configuration: see
+7. Launch configuration: see
    [agent launch context](agent-launch-context.md#acceptance-criteria).
-6. Recorded once per release of the skill text, not automated. The skill is
+8. Recorded once per release of the skill text, not automated. The skill is
    available to Claude Code and no request mentions it or BaseHalf:
    - a task in a folder that has `.bh/` makes Claude Code load the skill;
    - so does a task on a note that has an `upstream` list;
    - a task in a folder with neither sign does not, and the agent looks
      nowhere outside that folder.
+9. Recorded once, not automated: Claude Code and Codex each load a skill
+   whose folder is a link, from the place they read skills from (see
+   [recorded trials](#recorded-trials)).
+10. Checked in the real window, not automated, because the smoke's driver
+    shows no notification over the window: the offer is still there 30
+    seconds after it appeared, with the window in front.
 
 ## Recorded trials
 

@@ -191,7 +191,9 @@ in [decisions.md](../decisions.md).
   intelligence layer. Agents learn a workspace from the files and from the
   [agent skill](../specs/agent-skill.md), which BaseHalf offers and the user
   installs into the agents' own skill folders. It is never installed unasked
-  and never written into a workspace (D43).
+  and never written into a workspace (D43). Installing puts a link there to
+  BaseHalf's own copy, which takes each release's text; after that BaseHalf
+  changes nothing in the agents' folders unless the user asks (D83).
 
 See public decisions D12–D14, D24, D35–D38, and D40–D43, the
 [reference graph](../specs/reference-graph.md) and

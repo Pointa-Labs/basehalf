@@ -3233,3 +3233,68 @@ new file.
   the canvas asked "Would you like to undo ...?". A delete or a Duplicate
   of files with drafts is such a group. A group now goes on with the source
   of the element it undid (marked `// BaseHalf:`).
+
+## D83 — The agent skill is a link to BaseHalf's own copy, which follows each release, and its offer stays until it is answered (NEW, 2026-10-26)
+
+**Decision.** Installing the agent skill puts a symbolic link named
+`basehalf` into Claude Code's skill folder and into the location that Codex
+and other agents share. Both point at BaseHalf's own copy,
+`~/.basehalf/agent-skill/basehalf/`. Each release carries its skill text in
+the application bundle, and BaseHalf writes it into its own copy when a
+window starts or gains focus, never over a higher version. After the
+install, BaseHalf changes nothing in the agents' folders unless the user
+asks. A linked skill is installed, so there is no outdated skill and no
+offer to update it any more. The offer is a notification that stays until
+the user answers it, and while it is unanswered the status bar entry of the
+selection says that agents cannot see the selection; a click on it shows the
+offer again. See [agent skill](specs/agent-skill.md#keeping-it-current) and
+[the selection agents can see](specs/selection-for-agents.md#what-the-window-shows).
+
+**Why.** On 2026-10-25 the user asked why the entry of the selection had gone
+from the status bar. Main's skill text had reached version 10 that day,
+while the machine held version 8, and D57 shows the entry only with the
+current skill. The offer to update had hidden itself after ten seconds. The
+text had changed seven times since D57 (versions 3 to 10 in eleven days),
+and each change took the entry and the record away from every user, without
+a word, until they found the offer. Rewriting the copies in the agents'
+folders at each release was proposed and set aside: those folders are
+another program's settings, and the rules that the platforms use to tell
+wanted software from unwanted ask that a program change nothing after its
+installation beyond what it offered then, unless the user asks (Google's
+Unwanted Software Policy), and count a reinstall without consent as unwanted
+(Microsoft's criteria for unwanted software). A link is made once, with the
+user's consent, at a moment when the offer says that BaseHalf keeps the
+skill up to date; what changes afterwards is BaseHalf's own file. Claude
+Code and Codex both document that they follow a linked skill folder. The
+user asked that the offer stay instead of hiding after ten seconds, and
+asked for a better way if there was one: the status bar entry keeps the
+unanswered offer in view after the notification is closed.
+
+**What was set aside.**
+- Rewriting an outdated copy in the agents' folders at each release: see
+  above. It would also overwrite a copy that the user edited.
+- The agents' own plugin systems, a Claude Code marketplace and Codex
+  plugins: their versions do not follow the user's BaseHalf, Claude Code
+  does not update a third-party marketplace by itself, the two systems
+  differ, and the other agents that read the shared location would be left
+  out.
+- A command-line installer that writes a skill into every agent's folder: it needs Node and a terminal.
+- Linking into the application bundle: macOS may run an application from a
+  temporary path, and a development build's bundle is somewhere else.
+- Showing the entry's offer after Don't Ask Again: the user answered.
+
+**Consequences.**
+- Revises D57: the record and the entry need the skill installed (linked),
+  not its current bytes, and without the skill the entry says so while the
+  offer is unanswered, instead of showing nothing.
+- Refines D43: BaseHalf's one write outside a workspace is still the skill,
+  now its own copy and the two links made at install.
+- Don't Ask Again is one answer for every version. Remove Agent Skill counts
+  as one, and Install Agent Skill forgets it.
+- A copy that an earlier release left in an agent's folder becomes the link
+  when the user chooses Update, once. The product has not launched, so there
+  is no other migration.
+- Moving BaseHalf to the Trash leaves the links and the copy; Remove Agent
+  Skill takes them away.
+- A window cannot make links, so a service of the shared process does
+  (`platform/basehalfFiles/`).

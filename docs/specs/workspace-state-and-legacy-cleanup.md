@@ -112,7 +112,7 @@ In VS Code storage (this machine):
 | `basehalf.cleanup.agentGuides.kept.v1` | workspace | folders where the user chose Keep for old agent guides |
 | `basehalf.cleanup.mirrorNotice.v1` | workspace | folders already told about removed `.bh/` files |
 | `basehalf.references.firstFrontmatterNotice.v1` | application | whether the first-frontmatter notice was shown |
-| `basehalf.agentSkill.declinedVersion` | application | the version of the [agent skill](agent-skill.md) the user chose not to be asked about again |
+| `basehalf.agentSkill.declined` | application | `true` once the user answered the offer of the [agent skill](agent-skill.md#offer) with Don't Ask Again or removed the skill |
 | `basehalf.canvas.pendingTemplateSetups.v2` | workspace | pending template setups ([reference graph](reference-graph.md#templates)) |
 | `basehalf.pdfViewState.<file>` | workspace | the page and the zoom where the user was in a PDF ([PDFs and books](documents-and-books.md#the-pdf-reader)) |
 | `basehalf.bookViewState.<file>` | workspace | the place where the user was in a book ([PDFs and books](documents-and-books.md#the-book-reader)) |
