@@ -716,7 +716,7 @@ export class BaseHalfCanvasCardRenderer {
 		const hidden = !this.view.renderedHiddenCovers.has(item.path);
 		this.setCoverHidden(item.path, card, hidden);
 		try {
-			await this.view.canvasAppearanceService.setCover(folder.workspaceFolder, item.path, hidden ? 'hidden' : 'shown');
+			await this.view.appearanceWrites.run(item.path, () => this.view.canvasAppearanceService.setCover(folder.workspaceFolder, item.path, hidden ? 'hidden' : 'shown'));
 		} catch (error) {
 			this.view.logService.warn(`[BaseHalf] the cover of ${item.path} could not be ${hidden ? 'hidden' : 'shown'}`, error);
 			this.setCoverHidden(item.path, card, !hidden);

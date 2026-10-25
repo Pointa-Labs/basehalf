@@ -62,6 +62,47 @@ interface IBaseHalfAppearanceReadState {
 	readonly appearance: BaseHalfCanvasAppearance | undefined;
 }
 
+/**
+ * What this window writes of the appearance of cards. A drawing whose read
+ * of the files ran while a write did may have missed it, so it keeps what the
+ * window shows of that card; the drawing after the write reads it.
+ */
+export class BaseHalfCanvasAppearanceWrites {
+	private epoch = 0;
+	private readonly writes = new Map<string, { running: number; endedAt: number }>();
+
+	/** Runs a write of the appearance of the card at `path`. */
+	async run(path: string, write: () => Promise<void>): Promise<void> {
+		const record = this.writes.get(path) ?? { running: 0, endedAt: 0 };
+		record.running++;
+		this.writes.set(path, record);
+		try {
+			await write();
+		} finally {
+			record.running--;
+			record.endedAt = ++this.epoch;
+		}
+	}
+
+	/** Taken before the files are read. */
+	mark(): number {
+		return this.epoch;
+	}
+
+	/** The cards whose appearance a read that began at `mark` may have missed. A write that the read saw is forgotten. */
+	unreadSince(mark: number): ReadonlySet<string> {
+		const unread = new Set<string>();
+		for (const [path, record] of this.writes) {
+			if (record.running > 0 || record.endedAt > mark) {
+				unread.add(path);
+			} else {
+				this.writes.delete(path);
+			}
+		}
+		return unread;
+	}
+}
+
 export class BaseHalfCanvasAppearanceService implements IBaseHalfCanvasAppearanceService {
 	declare readonly _serviceBrand: undefined;
 	private readonly mutex = createKeyedMutex();

@@ -473,12 +473,30 @@ export class BaseHalfCanvasRenderer {
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
+		const appearanceMark = this.view.appearanceWrites.mark();
 		const appearanceRead = await this.view.canvasAppearanceService.readAll(folder.workspaceFolder);
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
-		this.view.renderedNoteBackgrounds = appearanceRead.backgrounds;
-		this.view.renderedHiddenCovers = appearanceRead.hiddenCovers;
+		// A card whose appearance this window wrote while the files were read
+		// keeps what it shows; the drawing after the write reads it.
+		const backgrounds = new Map(appearanceRead.backgrounds);
+		const hiddenCovers = new Set(appearanceRead.hiddenCovers);
+		for (const path of this.view.appearanceWrites.unreadSince(appearanceMark)) {
+			const background = this.view.renderedNoteBackgrounds.get(path);
+			if (background) {
+				backgrounds.set(path, background);
+			} else {
+				backgrounds.delete(path);
+			}
+			if (this.view.renderedHiddenCovers.has(path)) {
+				hiddenCovers.add(path);
+			} else {
+				hiddenCovers.delete(path);
+			}
+		}
+		this.view.renderedNoteBackgrounds = backgrounds;
+		this.view.renderedHiddenCovers = hiddenCovers;
 		for (const problem of appearanceRead.problems) {
 			this.view.logService.warn(`BaseHalf card appearance issue for ${problem.relativePath}: ${problem.message}`);
 		}

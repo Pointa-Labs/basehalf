@@ -364,7 +364,7 @@ export class BaseHalfCanvasNoteEditing {
 			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
 			return;
 		}
-		await this.view.canvasAppearanceService.setBackground(folder.workspaceFolder, path, background);
+		await this.view.appearanceWrites.run(path, () => this.view.canvasAppearanceService.setBackground(folder.workspaceFolder, path, background));
 		const currentFolder = this.view.getCurrentFolder();
 		const currentItem = this.view.renderedItemsByPath.get(path);
 		if (!currentFolder || !currentItem || this.view.sceneKey(currentFolder) !== sceneKey
