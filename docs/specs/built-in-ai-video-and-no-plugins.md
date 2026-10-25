@@ -152,18 +152,32 @@ longer described anything the product does.
 The repository no longer holds what managed the plugin services (D76): the
 workflows that published, promoted, withdrew, and rolled back plugins, the
 workflow that published the developer packages, and the infrastructure
-definitions of the registry. They are in git history. What is left is done by
-the owner outside the repository:
+definitions of the registry. They are in git history.
 
-- The registry, a set of static files that builds already distributed read,
-  stays online until it is shut down; while it is, those builds keep showing
-  their catalog error until they are updated.
-- The signing key, the storage buckets, the content delivery, the database
-  tables, the release token, and the roles that the workflows used are
-  removed or kept as the owner decides.
-- The published packages `@basehalf/plugin-cli` and `@basehalf/plugin-sdk`
-  are marked as deprecated or unpublished.
-- The publishing portal and its API stay out of service, as since D45.
+The services were taken offline on 2026-10-25, and nothing of them was
+deleted:
+
+- The publishing portal's host, `plugins.basehalf.com`, and the plugin API
+  on both hosts answer `410 Gone` at the edge of the web app's server, and
+  the portal's container is stopped. The server's Nginx configuration
+  differs from the web app's repository until that repository takes the
+  same change.
+- The registry's content delivery is disabled, so builds that are already
+  distributed find no catalog and keep showing their catalog error until
+  they are updated.
+- The catalog signing key is disabled.
+
+What is left is done by the owner:
+
+- Deleting the two storage buckets, the content delivery, the signing key,
+  the publishing role, the submission permission of the web app's role, the
+  plugin schema of the web app's database together with the web app's
+  plugin code, and the `plugins-production` and `npm-production`
+  environments with the release token.
+- Marking `@basehalf/plugin-cli` and `@basehalf/plugin-sdk` as deprecated,
+  and removing their trusted publisher.
+- Removing the DNS records of `plugins.basehalf.com` and
+  `registry.basehalf.com`.
 
 ## Compatibility
 
@@ -175,8 +189,8 @@ the owner outside the repository:
   disk, unused. No profile data is changed or removed.
 - The credentials of providers, the settings of the Providers page, and the
   last used models stay where they are.
-- Builds that are already distributed keep reading the registry for as long
-  as it is online.
+- Builds that are already distributed find the registry offline since
+  2026-10-25 and keep showing their catalog error until they are updated.
 
 ## Acceptance criteria
 
