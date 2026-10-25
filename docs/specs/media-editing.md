@@ -420,24 +420,28 @@ crop:
 
 ### The waveform
 
-- Edit on a sound shows, under its player, the **waveform** of the sound as
-  the choices make it, its kept parts joined: 64 px high and as wide as the
-  player, at least 280 px. It has the yellow frame, the handles, the playhead,
-  the length label, and the hold to spread it out of the frame viewer of a
-  video ([Editing a video](#editing-a-video)); its edges are those of the
-  sound's samples, and for an MP3 those of its frames.
-- Under the waveform, **Trim** and **Delete**: Trim keeps only the part
-  between the handles, and Delete removes it. Both join what is left at once,
-  and the handles then hold all of it. Trim is disabled while all of the sound
-  is between the handles, and Delete while what would be left is shorter than
+- Edit on a sound shows, in place of its player, the **waveform** of the
+  sound as the choices make it, its kept parts joined, and each joint marked
+  with a thin yellow line: 64 px high and as wide as the player was, at most
+  720 px. It has the yellow frame, the handles, the playhead, the length
+  label, and the hold to spread it out of the frame viewer of a video
+  ([Editing a video](#editing-a-video)); its edges are those of the sound's
+  samples, and for an MP3 those of its frames. The stretch between the
+  handles is at least 0.1 s, or the whole sound when it is shorter.
+- Above the waveform, **Play** with the time and the length at its left, and
+  **Trim** and **Delete** at its right: Trim keeps only the part between the
+  handles, and Delete removes it. Both join what is left at once, and the
+  handles then hold all of it. Trim is disabled while all of the sound is
+  between the handles, and Delete while what would be left is shorter than
   0.1 s.
 
 ### Playing
 
 - Play plays the sound as the choices make it, its kept parts one after the
-  other, each coming up over 5 ms after a joint; a part between the handles
-  plays over and over while it is shorter than the whole, as the part of a
-  video does.
+  other, each coming up over 5 ms and going down over 5 ms at its ends, so
+  that no joint clicks; a stretch between the handles plays over and over
+  while it is shorter than the whole, as the part of a video does. A press on
+  the waveform outside the stretch moves the playhead there.
 
 ### The keyboard of the waveform
 
@@ -509,17 +513,24 @@ crop:
 
 | Sound | Edited sound |
 | --- | --- |
-| `.wav` | the same format and chunks, its samples cut exactly |
-| `.mp3` | its frames as they are, cut at frame edges, without encoding again |
-| `.flac` | FLAC without loss, encoded again by BaseHalf |
+| `.wav` | the same format and chunks, its samples cut exactly, in whole numbers or floating point |
+| `.mp3` | its frames as they are, cut at frame edges, without encoding again, with a new Info frame |
+| `.flac` | FLAC without loss, decoded and encoded again by BaseHalf |
 | `.m4a` | AAC encoded again by the window, at the original's bitrate snapped as for a video |
-| `.ogg` | Opus encoded again by the window, also from Vorbis |
+| `.ogg` | Opus encoded again by the window, also from Vorbis, in an Ogg of its own |
 
 - Where a cut starts or ends the sound, and on both sides of a joint, the
   sound fades over 5 ms, so that no cut clicks. An MP3 fades by the gain of its
-  frames over two granules instead, since its frames are not encoded again;
-  the reserve of bits that its frames share is laid out again so that every
-  frame decodes after a cut.
+  frames over two granules instead (−30 dB, then −12 dB), since its frames are
+  not encoded again; the reserve of bits that its frames share is laid out
+  again from an empty reserve, so that every frame decodes after a cut, each
+  frame's data byte for byte as it was. A frame whose data no longer fits
+  takes a higher bitrate.
+- A FLAC is decoded by BaseHalf's own decoder, not the window's: the window
+  gives its samples as fractions scaled by 32767 above zero and by 32768
+  below (measured on 2026-10-26: 318 of 44,100 samples came back one off), so
+  that its whole numbers could not be read back exactly. A WAV is cut in its
+  bytes.
 - The tags of the original are kept: the ID3 tags of an MP3, the chunks of a
   WAV besides its format and data, the metadata blocks of a FLAC, the iTunes
   tags of an M4A, and the comments of an OGG.
@@ -566,7 +577,8 @@ crop:
 - An edited file is built in memory before it is written: a video whose size,
   estimated from its bitrate and length, would pass 2 GB is refused before the
   save starts; an image over 16,384 pixels on a side, or 256 million pixels,
-  and a sound over 2 hours are refused the same way.
+  and a sound longer than 30 minutes, or whose file passes 256 MB, are refused
+  the same way.
 - Only the picture and the first sound of a video are used; other tracks are
   not in the edited video.
 - The frame viewer reads the frames of a video once when the editor opens, and
@@ -629,9 +641,13 @@ crop:
   samples; a click at a white frame kept in sync; and Done, Save as New, and
   Revert through the service on a file system in memory, with the steps of undo
   they ask for.
-- The smoke steps of the `cardDetail` suite: editing a video (Edit, the
-  handles, Done, Edit again from the original, Revert, undo and redo with the
-  keyboard), cropping an image, and cutting a sound.
+- The smoke steps of the `cardDetail` suite: editing a video
+  (`card-detail-video-edit`: Edit, the handles, the editor's undo, Done, Edit
+  again from the original, Save as New, Revert, undo and redo with the
+  keyboard, and Escape twice), cropping an image (`card-detail-image-edit`:
+  an SVG's Edit says why it is disabled; Square, a turn and a flip, Revert,
+  and undo), and cutting a sound (`card-detail-sound-edit`: Delete and its
+  undo in the editor, Done, Edit again, Revert, and undo).
 - In a development window: each kind and format with the media of the
   development workspace, the time each save takes, the quality of the edited
   file against its original frame by frame, and the canvas card and Card Detail
@@ -644,5 +660,7 @@ the edit record, the choices of each editor, and the readers and writers of
 each format in `common/`; Card Detail's edit mode, the editors, the encoding
 with the window's encoders, and the service that saves, saves as new, and
 reverts through the steps of [exact undo](exact-undo.md) in `browser/`. Card
-Detail gives the editors its header and the place of its view; the player
-gives them its time, a jump to a time, the playing of a range, and mute.
+Detail gives the editors its header and the place of its view; the player of
+a video gives the frame viewer its time, a jump to a time, the playing of a
+range, and mute; the waveform of a sound plays the edit itself, with the
+window's audio.

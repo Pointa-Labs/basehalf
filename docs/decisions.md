@@ -3379,3 +3379,9 @@ built without asking back, after research.
   Command+Z undoes the editor's last change.
 - The code of D79's `videoTrim/` becomes the feature folder `mediaEdit/`
   ([code organization](harness/code-organization.md)).
+- Each sound keeps its format: BaseHalf cuts a WAV in its bytes, cuts an MP3
+  at its frame edges and lays its reserve of bits out again, and decodes and
+  encodes a FLAC itself, without loss, since the window's decoder gives
+  samples that cannot be read back as the file's whole numbers. An M4A and an
+  Ogg are encoded again by the window, in AAC and in Opus. A sound longer than
+  30 minutes is not edited: it is decoded whole in memory.
