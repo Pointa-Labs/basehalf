@@ -27,6 +27,7 @@ per feature:
 | `agentArea/` | The Agent Area, its terminal, the agent skill, the selection agents can see, and the registry of the capabilities agents read | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | Generation cards of images, videos, and sounds: their drafts and generation information, the task records, the model catalog as the window receives it, the providers' settings, and the Providers page | [Generation cards](../specs/generation-cards.md), [providers and the model catalog](../specs/providers.md) |
 | `sequence/` | Video Sequence: the Sequence document, its view in Card Detail, its commands and its capability for agents, and the starter template | [Video Sequence](../specs/video-sequence.md) |
+| `videoTrim/` | Trimming a video: the trim bar under the player of Card Detail, reading and writing the video files, encoding the trimmed video with the window's encoders, and replacing the video with it | [Trimming a video](../specs/video-trimming.md) |
 
 Inside a feature folder, files are in VS Code's layer folders: `common/`,
 `browser/`, and `electron-browser/`. Tests are in `test/<layer>/` of the same

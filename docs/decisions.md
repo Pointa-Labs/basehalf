@@ -2993,6 +2993,84 @@ written in a note are its natural input.
 - In a prompt that is spoken or sung, a note joins as its text alone, where
   it is mentioned or after the prompt.
 
+## D79 — Card Detail trims a video in place, and undo puts it back (NEW, 2026-10-25)
+
+**Decision.** Card Detail of a video has a trim bar under its player: a strip
+of the video's frames, a selection with two handles, a playhead, and Trim.
+Trim replaces the video with the selected part, under its name, in its
+folder, on its card, with its connections: the part is encoded again by the
+window's own encoders, with BaseHalf's own code for reading and writing MP4,
+MOV, and WebM files, and keeps the video's container. The trim is one step of
+the canvas's undo: undo puts the video back byte for byte from the kept
+versions, and redo trims it again
+([D82](#d82--a-delete-on-the-canvas-asks-nothing-and-undo-brings-back-exactly-what-a-step-took-new-2026-10-25)).
+A generated video keeps its `made.yaml`, which then also records the part of
+what was generated that the video holds. See
+[trimming a video](specs/video-trimming.md).
+
+**Why.** The user asked for simple editing in the room under the enlarged
+video. The canvas products for media work trim the same way: a strip of
+frames under the enlarged video, a part chosen with two handles, and a
+confirmation. A first build saved the part as a new file beside the video,
+connected from it, so that the video never changed; the user judged that an
+edit should change what it edits and be undone as every other change is, and
+D82 made the change of a file in place one step of undo. A generated video
+has few key frames: the five generated videos of the development workspace
+have one each, at 0 s. So a cut that copies the compressed frames can start
+only at 0, and hiding the frames before the start behind an edit list keeps
+them in the file, where a program that ignores edit lists shows them: what
+the file holds would not be what BaseHalf shows. Encoding again is fast and
+close to lossless: the window's hardware H.264 encoder took 360 frames per
+second at 1080p on the development computer, and a 480p clip encoded again at
+its own bitrate was 46.4 dB PSNR on average.
+
+**What was set aside.**
+- Saving the part as a new file beside the video, connected from it, as the
+  first build did: the user asked for the video itself to change, with undo.
+  A user who wants both duplicates the video first.
+- Cutting without encoding again, at key frames or behind an edit list: it
+  cannot start where a generated clip needs it to, or it keeps hidden frames.
+  Re-encoding only the frames before the next key frame does not help either:
+  with one key frame, that is the whole clip.
+- The system's media frameworks (AVFoundation on macOS, the editing API of
+  Windows): a native helper on each system, to be signed with the
+  application, and macOS reads no WebM.
+- A bundled FFmpeg, as a node-graph product for media work trims on its
+  server: tens of MB on each system, its sources and notices to ship, and its
+  common prebuilt packages are GPL.
+- FFmpeg compiled to WebAssembly: its published build is GPL, 32 MB, and 10
+  to 25 times slower than the system's encoders.
+- An MPL-2.0 media library: it does the reading and writing, but MPL needs a
+  review under the [dependency policy](dependency-policy.md), and the user
+  chose BaseHalf's own code.
+- Keeping only the start and the end, with the file unchanged, as editing
+  programs keep a timeline: the file is the card (D63), so Files, agents, and
+  providers would see the whole video where the card shows a part.
+- A trimmed WebM written as MP4: a file that is replaced keeps its name, and
+  with it its extension and its container.
+- Treating a trimmed generated video as a file that BaseHalf did not
+  generate: its frames are still what the model made, and New Version and a
+  Sequence still need its record. The user chose to keep the record and note
+  the trim in it.
+- Trimming on the canvas, in a mode of the video's card: Card Detail already
+  shows the video large and has the room.
+
+**Consequences.**
+- Revises the non-goal of [generation cards](specs/generation-cards.md#non-goals)
+  that excluded trimming a video. Editing an image, upscaling, and masking
+  stay out.
+- Revises D63's rule that a generated file never changes: a trim changes it,
+  and its `made.yaml` gets `trimStart` and `trimEnd`, the part of what was
+  generated, in seconds. Its `id` stays, so that a Sequence still names it.
+- The player of Card Detail gives the trim bar its time, a jump to a time,
+  and the playing of a range. Every player shows a video's new content when
+  its file changes. On cards it is otherwise unchanged.
+- Escape on the trim bar closes Card Detail, as anywhere in it, and Cmd+Z
+  there undoes a trim (D82).
+- Joining clips into a movie stays out of [Video Sequence](specs/video-sequence.md).
+- The code is a feature folder of its own, `videoTrim/`, in
+  [code organization](harness/code-organization.md).
+
 ## D80 — A connection pulled off a card and let go on empty canvas is removed, and a marquee over connections alone selects them (NEW, 2026-10-25)
 
 **Decision.** A connection whose end is dragged away from its card and let
