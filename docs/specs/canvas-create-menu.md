@@ -95,18 +95,14 @@ Not in scope, and unchanged:
 ### Undo
 
 - Making the folder is one step of the canvas's undo, as a rename or a
-  delete on the canvas is, and as New Image, New Video, and New Audio are. One undo on
-  the canvas takes it back: the folder is removed, and its card with it.
-  Redo makes it again.
-- Its card does not come back to its place on redo. A delete in the window,
-  the undo's too, removes the card's row at once
-  ([mirror file resilience](mirror-file-resilience.md)), so the folder that
-  redo makes is a new item, and its card goes to
-  [the end of the canvas](canvas-card-placement.md#the-end-of-a-canvas).
-  Measured on 2026-10-25: made at 1035, 488.5; back at 1730, 690.
-- A folder that holds anything by the time of the undo is not removed.
-  Undo then says that a folder that is not empty cannot be deleted, and
-  nothing changes.
+  delete on the canvas is, and as New Image, New Video, and New Audio are.
+  One undo on the canvas takes it back: the folder goes into the kept
+  versions with whatever was put into it since, and its card with it. Redo
+  brings both back, the card at its place ([exact undo](exact-undo.md#what-the-canvas-made), D82).
+- Until D82 the undo was VS Code's: it refused a folder that held anything
+  ("Unable to delete non-empty folder"), and redo put the card at the end of
+  the canvas (measured on 2026-10-25: made at 1035, 488.5; back at 1730,
+  690), because a delete in the window removed the card's row at once.
 
 ## Acceptance criteria
 
@@ -125,9 +121,9 @@ Not in scope, and unchanged:
 7. A double click on the new card's name opens the rename editor with
    `untitled folder` in it, all selected.
 8. One undo on the canvas right after New Folder removes the folder and its
-   card. Redo brings both back, the card at the end of the canvas.
-9. An undo after a file was put into the new folder removes nothing and
-   says why.
+   card. Redo brings both back, the card at its place.
+9. An undo after a file was put into the new folder takes both away, and
+   redo brings both back.
 10. Files in the sidebar still offers New File... and New Folder....
 
 ## Verification
@@ -138,13 +134,16 @@ Not in scope, and unchanged:
   (criteria 1 and 2), and `canvas-new-folder` covers criteria 3, 5 to 8,
   and the first half of 4. `canvas-numeric-folder-names` makes its folders
   with New Folder and a rename on the card.
-- The window: criteria 4, 9, and 10, below.
+- The window: criteria 4, 9, and 10, below. Criteria 8 and 9 changed with
+  D82 and are checked as [exact undo](exact-undo.md#acceptance-criteria)
+  criterion 7.
 
 ### Seen in the window (2026-10-25)
 
 A window of the development host built from this change, on a test
 workspace that held one note. It was built before New Audio (D78) was
-merged, so its menu had no New Audio yet.
+merged, so its menu had no New Audio yet, and before D82, so its undo was
+VS Code's.
 
 | What was done | What happened |
 | --- | --- |

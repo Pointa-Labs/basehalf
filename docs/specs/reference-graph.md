@@ -480,7 +480,6 @@ does nothing.
 | Canvas edges | cards shown, no edges, and a "Loading connections" status | drawn; the status notes unscanned files |
 | Badge editor Downstream list, toggle counts | "Loading…", no counts | shown, marked incomplete |
 | Any Markdown store change (connect, remove, undo, redo) | allowed: since D63 no store change needs the index | allowed |
-| Delete confirmation | "Checking connections…"; confirming is allowed | "at least N items" |
 | Rename refactor, Relink Everywhere, migration | wait for ready, with progress | proceed, and the prompt or report says "at least" |
 
 Navigation and card rendering never wait for the index.
@@ -815,14 +814,15 @@ entries after a move, so that they keep naming the inputs that were moved.
 ### Deleting
 
 Deleting a node never changes another node's store. Downstream entries that
-named the deleted node become dangling.
+named the deleted node become dangling. A generation card with its file
+keeps its entry: it names an input that made the card, and its panel shows
+it as gone.
 
-The delete confirmation says: "<name> is upstream of K items. They will show a
-broken upstream entry that you can fix later." It has a checkbox, "Also remove
-<name> from their upstream lists", which is unchecked by default. When it is
-checked, the removals are one bulk edit applied after the delete, as a separate
-undo step. A generation card with its file keeps its entry: it names an input
-that made the card, and its panel shows it as gone.
+A delete on the canvas asks nothing, and undo brings the node back with its
+own store, so the entries that named it resolve again
+([exact undo](exact-undo.md#deleting), D82). Until 2026-10-25 a dialog asked
+first, and its checkbox removed the node from the upstream lists that named
+it.
 
 ### Copying and importing
 

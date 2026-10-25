@@ -631,8 +631,7 @@ write, and what the panel shows as a chip with the file's name
   writes the mentions of the draft's prompt again in the same step:
   - **What changes the list.** The cross of a tile, a connection removed on
     the canvas or in the badge editor, a connection whose end is moved to
-    another card, **Also remove <name> from their upstream lists** when a
-    card is deleted, a rename or a move of an input, through BaseHalf or
+    another card, a rename or a move of an input, through BaseHalf or
     followed after a move outside it, **Relink Everywhere…**, and every other
     remove or replace of the [reference graph](reference-graph.md#reference-edits).
   - **An input whose entry is rewritten in place**, by a rename, a move, a

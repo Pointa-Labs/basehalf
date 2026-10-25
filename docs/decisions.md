@@ -3104,3 +3104,49 @@ about; until now the agent saw only which PDF was open.
   for a note.
 - foliate-js (MIT), with the zip.js (BSD-3-Clause) and fflate (MIT) it
   carries, is a dependency of the book reader.
+
+## D82 — A delete on the canvas asks nothing, and undo brings back exactly what a step took (NEW, 2026-10-25)
+
+**Decision.** A delete on the canvas, by a card's Delete, the selection
+toolbar, or the Delete key, happens at once and asks nothing. Every step of
+the canvas that deletes, makes, or changes files keeps what it takes away
+in the workspace's kept versions (`.bh/cache/kept/`), whole and with the
+card's place and card information, and undo puts it back exactly; redo
+takes it again. What a window kept goes to the Trash when the window
+closes. BaseHalf adds no undo history of its own: its steps are steps of
+VS Code's. See [exact undo](specs/exact-undo.md).
+
+**Why.** On 2026-10-25, after New Folder began to make folders at once
+([D77](#d77--new-folder-makes-a-folder-at-once-and-the-canvas-has-no-new-file-new-2026-10-25)),
+the user asked whether a delete still needed its dialog, and whether
+BaseHalf should work as the web canvas apps do, since this concerned undo
+too. The two canvas products BaseHalf follows delete a node at once, and
+one undo puts it back where it was; both were tried that day. In BaseHalf,
+the undo of a delete was not to be trusted: a file of 6 MB did not come
+back at all, a folder came back empty while its files stayed in the Trash,
+and a note lost its description and its place. Without a dialog, these
+would be losses. The user chose the canvas apps' way and said that this is
+a feature of the whole product, not of the trimming of videos then in
+progress, which should change the video and be undone instead of saving a
+new file.
+
+**What was set aside.**
+- Sending a delete to the Trash at once and undoing from a copy, as file
+  managers do: the Trash would still hold what undo brought back, and a copy
+  of a large folder takes time on a disk that cannot clone files.
+- Removing only the dialog: an undo that loses a file is no undo.
+- An undo history of BaseHalf's own beside VS Code's: two histories would
+  answer Cmd+Z in two ways.
+- Files in the sidebar, for now: its delete and its undo stay VS Code's.
+
+**Consequences.**
+- Revises the undo of New Folder of D77: undo takes the folder with what it
+  holds, and redo puts its card back at its place.
+- The dialog's checkbox that removed a deleted item from the upstream lists
+  that named it goes with the dialog. Those entries stay broken until undo
+  brings the item back, or until the user removes them.
+- New Note's creation becomes a step of the canvas undo.
+- The trimming of a video (D79, drafted on its own branch) changes the
+  video in place through the kept versions instead of saving a new clip.
+- Until its window closes, what was deleted is in the kept versions, not
+  yet in the Trash.
