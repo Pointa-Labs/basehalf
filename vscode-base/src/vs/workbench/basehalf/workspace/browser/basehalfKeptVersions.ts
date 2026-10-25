@@ -179,17 +179,22 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 			for (const [index, file] of files.entries()) {
 				await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, async () => {
 					// The version before goes first, so that a failure leaves the file as it was.
-					await this.fileService.move(file.resource, file.kept, false);
+					// The window is told one write of the file, and nothing of the moves that carry it out.
+					await this.fileService.move(file.resource, file.kept, false, 'nothing');
 					const contents = changes[index].contents;
+					// New bytes are written beside the version before and moved into place, as a new version from elsewhere is.
+					const next = URI.isUri(contents) ? contents : joinPath(dirname(file.kept), `${generateUuid()}-${basename(file.resource)}`);
 					try {
-						if (URI.isUri(contents)) {
-							await this.fileService.move(contents, file.resource, false);
-							await this.touch(file.resource);
-						} else {
-							await this.fileService.writeFile(file.resource, contents);
+						if (!URI.isUri(contents)) {
+							await this.fileService.writeFile(next, contents);
 						}
+						await this.fileService.move(next, file.resource, false, FileOperation.WRITE);
+						await this.touch(file.resource);
 					} catch (error) {
-						await this.fileService.move(file.kept, file.resource, true);
+						if (!URI.isUri(contents)) {
+							await this.fileService.del(next).catch(() => undefined);
+						}
+						await this.fileService.move(file.kept, file.resource, true, FileOperation.WRITE);
 						throw error;
 					}
 				});
@@ -278,13 +283,14 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 		await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, async () => {
 			const aside = joinPath(dirname(file.kept), `${generateUuid()}-${basename(file.resource)}`);
 			const present = await this.fileService.exists(file.resource);
+			// The window is told one write of the file, or its creation when it was not there.
 			if (present) {
-				await this.fileService.move(file.resource, aside, false);
+				await this.fileService.move(file.resource, aside, false, 'nothing');
 			}
-			await this.fileService.move(file.kept, file.resource, false);
+			await this.fileService.move(file.kept, file.resource, false, present ? FileOperation.WRITE : FileOperation.CREATE);
 			await this.touch(file.resource);
 			if (present) {
-				await this.fileService.move(aside, file.kept, false);
+				await this.fileService.move(aside, file.kept, false, 'nothing');
 			}
 		});
 	}
@@ -342,20 +348,21 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 		await this.fileService.createFolder(dirname(keptItem));
 		// Following moved items is told first: what disappears is no move to recognize.
 		this.movedItemsService.acceptWorkbenchDelete(workspaceFolder, path);
-		await this.fileService.move(resource, keptItem, false);
+		// The window is told the delete of the item and of its card information, not moves into the kept versions.
+		await this.fileService.move(resource, keptItem, false, FileOperation.DELETE);
 		let mirrorKept = false;
 		try {
 			if (await this.fileService.exists(mirror)) {
-				await this.fileService.move(mirror, keptMirror, false);
+				await this.fileService.move(mirror, keptMirror, false, FileOperation.DELETE);
 				mirrorKept = true;
 			}
 			// The row and the anchor rows that name the item; its own layouts went with its card information.
 			await this.canvasMirrorService.purgeNode(workspaceFolder, path, lease);
 		} catch (error) {
 			if (mirrorKept) {
-				await this.fileService.move(keptMirror, mirror, false).catch(rollbackError => this.logService.error(`[BaseHalf] could not put the card information of ${path} back`, rollbackError));
+				await this.fileService.move(keptMirror, mirror, false, FileOperation.CREATE).catch(rollbackError => this.logService.error(`[BaseHalf] could not put the card information of ${path} back`, rollbackError));
 			}
-			await this.fileService.move(keptItem, resource, false).catch(rollbackError => this.logService.error(`[BaseHalf] could not put ${path} back`, rollbackError));
+			await this.fileService.move(keptItem, resource, false, FileOperation.CREATE).catch(rollbackError => this.logService.error(`[BaseHalf] could not put ${path} back`, rollbackError));
 			throw error;
 		}
 		this.logService.info(`[BaseHalf] kept ${path} for undo`);
@@ -387,10 +394,11 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 				this.logService.warn(`[BaseHalf] the card information of ${item.path} could not come back: ${mirror.toString()} is taken`);
 			} else {
 				await this.fileService.createFolder(dirname(mirror));
-				await this.fileService.move(keptMirror, mirror, false);
+				await this.fileService.move(keptMirror, mirror, false, FileOperation.CREATE);
 			}
 		}
-		await this.fileService.move(keptItem, item.resource, false);
+		// The window is told the creation of the item, not a move out of the kept versions.
+		await this.fileService.move(keptItem, item.resource, false, FileOperation.CREATE);
 		await this.fileService.del(item.slot, { recursive: true }).catch(error => this.logService.warn(`[BaseHalf] could not clear ${item.slot.toString()}`, error));
 		this.logService.info(`[BaseHalf] brought ${item.path} back`);
 	}
@@ -554,7 +562,7 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 					const target = joinPath(this.mirrorDirectory(workspaceFolder, path), ...below, child.name);
 					if (!await this.fileService.exists(target)) {
 						await this.fileService.createFolder(dirname(target));
-						await this.fileService.move(child.resource, target, false);
+						await this.fileService.move(child.resource, target, false, FileOperation.CREATE);
 					}
 				}
 			}

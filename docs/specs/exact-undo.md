@@ -50,6 +50,21 @@ Measured on 2026-10-25 in a development window, with the Trash on:
   video in Card Detail (D79, drafted on its own branch) was to save a new
   clip beside the video, and the user asked on 2026-10-25 that a trim change
   the video itself and be undone.
+- **Files in the sidebar came after the canvas** (reported by the user on
+  2026-10-25, once the kept versions were in). A deleted card left the
+  canvas at once, and its row stayed in Files for 560 ms more; after undo
+  and after redo, the row followed its card by 566 and 568 ms. The steps
+  carried out their delete, undo, and redo as moves into and out of
+  `.bh/cache/kept/`, and VS Code's file service told the window about each
+  as a move. Files keeps its tree from the moves it is told about, but only
+  for a move whose both ends it shows, so its row waited for the file
+  watcher and then for Files' own half second. The rest of the window took
+  the same moves for what they said: an open editor of a deleted item went
+  with it into the kept versions instead of showing it as deleted, and so
+  did the history of Back and Forward and the local history of the file. A
+  first fix, in Files alone, took every move to a place Files does not show
+  as a delete; for a change in place it removed the file's row and put it
+  back, while the file never left its place.
 
 ## Goals
 
@@ -78,11 +93,14 @@ In scope:
 - A step that changes the bytes of files in place, for features such as
   trimming.
 - Cmd+Z and Shift+Cmd+Z while Card Detail is open.
+- What the rest of the window is told of these steps: Files in the sidebar,
+  open editors, and the history of Back and Forward.
 
 Not in scope, and unchanged:
 
-- Files in the sidebar. Its delete asks, as VS Code's does, and its undo is
-  VS Code's. It can take the kept versions later.
+- The delete and the undo of Files in the sidebar. Its delete asks, as VS
+  Code's does, and its undo is VS Code's. It can take the kept versions
+  later.
 - The undo of text in a note's editor and in Card Detail's editors.
 - Moves and renames. Their undo is exact already.
 - A generation. It is not undone
@@ -136,6 +154,16 @@ Not in scope, and unchanged:
   Redo moves it away again.
 - The kept versions are under `.bh/cache/`, so neither Files, Search, nor
   git shows them ([workspace state](workspace-state-and-legacy-cleanup.md#what-basehalf-persists)).
+- The window is told what a step does, not how: a move into the kept
+  versions is told as the delete of the item, a move back out of them as its
+  creation, a version moved into the place of a file as a write of that
+  file, and a move within the kept versions to no one. VS Code tells a
+  delete to the system's Trash, which is a move into a hidden folder too, as
+  a delete in the same way. So Files in the sidebar shows a step together
+  with the canvas, an editor of a deleted item shows it as deleted, Back and
+  Forward never lead into the kept versions, and a file that is changed in
+  place keeps its row in Files
+  ([architecture invariants](../harness/architecture-invariants.md#content-and-graph-truth)).
 - A step that cannot be undone as it was says why and changes nothing, and
   the next undo goes to the step before:
   - an item is at the path again, as after a New Note with the same name:
@@ -244,13 +272,23 @@ Not in scope, and unchanged:
 13. Cmd+Z with Card Detail open on a video undoes the last step of the
     canvas.
 14. A delete in Files in the sidebar still asks, and its undo is VS Code's.
+15. After a delete on the canvas, its undo, and its redo, the item's row in
+    Files goes or comes back no more than 300 ms from its card.
+16. A trim of a video, its undo, and its redo leave the video's row in Files
+    where it is: in no frame is it gone.
+17. The window is told a delete, a creation, or a write for each item of a
+    step, and never a move into or out of the kept versions.
 
 ## Verification
 
 - Unit tests of the kept versions: delete, undo, and redo of a file, a large
   file, a folder, and card information; the refusals; the marks and the
   sweep of old ones; a change of files in place, each version moved into
-  place with the time of then.
+  place with the time of then; and what the window is told of each step
+  (criterion 17).
+- Unit test of VS Code's file service: a move told as a delete, a creation,
+  or a write sends that operation and no move, a move told as nothing sends
+  nothing, and a move told as nothing else is still a move.
 - Unit test of the service that sets file times: a file takes the time of
   now and keeps its bytes.
 - Unit test of VS Code's undo service: one undo of a source takes back a
@@ -258,7 +296,12 @@ Not in scope, and unchanged:
 - Smoke, canvas suite: a step that deletes with the menu, the toolbar, and
   the key, a set of a file, a folder, and a draft among them, watches every
   frame for a dialog, and undoes and redoes; the steps that deleted with the
-  dialog delete without it.
+  dialog delete without it. `canvas-files-follow-deletes` samples every frame
+  for the card of a note and its row in Files through a delete, its undo,
+  and its redo (criterion 15).
+- Smoke, cardDetail suite: the trim step samples every frame for the
+  video's row in Files through the trim, its undo, and its redo
+  (criterion 16).
 - The window: criteria 3 to 7, 10, 11, and 13, Duplicate of a file with a
   draft for criterion 8, and criterion 12 with the trimming of a video
   (D79): trim, undo, redo, undo, redo, the card and Card Detail looked at

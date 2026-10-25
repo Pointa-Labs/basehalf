@@ -13,7 +13,7 @@ import { localize, localize2 } from '../../../../nls.js';
 import { MenuId, Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { FileOperation, IFileService } from '../../../../platform/files/common/files.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -1249,7 +1249,8 @@ async function undoTemplateCreation(
 		// An undo copy is a working file: git must not show it.
 		await baseHalfEnsureMirrorIgnoreFile(runtime.fileService, runtime.workspaceFolder);
 		await runtime.fileService.createFolder(dirname(stashResource));
-		await runtime.fileService.move(runtime.projectResource, stashResource, false);
+		// The window is told the project's delete, not a move into the private undo copy.
+		await runtime.fileService.move(runtime.projectResource, stashResource, false, FileOperation.DELETE);
 		await assertTemplateStashPathSafe(runtime.fileService, runtime.workspaceFolder, stashResource);
 	} catch (error) {
 		try {
@@ -1276,7 +1277,8 @@ async function redoTemplateCreation(
 	await assertExactTemplateProjectTree(runtime.fileService, stashResource, directories, files);
 	await assertTemplateProjectPathSafe(runtime.fileService, runtime.workspaceFolder, runtime.projectResource);
 	await assertTemplateMetadataState(runtime, plan, 'expected', 'Redo did not replace any canvas metadata.');
-	await runtime.fileService.move(stashResource, runtime.projectResource, false);
+	// The window is told the project's creation, not a move out of the private undo copy.
+	await runtime.fileService.move(stashResource, runtime.projectResource, false, FileOperation.CREATE);
 	try {
 		await assertTemplateProjectPathSafe(runtime.fileService, runtime.workspaceFolder, runtime.projectResource);
 		await applyTemplateMetadataPlan(runtime, plan, 'forward', lease);
@@ -1284,7 +1286,7 @@ async function redoTemplateCreation(
 		try {
 			await assertExactTemplateProjectTree(runtime.fileService, runtime.projectResource, directories, files);
 			await runtime.fileService.createFolder(dirname(stashResource));
-			await runtime.fileService.move(runtime.projectResource, stashResource, false);
+			await runtime.fileService.move(runtime.projectResource, stashResource, false, FileOperation.DELETE);
 		} catch (rollbackError) {
 			throw new AggregateError([error, rollbackError], 'Redo could not restore the canvas metadata or return the unchanged project to its private undo location. The project files were preserved.');
 		}

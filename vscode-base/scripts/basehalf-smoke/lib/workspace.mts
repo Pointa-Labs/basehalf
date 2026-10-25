@@ -11,25 +11,30 @@ import process from 'process';
 import { workspacePath } from '../context.mts';
 import { runCommand } from './quickInput.mts';
 
+/** Brings Files to the front of the sidebar, with its button or, when no button shows, the command. */
+export async function showExplorer(page) {
+	const explorerAction = page.locator([
+		'.part.activitybar .action-label.codicon-explorer-view-icon',
+		'.part.activitybar .action-label[aria-label^="Explorer"]',
+		'.part.activitybar .action-label[aria-label^="Files"]',
+		'.part.sidebar .composite-bar .action-label.codicon-explorer-view-icon',
+		'.part.sidebar .composite-bar .action-label[aria-label^="Explorer"]',
+		'.part.sidebar .composite-bar .action-label[aria-label^="Files"]',
+	].join(', ')).first();
+	if (await explorerAction.isVisible().catch(() => false)) {
+		await explorerAction.click();
+	} else {
+		// Projection webviews keep keyboard focus inside their iframe. Return it
+		// to the workbench before invoking a host command-palette keybinding.
+		await page.locator('.part.sidebar .title-label').click();
+		await runCommand(page, 'Focus on Files Explorer');
+	}
+}
+
 export async function openExplorerRow(page, label) {
 	const row = page.locator('.explorer-viewlet .monaco-list-row', { hasText: label }).first();
 	if (!(await row.isVisible().catch(() => false))) {
-		const explorerAction = page.locator([
-			'.part.activitybar .action-label.codicon-explorer-view-icon',
-			'.part.activitybar .action-label[aria-label^="Explorer"]',
-			'.part.activitybar .action-label[aria-label^="Files"]',
-			'.part.sidebar .composite-bar .action-label.codicon-explorer-view-icon',
-			'.part.sidebar .composite-bar .action-label[aria-label^="Explorer"]',
-			'.part.sidebar .composite-bar .action-label[aria-label^="Files"]',
-		].join(', ')).first();
-		if (await explorerAction.isVisible().catch(() => false)) {
-			await explorerAction.click();
-		} else {
-			// Projection webviews keep keyboard focus inside their iframe. Return it
-			// to the workbench before invoking a host command-palette keybinding.
-			await page.locator('.part.sidebar .title-label').click();
-			await runCommand(page, 'Focus on Files Explorer');
-		}
+		await showExplorer(page);
 	}
 	await row.waitFor({ state: 'visible', timeout: 20_000 });
 	await row.click();

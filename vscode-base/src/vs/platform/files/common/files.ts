@@ -185,8 +185,10 @@ export interface IFileService {
 	 * The optional parameter overwrite can be set to replace an existing file at the location.
 	 *
 	 * Emits a `FileOperation.MOVE` file operation event when successful.
+	 *
+	 * BaseHalf: with `told`, it emits what the move is told as instead (`FileMoveTold`).
 	 */
-	move(source: URI, target: URI, overwrite?: boolean): Promise<IFileStatWithMetadata>;
+	move(source: URI, target: URI, overwrite?: boolean, told?: FileMoveTold): Promise<IFileStatWithMetadata>;
 
 	/**
 	 * Find out if a move operation is possible given the arguments. No changes on disk will
@@ -982,6 +984,19 @@ export const enum FileOperation {
 	COPY,
 	WRITE
 }
+
+/**
+ * BaseHalf: what a move is told as to those who listen to file operations, when
+ * the move is how an operation of another kind is carried out. A move into
+ * storage that nothing shows, such as the kept versions that hold a deleted
+ * item for its undo, is the delete of the item (`FileOperation.DELETE`, of the
+ * source); a move back out of it is its creation (`FileOperation.CREATE`, of
+ * the target); a version moved into the place of a file is a write of that
+ * file (`FileOperation.WRITE`, of the target); and a move within such storage
+ * is told to no one (`'nothing'`). A delete to the system's Trash, a move into a
+ * hidden folder too, is told as a delete in the same way.
+ */
+export type FileMoveTold = FileOperation.DELETE | FileOperation.CREATE | FileOperation.WRITE | 'nothing';
 
 export interface IFileOperationEvent {
 

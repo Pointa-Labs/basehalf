@@ -19,7 +19,7 @@ import { consumeStream, isReadableBufferedStream, isReadableStream, listenStream
 import { URI } from '../../../base/common/uri.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { localize } from '../../../nls.js';
-import { ensureFileSystemProviderError, etag, ETAG_DISABLED, FileChangesEvent, IFileDeleteOptions, FileOperation, FileOperationError, FileOperationEvent, FileOperationResult, FilePermission, FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, hasFileAppendCapability, hasFileAtomicReadCapability, hasFileFolderCopyCapability, hasFileReadStreamCapability, hasOpenReadWriteCloseCapability, hasReadWriteCapability, ICreateFileOptions, IFileContent, IFileService, IFileStat, IFileStatWithMetadata, IFileStreamContent, IFileSystemProvider, IFileSystemProviderActivationEvent, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemProviderRegistrationEvent, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IReadFileOptions, IReadFileStreamOptions, IResolveFileOptions, IFileStatResult, IFileStatResultWithMetadata, IResolveMetadataFileOptions, IStat, IFileStatWithPartialMetadata, IWatchOptions, IWriteFileOptions, IWriteFileWithExpectedContentsOptions, NotModifiedSinceFileOperationError, toFileOperationResult, toFileSystemProviderErrorCode, hasFileCloneCapability, TooLargeFileOperationError, hasFileAtomicDeleteCapability, hasFileAtomicWriteCapability, IWatchOptionsWithCorrelation, IFileSystemWatcher, IWatchOptionsWithoutCorrelation, hasFileRealpathCapability, hasFileAtomicWriteExclusiveCapability, IFileSystemProviderWithFileAtomicWriteExclusiveCapability } from './files.js';
+import { ensureFileSystemProviderError, etag, ETAG_DISABLED, FileChangesEvent, IFileDeleteOptions, FileMoveTold, FileOperation, FileOperationError, FileOperationEvent, FileOperationResult, FilePermission, FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, hasFileAppendCapability, hasFileAtomicReadCapability, hasFileFolderCopyCapability, hasFileReadStreamCapability, hasOpenReadWriteCloseCapability, hasReadWriteCapability, ICreateFileOptions, IFileContent, IFileService, IFileStat, IFileStatWithMetadata, IFileStreamContent, IFileSystemProvider, IFileSystemProviderActivationEvent, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemProviderRegistrationEvent, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IReadFileOptions, IReadFileStreamOptions, IResolveFileOptions, IFileStatResult, IFileStatResultWithMetadata, IResolveMetadataFileOptions, IStat, IFileStatWithPartialMetadata, IWatchOptions, IWriteFileOptions, IWriteFileWithExpectedContentsOptions, NotModifiedSinceFileOperationError, toFileOperationResult, toFileSystemProviderErrorCode, hasFileCloneCapability, TooLargeFileOperationError, hasFileAtomicDeleteCapability, hasFileAtomicWriteCapability, IWatchOptionsWithCorrelation, IFileSystemWatcher, IWatchOptionsWithoutCorrelation, hasFileRealpathCapability, hasFileAtomicWriteExclusiveCapability, IFileSystemProviderWithFileAtomicWriteExclusiveCapability } from './files.js';
 import { readFileIntoStream } from './io.js';
 import { ILogService } from '../../log/common/log.js';
 import { ErrorNoTelemetry } from '../../../base/common/errors.js';
@@ -910,7 +910,7 @@ export class FileService extends Disposable implements IFileService {
 		return true;
 	}
 
-	async move(source: URI, target: URI, overwrite?: boolean): Promise<IFileStatWithMetadata> {
+	async move(source: URI, target: URI, overwrite?: boolean, told?: FileMoveTold): Promise<IFileStatWithMetadata> {
 		const sourceProvider = this.throwIfFileSystemIsReadonly(await this.withWriteProvider(source), source);
 		const targetProvider = this.throwIfFileSystemIsReadonly(await this.withWriteProvider(target), target);
 
@@ -919,7 +919,17 @@ export class FileService extends Disposable implements IFileService {
 
 		// resolve and send events
 		const fileStat = await this.resolve(target, { resolveMetadata: true });
-		this._onDidRunOperation.fire(new FileOperationEvent(source, mode === 'move' ? FileOperation.MOVE : FileOperation.COPY, fileStat));
+		// BaseHalf: a move that carries out an operation of another kind is told as that
+		// operation, as a delete to the system's Trash is (`FileMoveTold`).
+		if (told === FileOperation.DELETE) {
+			this._onDidRunOperation.fire(new FileOperationEvent(source, FileOperation.DELETE));
+		} else if (told === FileOperation.CREATE) {
+			this._onDidRunOperation.fire(new FileOperationEvent(target, FileOperation.CREATE, fileStat));
+		} else if (told === FileOperation.WRITE) {
+			this._onDidRunOperation.fire(new FileOperationEvent(target, FileOperation.WRITE));
+		} else if (told !== 'nothing') {
+			this._onDidRunOperation.fire(new FileOperationEvent(source, mode === 'move' ? FileOperation.MOVE : FileOperation.COPY, fileStat));
+		}
 
 		return fileStat;
 	}

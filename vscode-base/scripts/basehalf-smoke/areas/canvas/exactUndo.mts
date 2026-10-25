@@ -13,6 +13,7 @@ import { centerCanvasCards, deleteCanvasCardFromItsMenu } from './creation.mts';
 import { workspacePath } from '../../context.mts';
 import { clickCanvasCreateAction, readCanvasCardGeometry, waitForCanvasCardSelection, waitForCanvasNoteInlineEditor } from '../../lib/canvas.mts';
 import { waitUntil } from '../../lib/steps.mts';
+import { showExplorer } from '../../lib/workspace.mts';
 
 const UNDO = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
 const REDO = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y';
@@ -21,6 +22,7 @@ const BIG = 'undo-big.bin';
 const BOX = 'undo-box';
 const DRAFT = 'undo-draft.png';
 const CARDS = [NOTE, BIG, BOX, DRAFT];
+const FOLLOWED = 'files-follow.md';
 
 const at = name => path.join(workspacePath, ...name.split('/'));
 const mirror = (name, file) => path.join(workspacePath, '.bh', 'mirror', ...name.split('/'), file);
@@ -28,6 +30,12 @@ const layout = () => fs.readFileSync(path.join(workspacePath, '.bh', 'mirror', '
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const text = file => fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
 const orders = names => names.length <= 1 ? [names] : names.flatMap((first, index) => orders([...names.slice(0, index), ...names.slice(index + 1)]).map(rest => [first, ...rest]));
+
+/** Gives the keyboard to the canvas, so that Undo and Redo are the canvas's. */
+async function keyboardOnCanvas(page) {
+	await page.locator('.basehalf-canvas-cards').focus();
+	await page.waitForFunction(() => document.activeElement?.closest('.basehalf-canvas-cards') !== null, null, { timeout: 10_000 });
+}
 
 /**
  * Selects the cards of `names` with a click on the first and a click with
@@ -123,11 +131,6 @@ export async function assertCanvasExactUndo(page) {
 			await card(name).waitFor({ state: 'visible', timeout: 15_000 });
 		}
 	};
-	const keyboardOnCanvas = async () => {
-		await page.locator('.basehalf-canvas-cards').focus();
-		await page.waitForFunction(() => document.activeElement?.closest('.basehalf-canvas-cards') !== null, null, { timeout: 10_000 });
-	};
-
 	// Every frame from here on: a dialog.
 	await page.evaluate(() => {
 		const watch = { running: true, frames: 0, dialogs: 0 };
@@ -151,7 +154,7 @@ export async function assertCanvasExactUndo(page) {
 	if (fs.existsSync(path.dirname(mirror(NOTE, 'badge.yaml'))) || readCanvasCardGeometry(layout(), NOTE) !== undefined) {
 		throw new Error('A delete must take the card information and the row of the note with it');
 	}
-	await keyboardOnCanvas();
+	await keyboardOnCanvas(page);
 	await page.keyboard.press(UNDO);
 	await assertBack('one undo to bring the note back with its description, its color, and its place');
 
@@ -159,7 +162,7 @@ export async function assertCanvasExactUndo(page) {
 	await selectCanvasCards(page, [BIG, BOX, DRAFT]);
 	await page.keyboard.press('Delete');
 	await waitUntil(setGone, 'the Delete key to delete the set at once');
-	await keyboardOnCanvas();
+	await keyboardOnCanvas(page);
 	await page.keyboard.press(UNDO);
 	await assertBack('one undo to bring back the file of 6 MB byte for byte, the folder with its notes, and the draft with its prompt');
 	await page.keyboard.press(REDO);
@@ -174,7 +177,7 @@ export async function assertCanvasExactUndo(page) {
 	await waitForCanvasCardSelection(page, BIG);
 	await page.locator('.basehalf-canvas-selection-action.danger').filter({ visible: true }).first().click();
 	await waitUntil(() => !fs.existsSync(at(BIG)), 'the toolbar\'s Delete to delete the file at once');
-	await keyboardOnCanvas();
+	await keyboardOnCanvas(page);
 	await page.keyboard.press(UNDO);
 	await assertBack('one undo after the toolbar\'s Delete');
 
@@ -189,7 +192,7 @@ export async function assertCanvasExactUndo(page) {
 	await waitUntil(() => readCanvasCardGeometry(layout(), 'untitled.md') !== undefined, 'the new note to have its place');
 	const madeRow = readCanvasCardGeometry(layout(), 'untitled.md');
 	const madeText = fs.readFileSync(at('untitled.md'), 'utf8');
-	await keyboardOnCanvas();
+	await keyboardOnCanvas(page);
 	await page.keyboard.press(UNDO);
 	await waitUntil(() => !fs.existsSync(at('untitled.md')), 'undo to take the new note away with its text');
 	await card('untitled.md').waitFor({ state: 'detached', timeout: 10_000 });
@@ -214,4 +217,76 @@ export async function assertCanvasExactUndo(page) {
 		await centerCanvasCards(page, [card(name)]);
 		await deleteCanvasCardFromItsMenu(page, name);
 	}
+}
+
+/**
+ * Exact undo, criterion 15: Files in the sidebar shows a delete on the
+ * canvas, its undo, and its redo together with the canvas. A sampler notes in
+ * every frame whether the note's card and its row in Files are there; each
+ * time, the row goes or comes back no more than 300 ms from its card. Before,
+ * Files waited for the file watcher and then half a second more.
+ */
+export async function assertFilesFollowCanvasDeletes(page) {
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${FOLLOWED}"]`);
+	const label = FOLLOWED.replace(/\.md$/, '');
+	fs.writeFileSync(at(FOLLOWED), '# Files follow\n\nA note that Files shows as the canvas does.\n', 'utf8');
+	if (!(await page.locator('.explorer-viewlet').isVisible().catch(() => false))) {
+		await showExplorer(page);
+	}
+	await card.waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.explorer-viewlet .monaco-list-row', { hasText: label }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	await page.evaluate(({ cardPath, rowText }) => {
+		const watch = { running: true, card: [], row: [] };
+		let cardThere;
+		let rowThere;
+		const tick = () => {
+			if (!watch.running) {
+				return;
+			}
+			const time = performance.now();
+			const cardNow = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`) !== null;
+			const rowNow = Array.from(document.querySelectorAll('.explorer-viewlet .monaco-list-row')).some(row => row.textContent?.includes(rowText));
+			if (cardNow !== cardThere) {
+				watch.card.push({ time, there: cardNow });
+				cardThere = cardNow;
+			}
+			if (rowNow !== rowThere) {
+				watch.row.push({ time, there: rowNow });
+				rowThere = rowNow;
+			}
+			requestAnimationFrame(tick);
+		};
+		globalThis.basehalfFilesFollow = watch;
+		requestAnimationFrame(tick);
+	}, { cardPath: FOLLOWED, rowText: label });
+
+	// How long after its card the row in Files went (there: false) or came back (there: true).
+	const lagOf = async (what, there, act) => {
+		const since = await page.evaluate(() => performance.now());
+		await act();
+		const seen = await page.waitForFunction(({ since, there }) => {
+			const watch = globalThis.basehalfFilesFollow;
+			const card = watch.card.find(change => change.time > since && change.there === there);
+			const row = watch.row.find(change => change.time > since && change.there === there);
+			return card && row ? { card: card.time, row: row.time } : undefined;
+		}, { since, there }, { timeout: 15_000 }).catch(async () => {
+			throw new Error(`${what}: the card and its row in Files did not both ${there ? 'come back' : 'go'}: ${JSON.stringify(await page.evaluate(() => globalThis.basehalfFilesFollow))}`);
+		});
+		const { card: cardAt, row: rowAt } = await seen.jsonValue();
+		return Math.round(rowAt - cardAt);
+	};
+
+	await centerCanvasCards(page, [card]);
+	const deleted = await lagOf('A delete on the canvas', false, () => deleteCanvasCardFromItsMenu(page, FOLLOWED));
+	await keyboardOnCanvas(page);
+	const undone = await lagOf('Undo of the delete', true, () => page.keyboard.press(UNDO));
+	const redone = await lagOf('Redo of the delete', false, () => page.keyboard.press(REDO));
+	await page.evaluate(() => {
+		globalThis.basehalfFilesFollow.running = false;
+	});
+	const lags = { deleted, undone, redone };
+	if (Object.values(lags).some(ms => Math.abs(ms) > 300)) {
+		throw new Error(`Files must show a delete on the canvas, its undo, and its redo with the canvas, its row no more than 300 ms from the card (ms the row came after the card): ${JSON.stringify(lags)}`);
+	}
+	console.log(`[basehalf-smoke] Files followed the canvas within ${JSON.stringify(lags)} ms`);
 }

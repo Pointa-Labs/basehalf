@@ -75,6 +75,28 @@ suite('InMemory File Service', () => {
 		assert.strictEqual(event.target?.isDirectory, true);
 	});
 
+	// BaseHalf: a move that carries out an operation of another kind is told as that operation.
+	test('move: told as a delete, a creation, a write, or nothing', async () => {
+		const names = new Map([[FileOperation.CREATE, 'create'], [FileOperation.DELETE, 'delete'], [FileOperation.MOVE, 'move'], [FileOperation.COPY, 'copy'], [FileOperation.WRITE, 'write']]);
+		const told: string[] = [];
+		disposables.add(service.onDidRunOperation(e => told.push([names.get(e.operation), e.resource.path, e.target?.resource.path].filter(Boolean).join(' '))));
+		const file = fixture.smallTxt;
+		const kept = joinPath(fixture.otherDeepDir, 'small.txt');
+
+		await service.move(file, kept, false, FileOperation.DELETE);
+		await service.move(kept, file, false, FileOperation.CREATE);
+		await service.move(file, kept, false, 'nothing');
+		await service.move(kept, file, false, FileOperation.WRITE);
+		await service.move(file, kept, false);
+
+		assert.deepStrictEqual(told, [
+			`delete ${file.path}`,
+			`create ${file.path} ${file.path}`,
+			`write ${file.path}`,
+			`move ${file.path} ${kept.path}`
+		]);
+	});
+
 	test('createFolder: creating multiple folders at once', async () => {
 		let event: FileOperationEvent | undefined;
 		disposables.add(service.onDidRunOperation(e => event = e));

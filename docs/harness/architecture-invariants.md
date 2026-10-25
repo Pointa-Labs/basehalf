@@ -138,6 +138,16 @@ in [decisions.md](../decisions.md).
   committed, unreadable canvas layout is skipped and preserved as a recovery
   copy, and the mirror cascade always offers Skip
   ([mirror file resilience](../specs/mirror-file-resilience.md), D40).
+- A BaseHalf operation that is carried out by moving files into storage that
+  nothing shows, or back out of it, is told to the window as what it does:
+  the delete of an item, its creation, or a write of a file, and a move
+  within that storage is told to no one (`IFileService.move` with a report,
+  marked `// BaseHalf:`). The kept versions of
+  [exact undo](../specs/exact-undo.md#the-kept-versions) and the undo copy of
+  a project made from a template are such storage. Files, open editors, the
+  history of Back and Forward, and everything else that listens to file
+  operations then need nothing of their own for it, as for a delete to the
+  system's Trash, which VS Code tells as a delete.
 - Every card has a saved place. A card gets it when it first appears on a
   canvas, and after that only the user changes it: no place is computed
   again at a later drawing, and BaseHalf never puts a card on another one by

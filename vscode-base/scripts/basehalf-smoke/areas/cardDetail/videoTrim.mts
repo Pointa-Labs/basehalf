@@ -11,6 +11,7 @@ import { root, workspacePath } from '../../context.mts';
 import { assertCardDetail } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
+import { showExplorer } from '../../lib/workspace.mts';
 
 const FOLDER = 'trim';
 const VIDEO = `${FOLDER}/shot.mp4`;
@@ -44,6 +45,23 @@ async function waitForWholeBar(page, duration) {
 	}, { selector: BAR, duration }, { timeout: 15_000 });
 }
 
+/** Shows the video's row in Files, its folder open there, so that the row can be watched. */
+async function showVideoRowInFiles(page) {
+	if (!(await page.locator('.explorer-viewlet').isVisible().catch(() => false))) {
+		await showExplorer(page);
+	}
+	const videoRow = page.locator('.explorer-viewlet .monaco-list-row', { hasText: 'shot.mp4' }).first();
+	if (!(await videoRow.isVisible().catch(() => false))) {
+		const folderRow = page.locator('.explorer-viewlet .monaco-list-row', { hasText: FOLDER }).first();
+		await folderRow.waitFor({ state: 'visible', timeout: 15_000 });
+		if ((await folderRow.getAttribute('aria-expanded')) !== 'true') {
+			await folderRow.locator('.monaco-tl-twistie').click();
+		}
+	}
+	await videoRow.waitFor({ state: 'visible', timeout: 15_000 });
+	await videoRow.scrollIntoViewIfNeeded();
+}
+
 /** Drags a handle to a time, holding the place where it was pressed. */
 async function dragHandle(page, which, seconds) {
 	const strip = await page.locator(`${BAR} .basehalf-video-trim-strip`).boundingBox();
@@ -67,6 +85,7 @@ export async function assertCardDetailVideoTrim(page) {
 	fs.copyFileSync(path.join(root, 'scripts', 'fixtures', 'basehalf-video-mock.mp4'), workspaceFile(VIDEO));
 	const original = fs.readFileSync(workspaceFile(VIDEO));
 	try {
+		await showVideoRowInFiles(page);
 		await quickOpen(page, VIDEO);
 		await assertCardDetail(page, 'shot.mp4');
 		await waitForWholeBar(page, undefined);
@@ -112,6 +131,23 @@ export async function assertCardDetailVideoTrim(page) {
 			throw new Error(`The selection must play over and over with no frame outside it: ${JSON.stringify({ range, outside, jumpedBack, count: shown.length })}`);
 		}
 
+		// Exact undo, criterion 16: from the trim to its redo, the video's row in Files is there in every frame.
+		await page.evaluate(() => {
+			const watch = { running: true, frames: 0, missing: 0 };
+			const tick = () => {
+				if (!watch.running) {
+					return;
+				}
+				watch.frames++;
+				if (!Array.from(document.querySelectorAll('.explorer-viewlet .monaco-list-row')).some(row => row.textContent?.includes('shot.mp4'))) {
+					watch.missing++;
+				}
+				requestAnimationFrame(tick);
+			};
+			globalThis.basehalfTrimRowWatch = watch;
+			requestAnimationFrame(tick);
+		});
+
 		// Trim replaces the video, under its name, with the selection.
 		await page.locator(`${BAR} .basehalf-video-trim-confirm`).click();
 		await page.waitForFunction(selector => /^Trimmed to /.test(document.querySelector(`${selector} .basehalf-video-trim-status`)?.textContent ?? ''), BAR, { timeout: 30_000 });
@@ -140,6 +176,14 @@ export async function assertCardDetailVideoTrim(page) {
 		await page.keyboard.press(REDO);
 		await waitUntil(() => fs.readFileSync(workspaceFile(VIDEO)).equals(trimmed), 'redo to trim the video again', 15_000);
 		await waitForWholeBar(page, trimmedLength);
+		const rowWatch = await page.evaluate(() => {
+			const watch = globalThis.basehalfTrimRowWatch;
+			watch.running = false;
+			return { frames: watch.frames, missing: watch.missing };
+		});
+		if (rowWatch.frames < 10 || rowWatch.missing !== 0) {
+			throw new Error(`A trim, its undo, and its redo change the video in place: its row in Files must be there in every frame: ${JSON.stringify(rowWatch)}`);
+		}
 
 		// Escape on a handle closes Card Detail, as anywhere in it.
 		await page.locator(`${BAR} .basehalf-video-trim-handle.start`).focus();

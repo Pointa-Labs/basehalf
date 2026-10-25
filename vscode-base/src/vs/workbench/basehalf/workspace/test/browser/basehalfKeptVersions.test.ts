@@ -14,7 +14,7 @@ import { IBaseHalfFileTimesService } from '../../../../../platform/basehalfFiles
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { TestDialogService } from '../../../../../platform/dialogs/test/common/testDialogService.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
-import { FileSystemProviderCapabilities, IFileDeleteOptions, IFileService } from '../../../../../platform/files/common/files.js';
+import { FileOperation, FileSystemProviderCapabilities, IFileDeleteOptions, IFileService } from '../../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
@@ -222,8 +222,55 @@ suite('BaseHalfKeptVersions', () => {
 		await harness.redo();
 		assert.deepStrictEqual(await harness.shown(), changed);
 		// Each version that is moved into place is given the time of now, so that
-		// the file watcher sees it; the new made.yaml was written, which does that.
-		assert.deepStrictEqual(harness.touched, ['clip.mp4', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml']);
+		// the file watcher sees it; new bytes are written beside it and moved into place too.
+		assert.deepStrictEqual(harness.touched, ['clip.mp4', '.bh/mirror/clip.mp4/made.yaml', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml', 'clip.mp4', '.bh/mirror/clip.mp4/made.yaml']);
+	});
+
+	test('tells the window a delete, a creation, or a write for each item of a step, and never a move into or out of the kept versions', async () => {
+		const harness = await open({
+			'keep.md': '# Keep\n',
+			'box/a.md': '# A\n',
+			'clip.mp4': 'the video',
+			'.bh/mirror/keep.md/badge.yaml': 'path: "keep.md"\nkind: file\ndescription: "A description"\n'
+		});
+		await harness.fileService.writeFile(resource('.bh/cache/trim.mp4'), VSBuffer.fromString('the trimmed video'));
+		const names = new Map([[FileOperation.CREATE, 'create'], [FileOperation.DELETE, 'delete'], [FileOperation.MOVE, 'move'], [FileOperation.COPY, 'copy'], [FileOperation.WRITE, 'write']]);
+		const pathOf = (uri: URI) => uri.path.slice(folder.path.length + 1);
+		const items = new Set(['keep.md', 'box', 'clip.mp4', '.bh/mirror/keep.md']);
+		let told: string[] = [];
+		const moves: string[] = [];
+		disposables.add(harness.fileService.onDidRunOperation(e => {
+			const paths = [pathOf(e.resource), ...(e.target ? [pathOf(e.target.resource)] : [])];
+			if (e.operation === FileOperation.MOVE || e.operation === FileOperation.COPY) {
+				moves.push(paths.join(' -> '));
+			}
+			if (items.has(paths[0])) {
+				told.push(`${names.get(e.operation)} ${paths[0]}`);
+			}
+		}));
+		const during = async (act: () => unknown) => {
+			told = [];
+			await act();
+			return [...told].sort();
+		};
+
+		assert.deepStrictEqual({
+			deleted: await during(() => harness.service.deleteItems([resource('keep.md'), resource('box')], { label: 'Delete 2 items' })),
+			undone: await during(() => harness.undo()),
+			redone: await during(() => harness.redo()),
+			trimmed: await during(() => harness.service.replaceFiles([{ resource: resource('clip.mp4'), contents: resource('.bh/cache/trim.mp4') }], { label: 'Trim clip.mp4' })),
+			trimUndone: await during(() => harness.undo()),
+			trimRedone: await during(() => harness.redo()),
+			moves
+		}, {
+			deleted: ['delete .bh/mirror/keep.md', 'delete box', 'delete keep.md'],
+			undone: ['create .bh/mirror/keep.md', 'create box', 'create keep.md'],
+			redone: ['delete .bh/mirror/keep.md', 'delete box', 'delete keep.md'],
+			trimmed: ['write clip.mp4'],
+			trimUndone: ['write clip.mp4'],
+			trimRedone: ['write clip.mp4'],
+			moves: []
+		});
 	});
 
 	test('sends what it kept to the Trash when the window closes, and leaves the card information that a delete to the Trash keeps', async () => {
