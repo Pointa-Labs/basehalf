@@ -156,6 +156,14 @@ Not in scope, and unchanged:
 - An item that the Trash refuses stays kept, and the next window that opens
   the folder tries again. BaseHalf never deletes for good what the Trash
   should have held.
+- What goes to the Trash leaves behind the card information that a delete
+  to the Trash has always kept, so that a restore from the Trash brings the
+  card back whole ([mirror file resilience](mirror-file-resilience.md)): the
+  upstream list, the color, and the prompt and settings with the generation
+  record. Prompt and settings stay only beside a generation record: without
+  one they would make a draft. The rest of the card information goes, as a
+  delete has always taken it. Nothing of it stays when the item is deleted
+  for good.
 
 ### What the canvas made
 
@@ -166,8 +174,13 @@ Not in scope, and unchanged:
 - Undo moves what the step made into the kept versions, with its card
   information and whatever was typed or put into it since. Redo moves it
   back to its place.
-- A paste of files that were cut moves them. Its undo moves them back, as
-  before.
+- A paste, an import, or a drop never replaces an item. A name that is taken
+  gets the next free one, as Duplicate does, also when the setting
+  `explorer.incrementalNaming` is `disabled`: undo could not give a replaced
+  item back.
+- A paste of files that were cut moves them. Its undo moves them back, and it
+  is a step of the canvas now, not of Files. The mirror cascade carries the
+  cards' information both ways, as for any move.
 
 ### Changing files in place
 
@@ -188,12 +201,11 @@ Not in scope, and unchanged:
 ## Failure
 
 - A move into the kept versions that fails changes nothing that was not
-  changed back, and BaseHalf says why. An item on another disk, which a move
-  cannot carry, is refused: "'<name>' is on another disk. Delete it in Files."
-- A layout or a mirror file that cannot be read stays where it is, as the
-  mirror cascade leaves it ([mirror file resilience](mirror-file-resilience.md)).
-  The item is kept all the same, and its place is given anew when it comes
-  back.
+  changed back, and BaseHalf says why.
+- A layout that cannot be read stays where it is, as the mirror cascade
+  leaves it ([mirror file resilience](mirror-file-resilience.md)). The item
+  is kept all the same, with its card information byte for byte, and its
+  card gets a new place when it comes back.
 
 ## Acceptance criteria
 
