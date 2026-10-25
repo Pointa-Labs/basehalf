@@ -188,7 +188,11 @@ export async function assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(
 	const vscodeDir = path.join(workspacePath, '.vscode');
 	fs.mkdirSync(vscodeDir, { recursive: true });
 	fs.writeFileSync(path.join(vscodeDir, 'settings.json'), JSON.stringify({
-		'basehalf.editor.readingMode': true
+		'basehalf.editor.readingMode': true,
+		// The offer of the agent skill stays off, as the fixture has it: while
+		// it is on, the status bar shows the unanswered offer under the steps
+		// that follow (D83).
+		'basehalf.agents.offerSkill': false
 	}, null, 2), 'utf8');
 
 	const frame = await activeMarkdownRichFrame(page);
