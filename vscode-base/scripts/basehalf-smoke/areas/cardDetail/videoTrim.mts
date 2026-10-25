@@ -125,7 +125,10 @@ export async function assertCardDetailVideoTrim(page) {
 			play.click();
 			return times;
 		});
-		const outside = shown.filter(time => time < range.start - 0.002 || time >= range.end - 0.002);
+		// The selection's last frame is the one that starts before its end, even
+		// just before it; the player counts times as the same within 0.5 ms
+		// (RANGE_EPSILON), and so does this check.
+		const outside = shown.filter(time => time < range.start - 0.0005 || time >= range.end - 0.0005);
 		const jumpedBack = shown.some((time, index) => index > 0 && time < shown[index - 1]);
 		if (outside.length || !jumpedBack || shown.length < 10) {
 			throw new Error(`The selection must play over and over with no frame outside it: ${JSON.stringify({ range, outside, jumpedBack, count: shown.length })}`);
