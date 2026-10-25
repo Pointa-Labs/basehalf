@@ -310,6 +310,59 @@ suite('BaseHalfMediaEditService', () => {
 		});
 	});
 
+	test('a sound keeps its parts joined in its own format, its original kept, and Revert puts it back (D84)', async () => {
+		const { fileService, service, steps } = setUp();
+		const rate = 8000;
+		const samples = new Uint8Array(rate * 2 * 2);
+		const view = new DataView(samples.buffer);
+		for (let index = 0; index < rate * 2; index++) {
+			view.setInt16(index * 2, (index % 2000) - 1000, true);
+		}
+		const header = new Uint8Array(44);
+		const head = new DataView(header.buffer);
+		header.set(Array.from('RIFF\0\0\0\0WAVEfmt ', character => character.charCodeAt(0)));
+		head.setUint32(4, 36 + samples.length, true);
+		head.setUint32(16, 16, true);
+		head.setUint16(20, 1, true);
+		head.setUint16(22, 1, true);
+		head.setUint32(24, rate, true);
+		head.setUint32(28, rate * 2, true);
+		head.setUint16(32, 2, true);
+		head.setUint16(34, 16, true);
+		header.set(Array.from('data', character => character.charCodeAt(0)), 36);
+		head.setUint32(40, samples.length, true);
+		const wav = new Uint8Array(44 + samples.length);
+		wav.set(header);
+		wav.set(samples, 44);
+		const sound = joinPath(WORKSPACE, 'takes', 'take.wav');
+		const file = { resource: sound, workspaceFolder: WORKSPACE, relativePath: 'takes/take.wav' };
+		await fileService.writeFile(sound, VSBuffer.wrap(wav));
+		const state = await service.readEditState(file);
+		await service.save(file, state, { keep: [{ start: 0, end: 0.5 }, { start: 1.5, end: 2 }] });
+		const edited = (await fileService.readFile(sound)).value.buffer;
+		const record = parseBaseHalfEditRecord((await fileService.readFile(joinPath(WORKSPACE, '.bh', 'mirror', 'takes', 'take.wav', 'edit.yaml'))).value.toString());
+		const again = await service.readEditState(file);
+		await service.revert(file, again);
+		assert.deepStrictEqual({
+			state: [state.kind, state.sound?.format, state.sound?.duration],
+			length: new DataView(edited.buffer, edited.byteOffset).getUint32(40, true) / 2,
+			// The second part starts at sample 12000, faded in: its 40th sample is at full level.
+			joined: new DataView(edited.buffer, edited.byteOffset + 44).getInt16((4000 + 40) * 2, true),
+			record: record?.keep,
+			again: [again.source.path.endsWith('/original.wav'), again.record?.keep?.length],
+			reverted: VSBuffer.wrap((await fileService.readFile(sound)).value.buffer).equals(VSBuffer.wrap(wav)),
+			steps: steps.map(step => step.split(':')[0])
+		}, {
+			state: ['sound', 'wav', 2],
+			length: 8000,
+			joined: (12040 % 2000) - 1000,
+			record: [{ start: 0, end: 0.5 }, { start: 1.5, end: 2 }],
+			again: [true, 2],
+			reverted: true,
+			steps: ['Edit take.wav', 'Revert take.wav']
+		});
+	});
+
 	test('a file of a format that is not edited, or that is gone, says why Edit is not offered (D84)', async () => {
 		const { fileService, service } = setUp();
 		await fileService.writeFile(joinPath(WORKSPACE, 'shots', 'loop.gif'), VSBuffer.fromString('GIF89a'));

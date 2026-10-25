@@ -84,7 +84,7 @@ export async function encodeBaseHalfVideoClip(request: IBaseHalfVideoClipEncodeR
 	const picture = await encodePicture(request, video);
 	request.onProgress?.(0.9);
 	let soundDropped = false;
-	let sound: IEncodedSound | undefined;
+	let sound: IBaseHalfEncodedSound | undefined;
 	if (plan.sound && file.audio) {
 		try {
 			sound = await encodeSound(request.source, file.audio, plan.sound, plan.container === 'webm' ? 'opus' : 'aac');
@@ -460,15 +460,41 @@ async function encodePicture(request: IBaseHalfVideoClipEncodeRequest, video: IB
 	return { codec: setup.codec, description, timescale, samples, width: setup.width, height: setup.height };
 }
 
-type IEncodedSound =
+export type IBaseHalfEncodedSound =
 	| { readonly kind: 'aac'; readonly track: IBaseHalfMp4AudioTrackInput }
 	| { readonly kind: 'opus'; readonly track: IBaseHalfWebmAudioTrackInput };
 
 /** The sound of a clip, decoded, cut, faded, and encoded in AAC or in Opus. */
-async function encodeSound(source: IBaseHalfVideoByteSource, audio: IBaseHalfVideoTrack, sound: NonNullable<IBaseHalfVideoClipPlan['sound']>, codec: 'aac' | 'opus'): Promise<IEncodedSound> {
-	const pcm = await decodeSound(source, audio, sound);
+async function encodeSound(source: IBaseHalfVideoByteSource, audio: IBaseHalfVideoTrack, sound: NonNullable<IBaseHalfVideoClipPlan['sound']>, codec: 'aac' | 'opus'): Promise<IBaseHalfEncodedSound> {
+	const pcm = await decodeBaseHalfSound(source, audio, sound);
+	baseHalfFadeSound(pcm, 0, pcm.data[0].length, sound.fadeIn, sound.fadeOut);
+	return encodeBaseHalfSound(pcm, codec, sound.bitrate);
+}
+
+/** Fades sound in over its first 5 ms after `from`, and out over its last 5 ms before `to`, in samples. */
+export function baseHalfFadeSound(pcm: IBaseHalfDecodedSound, from: number, to: number, fadeIn: boolean, fadeOut: boolean): void {
+	const fade = Math.min(Math.round(FADE_SECONDS * pcm.rate), Math.floor((to - from) / 2));
+	for (const channel of pcm.data) {
+		for (let index = 0; index < fade; index++) {
+			const gain = (index + 1) / (fade + 1);
+			if (fadeIn) {
+				channel[from + index] *= gain;
+			}
+			if (fadeOut) {
+				channel[to - 1 - index] *= gain;
+			}
+		}
+	}
+}
+
+/**
+ * Encodes decoded sound in AAC, as an MP4 and an M4A hold it, or in Opus, as a
+ * WebM and an Ogg do, at a bitrate: at the sample rate and in the channels
+ * the window's encoder takes, the encoder's delay measured.
+ */
+export async function encodeBaseHalfSound(pcm: IBaseHalfDecodedSound, codec: 'aac' | 'opus', bitrate: number): Promise<IBaseHalfEncodedSound> {
 	let { rate, channels, data } = pcm;
-	const config = codec === 'opus' ? await chooseOpusEncoder(channels, sound.bitrate) : await chooseAudioEncoder(rate, channels, sound.bitrate);
+	const config = codec === 'opus' ? await chooseOpusEncoder(channels, bitrate) : await chooseAudioEncoder(rate, channels, bitrate);
 	if (config.sampleRate !== rate || config.numberOfChannels !== channels) {
 		data = await resample(data, rate, config.sampleRate, config.numberOfChannels);
 		rate = config.sampleRate;
@@ -477,18 +503,6 @@ async function encodeSound(source: IBaseHalfVideoByteSource, audio: IBaseHalfVid
 	const frames = data[0].length;
 	if (frames === 0) {
 		throw new Error('No sound in the range.');
-	}
-	const fade = Math.min(Math.round(FADE_SECONDS * rate), Math.floor(frames / 2));
-	for (const channel of data) {
-		for (let index = 0; index < fade; index++) {
-			const gain = (index + 1) / (fade + 1);
-			if (sound.fadeIn) {
-				channel[index] *= gain;
-			}
-			if (sound.fadeOut) {
-				channel[frames - 1 - index] *= gain;
-			}
-		}
 	}
 	if (codec === 'opus') {
 		const delay = await opusEncoderDelay(config);
@@ -519,7 +533,7 @@ async function encodeSound(source: IBaseHalfVideoByteSource, audio: IBaseHalfVid
 			timescale: rate,
 			samples: encoded.packets.map((packet, index) => ({ data: packet, decodeTime: index * AAC_FRAME, time: index * AAC_FRAME, duration: AAC_FRAME, key: true })),
 			channels,
-			bitrate: config.bitrate ?? sound.bitrate,
+			bitrate: config.bitrate ?? bitrate,
 			delay,
 			length: frames
 		}
@@ -532,14 +546,15 @@ function padded(channel: Float32Array<ArrayBuffer>, extra: number): Float32Array
 	return longer;
 }
 
-interface IDecodedSound {
+export interface IBaseHalfDecodedSound {
 	readonly rate: number;
 	readonly channels: number;
 	/** One array per channel, the samples from the clip's start to its end. */
 	readonly data: Float32Array<ArrayBuffer>[];
 }
 
-async function decodeSound(source: IBaseHalfVideoByteSource, audio: IBaseHalfVideoTrack, sound: NonNullable<IBaseHalfVideoClipPlan['sound']>): Promise<IDecodedSound> {
+/** Decodes the sound of a track that a plan says, with the window's decoder, placed exactly to the sample by its packets' times. */
+export async function decodeBaseHalfSound(source: IBaseHalfVideoByteSource, audio: IBaseHalfVideoTrack, sound: NonNullable<IBaseHalfVideoClipPlan['sound']>): Promise<IBaseHalfDecodedSound> {
 	if (!audio.codec) {
 		throw new Error('No decoder for this sound.');
 	}

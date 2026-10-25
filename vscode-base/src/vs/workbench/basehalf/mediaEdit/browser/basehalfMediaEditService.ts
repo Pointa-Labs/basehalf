@@ -53,6 +53,7 @@ import { baseHalfVideoFrameEdges, BaseHalfVideoFileError, IBaseHalfVideoByteSour
 import { BaseHalfVideoTrimTimeline } from '../common/basehalfVideoTrimSelection.js';
 import { readBaseHalfWebmFile } from '../common/basehalfWebmReader.js';
 import { BASEHALF_IMAGE_MAX_PIXELS, BASEHALF_IMAGE_MAX_SIDE, BaseHalfImageCropError, encodeBaseHalfImageCrop } from './basehalfImageCropEncoder.js';
+import { BASEHALF_SOUND_MAX_SECONDS, BaseHalfSoundEditError, encodeBaseHalfSoundParts, IBaseHalfSoundInfo, readBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
 import { encodeBaseHalfVideoClip } from './basehalfVideoClipEncoder.js';
 
 /**
@@ -95,6 +96,8 @@ export interface IBaseHalfMediaEditState {
 	readonly video?: IBaseHalfEditVideo;
 	/** The image of `source`, read. */
 	readonly image?: IBaseHalfEditImage;
+	/** The sound of `source`, read. */
+	readonly sound?: IBaseHalfSoundInfo;
 	/** Why the file cannot be edited, in the words of Edit's hover. */
 	readonly unavailable?: string;
 }
@@ -152,6 +155,8 @@ export class BaseHalfMediaEditError extends Error {
 const MAX_KEPT_FILES = 100;
 /** The first bytes of an image, which hold its size and its information in nearly every file. */
 const IMAGE_HEADER_BYTES = 256 * 1024;
+/** The largest sound file an edit reads: it is read whole. */
+const SOUND_MAX_BYTES = 256 * 1024 * 1024;
 /** A file in the cache folder of edits this old was left by a save that a closed window stopped. */
 const LEFTOVER_AGE_MS = 60 * 60 * 1000;
 
@@ -240,7 +245,28 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		switch (kind) {
 			case 'video': return { ...read, ...await this.videoState(read.source) };
 			case 'image': return { ...read, ...await this.imageState(read.source) };
-			default: return { ...read, unavailable: localize('basehalf.mediaEdit.unavailable.kind', "BaseHalf can't edit this file.") };
+			case 'sound': return { ...read, ...await this.soundState(read.source) };
+		}
+	}
+
+	/** The sound that Edit shows, or why it cannot. */
+	private async soundState(source: URI): Promise<Pick<IBaseHalfMediaEditState, 'sound' | 'unavailable'>> {
+		const refusal = (reason: string) => ({ unavailable: localize('basehalf.mediaEdit.unavailable.sound', "BaseHalf can't edit this sound: {0}", reason) });
+		try {
+			const stat = await this.fileService.stat(source);
+			if (stat.size > SOUND_MAX_BYTES) {
+				return refusal(localize('basehalf.mediaEdit.unavailable.largeSound', "its file is larger than 256 MB."));
+			}
+			const sound = await readBaseHalfSoundInfo((await this.fileService.readFile(source)).value.buffer, baseHalfMediaEditExtension(source));
+			if (sound.duration > BASEHALF_SOUND_MAX_SECONDS) {
+				return refusal(localize('basehalf.mediaEdit.unavailable.longSound', "it is longer than 30 minutes."));
+			}
+			return { sound };
+		} catch (error) {
+			if (!(error instanceof BaseHalfSoundEditError)) {
+				this.logService.warn(`[BaseHalf] could not read ${source.toString()} for an edit`, error);
+			}
+			return refusal(error instanceof BaseHalfSoundEditError ? error.message : localize('basehalf.mediaEdit.unavailable.readSound', "its file could not be read."));
 		}
 	}
 
@@ -561,7 +587,24 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		switch (state.kind) {
 			case 'video': return this.renderVideo(file, state, choices, kind);
 			case 'image': return this.renderImage(file, state, choices, kind);
-			default: throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.kind', "BaseHalf can't edit this file."));
+			case 'sound': return this.renderSound(file, state, choices, kind);
+		}
+	}
+
+	/** Keeps the parts of a sound, joined, in its format. */
+	private async renderSound(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, kind: BaseHalfMediaSaveKind): Promise<IRenderedEdit> {
+		const info = state.sound;
+		if (!info) {
+			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.noSound', "the sound could not be read."));
+		}
+		const bytes = (await this.fileService.readFile(state.source)).value.buffer;
+		this.setProgress(file.resource, kind, 0.3);
+		try {
+			const encoded = await encodeBaseHalfSoundParts(bytes, info, choices.keep ?? [{ start: 0, end: info.duration }]);
+			this.setProgress(file.resource, kind, 0.9);
+			return { bytes: encoded, soundDropped: false, cardSize: baseHalfCanvasGenerationCardSize('audio') };
+		} catch (error) {
+			throw error instanceof BaseHalfSoundEditError ? new BaseHalfMediaEditError(error.message) : error;
 		}
 	}
 

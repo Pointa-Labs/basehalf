@@ -150,7 +150,7 @@ async function topLevelBoxes(source: IBaseHalfVideoByteSource): Promise<IBox[]> 
 }
 
 /** Reads the picture and the first sound of an MP4, M4V, or MOV file. */
-export async function readBaseHalfIsoBmffFile(source: IBaseHalfVideoByteSource, format: 'mp4' | 'mov'): Promise<IBaseHalfVideoFile> {
+export async function readBaseHalfIsoBmffFile(source: IBaseHalfVideoByteSource, format: 'mp4' | 'mov', options?: { readonly soundOnly?: boolean }): Promise<IBaseHalfVideoFile> {
 	const top = await topLevelBoxes(source);
 	const moovBox = top.find(box => box.type === 'moov');
 	if (!moovBox) {
@@ -198,16 +198,17 @@ export async function readBaseHalfIsoBmffFile(source: IBaseHalfVideoByteSource, 
 		return candidates.find(track => track.enabled) ?? candidates[0];
 	};
 	const video = pick('vide');
-	if (!video) {
+	const audio = pick('soun');
+	// A sound file, as an M4A, has a sound and no picture; a video needs a picture.
+	if (!video && !(options?.soundOnly && audio)) {
 		throw new BaseHalfVideoFileError('noPicture');
 	}
-	const audio = pick('soun');
 	const metadata = [...boxesIn(moovBytes, moov.body, moov.end)]
 		.filter(box => box.type === 'udta' || box.type === 'meta')
 		.map(box => moovBytes.slice(box.start, box.end));
 	return {
 		format,
-		video: toTrack(moovBytes, video, movieTimescale, 'video'),
+		video: video ? toTrack(moovBytes, video, movieTimescale, 'video') : undefined,
 		audio: audio ? toTrack(moovBytes, audio, movieTimescale, 'audio') : undefined,
 		metadata
 	};

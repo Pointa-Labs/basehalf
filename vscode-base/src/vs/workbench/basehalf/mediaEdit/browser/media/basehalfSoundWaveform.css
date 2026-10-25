@@ -1,0 +1,115 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The waveform of a sound in Card Detail's edit mode (editing media, "The
+ * waveform"): Play and the time, Trim and Delete above the waveform, which
+ * has the yellow frame, the handles, the playhead, and the length of the
+ * frame viewer of a video, whose rules it shares.
+ */
+.monaco-workbench .basehalf-sound-waveform {
+	--basehalf-sound-waveform-color: color-mix(in srgb, var(--vscode-editor-foreground) 78%, transparent);
+	--basehalf-sound-waveform-joint: var(--basehalf-video-frames-yellow);
+	width: min(calc(100cqw - 48px), 720px);
+	gap: 10px;
+}
+
+.monaco-workbench .basehalf-sound-waveform-top {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 14px;
+}
+
+.monaco-workbench .basehalf-sound-waveform-play {
+	position: relative;
+	display: grid;
+	width: 32px;
+	height: 32px;
+	flex: none;
+	place-items: center;
+	padding: 0;
+	color: var(--vscode-editor-background);
+	background: var(--vscode-editor-foreground);
+	border: 0;
+	border-radius: 50%;
+	cursor: default;
+}
+
+/* A triangle to play, two bars to pause. */
+.monaco-workbench .basehalf-sound-waveform-play::before {
+	content: '';
+	width: 0;
+	height: 0;
+	margin-left: 3px;
+	border-style: solid;
+	border-width: 7px 0 7px 11px;
+	border-color: transparent transparent transparent currentColor;
+}
+
+.monaco-workbench .basehalf-sound-waveform-play.playing::before {
+	width: 10px;
+	height: 12px;
+	margin-left: 0;
+	border: 0;
+	background: linear-gradient(to right, currentColor 0 3px, transparent 3px 7px, currentColor 7px 10px);
+}
+
+.monaco-workbench .basehalf-sound-waveform-play[aria-disabled="true"] {
+	opacity: 0.45;
+}
+
+.monaco-workbench .basehalf-sound-waveform-time {
+	color: var(--vscode-descriptionForeground);
+	font-variant-numeric: tabular-nums;
+}
+
+.monaco-workbench .basehalf-sound-waveform-gap {
+	flex: 1 1 auto;
+}
+
+.monaco-workbench .basehalf-sound-waveform-action {
+	height: 26px;
+	padding: 0 12px;
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+	border: 0;
+	border-radius: 13px;
+	font: inherit;
+	font-weight: 500;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-sound-waveform-action:hover {
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 18%, transparent);
+}
+
+.monaco-workbench .basehalf-sound-waveform-action.delete {
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-workbench .basehalf-sound-waveform-action.disabled,
+.monaco-workbench .basehalf-sound-waveform-action.disabled:hover {
+	color: var(--vscode-disabledForeground);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 6%, transparent);
+}
+
+.monaco-workbench .basehalf-sound-waveform-strip {
+	height: 64px;
+}
+
+.monaco-workbench .basehalf-sound-waveform-canvas {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	border-radius: 6px;
+}
+
+.monaco-workbench .basehalf-sound-waveform-play:focus-visible,
+.monaco-workbench .basehalf-sound-waveform-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}

@@ -284,14 +284,12 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				// What made a generated video or sound shows below its player (D78).
 				this.followGenerationProvenance(state);
 				this.followMediaFile(state, stat, kind === 'audio');
-				if (kind === 'video') {
-					this.editMode = this._register(this.instantiationService.createInstance(BaseHalfMediaEditMode, {
-						file: state,
-						header: this.editActions,
-						detail: this.root.closest<HTMLElement>('.basehalf-card-detail') ?? this.root,
-						show: source => void this.showMedia(state, source, false)
-					}));
-				}
+				this.editMode = this._register(this.instantiationService.createInstance(BaseHalfMediaEditMode, {
+					file: state,
+					header: this.editActions,
+					detail: this.root.closest<HTMLElement>('.basehalf-card-detail') ?? this.root,
+					show: source => void this.showMedia(state, source, kind === 'audio')
+				}));
 				// Card Detail is drawn once the video has the frame it starts at, or the sound its length.
 				await this.renderPlayer(state.resource, kind === 'audio');
 				return;
@@ -514,8 +512,14 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		this.webviewHost.classList.add('holds-player');
 		// A file that changed is asked for anew, not from the cache: a version in the query, as the webview's.
 		const version = ++this.playerVersion;
-		// A video plays with its frame viewer, or the line of its last edit, under it (editing media); a sound plays alone.
-		const stage = sound ? this.webviewHost : append(this.webviewHost, $('.basehalf-card-detail-video-stage'));
+		// A video plays with its frame viewer, or the line of its last edit, under it (editing media); a sound with that line.
+		const stage = append(this.webviewHost, $('.basehalf-card-detail-video-stage'));
+		stage.classList.toggle('sound', sound);
+		if (sound && this.editMode?.isEditing) {
+			// The waveform plays the edit itself: no player stands above it.
+			this.editMode.didShow({ stage });
+			return Promise.resolve();
+		}
 		const player = this.player = store.add(createBaseHalfCanvasCardVideoPlayer(stage, null, {
 			source: resource.with({ query: [resource.query, `basehalfMediaVersion=${version}`].filter(Boolean).join('&') }),
 			videoClasses: [],
@@ -529,9 +533,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (focused) {
 			player.focus();
 		}
-		if (!sound) {
-			this.editMode?.didShow({ stage, player });
-		}
+		this.editMode?.didShow({ stage, player });
 		return new Promise<void>(resolve => {
 			store.add(toDisposable(resolve));
 			whenBaseHalfCanvasMediaDrawn(player.video, store, resolve);

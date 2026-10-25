@@ -25,6 +25,7 @@ import { baseHalfMediaChoicesAreNoEdit } from '../common/basehalfMediaEditFormat
 import { IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfMediaEditService, IBaseHalfMediaEditState, IBaseHalfMediaSaved } from './basehalfMediaEditService.js';
 import { BaseHalfImageCropView } from './basehalfImageCropView.js';
+import { BaseHalfSoundWaveform } from './basehalfSoundWaveform.js';
 import { BaseHalfVideoFrameViewer } from './basehalfVideoFrameViewer.js';
 
 /**
@@ -157,6 +158,8 @@ export class BaseHalfMediaEditMode extends Disposable {
 		} else if (editing.state.image) {
 			const { width, height } = editing.state.image;
 			editor = store.add(this.instantiationService.createInstance(BaseHalfImageCropView, view.stage, { source: editing.state.source, size: { width, height }, choices }));
+		} else if (editing.state.sound) {
+			editor = store.add(this.instantiationService.createInstance(BaseHalfSoundWaveform, view.stage, { source: editing.state.source, info: editing.state.sound, choices }));
 		} else {
 			return;
 		}
