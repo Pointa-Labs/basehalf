@@ -12,7 +12,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { IBaseHalfFileClonesService } from '../../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
-import { IFileStatWithPartialMetadata } from '../../../../../platform/files/common/files.js';
+import { FileSystemProviderCapabilities, IFileDeleteOptions, IFileStatWithPartialMetadata } from '../../../../../platform/files/common/files.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
@@ -20,6 +20,7 @@ import { INotificationService } from '../../../../../platform/notification/commo
 import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
 import { IBaseHalfReferenceEditService } from '../../../references/common/basehalfReferenceEdit.js';
 import { IBaseHalfKeptVersionsService } from '../../../workspace/browser/basehalfKeptVersions.js';
+import { IBaseHalfMovedItemsService } from '../../../workspace/common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import { BaseHalfMediaEditService, baseHalfMediaVersion } from '../../browser/basehalfMediaEditService.js';
 import { parseBaseHalfEditRecord } from '../../common/basehalfEditRecord.js';
@@ -32,6 +33,22 @@ const CARD_INFORMATION = joinPath(WORKSPACE, '.bh', 'mirror', 'shots', 'shot.mp4
 const ORIGINAL = joinPath(CARD_INFORMATION, 'original.mp4');
 const RECORD = joinPath(CARD_INFORMATION, 'edit.yaml');
 const FILE = { resource: VIDEO, workspaceFolder: WORKSPACE, relativePath: 'shots/shot.mp4' };
+
+/** A disk with a Trash: what goes there is listed, and leaves the disk. */
+class TrashingFileSystemProvider extends InMemoryFileSystemProvider {
+	readonly trashed: string[] = [];
+
+	override get capabilities(): FileSystemProviderCapabilities {
+		return super.capabilities | FileSystemProviderCapabilities.Trash;
+	}
+
+	override async delete(resource: URI, opts: IFileDeleteOptions): Promise<void> {
+		if (opts.useTrash) {
+			this.trashed.push(relativePath(WORKSPACE, resource)!);
+		}
+		return super.delete(resource, { ...opts, useTrash: false });
+	}
+}
 
 /** A file service whose video changes once, right after the next stat of it. */
 class ChangingFileService extends FileService {
@@ -53,12 +70,16 @@ suite('BaseHalfMediaEditService', () => {
 
 	function setUp() {
 		const fileService = disposables.add(new ChangingFileService(new NullLogService()));
-		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
+		const provider = disposables.add(new TrashingFileSystemProvider());
+		disposables.add(fileService.registerProvider(Schemas.file, provider));
 		// The steps of exact undo: what each changes, creates (+), and removes (-), and what it made.
 		const steps: string[] = [];
+		// What each step that changes files in place says becomes of its versions when the window closes.
+		const closes: (string | undefined)[] = [];
 		const path = (resource: URI) => relativePath(WORKSPACE, resource);
 		const keptVersions: Partial<IBaseHalfKeptVersionsService> = {
 			replaceFiles: async (changes, options) => {
+				closes.push(options.whenClosed);
 				const told: string[] = [];
 				for (const change of changes) {
 					const present = await fileService.exists(change.resource);
@@ -94,6 +115,9 @@ suite('BaseHalfMediaEditService', () => {
 		const coordinator: Partial<IBaseHalfWorkspaceMutationCoordinator> = {
 			runExclusive: (_workspace, task) => task({ workspaceKeys: [], release: () => { } } as IBaseHalfWorkspaceMutationLease)
 		};
+		// What following moved items was told is gone and no move to recognize.
+		const deletes: string[] = [];
+		const movedItems: Partial<IBaseHalfMovedItemsService> = { acceptWorkbenchDelete: (_workspace, deleted) => deletes.push(deleted) };
 		const notifications: string[] = [];
 		const notificationService: Partial<INotificationService> = {
 			info: message => {
@@ -110,12 +134,13 @@ suite('BaseHalfMediaEditService', () => {
 			canvasMirror as IBaseHalfCanvasMirrorService,
 			referenceEdit as IBaseHalfReferenceEditService,
 			coordinator as IBaseHalfWorkspaceMutationCoordinator,
+			movedItems as IBaseHalfMovedItemsService,
 			new TestConfigurationService({ explorer: { incrementalNaming: 'simple' } }),
 			{} as IDialogService,
 			notificationService as INotificationService,
 			new NullLogService()
 		));
-		return { fileService, service, steps, connections, notifications };
+		return { fileService, service, steps, closes, connections, notifications, trashed: provider.trashed, deletes };
 	}
 
 	async function framesOf(fileService: FileService, resource: URI): Promise<{ readonly frames: number; readonly sound: boolean }> {
@@ -129,7 +154,7 @@ suite('BaseHalfMediaEditService', () => {
 		if (!bytes) {
 			this.skip();
 		}
-		const { fileService, service, steps, notifications } = setUp();
+		const { fileService, service, steps, closes, notifications, trashed } = setUp();
 		await fileService.writeFile(VIDEO, VSBuffer.wrap(bytes));
 
 		const first = await service.readEditState(FILE);
@@ -164,6 +189,8 @@ suite('BaseHalfMediaEditService', () => {
 			leftInCardInformation: await fileService.exists(ORIGINAL) || await fileService.exists(RECORD),
 			leftInCache: ((await fileService.resolve(joinPath(WORKSPACE, '.bh', 'cache', 'edit'))).children ?? []).map(child => child.name),
 			steps,
+			closes,
+			trashed,
 			notifications,
 			running: service.runningSave(VIDEO)
 		}, {
@@ -183,6 +210,9 @@ suite('BaseHalfMediaEditService', () => {
 				'Edit shot.mp4: shots/shot.mp4, .bh/mirror/shots/shot.mp4/edit.yaml',
 				'Revert shot.mp4: shots/shot.mp4, -.bh/mirror/shots/shot.mp4/original.mp4, -.bh/mirror/shots/shot.mp4/edit.yaml'
 			],
+			// What the steps keep is deleted when the window closes: the original holds what the Trash would.
+			closes: ['delete', 'delete', 'delete'],
+			trashed: [],
 			notifications: ['info: Edited shot.mp4.'],
 			running: undefined
 		});
@@ -195,7 +225,7 @@ suite('BaseHalfMediaEditService', () => {
 		if (!bytes || !other) {
 			this.skip();
 		}
-		const { fileService, service, steps } = setUp();
+		const { fileService, service, steps, trashed, deletes } = setUp();
 		await fileService.writeFile(VIDEO, VSBuffer.wrap(bytes));
 		await service.save(FILE, await service.readEditState(FILE), { keep: [{ start: 0, end: 1 }] });
 		const editedSize = (await fileService.stat(VIDEO)).size;
@@ -208,14 +238,53 @@ suite('BaseHalfMediaEditService', () => {
 			changed: [changed.source.path, changed.record],
 			newOriginal: VSBuffer.wrap((await fileService.readFile(ORIGINAL)).value.buffer).equals(VSBuffer.wrap(other)),
 			frames: await framesOf(fileService, VIDEO),
-			steps: steps.slice(1)
+			steps: steps.slice(1),
+			trashed,
+			deletes
 		}, {
 			result: [editedSize, true],
 			changed: [VIDEO.path, undefined],
 			newOriginal: true,
 			frames: { frames: 30, sound: false },
-			// The original before goes with the step, which puts it back on undo.
-			steps: ['Edit shot.mp4: shots/shot.mp4, .bh/mirror/shots/shot.mp4/edit.yaml, .bh/mirror/shots/shot.mp4/original.mp4']
+			// The original before is of no version that the step changes: it went to the Trash beside the file.
+			steps: ['Edit shot.mp4: shots/shot.mp4, .bh/mirror/shots/shot.mp4/edit.yaml, +.bh/mirror/shots/shot.mp4/original.mp4'],
+			trashed: ['shots/shot original.mp4'],
+			deletes: ['shots/shot original.mp4']
+		});
+	});
+
+	test('Done on a file whose record cannot be read keeps the record as a recovery copy, and sends each original there, of any extension, to the Trash beside the file under a free name (D84)', async function () {
+		this.timeout(60_000);
+		const bytes = await makeBaseHalfTestVideo({ frames: 45, fps: 30, sound: false });
+		if (!bytes) {
+			this.skip();
+		}
+		const { fileService, service, steps, closes, trashed } = setUp();
+		await fileService.writeFile(VIDEO, VSBuffer.wrap(bytes));
+		await fileService.writeFile(RECORD, VSBuffer.fromString('original: [the record'));
+		await fileService.writeFile(joinPath(CARD_INFORMATION, 'original.mov'), VSBuffer.fromString('the video when it was a MOV'));
+		// A file of the user's has the name the original would take.
+		await fileService.writeFile(joinPath(WORKSPACE, 'shots', 'shot original.mov'), VSBuffer.fromString('a file of the user'));
+		const state = await service.readEditState(FILE);
+		await service.save(FILE, state, { keep: [{ start: 0, end: 1 }] });
+		const recovered = await fileService.resolve(joinPath(WORKSPACE, '.bh', 'cache', 'recovered', 'mirror', 'shots', 'shot.mp4'));
+		const copy = recovered.children?.[0];
+		assert.deepStrictEqual({
+			record: state.record,
+			trashed,
+			recovered: copy && [/^edit\.[0-9a-f]{12}\.yaml$/.test(copy.name), (await fileService.readFile(copy.resource)).value.toString()],
+			usersFile: (await fileService.readFile(joinPath(WORKSPACE, 'shots', 'shot original.mov'))).value.toString(),
+			cardInformation: ((await fileService.resolve(CARD_INFORMATION)).children ?? []).map(child => child.name).sort(),
+			steps,
+			closes
+		}, {
+			record: undefined,
+			trashed: ['shots/shot original 2.mov'],
+			recovered: [true, 'original: [the record'],
+			usersFile: 'a file of the user',
+			cardInformation: ['edit.yaml', 'original.mp4'],
+			steps: ['Edit shot.mp4: shots/shot.mp4, .bh/mirror/shots/shot.mp4/edit.yaml, +.bh/mirror/shots/shot.mp4/original.mp4'],
+			closes: ['delete']
 		});
 	});
 

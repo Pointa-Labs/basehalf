@@ -39,7 +39,12 @@ const KEPT_MARK_RENEWAL_MS = 60_000;
 /** How old a mark is that no window renews any more: the window is gone. */
 const KEPT_MARK_STALE_MS = 5 * 60_000;
 const KEPT_MARK_FILE = 'owner.json';
-/** What a keep holds: the item under `item/`, its card information under `mirror/`, and where it was in `place.json`. */
+/**
+ * What a keep holds: the item under `item/`, its card information under
+ * `mirror/`, and where it was in `place.json`. The keep of a version of a file
+ * changed in place holds the version, and in `place.json` whether it is
+ * deleted for good when the window closes.
+ */
 const KEPT_ITEM_FOLDER = 'item';
 const KEPT_MIRROR_FOLDER = 'mirror';
 const KEPT_PLACE_FILE = 'place.json';
@@ -71,6 +76,16 @@ export interface IBaseHalfKeptStepOptions {
 	readonly undoRedoGroup?: UndoRedoGroup;
 }
 
+export interface IBaseHalfReplaceStepOptions extends IBaseHalfKeptStepOptions {
+	/**
+	 * What becomes of the versions the step keeps when the window closes: they
+	 * go to the Trash, or they are deleted for good, because the feature keeps
+	 * elsewhere what the user may want of them, as editing media keeps the
+	 * original (exact undo, "When the kept versions go to the Trash").
+	 */
+	readonly whenClosed?: 'trash' | 'delete';
+}
+
 /**
  * The kept versions (exact undo): what a step of the canvas takes away from
  * the user's files is kept whole, with its card information, in
@@ -88,7 +103,7 @@ export interface IBaseHalfKeptVersionsService {
 	 * before goes into the kept versions, no file being one too, and undo swaps
 	 * it back.
 	 */
-	replaceFiles(changes: readonly IBaseHalfFileReplacement[], options: IBaseHalfKeptStepOptions): Promise<void>;
+	replaceFiles(changes: readonly IBaseHalfFileReplacement[], options: IBaseHalfReplaceStepOptions): Promise<void>;
 	/** Sends to the Trash what windows that are gone kept. */
 	sweep(): Promise<void>;
 }
@@ -175,7 +190,7 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 		}
 	}
 
-	async replaceFiles(changes: readonly IBaseHalfFileReplacement[], options: IBaseHalfKeptStepOptions): Promise<void> {
+	async replaceFiles(changes: readonly IBaseHalfFileReplacement[], options: IBaseHalfReplaceStepOptions): Promise<void> {
 		if (changes.length === 0) {
 			return;
 		}
@@ -191,7 +206,11 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 			if (stat && this.workingCopyService.isDirty(change.resource)) {
 				throw new BaseHalfKeptRefusal(localize('basehalf.kept.replaceUnsaved', "Save '{0}' before it is changed.", basename(change.resource)));
 			}
-			files.push({ workspaceFolder, resource: change.resource, kept: joinPath(await this.newSlot(workspaceFolder), basename(change.resource)) });
+			const slot = await this.newSlot(workspaceFolder);
+			if (options.whenClosed === 'delete') {
+				await this.fileService.writeFile(joinPath(slot, KEPT_PLACE_FILE), VSBuffer.fromString(JSON.stringify({ trash: false })));
+			}
+			files.push({ workspaceFolder, resource: change.resource, kept: joinPath(slot, basename(change.resource)) });
 			present.push(!!stat);
 		}
 		const done: IBaseHalfKeptFile[] = [];
@@ -581,11 +600,18 @@ export class BaseHalfKeptVersionsService extends Disposable implements IBaseHalf
 	private async flushSlot(workspaceFolder: URI, slot: URI): Promise<void> {
 		const items = await this.fileService.resolve(joinPath(slot, KEPT_ITEM_FOLDER)).catch(() => undefined);
 		let path: string | undefined;
+		let toTrash = true;
 		try {
-			const place = JSON.parse((await this.fileService.readFile(joinPath(slot, KEPT_PLACE_FILE))).value.toString()) as { readonly path?: unknown };
+			const place = JSON.parse((await this.fileService.readFile(joinPath(slot, KEPT_PLACE_FILE))).value.toString()) as { readonly path?: unknown; readonly trash?: unknown };
 			path = typeof place.path === 'string' ? place.path : undefined;
+			toTrash = place.trash !== false;
 		} catch {
 			// A keep of a file changed in place has no place: it is its other version.
+		}
+		if (!toTrash) {
+			// Its feature keeps elsewhere what the user may want of the version.
+			await this.fileService.del(slot, { recursive: true });
+			return;
 		}
 		const trash = this.configurationService.getValue<boolean>('files.enableTrash') && this.fileService.hasCapability(slot, FileSystemProviderCapabilities.Trash);
 		for (const item of items?.children ?? []) {

@@ -25,6 +25,7 @@ import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvas
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../canvas/common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection } from '../../cardDetail/common/basehalfCardDetail.js';
+import { baseHalfNoteGoneOriginals } from '../../mediaEdit/common/basehalfGoneOriginals.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfCommitMirrorFile } from '../common/basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes } from '../common/basehalfMirrorRecovery.js';
@@ -1024,7 +1025,16 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	private async sweepOrphansAfterComparison(workspaceFolder: URI): Promise<void> {
 		await this.movedItemsService.whenCompared(workspaceFolder);
 		await this.followMoves(workspaceFolder, this.movedItemsService.getPendingMoves(workspaceFolder));
-		await this.workspaceMutationCoordinator.runExclusive(workspaceFolder, () => this.sweepOrphans(workspaceFolder));
+		await this.workspaceMutationCoordinator.runExclusive(workspaceFolder, async () => {
+			await this.sweepOrphans(workspaceFolder);
+			// The original of an edited file that is gone stays for 30 days, so that the file can come back with its edit.
+			await baseHalfNoteGoneOriginals({
+				fileService: this.fileService,
+				logService: this.logService,
+				trash: this.deletesToTrash(workspaceFolder),
+				acceptWorkbenchDelete: (folder, path) => this.movedItemsService.acceptWorkbenchDelete(folder, path)
+			}, workspaceFolder, this.movedItemsService.getPendingMoves(workspaceFolder).map(move => move.from));
+		});
 	}
 
 	private retryPendingMoves(): void {

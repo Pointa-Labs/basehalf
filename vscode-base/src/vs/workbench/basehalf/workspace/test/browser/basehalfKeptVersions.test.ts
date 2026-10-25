@@ -400,6 +400,32 @@ suite('BaseHalfKeptVersions', () => {
 		});
 	});
 
+	test('deletes for good, when the window closes, what a step that changed files in place kept for a feature that keeps it elsewhere, and sends the versions of other steps to the Trash (D84)', async () => {
+		const harness = await open({ 'clip.mp4': 'the video', 'note.md': '# Note\n' });
+		await harness.fileService.writeFile(resource('.bh/cache/edit/trim.mp4'), VSBuffer.fromString('the trimmed video'));
+		await harness.service.replaceFiles([
+			{ resource: resource('clip.mp4'), contents: resource('.bh/cache/edit/trim.mp4') },
+			{ resource: resource('.bh/mirror/clip.mp4/edit.yaml'), contents: VSBuffer.fromString('original: "original.mp4"\n') },
+			{ resource: resource('.bh/mirror/clip.mp4/original.mp4'), contents: VSBuffer.fromString('the video') }
+		], { label: 'Edit clip.mp4', whenClosed: 'delete' });
+		await harness.service.replaceFiles([{ resource: resource('note.md'), contents: VSBuffer.fromString('# Note, changed\n') }], { label: 'Change note.md' });
+		// An undone step keeps the other version too.
+		await harness.undo();
+		await harness.undo();
+
+		harness.lifecycleService.fireShutdown();
+		await Promise.all(harness.lifecycleService.shutdownJoiners);
+		assert.deepStrictEqual({
+			trashed: harness.provider.trashed.map(path => path.replace(/kept\/[^/]+\/[^/]+\//, 'kept/<keep>/')),
+			kept: Object.keys(await harness.files()).filter(path => path.startsWith('.bh/cache/kept/')),
+			shown: await harness.shown()
+		}, {
+			trashed: ['.bh/cache/kept/<keep>/note.md'],
+			kept: [],
+			shown: { 'clip.mp4': 'the video', 'note.md': '# Note\n' }
+		});
+	});
+
 	test('deletes for good what it kept when the Trash is off', async () => {
 		const harness = await open({ 'keep.md': '# Keep\n', '.bh/mirror/keep.md/upstream.yaml': 'upstream:\n  - a.md\n' }, { trash: false });
 		await harness.service.deleteItems([resource('keep.md')], { label: 'Delete keep.md' });

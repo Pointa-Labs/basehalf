@@ -14,7 +14,7 @@ import { localize } from '../../../../nls.js';
 import { IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { FileOperation, IFileService } from '../../../../platform/files/common/files.js';
+import { FileOperation, FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -30,8 +30,10 @@ import { IBaseHalfFileReplacement, IBaseHalfKeptVersionsService } from '../../wo
 import { readBaseHalfFileRange } from '../../workspace/common/basehalfFileRange.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
+import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirrorRecovery.js';
 import { baseHalfMirrorResource } from '../../workspace/common/basehalfMirrorTree.js';
 import { baseHalfComputeFileFingerprint } from '../../workspace/common/basehalfMovedItems.js';
+import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMovedItemsService.js';
 import { IBaseHalfWorkspaceMutationCoordinator } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import {
 	BASEHALF_EDIT_RECORD_FILE,
@@ -45,6 +47,7 @@ import {
 	parseBaseHalfEditRecord,
 	serializeBaseHalfEditRecord
 } from '../common/basehalfEditRecord.js';
+import { baseHalfReleaseEditOriginal } from '../common/basehalfGoneOriginals.js';
 import { baseHalfOrientedSize, IBaseHalfImageInfo, readBaseHalfImageInfo } from '../common/basehalfImageFile.js';
 import { readBaseHalfIsoBmffFile } from '../common/basehalfIsoBmffReader.js';
 import { baseHalfMediaChoicesAreNoEdit, baseHalfMediaEditExtension, baseHalfMediaEditKind, baseHalfMediaEditRefusal } from '../common/basehalfMediaEditFormats.js';
@@ -215,6 +218,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
+		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IDialogService private readonly dialogService: IDialogService,
 		@INotificationService private readonly notificationService: INotificationService,
@@ -486,15 +490,14 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 				{ resource: joinPath(folder, BASEHALF_EDIT_RECORD_FILE), contents: VSBuffer.fromString(serializeBaseHalfEditRecord(record)) }
 			];
 			if (!state.record) {
-				// The first edit keeps the file as it is as the original; an original before goes with the step's kept versions.
+				// The first edit keeps the file as it is as the original.
 				const original = await this.cloneTemporary(file, file.resource);
 				temporaries.push(original);
+				await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, () => this.letGoOfOldEdit(file, folder));
 				changes.push({ resource: joinPath(folder, originalName), contents: original });
-				for (const stray of await this.otherOriginals(folder, originalName)) {
-					changes.push({ resource: stray, contents: null });
-				}
 			}
-			await this.keptVersionsService.replaceFiles(changes, { label: localize('basehalf.mediaEdit.save.step', "Edit {0}", basename(file.resource)) });
+			// What the step keeps is deleted when the window closes: the original is in the card information.
+			await this.keptVersionsService.replaceFiles(changes, { label: localize('basehalf.mediaEdit.save.step', "Edit {0}", basename(file.resource)), whenClosed: 'delete' });
 			temporaries.length = 0;
 		} finally {
 			await this.deleteTemporaries(temporaries);
@@ -516,7 +519,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 				{ resource: file.resource, contents: copy },
 				{ resource: original, contents: null },
 				{ resource: joinPath(folder, BASEHALF_EDIT_RECORD_FILE), contents: null }
-			], { label: localize('basehalf.mediaEdit.revert.step', "Revert {0}", basename(file.resource)) });
+			], { label: localize('basehalf.mediaEdit.revert.step', "Revert {0}", basename(file.resource)), whenClosed: 'delete' });
 			temporaries.length = 0;
 		} finally {
 			await this.deleteTemporaries(temporaries);
@@ -667,10 +670,31 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** The originals of other extensions beside the record, left by a file whose extension changed: they go with the step. */
-	private async otherOriginals(folder: URI, name: string): Promise<URI[]> {
+	/**
+	 * Before a first edit, what the card information holds of an edit is of no
+	 * version of the file that the step changes (editing media, "A file that
+	 * changed outside BaseHalf"): an original, also one of another extension
+	 * that a renamed file left, goes to the Trash beside the file, and a record
+	 * that cannot be read is kept as a recovery copy, since what the step keeps
+	 * is deleted when the window closes.
+	 */
+	private async letGoOfOldEdit(file: IBaseHalfWorkspaceResource, folder: URI): Promise<void> {
 		const listing = await this.fileService.resolve(folder).catch(() => undefined);
-		return (listing?.children ?? []).filter(child => child.isFile && child.name !== name && baseHalfIsEditOriginalName(child.name)).map(child => child.resource);
+		const trash = this.configurationService.getValue<boolean>('files.enableTrash') !== false && this.fileService.hasCapability(file.workspaceFolder, FileSystemProviderCapabilities.Trash);
+		for (const child of listing?.children ?? []) {
+			if (child.isFile && baseHalfIsEditOriginalName(child.name)) {
+				await baseHalfReleaseEditOriginal({
+					fileService: this.fileService,
+					trash,
+					acceptWorkbenchDelete: (workspaceFolder, path) => this.movedItemsService.acceptWorkbenchDelete(workspaceFolder, path)
+				}, file.workspaceFolder, file.relativePath, child.resource);
+			} else if (child.isFile && child.name === BASEHALF_EDIT_RECORD_FILE) {
+				const bytes = (await this.fileService.readFile(child.resource)).value;
+				if (!parseBaseHalfEditRecord(bytes.toString())) {
+					await baseHalfPreserveMirrorBytes(this.fileService, file.workspaceFolder, child.resource, bytes);
+				}
+			}
+		}
 	}
 
 	/** The cache folder of edits, made ready, with what saves that a closed window stopped left in it deleted. */
