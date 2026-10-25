@@ -198,9 +198,19 @@ Not in scope, and unchanged:
   record, and the edit record with the original of an edited file
   ([editing media](media-editing.md#copies-deletes-and-the-trash)). Prompt
   and settings stay only beside a generation record: without one they would
-  make a draft; an original stays only beside its edit record. The rest of
-  the card information goes, as a delete has always taken it. Nothing of it
-  stays when the item is deleted for good.
+  make a draft; an original stays only beside its edit record, until its file
+  has been gone for 30 days
+  ([editing media](media-editing.md#when-the-file-is-gone)). The rest of the
+  card information goes, as a delete has always taken it. Nothing of it stays
+  when the item is deleted for good.
+- What a step that changed files in place kept is deleted for good when the
+  window closes, also with the Trash on, when the step's feature keeps
+  elsewhere what the user may want of it: the versions that Done and Revert of
+  editing media keep, whose original stays in the card information
+  ([editing media](media-editing.md#done-save-as-new-revert-and-cancel)). In
+  the Trash they would be an edit record, an original, and copies of the file
+  under BaseHalf's own names, whose Put Back place is a folder of the kept
+  versions that is gone.
 
 ### What the canvas made
 
@@ -240,6 +250,10 @@ Not in scope, and unchanged:
 - A file that has changes that are not saved, or is not an ordinary file of
   the workspace, is refused, and nothing changes. So is a file to change or
   to remove that is not there.
+- The step says what becomes of the versions it keeps when the window
+  closes: they go to the Trash, or they are deleted for good when its feature
+  keeps elsewhere what the user may want of them
+  ([When the kept versions go to the Trash](#when-the-kept-versions-go-to-the-trash)).
 - A version that the step, its undo, or its redo moves into the place of a
   file takes the time of then as its modification time, as a save would.
   Its bytes are those it had. A move keeps the time a version had, and the

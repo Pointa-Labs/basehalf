@@ -3355,6 +3355,19 @@ built without asking back, after research.
   sound.
 - Encoding an MP3 again to cut it: the window has no MP3 encoder, and copying
   its frames keeps it as it was.
+- Sending an edited file's original to the Trash with the file, as an
+  ordinary file beside it: a file put back from the Trash would come back
+  without its edit, while a phone's photo library brings a deleted photo back
+  with its edit and its original.
+- Sending the original of a file that is not there to the Trash at the next
+  open: a file that is away for now, on a git branch or in a folder being
+  synced, would come back without its edit. BaseHalf cannot see when the
+  Trash is emptied, so it waits 30 days, as the phone's library keeps what was
+  deleted and as the system offers to empty the Trash.
+- Sending what Done and Revert keep for undo to the Trash when the window
+  closes, as D82 does with the versions of files changed in place: the Trash
+  then showed `edit.yaml`, `original.mp4`, and copies of the video under
+  BaseHalf's names, whose Put Back place was a folder that is gone.
 
 **Consequences.**
 - Revises D79: the trim bar is the frame viewer of the edit mode, Done takes
@@ -3374,7 +3387,13 @@ built without asking back, after research.
   (`platform/basehalfFiles/`); on a disk that can clone, the copy takes no
   room.
 - The card information that a delete to the Trash leaves in `.bh/mirror/`
-  includes the edit record and the original.
+  includes the edit record and the original, so that a file put back from the
+  Trash can be reverted. An original whose file was gone at every open for 30
+  days goes to the Trash beside where the file was, as `shot original.mp4`;
+  the notes of since when are machine-local, in
+  `.bh/cache/gone-originals.json`.
+- What Done and Revert keep for undo is deleted for good when the window
+  closes, also with the Trash on: the original holds what the Trash would.
 - In edit mode, Escape cancels the edit before it closes Card Detail, and
   Command+Z undoes the editor's last change.
 - The code of D79's `videoTrim/` becomes the feature folder `mediaEdit/`

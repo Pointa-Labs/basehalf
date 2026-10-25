@@ -58,7 +58,10 @@ development workspace and in a phone's photo editor and voice recorder:
   folder, its card, and its connections; Files, agents, and providers see the
   edit.
 - **The original is kept**, with the file's card information, through
-  renames, moves, copies, git, and the Trash, until the user reverts.
+  renames, moves, copies, git, and the Trash, until the user reverts: a file
+  put back from the Trash comes back with its edit. **Nothing of an edit is
+  kept for good without its file**: an original whose file has been gone for
+  30 days goes to the Trash.
 - **An edit starts from the original.** Edit on an edited file shows the whole
   original with the choices of the edit before: a trim can be widened again, a
   crop moved, a deleted part of a sound brought back. Each edit is encoded once
@@ -121,6 +124,8 @@ development workspace and in a phone's photo editor and voice recorder:
   large file storage keeps their originals there too, since their names end
   the same way.
 - A file that was never edited has neither.
+- While its file is gone, an original stays for 30 days, so that the file can
+  come back with its edit ([When the file is gone](#when-the-file-is-gone)).
 
 ### The edit record
 
@@ -200,6 +205,14 @@ crop:
   ([exact undo, "Changing files in place"](exact-undo.md#changing-files-in-place)):
   "Edit <name>", "Save <new name>", "Revert <name>". Undo puts back what the
   step changed, byte for byte, and redo does it again.
+- What the steps of Done and Revert keep for undo, the file as it was and the
+  record and the original before, is deleted for good when the window closes,
+  also with the Trash on
+  ([exact undo, "When the kept versions go to the Trash"](exact-undo.md#when-the-kept-versions-go-to-the-trash)).
+  None of it is the user's to keep: the original stays in the card
+  information, and an edit that the next one replaced, that was undone, or
+  that was reverted is not kept, as no version besides the original and the
+  edit is ([Non-goals](#non-goals)). So editing puts nothing in the Trash.
 
 ### A file that changed outside BaseHalf
 
@@ -207,10 +220,15 @@ crop:
   program, or git changed it, its fingerprint tells. The record and the
   original are then of another file: Edit starts from the file as it is, and
   Revert is not offered. Done keeps the file as it is now as the new original,
-  in the same step that writes the edit; the original before goes with that
-  step's kept versions.
+  in the same step that writes the edit.
 - An original that is missing, or that cannot be read, is treated the same
   way.
+- The originals that the card information holds then, the one before and one
+  of another name, as `original.mov` after `shot.mov` was renamed
+  `shot.mp4`, are of no version of the file that the step changes. They go
+  to the Trash when the edit is saved, as an original whose file is gone does
+  in the end ([When the file is gone](#when-the-file-is-gone)), and the step's
+  undo puts back the record before without them.
 
 ### Copies, deletes, and the Trash
 
@@ -224,7 +242,42 @@ crop:
   ([exact undo, "Deleting"](exact-undo.md#deleting)). When what a window kept
   goes to the Trash, the record and the original stay in `.bh/mirror/` with
   the rest of the card information that a delete to the Trash keeps, so that
-  a file put back from the Trash can still be reverted.
+  a file put back from the Trash can still be reverted
+  ([When the file is gone](#when-the-file-is-gone)).
+
+### When the file is gone
+
+- A file that is not there leaves its original and its record at its path in
+  `.bh/mirror/`: a file in the Trash; one deleted, or moved where BaseHalf does
+  not follow it, outside BaseHalf, by an agent, another program, or git; and
+  one that is away for now, on a git branch that does not have it or in a
+  folder that is being synced. When the file comes back, its edit is there:
+  Edit shows it, and Revert puts the original back.
+- So that an original does not stay for good when its file does not come
+  back, a window that opens a workspace folder notes each original whose file
+  is not there, once
+  [following moved items](following-moved-items.md#when-basehalf-compares) has
+  followed the moves it recognized. An original whose file was gone at every
+  open for 30 days since the first goes to the Trash, from the folder that held
+  the file, as an ordinary file named after it: `shot original.mp4`, or
+  `shot original 2.mp4` when that name is taken. When that folder is gone too,
+  it goes from the card information, under the same name. Its record is
+  deleted. Without the Trash, both are deleted for good.
+- 30 days is as long as a phone's photo library keeps what was deleted, and
+  what the system offers for emptying the Trash: a file put back from the Trash
+  within that time comes back with its edit, and after it the Trash holds the
+  file and its original side by side.
+- The notes are machine-local, in `.bh/cache/gone-originals.json`
+  ([workspace state](workspace-state-and-legacy-cleanup.md#what-basehalf-persists)).
+  A file that is there at an open loses its note: the 30 days start again when
+  it is gone again.
+- An original gets no note, and stays, while its path waits for its move to be
+  followed, while the file cannot be looked at (an error is never read as the
+  file's absence), while a cloud folder holds a placeholder in the file's
+  place, when its record cannot be read, and in a folder marked to be left
+  alone.
+- A file that is there keeps its original, also when it changed: Done decides
+  about it ([A file that changed outside BaseHalf](#a-file-that-changed-outside-basehalf)).
 
 ### Generation cards
 
@@ -628,6 +681,12 @@ crop:
     Command+Z undoes the editor's last change and not a step of the canvas.
 12. A generated video edited and saved keeps its `made.yaml` byte for byte,
     and its panel and Card Detail say how it was edited.
+13. Done, Revert, their undo and redo, and then closing the window with the
+    Trash on put nothing in the Trash and leave nothing in `.bh/cache/kept/`.
+14. An edited file that is gone at the opens of 30 days: at the first open
+    after them, `shot original.mp4`, byte for byte its original, is in the
+    Trash from the file's folder, and its record is gone. A file that is back
+    before then keeps its edit, and its note is gone.
 
 ## Verification
 
@@ -640,7 +699,11 @@ crop:
   each format made there, edited, and read back for their frames, pixels, and
   samples; a click at a white frame kept in sync; and Done, Save as New, and
   Revert through the service on a file system in memory, with the steps of undo
-  they ask for.
+  they ask for, and what of them is left when the window closes with a Trash.
+- Unit tests of the notes of originals whose file is gone, at opens on a file
+  system in memory with a clock that moves on: a file that is back, a path
+  whose move waits, a record that cannot be read, a folder that is gone, and a
+  name that is taken.
 - The smoke steps of the `cardDetail` suite: editing a video
   (`card-detail-video-edit`: Edit, the handles, the editor's undo, Done, Edit
   again from the original, Save as New, Revert, undo and redo with the
@@ -656,10 +719,13 @@ crop:
 ## Where this lands
 
 `src/vs/workbench/basehalf/mediaEdit/` ([code organization](../harness/code-organization.md)):
-the edit record, the choices of each editor, and the readers and writers of
-each format in `common/`; Card Detail's edit mode, the editors, the encoding
-with the window's encoders, and the service that saves, saves as new, and
-reverts through the steps of [exact undo](exact-undo.md) in `browser/`. Card
+the edit record, the choices of each editor, the readers and writers of each
+format, and the notes of originals whose file is gone in `common/`, which the
+mirror cascade runs at open after its sweep of orphaned badges
+([mirror file resilience](mirror-file-resilience.md)); Card Detail's edit
+mode, the editors, the encoding with the window's encoders, and the service
+that saves, saves as new, and reverts through the steps of
+[exact undo](exact-undo.md) in `browser/`. Card
 Detail gives the editors its header and the place of its view; the player of
 a video gives the frame viewer its time, a jump to a time, the playing of a
 range, and mute; the waveform of a sound plays the edit itself, with the
