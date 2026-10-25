@@ -46,7 +46,7 @@ import { IBaseHalfReferenceEditService } from '../../references/common/basehalfR
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../../references/common/basehalfReferenceEntries.js';
 import { BaseHalfReferenceIndexState, IBaseHalfReferenceIndexService, IBaseHalfUpstreamView } from '../../references/common/basehalfReferenceIndex.js';
 import { BaseHalfUpstreamActions, IBaseHalfUpstreamActionNode } from '../../references/browser/basehalfUpstreamActions.js';
-import { IBaseHalfCanvasAppearanceService } from '../common/basehalfCanvasAppearance.js';
+import { BaseHalfCanvasAppearanceWrites, IBaseHalfCanvasAppearanceService } from '../common/basehalfCanvasAppearance.js';
 import { BaseHalfCanvasCardListenerStores } from '../common/basehalfCanvasCardListeners.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from '../../workspace/common/basehalfMirrorTree.js';
@@ -272,6 +272,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	renderedNoteBackgrounds: ReadonlyMap<string, BaseHalfCanvasNoteBackground> = new Map();
 	/** The paths of the cards of PDFs and books whose cover is hidden, as the last drawing read them. */
 	renderedHiddenCovers: ReadonlySet<string> = new Set();
+	/** The appearance of cards as this window writes it, which a drawing that read the files meanwhile keeps. */
+	readonly appearanceWrites = new BaseHalfCanvasAppearanceWrites();
 	readonly canvasNoteFormatStates = new Map<string, IBaseHalfCanvasNoteFormatState>();
 	readonly pendingCanvasNoteFormatCommands: IBaseHalfPendingCanvasNoteFormatCommand[] = [];
 	pendingCanvasNoteNavigationGuard: IBaseHalfPendingCanvasNoteNavigationGuard | undefined;

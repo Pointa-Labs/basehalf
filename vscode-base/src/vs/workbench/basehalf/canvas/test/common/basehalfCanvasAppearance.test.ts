@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { parseBaseHalfCanvasAppearance } from '../../common/basehalfCanvasAppearance.js';
+import { BaseHalfCanvasAppearanceWrites, parseBaseHalfCanvasAppearance } from '../../common/basehalfCanvasAppearance.js';
 
 suite('BaseHalfCanvasAppearance', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -20,6 +20,23 @@ suite('BaseHalfCanvasAppearance', () => {
 		assert.deepStrictEqual(
 			['cover: shown\n', 'cover: hidden\n'].map(raw => parseBaseHalfCanvasAppearance(raw)),
 			[{ field: 'cover', cover: 'shown' }, { field: 'cover', cover: 'hidden' }]
+		);
+	});
+
+	test('a drawing that read the files while this window wrote a card\'s appearance keeps what the card shows', async () => {
+		const writes = new BaseHalfCanvasAppearanceWrites();
+		const readBefore = writes.mark();
+		let finish!: () => void;
+		const written = writes.run('docs/paper.pdf', () => new Promise<void>(resolve => finish = resolve));
+		const whileWriting = [...writes.unreadSince(readBefore)];
+		finish();
+		await written;
+		const endedDuringRead = [...writes.unreadSince(readBefore)];
+		const readAfter = writes.mark();
+		const readAfterTheEnd = [...writes.unreadSince(readAfter)];
+		assert.deepStrictEqual(
+			{ whileWriting, endedDuringRead, readAfterTheEnd },
+			{ whileWriting: ['docs/paper.pdf'], endedDuringRead: ['docs/paper.pdf'], readAfterTheEnd: [] }
 		);
 	});
 

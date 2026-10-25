@@ -143,7 +143,10 @@ show the same files ([architecture invariants](../harness/architecture-invariant
    has the look of the badge toggle beside it.
 9. A click on it hides or shows the cover at once. The card keeps its place
    and its size, its selection does not change, and nothing else of the
-   canvas is drawn again.
+   canvas is drawn again. A drawing of the canvas that read the cards'
+   appearance while the choice was being written keeps what the card
+   shows, as it does for the background of a note, so the cover never comes
+   back for a moment; the drawing after the write reads the choice.
 10. The choice is the card's. It is kept in
     `.bh/mirror/<path>/appearance.yaml` as `cover: hidden` or
     `cover: shown`, which travels with the folder and follows the item when
