@@ -323,8 +323,11 @@ export class BaseHalfMediaEditMode extends Disposable {
 
 	private doneDisabledReason(): string | undefined {
 		const editing = this.editing;
-		if (!editing?.editor || editing.busy) {
+		if (editing?.busy) {
 			return localize('basehalf.mediaEdit.mode.saving', "The edit is being saved");
+		}
+		if (!editing?.editor) {
+			return localize('basehalf.mediaEdit.mode.reading', "Reading the file…");
 		}
 		if (sameChoices(editing.editor.choices, editing.initial)) {
 			return localize('basehalf.mediaEdit.mode.noChange', "Make an edit first");
@@ -334,8 +337,11 @@ export class BaseHalfMediaEditMode extends Disposable {
 
 	private saveAsNewDisabledReason(): string | undefined {
 		const editing = this.editing;
-		if (!editing?.editor || editing.busy) {
+		if (editing?.busy) {
 			return localize('basehalf.mediaEdit.mode.saving', "The edit is being saved");
+		}
+		if (!editing?.editor) {
+			return localize('basehalf.mediaEdit.mode.reading', "Reading the file…");
 		}
 		if (baseHalfMediaChoicesAreNoEdit(normalizeBaseHalfMediaChoices(editing.editor.choices))) {
 			return localize('basehalf.mediaEdit.mode.noEdit', "Make an edit first: the whole original is kept");

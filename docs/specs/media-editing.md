@@ -313,7 +313,8 @@ crop:
   cancels the edit.
 - Done is disabled while the choices are those of the file as it is, as at
   first, and its hover says "Make an edit first". Save as New is disabled
-  while the choices keep the whole original.
+  while the choices keep the whole original. Until the editor has read the
+  file, both are disabled, and their hover says "Reading the file…".
 - While an edit is saved, the editor stays, its controls are disabled, and
   its status line says what is being done and how much of it.
 
