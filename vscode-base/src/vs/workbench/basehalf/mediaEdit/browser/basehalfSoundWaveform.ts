@@ -13,6 +13,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IBaseHalfMediaChoices, IBaseHalfMediaPart } from '../common/basehalfEditRecord.js';
+import { BASEHALF_SOUND_ENERGY_BLOCK, baseHalfSoundBarHeight, baseHalfSoundEnergy, baseHalfSoundReference } from '../common/basehalfSoundLoudness.js';
 import {
 	BASEHALF_SOUND_MIN_LENGTH,
 	BaseHalfSoundTimeline,
@@ -44,7 +45,10 @@ export interface IBaseHalfSoundWaveformOptions {
 	readonly choices: IBaseHalfMediaChoices;
 }
 
-const STRIP_HEIGHT = 64;
+/** The bars of the waveform, in pixels of the view: their width, the room between them, and above and below them. */
+const BAR_WIDTH = 3;
+const BAR_GAP = 2;
+const BAR_MARGIN = 10;
 const DRAG_THRESHOLD = 3;
 const HOLD_MILLISECONDS = 400;
 const SPREAD_MIN_SECONDS = 2;
@@ -53,8 +57,6 @@ const STEP_SECONDS = 0.1;
 const LARGE_STEP_SECONDS = 1;
 /** How long sound comes up after a joint and goes down before the end of what plays. */
 const PLAY_FADE_SECONDS = 0.005;
-/** Samples summed into each bar of the coarse peaks. */
-const PEAK_BLOCK = 256;
 
 type Handle = 'start' | 'end';
 type DragKind = Handle | 'move' | 'press' | 'scrub';
@@ -115,8 +117,10 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	private position = 0;
 	private context: AudioContext | undefined;
 	private buffer: AudioBuffer | undefined;
-	/** The loudest sample of each block of the original, over its channels. */
-	private peaks: Float32Array | undefined;
+	/** The mean of the squares of each block of the original's samples, over its channels. */
+	private energy: Float32Array | undefined;
+	/** The loudness of the loudest stretch of the original, which the bars are set against. */
+	private reference = 0;
 	private playing: IPlaying | undefined;
 	private failure: string | undefined;
 	private disposed = false;
@@ -261,7 +265,8 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 				return;
 			}
 			this.buffer = buffer;
-			this.peaks = coarsePeaks(buffer);
+			this.energy = baseHalfSoundEnergy(Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel)));
+			this.reference = baseHalfSoundReference(this.energy, buffer.sampleRate);
 			this.drawWaveform();
 			// Play can play now.
 			this.render();
@@ -273,37 +278,44 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 	}
 
-	/** The loudest of the original's samples between two of its times, over its channels. */
-	private peak(from: number, to: number): number {
+	/** The sum of the squares of the original's samples between two of its times, as a mean over its channels, and how many samples that is. */
+	private squares(from: number, to: number): { readonly sum: number; readonly samples: number } {
 		const buffer = this.buffer;
 		if (!buffer) {
-			return 0;
+			return { sum: 0, samples: 0 };
 		}
 		const first = Math.max(0, Math.floor(from * buffer.sampleRate));
-		const last = Math.min(buffer.length, Math.ceil(to * buffer.sampleRate));
-		if (last - first >= PEAK_BLOCK * 2 && this.peaks) {
-			let peak = 0;
-			for (let block = Math.floor(first / PEAK_BLOCK); block < Math.ceil(last / PEAK_BLOCK) && block < this.peaks.length; block++) {
-				peak = Math.max(peak, this.peaks[block]);
+		const last = Math.min(buffer.length, Math.max(first + 1, Math.ceil(to * buffer.sampleRate)));
+		if (last - first >= BASEHALF_SOUND_ENERGY_BLOCK * 2 && this.energy) {
+			let sum = 0;
+			let samples = 0;
+			for (let block = Math.floor(first / BASEHALF_SOUND_ENERGY_BLOCK); block < Math.ceil(last / BASEHALF_SOUND_ENERGY_BLOCK) && block < this.energy.length; block++) {
+				const size = Math.min(BASEHALF_SOUND_ENERGY_BLOCK, buffer.length - block * BASEHALF_SOUND_ENERGY_BLOCK);
+				sum += this.energy[block] * size;
+				samples += size;
 			}
-			return peak;
+			return { sum, samples };
 		}
-		let peak = 0;
+		let sum = 0;
 		for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
 			const data = buffer.getChannelData(channel);
-			for (let index = first; index < Math.max(last, first + 1) && index < data.length; index++) {
-				peak = Math.max(peak, Math.abs(data[index]));
+			for (let index = first; index < last && index < data.length; index++) {
+				sum += data[index] * data[index];
 			}
 		}
-		return peak;
+		return { sum: sum / buffer.numberOfChannels, samples: Math.max(0, last - first) };
 	}
 
-	/** Draws the sound as the choices make it, between the times the strip shows, its joints marked. */
+	/**
+	 * Draws the sound as the choices make it, between the times the strip
+	 * shows, as rounded bars as high as the loudness of their stretches, its
+	 * joints marked (editing media, "The waveform").
+	 */
 	private drawWaveform(): void {
 		const window = getWindow(this.element);
 		const scale = window.devicePixelRatio || 1;
 		const width = Math.max(1, Math.round(this.strip.clientWidth * scale));
-		const height = Math.round(STRIP_HEIGHT * scale);
+		const height = Math.max(1, Math.round(this.strip.clientHeight * scale));
 		if (this.canvas.width !== width || this.canvas.height !== height) {
 			this.canvas.width = width;
 			this.canvas.height = height;
@@ -317,18 +329,32 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		context.fillStyle = style.getPropertyValue('--basehalf-sound-waveform-color').trim() || style.color;
 		const { from, to } = this.view;
 		const span = Math.max(1e-9, to - from);
-		const middle = height / 2;
-		for (let x = 0; x < width; x++) {
-			const start = from + x / width * span;
-			const end = from + (x + 1) / width * span;
-			// A column may cross a joint: each part under it gives its loudest sample.
-			let peak = 0;
+		const bar = Math.max(1, Math.round(BAR_WIDTH * scale));
+		const gap = Math.max(1, Math.round(BAR_GAP * scale));
+		const step = bar + gap;
+		const count = Math.max(1, Math.floor((width + gap) / step));
+		const offset = Math.floor((width - (count * step - gap)) / 2);
+		const room = Math.max(bar, height - 2 * Math.round(BAR_MARGIN * scale));
+		context.beginPath();
+		for (let index = 0; index < count; index++) {
+			const x = offset + index * step;
+			// Each bar holds the stretch from the middle of the gap before it to the middle of the gap after it.
+			const start = from + Math.max(0, x - gap / 2) / width * span;
+			const end = from + Math.min(width, x + bar + gap / 2) / width * span;
+			// A bar may cross a joint: the parts under it give their samples together.
+			let sum = 0;
+			let samples = 0;
 			for (const part of this.partsBetween(start, end)) {
-				peak = Math.max(peak, this.peak(part.start, part.end));
+				const squares = this.squares(part.start, part.end);
+				sum += squares.sum;
+				samples += squares.samples;
 			}
-			const bar = Math.max(scale / 2, Math.min(1, peak) * (middle - scale));
-			context.fillRect(x, middle - bar, 1, bar * 2);
+			const level = baseHalfSoundBarHeight(samples ? Math.sqrt(sum / samples) : 0, this.reference);
+			// Silence is a dot.
+			const barHeight = Math.max(bar, Math.round(level * room));
+			context.roundRect(x, Math.round((height - barHeight) / 2), bar, barHeight, bar / 2);
 		}
+		context.fill();
 		// The joints of the parts kept.
 		context.fillStyle = style.getPropertyValue('--basehalf-sound-waveform-joint').trim() || style.color;
 		for (const edge of baseHalfPartEdges(this.parts).slice(1, -1)) {
@@ -857,22 +883,6 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	}
 
 	// #endregion
-}
-
-/** The loudest sample of each block of a sound, over its channels. */
-function coarsePeaks(buffer: AudioBuffer): Float32Array {
-	const peaks = new Float32Array(Math.ceil(buffer.length / PEAK_BLOCK));
-	for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-		const data = buffer.getChannelData(channel);
-		for (let index = 0; index < data.length; index++) {
-			const value = Math.abs(data[index]);
-			const block = (index / PEAK_BLOCK) | 0;
-			if (value > peaks[block]) {
-				peaks[block] = value;
-			}
-		}
-	}
-	return peaks;
 }
 
 function chevron(direction: 'left' | 'right'): SVGElement {

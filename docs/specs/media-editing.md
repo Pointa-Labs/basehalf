@@ -476,8 +476,19 @@ crop:
 
 - Edit on a sound shows, in place of its player, the **waveform** of the
   sound as the choices make it, its kept parts joined, and each joint marked
-  with a thin yellow line: 64 px high and as wide as the player was, at most
-  720 px. It has the yellow frame, the handles, the playhead, the length
+  with a thin yellow line. A sound has no picture, so the waveform takes the
+  place of one: as wide as the view less 48 px on each side, at most
+  1,280 px, and 30% of the view's height, from 112 to 240 px.
+- The waveform is drawn as rounded bars, 3 px wide with 2 px between them, as
+  the recorders and editors of sound on phones draw it. Each bar is as high
+  as the loudness of its stretch, the root mean square of its samples, set
+  against the loudest 50 ms of the original on a curve (the ratio to the
+  power 0.6) that keeps a quiet word visible beside a loud one. A stretch
+  more than 48 dB below the loudest is silence, and shows as a dot. So speech
+  shows its phrases and the pauses between them, and a song its beat rather
+  than one block. When the hold spreads the waveform out, the bars stay as
+  wide and each holds a shorter stretch.
+- The waveform has the yellow frame, the handles, the playhead, the length
   label, and the hold to spread it out of the frame viewer of a video
   ([Editing a video](#editing-a-video)); its edges are those of the sound's
   samples, and for an MP3 those of its frames. The stretch between the

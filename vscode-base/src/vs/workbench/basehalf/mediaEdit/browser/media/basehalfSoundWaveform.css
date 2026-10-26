@@ -9,11 +9,12 @@
  * has the yellow frame, the handles, the playhead, and the length of the
  * frame viewer of a video, whose rules it shares.
  */
-.monaco-workbench .basehalf-sound-waveform {
+.monaco-workbench .basehalf-video-frames.basehalf-sound-waveform {
 	--basehalf-sound-waveform-color: color-mix(in srgb, var(--vscode-editor-foreground) 78%, transparent);
 	--basehalf-sound-waveform-joint: var(--basehalf-video-frames-yellow);
-	width: min(calc(100cqw - 48px), 720px);
-	gap: 10px;
+	/* A sound has no picture: its waveform takes the place of one. */
+	width: min(calc(100cqw - 96px), 1280px);
+	gap: 12px;
 }
 
 .monaco-workbench .basehalf-sound-waveform-top {
@@ -96,8 +97,8 @@
 	background: color-mix(in srgb, var(--vscode-editor-foreground) 6%, transparent);
 }
 
-.monaco-workbench .basehalf-sound-waveform-strip {
-	height: 64px;
+.monaco-workbench .basehalf-video-frames-strip.basehalf-sound-waveform-strip {
+	height: clamp(112px, 30cqh, 240px);
 }
 
 .monaco-workbench .basehalf-sound-waveform-canvas {
