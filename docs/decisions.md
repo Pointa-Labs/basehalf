@@ -3309,6 +3309,13 @@ unanswered offer in view after the notification is closed.
 
 ## D84 — A video, an image, or a sound is edited in Card Detail, and its original is kept (NEW, 2026-10-26)
 
+> **Revised by D85 (2026-10-26).** There is no edit mode: Card Detail shows
+> the editor at once, and each change is saved as it is made, one step of the
+> canvas undo that puts back choices. Edit, Cancel, Done and its menu, Save as
+> New, the editor's own undo, the sound button of the frame viewer, Trim, and
+> Reset are gone; Revert is Revert to Original, in the line under the editor.
+> The original, the edit record, and the formats stay as D84 has them.
+
 **Decision.** Card Detail of a video, an image, or a sound has Edit in its
 header. Edit shows the editor of its kind: the frame viewer of a video, with
 a yellow frame around the part kept and a sound button to mute it; the crop
@@ -3404,3 +3411,63 @@ built without asking back, after research.
   samples that cannot be read back as the file's whole numbers. An M4A and an
   Ogg are encoded again by the window, in AAC and in Opus. A sound longer than
   30 minutes is not edited: it is decoded whole in memory.
+
+## D85 — Editing media is direct: a change is saved as it is made, with no edit mode (NEW, 2026-10-26)
+
+**Decision.** Card Detail of a video, an image, or a sound shows its editor at
+once: the player of a video with the frame viewer under it, the waveform of a
+sound with Play under it, and the crop view of an image with its tools. Every
+change is saved as it is made, a handle let go, a part cut out, a turn, a
+flip, a ratio, an angle, a crop, and is one step of the canvas undo. There is
+no Edit, Cancel, Done, Save as New, or Revert in the header: an edited file
+has **Revert to Original** in the line under its editor. The editor shows a
+change at once from the original; the file follows in the background, once
+the choices have rested for a second, and when Card Detail or the window
+closes. See [editing media](specs/media-editing.md#changes-save-themselves).
+The same holds across BaseHalf: a change is the result
+([architecture invariants](harness/architecture-invariants.md#product-shell)).
+
+**Why.** On 2026-10-26, looking at the enlarged cards after D84, the user
+found the editing redundant: on a phone, a trim dragged into place is saved,
+while BaseHalf asked for Edit, then the change, then Done or a menu, with
+Cancel, Close, and the menu beside it, two buttons more above a sound's
+waveform, and a second undo inside the editor. The user saw it as a problem of
+the whole product, not of the sound card. BaseHalf already saves notes and
+places as they change, and D84 kept two ways back that make a confirmation
+needless: undo of every step, and the original of every edited file. Counted
+on D84: a trim took 3 actions, cutting a part out of a sound 5, cropping an
+image to 16:9 4, and the editor of a sound had 8 buttons; now they take 1, 2,
+and 2, and the editor of a sound has Play, Close, and a Delete that shows
+only on a selected part.
+
+**What was set aside.**
+- Saving after every change by encoding the file at once: a video would be
+  encoded again for every handle let go. The editors already draw the edit
+  from the original, so the file waits until the choices rest, and a change
+  made meanwhile is written after the write that runs.
+- Undo by the kept versions of exact undo, as D84's Done did: undo puts back
+  choices, and what BaseHalf wrote for the last choices of a file is kept
+  until the window closes, so undo and redo put back the very bytes, at once.
+- Keeping Save as New: Duplicate on the canvas, then a change, does the same
+  in one way for every kind of card.
+- Keeping the frame viewer's sound button, which saved a video without its
+  sound: beside the player's own sound button, which only mutes the playing,
+  one icon would have meant two things.
+- A wheel over the picture that crops it, as D84's crop view did: without an
+  edit mode, scrolling over an image would change the file. The wheel zooms
+  the view.
+
+**Consequences.**
+- Revises D84: its edit mode, Done and its menu, Save as New, Cancel, the
+  editor's own undo, Escape that cancels, the line of the last step, Trim, the
+  sound button of the frame viewer, and Reset are gone; Revert is Revert to
+  Original under the editor.
+- [Layout controls](specs/layout-controls.md#card-detail): the header of
+  Card Detail holds no control of editing.
+- [Exact undo](specs/exact-undo.md): the changes of an edit are steps of the
+  canvas undo that put back choices; they keep nothing in the kept versions,
+  and Command+Z reaches them also in an editor.
+- In Card Detail, the player of a video has no bar of its own for the time:
+  the frame viewer is its timeline.
+- A file BaseHalf cannot edit shows no editor, and nothing more: its image
+  page or its player as before.

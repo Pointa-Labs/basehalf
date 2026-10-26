@@ -2,7 +2,9 @@
 
 Status: Draft (2026-10-26)
 Decision: [D84](../decisions.md#d84--a-video-an-image-or-a-sound-is-edited-in-card-detail-and-its-original-is-kept-new-2026-10-26),
-which revises [D79](../decisions.md#d79--card-detail-trims-a-video-in-place-and-undo-puts-it-back-new-2026-10-25)
+which revises [D79](../decisions.md#d79--card-detail-trims-a-video-in-place-and-undo-puts-it-back-new-2026-10-25),
+and [D85](../decisions.md#d85--editing-media-is-direct-a-change-is-saved-as-it-is-made-with-no-edit-mode-new-2026-10-26),
+which makes the editing direct
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -10,15 +12,14 @@ Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [workspace state](workspace-state-and-legacy-cleanup.md#what-basehalf-persists)
 (what `.bh/` holds), [architecture invariants](../harness/architecture-invariants.md#product-shell)
 
-This specification owns the edit mode of Card Detail for a video, an image,
-and a sound: the original that BaseHalf keeps for an edited file and the
-record of the edit, what Done, Save as New, Revert, and Cancel do, the
+This specification owns the editing of a video, an image, and a sound in
+Card Detail: the original that BaseHalf keeps for an edited file and the
+record of the edit, how a change is saved and undone, Revert to Original, the
 editor of each kind, what the edited file holds, and its format. The player
 of a video or a sound is the player of every card
 ([generation cards, "The player"](generation-cards.md#the-player)); this
-specification only adds what an editor asks of it. Keeping the versions that
-a step takes away, and the undo and redo of a step, belong to
-[exact undo](exact-undo.md).
+specification only adds what an editor asks of it. The undo and redo of a
+step belong to [exact undo](exact-undo.md).
 
 ## Problem
 
@@ -49,11 +50,18 @@ development workspace and in a phone's photo editor and voice recorder:
   it to, and encoding again with the window's encoders is fast and close to
   lossless (46.4 dB PSNR on a 480p clip at its own bitrate, 53.2 dB on a WebM
   recording).
+- **Editing asked for steps a change does not need** (D85, counted on the
+  first build, D84): Edit, the change, then Done, or its menu for Save as New,
+  with Cancel and Close beside them. A trim took 3 actions, cutting a part out
+  of a sound 5, cropping an image to 16:9 4; the editor of a sound showed 8
+  buttons, and it had an undo of its own beside the canvas undo. A phone saves
+  a trim that is dragged into place, and BaseHalf saves a note as it is typed.
 
 ## Goals
 
-- **One edit mode for a video, an image, and a sound**: **Edit**, the tools
-  of its kind, and **Done**.
+- **A change is the result** (D85): Card Detail of a video, an image, or a
+  sound shows its editor at once, and a change is saved as it is made. There
+  is nothing to press to edit, to save, or to leave.
 - **The file in its folder is the edited file.** It keeps its name, its
   folder, its card, and its connections; Files, agents, and providers see the
   edit.
@@ -62,14 +70,13 @@ development workspace and in a phone's photo editor and voice recorder:
   put back from the Trash comes back with its edit. **Nothing of an edit is
   kept for good without its file**: an original whose file has been gone for
   30 days goes to the Trash.
-- **An edit starts from the original.** Edit on an edited file shows the whole
-  original with the choices of the edit before: a trim can be widened again, a
-  crop moved, a deleted part of a sound brought back. Each edit is encoded once
+- **An edit starts from the original.** The editor of an edited file shows the
+  whole original with the choices of its edit: a trim can be widened again, a
+  crop moved, a deleted part of a sound brought back. Each edit is encoded
   from the original, never from an earlier edit.
-- **Revert** puts the original back at any time. **Save as New** saves the edit
-  as a new file beside the file and leaves the file as it was.
-- **Done, Save as New, and Revert are each one step of the canvas undo**,
-  and undo puts back exactly what the step changed.
+- **Revert to Original** puts the original back at any time.
+- **Each change is one step of the canvas undo**, and undo puts back exactly
+  what the step changed, with the one undo of the window.
 - **An edited file looks and sounds like its original did**: the same
   picture and frame times, the same sample rate, no lower a bitrate, and no
   click where a cut joins sound.
@@ -77,16 +84,20 @@ development workspace and in a phone's photo editor and voice recorder:
 ## Non-goals
 
 - Adjusting light and color, filters, markup, and taking things out of a
-  picture. The editors trim, crop, turn, flip, straighten, mute, and cut
-  sound: the edits that a phone's editors offer first.
+  picture. The editors trim, crop, turn, flip, straighten, and cut sound: the
+  edits that a phone's editors offer first.
+- Saving a video without its sound: the player's sound button mutes only the
+  playing (D85).
+- Saving an edit as a new file beside the file: Duplicate on the canvas, then
+  a change, does that ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
 - Correcting perspective (the vertical and horizontal adjustments of a
   phone's crop tool), and finding the crop or the horizon automatically.
 - Cropping or turning a video, changing its speed, and joining files.
 - Recording over a part of a sound.
 - Editing on the canvas, and editing several files at once.
 - Editing GIF, AVIF, BMP, and SVG images, and videos and sounds of other
-  formats: the window cannot write them as they are, so Edit is not offered
-  for them, and its hover says why.
+  formats: the window cannot write them as they are, so Card Detail shows them
+  without an editor.
 - Keeping versions besides the original and the edit: the next edit takes the
   place of the one before; undo goes back step by step.
 - Showing the lengths or sizes that each model accepts.
@@ -102,10 +113,14 @@ development workspace and in a phone's photo editor and voice recorder:
 - **Edit record**: what BaseHalf keeps of an edit, beside the original
   ([The edit record](#the-edit-record)).
 - **Edited file**: a media file that has an edit record and its original.
-- **Edit mode**: the state of Card Detail in which a media file's editor is
-  shown, from Edit to Done, Save as New, Revert, or Cancel.
+- **Editor**: what Card Detail shows of a media file that BaseHalf can edit,
+  in place of a plain view: the frame viewer of a video under its player, the
+  waveform of a sound, and the crop view of an image.
 - **The choices of an edit**: what the editor sets: a part to keep, parts to
-  delete, a crop, a turn, a flip, an angle, mute.
+  delete, a crop, a turn, a flip, an angle.
+- **Change**: what the user does in an editor that alters the choices, ended
+  when it is let go: a handle released, a part cut out, a turn, a flip, a
+  ratio, an angle, a crop.
 
 ## The edit model
 
@@ -139,7 +154,6 @@ result:
 keep:
   - start: 1.033
     end: 4.567
-mute: true
 ```
 
 ```yaml
@@ -165,8 +179,7 @@ crop:
   whether the file is still the result of the edit.
 - A video and a sound: `keep` lists the parts of the original that the file
   holds, in order, each a `start` and an `end` in seconds of the original, to
-  the millisecond. A video keeps one part; a sound keeps one or more. `mute`
-  is in the record of a video that was saved without its sound.
+  the millisecond. A video keeps one part; a sound keeps one or more.
 - An image: `turn` is how many quarter turns to the left the original was
   turned (0 to 3), `flip` whether it was then mirrored left to right, and
   `straighten` the angle in degrees, from −45 to 45, that it was then turned
@@ -177,58 +190,77 @@ crop:
 - The record is read and written as all mirror files are
   ([mirror file resilience](mirror-file-resilience.md)). A record that cannot
   be read is left as it is, byte for byte, and the file is treated as not
-  edited: Edit starts from the file, and Revert is not offered. Done then
-  writes a new record in its place, in its step, whose undo puts the one
-  that could not be read back.
+  edited: the editor starts from the file, and Revert to Original is not
+  offered. The first change then writes a new record in its place, and keeps
+  the one that could not be read as a recovery copy under `.bh/cache/recovered/`.
 
-### Done, Save as New, Revert, and Cancel
+### Changes save themselves
 
-- **Done** writes the edit of the original into the file, and the record
-  beside it. The first edit keeps the file as it was as the original; an edit
+- **A change is saved as it is made** (D85): a handle let go, a part cut out,
+  a turn, a flip, a ratio, an angle let go, a crop let go. Nothing is pressed to
+  save it, and nothing to leave: there is no mode of editing.
+- **The editor shows a change at once**, drawn from the original: the player
+  plays the part kept, the waveform joins the parts kept, and the crop view
+  shows the part kept. Nothing waits for the file.
+- **The file follows.** Once the choices have rested for 1 s, BaseHalf writes
+  the edit of the original into the file, and the record beside it; at once
+  when Card Detail closes or shows another file, and when the window closes,
+  which waits for the writes that are left. Writes of a file run one at a
+  time, in the background: a change made while one runs is written after it,
+  and the choices it wrote are kept.
+- The first change of a file keeps the file as it was as the original. A change
   of an edited file leaves the original as it is and replaces the record.
-  Choices that leave the original as it was, as the whole video kept or the
-  whole picture unturned, are no edit: Done then reverts an edited file, and
-  leaves a file that was not edited as it is.
-- **Save as New** writes the edit of the original into a new file in the same
-  folder, named as Duplicate names a copy (`shot copy.mp4`), and leaves the
-  file, its original, and its record as they are. The new file has no original
-  and no record of its own: it is an ordinary file, made from the file. Its
-  card appears 40 to the right of the file's card, at the nearest open place,
-  and is connected from it, as a frame captured from a video is
-  ([canvas card placement](canvas-card-placement.md#pointing)).
-- **Revert** puts the original back in the file's place and removes the
-  original and the record from the card information. It asks nothing: undo
-  takes it back.
-- **Cancel** leaves edit mode and forgets the choices made since Edit. It asks
-  nothing.
-- Each of Done, Save as New, and Revert is one step of the canvas undo
-  ([exact undo, "Changing files in place"](exact-undo.md#changing-files-in-place)):
-  "Edit <name>", "Save <new name>", "Revert <name>". Undo puts back what the
-  step changed, byte for byte, and redo does it again.
-- What the steps of Done and Revert keep for undo, the file as it was and the
-  record and the original before, is deleted for good when the window closes,
-  also with the Trash on
-  ([exact undo, "When the kept versions go to the Trash"](exact-undo.md#when-the-kept-versions-go-to-the-trash)).
-  None of it is the user's to keep: the original stays in the card
-  information, and an edit that the next one replaced, that was undone, or
-  that was reverted is not kept, as no version besides the original and the
-  edit is ([Non-goals](#non-goals)). So editing puts nothing in the Trash.
+  Choices that keep the whole original, as the whole video kept or the whole
+  picture unturned, are no edit: the original's bytes go back in the file's
+  place, and the original and the record go.
+- **Each change is one step of the canvas undo**, named for what it did:
+  "Trim shot.mp4", "Cut take.wav", "Crop still.png", "Turn still.png",
+  "Flip still.png", "Straighten still.png". Changes of the same name to one
+  file within 0.6 s are one step, as when an arrow key repeats. Command+Z
+  undoes the step wherever the keyboard is in Card Detail, outside an editor
+  of text, and on the canvas ([exact undo](exact-undo.md#editing-media)).
+- **Undo and redo show the choices before or after at once** in an editor of
+  the file, and the file follows as after a change. What BaseHalf wrote for
+  the last 8 sets of choices of a file stays in `.bh/cache/edit/` until the
+  window closes, so that undo and redo put back the very bytes, at once; for
+  older ones the edit is encoded again from the original, and the original's
+  own bytes come back as they are.
+- Editing keeps nothing in the kept versions of exact undo: undo puts back
+  choices, and the original holds what the Trash would hold. So editing puts
+  nothing in the Trash.
+- A step that cannot be undone as it was says why and changes nothing, as a
+  step of the canvas does: "'shot.mp4' changed meanwhile. Undo did not change
+  it." and "'shot.mp4' is not there any more."
+
+### Revert to Original
+
+- Under the editor of an edited file, its line says what the edit is and
+  offers **Revert to Original**: "Trimmed to 1.0s–4.5s · Revert to Original".
+  It is one step, "Revert shot.mp4 to Original": the original's bytes go back
+  in the file's place, and the original and the record go. It asks nothing:
+  undo takes it back.
+- A copy to change apart from the file is made on the canvas, with Duplicate,
+  and then changed: the copy of an edited file has its original too
+  ([Copies, deletes, and the Trash](#copies-deletes-and-the-trash)).
 
 ### A file that changed outside BaseHalf
 
 - When the file is no longer the result of its record, because an agent, a
   program, or git changed it, its fingerprint tells. The record and the
-  original are then of another file: Edit starts from the file as it is, and
-  Revert is not offered. Done keeps the file as it is now as the new original,
-  in the same step that writes the edit.
+  original are then of another file: the editor starts from the file as it
+  is, and Revert to Original is not offered. The first change keeps the file
+  as it is then as the new original, when it is written.
 - An original that is missing, or that cannot be read, is treated the same
   way.
 - The originals that the card information holds then, the one before and one
   of another name, as `original.mov` after `shot.mov` was renamed
-  `shot.mp4`, are of no version of the file that the step changes. They go
-  to the Trash when the edit is saved, as an original whose file is gone does
-  in the end ([When the file is gone](#when-the-file-is-gone)), and the step's
-  undo puts back the record before without them.
+  `shot.mp4`, are of no version of the file that the change makes. They go
+  to the Trash when the change is written, as an original whose file is gone
+  does in the end ([When the file is gone](#when-the-file-is-gone)), and the
+  undo of the change puts back the record before without them.
+- A file that changes outside BaseHalf while Card Detail shows it is shown
+  anew, as it is; choices that were not written yet are dropped, and a write
+  that finds the change writes nothing.
 
 ### Copies, deletes, and the Trash
 
@@ -252,7 +284,7 @@ crop:
   not follow it, outside BaseHalf, by an agent, another program, or git; and
   one that is away for now, on a git branch that does not have it or in a
   folder that is being synced. When the file comes back, its edit is there:
-  Edit shows it, and Revert puts the original back.
+  its editor shows it, and Revert to Original puts the original back.
 - So that an original does not stay for good when its file does not come
   back, a window that opens a workspace folder notes each original whose file
   is not there, once
@@ -276,67 +308,61 @@ crop:
   file's absence), while a cloud folder holds a placeholder in the file's
   place, when its record cannot be read, and in a folder marked to be left
   alone.
-- A file that is there keeps its original, also when it changed: Done decides
-  about it ([A file that changed outside BaseHalf](#a-file-that-changed-outside-basehalf)).
+- A file that is there keeps its original, also when it changed: its first
+  change decides about it ([A file that changed outside BaseHalf](#a-file-that-changed-outside-basehalf)).
 
 ### Generation cards
 
 - An edit changes a generated file, never what made it: `made.yaml` stays as
   it was written when the file landed, and New Version makes a draft from it
   as before ([generation cards, "`made.yaml`"](generation-cards.md#madeyaml)).
-- The panel of a generated card and Card Detail's section of what made it say
-  that the file was edited, and how: "Edited: Trimmed to 1.0s–4.5s.",
-  "Edited: Turned · Cropped to 1600 × 900.", "Edited: Trimmed to 3 parts ·
-  Without sound." ([generation cards](generation-cards.md#the-panel-of-a-card-with-its-file)),
-  while the file has the size the edit gave it.
+- The panel of a generated card says that the file was edited, and how:
+  "Edited: Trimmed to 1.0s–4.5s.", "Edited: Turned · Cropped to 1600 × 900.",
+  "Edited: Trimmed to 3 parts."
+  ([generation cards](generation-cards.md#the-panel-of-a-card-with-its-file)),
+  while the file has the size the edit gave it. In Card Detail, the line under
+  the editor says it, and the section of what made the file does not again.
 - The record's `id` in `made.yaml` stays, so a Sequence that names a video
   still finds it after an edit ([Video Sequence](video-sequence.md)).
 
-## Edit mode in Card Detail
+## Editing in Card Detail
 
-### Entering and leaving
+### What Card Detail shows
 
-- The header of Card Detail of a media file has **Edit** in its right group,
-  before Close ([layout controls](layout-controls.md#card-detail)). For a
-  file that cannot be edited, Edit is disabled, and its hover says why: "BaseHalf
-  can't edit GIF images", "BaseHalf can't edit this video: <reason>".
-- Edit shows the file's editor in place of its view, with the original of an
-  edited file and the choices of its edit; the header then has, instead of
-  Edit, **Revert** (only for an edited file whose original can be read),
-  **Cancel**, and **Done**, with its menu, which holds Done and **Save as New
-  Video** (Image, Sound). Close stays.
-- A workspace folder that BaseHalf leaves alone keeps no card information
-  ([spec-driven development](spec-driven-development.md)): there Edit is
-  disabled, and says that no original can be kept.
-- Done, Save as New, Revert, and Cancel leave edit mode, and Card Detail
-  shows the file anew. Closing Card Detail, or showing another file in it,
-  cancels the edit.
-- Done is disabled while the choices are those of the file as it is, as at
-  first, and its hover says "Make an edit first". Save as New is disabled
-  while the choices keep the whole original. Until the editor has read the
-  file, both are disabled, and their hover says "Reading the file…".
-- While an edit is saved, the editor stays, its controls are disabled, and
-  its status line says what is being done and how much of it.
+- Card Detail of a video, an image, or a sound that BaseHalf can edit shows
+  its editor at once, in place of a plain view, with the original of an
+  edited file and the choices of its edit: the player of a video with the
+  frame viewer under it, the waveform of a sound with Play under it, and the
+  crop view of an image with its tools under it.
+- The header holds no control of editing: the title, the description, and
+  Close ([layout controls](layout-controls.md#card-detail)).
+- A file that BaseHalf cannot edit shows as a plain view, an image in its
+  page and a video or a sound in the player, and nothing says why: there is no
+  control to explain ([Failure](#failure)). So does every media file in a
+  workspace folder that BaseHalf leaves alone, which keeps no card information
+  ([spec-driven development](spec-driven-development.md)).
+- **The line under the editor**: for an edited file, what the edit is and
+  **Revert to Original** ([Revert to Original](#revert-to-original));
+  "Saving…" with the share done while the file is written, after the line of
+  an edited file; the failure of a write, with **Try Again**; and nothing for
+  a file that was never edited. It keeps its height while it is empty.
 
 ### The keyboard
 
-- **Edit** takes the keyboard in its place in the header, before Close. In
-  edit mode, the keyboard goes to the editor's first control; when edit mode
-  ends, the keyboard that was in Card Detail goes to Edit.
-- **Escape** cancels the edit, as Cancel does, and does not close Card
-  Detail; the next Escape does
+- Card Detail opens with the keyboard on the editor's first control: the
+  player's Play for a video, Play for a sound, and the crop frame for an
+  image.
+- **Escape** closes Card Detail
   ([opening and closing Card Detail](card-detail-opening.md#the-keyboard)).
   During a drag in an editor it only ends the drag and puts back what the
-  drag changed.
-- **Enter** on a control of an editor saves, as Done does when it is enabled.
-- **Command+Z** (Control+Z on Windows and Linux) in edit mode undoes the
-  editor's last change, and **Shift+Command+Z** redoes it: a handle moved,
-  a part trimmed or deleted, a turn, a flip, a ratio, an angle. They do not
-  reach the canvas undo while the editor is shown. Out of edit mode, they undo
-  and redo the steps of the canvas, Done, Save as New, and Revert among them
+  drag changed, and with a part of a sound selected it only drops the
+  selection.
+- **Command+Z** (Control+Z on Windows and Linux) undoes the last step of the
+  canvas, a change of an edit among them, and **Shift+Command+Z** redoes it,
+  with the keyboard anywhere in Card Detail outside an editor of text
   ([exact undo](exact-undo.md#undo-while-card-detail-is-open)).
-- When Card Detail shows a file anew because the file changed, as after Done,
-  an undo, or a redo, the keyboard stays on the control it was on.
+- When an undo, a redo, or a write changes the file that Card Detail shows,
+  the editor stays, and the keyboard stays on the control it was on.
 - A control shows a focus ring only when the keyboard moved the focus there,
   as in the player
   ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
@@ -350,7 +376,11 @@ crop:
   original's frames across its whole length, as many pictures as fit at its
   height in the picture's shape, each the frame at the middle of its place.
   The player and the viewer are centered together in the space the player
-  had. The viewer keeps the height of its status line also while it is empty.
+  had.
+- **The viewer is the video's timeline**: the player above it shows Play, the
+  time, its sound button, and Full Screen, and no bar of its own for the time.
+  The player's sound button mutes only the playing; it changes nothing in the
+  file.
 - **The part kept** has a yellow frame around it, 3 px above and below, with
   a handle 14 px wide on each side that carries a dark chevron; the strip
   outside it is dimmed. While the whole video is kept, the frame is white.
@@ -360,16 +390,13 @@ crop:
   middle when the part is narrower than the label, in tenths of a second under
   a minute and in minutes and seconds from a minute on, never more than it is,
   as the player shows times (`3.5s` for 3.57 s).
-- **The sound** button, at the left of the viewer, mutes the video: the
-  player plays it without sound, and Done saves it without its sound. It shows
-  a crossed speaker while the video is muted. A video without sound has none.
 
 ### The pointer
 
 - **A drag of a handle** moves that end of the part, to the nearest frame
   edge. It pauses the player, and while it moves, the player shows the frame
   at the handle: the first frame of the part at the start handle, the last at
-  the end handle.
+  the end handle. Letting go of it is a change, "Trim shot.mp4".
 - **A handle held still for 0.4 s** spreads the viewer out around it: the
   viewer then shows a tenth of the video, or 2 s, whichever is longer, around
   the handle's time, with its frames read anew, so that the handle moves a
@@ -382,7 +409,8 @@ crop:
   meeting point it is.
 - **A drag inside the part, while it is shorter than the video**, moves the
   part with its length, to the nearest frame edges. It pauses the player, and
-  while it moves, the player shows the frame at the part's start.
+  while it moves, the player shows the frame at the part's start. Letting go
+  of it is a change, as for a handle.
 - **A press anywhere else on the viewer**, or a press inside the part that
   does not move, moves the playhead there; a drag from there moves it along.
 - The pointer is a sideways arrow over a handle, a grab hand over a part that
@@ -398,55 +426,68 @@ crop:
   shows. Before each jump back, the sound goes down over the last 100 ms of
   the part, and it comes up after the jump
   ([generation cards, "The player"](generation-cards.md#the-player)).
-- While the whole video is kept, the player plays as it does out of edit mode.
+- While the whole video is kept, the player plays the whole video, as a card's
+  player does.
 
 ### The keyboard of the frame viewer
 
-- The viewer's controls take the keyboard after the player's: the sound
-  button, the start handle, then the end handle. Each handle is a slider that
-  says its time and the video's length.
+- The viewer's controls take the keyboard after the player's: the start
+  handle, then the end handle. Each handle is a slider that says its time and
+  the video's length.
 - **On a handle**: Left and Right move it by 0.1 s, with Shift by one frame,
   with Command (Control on Windows and Linux) by 1 s; Home and End move it as
   far as it goes; Up and Down do what Right and Left do. Every step moves the
   handle at least one frame, and pushes the other handle as a drag does; the
-  player shows the frame at the handle.
+  player shows the frame at the handle. Each key is a change; a key that
+  repeats is one.
 - **I** and **O**, with the keyboard in the player or the viewer, put the
   start at the start of the frame the player shows, and the end at the end of
-  that frame.
+  that frame: each is a change.
 - **Space** on a handle plays and pauses. The arrow keys move no card.
 
 ## Cropping an image
 
 ### The crop view
 
-- Edit on an image shows the original, turned, flipped, and straightened as
-  the choices say, as large as fits in Card Detail with a margin of 24 px, with
-  the **crop frame** over it: a white frame around the part kept, with thick
-  corners and a handle in the middle of each side, and the picture outside it
-  dimmed. While a corner, a side, or the picture is dragged, lines divide the
-  part into thirds.
+- Card Detail of an image shows the picture as its edit made it: the original,
+  turned, flipped, and straightened as the choices say, as large as fits in
+  Card Detail with a margin of 24 px, and only the part kept; the rest of the
+  original is hidden.
+- The **crop frame** stands on the edges of the part kept: a white frame with
+  thick corners and a handle in the middle of each side. It shows while the
+  pointer is over the picture or the keyboard is on the frame, and fades out
+  otherwise. While a corner, a side, or the picture is dragged, the rest of
+  the original shows around the frame, dimmed, and lines divide the part into
+  thirds.
 - Under the picture, a row of tools, from left to right: **Turn Left**,
-  **Flip**, **Ratio**, and the **Straighten** dial, and **Reset** at the right
-  end.
+  **Flip**, **Ratio**, and the **Straighten** dial. Revert to Original, in the
+  line under them, sets everything back.
 
 ### The crop frame
 
 - **A drag of a corner or of a side** moves it, keeping the ratio when one is
   set, and never past the picture: the part kept is always all picture, with
-  no empty corner, also while the picture is straightened.
-- **A drag inside the frame** moves the picture under the frame, as far as
-  its edges go.
-- **The wheel, or a pinch of the trackpad, over the picture** shows the part
-  larger or smaller: the frame keeps its place on screen while the part it
-  holds of the picture gets smaller or larger, around the pointer, until it is
-  the whole picture or 64 pixels on its shorter side.
+  no empty corner, also while the picture is straightened. Letting go of it is
+  a change, "Crop still.png".
+- **A drag inside the frame**, while the part is smaller than the picture,
+  moves the picture under the frame, as far as its edges go; letting go is a
+  change, "Crop still.png". While the part is the whole picture, a drag there
+  does nothing.
 - When a drag ends, the frame and the picture glide in 200 ms until the frame
   is as large as fits, at the middle of the view.
+- **The wheel, or a pinch of the trackpad, over the picture** zooms the view,
+  never the edit: around the pointer, from the picture as it fits up to twice
+  its pixels. While the view is zoomed in, the crop frame does not show, and a
+  drag moves the view. A double click shows the picture as it fits, or, as it
+  fits, at its own pixels around the pointer. Card Detail opens with the
+  picture as it fits.
 - **The size of the part** stands under the frame while it is dragged, in
   pixels of the original (`1600 × 900`).
 
 ### The tools
 
+- Each tool is a change when it is used: a turn, a flip, a ratio, and an
+  angle when the dial is let go.
 - **Turn Left** turns the picture and the frame a quarter to the left.
 - **Flip** mirrors the picture and the frame left to right.
 - **Ratio** opens a menu: Freeform, Original, Square, 16:9, 5:4, 7:5, 4:3,
@@ -459,8 +500,6 @@ crop:
   way, in steps of 0.1°, with a mark at every degree and the angle above it
   (`−2.5°`). The frame keeps its ratio and grows smaller as far as it must to
   hold only picture. A double click on the dial sets it back to 0°.
-- **Reset** sets the turn, the flip, the angle, the ratio, and the frame back
-  to those of the original. It is disabled while they are.
 
 ### The keyboard of the crop view
 
@@ -468,13 +507,14 @@ crop:
   turn from the top left, then the tools. On a corner, the arrow keys move it
   by 1 pixel of the screen, with Shift by 10; inside the frame, with the frame
   focused, the arrow keys move the picture. On the dial, Left and Right turn
-  by 0.1°, with Shift by 1°.
+  by 0.1°, with Shift by 1°. Keys that follow each other within 0.6 s are one
+  change.
 
 ## Editing a sound
 
 ### The waveform
 
-- Edit on a sound shows, in place of its player, the **waveform** of the
+- Card Detail of a sound shows, in place of a player, the **waveform** of the
   sound as the choices make it, its kept parts joined, and each joint marked
   with a thin yellow line. A sound has no picture, so the waveform takes the
   place of one: as wide as the view less 48 px on each side, at most
@@ -491,27 +531,32 @@ crop:
 - The waveform has the yellow frame, the handles, the playhead, the length
   label, and the hold to spread it out of the frame viewer of a video
   ([Editing a video](#editing-a-video)); its edges are those of the sound's
-  samples, and for an MP3 those of its frames. The stretch between the
-  handles is at least 0.1 s, or the whole sound when it is shorter.
-- Above the waveform, **Play** with the time and the length at its left, and
-  **Trim** and **Delete** at its right: Trim keeps only the part between the
-  handles, and Delete removes it. Both join what is left at once, and the
-  handles then hold all of it. Trim is disabled while all of the sound is
-  between the handles, and Delete while what would be left is shorter than
-  0.1 s.
+  samples, and for an MP3 those of its frames. As in the frame viewer, the
+  handles hold the part kept: letting go of one trims the sound to the part
+  between them, a change, "Trim take.wav". The part is at least 0.1 s, or the
+  whole sound when it is shorter.
+- Under the waveform, at its left, **Play** with the time and the length.
+- **A drag on the waveform inside the part kept** selects a stretch of it: the
+  stretch is lit, and **Delete** stands on it. Delete, or the Delete key,
+  cuts the stretch out and joins what is left, a change, "Cut take.wav"; the
+  handles then hold all of it. A press elsewhere, a press on the selected
+  stretch that does not move, and Escape drop the selection. A stretch is at
+  least 0.1 s, and Delete does not show while what would be left is shorter
+  than 0.1 s.
 
 ### Playing
 
 - Play plays the sound as the choices make it, its kept parts one after the
   other, each coming up over 5 ms and going down over 5 ms at its ends, so
-  that no joint clicks; a stretch between the handles plays over and over
-  while it is shorter than the whole, as the part of a video does. A press on
-  the waveform outside the stretch moves the playhead there.
+  that no joint clicks; while the part between the handles is shorter than
+  the whole, it plays over and over, as the part of a video does. A press on
+  the waveform that does not move moves the playhead there.
 
 ### The keyboard of the waveform
 
-- As the frame viewer's, with Delete removing the part between the handles,
-  as Delete does, while the keyboard is on a handle.
+- As the frame viewer's. With a stretch selected, the Delete key, or
+  Backspace, cuts it out, as Delete does. **Space** plays and pauses with the
+  keyboard anywhere on the waveform or on Play.
 
 ## What the edited file holds
 
@@ -528,8 +573,8 @@ crop:
   encoder takes them, coming up over the first 5 ms and going down over the
   last 5 ms where the part cuts into it; in sync with the picture within a
   millisecond, the encoder's delay and padding hidden by the edit list, or by
-  the codec delay and discard padding of a WebM. A muted video, and a video
-  without sound, has no sound track.
+  the codec delay and discard padding of a WebM. A video without sound has no
+  sound track.
 - **The file's information**: the boxes at the level of the file of an MP4 or
   MOV, such as its title, its creation date, and the label that marks generated
   content (GB 45438-2025), unchanged.
@@ -549,7 +594,8 @@ crop:
 - The sound's bitrate is the original's, snapped to 96, 128, 160, or 192
   kbit/s; its sample rate is the original's at 44.1 or 48 kHz and 48 kHz
   otherwise; Opus is always 48 kHz. Where the window has no AAC encoder, as on
-  Linux, an MP4 or MOV is saved without sound, and the status line says so.
+  Linux, an MP4 or MOV is saved without sound, and the line under the editor
+  says so.
 
 ### An image
 
@@ -605,37 +651,42 @@ crop:
 ## While it is saved, and after
 
 - The edited file is made in memory from the original, written into the
-  workspace's cache folder (`.bh/cache/edit/`), and put in its place in one
-  step with its record, so that no part of a file ever shows in its place.
-- A save goes on when Card Detail closes or shows another file. Card Detail of
-  the file, opened again while it runs, says that it is being saved. A window
-  that closes or reloads during a save stops it, and the file stays as it was;
-  what that save wrote into the cache folder is deleted by a save an hour later
-  or more.
-- When it is saved, Card Detail shows the file anew, from its start, with a
-  line under the player of a video or a sound, and under an image, until
-  Card Detail closes: "Edited. ⌘Z puts it back.", "The original is back. ⌘Z
-  puts the edit back.", "Saved shot copy.mp4. ⌘Z takes it away." When Card
-  Detail does not show the file at the end of a save, the end is a
-  notification.
+  workspace's cache folder (`.bh/cache/edit/`), and put in its place with its
+  record, so that no part of a file ever shows in its place.
+- A write goes on when Card Detail closes or shows another file. Card Detail
+  of the file, opened again while one runs, shows the choices being written
+  and "Saving…". A window that closes or reloads waits for its writes, with
+  "Saving edits" while it does. A window that crashes or is stopped leaves the
+  file as its last write made it: a change that was not written yet is lost,
+  as an unsaved word would be. What a stopped write left in the cache folder
+  is deleted by a write an hour later or more.
+- The canvas card shows the file as it is written: its picture, its length,
+  and its shape. The editor in Card Detail does not show the file anew when
+  its own write lands: it already shows the choices.
+- While Card Detail edits a video that was never edited, its player plays a
+  copy of the file in the cache folder, cloned at no cost on a disk that can
+  clone, so that the first write, which replaces the file, does not change
+  what the player reads. The copy goes when Card Detail closes.
 
 ## Failure
 
-- **A file that cannot be edited** has Edit disabled, with the reason in its
-  hover: a video whose file cannot be read as MP4, MOV, or WebM, or whose index
-  is damaged, too large (more than 64 MB, or two million blocks of a WebM), or
-  put together from several parts by its edit list; a video without a picture;
-  a picture this system cannot decode, or of a size it cannot encode; an image
-  of a format BaseHalf does not write; an image the window cannot decode; a
-  sound this system cannot decode; an M4A where the window has no AAC encoder.
-- **A save that fails**, because the original cannot be read, the window
-  cannot encode it, or its place cannot be written: the file stays as it was,
-  nothing is left in the cache, the status line says "BaseHalf could not save
-  the edit:" and why, and the editor's controls are enabled again.
-- **A file that changes while it is edited or saved**, in its size or its
-  time of change, or that is moved, renamed, or deleted: nothing is written,
-  and the status line says that the file changed meanwhile; Cancel and Edit
-  then start from the file as it is.
+- **A file that cannot be edited** shows as a plain view, without an editor: a
+  video whose file cannot be read as MP4, MOV, or WebM, or whose index is
+  damaged, too large (more than 64 MB, or two million blocks of a WebM), or put
+  together from several parts by its edit list; a video without a picture; a
+  picture this system cannot decode, or of a size it cannot encode; an image of
+  a format BaseHalf does not write; an image the window cannot decode; a sound
+  this system cannot decode; an M4A where the window has no AAC encoder.
+- **A write that fails**, because the original cannot be read, the window
+  cannot encode it, or its place cannot be written: the file stays as its last
+  write made it, nothing is left in the cache, and the line under the editor
+  says "BaseHalf could not save the edit:" and why, with **Try Again**. The
+  editor keeps the choices. When Card Detail does not show the file, a
+  notification says it, with Try Again.
+- **A file that changes outside BaseHalf while it is shown**, in its size or
+  its time of change, or that is moved, renamed, or deleted: nothing is
+  written, and Card Detail shows the file anew as it is
+  ([A file that changed outside BaseHalf](#a-file-that-changed-outside-basehalf)).
 
 ## Limits
 
@@ -649,6 +700,9 @@ crop:
 - The frame viewer reads the frames of a video once when the editor opens, and
   again where it is spread out; with few key frames, a long video's pictures
   appear one by one.
+- A write encodes a video again from the original: about a second for a clip
+  of 5 s at 480p, longer for a long or a large one, while the line says
+  Saving… with the share done. A change while it runs is written after it.
 - VP9 is encoded by the window in software: a WebM takes longer to save than
   an MP4 of the same size.
 - A picture of odd width or height is encoded one pixel narrower or lower when
@@ -659,42 +713,46 @@ crop:
 
 ## Acceptance criteria
 
-1. Card Detail of a video, an image, and a sound has Edit in its header; of a
-   GIF, Edit is disabled and says why. Edit shows the editor of the kind, and
-   Cancel, Done with its menu, and Close; Revert only for an edited file.
+1. Card Detail of a video, an image, and a sound shows its editor at once,
+   with no control of editing in its header; a GIF shows its page, without an
+   editor, and nothing that says why.
 2. In the frame viewer, dragging the start handle shows the frame at the
    handle, moves the yellow frame, and changes the length; holding a handle
    still for 0.4 s spreads the viewer around it; moving a handle within 1.0 s
    of the other pushes it.
-3. Done on a 5 s video with 1.0 s to 4.5 s kept replaces it with 3.5 s of it,
-   as D79's criterion 6 measures, and writes `.bh/mirror/<path>/original.mp4`,
-   byte for byte the video before, and `edit.yaml` with the part kept.
-4. Edit on that video shows the whole 5 s original in the viewer with the
-   handles at 1.0 s and 4.5 s; widening the part to 0.5 s and Done gives 4.0 s
-   of the original, encoded from the original.
-5. Revert on it puts back the original's bytes and removes `original.mp4` and
-   `edit.yaml`; undo of the Revert brings the edit back exactly; redo reverts
-   again.
-6. Save as New on a video with a part kept writes `shot copy.mp4` of that part,
-   connected from the video, its card 40 to the right; the video, its original,
-   and its record stay as they were.
-7. Cropping a 2048 × 2048 PNG to 16:9 gives a PNG of 2048 × 1152 whose pixels
-   are the original's rows kept; a quarter turn and a flip give the original's
-   pixels turned and mirrored; an angle of 10° leaves no empty corner.
-8. Trim and Delete on a WAV give a WAV of the kept samples, with 5 ms fades at
-   the joints, its other chunks unchanged; an MP3 edited the same way decodes in
-   the window without an error, its frames otherwise byte for byte the
-   original's.
+3. Letting go of the start handle of a 5 s video at 1.0 s, and of the end
+   handle at 4.5 s, with nothing pressed after: within 3 s the video is 3.5 s
+   of it, as D79's criterion 6 measures, `.bh/mirror/<path>/original.mp4` is
+   byte for byte the video before, and `edit.yaml` holds the part kept. The
+   Edit menu's Undo names "Trim shot.mp4".
+4. Card Detail of that video, opened again, shows the whole 5 s original in the
+   viewer with the handles at 1.0 s and 4.5 s; widening the part to 0.5 s gives
+   4.0 s of the original, encoded from the original.
+5. Revert to Original on it puts back the original's bytes and removes
+   `original.mp4` and `edit.yaml`; undo of it brings the edit back byte for
+   byte; redo reverts again.
+6. Command+Z with the keyboard on a handle undoes the last trim in the viewer
+   at once and in the file; Shift+Command+Z redoes it, byte for byte.
+7. Cropping a 2048 × 2048 PNG to 16:9 with Ratio gives a PNG of 2048 × 1152
+   whose pixels are the original's rows kept; a quarter turn and a flip give
+   the original's pixels turned and mirrored; an angle of 10° leaves no empty
+   corner. The wheel over the picture zooms the view and changes no edit.
+8. Delete on a selected stretch of a WAV, and letting go of a handle, give a
+   WAV of the kept samples, with 5 ms fades at the joints, its other chunks
+   unchanged; an MP3 edited the same way decodes in the window without an
+   error, its frames otherwise byte for byte the original's.
 9. A copy of an edited file can be reverted to the original; a deleted edited
    file put back from the Trash after its window closed can be reverted.
-10. A file changed by another program after its edit opens in Edit as it is,
-    without Revert, and Done keeps it as the new original.
-11. In edit mode, Escape cancels and a second Escape closes Card Detail;
-    Command+Z undoes the editor's last change and not a step of the canvas.
-12. A generated video edited and saved keeps its `made.yaml` byte for byte,
-    and its panel and Card Detail say how it was edited.
-13. Done, Revert, their undo and redo, and then closing the window with the
-    Trash on put nothing in the Trash and leave nothing in `.bh/cache/kept/`.
+10. A file changed by another program after its edit shows as it is, without
+    Revert to Original, and its first change keeps it as the new original.
+11. Escape closes Card Detail; during a drag it puts back what the drag
+    changed and leaves Card Detail open.
+12. A generated video edited keeps its `made.yaml` byte for byte, and its
+    panel and the line under its editor say how it was edited.
+13. Changes, their undo and redo, Revert to Original, and then closing the
+    window with the Trash on: the file holds the last change, nothing is in
+    the Trash, and nothing is left in `.bh/cache/kept/` or of the copies in
+    `.bh/cache/edit/`.
 14. An edited file that is gone at the opens of 30 days: at the first open
     after them, `shot original.mp4`, byte for byte its original, is in the
     Trash from the file's folder, and its record is gone. A file that is back
@@ -705,28 +763,31 @@ crop:
 - Unit tests of the edit record (reading, writing, defaults left out, the
   fingerprint), of the choices of each editor (the frame edges and the minimum
   part, pushing and moving; the crop's geometry with turns, flips, angles, and
-  ratios; the kept parts of a sound through Trim and Delete), and of the
+  ratios; the kept parts of a sound through trims and cuts), and of the
   readers and writers of each format, written and read back.
 - Tests in the window of the unit tests: a short video, image, and sound of
   each format made there, edited, and read back for their frames, pixels, and
-  samples; a click at a white frame kept in sync; and Done, Save as New, and
-  Revert through the service on a file system in memory, with the steps of undo
-  they ask for, and what of them is left when the window closes with a Trash.
+  samples; a click at a white frame kept in sync; and changes through the
+  service on a file system in memory: the write after the rest and at a flush,
+  one write at a time, the steps of undo and their names, undo and redo byte
+  for byte from what was written, a first change, Revert to Original, a file
+  changed meanwhile, and a write that fails.
 - Unit tests of the notes of originals whose file is gone, at opens on a file
   system in memory with a clock that moves on: a file that is back, a path
   whose move waits, a record that cannot be read, a folder that is gone, and a
   name that is taken.
 - The smoke steps of the `cardDetail` suite: editing a video
-  (`card-detail-video-edit`: Edit, the handles, the editor's undo, Done, Edit
-  again from the original, Save as New, Revert, undo and redo with the
-  keyboard, and Escape twice), cropping an image (`card-detail-image-edit`:
-  an SVG's Edit says why it is disabled; Square, a turn and a flip, Revert,
-  and undo), and cutting a sound (`card-detail-sound-edit`: Delete and its
-  undo in the editor, Done, Edit again, Revert, and undo).
+  (`card-detail-video-edit`: the handles, the file written with nothing
+  pressed, the editor again from the original, undo and redo with the
+  keyboard, Revert to Original and its undo, and Escape), cropping an image
+  (`card-detail-image-edit`: an SVG shows no editor; Square, a turn and a
+  flip, the wheel that zooms only the view, Revert to Original, and undo), and
+  cutting a sound (`card-detail-sound-edit`: a stretch selected and cut, a
+  trim, the editor again, undo, and Revert to Original).
 - In a development window: each kind and format with the media of the
-  development workspace, the time each save takes, the quality of the edited
+  development workspace, the time each write takes, the quality of the edited
   file against its original frame by frame, and the canvas card and Card Detail
-  after each step and its undo and redo.
+  after each change and its undo and redo.
 
 ## Where this lands
 
@@ -734,11 +795,10 @@ crop:
 the edit record, the choices of each editor, the readers and writers of each
 format, and the notes of originals whose file is gone in `common/`, which the
 mirror cascade runs at open after its sweep of orphaned badges
-([mirror file resilience](mirror-file-resilience.md)); Card Detail's edit
-mode, the editors, the encoding with the window's encoders, and the service
-that saves, saves as new, and reverts through the steps of
-[exact undo](exact-undo.md) in `browser/`. Card
-Detail gives the editors its header and the place of its view; the player of
-a video gives the frame viewer its time, a jump to a time, the playing of a
-range, and mute; the waveform of a sound plays the edit itself, with the
+([mirror file resilience](mirror-file-resilience.md)); the editing of Card
+Detail, the editors, the encoding with the window's encoders, and the service
+that applies a change, writes the file after it, and keeps the steps of its
+undo, in `browser/`. Card Detail gives the editors the place of its view; the
+player of a video gives the frame viewer its time, a jump to a time, and the
+playing of a range; the waveform of a sound plays the edit itself, with the
 window's audio.

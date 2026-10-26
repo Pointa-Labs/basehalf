@@ -205,10 +205,7 @@ Not in scope, and unchanged:
   when the item is deleted for good.
 - What a step that changed files in place kept is deleted for good when the
   window closes, also with the Trash on, when the step's feature keeps
-  elsewhere what the user may want of it: the versions that Done and Revert of
-  editing media keep, whose original stays in the card information
-  ([editing media](media-editing.md#done-save-as-new-revert-and-cancel)). In
-  the Trash they would be an edit record, an original, and copies of the file
+  elsewhere what the user may want of it. In the Trash it would be files
   under BaseHalf's own names, whose Put Back place is a folder of the kept
   versions that is gone.
 
@@ -234,8 +231,8 @@ Not in scope, and unchanged:
 - A feature that changes the bytes of files does it as one step. The version
   of each file before the step goes into the kept versions, and the new
   bytes take its place. Undo swaps them back, and redo again. Several files
-  change in one step, such as a video, its original, and its edit record
-  ([editing media](media-editing.md#done-save-as-new-revert-and-cancel)).
+  can change in one step. Editing media does not use them: its steps put back
+  choices ([Editing media](#editing-media)).
 - A step can also create a file where none is, and remove one: no file is
   then one of its two versions, and undo and redo swap it as they swap
   bytes. The window is told the file's creation or its delete, as for an
@@ -266,9 +263,26 @@ Not in scope, and unchanged:
 
 - Cmd+Z and Shift+Cmd+Z undo and redo the steps of the canvas also while
   Card Detail is open, as long as the keyboard is not in an editor of text,
-  which has its own undo, and Card Detail is not in edit mode, whose editor
-  undoes its own changes ([editing media](media-editing.md#the-keyboard)).
-  The player is no editor of text.
+  which has its own undo. The player and the editors of media are no editors
+  of text: their changes are steps of the canvas
+  ([editing media](media-editing.md#the-keyboard)).
+
+### Editing media
+
+- Each change of an edit in Card Detail, a trim, a cut, a crop, a turn, a
+  flip, an angle, and Revert to Original, is one step of the canvas undo,
+  named for what it did ([editing media](media-editing.md#changes-save-themselves)).
+  Changes of the same name to one file within 0.6 s are one step.
+- The step holds the choices before and after it. Undo and redo put those
+  choices back: an editor of the file shows them at once, and the file
+  follows, from what was written for them when that is still kept, byte for
+  byte, or encoded again from the original. Choices that keep the whole
+  original put the original's own bytes back.
+- The step keeps nothing in the kept versions, and so nothing of it goes to
+  the Trash.
+- A step whose file changed outside BaseHalf since, or is gone, says why and
+  changes nothing, as the other steps do: "'shot.mp4' changed meanwhile.
+  Undo did not change it." and "'shot.mp4' is not there any more."
 
 ## Failure
 

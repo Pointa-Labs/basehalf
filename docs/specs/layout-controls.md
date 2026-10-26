@@ -101,10 +101,11 @@ Not in scope, and unchanged:
 
 ### Card Detail
 
-9. The header of Card Detail holds no layout control. Its right group is the
-   sign that saving failed (only when it did), the views of the card, Edit
-   for a video, an image, or a sound, and Close. In edit mode, Revert, Cancel,
-   and Done take the place of Edit ([editing media](media-editing.md#edit-mode-in-card-detail)).
+9. The header of Card Detail holds no layout control and no control of
+   editing. Its right group is the sign that saving failed (only when it
+   did), the views of the card, and Close. A video, an image, or a sound is
+   edited in its editor, where it shows (D85,
+   [editing media](media-editing.md#editing-in-card-detail)).
 
 ### Implementation boundary
 

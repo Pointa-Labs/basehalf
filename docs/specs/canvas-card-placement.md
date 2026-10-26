@@ -405,7 +405,7 @@ group whose slot is taken.
 | Create a card from a connection line | pointed: the side of the new card that the line enters is centered on the point where the line was released |
 | Create a card without a point: the Create button, or a keyboard command | computed: the card centered on the middle of the visible part of the canvas |
 | Create a note from a selection in a PDF | computed: beside the PDF's card |
-| Capture a frame of a video, or save an edit as a new file in Card Detail | computed: 40 to the right of the card it comes from, at the nearest open place ([generation cards](generation-cards.md#the-toolbar), [editing media](media-editing.md#done-save-as-new-revert-and-cancel)) |
+| Capture a frame of a video | computed: 40 to the right of the card it comes from, at the nearest open place ([generation cards](generation-cards.md#the-toolbar)) |
 | Generate from a generation card that has its file, in the window or with `basehalf --generate` | computed: 40 to the right of the original card, for the new draft ([generation cards](generation-cards.md#generating-again)) |
 | Generate several images at once | computed: the drafts of the further images in a row to the right of the card the generation runs on, each 40 to the right of the one before ([generation cards](generation-cards.md#several-images-from-one-generation)) |
 | Drop, paste, or move files and folders onto the canvas at a point | for the item at position *i* of *n*: slot *i* of a block of cells that starts at the point and has as many columns as the square root of *n*, rounded up, and at most 4 |

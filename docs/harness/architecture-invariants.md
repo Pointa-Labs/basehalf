@@ -65,8 +65,8 @@ See [code organization](code-organization.md) and public decision D60.
 - On the canvas, a focus ring is for the keyboard. The workbench rings every
   focused button, field, and element with a tab index, also after a click;
   on the canvas surface, its own buttons, and the toolbars, menus, and Video
-  panel over its cards, and in BaseHalf's player and the editors of Card
-  Detail's edit mode, a control shows a ring only when the keyboard moved
+  panel over its cards, and in BaseHalf's player and the editors of media in
+  Card Detail, a control shows a ring only when the keyboard moved
   the focus there. A text field shows its focus by its caret, and a field
   with a border by its border alone. A menu that BaseHalf draws on the
   canvas starts at its checked item. Without one, it has no current item
@@ -105,11 +105,23 @@ See [code organization](code-organization.md) and public decision D60.
   book show their cover on their card and are read in a page of their own
   ([PDFs and books](../specs/documents-and-books.md)). A file that the
   system cannot decode says so where it would show.
+- **A change is the result** (D85). What the user changes, on the canvas or in
+  Card Detail, is saved as they make it: there is no mode to enter and no
+  Save, Done, Apply, or Cancel to press, as a note saves itself as it is typed.
+  Undo is the way back, one step at a time, the same in every part of the
+  window; what a change replaces that the user may want back stays one action
+  away, as an edited file keeps its original
+  ([editing media](../specs/media-editing.md)). A control stands on what it
+  acts on, and one that only a moment needs, as the Delete of a selected part
+  of a sound, shows in that moment. One way does each thing: a
+  changed copy is a Duplicate that is then changed, not a Save as New beside
+  each editor. A step that costs money or time the user waits for, as
+  generating, stays a button that the user presses.
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 
-See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, D45, and D65
-in [decisions.md](../decisions.md).
+See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, D45, D65, and
+D85 in [decisions.md](../decisions.md).
 
 ## Content and graph truth
 

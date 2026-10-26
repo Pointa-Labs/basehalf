@@ -96,9 +96,9 @@ another.
   such as that of a link or the page number of a PDF, a menu or a dialog of
   the PDF viewer, the contents and the search of the book reader
   ([PDFs and books](documents-and-books.md#the-book-reader)), the
-  composition of an input method, full screen, and the edit mode of a video,
-  an image, or a sound, which Escape cancels first
-  ([editing media](media-editing.md#the-keyboard)).
+  composition of an input method, full screen, a drag in an editor of a video,
+  an image, or a sound, which Escape ends first, and a selected part of a
+  sound, which it drops first ([editing media](media-editing.md#the-keyboard)).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the canvas, where the keys of the selected card work again.
 
