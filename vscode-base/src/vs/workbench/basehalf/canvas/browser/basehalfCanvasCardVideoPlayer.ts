@@ -8,13 +8,12 @@ import { $, addDisposableListener, append, clearNode, getActiveElement, isHTMLEl
 import { mainWindow } from '../../../../base/browser/window.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ResourceMap } from '../../../../base/common/map.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
-import { registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
+import { baseHalfCanvasMediaUrl, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
 import { BaseHalfCanvasVideoSound, BaseHalfVideoSoundGraph } from './basehalfCanvasVideoSound.js';
 
 /** The narrowest picture, in screen pixels, that shows the player's controls (video node, "The player"). */
@@ -241,7 +240,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		const fileTime = detail ? cardPlayerOf(this.file)?.currentTime ?? last?.time : last?.time;
 		const time = options.start ?? (fileTime !== undefined ? fileTime + (options.offset ?? 0) : undefined);
 		this.muted = detail || isSound ? false : last?.muted ?? true;
-		this.video.src = `${FileAccess.uriToBrowserUri(options.source).toString(true)}#t=${time !== undefined && time > 0 ? time : 0.001}`;
+		// The version in the query is loaded, not one the window loaded before (canvas card placement, "Each version is loaded by an address of its own").
+		this.video.src = `${baseHalfCanvasMediaUrl(options.source)}#t=${time !== undefined && time > 0 ? time : 0.001}`;
 		this.sound = this._register(new BaseHalfCanvasVideoSound(this.video, options.soundGraph));
 		this._register(registerBaseHalfCanvasMediaPause(this.video, () => this.pause()));
 

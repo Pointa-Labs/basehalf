@@ -8,7 +8,8 @@ import { DeferredPromise } from '../../../../../base/common/async.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { BaseHalfCanvasPictureShapes, IBaseHalfCanvasPicture, IBaseHalfCanvasPictureMeasurer } from '../../browser/basehalfCanvasPictureShapes.js';
+import { baseHalfCanvasMediaUrl, baseHalfCanvasMediaVersionQuery } from '../../browser/basehalfCanvasCardMedia.js';
+import { BaseHalfCanvasPictureShapes, baseHalfCanvasPictureUrl, IBaseHalfCanvasPicture, IBaseHalfCanvasPictureMeasurer } from '../../browser/basehalfCanvasPictureShapes.js';
 
 suite('BaseHalfCanvasPictureShapes', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
@@ -58,6 +59,14 @@ suite('BaseHalfCanvasPictureShapes', () => {
 			after: 9 / 16,
 			asked: ['/workspace/wide.png@1-10', '/workspace/broken.png@1-10', '/workspace/wide.png@2-20']
 		});
+	});
+
+	test('each version of a picture is measured by an address of its own, the one by which its card loads it', () => {
+		const resource = URI.file('/workspace/photo.png');
+		const first = baseHalfCanvasPictureUrl({ resource, version: '1-10' });
+		const second = baseHalfCanvasPictureUrl({ resource, version: '2-20' });
+		const card = baseHalfCanvasMediaUrl(resource.with({ query: baseHalfCanvasMediaVersionQuery({ mtime: 2, size: 20 }) }));
+		assert.deepStrictEqual({ apart: first !== second, version: new URL(second).searchParams.get('basehalfCanvasVersion'), card: card === second }, { apart: true, version: '2-20', card: true });
 	});
 
 	test('measures at most six at a time', async () => {

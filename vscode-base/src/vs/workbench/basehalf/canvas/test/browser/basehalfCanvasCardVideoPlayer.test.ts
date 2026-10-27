@@ -258,6 +258,14 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		}, { start: 't=1.25', sound: 'Mute', plays: ['play'], otherStart: 't=0.001' });
 	});
 
+	test('a player loads the version of the file that its source names, and another version by another address', () => {
+		const file = URI.file('/workspace/take.mp4');
+		const first = createPlayer(320, file.with({ query: 'basehalfCanvasVersion=1-10' }));
+		const second = createPlayer(320, file.with({ query: 'basehalfCanvasVersion=2-20' }));
+		const address = (fixture: IPlayerFixture) => new URL(fixture.player.video.getAttribute('src') ?? '');
+		assert.deepStrictEqual([first, second].map(fixture => [address(fixture).pathname, address(fixture).searchParams.get('basehalfCanvasVersion')]), [['/workspace/take.mp4', '1-10'], ['/workspace/take.mp4', '2-20']]);
+	});
+
 	test('the time reads seconds under a minute and minutes from a minute on', () => {
 		assert.deepStrictEqual([0, 4.45, 59.99, 65.9, Number.NaN].map(formatBaseHalfCanvasVideoTime), ['0.0s', '4.4s', '59.9s', '1:05', '0.0s']);
 	});
