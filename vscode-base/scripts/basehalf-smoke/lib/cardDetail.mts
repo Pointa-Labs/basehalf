@@ -6,6 +6,7 @@
 // Card Detail, and going back and forward between it and canvases.
 
 import process from 'process';
+import { waitForViewTransitions } from '../app.mts';
 import { assertCanvasFolder } from './canvas.mts';
 import { activeMarkdownRichFrame } from './markdownRich.mts';
 import { shownFileName, visibleQuickInput, waitForQuickInputResult } from './quickInput.mts';
@@ -208,17 +209,20 @@ const MODE_BUTTON = '.basehalf-card-detail.visible .basehalf-card-detail-mode-bu
 export async function cardDetailModeLabel(page) {
 	return page.evaluate(selector => {
 		const button = document.querySelector(selector);
-		return button && !button.hidden ? button.textContent : undefined;
+		return button && !button.hidden ? button.getAttribute('aria-label') : undefined;
 	}, MODE_BUTTON);
 }
 
 async function pressCardDetailMode(page, from, to) {
 	await page.waitForFunction(({ selector, from }) => {
 		const button = document.querySelector(selector);
-		return !!button && !button.hidden && button.textContent === from;
+		return !!button && !button.hidden && button.getAttribute('aria-label') === from;
 	}, { selector: MODE_BUTTON, from }, { timeout: 10_000 });
+	// A locator's click scrolls its button into view first: during Card Detail's view transition that moved the
+	// window's parts by a few pixels, which no user's press does. It waits for the transition, as a user sees it end.
+	await waitForViewTransitions(page);
 	await page.locator(MODE_BUTTON).click();
-	await page.waitForFunction(({ selector, to }) => document.querySelector(selector)?.textContent === to, { selector: MODE_BUTTON, to }, { timeout: 5_000 });
+	await page.waitForFunction(({ selector, to }) => document.querySelector(selector)?.getAttribute('aria-label') === to, { selector: MODE_BUTTON, to }, { timeout: 5_000 });
 }
 
 /** Edit, in the header of Card Detail, shows the editor of the video, the image, or the sound that it views. */

@@ -87,7 +87,7 @@ async function closeDetail(page) {
 	await page.mouse.move(4, 4);
 	if (await cardDetailModeLabel(page) === 'Done') {
 		await page.keyboard.press('Escape');
-		await page.waitForFunction(() => document.querySelector('.basehalf-card-detail.visible .basehalf-card-detail-mode-button')?.textContent === 'Edit', undefined, { timeout: 5_000 });
+		await page.waitForFunction(() => document.querySelector('.basehalf-card-detail.visible .basehalf-card-detail-mode-button')?.getAttribute('aria-label') === 'Edit', undefined, { timeout: 5_000 });
 	}
 	await page.keyboard.press('Escape');
 	await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });

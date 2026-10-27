@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import { root, workspacePath } from '../../context.mts';
+import { waitForViewTransitions } from '../../app.mts';
 import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
@@ -119,12 +120,24 @@ export async function assertCardDetailVideoEdit(page) {
 			|| !atOpen.viewing || atOpen.handles.some(visibility => visibility !== 'hidden') || await lineText(page) !== '') {
 			throw new Error(`Card Detail of a video that was never edited opens to view it: its frame viewer is its timeline, with no handle, Edit in the header and no other control of editing, the player without a bar of its own, and an empty line: ${JSON.stringify({ first, atOpen, line: await lineText(page) })}`);
 		}
-		// Edit shows the handles; the picture stays where it is.
-		const pictureAtOpen = await page.locator(`${SURFACE} .basehalf-canvas-video-player.detail`).boundingBox();
+		// Edit shows the handles; the picture stays where it is, and so does the header around Edit.
+		const layout = () => page.evaluate(({ detail, surface }) => {
+			const box = selector => {
+				const rect = document.querySelector(selector)?.getBoundingClientRect();
+				return rect ? [rect.x, rect.y, rect.width, rect.height].map(value => Math.round(value * 10) / 10) : undefined;
+			};
+			return {
+				picture: box(`${surface} .basehalf-canvas-video-player.detail`), header: box(`${detail} .basehalf-card-detail-header`),
+				mode: box(`${detail} .basehalf-card-detail-mode-button`), stage: box(`${surface} .basehalf-card-detail-video-stage`), line: box(`${surface} .basehalf-media-edit-line`),
+				detail: box(detail)
+			};
+		}, { detail: DETAIL, surface: SURFACE });
+		await waitForViewTransitions(page);
+		const atRest = await layout();
 		await enterEditing(page);
-		const pictureEditing = await page.locator(`${SURFACE} .basehalf-canvas-video-player.detail`).boundingBox();
-		if (JSON.stringify(pictureAtOpen) !== JSON.stringify(pictureEditing) || await page.locator(`${FRAMES}.viewing`).count()) {
-			throw new Error(`Edit shows the editor in place: ${JSON.stringify({ pictureAtOpen, pictureEditing })}`);
+		const editingLayout = await layout();
+		if (JSON.stringify(atRest) !== JSON.stringify(editingLayout) || await page.locator(`${FRAMES}.viewing`).count()) {
+			throw new Error(`Edit shows the editor in place: ${JSON.stringify({ atRest, editingLayout })}`);
 		}
 
 		// Exact undo, criterion 16: from the first write to the last undo and redo, the video's row in Files is there in every frame.
