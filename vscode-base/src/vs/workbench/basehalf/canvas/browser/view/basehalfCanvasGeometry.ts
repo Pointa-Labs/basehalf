@@ -3,7 +3,6 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoElementType } from '../../../../../platform/undoRedo/common/undoRedo.js';
@@ -17,7 +16,7 @@ import { BaseHalfCanvasSceneGeometryReason, IBaseHalfCanvasSceneGeometry, IBaseH
 import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasViewScene } from '../basehalfCanvasExtensions.js';
 import { IBaseHalfWorkspaceMutationLease } from '../../../workspace/common/basehalfWorkspaceMutation.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { IBaseHalfCanvasUndoNode, reverseCanvasStateTransition, roundCanvasPosition, uniqueUris } from './basehalfCanvasViewShared.js';
+import { IBaseHalfCanvasUndoNode, reverseCanvasStateTransition, roundCanvasPosition } from './basehalfCanvasViewShared.js';
 
 /** How long a place the user gave a card waits for the move of that card's item before it is saved. */
 const BASEHALF_CANVAS_MOVED_ITEMS_EDIT_HOLD_MS = 2000;
@@ -122,10 +121,11 @@ export class BaseHalfCanvasGeometry {
 		const uniqueNodes = uniqueCanvasUndoNodes(nodes);
 		const stampPaths = [...new Set([folder.relativePath, ...uniqueNodes.map(node => node.path)])];
 		const stamps = stampPaths.map(path => this.view.workspaceMutationCoordinator.captureResource(folder.workspaceFolder, path));
-		const resources = uniqueUris([
-			this.view.canvasMirrorService.canvasResource(folder),
-			...uniqueNodes.map(node => joinPath(folder.workspaceFolder, ...node.path.split('/')))
-		]);
+		// A move or a resize changes the layout alone, so its step is no part of
+		// the undo of a card's own file. There an editor of the card's text would
+		// reach it and ask whether to undo it (canvas card resize, "While a Note
+		// is edited"). The stamps refuse the step once a card's file has moved.
+		const resources = [this.view.canvasMirrorService.canvasResource(folder)];
 		const run = async (reverse: boolean): Promise<void> => {
 			await this.view.workspaceMutationCoordinator.runResourceMutation(folder.workspaceFolder, stamps, lease => apply(reverse, lease));
 			this.view.renderer.scheduleBackgroundRender();

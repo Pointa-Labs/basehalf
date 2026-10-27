@@ -142,19 +142,18 @@ export function baseHalfCanvasSceneProjectsSelection(selected: boolean, noteEdit
 
 /**
  * Whether a card shows its resize controls (canvas card resize, "Which cards
- * resize"): the only selected card, not a note being edited, while no video
+ * resize"): the only selected card, a note being edited too, while no video
  * input is being picked, and not a card that keeps its shape.
  */
 export function baseHalfCanvasSceneShowsResizeControls(
 	selected: boolean,
-	noteEditing: boolean,
 	selectionSize: number,
 	videoInputPickActive = false,
 	keepsShape = false
 ): boolean {
 	return !keepsShape
 		&& baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive).nodesResizable
-		&& baseHalfCanvasSceneProjectsSelection(selected, noteEditing)
+		&& selected
 		&& selectionSize === 1;
 }
 
@@ -329,7 +328,6 @@ export function createBaseHalfCanvasCardNode(environment: IBaseHalfCanvasSceneEn
 		const structuralSelectionVisible = baseHalfCanvasSceneProjectsSelection(selected, noteEditing);
 		const resizeControlsVisible = baseHalfCanvasSceneShowsResizeControls(
 			selected,
-			noteEditing,
 			selectionSize,
 			!!host.dataset.videoInputPickActive,
 			data.card.keepsShape === true
@@ -443,6 +441,19 @@ export function createBaseHalfCanvasCardNode(environment: IBaseHalfCanvasSceneEn
 			internalNode.measured.width = measured.width;
 			internalNode.measured.height = measured.height;
 		}, [data.card, id, store]);
+		const keepNoteEditorKeyboard = vendor.useCallback((event: globalThis.MouseEvent): void => {
+			const target = event.target;
+			// A Note being edited keeps the keyboard, its caret, and an input
+			// method's composition through a resize (canvas card resize, "While a
+			// Note is edited"). The press's default would move the focus off the
+			// editor; d3-drag still takes the press, which only this capture
+			// listener on the node sees before it.
+			if (data.card.element.dataset.noteEditing === 'true'
+				&& (isHTMLElement(target) || isSVGElement(target))
+				&& target.closest('.react-flow__resize-control')) {
+				event.preventDefault();
+			}
+		}, [data.card.element]);
 
 		vendor.useLayoutEffect(() => () => {
 			const mounted = mountedCardRef.current;
@@ -504,8 +515,12 @@ export function createBaseHalfCanvasCardNode(environment: IBaseHalfCanvasSceneEn
 				return;
 			}
 			nodeElement.addEventListener('pointerdown', prepareCardResizeMeasurement, true);
-			return () => nodeElement.removeEventListener('pointerdown', prepareCardResizeMeasurement, true);
-		}, [prepareCardResizeMeasurement]);
+			nodeElement.addEventListener('mousedown', keepNoteEditorKeyboard, true);
+			return () => {
+				nodeElement.removeEventListener('pointerdown', prepareCardResizeMeasurement, true);
+				nodeElement.removeEventListener('mousedown', keepNoteEditorKeyboard, true);
+			};
+		}, [keepNoteEditorKeyboard, prepareCardResizeMeasurement]);
 
 		vendor.useLayoutEffect(() => {
 			const frame = host.ownerDocument.defaultView?.requestAnimationFrame(() => updateNodeInternals(id));

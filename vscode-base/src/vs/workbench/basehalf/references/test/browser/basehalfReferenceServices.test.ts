@@ -1329,15 +1329,16 @@ suite('BaseHalfReferenceEditService', () => {
 		const source = new UndoRedoSource();
 		const canvas = joinPath(folder, '.bh', 'mirror', 'canvas.yaml');
 		const clip = harness.node('clip.mp4');
-		// A canvas geometry step joins canvas.yaml and the moved card's stack.
-		const geometryRuns: string[] = [];
+		// An earlier step of the card that joins canvas.yaml and the card's own
+		// stack, as a step that changes the card's file does.
+		const earlierRuns: string[] = [];
 		harness.undoRedo.pushElement({
 			type: UndoRedoElementType.Workspace,
 			resources: [canvas, clip.resource],
-			label: 'Move or resize canvas cards',
-			code: 'test.geometry',
-			undo: () => { geometryRuns.push('undo'); },
-			redo: () => { geometryRuns.push('redo'); }
+			label: 'Change a card',
+			code: 'test.cardStep',
+			undo: () => { earlierRuns.push('undo'); },
+			redo: () => { earlierRuns.push('redo'); }
 		}, undefined, source);
 		await harness.undoRedo.undo(source);
 
@@ -1354,14 +1355,14 @@ suite('BaseHalfReferenceEditService', () => {
 			after,
 			undone,
 			redone: await list(),
-			geometryRuns,
+			earlierRuns,
 			notifications: harness.notifications.messages
 		}, {
 			resources: ['.bh/mirror/canvas.yaml', 'clip.mp4'],
 			after: 'upstream:\n  - brief.md\n',
 			undone: undefined,
 			redone: 'upstream:\n  - brief.md\n',
-			geometryRuns: ['undo'],
+			earlierRuns: ['undo'],
 			notifications: []
 		});
 	});

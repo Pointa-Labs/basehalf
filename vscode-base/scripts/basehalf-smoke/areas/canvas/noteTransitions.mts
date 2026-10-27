@@ -188,9 +188,13 @@ export async function startCanvasNoteEditTransitionProbe(note, tokens, expectedP
 				const style = getComputedStyle(element);
 				return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
 			};
+			// The resize targets of a Note stay while it is edited and paint
+			// nothing but a corner's indicator under the pointer (canvas card
+			// resize, "While a Note is edited").
 			const chrome = {
 				noteEditing: card.dataset.noteEditing === 'true',
-				visibleResizeHandles: Array.from(node?.querySelectorAll('.basehalf-canvas-node-resizer-handle') ?? []).filter(isVisible).length,
+				resizeTargets: node?.querySelectorAll('.basehalf-canvas-node-resizer-handle').length ?? 0,
+				visibleResizeIndicators: Array.from(node?.querySelectorAll('.basehalf-canvas-node-resize-corner-indicator') ?? []).filter(isVisible).length,
 				liveConnectionHandles: Array.from(node?.querySelectorAll('.basehalf-canvas-card-connect-handle') ?? []).filter(handle => isVisible(handle) && getComputedStyle(handle).pointerEvents !== 'none').length
 			};
 			const body = card.querySelector('.basehalf-canvas-card-body');
@@ -410,13 +414,23 @@ function assertCanvasNoteTransitionFrames(result, tokens, expectedPreviewIdentit
 		} else {
 			highestPhase = order;
 		}
-		if (frame.noteEditing && (frame.visibleResizeHandles !== 0 || frame.liveConnectionHandles !== 0)) {
+		if (frame.noteEditing && (frame.visibleResizeIndicators !== 0 || frame.liveConnectionHandles !== 0)) {
 			violations.push({
 				frameIndex,
 				phase: frame.phase,
 				issue: 'structural card chrome remained visible after Note editing began',
-				visibleResizeHandles: frame.visibleResizeHandles,
+				visibleResizeIndicators: frame.visibleResizeIndicators,
 				liveConnectionHandles: frame.liveConnectionHandles
+			});
+		}
+		const previous = frames[frameIndex - 1];
+		if (frame.noteEditing && previous && frame.resizeTargets !== previous.resizeTargets) {
+			violations.push({
+				frameIndex,
+				phase: frame.phase,
+				issue: 'the resize targets changed when or while the Note was edited',
+				resizeTargets: frame.resizeTargets,
+				previousResizeTargets: previous.resizeTargets
 			});
 		}
 		if (frame.originalPreviewIdentity !== expectedPreviewIdentity || !frame.staticPreviewIsOriginal) {

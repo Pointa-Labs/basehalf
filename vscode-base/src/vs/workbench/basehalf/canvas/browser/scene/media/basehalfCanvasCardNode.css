@@ -247,20 +247,6 @@
 	}
 }
 
-/* The workbench marks the Note as editing before the React scene commits its
- * next render. Hide structural resize chrome from that same synchronous state
- * boundary so it cannot survive for one frame over the text editor. */
-.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-line,
-.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-handle {
-	opacity: 0 !important;
-	pointer-events: none !important;
-	transition: none !important;
-}
-
-.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-band {
-	pointer-events: none !important;
-}
-
 .monaco-workbench .basehalf-canvas-node-resizer-handle.top:not(.left):not(.right),
 .monaco-workbench .basehalf-canvas-node-resizer-handle.bottom:not(.left):not(.right),
 .monaco-workbench .basehalf-canvas-node-resizer-handle.left:not(.top):not(.bottom),
