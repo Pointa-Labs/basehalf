@@ -671,10 +671,14 @@ in Card Detail.
     pushed, as far as the part may go with its ratio and its angle. It also
     stops when the whole picture fits the view as it fits.
   - So one drag takes a crop back to the original's edge.
-- **A drag inside the frame**, while the part is smaller than the picture,
-  moves the picture under the frame, as far as its edges go; letting go is a
-  change, "Crop still.png". While the part is the whole picture, a drag there
-  does nothing.
+- **A drag inside the frame**, away from its corners and sides, while the
+  part is smaller than the picture, moves the picture under the frame, as far
+  as its edges go: the frame stays still and the picture follows the pointer
+  exactly, with nothing moving at the press or the release, as a phone's photo
+  editor moves the photo under its crop with a finger and the photo app with a
+  drag in the middle (D97). A drag that a trackpad's three-finger drag makes is
+  such a drag. Letting go is a change, "Crop still.png". While the part is the
+  whole picture, a drag there does nothing.
 - **When a drag of a corner or a side ends**, the frame and the picture stay
   where they are for 1 s, as the photo app waits "a second", then glide in
   200 ms until the frame is as large as fits, at the middle of the view. A
@@ -1069,7 +1073,10 @@ in Card Detail.
     back, and a further pinch out stops at the largest part of its ratio that
     the picture holds. Each pinch is one step, "Crop still.png". The wheel
     with Command zooms as a pinch, and a two-finger swipe moves the picture
-    under the frame, also one step. A double click changes nothing.
+    under the frame, also one step. A double click changes nothing. A pointer
+    drag inside the frame, recorded on every frame, keeps the frame within
+    0.5 px and the picture's offset from the pointer within 0.5 px, moves
+    nothing at the press or the release, and is one step.
 26. Edit pressed with the picture zoomed in by a pinch while viewing: the
     picture glides to as it fits in 200 ms, drawn in every frame, and the frame
     then stands on the part kept.
