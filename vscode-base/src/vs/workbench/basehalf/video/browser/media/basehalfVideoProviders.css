@@ -329,6 +329,11 @@
 	text-decoration: none;
 }
 
+/* The console of the region chosen stands with the choice it follows (D94). */
+.basehalf-video-provider-field.region + .basehalf-video-provider-console {
+	margin-top: -8px;
+}
+
 .basehalf-video-provider-console:hover {
 	color: var(--vscode-textLink-activeForeground);
 	text-decoration: underline;

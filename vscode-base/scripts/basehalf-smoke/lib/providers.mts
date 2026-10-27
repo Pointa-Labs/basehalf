@@ -89,3 +89,32 @@ export function readProviderEditor(providers) {
 		};
 	}, undefined, { timeout: 2_000 });
 }
+
+// Where the provider shown puts its parts (D94): the parts in order, the
+// region's hint, and whether the region and the console link are in view in
+// the editor as it opens, scrolled to its top, with the size of the window.
+export function readProviderLayout(providers) {
+	return providers.evaluate(root => {
+		const editor = root.querySelector('.basehalf-video-provider-editor');
+		const box = editor?.getBoundingClientRect();
+		const inView = (element) => {
+			const rect = element?.getBoundingClientRect();
+			return !!rect && !!box && rect.height > 0 && rect.top >= box.top && rect.bottom <= box.bottom;
+		};
+		const parts = Array.from(editor?.children ?? []).map(child => child.classList.contains('basehalf-video-provider-editor-heading') ? 'heading'
+			: child.classList.contains('region') ? 'region'
+				: child.tagName === 'A' ? 'console'
+					: child.classList.contains('credential') ? 'credential'
+						: child.classList.contains('endpoint') ? 'endpoint' : child.className);
+		const region = editor?.querySelector('.basehalf-video-provider-field.region') ?? null;
+		return {
+			provider: editor?.getAttribute('data-provider') ?? null,
+			parts,
+			hint: region?.querySelector('.basehalf-video-provider-field-hint')?.textContent ?? null,
+			scrollTop: editor?.scrollTop ?? null,
+			regionInView: inView(region),
+			consoleInView: inView(editor?.querySelector('a.basehalf-video-provider-console')),
+			window: `${window.innerWidth} × ${window.innerHeight}`
+		};
+	}, undefined, { timeout: 2_000 });
+}

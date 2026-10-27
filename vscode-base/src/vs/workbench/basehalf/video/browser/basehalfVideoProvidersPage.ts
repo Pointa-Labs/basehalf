@@ -52,8 +52,8 @@ let pageCount = 0;
  * The Providers page of Settings (D59, D64, providers, "Credentials,
  * regions, and endpoints"), drawn from the model catalog: the providers in
  * the catalog's order, and for the one selected its models under Images,
- * Videos, and Audio, its region, one masked field per credential it declares, its
- * endpoint, and a link to the region's console. Saving checks nothing with the provider; the first generation tells
+ * Videos, and Audio, its region, a link to the region's console, one masked
+ * field per credential it declares, and its endpoint. Saving checks nothing with the provider; the first generation tells
  * whether the credentials work. A stored value is never read here and never
  * shown: the page knows only whether one is set.
  *
@@ -393,10 +393,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		if (provider.regions.length > 1) {
 			this.renderRegions(editor, provider, status, disposables);
 		}
-		for (const credential of provider.credentials) {
-			this.renderCredential(editor, provider, credential, status, disposables);
-		}
-		this.renderEndpoint(editor, provider, status, disposables);
+		// The console of the region chosen, before the credentials, where the user looks for a key (D94).
 		if (status.region.console) {
 			const consoleUrl = status.region.console;
 			const link = append(editor, $('a.basehalf-video-provider-console')) as HTMLAnchorElement;
@@ -411,18 +408,25 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 				void this.openerService.open(URI.parse(consoleUrl), { openExternal: true });
 			}));
 		}
+		for (const credential of provider.credentials) {
+			this.renderCredential(editor, provider, credential, status, disposables);
+		}
+		this.renderEndpoint(editor, provider, status, disposables);
 	}
 
 	private renderRegions(editor: HTMLElement, provider: IBaseHalfVideoCatalogProvider, status: IBaseHalfVideoProviderStatus, disposables: DisposableStore): void {
-		const field = append(editor, $('.basehalf-video-provider-field'));
+		const field = append(editor, $('.basehalf-video-provider-field.region'));
 		const label = append(field, $('.basehalf-video-provider-field-label'));
 		label.id = this.id('region-label');
 		label.textContent = localize('basehalf.video.providers.region', "Region");
+		// A key works only in the region whose console made it: the user chooses the region of their key (D94).
 		const hint = append(field, $('p.basehalf-video-provider-field-hint'));
-		hint.textContent = localize('basehalf.video.providers.regionHint', "The region sets where requests go and which models are offered.");
+		hint.id = this.id('region-hint');
+		hint.textContent = localize('basehalf.video.providers.regionHint', "Each region has its own console, keys, and models. Choose the region your key comes from.");
 		const group = append(field, $('.basehalf-video-provider-regions'));
 		group.setAttribute('role', 'radiogroup');
 		group.setAttribute('aria-labelledby', label.id);
+		group.setAttribute('aria-describedby', hint.id);
 		const buttons: HTMLButtonElement[] = [];
 		for (const region of provider.regions) {
 			const button = append(group, $('button.basehalf-video-provider-region')) as HTMLButtonElement;

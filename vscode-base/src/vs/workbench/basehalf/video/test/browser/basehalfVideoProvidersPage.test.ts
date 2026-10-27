@@ -259,6 +259,36 @@ suite('BaseHalfVideoProvidersPage', () => {
 		});
 	});
 
+	test('shows the region with its hint, then the console of the region chosen, before the credentials; the link follows the region (D94)', async () => {
+		const { providers, container } = createPage();
+		const parts = () => {
+			const editor = descendants(container).find(element => element.classList.contains('basehalf-video-provider-editor'))!;
+			return Array.from(editor.children, child => child.classList.contains('basehalf-video-provider-editor-heading') ? 'heading'
+				: child.classList.contains('region') ? 'region'
+					: child.tagName === 'A' ? `console: ${child.textContent}`
+						: child.classList.contains('credential') ? `credential: ${(child as HTMLElement).dataset.credential}`
+							: child.classList.contains('endpoint') ? 'endpoint' : child.className);
+		};
+		const hint = () => {
+			const field = descendants(container).find(element => element.classList.contains('region'))!;
+			const text = descendants(field).find(element => element.classList.contains('basehalf-video-provider-field-hint'))!;
+			const group = descendants(field).find(element => element.getAttribute('role') === 'radiogroup')!;
+			return { text: text.textContent, describes: group.getAttribute('aria-describedby') === text.id };
+		};
+		const before = { parts: parts(), hint: hint() };
+		(descendants(container).find(element => element.dataset.region === 'west') as HTMLButtonElement).click();
+		await settle();
+		assert.deepStrictEqual({ before, after: parts(), region: providers.getStatus(acme).region.id }, {
+			before: {
+				// The region the catalog lists first is chosen until the user chooses.
+				parts: ['heading', 'region', 'console: Get credentials in the console of Acme Video (East · Acme Cloud)', 'credential: apiKey', 'endpoint'],
+				hint: { text: 'Each region has its own console, keys, and models. Choose the region your key comes from.', describes: true }
+			},
+			after: ['heading', 'region', 'console: Get credentials in the console of Acme Video (West · Acme Global)', 'credential: apiKey', 'endpoint'],
+			region: 'west'
+		});
+	});
+
 	test('replaces and removes a credential after the confirmation', async () => {
 		const { providers, credentials, container } = createPage();
 		await providers.setCredential(acme, 'apiKey', 'acme-old');
