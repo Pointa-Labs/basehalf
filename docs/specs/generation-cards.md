@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -13,7 +13,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
 [D71](../decisions.md#d71--adding-an-input-is-two-buttons-at-the-panels-top-right-and-notes-are-in-the-reference-menu-new-2026-10-24),
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
-[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)
+[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
+[D90](../decisions.md#d90--an-image-cards-panel-shows-what-image-models-take-new-2026-10-27)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -705,6 +706,12 @@ The settings of a draft are drawn from its model's
   field when it has more, such as a seed, with `s` after a field in seconds;
   **Auto** next to a number that offers it; a switch for a boolean; a text
   field for text.
+- **A count**, how many images or songs one generation makes (`count`), is a
+  row of buttons from 1 to 4, as far as the model makes, as the canvas
+  products for media work offer it, also for a model that makes up to 15:
+  more than four from one click is rare, each is paid for, and each is a card
+  of the row (D90). A count the card stores beyond 4, as an agent may write
+  one, shows as one more button after them, checked, and is what is sent.
 - **More** opens the advanced parameters, such as the seed and the negative
   prompt. An optional parameter left empty sends nothing: an optional number
   is a number field, or buttons with **None** when it has five or fewer
@@ -747,8 +754,18 @@ result, and that is what is sent. A value that the mode does not use, an unknown
 name, and a number off the parameter's steps are not accepted. While the
 catalog is not there yet, the last values are written as they were stored.
 
-The summary of the settings names the mode and then, for every parameter that
-is not advanced and has a value: a choice by its option's label, a number
+**A mode is named where the models of the card's kind differ in it** (D90).
+A video model makes from frames, from references, or from a clip, and an
+audio model makes speech, music, or sound effects, so a video or an audio
+card names its mode, also when its own model has one. Every image model has
+the one mode References, an image made from references or from the prompt
+alone, so an image card names no mode: not in the summary of its settings,
+not in the panel of a card with its file, and not in why an input is not
+used. A kind whose models all have the same one mode names none; what is
+stored and sent keeps the mode (`reference`).
+
+The summary of the settings names the mode, where the kind names it, and
+then, for every parameter that is not advanced and has a value: a choice by its option's label, a number
 with the unit seconds as `5s`, **Auto** as its label, any other number as its
 label and value (`Steps 30`, `Images 4`), a boolean that is on by its label
 and one that is off as `Sound off`, and text as written.
@@ -827,7 +844,9 @@ From top to bottom:
      its accessible name: an arrow in a frame for Pick on Canvas, and a
      paperclip for Import File…, as an attachment has, since nothing is
      uploaded anywhere. Import File… is the one way to add a file from the
-     panel or the card. A card or a file that the model cannot use is
+     panel or the card. Its dialog offers the files of the kinds the
+     reference menu lists for the card, images and notes on an image card
+     (D90). A card or a file that the model cannot use is
      refused with the reason, as a connection on the canvas is, and Import
      File… copies nothing then.
    - A connection made or removed changes the row at once. The tiles that
@@ -875,13 +894,18 @@ From top to bottom:
        apart from the card itself. A card that is connected says Connected
        at the right. A card that the draft's model cannot
        use is dimmed with the reason and cannot be chosen, and so is a kind
-       of which the model takes none.
+       of which the model takes none. A kind that no model of the card's
+       kind takes is not listed (D90): an image card lists Images and
+       Notes, since no image model takes a video or a sound, and a kind
+       that one video model takes and another does not is listed, dimmed
+       for the model that does not.
      - Typing in the search field shows, in place of the two parts, the
        connected inputs and the cards of the canvas whose name or file name
        holds what was typed, under Connected and their kinds. With nothing
        found, it says "Nothing here has that name."; with nothing to list,
-       "Connect an image, a video, audio, or a note, or add one to this
-       canvas."
+       it names the kinds it lists, "Connect an image, a video, audio, or a
+       note, or add one to this canvas.", and on an image card "Connect an
+       image or a note, or add one to this canvas."
      - Choosing a connected input puts its mention in place of the `@`, as
        a chip with a space after it. Choosing a card that is not connected
        connects it, so its tile and its connection appear, and then puts its
@@ -903,7 +927,10 @@ From top to bottom:
      typed; at rest it shows the new prompt.
 3. **Footer**: the model button, the voice button when the model speaks,
    the settings button, and the Generate button.
-   - The model button shows the model's name. Its menu lists the catalog's
+   - The model button shows the model's name. A tooltip it showed goes when
+     what it says changes under the pointer, as Generate's does, so that a
+     model chosen from its menu is never followed by "Choose a model to
+     generate." (D90). Its menu lists the catalog's
      models of the card's kind grouped by provider: the providers that are
      set up first, then the others, each in the catalog's order; a provider
      that is not set up says so next to its name, and its models can still be
@@ -911,9 +938,9 @@ From top to bottom:
      modes, and for a video its range of durations, its largest resolution,
      and Sound when it makes sound, such as "Frames · References · 4–15s ·
      1080p · Sound"; for an image its largest resolution, how many images
-     one generation can make when that is more than one, and how many
-     reference images it takes, such as "4K · Up to 4 images · 14
-     references"; for an audio model what it makes, Speech, Music, or Sound
+     one generation can make from the panel when that is more than one, at
+     most 4 as its count's buttons go, and how many reference images it
+     takes, such as "4K · Up to 4 images · 14 references"; for an audio model what it makes, Speech, Music, or Sound
      Effects, then for speech the most characters its prompt takes, and
      otherwise its modes when it has more than one, its longest duration
      ("Up to 22s", or "30s" when it makes that length alone),
@@ -2275,6 +2302,27 @@ Audio cards (D78)
 90. `basehalf --generate` starts an audio draft as it starts an image or a
     video draft, and `basehalf --list-capabilities` lists the audio models
     with what each makes, the format it delivers, and the catalog's voices.
+91. An image card names no mode (D90): Seedream 5.0 Lite at 16:9, 2K, and
+    4 images sums its settings up as "16:9 · 2K · Images 4", on the settings
+    button of its draft and in the footer of each card it made, while a
+    video card's still begins with its mode, such as "Frames · 720p · 5s ·
+    Sound", also for a video model that has one mode, and a speech card's
+    with "Speech". A video that an agent connected to an image draft says
+    "Not used: Seedream 5.0 Pro takes no videos." without a mode.
+92. The count of an image model is a row of the buttons 1, 2, 3, and 4, also
+    for a model that makes up to 15, and the model menu says "Up to 4
+    images" for it; a model that makes up to 2 shows 1 and 2. A count of 8
+    that an agent wrote shows as a fifth button, 8, checked, and 8 images
+    are made. A music model's count is 1, 2, and 3, as before.
+93. The reference menu of an image draft lists Images and Notes under On
+    This Canvas, and neither Videos nor Audio, also when the canvas holds
+    videos and sounds; on a canvas with nothing to list it says "Connect an
+    image or a note, or add one to this canvas.". A video draft's menu lists
+    the four kinds as before. Import File… of an image draft offers images
+    and notes, of a video draft every kind.
+94. With the pointer on the model button of a draft without a model, choosing
+    a model from its menu leaves no tooltip that says "Choose a model to
+    generate.".
 
 ## Verification
 
