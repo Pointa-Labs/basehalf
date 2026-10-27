@@ -1,7 +1,7 @@
 # PDFs and books
 
-Status: Active (2026-10-25)
-Decision: [D81](../decisions.md)
+Status: Active (2026-10-25; a pinch zooms a PDF and a book, 2026-10-27)
+Decision: [D81](../decisions.md), [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27)
 Related: [canvas card placement](canvas-card-placement.md) (the size of a
 card), [canvas card resize](canvas-card-resize.md#which-cards-resize),
 [opening and closing Card Detail](card-detail-opening.md),

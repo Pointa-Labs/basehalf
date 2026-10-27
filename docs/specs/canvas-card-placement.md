@@ -2,7 +2,9 @@
 
 Status: Active (2026-10-11; rewritten the same day for D46, reviewed once,
 and revised so that the layout stays out of git; revised on 2026-10-12 for
-D50, so that a place the user points at is taken as it is). Implementation in
+D50, so that a place the user points at is taken as it is; revised on
+2026-10-27 for D88, so that a card let go on a folder goes into it).
+Implementation in
 progress: until it lands, the code does what the
 first version of this document required, which is summarized under
 [The first version](#the-first-version). The specifications listed under
@@ -10,6 +12,7 @@ first version of this document required, which is summarized under
 the commit that implements the part they describe.
 Decision: [D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11),
 refined by [D50](../decisions.md#d50--a-place-the-user-points-at-is-taken-as-it-is-new-2026-10-12)
+and [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
 Related: [following moved items](following-moved-items.md),
 [mirror file resilience](mirror-file-resilience.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),

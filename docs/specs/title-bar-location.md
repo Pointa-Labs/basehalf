@@ -1,7 +1,8 @@
 # The location in the title bar
 
-Status: Active (2026-10-24)
-Decision: [D73](../decisions.md)
+Status: Active (2026-10-24; a folder of the path takes what is dropped on it,
+2026-10-27)
+Decision: [D73](../decisions.md), [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
 Related: [layout controls](layout-controls.md) (the two ends of the title
 bar), [canvas card name](canvas-card-name.md) (the name of an open note in
 the path), [architecture invariants](../harness/architecture-invariants.md)

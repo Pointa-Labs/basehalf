@@ -1,9 +1,11 @@
 # Canvas selection and arrangement
 
 Status: Active (2026-10-12). Implemented. Revised 2026-10-25: a marquee that
-touches no card selects the connections it crosses.
+touches no card selects the connections it crosses. Revised 2026-10-27: a set
+let go on a folder goes into it.
 Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12),
 revised by [D80](../decisions.md#d80--a-connection-pulled-off-a-card-and-let-go-on-empty-canvas-is-removed-and-a-marquee-over-connections-alone-selects-them-new-2026-10-25)
+and [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
 Related: [canvas card placement](canvas-card-placement.md) (rows, chosen
 rows, list order, the plain grid),
 [canvas connection handles](canvas-connection-handles.md) (capture circles),

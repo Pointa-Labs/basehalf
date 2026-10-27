@@ -1,8 +1,11 @@
 # Exact undo
 
-Status: Active (2026-10-25; Command+Z in an editor of text, 2026-10-27)
+Status: Active (2026-10-25; editing media, 2026-10-26; a drop into a folder
+and Command+Z in an editor of text, 2026-10-27)
 Decision: [D82](../decisions.md#d82--a-delete-on-the-canvas-asks-nothing-and-undo-brings-back-exactly-what-a-step-took-new-2026-10-25);
-the editors of text, D89
+editing media, [D85](../decisions.md#d85--editing-media-is-direct-a-change-is-saved-as-it-is-made-with-no-edit-mode-new-2026-10-26);
+a drop into a folder, [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27);
+the editors of text, [D89](../decisions.md#d89--a-note-resizes-while-it-is-edited-on-its-card-and-an-editor-of-text-leaves-the-steps-of-other-places-to-them-new-2026-10-27)
 Related: [canvas Create menu](canvas-create-menu.md) (New Folder and its
 undo), [canvas card placement](canvas-card-placement.md) (rows),
 [generation cards](generation-cards.md#deleting) (drafts),
