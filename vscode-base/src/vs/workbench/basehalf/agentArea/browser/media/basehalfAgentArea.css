@@ -524,12 +524,12 @@
 	overflow: hidden;
 }
 
-/* Ghostty keeps its NSScrollView flush with the surface and applies a tiny
-   renderer padding to the grid. Mirror that shape: the xterm host reaches the
-   pane edge, while the glyph grid keeps only a 2px left breath. */
+/* The reference terminal keeps its scroll view flush with the surface and
+   applies a tiny renderer padding to the grid. Mirror that shape: the xterm
+   host reaches the pane edge, while the glyph grid keeps 2px at each side and
+   no width for the scrollbar, which lies over the rows. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface {
 	inset: 2px 0;
-	background-color: var(--basehalf-agent-pane-background);
 }
 
 .monaco-workbench .basehalf-agent-area-session .terminal-wrapper {
@@ -538,20 +538,30 @@
 	background-color: inherit;
 }
 
+/* xterm.js paints its background inline on the terminal and its scrollable
+   element. The edges under the surface paint it instead (D86), so the cells
+   and the edges are what the pane shows; without the edges the pane's own
+   background shows. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper,
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm,
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-viewport,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element,
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-screen {
-	background-color: var(--basehalf-agent-pane-background);
+	background-color: transparent !important;
 }
 
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm {
 	padding-left: 2px;
+	padding-right: 2px;
 }
 
+/* The scrollable element reaches both edges of the pane, so the scrollbar
+   lies at the pane's right edge, while the grid in it keeps its 2px. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element {
 	margin-left: -2px;
+	margin-right: -2px;
 	padding-left: 2px;
+	padding-right: 2px;
 }
 
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper:not(.fixed-dims) .xterm-viewport {

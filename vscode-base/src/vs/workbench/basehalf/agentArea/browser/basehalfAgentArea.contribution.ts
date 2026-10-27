@@ -12,7 +12,7 @@ import { Separator, toAction } from '../../../../base/common/actions.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
-import { IDisposable, Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { IDisposable, Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh, OperatingSystem, OS } from '../../../../base/common/platform.js';
 import { hasKey, isObject } from '../../../../base/common/types.js';
 import { localize2 } from '../../../../nls.js';
@@ -133,6 +133,7 @@ import {
 	toggleAgentPaneZoom,
 	undoAgentClose
 } from '../common/basehalfAgentTabsModel.js';
+import { baseHalfInstallTerminalEdges } from './basehalfTerminalEdges.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { BaseHalfSetting, normalizeBaseHalfAgentDefaultSession } from '../../shell/common/basehalfConfiguration.js';
 
@@ -253,6 +254,8 @@ interface IBaseHalfRuntimeAgentSession {
 	dropZone: HTMLElement;
 	dropPreview: HTMLElement;
 	disposables: DisposableStore;
+	/** The edges around the terminal's grid, which take the background of the nearest cell (D86). */
+	readonly edges: MutableDisposable<IDisposable>;
 	terminal?: ITerminalInstance;
 	terminalPersistentProcessId?: number;
 	/** Tracks whether launches carry the BaseHalf launch instruction and falls
@@ -1309,6 +1312,11 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.disposables.add(terminal.onExit(exit => this.markTerminalProcessExited(session, exit)));
 
 		terminal.attachToElement(session.surface);
+		void terminal.xtermReadyPromise.then(xterm => {
+			if (xterm && session.terminal === terminal && !session.disposables.isDisposed) {
+				session.edges.value = baseHalfInstallTerminalEdges(session.host, xterm.raw, () => this.logService.warn('Agent Area terminal: xterm.js color internals are missing; the pane keeps the theme background around the grid.'));
+			}
+		});
 		this.setActiveTerminalForVsCodeCompatibility(terminal);
 		if (!command) {
 			session.state = 'ready';
@@ -1346,8 +1354,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			dropZone: append(host, $('.basehalf-agent-pane-dropzone')),
 			dropPreview: $('.basehalf-agent-pane-drop-preview'),
 			disposables: new DisposableStore(),
+			edges: new MutableDisposable(),
 			launchInstructions: new BaseHalfAgentLaunchInstructionsMonitor()
 		};
+		session.disposables.add(session.edges);
 		session.host.setAttribute('role', 'tabpanel');
 		session.host.setAttribute('aria-label', label);
 		session.host.classList.add(kind === 'extension-codex' || kind === 'extension-claude' ? 'kind-extension' : 'kind-terminal');
