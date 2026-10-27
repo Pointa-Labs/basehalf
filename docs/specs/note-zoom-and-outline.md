@@ -144,9 +144,10 @@ Not in scope, and unchanged:
     the current heading's row in view when it opens. It has the look of
     BaseHalf's other menus: their background, border, 12-pixel corners, and
     shadow. The panel lies over the text, which does not move.
-16. **The current heading** is the last heading whose top is above the top
-    third of the view. Before the first heading reaches that line, it is the
-    first heading if it is in view. When the view is scrolled to the end of
+16. **The current heading** is the last heading whose top is less than 64
+    pixels below the top of the view: where a click on its name puts it, and
+    a line more. Before the first heading reaches that line, it is the first
+    heading if it is in view. When the view is scrolled to the end of
     the note, it is the last heading in view, if any.
 17. A click on a name scrolls the view, smoothly, until the heading stands
     24 pixels below the top of the view, or as far as the note scrolls. The
