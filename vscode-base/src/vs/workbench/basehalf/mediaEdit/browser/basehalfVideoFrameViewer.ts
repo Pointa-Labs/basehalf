@@ -12,12 +12,12 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import { IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
-import { BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
+import { BASEHALF_TIME_ZOOM_REST_MS, BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
 import { baseHalfVideoFrameEdges } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimHandle, BaseHalfVideoTrimTimeline, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../common/basehalfVideoTrimSelection.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfEditVideo } from './basehalfMediaEditService.js';
-import { BaseHalfTimeZoom } from './basehalfTimeZoom.js';
+import { BaseHalfStripEdgeFollow, baseHalfStripClock, BaseHalfTimeZoom } from './basehalfTimeZoom.js';
 import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
 
 /**
@@ -52,6 +52,8 @@ const PICTURES_DELAY_MILLISECONDS = 120;
 const HOLD_MILLISECONDS = 400;
 /** What the viewer shows around a held handle: a tenth of the video, or this, whichever is longer. */
 const SPREAD_MIN_SECONDS = 2;
+/** A held handle's spread this close to the start or the end of the length shows it, in seconds. */
+const SPREAD_EPSILON = 0.0005;
 const SPREAD_FRACTION = 0.1;
 /** Steps of the keyboard on a handle, in seconds. */
 const STEP_SECONDS = 0.1;
@@ -100,6 +102,11 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	private view: IStripView;
 	/** The stretch whose pictures the pictures of the zoom show. */
 	private zoomDrawn: IStripView | undefined;
+	/** The stretch whose pictures the pictures of a held handle's spread show. */
+	private spreadDrawn: IStripView | undefined;
+	/** A drag held at an edge of a held handle's spread carries the spread along (D98). */
+	private readonly spreadFollow: BaseHalfStripEdgeFollow;
+	private readonly spreadRest = this._register(new MutableDisposable());
 	private drag: IDrag | undefined;
 	private holdTimer: ReturnType<typeof setTimeout> | undefined;
 	private playheadFrame: number | undefined;
@@ -166,6 +173,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			onDidChange: rested => this.onDidZoom(rested),
 			onDidMoveUnderDrag: clientX => this.dragTo(clientX)
 		}));
+		this.spreadFollow = this._register(new BaseHalfStripEdgeFollow(this.strip, baseHalfStripClock(getWindow(this.element)), () => this.view.to - this.view.from,
+			direction => direction < 0 ? this.view.from <= SPREAD_EPSILON : this.view.to >= this.timeline.duration - SPREAD_EPSILON,
+			(seconds, clientX) => this.moveSpread(seconds, clientX)));
 
 		this.registerListeners();
 		this.applyChoice();
@@ -436,9 +446,41 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 				this.scheduleHold();
 			}
 		}
-		// Past an edge of the stretch a pinch spread out, the drag carries the stretch along.
-		this.zoom.dragAt(!this.editing || current.kind === 'press' || this.element.classList.contains('spread') ? undefined : event.clientX);
-		this.dragTo(event.clientX);
+		// Held at an edge of the stretch a pinch spread out, or of a held handle's spread, the drag carries it along (D98).
+		const carries = this.editing && current.kind !== 'press';
+		const spread = this.element.classList.contains('spread');
+		this.zoom.dragAt(carries && !spread ? event.clientX : undefined);
+		this.spreadFollow.at(carries && spread ? event.clientX : undefined);
+		// While what is shown follows, what the drag holds stays at the margin's inner side, never under the strip's edge.
+		this.dragTo(!carries ? event.clientX : spread ? this.spreadFollow.place(event.clientX) : this.zoom.place(event.clientX));
+	}
+
+	/** A drag held at an edge of a held handle's spread: the spread moves by `seconds`, within the video, and what the drag holds follows the pointer. */
+	private moveSpread(seconds: number, clientX: number): void {
+		const span = this.view.to - this.view.from;
+		const from = Math.min(Math.max(this.view.from + seconds, 0), Math.max(0, this.timeline.duration - span));
+		if (from === this.view.from) {
+			return;
+		}
+		this.view = { from, to: from + span };
+		this.dragTo(this.spreadFollow.place(clientX));
+		this.placePictures();
+		this.render();
+		// The pictures drawn slide with it; once it rests, the frames of the new stretch are read.
+		this.spreadRest.value = toDisposable((() => {
+			const timer = setTimeout(() => this.readSpreadPictures(), BASEHALF_TIME_ZOOM_REST_MS);
+			return () => clearTimeout(timer);
+		})());
+	}
+
+	private readSpreadPictures(): void {
+		const width = this.strip.clientWidth;
+		if (!this.element.classList.contains('spread') || width <= 0) {
+			return;
+		}
+		this.spreadDrawn = this.view;
+		this.readPictures(this.spreadPictures, this.spreadLoad, this.view, this.pictureCount(width), width);
+		this.placePictures();
 	}
 
 	/** What the drag holds goes to the time under the pointer. */
@@ -470,6 +512,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.drag = undefined;
 		this.clearHold();
 		this.zoom.dragAt(undefined);
+		this.spreadFollow.at(undefined);
 		this.element.classList.remove('dragging');
 		if (drag.kind === 'press' && released) {
 			// A press inside the part that did not move moves the playhead there.
@@ -498,6 +541,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.drag = undefined;
 		this.clearHold();
 		this.zoom.dragAt(undefined);
+		this.spreadFollow.at(undefined);
 		this.element.classList.remove('dragging');
 		try {
 			this.strip.releasePointerCapture(drag.pointerId);
@@ -551,6 +595,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		drag.grab = this.timeAt(drag.lastX) - time;
 		this.element.classList.add('spread');
 		const width = this.strip.clientWidth;
+		this.spreadDrawn = this.view;
 		this.readPictures(this.spreadPictures, this.spreadLoad, this.view, this.pictureCount(width), width);
 		this.render();
 	}
@@ -562,6 +607,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		// The stretch a pinch chose shows again, or the whole video.
 		this.view = this.restingView();
 		this.element.classList.remove('spread');
+		this.spreadFollow.at(undefined);
+		this.spreadRest.clear();
+		this.spreadDrawn = undefined;
 		this.spreadLoad.clear();
 		clearNode(this.spreadPictures);
 		if (this.zoomDrawn?.from !== this.view.from || this.zoomDrawn?.to !== this.view.to) {
@@ -622,6 +670,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		};
 		place(this.pictures, { from: 0, to: this.timeline.duration });
 		place(this.zoomPictures, this.zoomDrawn);
+		place(this.spreadPictures, this.spreadDrawn);
 	}
 
 	// #endregion

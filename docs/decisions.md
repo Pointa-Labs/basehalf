@@ -4235,8 +4235,11 @@ picture or rests on a control, and while the keyboard is on one of them. While
 it plays, they fade 2.5 s after the pointer last moved, and at once when it
 leaves the picture. In the frame viewer of a video and the waveform of a
 sound, a drag that comes within 24 px of the strip's edge, not only past it,
-moves a spread-out stretch along, from a crawl to faster the deeper the
-pointer is. See [generation cards, "The player"](specs/generation-cards.md#the-player)
+moves a spread-out stretch along, a held handle's spread too, by the rule the
+crop frame of an image follows (D97): the depth from the margin's inner side
+over 100 is the share of its length the stretch moves each second, at most 4,
+while what the drag holds stays at the margin's inner side, never under the
+edge, until the start or the end is in view. See [generation cards, "The player"](specs/generation-cards.md#the-player)
 and [editing media](specs/media-editing.md#zooming-the-picture-and-the-time).
 
 **Why.** On 2026-10-28 the user found a video card's black edge too wide and
@@ -4257,8 +4260,11 @@ and darkens nothing else. While the video plays, it hides them once the
 pointer rests. The phone's trim already matched BaseHalf's frame viewer: the
 yellow frame and its handles, the frame at the handle in the picture, and
 holding a handle to spread the strip out. Only its edge differed. The phone
-follows a handle held against the edge of the strip, while BaseHalf's moved
-only once the pointer went past the edge.
+follows a handle held against the edge of the strip. BaseHalf's moved only
+once the pointer went past the edge, and a held handle's spread did not move
+at all: the handle stopped at the spread's end, 2 s from where it was held.
+The user asked for one rule wherever a handle is dragged towards an edge
+("可能是个全局的问题"), so the strips take the crop frame's numbers.
 
 **What was set aside.**
 - A shorter or lighter shade: it is still a band across the picture.
@@ -4279,7 +4285,8 @@ only once the pointer went past the edge.
   controls float over the picture with their own backing. Card Detail's show
   as a player's do. Criteria 40 and 99.
 - [Editing media](specs/media-editing.md#zooming-the-picture-and-the-time):
-  the 24 px margin at the strip's edges, and criterion 23.
+  the 24 px margin at the strip's edges, its speed, what the drag holds, and
+  criterion 23.
 - The zoomed picture of D96 gets no shade across it either.
 - The cards' shapes, the player's behaviour on a card (D62), and the
   frame viewer's other gestures are unchanged.
