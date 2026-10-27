@@ -1216,9 +1216,10 @@ Each kind's panel shows these parts, from top to bottom (D91):
   tiles alone, since no image model takes a frame or a clip; the prompt; the
   reason line; and the footer: Pick on Canvas and Import File…, the model
   button, the settings button, and Generate. With nothing connected the
-  panel is its prompt and its footer, 132 px tall, and no line says what can
-  be added: the two buttons, the reference menu that `@` opens, and the
-  prompt's placeholder do. The first input that is connected, in any way,
+  panel is its prompt and its footer, 132 px tall, with the reason line when
+  one shows, and no line says what can be added: the two buttons, the
+  reference menu that `@` opens, and the prompt's placeholder do. The first
+  input that is connected, in any way,
   shows the row above the prompt, the two buttons staying in the footer, and
   removing the last one takes the row away again.
 - **A video card**: the input row whenever the card has inputs or its mode
