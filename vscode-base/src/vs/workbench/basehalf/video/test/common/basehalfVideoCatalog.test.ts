@@ -35,6 +35,7 @@ import {
 	baseHalfVideoModeUsesEveryInput,
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
+	baseHalfVideoRefusedInRegion,
 	baseHalfVideoRefusedParam,
 	baseHalfVideoSentParams,
 	baseHalfVideoSettingsSummary,
@@ -394,6 +395,29 @@ suite('BaseHalfVideoCatalog', () => {
 			withoutFrame: { resolution: '720p', ratio: '9:16', duration: 5, sound: true },
 			summaries: [['Frames', '720p', '5s', 'Sound'], ['Frames', '720p', '9:16', '5s', 'Sound']],
 			blocker: ['modeRegion', 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Providers.']
+		});
+	});
+
+	test('credentials refused at a region\'s own address name that region and where the other is chosen; a relay, one region, or an unknown region name none (D94)', () => {
+		const [east, west] = ACME.regions;
+		const third = { id: 'north', label: 'North · Acme Polar', baseUrl: 'https://north.acme.example/api/v1' };
+		const refused = (provider: IBaseHalfVideoCatalogProvider | undefined, region: string, endpoint: string) => baseHalfVideoRefusedInRegion(provider, { region, endpoint }, 'Unauthorized.');
+		assert.deepStrictEqual({
+			east: refused(ACME, 'east', east.baseUrl),
+			west: refused(ACME, 'west', west.baseUrl),
+			three: refused({ ...ACME, regions: [east, west, third] }, 'west', west.baseUrl),
+			relay: refused(ACME, 'east', 'http://127.0.0.1:8123/api/v1'),
+			oneRegion: refused(BOREALIS, BOREALIS.regions[0].id, BOREALIS.regions[0].baseUrl),
+			unknownRegion: refused(ACME, 'south', east.baseUrl),
+			noProvider: refused(undefined, 'east', east.baseUrl)
+		}, {
+			east: 'The provider refused the credentials in East · Acme Cloud. If they are from West · Acme Global, choose that region in Providers: Unauthorized.',
+			west: 'The provider refused the credentials in West · Acme Global. If they are from East · Acme Cloud, choose that region in Providers: Unauthorized.',
+			three: 'The provider refused the credentials in West · Acme Global. If they are from another region, choose it in Providers: Unauthorized.',
+			relay: undefined,
+			oneRegion: undefined,
+			unknownRegion: undefined,
+			noProvider: undefined
 		});
 	});
 

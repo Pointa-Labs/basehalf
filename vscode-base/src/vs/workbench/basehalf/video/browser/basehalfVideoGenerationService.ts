@@ -83,6 +83,7 @@ import {
 	BaseHalfVideoParams,
 	BaseHalfVideoPollState,
 	BaseHalfVideoProviderErrorCode,
+	baseHalfVideoRefusedInRegion,
 	baseHalfVideoRefusedParam,
 	baseHalfVideoSentParams,
 	findBaseHalfVideoModel,
@@ -91,6 +92,7 @@ import {
 	getBaseHalfVideoGenerateBlocker,
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCatalogMode,
+	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoDownloadResult,
 	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoInputPlanItem,
@@ -703,6 +705,12 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
+	/** A provider of the catalog as this window has it, without waiting for one that loads. */
+	private catalogProvider(providerId: string | undefined): IBaseHalfVideoCatalogProvider | undefined {
+		const state = this.catalogService.state;
+		return findBaseHalfVideoProvider(state.kind === 'ready' ? state.catalog : undefined, providerId);
+	}
+
 	private async readText(input: IBaseHalfVideoResolvedInput, item: IBaseHalfVideoInputPlanItem): Promise<string> {
 		const file = input.file;
 		if (!file) {
@@ -837,7 +845,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		if (!answer.ok) {
-			await this.fail(follow, submitFailureMessage(answer, follow.secrets()));
+			await this.fail(follow, submitFailureMessage(answer, follow.secrets(), this.catalogProvider(follow.access?.provider), follow.access));
 			return;
 		}
 		follow.lastUsed = lastUsed;
@@ -2312,7 +2320,12 @@ function notAcceptedMessage(kind: BaseHalfGenerationKind, detail: string): strin
 	}
 }
 
-function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: false }>, secrets: readonly string[]): string {
+/**
+ * The words of a request the provider did not take. Credentials that a
+ * provider of more than one region refused at its region's own address name
+ * that region and the other one (D94).
+ */
+function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: false }>, secrets: readonly string[], provider: IBaseHalfVideoCatalogProvider | undefined, access: IBaseHalfVideoProviderAccess | undefined): string {
 	const error = answer.error;
 	const detail = errorDetail(error, secrets);
 	if (answer.unavailable) {
@@ -2320,7 +2333,8 @@ function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: fal
 	}
 	switch (error.code) {
 		case 'auth':
-			return localize('basehalf.video.generation.refusedKey', "The provider refused the credentials: {0}", detail);
+			return (access && baseHalfVideoRefusedInRegion(provider, access, detail))
+				?? localize('basehalf.video.generation.refusedKey', "The provider refused the credentials: {0}", detail);
 		case 'rejected':
 			return localize('basehalf.video.generation.rejected', "The provider refused the request: {0}", detail);
 		case 'rateLimited':

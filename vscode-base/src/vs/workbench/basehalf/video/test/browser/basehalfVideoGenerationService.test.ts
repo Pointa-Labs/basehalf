@@ -998,12 +998,51 @@ suite('BaseHalfVideoGenerationService', () => {
 		await timeout(60_000);
 		const errors = new Map((await harness.records()).map(task => [task.cards[0].path, task.error]));
 		assert.deepStrictEqual({ refused: errors.get('shots/refused.mp4'), unknown: errors.get('shots/unknown.mp4'), sent: commands.count(SUBMIT), polls: commands.count(POLL) }, {
-			refused: 'The provider refused the credentials: The API key *** is incorrect.',
+			// Acme has two regions, and the request went to the first one's own address (D94).
+			refused: 'The provider refused the credentials in East · Acme Cloud. If they are from West · Acme Global, choose that region in Providers: The API key *** is incorrect.',
 			unknown: `${unknownOutcomeMessage()} (The connection closed after the request was sent.)`,
 			sent: 2,
 			polls: 0
 		});
 		harness.dispose();
+	}));
+
+	test('credentials refused at a region\'s own address name that region and the other one; at an endpoint the user entered, for a provider of one region, and while a task is asked about, no region (D94)', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
+		const refusedKey = (message: string) => () => ({ ok: false, error: { code: 'auth', message, status: 401 } });
+		const failedWith = async (harness: IHarness, path: string) => {
+			await until(async () => (await harness.records()).some(task => task.cards[0].path === path && task.state === 'failed'));
+			return (await harness.records()).find(task => task.cards[0].path === path)?.error;
+		};
+		const harness = await createHarness();
+		const { service, commands } = harness.first;
+		commands.submit = refusedKey('Unauthorized.');
+		await harness.providers.setRegion(ACME_PROVIDER, 'west');
+		await service.generate(await harness.card('shots/west.mp4', VIDEO));
+		const west = await failedWith(harness, 'shots/west.mp4');
+		// A relay has keys of its own: the region is not the reason.
+		await harness.providers.setEndpoint(ACME_PROVIDER, 'http://127.0.0.1:8123/api/v1');
+		await service.generate(await harness.card('shots/relay.mp4', VIDEO));
+		const relay = await failedWith(harness, 'shots/relay.mp4');
+		// The provider took the credentials when it made the task.
+		await harness.providers.setEndpoint(ACME_PROVIDER, '');
+		commands.submit = () => ({ ok: true, value: { remoteId: 'cgt-remote-asked' } });
+		commands.poll = refusedKey('Unauthorized.');
+		await service.generate(await harness.card('shots/asked.mp4', VIDEO));
+		const asked = await failedWith(harness, 'shots/asked.mp4');
+		harness.dispose();
+
+		const oneRegion = await createHarness({ catalogProviders: [{ ...ACME, regions: [ACME.regions[0]] }, BOREALIS, CORVID] });
+		oneRegion.first.commands.submit = refusedKey('Unauthorized.');
+		await oneRegion.first.service.generate(await oneRegion.card('shots/one.mp4', VIDEO));
+		const one = await failedWith(oneRegion, 'shots/one.mp4');
+		oneRegion.dispose();
+
+		assert.deepStrictEqual({ west, relay, asked, one }, {
+			west: 'The provider refused the credentials in West · Acme Global. If they are from East · Acme Cloud, choose that region in Providers: Unauthorized.',
+			relay: 'The provider refused the credentials: Unauthorized.',
+			asked: 'The provider refused the credentials while BaseHalf asked about the generation: Unauthorized.',
+			one: 'The provider refused the credentials: Unauthorized.'
+		});
 	}));
 
 	test('a task that has not ended two hours after its start fails with a message that says so', () => runWithFakedTimers({ startTime: START, maxTaskCount: 50_000 }, async () => {
