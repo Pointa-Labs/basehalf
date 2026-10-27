@@ -7,6 +7,7 @@ import {
 	BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE,
 	BASEHALF_CANVAS_DROP_TARGET_ATTRIBUTE,
 	BASEHALF_CANVAS_DROPPING_ATTRIBUTE,
+	BASEHALF_CANVAS_FOLDER_TAKES_ATTRIBUTE,
 	BaseHalfCanvasDropFolder,
 	baseHalfCanvasFolderDropTarget,
 	IBaseHalfCanvasTakingFolder
@@ -123,6 +124,9 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		for (const element of dropping) {
 			element.setAttribute(BASEHALF_CANVAS_DROPPING_ATTRIBUTE, '');
 		}
+		// The guides go in the frame the folder lights, not when the scene is
+		// drawn again without them.
+		host.toggleAttribute(BASEHALF_CANVAS_FOLDER_TAKES_ATTRIBUTE, !!target);
 		look.current = { target, dropping };
 	}, []);
 
@@ -209,10 +213,11 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		if (!view) {
 			return;
 		}
-		// A move of the pointer reaches the window before the canvas library moves
-		// the card for it (on the mouse event after it), so the card is not
-		// snapped on the move that takes it over a folder.
-		const onPointerMove = (event: PointerEvent): void => {
+		// The canvas library moves the card on the window's mouse move, in a
+		// listener it adds when the drag starts: this one, added before it, decides
+		// the folder first, with the same point, so the card is not snapped on the
+		// move that takes it over a folder.
+		const onMouseMove = (event: MouseEvent): void => {
 			const drag = nodeDragState.current;
 			if (drag && !drag.cancelled && followedNodeDrag.current === drag.token) {
 				follow(event.clientX, event.clientY, drag);
@@ -238,13 +243,13 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 				clear();
 			}
 		};
-		view.addEventListener('pointermove', onPointerMove, true);
+		view.addEventListener('mousemove', onMouseMove, true);
 		view.addEventListener('pointerup', onPointerUp, true);
 		view.addEventListener('pointercancel', clear, true);
 		view.addEventListener('keydown', onKeyDown, true);
 		view.addEventListener('blur', clear);
 		return () => {
-			view.removeEventListener('pointermove', onPointerMove, true);
+			view.removeEventListener('mousemove', onMouseMove, true);
 			view.removeEventListener('pointerup', onPointerUp, true);
 			view.removeEventListener('pointercancel', clear, true);
 			view.removeEventListener('keydown', onKeyDown, true);

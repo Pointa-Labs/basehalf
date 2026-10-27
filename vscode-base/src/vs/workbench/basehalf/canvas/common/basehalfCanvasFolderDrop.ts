@@ -14,6 +14,8 @@ export const BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE = 'data-basehalf-drop-folder'
 export const BASEHALF_CANVAS_DROP_TARGET_ATTRIBUTE = 'data-basehalf-drop-target';
 /** Marks the cards being dragged while a folder would take them. */
 export const BASEHALF_CANVAS_DROPPING_ATTRIBUTE = 'data-basehalf-dropping';
+/** Marks the canvas while a folder would take the dragged cards: no snap guides are drawn. */
+export const BASEHALF_CANVAS_FOLDER_TAKES_ATTRIBUTE = 'data-basehalf-folder-takes';
 
 /**
  * The folder that cards let go on go into (dropping into a folder): a
