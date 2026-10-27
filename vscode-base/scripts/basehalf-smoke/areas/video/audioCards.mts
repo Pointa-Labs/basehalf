@@ -556,7 +556,7 @@ async function assertNoteIsSpoken(page) {
 	await page.mouse.click(play.x, play.y);
 	await waitForReading(() => readCardVideoPlayer(page, SPEECH), seen => seen?.paused === true, 'Pause to pause the sound');
 
-	// Open shows it in Card Detail, which plays it in the same player, with what made it.
+	// Open shows it in Card Detail, as its waveform in place of a player (editing media, D85), which plays it with what made it under it.
 	const toolbar = await waitForReading(() => readCardToolbar(page), seen => seen?.path === SPEECH, 'the toolbar of the card with its sound');
 	if (JSON.stringify(toolbar.actions) !== JSON.stringify(['revealVideo', 'openFullPreview']) || toolbar.media !== 'audio') {
 		throw new Error(`The toolbar of a card with its sound must offer Reveal and Open: ${JSON.stringify(toolbar)}`);
@@ -564,18 +564,35 @@ async function assertNoteIsSpoken(page) {
 	await page.locator('.basehalf-video-context-toolbar [data-video-action="openFullPreview"]').click();
 	const detail = page.locator('.basehalf-card-detail.visible');
 	await detail.waitFor({ state: 'visible', timeout: 15_000 });
-	const detailPlayer = detail.locator('.basehalf-card-detail-media .basehalf-canvas-video-player.detail');
-	await detailPlayer.waitFor({ state: 'visible', timeout: 15_000 });
-	const readDetail = () => detailPlayer.evaluate(element => {
-		const video = element.querySelector('video');
-		const open = element.querySelector('.basehalf-canvas-video-player-button.open');
-		return { sound: element.classList.contains('sound'), fullScreen: !!open && !open.hidden, paused: video?.paused ?? null, muted: video?.muted ?? null, time: video?.currentTime ?? 0 };
+	const waveform = detail.locator('.basehalf-card-detail-media .basehalf-sound-waveform');
+	await waveform.waitFor({ state: 'visible', timeout: 15_000 });
+	const readDetail = () => detail.evaluate(element => {
+		const media = element.querySelector('.basehalf-card-detail-media');
+		const play = media?.querySelector('.basehalf-sound-waveform-play');
+		// The waveform plays the sound with the window's audio: no element of Card Detail plays it, and none is muted.
+		const elements = Array.from(media?.querySelectorAll('video, audio') ?? []) as HTMLMediaElement[];
+		const time = /^([\d.]+)s/.exec(media?.querySelector('.basehalf-sound-waveform-time')?.textContent ?? '')?.[1];
+		return {
+			player: !!media?.querySelector('.basehalf-canvas-video-player'),
+			fullScreen: !!media?.querySelector('.basehalf-canvas-video-player-button.full-screen'),
+			ready: play?.getAttribute('aria-disabled') === 'false',
+			playing: play?.getAttribute('aria-label') === 'Pause',
+			mediaElements: elements.length,
+			muted: elements.some(item => item.muted),
+			time: time === undefined ? 0 : Number(time)
+		};
 	}, undefined, { timeout: 2_000 });
-	if (!(await readDetail()).sound || (await readDetail()).fullScreen) {
-		throw new Error(`Card Detail must show the sound in BaseHalf's player, without Full Screen: ${JSON.stringify(await readDetail())}`);
+	const shown = await waitForReading(readDetail, seen => seen.ready, 'the waveform to decode the sound so that Play can play it');
+	if (shown.player || shown.fullScreen || shown.mediaElements !== 0 || shown.playing) {
+		throw new Error(`Card Detail must show the sound as its waveform, at rest, in place of BaseHalf's player, without Full Screen: ${JSON.stringify(shown)}`);
 	}
-	await detailPlayer.locator('.basehalf-canvas-video-player-button.play').click();
-	await waitForReading(readDetail, seen => seen.paused === false && seen.muted === false && seen.time > 0.3, 'Card Detail to play the sound');
+	await waveform.locator('.basehalf-sound-waveform-play').click();
+	const heard = await waitForReading(readDetail, seen => seen.playing && seen.time > 0.3, 'the waveform to play the sound');
+	if (heard.muted) {
+		throw new Error(`Card Detail plays a sound with its sound on: ${JSON.stringify(heard)}`);
+	}
+	await waveform.locator('.basehalf-sound-waveform-play').click();
+	await waitForReading(readDetail, seen => !seen.playing, 'Pause to pause the sound');
 	const section = detail.locator('.basehalf-card-detail-media.has-generation-provenance section.bh-generation-provenance');
 	await section.waitFor({ state: 'visible', timeout: 15_000 });
 	const provenance = await section.evaluate(element => ({
