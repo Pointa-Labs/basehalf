@@ -13,10 +13,11 @@ import { assertCanvasFolder, emptyCanvasPoint, openRootCanvas, readCanvasCardGeo
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 // Dropping into a folder (docs/specs/canvas-drop-into-folder.md), criteria 1,
-// 3, 5, 6, 7, and 10, and of 11 the size, the yellow, the grown edge, and the
-// path, with real pointer drags on a folder of its own: a note let go on a
-// folder's card goes into it, in one step of undo and redo, while the folder
-// grows and glows yellow and takes it on its grown edge too; a name the folder
+// 3, 5, 6, 7, and 10, of 11 the size, the yellow, the grown edge, and the path,
+// and of 12 the guides and the move of 3 pixels, with real pointer drags on a
+// folder of its own: a note let go on a folder's card goes into it, in one step
+// of undo and redo, while the folder grows and glows yellow, nothing snaps the
+// note, and the folder takes it on its grown edge too; a name the folder
 // holds is kept beside it, and the note that names it follows; the drag and
 // the click right after a drop work; the pointer decides, not the card; a card
 // let go over Files goes back, and the view does not move while the pointer is
@@ -169,15 +170,28 @@ export async function assertCanvasDropIntoFolder(page) {
 	// afterwards the card is gone, the folder lists the note, and nothing is
 	// selected. 11. The folder grows to 108 percent and glows yellow, and the
 	// note let go on its grown edge, outside its place, still goes into it.
+	// 12. Nothing snaps the note while the folder takes it: held with its left
+	// edge 1 pixel beside the folder's left edge, where it would snap to it,
+	// no guide is drawn, and 3 pixels more of the pointer move it 3 pixels.
 	const boxAtRest = await rectOf('box');
+	const guidesDrawn = () => page.locator('[data-testid="canvas-snap-guide"]').count();
 	const held = await drag(await grip('a.md'), centreOf(boxAtRest), async () => {
 		const middle = await lookOf(['box', 'shelf', 'a.md']);
+		const pointer = centreOf(boxAtRest);
+		const note = await rectOf('a.md');
+		const besideEdge = { x: Math.round(boxAtRest.x + 1 + pointer.x - note.x), y: Math.round(pointer.y) };
+		await page.mouse.move(besideEdge.x, besideEdge.y, { steps: 2 });
+		await page.waitForTimeout(150);
+		const atEdge = { note: await rectOf('a.md'), guides: await guidesDrawn(), taken: (await lookOf(['box']))[cardPath('box')]?.target };
+		await page.mouse.move(besideEdge.x + 3, besideEdge.y);
+		await page.waitForTimeout(150);
+		const further = { note: await rectOf('a.md'), guides: await guidesDrawn() };
 		// Between the folder's own edge and the edge it is drawn with now.
 		const grown = await rectOf('box');
 		const rim = { x: Math.round((boxAtRest.x + boxAtRest.width + grown.x + grown.width) / 2), y: Math.round(grown.y + grown.height / 2) };
 		await page.mouse.move(rim.x, rim.y, { steps: 2 });
 		await page.waitForTimeout(150);
-		return { middle, grown, rim, onRim: (await lookOf(['box']))[cardPath('box')] };
+		return { middle, atEdge, further, grown, rim, onRim: (await lookOf(['box']))[cardPath('box')] };
 	});
 	const heldBox = held.middle[cardPath('box')];
 	if (!heldBox?.target || held.middle[cardPath('shelf')]?.target || !held.middle[cardPath('a.md')]?.dropping || held.middle[cardPath('a.md')]?.filter !== 'opacity(0.5)') {
@@ -185,6 +199,10 @@ export async function assertCanvasDropIntoFolder(page) {
 	}
 	if (heldBox.scale !== '1.08' || !glowsYellow(heldBox) || held.rim.x <= boxAtRest.x + boxAtRest.width) {
 		throw new Error(`A folder's card that takes a note must grow to 108 percent and glow yellow: ${JSON.stringify({ heldBox, boxAtRest, grown: held.grown })}`);
+	}
+	if (!held.atEdge.taken || held.atEdge.guides !== 0 || held.further.guides !== 0
+		|| Math.abs(held.further.note.x - held.atEdge.note.x - 3) > 0.5 || Math.abs(held.further.note.y - held.atEdge.note.y) > 0.5) {
+		throw new Error(`While a folder's card takes a note, nothing may snap the note: no guide is drawn, and the note follows the pointer exactly: ${JSON.stringify({ atEdge: held.atEdge, further: held.further, boxAtRest })}`);
 	}
 	if (!held.onRim?.target || held.onRim.scale !== '1.08') {
 		throw new Error(`With the pointer on the grown edge of the folder's card, outside its place, the folder must still take the note: ${JSON.stringify({ onRim: held.onRim, rim: held.rim, boxAtRest })}`);
