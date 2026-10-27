@@ -49,6 +49,7 @@ import {
 	readCardToolbar,
 	readCanvasPick,
 	readCardVideoPlayer,
+	readVideoControlsShape,
 	readCursorAt,
 	readGenerationCard,
 	readGenerationInfo,
@@ -1863,6 +1864,12 @@ async function assertCardPlaysForThePointer(page, cardPath) {
 	await page.mouse.move(picture.x, picture.y, { steps: 4 });
 	await waitForReading(read, seen => seen?.paused === false && seen.muted && !seen.selected && seen.controls === 'shown',
 		`the pointer on the card of ${cardPath} to play its video without sound and show the controls`);
+	// Criterion 99 (D98): the controls float on a backing of their own, 8 px inside the picture, and no shade goes across it.
+	const shape = await readVideoControlsShape(page, cardPath);
+	if (!shape || shape.background !== 'none' || Math.abs(shape.bottom - 8) > 1 || shape.left < 7 || Math.abs(shape.left - shape.right) > 1
+		|| Math.abs(shape.height - 30) > 1 || shape.width > 481 || shape.sound !== '50%') {
+		throw new Error(`The controls of ${cardPath} must float on their own backing, 8 px inside the picture, 30 px high, with no shade across it: ${JSON.stringify(shape)}`);
+	}
 	// Criterion 35: the card's grab hand over the picture, the arrow over the controls.
 	const cursors = { picture: (await readCursorAt(page, picture))?.cursor };
 	for (const control of ['sound', 'play', 'slider', 'open']) {

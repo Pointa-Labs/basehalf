@@ -1229,6 +1229,38 @@ export function playCardVideo(page, cardPath) {
 	}, cardPath);
 }
 
+// The shape of a video player's controls (generation cards, criterion 99,
+// D98), in the player's own pixels however the canvas is zoomed: the bar's
+// insets from the picture's edges, its width and height, what is drawn
+// behind it, and the corners of the sound button. `cardPath` names a card's
+// player; without it, the player of Card Detail.
+export function readVideoControlsShape(page, cardPath) {
+	return page.evaluate(path => {
+		const player = path === undefined
+			? document.querySelector('.basehalf-card-detail.visible .basehalf-canvas-video-player.detail')
+			: Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path)?.querySelector('.basehalf-canvas-video-player');
+		const bar = player?.querySelector('.basehalf-canvas-video-player-bar');
+		const sound = player?.querySelector('.basehalf-canvas-video-player-button.sound');
+		if (!(player instanceof HTMLElement) || !(bar instanceof HTMLElement) || player.offsetWidth === 0) {
+			return null;
+		}
+		const outer = player.getBoundingClientRect();
+		const inner = bar.getBoundingClientRect();
+		const scale = outer.width / player.offsetWidth;
+		const own = value => Math.round(value / scale * 10) / 10;
+		return {
+			controls: player.dataset.controls ?? null,
+			left: own(inner.left - outer.left),
+			right: own(outer.right - inner.right),
+			bottom: own(outer.bottom - inner.bottom),
+			width: own(inner.width),
+			height: own(inner.height),
+			background: getComputedStyle(bar).backgroundImage,
+			sound: sound instanceof HTMLElement && !sound.closest('[hidden]') ? getComputedStyle(sound).borderRadius : null
+		};
+	}, cardPath);
+}
+
 // The card's video player: whether it is the one marked `kept`, whether it
 // plays and with sound, where it is, and whether its controls show; and
 // whether it plays a sound (D78), with the glyph of a sound for its picture.

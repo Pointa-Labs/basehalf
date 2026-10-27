@@ -1388,7 +1388,9 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
 - **The controls float over the picture and darken nothing else** (D98), as
   a photo app's player has them. The bar lies 8 px inside the picture's
   bottom, left, and right edges, 30 px high with rounded corners, and is at
-  most 480 px wide, in the middle. The sound button is a round button 8 px
+  most 480 px wide, in the middle; under a frame viewer, which is the
+  video's timeline, it has no position slider and is as wide as its
+  controls. The sound button is a round button 8 px
   inside the top left corner. Each has its own small translucent backing,
   which blurs the picture behind it, so that its controls read over a white
   picture as over a black one. No shade goes across the picture, and a card
@@ -1413,10 +1415,12 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   pauses it, Space does too, the pointer on it plays nothing, the sound is
   on, and **Full Screen** stands where **Open** is. The controls show while
   the video is paused, while the pointer moves over the picture or rests on
-  a control, and while the keyboard is on one of them. While the video
-  plays, they fade 2.5 s after the pointer last moved, and at once when it
-  leaves the picture; a move, a click, or a key in Card Detail brings them
-  back. The video starts at the frame its card
+  a control, and while the keyboard is on one of them after a key took it
+  there (Card Detail that opens puts it on Play by itself, which keeps
+  nothing). While the video plays, they fade 2.5 s after the pointer last
+  moved or a key was pressed, and at once when the pointer leaves the
+  picture; a move or a key in Card Detail brings them back. Faded, they can
+  still be reached by the keyboard, which shows them. The video starts at the frame its card
   showed; when Card Detail closes, the card shows the frame where it stopped
   ([opening and closing Card Detail](card-detail-opening.md)), unless an edit
   wrote the file anew meanwhile: the card then shows the new file. A video

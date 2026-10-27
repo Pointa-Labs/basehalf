@@ -14,6 +14,7 @@ import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/c
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { showExplorer } from '../../lib/workspace.mts';
+import { readVideoControlsShape } from '../video/generationProbes.mts';
 
 const FOLDER = 'edit';
 const VIDEO = `${FOLDER}/shot.mp4`;
@@ -111,14 +112,45 @@ export async function assertCardDetailVideoEdit(page) {
 		const first = await readPart(page);
 		const atOpen = await page.evaluate(({ detail, surface }) => ({
 			header: Array.from(document.querySelectorAll(`${detail} .basehalf-card-detail-header button`)).filter(button => button.offsetParent).map(button => button.getAttribute('aria-label') ?? button.textContent),
-			slider: getComputedStyle(document.querySelector(`${surface} .basehalf-canvas-video-player-slider`)).visibility,
+			slider: getComputedStyle(document.querySelector(`${surface} .basehalf-canvas-video-player-slider`)).display,
 			sound: !!document.querySelector(`${surface} .basehalf-video-frames-sound`),
 			viewing: !!document.querySelector(`${surface} .basehalf-video-frames.viewing`),
 			handles: Array.from(document.querySelectorAll(`${surface} .basehalf-video-frames-handle`)).map(handle => getComputedStyle(handle).visibility)
 		}), { detail: DETAIL, surface: SURFACE });
-		if (!first.whole || await cardDetailModeLabel(page) !== 'Edit' || atOpen.header.some(label => /Done|Cancel|Revert|Save/.test(label ?? '')) || atOpen.slider !== 'hidden' || atOpen.sound
+		if (!first.whole || await cardDetailModeLabel(page) !== 'Edit' || atOpen.header.some(label => /Done|Cancel|Revert|Save/.test(label ?? '')) || atOpen.slider !== 'none' || atOpen.sound
 			|| !atOpen.viewing || atOpen.handles.some(visibility => visibility !== 'hidden') || await lineText(page) !== '') {
 			throw new Error(`Card Detail of a video that was never edited opens to view it: its frame viewer is its timeline, with no handle, Edit in the header and no other control of editing, the player without a bar of its own, and an empty line: ${JSON.stringify({ first, atOpen, line: await lineText(page) })}`);
+		}
+		// Generation cards, criteria 40 and 99 (D98): the controls float on their own backing, 8 px inside the picture, as wide as
+		// what they hold over a frame viewer; they show while the video is paused, and while it plays they fade once the pointer rests.
+		const shape = await readVideoControlsShape(page, undefined);
+		if (!shape || shape.background !== 'none' || Math.abs(shape.bottom - 8) > 1 || Math.abs(shape.height - 30) > 1 || shape.left < 8 || shape.width > 240) {
+			throw new Error(`Card Detail's controls must float on their own backing, 8 px inside the picture, as wide as Play, the time, and Full Screen: ${JSON.stringify(shape)}`);
+		}
+		const player = `${SURFACE} .basehalf-canvas-video-player.detail`;
+		const controls = () => page.evaluate(selector => document.querySelector(selector)?.dataset.controls ?? null, player);
+		const playerBox = await page.locator(player).boundingBox();
+		const over = { x: playerBox.x + playerBox.width / 2, y: playerBox.y + playerBox.height * 0.4 };
+		await page.mouse.move(over.x, over.y, { steps: 2 });
+		const fade = { paused: await controls() };
+		// The clip lasts two seconds: played at half speed, it still plays when its controls fade.
+		await page.evaluate(selector => { document.querySelector(`${selector} video`).playbackRate = 0.5; }, player);
+		await page.mouse.click(over.x, over.y);
+		fade.playing = await controls();
+		await page.waitForTimeout(3100);
+		fade.rested = await controls();
+		await page.mouse.move(over.x + 24, over.y + 12, { steps: 2 });
+		fade.moved = await controls();
+		await page.mouse.click(over.x + 24, over.y + 12);
+		await page.waitForTimeout(300);
+		fade.pausedAgain = await controls();
+		await page.evaluate(selector => {
+			const video = document.querySelector(`${selector} video`);
+			video.playbackRate = 1;
+			video.currentTime = 0;
+		}, player);
+		if (JSON.stringify(fade) !== JSON.stringify({ paused: 'shown', playing: 'shown', rested: 'faded', moved: 'shown', pausedAgain: 'shown' })) {
+			throw new Error(`Card Detail's controls show while the video is paused, and while it plays fade once the pointer rests and come back with a move: ${JSON.stringify(fade)}`);
 		}
 		// Edit shows the handles; the picture stays where it is, and so does the header around Edit.
 		const layout = () => page.evaluate(({ detail, surface }) => {
