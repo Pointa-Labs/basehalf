@@ -65,10 +65,14 @@ export class BaseHalfCanvasFolderDrops {
 	 * point, marks none.
 	 */
 	showDropTargetAt(clientX?: number, clientY?: number): string | undefined {
+		// The card on top at the point, under what the canvas draws over its
+		// cards while files are dragged; a folder's card takes them.
 		const card = clientX === undefined || clientY === undefined
 			? undefined
-			: this.view.root.ownerDocument.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('.basehalf-canvas-card.folder[data-basehalf-card-path]') ?? undefined;
-		const element = card && this.view.cards.contains(card) ? card : undefined;
+			: this.view.root.ownerDocument.elementsFromPoint(clientX, clientY)
+				.map(element => element.closest<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]'))
+				.find((candidate): candidate is HTMLElement => !!candidate && this.view.cards.contains(candidate));
+		const element = card?.classList.contains('folder') ? card : undefined;
 		if (element !== this.shownTarget) {
 			this.shownTarget?.removeAttribute(BASEHALF_CANVAS_DROP_TARGET_ATTRIBUTE);
 			element?.setAttribute(BASEHALF_CANVAS_DROP_TARGET_ATTRIBUTE, '');

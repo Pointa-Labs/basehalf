@@ -118,7 +118,8 @@
 }
 
 .monaco-workbench .basehalf-canvas-card[data-basehalf-dropping] {
-	opacity: 0.5;
+	/* A filter, since the card's own animation holds its opacity. */
+	filter: opacity(0.5);
 }
 
 .monaco-workbench .basehalf-canvas-card-content {

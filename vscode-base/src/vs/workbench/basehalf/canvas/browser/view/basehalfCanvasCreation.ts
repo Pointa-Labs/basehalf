@@ -17,7 +17,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
-import { CodeDataTransfers, getPathForFile } from '../../../../../platform/dnd/browser/dnd.js';
+import { CodeDataTransfers, containsDragType, getPathForFile } from '../../../../../platform/dnd/browser/dnd.js';
 import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/defaultStyles.js';
 import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove } from '../../../../contrib/files/browser/fileActions.js';
 import { IFilesConfiguration, UndoConfirmLevel } from '../../../../contrib/files/common/files.js';
@@ -67,8 +67,8 @@ export class BaseHalfCanvasCreation {
 
 	/** What a drag holds that the canvas takes: items dragged from Files, or files from outside the window. */
 	private canvasDragSource(event: DragEvent): 'files' | 'outside' | undefined {
-		const types = event.dataTransfer ? [...event.dataTransfer.types] : [];
-		return types.includes(CodeDataTransfers.FILES) ? 'files' : types.includes('Files') ? 'outside' : undefined;
+		// The window gives the types of a drag in lower case.
+		return containsDragType(event, CodeDataTransfers.FILES) ? 'files' : containsDragType(event, 'Files') ? 'outside' : undefined;
 	}
 
 	onCanvasFileDragEnter(event: DragEvent): void {
