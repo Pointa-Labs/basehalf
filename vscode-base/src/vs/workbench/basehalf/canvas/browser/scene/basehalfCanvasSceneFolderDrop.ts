@@ -75,7 +75,8 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 	const takingFolder = (flow: ReactFlowInstance<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>): IBaseHalfCanvasTakingFolder | undefined => {
 		const target = look.current.target;
 		const path = target?.dataset.basehalfCardPath;
-		if (!target || !path) {
+		// A card drawn again while it takes them is marked anew at the next move.
+		if (!target?.isConnected || !path) {
 			return undefined;
 		}
 		const drawn = target.getBoundingClientRect();
