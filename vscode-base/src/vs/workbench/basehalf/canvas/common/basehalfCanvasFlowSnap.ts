@@ -25,6 +25,12 @@ export interface IBaseHalfCanvasFlowSnapOptions {
 	readonly minHeight: number;
 	readonly maxWidth?: number;
 	readonly maxHeight?: number;
+	/**
+	 * What the drag keeps of snapping from before a folder took its cards
+	 * (snapBaseHalfCanvasHeldCards): an axis it moves them on counts as
+	 * snapped, so that its guides show.
+	 */
+	readonly kept?: { readonly x: number; readonly y: number };
 }
 
 export function sameBaseHalfCanvasSnapGuides(
@@ -140,12 +146,13 @@ function dragGuidesForMovedAxes(
 	guides: readonly IBaseHalfCanvasSnapGuide[],
 	before: IBaseHalfCanvasSnapRect | null,
 	draft: IBaseHalfCanvasSnapRect,
-	snapped: IBaseHalfCanvasSnapRect
+	snapped: IBaseHalfCanvasSnapRect,
+	kept: { readonly x: number; readonly y: number } | undefined
 ): readonly IBaseHalfCanvasSnapGuide[] {
 	const movedX = before ? Math.abs(draft.x - before.x) > 0.5 : true;
 	const movedY = before ? Math.abs(draft.y - before.y) > 0.5 : true;
-	const snappedX = Math.abs(snapped.x - draft.x) > 0.5;
-	const snappedY = Math.abs(snapped.y - draft.y) > 0.5;
+	const snappedX = Math.abs(snapped.x - draft.x) > 0.5 || Math.abs(kept?.x ?? 0) > 0.5;
+	const snappedY = Math.abs(snapped.y - draft.y) > 0.5 || Math.abs(kept?.y ?? 0) > 0.5;
 	return guides.filter(guide => guide.orientation === 'vertical' ? movedX || snappedX : movedY || snappedY);
 }
 
@@ -198,7 +205,7 @@ export function snapBaseHalfCanvasFlowNodeChanges<TNode extends Node>(
 				}
 			}
 			if (dragChanges.some(change => change.dragging === true)) {
-				guides = dragGuidesForMovedAxes(snapped.guides, beforeSelectionRect, selectionRect, snapped.rect);
+				guides = dragGuidesForMovedAxes(snapped.guides, beforeSelectionRect, selectionRect, snapped.rect, options.kept);
 			}
 		}
 	}
@@ -315,7 +322,7 @@ export function snapBaseHalfCanvasHeldCards<TNode extends Node>(
 	if (takenByFolder) {
 		return { changes: placed, guides: [], held: { kept, last: { x: 0, y: 0 } } };
 	}
-	const snapped = snapBaseHalfCanvasFlowNodeChanges(previousNodes, placed, options);
+	const snapped = snapBaseHalfCanvasFlowNodeChanges(previousNodes, placed, { ...options, kept });
 	const before = placed[first];
 	const after = snapped.changes[first];
 	const last = before.type === 'position' && before.position && after?.type === 'position' && after.position
