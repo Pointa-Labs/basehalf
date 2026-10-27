@@ -19,9 +19,11 @@ import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseH
 import { baseHalfCanvasChildPath } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
+import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
 import { BASEHALF_VIDEO_INPUT_EXTENSIONS, BaseHalfTakenInputKind } from '../../../video/common/basehalfVideoCatalog.js';
+import { createBaseHalfDraftPanel } from '../../../video/browser/basehalfDraftPanels.js';
 import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../../video/browser/basehalfGenerationRecordPanel.js';
-import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../video/browser/basehalfVideoNodePanel.js';
+import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../video/browser/basehalfVideoNodePanel.js';
 
 /** What the canvas needs of the panel under a generation card. */
 export interface IBaseHalfCanvasVideoPanelWidget extends IDisposable {
@@ -93,9 +95,9 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		}));
 	}
 
-	/** Creates the panel of the draft at `resource`. */
-	protected createPanel(resource: URI, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
-		return this.instantiationService.createInstance(BaseHalfVideoNodePanel, resource, host, options);
+	/** Creates the panel of the draft at `resource`: its kind's own (D91). */
+	protected createPanel(resource: URI, kind: BaseHalfGenerationKind, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
+		return createBaseHalfDraftPanel(this.instantiationService, kind, resource, host, options);
 	}
 
 	/** Creates the panel of the card with its file at `resource`. */
@@ -189,13 +191,13 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		}
 		void this.closePanel();
 		const item = this.canvas.getItem(path);
-		if (!item) {
+		if (!item?.generation) {
 			return;
 		}
 		const focusPrompt = this.canvas.takeCreatedNodeFocus(path);
 		const store = new DisposableStore();
 		const panel = store.add(draft
-			? this.createPanel(item.stat.resource, this.panelHost(sceneKey, path), { focusPromptWhenShown: focusPrompt })
+			? this.createPanel(item.stat.resource, item.generation.kind, this.panelHost(sceneKey, path), { focusPromptWhenShown: focusPrompt })
 			: this.createRecordPanel(item.stat.resource, this.recordPanelHost(sceneKey, path)));
 		const mount: IBaseHalfCanvasVideoPanelMount = { sceneKey, path, draft, panel, store };
 		this.mount = mount;

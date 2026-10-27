@@ -8,6 +8,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { Disposable, DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { BaseHalfGenerationAddButtons } from '../../browser/basehalfGenerationAddButtons.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowDelegate, IBaseHalfInputRowModel, IBaseHalfInputTile } from '../../browser/basehalfGenerationInputRow.js';
 
 function tile(path: string, extra: Partial<IBaseHalfInputTile> = {}): IBaseHalfInputTile {
@@ -43,8 +44,12 @@ function drawn(row: BaseHalfGenerationInputRow): string[] {
 				parts.push((element as HTMLButtonElement).disabled ? 'swap disabled' : 'swap');
 			} else if (element.classList.contains('bh-input-row-arrow')) {
 				parts.push('arrow');
-			} else if (element.classList.contains('bh-input-row-action')) {
+			} else if (element.classList.contains('bh-add-input')) {
 				parts.push(`${element.dataset.key}${element.getAttribute('aria-pressed') === 'true' ? ' (highlighted)' : ''}`);
+			} else if (element.classList.contains('bh-add-inputs-status')) {
+				if (element.textContent) {
+					parts.push(`status ${element.textContent}`);
+				}
 			} else if (element.classList.contains('bh-input-row-hint')) {
 				parts.push(`hint ${element.textContent}`);
 			} else {
@@ -70,17 +75,23 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		move: (path, before) => calls.push(`move ${path} before ${before ?? 'end'}`),
 		swap: () => calls.push('swap'),
 		openAddMenu: () => calls.push('add menu'),
-		togglePick: () => calls.push('pick'),
-		importFile: () => calls.push('import'),
-		setupHover: (element, content) => {
-			hovers.set(element, content);
-			return Disposable.None;
-		},
 		canvasBounds: () => canvas
 	};
 
+	/** The two buttons that add an input, which a video or an audio card's row holds at its right end (D91). */
+	let buttons: BaseHalfGenerationAddButtons;
+
 	function create(model: IBaseHalfInputRowModel): BaseHalfGenerationInputRow {
 		const row = disposables.add(new BaseHalfGenerationInputRow(delegate, layer));
+		buttons = disposables.add(new BaseHalfGenerationAddButtons({
+			togglePick: () => calls.push('pick'),
+			importFile: () => calls.push('import'),
+			setupHover: (element, content) => {
+				hovers.set(element, content);
+				return Disposable.None;
+			}
+		}));
+		row.holdAddButtons(buttons);
 		container.append(row.element);
 		row.update(model);
 		return row;
@@ -197,20 +208,39 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		});
 	});
 
-	test('Pick on Canvas and Import File… are two buttons at the row\'s right end, named by their tooltips; Pick on Canvas is highlighted while picking (D71)', () => {
+	test('Pick on Canvas and Import File… are two buttons at the row\'s right end, named by their tooltips; Pick on Canvas is highlighted while picking, and tells what a click does in place of the row\'s hint (D71, D91)', () => {
 		const row = create({ tiles: [START], editable: true });
-		const button = (key: string) => row.element.querySelector<HTMLButtonElement>(`.bh-input-row-action[data-key="${key}"]`)!;
+		const button = (key: string) => row.element.querySelector<HTMLButtonElement>(`.bh-add-input[data-key="${key}"]`)!;
 		const names = ['pick', 'import'].map(key => [button(key).getAttribute('aria-label'), hovers.get(button(key))]);
 		button('pick').click();
 		button('import').click();
-		row.update({ tiles: [START], editable: true, picking: true });
+		// The panel draws the row and the buttons for the draft that picks.
+		row.update({ tiles: [], editable: true, hint: 'Add images or audio as references', picking: true });
+		buttons.update(true);
 		const picking = drawn(row);
+		buttons.update(false);
 		row.update({ tiles: [START], editable: false });
 		assert.deepStrictEqual({ names, calls, picking, readOnly: drawn(row) }, {
 			names: [['Pick on Canvas', 'Pick on Canvas'], ['Import File…', 'Import File…']],
 			calls: ['pick', 'import'],
-			picking: ['tile shots/start.png · mark Start · remove · name', 'hint Click cards on the canvas. Escape or Done ends.', 'pick (highlighted)', 'import'],
+			picking: ['pick (highlighted)', 'import', 'status Click cards on the canvas. Escape or Done ends.'],
 			readOnly: ['tile shots/start.png · mark Start']
+		});
+	});
+
+	test('the buttons the row holds keep their elements, and the keyboard, when the row is drawn again (D91)', () => {
+		const row = create({ tiles: [START], editable: true });
+		const pick = row.element.querySelector<HTMLButtonElement>('.bh-add-input[data-key="pick"]')!;
+		pick.focus();
+		row.update({ tiles: [START, CLIP], editable: true });
+		assert.deepStrictEqual({
+			same: row.element.querySelector('.bh-add-input[data-key="pick"]') === pick,
+			focused: mainWindow.document.activeElement === pick,
+			order: drawn(row)
+		}, {
+			same: true,
+			focused: true,
+			order: ['tile shots/start.png · mark Start · remove · name', 'tile shots/clip.mp4 · remove · name · dimmed', 'pick', 'import']
 		});
 	});
 

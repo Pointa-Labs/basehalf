@@ -21,6 +21,7 @@ import { baseHalfTestCanvasItem, createBaseHalfTestCanvasView, IBaseHalfTestCanv
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfGenerationRecordPanelHost } from '../../../../video/browser/basehalfGenerationRecordPanel.js';
 import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../../video/browser/basehalfVideoNodePanel.js';
+import { BaseHalfGenerationKind } from '../../../../video/common/basehalfGenerationInfo.js';
 import { BaseHalfCanvasVideoPanel, IBaseHalfCanvasVideoPanelWidget } from '../../browser/basehalfCanvasVideoPanel.contribution.js';
 
 /** A panel that records what the canvas asks of it. */
@@ -32,7 +33,7 @@ class TestVideoPanel implements IBaseHalfCanvasVideoPanelWidget {
 	private readonly onDidChangeHeightEmitter = new Emitter<number>();
 	readonly onDidChangeHeight = this.onDidChangeHeightEmitter.event;
 
-	constructor(readonly resource: URI, readonly host: IBaseHalfVideoNodePanelHost, readonly options: IBaseHalfVideoNodePanelOptions) { }
+	constructor(readonly resource: URI, readonly host: IBaseHalfVideoNodePanelHost, readonly options: IBaseHalfVideoNodePanelOptions, readonly kind?: BaseHalfGenerationKind) { }
 
 	async flush(): Promise<void> {
 		this.flushed++;
@@ -59,8 +60,8 @@ class TestRecordPanel extends TestVideoPanel {
 class TestCanvasVideoPanel extends BaseHalfCanvasVideoPanel {
 	readonly panels: TestVideoPanel[] = [];
 
-	protected override createPanel(resource: URI, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
-		const panel = new TestVideoPanel(resource, host, options);
+	protected override createPanel(resource: URI, kind: BaseHalfGenerationKind, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
+		const panel = new TestVideoPanel(resource, host, options, kind);
 		this.panels.push(panel);
 		return panel;
 	}
@@ -154,6 +155,22 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		assert.strictEqual(feature.panels.at(-1)?.resource.path, '/workspace/folder/still.png');
 		assert.ok(feature.panels.at(-1) instanceof TestRecordPanel, 'a card with its file gets the panel that shows what made it (D67)');
 		assert.ok(!(feature.panels[0] instanceof TestRecordPanel), 'a draft gets the panel that makes its file');
+	});
+
+	test('a draft gets the panel of its kind (D91)', () => {
+		const { canvas, feature } = createPanel();
+		const image = 'folder/poster.png';
+		const sound = 'folder/theme.mp3';
+		canvas.setItem(generationItem(image, { kind: 'image', draft: true }), { kind: 'draft' });
+		canvas.setItem(generationItem(sound, { kind: 'audio', draft: true }), { kind: 'draft' });
+		for (const path of [CLIP, image, sound]) {
+			canvas.changeSelection([path]);
+		}
+		assert.deepStrictEqual(feature.panels.map(panel => [panel.resource.path, panel.kind]), [
+			['/workspace/folder/clip.mp4', 'video'],
+			['/workspace/folder/poster.png', 'image'],
+			['/workspace/folder/theme.mp3', 'audio']
+		]);
 	});
 
 	test('a draft whose file lands gets the panel of a card with its file in place of its own, on the same card (D67)', async () => {

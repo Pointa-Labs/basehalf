@@ -15,6 +15,7 @@ import {
 	IBaseHalfVideoCatalog,
 	IBaseHalfVideoCatalogModel,
 	IBaseHalfVideoCatalogProvider,
+	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoInputSource
 } from '../../common/basehalfVideoCatalog.js';
@@ -61,7 +62,9 @@ function present(kind: BaseHalfModelKind, generation: IBaseHalfVideoGenerationCh
 
 function count(presentation: IBaseHalfVideoPanelPresentation): string | undefined {
 	const control: BaseHalfVideoPanelControl | undefined = presentation.settingsView?.controls.find(candidate => candidate.name === 'count');
-	return control && control.kind === 'buttons' ? `buttons ${control.choices.map(choice => `${choice.label}${choice.selected ? '*' : ''}`).join(' ')}` : control?.kind;
+	return control && control.kind === 'buttons'
+		? `buttons ${control.choices.map(choice => `${choice.label}${choice.selected ? '*' : ''}`).join(' ')}${control.columns ? ` in rows of ${control.columns}` : ''}`
+		: control?.kind;
 }
 
 suite('BaseHalf generation cards: the parts a kind shows (D90)', () => {
@@ -106,7 +109,7 @@ suite('BaseHalf generation cards: the parts a kind shows (D90)', () => {
 		});
 	});
 
-	test('a count is buttons from 1 to 4, as far as the model makes, and a count beyond them that an agent wrote is one more button', () => {
+	test('a count is a button for each number from 1 to as many as the model makes, in one row up to six and in rows of five beyond (D91)', () => {
 		const wide = (params: Record<string, number | string>) => present('image', { provider: 'quill', model: 'quill-wide', mode: 'reference', params });
 		assert.deepStrictEqual({
 			wide: count(wide({ count: 2 })),
@@ -115,11 +118,38 @@ suite('BaseHalf generation cards: the parts a kind shows (D90)', () => {
 			songs: count(present('audio', { provider: 'dunlin', model: 'dunlin-song', mode: 'reference', params: { count: 2 } })),
 			menu: baseHalfVideoModelAbilities(QUILL_WIDE)
 		}, {
-			wide: 'buttons 1 2* 3 4',
-			agent: 'buttons 1 2 3 4 8*',
+			wide: 'buttons 1 2* 3 4 5 6 7 8 9 10 11 12 13 14 15 in rows of 5',
+			agent: 'buttons 1 2 3 4 5 6 7 8* 9 10 11 12 13 14 15 in rows of 5',
 			two: 'buttons 1* 2',
 			songs: 'buttons 1 2* 3',
-			menu: '4K · Up to 4 images · 4 references'
+			menu: '4K · Up to 15 images · 4 references'
+		});
+	});
+
+	test('a count of six is one row, and a count the inputs narrow dims the numbers beyond its range with the reason (D70, D91)', () => {
+		const six: IBaseHalfVideoCatalogModel = { ...QUILL_WIDE, id: 'quill-six', parameters: [{ name: 'count', label: 'Images', kind: 'integer', min: 1, max: 6, step: 1, default: 1 }] };
+		const catalog: IBaseHalfVideoCatalog = { ...CATALOG, providers: [...CATALOG.providers, { ...QUILL, id: 'quill-six', models: [six] }] };
+		const presentWith = (provider: string, model: string, check?: IBaseHalfVideoCheckResult) => createBaseHalfVideoPanelPresentation({
+			info: { prompt: 'A lighthouse at dusk.', provider, model, mode: 'reference', params: { count: 3 } },
+			kind: 'image',
+			inputs: [{ path: 'a.png', kind: 'image', available: true }],
+			catalog: { kind: 'ready', catalog },
+			setup: candidate => ({ region: findBaseHalfVideoRegion(candidate, undefined), setUp: true }),
+			...(check ? { check } : {}),
+			generating: false,
+			prompt: 'A lighthouse at dusk.'
+		});
+		const reason = 'References and images together are at most 5.';
+		const narrowed = presentWith('quill', 'quill-wide', { problems: [], prompt: 'A lighthouse at dusk.', limits: { count: { max: 4, reason } } });
+		const control = narrowed.settingsView?.controls.find(candidate => candidate.name === 'count');
+		assert.deepStrictEqual({
+			six: count(presentWith('quill-six', 'quill-six')),
+			narrowed: control?.kind === 'buttons' ? control.choices.map(choice => choice.disabled === reason ? `(${choice.label})` : choice.label).join(' ') : control?.kind,
+			note: control?.limit
+		}, {
+			six: 'buttons 1 2 3* 4 5 6',
+			narrowed: '1 2 3 4 (5) (6) (7) (8) (9) (10) (11) (12) (13) (14) (15)',
+			note: `Up to 4. ${reason}`
 		});
 	});
 

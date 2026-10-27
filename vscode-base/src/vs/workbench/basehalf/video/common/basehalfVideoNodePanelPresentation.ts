@@ -8,7 +8,7 @@ import { localize } from '../../../../nls.js';
 import type { VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import {
-	BASEHALF_PANEL_MOST_COUNT,
+	BASEHALF_GENERATION_MOST_FILES,
 	baseHalfDefaultModeId,
 	baseHalfDefaultModeInputs,
 	baseHalfKindInputKinds,
@@ -207,7 +207,12 @@ interface IBaseHalfVideoPanelControlBase {
 
 /** One parameter as the settings popover draws it (generation cards, "Settings"). */
 export type BaseHalfVideoPanelControl =
-	| IBaseHalfVideoPanelControlBase & { readonly kind: 'buttons' | 'list' | 'ratio'; readonly choices: readonly IBaseHalfVideoPanelChoice<BaseHalfVideoParamValue>[] }
+	| IBaseHalfVideoPanelControlBase & {
+		readonly kind: 'buttons' | 'list' | 'ratio';
+		readonly choices: readonly IBaseHalfVideoPanelChoice<BaseHalfVideoParamValue>[];
+		/** How many buttons a row holds when they wrap into rows, as the buttons of a long count do (D91). */
+		readonly columns?: number;
+	}
 	| IBaseHalfVideoPanelControlBase & {
 		readonly kind: 'slider';
 		readonly min: number;
@@ -706,6 +711,9 @@ function modelMenu(state: IBaseHalfVideoPanelState): IBaseHalfVideoPanelModelMen
 const BUTTON_CHOICES = 5;
 /** Up to this many steps of a number are a slider; more are a number field. */
 const SLIDER_STEPS = 1000;
+/** A count of up to this many numbers is one row of buttons, and a longer one rows of {@link COUNT_COLUMNS} (D91). */
+const COUNT_ROW = 6;
+const COUNT_COLUMNS = 5;
 
 function settingsView(
 	ref: IBaseHalfVideoModelRef,
@@ -785,8 +793,8 @@ function control(parameter: BaseHalfVideoSetting, value: BaseHalfVideoParamValue
 		}
 		case 'integer':
 		case 'number':
-			if (parameter.name === 'count' && parameter.kind === 'integer' && !parameter.optional && !limit) {
-				return countControl(parameter, value, base);
+			if (parameter.name === 'count' && parameter.kind === 'integer' && !parameter.optional) {
+				return countControl(parameter, value, base, limit);
 			}
 			return numberControl(parameter, value, limit ? { ...base, limit: limitNote(parameter, limit) } : base, limit);
 		case 'boolean':
@@ -870,23 +878,30 @@ function numberControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalf
 }
 
 /**
- * A count, how many images or songs one generation makes, as buttons from 1
- * to 4 as far as the model makes, and a count the card stores beyond them,
- * as an agent may write one, as one more button (generation cards,
- * "Settings"; D90).
+ * A count, how many images or songs one generation makes: a button for each
+ * number from 1 to as many as the model makes, in one row of up to six and in
+ * rows of five beyond six (generation cards, "Settings"; D91). A range the
+ * inputs narrow dims the numbers beyond it with the reason, and says why under
+ * them (D70).
  */
-function countControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalfVideoParamValue | undefined, base: { readonly name: string; readonly label: string; readonly tooltip?: string }): BaseHalfVideoPanelControl {
-	const numbers = baseHalfVideoNumberValues(parameter).filter(number => number <= BASEHALF_PANEL_MOST_COUNT);
-	if (typeof value === 'number' && value > BASEHALF_PANEL_MOST_COUNT && value <= parameter.max) {
-		numbers.push(value);
-	}
+function countControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalfVideoParamValue | undefined, base: { readonly name: string; readonly label: string; readonly tooltip?: string }, limit?: IBaseHalfVideoCheckLimit): BaseHalfVideoPanelControl {
+	// As many as one generation makes: never more files than it lands.
+	const numbers = baseHalfVideoNumberValues(parameter).filter(number => number <= BASEHALF_GENERATION_MOST_FILES);
+	const range = baseHalfVideoLimitRange(parameter, limit);
 	const choices = numbers.map(number => Object.freeze<IBaseHalfVideoPanelChoice<BaseHalfVideoParamValue>>({
 		key: `${parameter.name}:${number}`,
 		value: number,
 		label: baseHalfVideoParamValueLabel(parameter, number),
-		selected: number === value
+		selected: number === value,
+		...(limit && (number < range.min || number > range.max) ? { disabled: limit.reason } : {})
 	}));
-	return Object.freeze({ ...base, kind: 'buttons', choices: Object.freeze(choices) });
+	return Object.freeze({
+		...base,
+		...(limit ? { limit: limitNote(parameter, limit) } : {}),
+		kind: 'buttons',
+		choices: Object.freeze(choices),
+		...(numbers.length > COUNT_ROW ? { columns: COUNT_COLUMNS } : {})
+	});
 }
 
 /** The value a number takes when Auto is turned off: its default, within its range. */
