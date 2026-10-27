@@ -374,8 +374,12 @@ Not in scope, and unchanged:
   whose file's next step is a step of the canvas ask nothing and leave the
   step, and its own edits are still undone (criterion 18).
 - Smoke, canvas suite: `canvas-note-undo-asks-nothing` renames a note,
-  types in its editor on the card, presses Cmd+Z past the typing and
-  Shift+Cmd+Z, and closes the editor with Escape (criterion 18).
+  types in its editor on the card, presses Cmd+Z past the typing, and
+  closes the editor with Escape (criterion 18); with the editor's undo of
+  before, the editor waited for the question and did not close. The source
+  editor of Card Detail was checked in the window on 2026-10-27 after a
+  rename of a code file: one Cmd+Z undid the typing, the next one left the
+  rename, and nothing asked.
 - Smoke, canvas suite: a step that deletes with the menu, the toolbar, and
   the key, a set of a file, a folder, and a draft among them, watches every
   frame for a dialog, and undoes and redoes; the steps that deleted with the
