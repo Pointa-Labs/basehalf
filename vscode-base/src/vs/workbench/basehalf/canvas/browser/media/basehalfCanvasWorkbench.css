@@ -398,3 +398,11 @@
 	border-radius: 4px;
 	font-size: 12px;
 }
+
+/* Files held over a folder's card go into that folder: the card's own look
+ * says so, and the layer that says they go onto the canvas is not drawn
+ * (dropping into a folder). */
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging.basehalf-canvas-file-into-folder::before,
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging.basehalf-canvas-file-into-folder::after {
+	display: none;
+}

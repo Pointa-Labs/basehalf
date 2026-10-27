@@ -78,6 +78,9 @@ export class BaseHalfCanvasFolderDrops {
 			element?.setAttribute(BASEHALF_CANVAS_DROP_TARGET_ATTRIBUTE, '');
 			this.shownTarget = element;
 		}
+		// Over a folder's card, its own look says where the files go, not the
+		// layer that says they go onto the canvas.
+		this.view.root.classList.toggle('basehalf-canvas-file-into-folder', !!element);
 		return element?.dataset.basehalfCardPath;
 	}
 
