@@ -287,6 +287,67 @@ suite('UndoRedoService', () => {
 		});
 	});
 
+	test('BaseHalf: an undo or a redo by resource leaves an element of a source, and asks nothing', async () => {
+		const source = new UndoRedoSource();
+		let questions = 0;
+		const service = createUndoRedoService(new class extends mock<IDialogService>() {
+			override async confirm() {
+				questions++;
+				return { confirmed: true };
+			}
+		});
+		const calls: string[] = [];
+		const note = URI.file('note.md');
+		service.pushElement({ type: UndoRedoElementType.Resource, resource: note, label: 'typing', code: 'test', undo: () => { calls.push('undo typing'); }, redo: () => { calls.push('redo typing'); } });
+		service.pushElement({ type: UndoRedoElementType.Workspace, resources: [note, URI.file('renamed.md')], label: 'rename', code: 'test', undo: () => { calls.push('undo rename'); }, redo: () => { calls.push('redo rename'); } }, undefined, source);
+
+		const editorCanUndo = service.canUndo(note);
+		await service.undo(note);
+		await service.undo(source);
+		await service.undo(note);
+		await service.redo(note);
+		const editorCanRedo = service.canRedo(note);
+		await service.redo(note);
+		await service.redo(source);
+
+		assert.deepStrictEqual({ calls, questions, editorCanUndo, editorCanRedo }, {
+			calls: ['undo rename', 'undo typing', 'redo typing', 'redo rename'],
+			questions: 0,
+			editorCanUndo: false,
+			editorCanRedo: false
+		});
+	});
+
+	test('BaseHalf: an undo by resource of an element that can be split takes it back in every file, and asks nothing', async () => {
+		let questions = 0;
+		const service = createUndoRedoService(new class extends mock<IDialogService>() {
+			override async prompt<T = any>(prompt: IPrompt<any>) {
+				questions++;
+				return { result: prompt.buttons?.[1].run({ checkboxChecked: false }) };
+			}
+		});
+		const calls: string[] = [];
+		const note = URI.file('note.md');
+		const other = URI.file('other.md');
+		service.pushElement({
+			type: UndoRedoElementType.Workspace,
+			resources: [note, other],
+			label: 'rename heading',
+			code: 'test',
+			undo: () => { calls.push('undo rename heading'); },
+			redo: () => { calls.push('redo rename heading'); },
+			split: () => [note, other].map(resource => ({ type: UndoRedoElementType.Resource, resource, label: 'part', code: 'test', undo: () => { calls.push('undo part'); }, redo: () => { calls.push('redo part'); } }))
+		});
+
+		await service.undo(note);
+		await service.redo(note);
+
+		assert.deepStrictEqual({ calls, questions }, {
+			calls: ['undo rename heading', 'redo rename heading'],
+			questions: 0
+		});
+	});
+
 	test('UndoRedoGroup.None uses id 0', () => {
 		assert.strictEqual(UndoRedoGroup.None.id, 0);
 		assert.strictEqual(UndoRedoGroup.None.nextOrder(), 0);

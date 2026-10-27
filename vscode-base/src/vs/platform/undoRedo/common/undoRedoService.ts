@@ -16,6 +16,9 @@ import { IPastFutureElements, IResourceUndoRedoElement, IUndoRedoElement, IUndoR
 
 const DEBUG = false;
 
+// BaseHalf: undo asks nothing (exact undo, D82 and D89).
+const BASEHALF_UNDO_ASKS_NOTHING: boolean = true;
+
 function getResourceLabel(resource: URI): string {
 	return resource.scheme === Schemas.file ? resource.fsPath : resource.path;
 }
@@ -723,9 +726,24 @@ export class UndoRedoService implements IUndoRedoService {
 		const strResource = this.getUriComparisonKey(resourceOrSource);
 		if (this._editStacks.has(strResource)) {
 			const editStack = this._editStacks.get(strResource)!;
-			return editStack.hasPastElements();
+			return editStack.hasPastElements() && !this._closestElementHasSource(strResource, 'past');
 		}
 		return false;
+	}
+
+	/**
+	 * BaseHalf: whether the closest element of a resource that way was pushed
+	 * with a source, by a place with an undo of its own: the canvas, Files, a
+	 * service of BaseHalf. An undo or redo by resource is that of an editor,
+	 * and it leaves such an element to its source and asks nothing (exact
+	 * undo, "Undo in an editor of text"). Before, the undo asked "Would you
+	 * like to undo ...?" and the redo redid the element without asking. What
+	 * an editor's own commands push has no source and is undone as before.
+	 */
+	private _closestElementHasSource(strResource: string, direction: 'past' | 'future'): boolean {
+		const editStack = this._editStacks.get(strResource);
+		const element = direction === 'past' ? editStack?.getClosestPastElement() : editStack?.getClosestFutureElement();
+		return !!element && element.sourceId !== 0;
 	}
 
 	private _onError(err: Error, element: StackElement): void {
@@ -960,7 +978,11 @@ export class UndoRedoService implements IUndoRedoService {
 
 	private async _confirmAndExecuteWorkspaceUndo(strResource: string, element: WorkspaceStackElement, editStackSnapshot: EditStackSnapshot, undoConfirmed: boolean): Promise<void> {
 
-		if (element.canSplit() && !this._isPartOfUndoGroup(element)) {
+		// BaseHalf: undo takes back the whole element, in every file it changed,
+		// and asks nothing (exact undo, D82 and D89), as "Undo in N Files" did.
+		// VS Code asked whether to undo an element that can be split, such as a
+		// rename of a symbol across files, there or only in this file.
+		if (!BASEHALF_UNDO_ASKS_NOTHING && element.canSplit() && !this._isPartOfUndoGroup(element)) {
 			// this element can be split
 
 			enum UndoChoice {
@@ -1096,10 +1118,12 @@ export class UndoRedoService implements IUndoRedoService {
 			const [, matchedStrResource] = this._findClosestUndoElementWithSource(resourceOrSource.id);
 			return matchedStrResource ? this._undo(matchedStrResource, resourceOrSource.id, false) : undefined;
 		}
-		if (typeof resourceOrSource === 'string') {
-			return this._undo(resourceOrSource, 0, false);
+		const strResource = typeof resourceOrSource === 'string' ? resourceOrSource : this.getUriComparisonKey(resourceOrSource);
+		// BaseHalf: an editor's undo leaves an element of a source to it.
+		if (this._closestElementHasSource(strResource, 'past')) {
+			return;
 		}
-		return this._undo(this.getUriComparisonKey(resourceOrSource), 0, false);
+		return this._undo(strResource, 0, false);
 	}
 
 	private _undo(strResource: string, sourceId: number = 0, undoConfirmed: boolean): Promise<void> | void {
@@ -1188,7 +1212,7 @@ export class UndoRedoService implements IUndoRedoService {
 		const strResource = this.getUriComparisonKey(resourceOrSource);
 		if (this._editStacks.has(strResource)) {
 			const editStack = this._editStacks.get(strResource)!;
-			return editStack.hasFutureElements();
+			return editStack.hasFutureElements() && !this._closestElementHasSource(strResource, 'future');
 		}
 		return false;
 	}
@@ -1378,10 +1402,12 @@ export class UndoRedoService implements IUndoRedoService {
 			const [, matchedStrResource] = this._findClosestRedoElementWithSource(resourceOrSource.id);
 			return matchedStrResource ? this._redo(matchedStrResource) : undefined;
 		}
-		if (typeof resourceOrSource === 'string') {
-			return this._redo(resourceOrSource);
+		const strResource = typeof resourceOrSource === 'string' ? resourceOrSource : this.getUriComparisonKey(resourceOrSource);
+		// BaseHalf: an editor's redo leaves an element of a source to it.
+		if (this._closestElementHasSource(strResource, 'future')) {
+			return;
 		}
-		return this._redo(this.getUriComparisonKey(resourceOrSource));
+		return this._redo(strResource);
 	}
 
 	private _redo(strResource: string): Promise<void> | void {

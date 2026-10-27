@@ -6,22 +6,30 @@
 import * as assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-// The code editor's own undo, which the rule goes ahead of.
+// The code editor's own undo and redo, which Command+Z and Shift+Command+Z run.
 import '../../../../../editor/browser/coreCommands.js';
 import { RedoCommand, UndoCommand } from '../../../../../editor/browser/editorExtensions.js';
-import { ICodeEditorService } from '../../../../../editor/browser/services/codeEditorService.js';
 import { Range } from '../../../../../editor/common/core/range.js';
+import { ITextModel } from '../../../../../editor/common/model.js';
 import { withAsyncTestCodeEditor } from '../../../../../editor/test/browser/testCodeEditor.js';
-import { IConfirmation, IConfirmationResult, IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
+import { IConfirmation, IConfirmationResult, IDialogService, IPrompt } from '../../../../../platform/dialogs/common/dialogs.js';
 import { TestDialogService } from '../../../../../platform/dialogs/test/common/testDialogService.js';
 import { ServiceCollection } from '../../../../../platform/instantiation/common/serviceCollection.js';
-import { IUndoRedoElement, IUndoRedoService, UndoRedoElementType, UndoRedoSource } from '../../../../../platform/undoRedo/common/undoRedo.js';
-import { registerBaseHalfEditorOfTextUndo } from '../../browser/basehalfEditorUndo.js';
-import { baseHalfEditorUndoReachesItsText } from '../../common/basehalfEditorUndo.js';
+import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
+import { IUndoRedoService, UndoRedoElementType, UndoRedoSource } from '../../../../../platform/undoRedo/common/undoRedo.js';
 
 /** A dialog service that says yes, and keeps every question it was asked. */
 class AnsweringDialogService extends TestDialogService {
 	readonly questions: string[] = [];
+
+	constructor() {
+		super();
+		const prompt = this.prompt.bind(this);
+		this.prompt = (async (question: IPrompt<unknown>) => {
+			this.questions.push(String(question.message));
+			return prompt(question);
+		}) as TestDialogService['prompt'];
+	}
 
 	override async confirm(confirmation: IConfirmation): Promise<IConfirmationResult> {
 		this.questions.push(String(confirmation.message));
@@ -29,22 +37,28 @@ class AnsweringDialogService extends TestDialogService {
 	}
 }
 
-suite('BaseHalf undo in an editor of text', () => {
-	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+/** Command+Z or Shift+Command+Z in the code editor that has the keyboard. */
+function press(instantiationService: TestInstantiationService, command: typeof UndoCommand) {
+	return instantiationService.invokeFunction(accessor => command.runCommand(accessor, undefined));
+}
 
-	test('Command+Z and Shift+Command+Z in a code editor leave a step of the canvas, ask nothing, and still undo the text', async () => {
+/** Typing in the editor: one edit of its text. */
+function type(model: ITextModel, text: string): void {
+	model.pushStackElement();
+	model.pushEditOperations([], [{ range: new Range(1, model.getLineMaxColumn(1), 1, model.getLineMaxColumn(1)), text }], () => null);
+	model.pushStackElement();
+}
+
+suite('BaseHalf undo in an editor of text', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('Command+Z and Shift+Command+Z in a code editor leave a rename on the canvas, ask nothing, and still undo the text', async () => {
 		const dialogService = new AnsweringDialogService();
 		await withAsyncTestCodeEditor('note', { serviceCollection: new ServiceCollection([IDialogService, dialogService]) }, async (editor, _viewModel, instantiationService) => {
 			const undoRedoService = instantiationService.get(IUndoRedoService);
-			disposables.add(registerBaseHalfEditorOfTextUndo(instantiationService.get(ICodeEditorService), undoRedoService));
 			const model = editor.getModel()!;
-			const press = (command: typeof UndoCommand) => instantiationService.invokeFunction(accessor => command.runCommand(accessor, undefined));
-
-			// Typing in the editor, then a step of the canvas over the same file,
-			// as a rename of the note on the canvas is.
-			model.pushStackElement();
-			model.pushEditOperations([], [{ range: new Range(1, 5, 1, 5), text: ' typed' }], () => null);
-			model.pushStackElement();
+			type(model, ' typed');
+			// A rename on the canvas: a step of a place with an undo of its own.
 			const canvasSource = new UndoRedoSource();
 			const runs: string[] = [];
 			undoRedoService.pushElement({
@@ -56,26 +70,18 @@ suite('BaseHalf undo in an editor of text', () => {
 				redo: () => { runs.push('redo'); }
 			}, undefined, canvasSource);
 
-			// Command+Z in the editor: the step of the canvas is next.
-			await press(UndoCommand);
+			await press(instantiationService, UndoCommand);
 			const atTheStep = { questions: [...dialogService.questions], runs: [...runs], text: model.getValue() };
-
 			// The canvas undoes its own step; the editor's keys then reach the text.
 			await undoRedoService.undo(canvasSource);
-			await press(UndoCommand);
+			await press(instantiationService, UndoCommand);
 			const textUndone = model.getValue();
-			await press(RedoCommand);
+			await press(instantiationService, RedoCommand);
 			const textRedone = model.getValue();
-			// The step of the canvas is the next one to redo: Shift+Command+Z leaves it too.
-			await press(RedoCommand);
+			// The rename is the next one to redo: Shift+Command+Z leaves it too.
+			await press(instantiationService, RedoCommand);
 
-			assert.deepStrictEqual({
-				atTheStep,
-				textUndone,
-				textRedone,
-				questions: dialogService.questions,
-				runs
-			}, {
+			assert.deepStrictEqual({ atTheStep, textUndone, textRedone, questions: dialogService.questions, runs }, {
 				atTheStep: { questions: [], runs: [], text: 'note typed' },
 				textUndone: 'note',
 				textRedone: 'note typed',
@@ -85,18 +91,37 @@ suite('BaseHalf undo in an editor of text', () => {
 		});
 	});
 
-	test('an edit of the text is reached both ways, and a step over files is not', () => {
-		const resource = URI.file('/workspace/note.md');
-		const textEdit: IUndoRedoElement = { type: UndoRedoElementType.Resource, resource, label: 'Typing', code: 'test.text', undo: () => { }, redo: () => { } };
-		const step: IUndoRedoElement = { type: UndoRedoElementType.Workspace, resources: [resource, URI.file('/workspace/b.md')], label: 'Move', code: 'test.step', undo: () => { }, redo: () => { } };
-		const elements = (past: IUndoRedoElement[], future: IUndoRedoElement[]) => ({ getElements: () => ({ past, future }) });
-		assert.deepStrictEqual([
-			baseHalfEditorUndoReachesItsText(elements([], []), resource, 'undo'),
-			baseHalfEditorUndoReachesItsText(elements([step, textEdit], []), resource, 'undo'),
-			baseHalfEditorUndoReachesItsText(elements([textEdit, step], []), resource, 'undo'),
-			// The closest step to redo is the last of the future.
-			baseHalfEditorUndoReachesItsText(elements([], [step, textEdit]), resource, 'redo'),
-			baseHalfEditorUndoReachesItsText(elements([], [textEdit, step]), resource, 'redo')
-		], [true, true, false, true, false]);
+	test('Command+Z and Shift+Command+Z in a code editor undo and redo an edit across files that the editor made, and ask nothing', async () => {
+		const dialogService = new AnsweringDialogService();
+		await withAsyncTestCodeEditor('# Plan', { serviceCollection: new ServiceCollection([IDialogService, dialogService]) }, async (editor, _viewModel, instantiationService) => {
+			const undoRedoService = instantiationService.get(IUndoRedoService);
+			const model = editor.getModel()!;
+			type(model, ' for spring');
+			// A rename of a heading across notes, made with the editor's own
+			// command: an edit of several files with no source.
+			const other = URI.file('/workspace/links.md');
+			const runs: string[] = [];
+			undoRedoService.pushElement({
+				type: UndoRedoElementType.Workspace,
+				resources: [model.uri, other],
+				label: 'Rename heading',
+				code: 'test.renameSymbol',
+				undo: () => { runs.push('undo'); },
+				redo: () => { runs.push('redo'); },
+				split: () => [model.uri, other].map(resource => ({ type: UndoRedoElementType.Resource, resource, label: 'Rename heading', code: 'test.renameSymbol', undo: () => { runs.push('undo one file'); }, redo: () => { runs.push('redo one file'); } }))
+			});
+
+			await press(instantiationService, UndoCommand);
+			await press(instantiationService, RedoCommand);
+			// The typing before it is still the editor's to undo.
+			await press(instantiationService, UndoCommand);
+			await press(instantiationService, UndoCommand);
+
+			assert.deepStrictEqual({ questions: dialogService.questions, runs, text: model.getValue() }, {
+				questions: [],
+				runs: ['undo', 'redo', 'undo'],
+				text: '# Plan'
+			});
+		});
 	});
 });

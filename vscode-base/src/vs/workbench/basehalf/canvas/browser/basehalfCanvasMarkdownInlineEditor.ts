@@ -17,7 +17,6 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { IModelContentChangedEvent } from '../../../../editor/common/textModelEvents.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { ITextFileService, TextFileEditorModelState } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { collectBaseHalfCanvasMarkdownReferenceDefinitions } from '../common/basehalfCanvasPreview.js';
@@ -32,7 +31,6 @@ import { countBaseHalfMarkdownNewlines } from '../../markdown/common/basehalfMar
 import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteShowsOtherHtmlAsWritten } from '../../markdown/common/basehalfNoteMarkdownHtml.js';
 import { setBaseHalfHover } from '../../shell/browser/basehalfHover.js';
 import { restoreBaseHalfSidewaysScroll } from '../../shell/browser/basehalfSidewaysScrollbar.js';
-import { baseHalfEditorUndoReachesItsText } from '../../workspace/common/basehalfEditorUndo.js';
 
 const CANVAS_MARKDOWN_INLINE_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-markdown-inline-out';
 const CANVAS_MARKDOWN_INLINE_VENDOR_SCRIPT = 'canvasMarkdownInline.js';
@@ -363,8 +361,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IClipboardService private readonly clipboardService: IClipboardService,
-		@ILogService private readonly logService: ILogService,
-		@IUndoRedoService private readonly undoRedoService: IUndoRedoService
+		@ILogService private readonly logService: ILogService
 	) {
 		super();
 		this.root = append(this.container, $('.basehalf-canvas-markdown-inline.bh-md-preview'));
@@ -502,11 +499,11 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 	}
 
 	canUndo(): boolean {
-		return !!this.model?.canUndo() && baseHalfEditorUndoReachesItsText(this.undoRedoService, this.model.uri, 'undo');
+		return this.model?.canUndo() ?? false;
 	}
 
 	canRedo(): boolean {
-		return !!this.model?.canRedo() && baseHalfEditorUndoReachesItsText(this.undoRedoService, this.model.uri, 'redo');
+		return this.model?.canRedo() ?? false;
 	}
 
 	undo(): Promise<void> {
@@ -1126,12 +1123,6 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				return;
 			}
 			this.finishEditGroup();
-			// A step of the canvas, Card Detail's header, or Files is undone
-			// where it was made, and nothing asks (exact undo, "Undo in an editor
-			// of text").
-			if (!baseHalfEditorUndoReachesItsText(this.undoRedoService, model.uri, action)) {
-				return;
-			}
 			if (action === 'undo') {
 				await model.undo();
 			} else {
