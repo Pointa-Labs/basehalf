@@ -1002,7 +1002,8 @@ written with this document.
     without a picture, or the new picture in the old shape. A video trimmed
     and a sound cut the same way play their new length on
     their cards. So does a version that an undo or a redo of the edit
-    writes, or another program.
+    writes, or another program, whether it writes the file in place or
+    moves a new version over it: the card changes in one frame there too.
 
 ## Verification
 

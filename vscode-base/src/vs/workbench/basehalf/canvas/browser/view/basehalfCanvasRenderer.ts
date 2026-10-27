@@ -575,7 +575,7 @@ export class BaseHalfCanvasRenderer {
 		}
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
 		for (const item of items) {
-			previews.set(item.path, this.view.previews.cardPreviewWithoutFile(item) ?? this.reusableCardPreview(item) ?? { kind: 'loading', text: 'Loading preview…' });
+			previews.set(item.path, this.view.previews.cardPreviewWithoutFile(item) ?? this.reusableCardPreview(item) ?? this.replacedMediaPreview(item) ?? { kind: 'loading', text: 'Loading preview…' });
 		}
 		if (this.view.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
 			return;
@@ -887,6 +887,18 @@ export class BaseHalfCanvasRenderer {
 		// generation card's information is no part of it, so a prompt the panel
 		// saves keeps the card as it is (generation cards, "The card").
 		return cached.preview;
+	}
+
+	/**
+	 * A new version of a file that its card showed as a picture, a video, or a
+	 * sound: the face of the new version at once, which reads nothing, so that
+	 * the card changes from the old picture to the new one in one drawing,
+	 * without a loading face between them (canvas card placement, "The size
+	 * follows").
+	 */
+	private replacedMediaPreview(item: IBaseHalfCanvasItem): BaseHalfCanvasCardPreview | undefined {
+		const cached = this.view.renderedCardPreviewsByPath.get(item.path);
+		return cached?.preview.kind === 'media' ? this.view.previews.mediaPreview(item) : undefined;
 	}
 
 	cardVisualKey(item: IBaseHalfCanvasItem): string {
