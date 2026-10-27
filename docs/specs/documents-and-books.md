@@ -183,7 +183,12 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     changes. Once the user zooms, the PDF opens at the zoom and the page
     where the user was, as before.
 16. Everything else is as before: thumbnails, the outline, search, zoom,
-    text selection, and Grow branch from a selection. A PDF that a password
+    text selection, and Grow branch from a selection. A pinch of the
+    trackpad zooms the PDF with its zoom, around the fingers, as the wheel
+    with Ctrl held does inside it, and the zoom is the user's. The browser
+    gives a pinch to the window, never to the page of the PDF, so the window
+    takes it and hands it to the page
+    ([zoom and outline of a note](note-zoom-and-outline.md), D87). A PDF that a password
     locks asks for it in place of the PDF, says so when it is not right,
     and asks again; Cancel closes Card Detail. BaseHalf keeps no password:
     the PDF asks each time it opens. Any other PDF that does not open shows
@@ -220,7 +225,10 @@ show the same files ([architecture invariants](../harness/architecture-invariant
     it. Escape in the field closes the search.
 22. **Text.** Smaller Text and Larger Text change the size of the text in
     steps, from 70 % to 200 %, and the choice of pages or one scroll is
-    kept. Both are the user's for every book on this computer. They do not
+    kept. A pinch of the trackpad changes the text by one step each time
+    the fingers have spread or closed by as much as that step, as Larger
+    Text and Smaller Text do. Both are the user's for every book on this
+    computer. They do not
     apply to a comic book or to a book with a fixed layout, whose pages are
     pictures.
 23. **Colors.** The pages take the colors of the workbench's editor, light

@@ -197,9 +197,11 @@ Not in scope, and unchanged:
 - L4. A heading inside a list item or a quote is shown as a heading by the
   Preview projection and as text by the Rich projection, and each outline
   lists what its projection shows.
-- L5. A pinch over a PDF, a book, an image, a sound, or a video in Card
-  Detail still does nothing. Their pages could take the pinch the same way:
-  the window takes it and hands it to the page.
+- L5. A pinch over a PDF or a book in Card Detail zooms it with its own zoom,
+  by the same way: the window takes the pinch and hands it to the page
+  ([PDFs and books](documents-and-books.md#the-pdf-reader), rules 16 and
+  22). A pinch over an image, a sound, or a video still does nothing; their
+  pages are being changed (D85).
 
 ## Failure and recovery
 

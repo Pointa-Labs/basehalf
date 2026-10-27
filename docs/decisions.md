@@ -3466,8 +3466,11 @@ goes the same way.
 - The Rich projection takes a pinch in the window and hands it to its page;
   Preview, drawn in the window, takes it itself. Both keep the level in
   `basehalf.noteZoom` of the profile's storage, never in the workspace.
-- A pinch over a PDF, a book, an image, a sound, or a video in Card Detail
-  still does nothing; their pages can take it the same way.
+- A pinch over a PDF zooms it with its zoom of D81, and a pinch over a book
+  changes its text size by the steps of Larger Text and Smaller Text: the
+  window takes the pinch over the frame of the page and hands it to the page
+  that it names. A pinch over an image, a sound, or a video still does
+  nothing until D85 has changed their pages.
 - In Card Detail the Rich projection keeps 85 pixels at each side of its text
   for the outline at the edge and the editor's handles of a block beside the
   text: in a Card Detail of 834 pixels the text column is 664 pixels wide
