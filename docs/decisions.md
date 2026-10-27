@@ -3608,7 +3608,8 @@ goes the same way.
 
 > **Revised by D92 (2026-10-27).** A folder that would take a drop shows it
 > by growing a little and glowing yellow, not in the canvas's intent color,
-> and a folder of the path shows the same yellow. The rest of D88 stands.
+> and a folder of the path shows the same yellow. While a folder takes the
+> cards, nothing snaps them. The rest of D88 stands.
 
 **Decision.** Where the pointer is when the button is let go decides. A card,
 or a set, let go with the pointer over a folder's card goes into that
@@ -3841,7 +3842,11 @@ glyph made bright. A folder of the path in the title bar that takes the
 cards shows the same yellow around its name, without growing. The folder
 takes the drop over all of its card as it is drawn, so letting go on its
 grown edge still drops into it. With reduced motion it does not grow; with
-forced colors it gets an outline in the system's highlight color. See
+forced colors it gets an outline in the system's highlight color. While a
+folder takes the cards, nothing snaps them and no snap guides are drawn: they
+keep the place snapping gave them at the last move and from there follow the
+pointer exactly, and when the folder lets go of them snapping goes on from
+where they are, so they never jump. See
 [dropping into a folder](specs/canvas-drop-into-folder.md#while-dragging).
 
 **Why.** On 2026-10-27 the user described the look they want: dragged onto a
@@ -3854,7 +3859,11 @@ note only at the edges the note left free, with a ring and a tint of the
 canvas's intent blue, the blue of a connection that would be made, and it
 kept its size. Tried in the window at 106 and 110 percent with the same glow:
 both showed in the edges a held note leaves free; at 110 percent the caption
-moved far enough to draw the eye away from the note being aimed.
+moved far enough to draw the eye away from the note being aimed. With the
+look built, a note held over the middle of a folder's card still snapped to
+it: the guides of the folder's middle crossed the glow, and the note stayed
+put while the pointer moved up to 5 screen pixels, though the cards were
+going into the folder and their place no longer mattered.
 
 **What was set aside.**
 - Words such as "Move into drafts": the user asked for none, and the card
@@ -3871,14 +3880,18 @@ moved far enough to draw the eye away from the note being aimed.
   would stay beside the folder that showed it would take it.
 - Drawing the folder over the dragged cards: the dragged cards are what the
   user holds, and they stay half transparent over it as D88 has them.
+- Putting the cards back under the pointer when a folder takes them, or
+  when it lets go of them: what snapping had moved them by, up to 5 screen
+  pixels, would then show as a jump in that frame.
 
 **Consequences.**
 - Revises D88's look: the canvas's intent color on a taking folder's card,
   and the focus color on a folder of the path, give way to the yellow.
 - [Dropping into a folder](specs/canvas-drop-into-folder.md): the goals,
   which folder takes them (the grown card), what shows while dragging, and
-  criteria 1, 4, and 11; [the location in the title bar](specs/title-bar-location.md#a-drop),
-  requirement 11.
+  criteria 1, 4, 11, and 12; [the location in the title bar](specs/title-bar-location.md#a-drop),
+  requirement 11; [canvas selection and arrangement](specs/canvas-selection-and-arrangement.md#moving-a-set),
+  Snap to Cards for a moved set.
 - The canvas's stylesheet has the yellow as a color of its own,
   `--bh-card-folder-drop`, beside the folder's other colors; the title bar's
   rule names the same yellow.

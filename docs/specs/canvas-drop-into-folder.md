@@ -55,6 +55,11 @@ notes upstream:
   blue, the blue of a connection that would be made. It kept its size. The
   user asked for a folder's card that grows and shows a yellow glow, the sign
   that it can take the file, without words.
+- With that look built (`39126e613`), a note held over the middle of a
+  folder's card still snapped to it: the snap guides of the folder's middle
+  crossed the glow, and the note stayed on the folder's middle while the
+  pointer moved up to 5 screen pixels, though it was going into the folder
+  and its place no longer mattered.
 
 ## What three references do
 
@@ -77,7 +82,7 @@ notes upstream:
   folder, in one step of undo.
 - While dragging, the folder that would take the cards shows it: its card
   grows a little and glows yellow, with no words. The cards show that they
-  would go.
+  would go, and nothing snaps them while it takes them.
 - A card comes out of a folder the same way: onto a folder of the path in
   the title bar.
 - An item from Files and a file from outside the window go into a folder's
@@ -147,6 +152,17 @@ Not in this version:
 - The dragged cards are drawn at half their opacity while a folder takes
   them, so that the folder shows under them. When the pointer leaves the
   folder, both are drawn as before.
+- **No snapping while a folder takes them.** The canvas draws no snap guides
+  and snaps the dragged cards neither to the folder's edges and middle nor to
+  any other card: they go into the folder, so where they would line up does
+  not matter. They follow the pointer exactly. When the folder no longer
+  takes them, guides and snapping are back at the next move. The same holds
+  while a folder of the path takes them.
+- **Nothing jumps.** When a folder takes them, the cards keep the place that
+  snapping gave them at the last move and from there move exactly as the
+  pointer moves. When it lets go of them, snapping goes on from where they
+  are: it pulls them to a line only as it does anywhere on the canvas, from
+  within 5 screen pixels of it.
 - A folder of the path that takes them shows the same yellow around its
   name, without growing: the path is a row of names, and a grown name would
   cover its neighbours.
@@ -263,18 +279,28 @@ canvas work at once
     folder keeps its size and the yellow is there in the first frame that
     marks it. A folder of the path that takes a card shows the yellow around
     its name.
+12. **No snapping.** While a note held over the middle of a folder's card
+    makes the folder glow, no snap guide is drawn, and a move of the pointer
+    by 3 screen pixels moves the note by the same 3 pixels. Sampled on every
+    frame while a note lined up with a neighbour is dragged into a folder's
+    card and out again: in the frame the folder takes it, the note moves
+    exactly as the pointer does; in the frame the folder lets go of it, it
+    moves by no more than the pull of a snap line within 5 screen pixels, and
+    the guides are back.
 
 ## Verification
 
 - Unit tests: which card takes a drop at a point (the card on top, the
   dragged cards left out, only a folder, the taking folder over its grown
-  card but not under a card drawn over it); the canvas does not move for a
-  pointer outside it; the names that keep both; the step that moves files
-  and drafts and its undo and redo.
+  card but not under a card drawn over it); the cards a folder takes are not
+  snapped, keep the place snapping gave them, and are snapped again from
+  there when it lets go of them; the canvas does not move for a pointer
+  outside it; the names that keep both; the step that moves files and drafts
+  and its undo and redo.
 - `npm run basehalf:smoke`, canvas suite, step `canvas-drop-into-folder`:
-  criteria 1, 3, 5, 6, 7, and 10, and of 11 the size, the yellow, the grown
-  edge, and the path. The step `canvas-snap-guides` lets its card go off the
-  folder it aligns the card with, since a card let go on a folder's card goes
-  into it.
-- Real window, per frame while dragging: criteria 1, 2, 4, 5, 8, 9, and 11,
-  with reduced motion and forced colors.
+  criteria 1, 3, 5, 6, 7, and 10, of 11 the size, the yellow, the grown edge,
+  and the path, and of 12 the guides and the move of 3 pixels. The step
+  `canvas-snap-guides` lets its card go off the folder it aligns the card
+  with, since a card let go on a folder's card goes into it.
+- Real window, per frame while dragging: criteria 1, 2, 4, 5, 8, 9, 11, and
+  12, with reduced motion and forced colors.

@@ -369,7 +369,9 @@ is selected by a click on its line, as before.
   every frame.
 - The toolbar is hidden while the set moves and returns when it is dropped,
   as the controls of a single card do.
-- Snap to cards acts on the set box as it acts on one card.
+- Snap to cards acts on the set box as it acts on one card, and not while a
+  folder takes the set
+  ([dropping into a folder](canvas-drop-into-folder.md#while-dragging)).
 - Near the edge of the scene, inside it, the canvas moves, as when one card
   is dragged. While the pointer is outside the scene, it does not move.
 - Let go with the pointer on a folder's card or on a folder of the path, the
