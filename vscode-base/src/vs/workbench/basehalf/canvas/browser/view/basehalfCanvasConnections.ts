@@ -127,12 +127,15 @@ export class BaseHalfCanvasConnections {
 	 * between the cards that are shown, without reading the folder: a panel
 	 * that draws the card's inputs anew draws its lines with them (generation
 	 * cards, "The line on the canvas changes with the tile"). The drawing that
-	 * reads the folder derives the same lines from the reference index.
+	 * reads the folder derives the same lines from the reference index: a list
+	 * that is not the one the index holds now draws nothing, so a panel's read
+	 * that came late never takes the canvas back to an older list.
 	 */
 	showUpstreamLines(sceneKey: string, path: string, upstream: readonly string[]): void {
 		const view = this.view;
 		const folder = view.getCurrentFolder();
-		if (!folder || view.sceneKey(folder) !== sceneKey || !view.renderedItemsByPath.has(path)
+		const target = view.renderedItemsByPath.get(path);
+		if (!folder || view.sceneKey(folder) !== sceneKey || !target
 			|| view.canvasNavigationService.state.cardDetail || view.canvasScene.isInteracting()) {
 			return;
 		}
@@ -141,8 +144,16 @@ export class BaseHalfCanvasConnections {
 		if (state === undefined || state === 'building') {
 			return;
 		}
+		const identity = view.upstreamIdentity(folder.workspaceFolder);
+		const store = view.referenceIndexService.getStore(view.workspaceNode(folder.workspaceFolder, path, target.kind));
+		const current = store?.read.readable && (store.storeKind !== 'sidecar' || store.sidecarState === 'active')
+			? store.read.items.flatMap(entry => entry.path !== undefined ? [entry.path] : [])
+			: undefined;
+		if (!current || current.length !== upstream.length || current.some((entry, index) => identity.key(entry) !== identity.key(upstream[index]))) {
+			return;
+		}
 		const items = [...view.renderedItemsByPath.values()];
-		const siblingUpstream = baseHalfCanvasResolveSiblingUpstream(upstream, items.map(item => item.path), view.upstreamIdentity(folder.workspaceFolder));
+		const siblingUpstream = baseHalfCanvasResolveSiblingUpstream(upstream, items.map(item => item.path), identity);
 		const edges: IBaseHalfCanvasSceneEdge[] = baseHalfCanvasEdgesWithUpstream(items, view.renderedLayoutEdges, path, siblingUpstream).map(edge => ({
 			...edge,
 			id: baseHalfCanvasSceneEdgeId(edge.from, edge.to),
