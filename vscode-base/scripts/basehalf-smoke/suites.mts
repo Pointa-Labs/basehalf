@@ -44,6 +44,7 @@ import {
 } from './areas/cardDetail/cardDetail.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import { assertCardDetailEditShowsOnItsCard } from './areas/cardDetail/editOnCard.mts';
+import { assertCardDetailImageCropBack } from './areas/cardDetail/imageCropBack.mts';
 import { assertCardDetailImageEdit } from './areas/cardDetail/imageEdit.mts';
 import { assertCardDetailMediaPinch } from './areas/cardDetail/mediaPinch.mts';
 import { assertCardDetailSoundEdit } from './areas/cardDetail/soundEdit.mts';
@@ -259,6 +260,7 @@ async function runCardDetailSuite(page) {
 	await step('card-detail-rename-is-canvas-undo', () => assertCardDetailRenameIsCanvasUndo(page));
 	await step('card-detail-video-edit', () => assertCardDetailVideoEdit(page));
 	await step('card-detail-image-edit', () => assertCardDetailImageEdit(page));
+	await step('card-detail-image-crop-back', () => assertCardDetailImageCropBack(page));
 	await step('card-detail-edit-shows-on-its-card', () => assertCardDetailEditShowsOnItsCard(page));
 	await step('card-detail-sound-edit', () => assertCardDetailSoundEdit(page));
 	await step('card-detail-media-pinch', () => assertCardDetailMediaPinch(page));

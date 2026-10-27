@@ -4146,6 +4146,11 @@ thinking flowing on the canvas, a broad use.
 
 ## D96 — Media in Card Detail opens to view it, Edit edits it, and its gestures are the canvas's (NEW, 2026-10-27)
 
+> **Revised by D97 (2026-10-28).** While an image is edited, a pinch zooms
+> its picture under the crop frame, which changes the part kept, and a
+> two-finger swipe moves the picture under it; Edit takes a zoom of the view
+> back to as it fits, in a glide. The rest of D96 stands.
+
 **Decision.** Card Detail of a video, an image, or a sound opens to look at
 the file, as a phone's photo library and voice recorder show what they hold:
 the picture of an image, the player of a video with its timeline under it,
@@ -4219,3 +4224,99 @@ here changes nothing of the picture's place.
 - While viewing, Play plays the file through once, and the player counts its
   time from the start of the part an edit keeps.
 - The undo of an edit, the file, its record, and its original are unchanged.
+
+## D97 — A crop is taken back by pushing its frame to the edge, and a pinch while cropping zooms the picture under the frame (NEW, 2026-10-28)
+
+**Decision.** The crop of an image works as a phone's photo editor and the
+photo app of the desktop do.
+- **The rest of the original stays in sight.** While editing, it shows dimmed
+  around the crop frame, also at rest, so what a crop left out is never
+  hidden.
+- **Pushing toward the edge takes the picture back.**
+  - A corner or a side dragged into the margin of 24 px inside the view's
+    edge, or past it, stops at the margin's inner edge, and the picture
+    follows.
+  - It moves and grows smaller around the opposite corner or side, which
+    keeps its place on screen, faster the deeper the pointer is.
+  - It goes on until the picture's own edge is in reach, or the whole picture
+    fits, so one drag takes back what a crop cut.
+- **Letting go waits.** The frame stays where it was let go for 1 s, then the
+  frame and the picture glide in 200 ms to rest, the part kept as large as
+  fits at the middle of the view.
+- **The gestures while cropping.**
+  - A pinch, or the wheel with the zoom key, zooms the picture under the frame
+    around the pointer. The frame keeps its place and size, and the part kept
+    grows smaller as the picture grows and larger as it shrinks, as far as the
+    picture holds.
+  - A two-finger swipe and the wheel move the picture under the frame, as a
+    drag inside it does.
+  - Each pinch and each swipe is one change, "Crop still.png", once it rests.
+- **Edit takes a zoom of the view back** to the picture as it fits, in a glide
+  of 200 ms.
+- **Viewing does not change.** A pinch zooms the view as a browser zooms its
+  page (D96).
+
+See [editing media, Cropping an image](specs/media-editing.md#cropping-an-image).
+
+**Why.** On 2026-10-28, after D96, the user named three problems with an
+image:
+- a crop could not be taken back to the original's size;
+- pushing a crop's edge back toward the edge did not move and shrink the
+  picture, as the phone's editor does;
+- a pinch while editing did not zoom.
+
+The user set the photo app of the desktop as the reference, since it works as
+the phone does. Measured in a development window on a picture of
+2400 × 1600:
+- After a crop to 1320 × 880 and its glide, the picture was zoomed from 0.41
+  to 0.75 screen pixels for each of its pixels, and the rest of the original
+  lay outside the view, painted over.
+- A drag of a corner kept the scale it started with. Even the window's corner
+  took the part back only to 1823 × 1015, and the frame's corner went outside
+  the view.
+- A pinch out at rest changed nothing, since the view zooms only above as it
+  fits. A pinch in zoomed the view and hid the frame (D96).
+
+What the references do:
+- The photo app recenters and resizes the photo once a handle is let go.
+- It takes back more of the photo when a handle is pushed "against the edge
+  of the window", and resizes and recenters "after a second".
+- It zooms the photo in and out with a two-finger pinch while cropping, and a
+  drag in the middle moves the photo under a crop of the same size.
+- The phone's crop is changed by dragging the corners or by pinching the
+  photo, and the corner or side opposite the one dragged stays put.
+
+**What was set aside.**
+- Taking a crop back only with Revert to Original: that takes back every
+  choice, the turn and the angle too.
+- A wider margin around the frame at rest, to give the pointer room: the part
+  kept would show smaller, and the window's edge would still bound one drag.
+- Following at the window's edge instead of the view's: the pointer would
+  leave the picture first. The 24 px of the frame's rest are where a handle
+  reaches the view's edge.
+- Showing the rest of the original only while dragging (D85): a crop then
+  looks final, and nothing shows that there is more to take back.
+- The view's zoom while an image is edited (D96): a pinch can mean one thing,
+  and in a crop tool it is the crop's, in both references. The view's zoom
+  stays for viewing, and for a video while editing.
+- Gliding at once on letting go (D85): a handle let go and taken again moved
+  under the pointer, and the reference waits.
+- A double click that zooms while editing: it zoomed the view. A double click
+  while editing does nothing.
+- Option-dragging a corner to move all four, and Shift with a side, as the
+  photo app has them: more than the plain crop the user asked for, with no
+  adjustments beyond it.
+
+**Consequences.**
+- Revises D96: Edit shows an image's whole picture as it fits, gliding from a
+  zoom of the view; a pinch while cropping changes the crop; a double click
+  while editing does nothing.
+- Revises D85's crop view: the rest of the original shows dimmed while
+  editing, and letting go waits 1 s before the glide.
+- A handle pushed toward the edge of an editor in Card Detail follows one
+  rule: what it edits comes to it, faster the deeper the pointer is in the
+  view's margin of 24 px or past it, until the end is in reach. For the crop,
+  the picture moves and shrinks. For the frame viewer and the waveform, the
+  spread-out stretch moves along (D93).
+- The edit record, what is written, and the undo are unchanged. A pinch and a
+  swipe while cropping are steps named as a drag of the frame is.

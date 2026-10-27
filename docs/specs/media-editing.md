@@ -1,6 +1,6 @@
 # Editing media
 
-Status: Draft (2026-10-26, revised 2026-10-27)
+Status: Draft (2026-10-26, revised 2026-10-28)
 Decision: [D84](../decisions.md#d84--a-video-an-image-or-a-sound-is-edited-in-card-detail-and-its-original-is-kept-new-2026-10-26),
 which revises [D79](../decisions.md#d79--card-detail-trims-a-video-in-place-and-undo-puts-it-back-new-2026-10-25),
 and [D85](../decisions.md#d85--editing-media-is-direct-a-change-is-saved-as-it-is-made-with-no-edit-mode-new-2026-10-26),
@@ -8,7 +8,9 @@ which makes the editing direct;
 [D93](../decisions.md#d93--a-pinch-zooms-the-picture-of-an-image-or-a-video-in-card-detail-and-spreads-out-the-time-of-a-video-or-a-sound-new-2026-10-27)
 for zooming the picture and the time;
 [D96](../decisions.md#d96--media-in-card-detail-opens-to-view-it-edit-edits-it-and-its-gestures-are-the-canvass-new-2026-10-27)
-for viewing before editing, and the gestures of the canvas
+for viewing before editing, and the gestures of the canvas;
+[D97](../decisions.md#d97--a-crop-is-taken-back-by-pushing-its-frame-to-the-edge-and-a-pinch-while-cropping-zooms-the-picture-under-the-frame-new-2026-10-28)
+for cropping as a phone's photo editor does
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -68,6 +70,16 @@ development workspace and in a phone's photo editor and voice recorder:
   while on the canvas it moves; and a pinch over a video zoomed it inside
   its player, whose box cut it, where a browser zooms the place under the
   fingers over its whole page.
+- **A crop could not be taken back** (D97, 2026-10-28, after D96). On a
+  picture of 2400 × 1600, a crop to 1320 × 880 glided to fill the view, which
+  zoomed the picture from 0.41 to 0.75 screen pixels for each of its pixels,
+  and the rest of the original lay outside the view, painted over. A drag of
+  a corner kept that scale, so even the window's corner took the part back
+  only to 1823 × 1015, with the frame's corner outside the view; nothing moved
+  or shrank the picture as a phone's photo editor does when a crop is pushed
+  back to the edge. A pinch while editing zoomed the view and hid the frame,
+  and a pinch out did nothing, where a phone's crop tool zooms the picture
+  under the frame.
 
 ## Goals
 
@@ -80,6 +92,10 @@ development workspace and in a phone's photo editor and voice recorder:
 - **The gestures are the canvas's** (D96): a two-finger swipe moves, a pinch
   zooms, and a pinch zooms the place under the fingers as a browser zooms its
   page.
+- **A crop as a phone's photo editor has it** (D97): the rest of the original
+  stays in sight while cropping, a frame pushed to the edge brings the
+  picture to it, and a pinch zooms the picture under the frame, so a crop is
+  always taken back the way it was made.
 - **The file in its folder is the edited file.** It keeps its name, its
   folder, its card, and its connections; Files, agents, and providers see the
   edit.
@@ -374,7 +390,10 @@ crop:
   place and its size, and is drawn in every frame, when Edit and Done are
   pressed: the room of the tools under it is kept while viewing, empty under
   an image, and holding the timeline under a video and Play under a sound. A
-  zoom of the picture stays as it is.
+  zoom of a video's picture stays as it is. A zoom of an image's picture
+  glides back to as it fits in 200 ms when Edit is pressed, as a phone's photo
+  editor shows the whole picture to crop it, since a pinch while cropping
+  zooms the picture under the frame (D97); it is drawn in every frame.
 - A file that BaseHalf cannot edit shows as a plain view, an image in its
   page and a video or a sound in the player, without Edit, and nothing says
   why: there is no control to explain ([Failure](#failure)). So does every
@@ -390,7 +409,7 @@ crop:
 
 | | Viewing | Editing |
 | --- | --- | --- |
-| An image | the picture as the file holds it; the room of the tools empty | the crop frame on the part kept while the pointer is over the picture or the keyboard is on it, the rest of the original while it is dragged, and the tools under it ([Cropping an image](#cropping-an-image)) |
+| An image | the picture as the file holds it; the room of the tools empty | the rest of the original dimmed around the part kept, the crop frame on it while the pointer is over the picture or the keyboard is on it, and the tools under it ([Cropping an image](#cropping-an-image)) |
 | A video | the frame viewer shows the file: the frames of the part kept, from its start to its end, with the playhead; a press moves the playhead; Play plays the file through once | the frame viewer shows the whole original, the part kept in its yellow frame, with its handles and length; the part plays over and over ([Editing a video](#editing-a-video)) |
 | A sound | the waveform shows the sound as the file holds it, from the first handle to the second, with the playhead; a press moves the playhead; Play plays it through once | the waveform shows the trims at its ends outside the handles, the handles, and a selected stretch with Delete; the part between the handles plays over and over ([Editing a sound](#editing-a-sound)) |
 
@@ -436,9 +455,10 @@ mouse wheel move what is zoomed, and a pinch, or the wheel with Command (Ctrl
 on Windows and Linux) or Ctrl held, zooms it. **The wheel alone never zooms**
 in Card Detail.
 
-- **A pinch over the picture of an image or a video**, while viewing and
-  while editing, zooms the place under the fingers as a browser zooms its
-  page (D96), never the edit: the point under the pointer stays under it, and
+- **A pinch over the picture of an image or a video**, while viewing, and
+  over a video's while editing, zooms the place under the fingers as a
+  browser zooms its page (D96), never the edit: the point under the pointer
+  stays under it, and
   the picture grows past its own box, over the whole media area of Card
   Detail, as the page under a browser's toolbar does. Card Detail's controls
   keep their place and their size over it: the header, the player's
@@ -450,9 +470,11 @@ in Card Detail.
   the picture's own pixels when that is more. A pinch follows the fingers, by
   e^(−Δy / 100) for each of its events, the measure the browser gives a
   pinch, and a notch of the wheel with the zoom key zooms by at most 10%, as
-  over a note. The crop view of an image zooms so
-  ([The crop frame](#the-crop-frame)), and so does the player of every video
-  in Card Detail, edited or not.
+  over a note. The crop view of an image zooms so while viewing, and so does
+  the player of every video in Card Detail, edited or not. **While an image
+  is edited**, a pinch, the wheel, and a two-finger swipe over its picture
+  are the crop's instead, as in a phone's crop tool: they zoom and move the
+  picture under the crop frame (D97, [The crop frame](#the-crop-frame)).
 - **A picture zoomed in** moves with a two-finger swipe and the wheel, and
   with a drag on it, as far as the edges of the zoomed media area go: the
   media area is never moved off itself, so a zoomed picture can show the
@@ -464,7 +486,8 @@ in Card Detail.
   picture back where the drag took it from and leaves Card Detail open.
   Edit, Done, the frame viewer, a change and its undo, Full Screen, and a
   change of the size of Card Detail keep the zoom, as far as the new size
-  allows. Card Detail opens with the picture as it fits, and so does a file
+  allows, except that Edit shows an image as it fits, in a glide of 200 ms
+  (D97). Card Detail opens with the picture as it fits, and so does a file
   shown anew. As it fits, a swipe and the wheel over the picture move
   nothing.
 - **An image that BaseHalf cannot edit**, a GIF, an AVIF, a BMP, or an SVG,
@@ -606,16 +629,19 @@ in Card Detail.
 
 - Card Detail of an image shows the picture as its edit made it: the original,
   turned, flipped, and straightened as the choices say, as large as fits in
-  Card Detail with a margin of 24 px, and only the part kept; the rest of the
-  original is hidden.
-- While viewing, that is all it shows: the room of the tools under the
-  picture stays empty (D96).
+  Card Detail with a margin of 24 px, and the part kept.
+- While viewing, that is all it shows: the rest of the original is hidden,
+  and the room of the tools under the picture stays empty (D96).
+- While editing, **the rest of the original shows around the part kept,
+  dimmed**, as a phone's photo editor shows it, at rest too, so that what a
+  crop left out stays in sight and can be taken back (D97). It comes and goes
+  with Edit and Done in 150 ms; the picture does not move.
 - While editing, the **crop frame** stands on the edges of the part kept: a
   white frame with thick corners and a handle in the middle of each side. It
   shows while the pointer is over the picture or the keyboard is on the
   frame, and fades out otherwise. While a corner, a side, or the picture is
-  dragged, the rest of the original shows around the frame, dimmed, and lines
-  divide the part into thirds.
+  dragged, the dimmed rest grows lighter, to show what the drag can take in,
+  and lines divide the part into thirds.
 - While editing, under the picture, a row of tools, from left to right:
   **Turn Left**, **Flip**, **Ratio**, and the **Straighten** dial. Revert to
   Original, in the line under them, sets everything back.
@@ -624,24 +650,61 @@ in Card Detail.
 
 - **A drag of a corner or of a side** moves it, keeping the ratio when one is
   set, and never past the picture: the part kept is always all picture, with
-  no empty corner, also while the picture is straightened. Letting go of it is
-  a change, "Crop still.png".
-- **A drag inside the frame**, while the part is smaller than the picture,
-  moves the picture under the frame, as far as its edges go; letting go is a
-  change, "Crop still.png". While the part is the whole picture, a drag there
-  does nothing.
-- When a drag ends, the frame and the picture glide in 200 ms until the frame
-  is as large as fits, at the middle of the view.
+  no empty corner, also while the picture is straightened. The corner or the
+  side across from it keeps its place on screen. Letting go of it is a
+  change, "Crop still.png".
+- **Pushed to the edge, the frame brings the picture to it** (D97), as a
+  phone's photo editor and the photo app do when a crop is pushed back
+  "against the edge of the window":
+  - A corner or a side dragged into the margin of 24 px inside the view's
+    edge, or past the view, stops at the margin's inner edge. The frame never
+    leaves the view.
+  - While it is held there, the picture follows: it moves and grows smaller
+    around the corner or the side across from the one dragged, which keeps its
+    place, so that the frame takes in more of the original.
+  - It is faster the deeper the pointer is: by e^(−r) of its size each second,
+    where r is the depth past the margin's inner edge divided by 100 px, at
+    most 4, as a strip moves along past its edge (D93). Each frame of the
+    screen zooms by its own share of that.
+  - It stops when the pointer comes back inside the margin, and when the
+    original's edge is in reach of the frame, in each way the frame is
+    pushed, as far as the part may go with its ratio and its angle. It also
+    stops when the whole picture fits the view as it fits.
+  - So one drag takes a crop back to the original's edge.
+- **A drag inside the frame**, away from its corners and sides, while the
+  part is smaller than the picture, moves the picture under the frame, as far
+  as its edges go: the frame stays still and the picture follows the pointer
+  exactly, with nothing moving at the press or the release, as a phone's photo
+  editor moves the photo under its crop with a finger and the photo app with a
+  drag in the middle (D97). A drag that a trackpad's three-finger drag makes is
+  such a drag. Letting go is a change, "Crop still.png". While the part is the
+  whole picture, a drag there does nothing.
+- **When a drag of a corner or a side ends**, the frame and the picture stay
+  where they are for 1 s, as the photo app waits "a second", then glide in
+  200 ms until the frame is as large as fits, at the middle of the view. A
+  press within that second starts from where they are. A ratio from its menu
+  glides at once; keys glide 0.6 s after the last one.
 - **A pinch over the picture**, or the wheel with the zoom key, zooms the
-  view, never the edit, as over every picture in Card Detail
-  ([Zooming the picture and the time](#zooming-the-picture-and-the-time)); a
-  two-finger swipe and the wheel move it while it is zoomed in. While the
-  view is zoomed in, the crop frame does not show, and a drag moves the view.
-  A double click shows the picture as it fits, or, as it fits, at its own
-  pixels around the pointer. Card Detail opens with the picture as it fits,
-  and a change shows it as it fits again.
-- **The size of the part** stands under the frame while it is dragged, in
-  pixels of the original (`1600 × 900`).
+  picture under the frame around the pointer (D97), as a phone's crop tool
+  and the photo app do. The frame keeps its place and its size, and the part
+  kept changes: it grows smaller as the picture grows, down to the smallest
+  part, and larger as the picture shrinks, as far as the picture holds with
+  the part's ratio. Near an edge of the original the picture slides so that
+  the part stays all picture. A pinch follows the fingers by e^(−Δy / 100)
+  for each of its events, and a notch of the wheel with the zoom key zooms by
+  at most 10%, as over every picture in Card Detail.
+- **A two-finger swipe and the wheel** over the picture move the picture
+  under the frame, as a drag inside it does, with the fingers, as far as its
+  edges go.
+- A pinch and a swipe are each one change, "Crop still.png", once they have
+  rested for 150 ms, as a gesture ends
+  ([Zooming the picture and the time](#zooming-the-picture-and-the-time)); one
+  that changes nothing is no change.
+- A double click while editing does nothing. Card Detail opens with the
+  picture as it fits, and Edit shows it as it fits, gliding from a zoom of the
+  view.
+- **The size of the part** stands under the frame while it is dragged,
+  pinched, or swiped, in pixels of the original (`1600 × 900`).
 
 ### The tools
 
@@ -913,8 +976,8 @@ in Card Detail.
 7. Cropping a 2048 × 2048 PNG to 16:9 with Ratio gives a PNG of 2048 × 1152
    whose pixels are the original's rows kept; a quarter turn and a flip give
    the original's pixels turned and mirrored; an angle of 10° leaves no empty
-   corner. A pinch over the picture zooms the view and changes no edit; the
-   wheel without the zoom key zooms nothing.
+   corner. While viewing, a pinch over the picture zooms the view and changes
+   no edit; the wheel without the zoom key zooms nothing.
 8. Delete on a selected stretch of a WAV, and letting go of a handle, give a
    WAV of the kept samples, with 5 ms fades at the joints, its other chunks
    unchanged; an MP3 edited the same way decodes in the window without an
@@ -943,7 +1006,8 @@ in Card Detail.
     shows its picture or its waveform, recorded on every frame, the picture
     keeps its place and size while the frame viewer, the crop tools, or Play
     stand in the space under it, and when Edit and Done are pressed, both
-    ways, also with the picture zoomed in; no frame shows the picture taken
+    ways, also with a video's picture zoomed in (an image's glides to as it
+    fits, criterion 26); no frame shows the picture taken
     away or drawn anew, also when a change, its write, its undo, and Revert
     to Original land; and closing Card Detail shows no frame without the
     card's picture (the user, 2026-10-27: the video "jumped up" and "flashed"
@@ -958,8 +1022,9 @@ in Card Detail.
     fits. A video of 854 × 480 that fits at 1,280 pixels zooms to 5 times
     that.
 17. The same pinch over an SVG draws it 1.6 times larger around the pointer,
-    and Fit shows it as it fits again; over a PNG it zooms the crop view, while
-    viewing and while editing.
+    and Fit shows it as it fits again; over a PNG it zooms the crop view while
+    viewing, and zooms the picture under the crop frame while editing
+    (criterion 25).
 18. After Edit, a pinch by 4 over the middle of the waveform of a sound spreads its time
     out 4 times around the pointer, the time under the pointer within a bar
     of where it was; the wheel then moves it along. A press there moves the
@@ -984,6 +1049,37 @@ in Card Detail.
     record, and the undo as they were; a change after Edit is saved with
     nothing more pressed; Card Detail closed while editing opens to viewing
     again.
+23. A PNG of 2400 × 1600 cropped to 1320 × 880 by its top left corner, once
+    the frame has come to rest: the same corner dragged into the view's
+    margin and held there takes the part back to the original's top left in
+    one drag (the user, 2026-10-28: a crop could not be taken back to the
+    original's size, and the picture did not move and shrink at the edge).
+    Recorded on every frame:
+    - the frame stays inside the view;
+    - the bottom right corner keeps its place on screen within 1 px;
+    - the picture's scale goes down in every frame while the pointer is held
+      past the margin's inner edge, and stops once the original's edges are in
+      reach;
+    - no frame lacks the picture.
+    Let go, the part is 2400 × 1600, and once written the file is the
+    original's bytes, with no original and no record left.
+24. While editing, the rest of the original shows dimmed around the part
+    kept, also at rest; while viewing, it does not show. Let go, the frame stays
+    where it was for 1 s, within 1 px, then is at rest within 300 ms more; a
+    press within the second starts from there.
+25. While editing a PNG of 2400 × 1600, a pinch by 2 over the picture leaves
+    the frame's place and size on screen within 1 px and halves the width and
+    the height of the part kept around the pointer. A pinch by 0.5 brings it
+    back, and a further pinch out stops at the largest part of its ratio that
+    the picture holds. Each pinch is one step, "Crop still.png". The wheel
+    with Command zooms as a pinch, and a two-finger swipe moves the picture
+    under the frame, also one step. A double click changes nothing. A pointer
+    drag inside the frame, recorded on every frame, keeps the frame within
+    0.5 px and the picture's offset from the pointer within 0.5 px, moves
+    nothing at the press or the release, and is one step.
+26. Edit pressed with the picture zoomed in by a pinch while viewing: the
+    picture glides to as it fits in 200 ms, drawn in every frame, and the frame
+    then stands on the part kept.
 
 ## Verification
 
@@ -1015,6 +1111,15 @@ in Card Detail.
   its controls of editing reachable, Edit and Done show and hide them without
   moving the picture, a press while viewing moves the playhead, Play while
   viewing plays once, and Escape goes back to viewing.
+- Unit tests of the crop's gestures (D97): the part kept when the picture
+  zooms under a fixed frame, with turns, angles, ratios, the smallest part,
+  and the largest that the picture holds (`basehalfImageCrop.test.ts`); and,
+  in the window of the unit tests, the crop view
+  (`basehalfImageCropView.test.ts`): a corner pushed into the margin that
+  brings the picture to it around the opposite corner and stops at the
+  original's edge, the wait of 1 s before the glide, a pinch and a swipe
+  while editing, each one change, and Edit that takes a zoom of the view
+  back.
 - Unit tests of the notes of originals whose file is gone, at opens on a file
   system in memory with a clock that moves on: a file that is back, a path
   whose move waits, a record that cannot be read, a folder that is gone, and a
@@ -1025,8 +1130,11 @@ in Card Detail.
   redo with the keyboard, Revert to Original and its undo, Escape back to
   viewing, and viewing that plays the part once), cropping an image
   (`card-detail-image-edit`: an SVG shows no editor and no Edit; viewing
-  first, Edit, Square, a turn and a flip, a pinch that zooms only the view and
-  a wheel that zooms nothing, Revert to Original, Done, and undo), and
+  first, a pinch that zooms only the view, Edit, Square, a turn and a flip, a
+  wheel that zooms nothing, Revert to Original, Done, and undo; and
+  `card-detail-image-crop-back`: criteria 23 to 26, a crop taken back to the
+  original by a corner held in the margin, recorded on every frame, a pinch
+  and a swipe while editing, and Edit from a zoomed view), and
   cutting a sound (`card-detail-sound-edit`: viewing first, Edit, a stretch
   selected and cut, a trim, the editor again, undo, and Revert to Original),
   and pinching (`card-detail-media-pinch`: criteria 16 to 20, with pinches

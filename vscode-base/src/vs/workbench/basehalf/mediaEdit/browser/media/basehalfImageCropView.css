@@ -5,11 +5,12 @@
 
 /*
  * The crop view of an image in Card Detail (editing media, "The crop view"):
- * the part kept, with the rest of the picture hidden; the crop frame on its
- * edges, with thick corners and a handle in the middle of each side, which
- * shows while the pointer is over the picture or the keyboard is on it; the
- * rest of the picture dimmed around the frame, lines in thirds, and the size
- * of the part while it is adjusted; and the row of tools under it.
+ * the part kept, with the rest of the picture hidden while viewing and dimmed
+ * around it while editing; the crop frame on its edges, with thick corners and
+ * a handle in the middle of each side, which shows while the pointer is over
+ * the picture or the keyboard is on it; lines in thirds while it is adjusted,
+ * and the size of the part while it is adjusted, pinched, or swiped; and the
+ * row of tools under it.
  */
 .monaco-workbench .basehalf-image-crop {
 	position: relative;
@@ -56,14 +57,20 @@
 	position: absolute;
 	box-sizing: border-box;
 	border: 1px solid transparent;
-	/* At rest only the part kept shows; while it is adjusted the rest of the picture is dimmed around it. */
+	/* While viewing only the part kept shows. */
 	box-shadow: 0 0 0 100vmax var(--vscode-editor-background);
 	outline: none;
 	transition: box-shadow 150ms ease, border-color 150ms ease;
 }
 
+/* While editing the rest of the original shows dimmed around the part kept, as a phone's photo editor shows it (D97). */
+.monaco-workbench .basehalf-image-crop:not(.viewing) .basehalf-image-crop-frame {
+	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 62%);
+}
+
+/* While the frame or the picture is dragged, the rest is lighter, to show what the drag can take in. */
 .monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-frame {
-	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 55%);
+	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 45%);
 }
 
 /* The frame stands on the part while the pointer is over the picture, the keyboard is on it, or it is adjusted. */
@@ -206,7 +213,8 @@
 	pointer-events: none;
 }
 
-.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-size {
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-size,
+.monaco-workbench .basehalf-image-crop.gesturing .basehalf-image-crop-size {
 	opacity: 1;
 }
 
