@@ -17,7 +17,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
-import { getPathForFile } from '../../../../../platform/dnd/browser/dnd.js';
+import { CodeDataTransfers, getPathForFile } from '../../../../../platform/dnd/browser/dnd.js';
 import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/defaultStyles.js';
 import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove } from '../../../../contrib/files/browser/fileActions.js';
 import { IFilesConfiguration, UndoConfirmLevel } from '../../../../contrib/files/common/files.js';
@@ -51,7 +51,7 @@ import { baseHalfDocumentBranchBaseName, baseHalfDocumentBranchMarkdown, IBaseHa
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget } from './basehalfCanvasViewShared.js';
+import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget, baseHalfCanvasMoveTarget } from './basehalfCanvasViewShared.js';
 
 /**
  * Making things on the canvas: the inline editors that name a new item or
@@ -65,12 +65,14 @@ export class BaseHalfCanvasCreation {
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
-	private isCanvasFileDrag(event: DragEvent): boolean {
-		return !!event.dataTransfer && [...event.dataTransfer.types].includes('Files');
+	/** What a drag holds that the canvas takes: items dragged from Files, or files from outside the window. */
+	private canvasDragSource(event: DragEvent): 'files' | 'outside' | undefined {
+		const types = event.dataTransfer ? [...event.dataTransfer.types] : [];
+		return types.includes(CodeDataTransfers.FILES) ? 'files' : types.includes('Files') ? 'outside' : undefined;
 	}
 
 	onCanvasFileDragEnter(event: DragEvent): void {
-		if (!this.isCanvasFileDrag(event) || this.view.canvasNavigationService.state.cardDetail) {
+		if (!this.canvasDragSource(event) || this.view.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		event.preventDefault();
@@ -79,35 +81,53 @@ export class BaseHalfCanvasCreation {
 	}
 
 	onCanvasFileDragOver(event: DragEvent): void {
-		if (!this.isCanvasFileDrag(event) || this.view.canvasNavigationService.state.cardDetail) {
+		const source = this.canvasDragSource(event);
+		if (!source || this.view.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		event.preventDefault();
+		// A folder's card under the pointer takes them (dropping into a folder).
+		this.view.folderDrops.showDropTargetAt(event.clientX, event.clientY);
 		if (event.dataTransfer) {
-			event.dataTransfer.dropEffect = 'copy';
+			event.dataTransfer.dropEffect = source === 'files' ? 'move' : 'copy';
 		}
 	}
 
 	onCanvasFileDragLeave(event: DragEvent): void {
-		if (!this.isCanvasFileDrag(event)) {
+		if (!this.canvasDragSource(event)) {
 			return;
 		}
 		this.view.fileDragDepth = Math.max(0, this.view.fileDragDepth - 1);
 		if (this.view.fileDragDepth === 0) {
 			this.view.root.classList.remove('basehalf-canvas-file-dragging');
+			this.view.folderDrops.showDropTargetAt();
 		}
 	}
 
 	async onCanvasFileDrop(event: DragEvent): Promise<void> {
-		if (!this.isCanvasFileDrag(event) || !event.dataTransfer || this.view.canvasNavigationService.state.cardDetail) {
+		const source = this.canvasDragSource(event);
+		if (!source || !event.dataTransfer || this.view.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		event.preventDefault();
 		event.stopPropagation();
 		this.view.fileDragDepth = 0;
 		this.view.root.classList.remove('basehalf-canvas-file-dragging');
-		const resources = [...event.dataTransfer.files]
-			.map(file => getPathForFile(file))
+		const folderCard = this.view.folderDrops.showDropTargetAt(event.clientX, event.clientY);
+		this.view.folderDrops.showDropTargetAt();
+		// Files names every item it drags, folders too, by its path on disk.
+		let paths: unknown[] = [];
+		if (source === 'files') {
+			try {
+				const parsed: unknown = JSON.parse(event.dataTransfer.getData(CodeDataTransfers.FILES));
+				paths = Array.isArray(parsed) ? parsed : [];
+			} catch {
+				paths = [];
+			}
+		} else {
+			paths = [...event.dataTransfer.files].map(file => getPathForFile(file));
+		}
+		const resources = paths
 			.filter((path): path is string => typeof path === 'string' && path.length > 0)
 			.map(path => URI.file(path));
 		if (resources.length === 0) {
@@ -119,10 +139,16 @@ export class BaseHalfCanvasCreation {
 		if (!folder) {
 			return;
 		}
+		// Items of this workspace folder move, as in Files; others are copied.
+		const operation = source === 'files' && resources.every(resource => this.view.uriIdentityService.extUri.isEqualOrParent(resource, folder.workspaceFolder)) ? 'move' : 'copy';
 		try {
+			if (folderCard) {
+				await this.view.folderDrops.dropOnFolderCard(folder, resources, folderCard, operation);
+				return;
+			}
 			const context = await this.view.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
 			const canvasPosition = this.view.canvasScene.screenToCanvasPosition(event.clientX, event.clientY);
-			await this.importCanvasResources(folder, context, resources, canvasPosition, 'copy', postCreateOwner);
+			await this.importCanvasResources(folder, context, resources, canvasPosition, operation, postCreateOwner);
 		} catch (error) {
 			this.view.reportCanvasMutationError(error);
 		}
@@ -1125,9 +1151,12 @@ export class BaseHalfCanvasCreation {
 			if (stat.isDirectory && isEqualOrParent(folder.resource, source)) {
 				throw new Error(localize('basehalf.canvas.import.ancestor', "A folder cannot be imported into itself or one of its descendants."));
 			}
+			// A copy is named as Duplicate names it; an item that moves keeps both
+			// names (exact undo, "What the canvas made").
 			const target = operation === 'copy'
 				? await this.copyTarget(folder, source, stat.isDirectory, false, incrementalNaming, reserved)
-				: await this.freeTransferTarget(folder, source, stat.isDirectory, false, incrementalNaming, reserved);
+				: await baseHalfCanvasMoveTarget(this.view.fileService, folder.resource, source, stat.isDirectory,
+					async candidate => reserved.has(this.view.uriIdentityService.extUri.getComparisonKey(candidate)) || await this.isDraftPath(candidate));
 			if (target) {
 				reserved.add(this.view.uriIdentityService.extUri.getComparisonKey(target));
 				transfers.push({ source, target, kind: stat.isDirectory ? 'folder' : 'file' });

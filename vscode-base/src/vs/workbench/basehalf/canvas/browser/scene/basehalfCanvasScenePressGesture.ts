@@ -109,13 +109,17 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 	readonly requestSelection: (selection: IBaseHalfCanvasSceneSelection) => Promise<boolean>;
 	readonly applyNodesChange: (changes: NodeChange<BaseHalfCanvasFlowNode>[], disableSnap: boolean, reason?: BaseHalfCanvasSceneGeometryReason) => void;
 	readonly reportViewport: (sceneKey: string, viewport: Viewport, final: boolean) => void;
+	/** Shows the folder that would take the moved set (dropping into a folder). */
+	readonly followSetMove: (clientX: number, clientY: number, drag: IBaseHalfCanvasNodeDragState) => void;
+	/** Lets go of the set at a point: true when a folder took it or it went back, false when it stays where it was let go. */
+	readonly releaseDrop: (clientX: number, clientY: number, drag: IBaseHalfCanvasNodeDragState) => boolean;
 }) {
 	const { vendor, host } = environment;
 	const {
 		sceneKeyRef, structuralEpochRef, flowRef, selectionIntents, pendingSelectionRequest,
 		connectionStoreController, nodeDragState, nodeDragToken, suppressNodeDragChrome,
 		settleNodeDragChrome, revealNodeDragChrome, beginInteraction, endInteraction, nodesRef,
-		edgesRef, requestSelection, applyNodesChange, reportViewport
+		edgesRef, requestSelection, applyNodesChange, reportViewport, followSetMove, releaseDrop
 	} = scene;
 
 	const toggleSetCardAt = vendor.useCallback((clientX: number, clientY: number): void => {
@@ -160,8 +164,8 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 
 	const followSceneGesture = vendor.useRef<(() => void) | undefined>(undefined);
 	// What the gesture below calls. A gesture outlives the render it began in.
-	const sceneGesture = vendor.useRef({ applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome });
-	sceneGesture.current = { applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome };
+	const sceneGesture = vendor.useRef({ applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome, followSetMove, releaseDrop });
+	sceneGesture.current = { applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome, followSetMove, releaseDrop };
 
 	// One gesture of the pointer on the scene at a time: a marquee, or a move
 	// of the set by its box (canvas selection and arrangement). While a
@@ -273,6 +277,9 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 				drawMarquee(current);
 			} else {
 				moveSet(current, false);
+				if (current.drag && !current.drag.cancelled) {
+					sceneGesture.current.followSetMove(current.clientX, current.clientY, current.drag);
+				}
 			}
 		};
 		const autoPan = (current: IBaseHalfCanvasScenePressGesture): void => {
@@ -280,8 +287,12 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 				return;
 			}
 			const bounds = host.getBoundingClientRect();
-			const x = baseHalfCanvasAutoPanStep(current.clientX - bounds.left, bounds.width);
-			const y = baseHalfCanvasAutoPanStep(current.clientY - bounds.top, bounds.height);
+			// A moved set takes the canvas along only while the pointer is inside
+			// it: outside, it is on the way to a folder of the path.
+			const outside = current.clientX < bounds.left || current.clientX > bounds.right || current.clientY < bounds.top || current.clientY > bounds.bottom;
+			const still = current.kind === 'move' && outside;
+			const x = still ? 0 : baseHalfCanvasAutoPanStep(current.clientX - bounds.left, bounds.width);
+			const y = still ? 0 : baseHalfCanvasAutoPanStep(current.clientY - bounds.top, bounds.height);
 			if (x !== 0 || y !== 0) {
 				connectionStoreController.current?.panBy(x, y);
 				current.panned = true;
@@ -334,7 +345,9 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 				}
 			} else {
 				const drag = current.drag;
-				if (drag && !drag.cancelled && !cancelled) {
+				// Let go on a folder, the set goes into it; outside the canvas, back
+				// (dropping into a folder). The drop ends the gesture itself.
+				if (drag && !drag.cancelled && !cancelled && !sceneGesture.current.releaseDrop(current.clientX, current.clientY, drag)) {
 					moveSet(current, true);
 					nodeDragState.current = undefined;
 					endInteraction();

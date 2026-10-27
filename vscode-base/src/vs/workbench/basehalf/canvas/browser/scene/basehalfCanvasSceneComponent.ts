@@ -28,6 +28,7 @@ import { createBaseHalfCanvasNoteSelectionControls } from './basehalfCanvasNoteS
 import { createBaseHalfCanvasReferenceEdge } from './basehalfCanvasReferenceEdge.js';
 import { useBaseHalfCanvasSceneCancellation } from './basehalfCanvasSceneCancellation.js';
 import { BaseHalfCanvasPendingConnectionState, BaseHalfCanvasPendingEdgeMutation, IBaseHalfCanvasDropLine, useBaseHalfCanvasSceneConnections } from './basehalfCanvasSceneConnections.js';
+import { useBaseHalfCanvasSceneFolderDrop } from './basehalfCanvasSceneFolderDrop.js';
 import { baseHalfCanvasSceneNodeSize, IBaseHalfCanvasPendingGeometry, useBaseHalfCanvasSceneGeometry } from './basehalfCanvasSceneGeometry.js';
 import { CANVAS_GRAPH_CONTROL_SELECTOR, useBaseHalfCanvasSceneKeyboard } from './basehalfCanvasSceneKeyboard.js';
 import { useBaseHalfCanvasSceneMouse } from './basehalfCanvasSceneMouse.js';
@@ -104,6 +105,8 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const nodeDragSelectionAtPointerDown = vendor.useRef<{ readonly primaryPath: string; readonly selection: readonly string[] } | undefined>(undefined);
 		const nodeDragToken = vendor.useRef(0);
 		const nodeDragChromeToken = vendor.useRef<number | undefined>(undefined);
+		// Cards let go on a folder, hidden until their items have moved.
+		const droppedPaths = vendor.useRef(new Set<string>());
 		const videoPanelFollowToken = vendor.useRef(0);
 		const keyboardGeometryTimer = vendor.useRef<number | undefined>(undefined);
 		const keyboardGeometryInteractionActive = vendor.useRef(false);
@@ -300,7 +303,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			connectionStoreController.current = controller;
 		}, []);
 
-		const { cancelPendingConnection } = useBaseHalfCanvasSceneCancellation(environment, {
+		const { cancelPendingConnection, cancelNodeDrag } = useBaseHalfCanvasSceneCancellation(environment, {
 			sceneKeyRef, structuralEpochRef, viewportGestureSceneKey, interactionDepth,
 			interactionGeneration, interactionSceneKey, interactionStructuralEpoch,
 			pendingConnection, connectionStoreController, nodeDragState, interacting, setGuides,
@@ -310,7 +313,7 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const { updateSnapshot } = useBaseHalfCanvasSceneSnapshot(environment, {
 			snapshotRef, sceneKeyRef, structuralEpochRef, pendingGeometry, pendingEdges,
 			pendingSelectionChanges, interactionDepth, pendingConnection, selectionIntents,
-			pendingSelectionRequest, connectionStoreController, nodeDragState,
+			pendingSelectionRequest, connectionStoreController, nodeDragState, droppedPaths,
 			keyboardGeometryTimer, keyboardGeometryInteractionActive, keyboardGeometryPath,
 			keyboardGeometryPosition, interacting, setGuides, setVideoPanelFollow,
 			revealNodeDragChrome, beginNodeResize, endNodeResize, makeNode, makeEdge, nodesRef,
@@ -392,11 +395,16 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			}
 		}, [queueSelectionChanges, setLiveEdges]);
 
+		const { autoPanOnNodeDrag, followNodeDrag, followSetMove, releaseDrop } = useBaseHalfCanvasSceneFolderDrop(environment, {
+			sceneKeyRef, flowRef, nodeDragState, droppedPaths, nodesRef, setLiveNodes,
+			endInteraction, revealNodeDragChrome, cancelNodeDrag
+		});
+
 		const { toggleSetCardAt, arrangeSet, followSceneGesture } = useBaseHalfCanvasScenePressGesture(environment, {
 			sceneKeyRef, structuralEpochRef, flowRef, selectionIntents, pendingSelectionRequest,
 			connectionStoreController, nodeDragState, nodeDragToken, suppressNodeDragChrome,
 			settleNodeDragChrome, revealNodeDragChrome, beginInteraction, endInteraction, nodesRef,
-			edgesRef, requestSelection, applyNodesChange, reportViewport
+			edgesRef, requestSelection, applyNodesChange, reportViewport, followSetMove, releaseDrop
 		});
 
 		const { beginConnection, optimisticConnect, finishPointerConnect, finishClickConnect, removeEdges, edgeInteraction } = useBaseHalfCanvasSceneConnections(environment, {
@@ -439,7 +447,10 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 			onClickConnectEnd: finishClickConnect,
 			onEdgesDelete: removeEdges,
 			onNodeDragStart: beginNodeDrag,
+			onNodeDrag: followNodeDrag,
 			onNodeDragStop: finishNodeDrag,
+			// Near its edge, only while the pointer is inside it (dropping into a folder).
+			autoPanOnNodeDrag,
 			onNodeClick,
 			onNodeDoubleClick,
 			onNodeContextMenu,

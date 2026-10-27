@@ -36,6 +36,8 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 	readonly pendingSelectionRequest: RefObject<IBaseHalfCanvasPendingSelectionRequest | undefined>;
 	readonly connectionStoreController: RefObject<IBaseHalfCanvasConnectionStoreController | undefined>;
 	readonly nodeDragState: RefObject<IBaseHalfCanvasNodeDragState | undefined>;
+	/** The cards let go on a folder, which stay hidden until their items have moved (dropping into a folder). */
+	readonly droppedPaths: RefObject<ReadonlySet<string>>;
 	readonly keyboardGeometryTimer: RefObject<number | undefined>;
 	readonly keyboardGeometryInteractionActive: RefObject<boolean>;
 	readonly keyboardGeometryPath: RefObject<string | undefined>;
@@ -57,7 +59,7 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 	const {
 		snapshotRef, sceneKeyRef, structuralEpochRef, pendingGeometry, pendingEdges,
 		pendingSelectionChanges, interactionDepth, pendingConnection, selectionIntents,
-		pendingSelectionRequest, connectionStoreController, nodeDragState, keyboardGeometryTimer,
+		pendingSelectionRequest, connectionStoreController, nodeDragState, droppedPaths, keyboardGeometryTimer,
 		keyboardGeometryInteractionActive, keyboardGeometryPath, keyboardGeometryPosition,
 		interacting, setGuides, setVideoPanelFollow, revealNodeDragChrome, beginNodeResize,
 		endNodeResize, makeNode, makeEdge, nodesRef, setLiveNodes, edgesRef, setLiveEdges
@@ -74,7 +76,9 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 		sceneKeyRef.current = snapshot.key;
 		structuralEpochRef.current = snapshot.structuralEpoch;
 		snapshotRef.current = snapshot;
-		if (identityChanged || selectionControlledByHost) {
+		// A selection asked before the canvas was drawn again still counts, unless
+		// another folder is shown or the workbench sets the selection itself.
+		if (keyChanged || selectionControlledByHost) {
 			selectionIntents.current.invalidate();
 			pendingSelectionRequest.current = undefined;
 			pendingSelectionChanges.current.nodes.clear();
@@ -132,7 +136,7 @@ export function useBaseHalfCanvasSceneSnapshot(environment: IBaseHalfCanvasScene
 				};
 			}
 			return makeNode(card, snapshot.key, snapshot.structuralEpoch, selected);
-		});
+		}).map(node => droppedPaths.current.has(node.id) ? { ...node, hidden: true, selected: false } : node);
 		setLiveNodes(nextNodes);
 
 		const currentEdgeById = new Map(edgesRef.current.map(edge => [edge.id, edge]));

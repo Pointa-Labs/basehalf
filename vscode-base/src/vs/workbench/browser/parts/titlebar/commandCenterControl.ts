@@ -30,6 +30,7 @@ import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfItemDisplayName } from '../../../basehalf/cardDetail/common/basehalfCardDetail.js';
+import { BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE } from '../../../basehalf/canvas/common/basehalfCanvasFolderDrop.js';
 
 const AI_DISABLED_SETTING = 'chat.disableAIFeatures';
 const AGENT_STATUS_ENABLED_SETTING = 'chat.agentsControl.enabled';
@@ -325,6 +326,8 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 								const button = element as HTMLButtonElement;
 								button.type = 'button';
 								button.setAttribute('aria-label', localize('basehalf.openFolderCanvas', "Open {0} canvas", entry.path));
+								// BaseHalf: a folder of the path takes cards dropped from the canvas (D88).
+								button.setAttribute(BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE, entry.resource.toString());
 								disposables.add(addDisposableListener(button, EventType.MOUSE_DOWN, event => EventHelper.stop(event, true)));
 								disposables.add(addDisposableListener(button, EventType.CLICK, event => {
 									event.preventDefault();

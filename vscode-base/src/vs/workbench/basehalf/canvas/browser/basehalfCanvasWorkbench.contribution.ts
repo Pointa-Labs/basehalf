@@ -92,6 +92,7 @@ import { BaseHalfCanvasConnections } from './view/basehalfCanvasConnections.js';
 import { BaseHalfCanvasGeometry } from './view/basehalfCanvasGeometry.js';
 import { BaseHalfCanvasSelectionActions } from './view/basehalfCanvasSelectionActions.js';
 import { BaseHalfCanvasCreation } from './view/basehalfCanvasCreation.js';
+import { BaseHalfCanvasFolderDrops } from './view/basehalfCanvasFolderDrops.js';
 import { BaseHalfCanvasCardDetailHost } from './view/basehalfCanvasCardDetailHost.js';
 import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, BaseHalfCanvasInlineEdit, IBaseHalfActiveCanvasNoteEditor, IBaseHalfBadgeDescriptionPending, IBaseHalfCanvasCardRenderCacheEntry, IBaseHalfCanvasMutationGuard, IBaseHalfCanvasNotePreviewMount, IBaseHalfCanvasPostCreateOwner, IBaseHalfPendingCanvasNoteFocus, IBaseHalfPendingCanvasNoteFormatCommand, IBaseHalfPendingCanvasNoteNavigationGuard, baseHalfBadgeResourceIdentity, baseHalfCanvasPostCreateOwnerIsCurrent } from './view/basehalfCanvasViewShared.js';
 
@@ -147,6 +148,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly geometry = new BaseHalfCanvasGeometry(this);
 	readonly selectionActions = new BaseHalfCanvasSelectionActions(this);
 	readonly creation = new BaseHalfCanvasCreation(this);
+	readonly folderDrops = new BaseHalfCanvasFolderDrops(this);
 	readonly cardDetailHost = new BaseHalfCanvasCardDetailHost(this);
 
 	readonly root: HTMLElement;
@@ -403,6 +405,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			reconnect: (sceneKey, structuralEpoch, intent) => this.connections.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
 			removeEdges: (sceneKey, structuralEpoch, edges) => this.connections.removeEdgesFromScene(sceneKey, structuralEpoch, edges),
 			performSelectionAction: (sceneKey, structuralEpoch, action, paths) => this.selectionActions.performSceneSelectionAction(sceneKey, structuralEpoch, action, paths),
+			dropCardsIntoFolder: (sceneKey, structuralEpoch, paths, folder) => this.folderDrops.dropSceneCards(sceneKey, structuralEpoch, paths, folder),
 			cancelPendingCardOpen: () => this.selectionActions.cancelPendingNodeActivation(),
 			prepareSelectionChange: (sceneKey, structuralEpoch, paths) => this.selectionActions.prepareSceneSelectionChange(sceneKey, structuralEpoch, paths),
 			didChangeSelection: (sceneKey, _structuralEpoch, paths) => {
@@ -711,6 +714,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			whenDrawn: () => new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => mainWindow.requestAnimationFrame(() => resolve()))),
 			moveCards: (scene, places, undoLabel, onUndoOrRedo) => this.geometry.moveCanvasCards(scene, places, undoLabel, onUndoOrRedo),
 			restoreCardPlaces: (sceneKey, rows, undoLabel) => this.geometry.restoreCanvasCardPlaces(sceneKey, rows, undoLabel),
+			takeFolderDrops: drops => this.folderDrops.take(drops),
 			closeNoteEditor: () => this.noteEditing.closeActiveCanvasNoteEditorAfterFormats(),
 			focus: () => this.cards.focus({ preventScroll: true }),
 			onKeyDown: this.onKeyDownEmitter.event,

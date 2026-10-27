@@ -150,6 +150,10 @@ export function createBaseHalfTestCanvasView(
 			});
 		},
 		endCardPick: () => { cardPick = undefined; },
+		takeFolderDrops: () => {
+			calls.push('takeFolderDrops');
+			return toDisposable(() => { });
+		},
 		cardPanels: new Map<string, HTMLElement>(),
 		showCardPanel: (sceneKey, path, element, screenHeight) => {
 			calls.push(`showCardPanel ${sceneKey} ${path} ${screenHeight}`);

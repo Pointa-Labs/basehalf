@@ -95,12 +95,12 @@ export class BaseHalfGenerationCardActions implements IBaseHalfGenerationCardAct
 		return draft;
 	}
 
-	async moveDraft(draft: URI, target: URI): Promise<URI> {
+	async moveDraft(draft: URI, target: URI, undoRedoGroup?: UndoRedoGroup): Promise<URI> {
 		const moved = await this.draftOperations.move(draft, target);
 		const label = this.uriIdentityService.extUri.isEqual(dirname(draft), dirname(target))
 			? localize('basehalf.generation.actions.rename', "Rename {0} to {1}", basename(draft), basename(target))
 			: localize('basehalf.generation.actions.move', "Move {0}", basename(draft));
-		await this.pushUndo(label, 'basehalf.generation.moveDraft', [draft, target], { kind: 'moved', from: draft, to: target });
+		await this.pushUndo(label, 'basehalf.generation.moveDraft', [draft, target], { kind: 'moved', from: draft, to: target }, undoRedoGroup);
 		return moved;
 	}
 

@@ -264,6 +264,14 @@
 	outline-offset: -1px;
 }
 
+/* BaseHalf: a folder of the path that would take the cards dragged from the canvas (D88). */
+.monaco-workbench button.basehalf-command-center-breadcrumb-segment[data-basehalf-drop-target] {
+	color: var(--vscode-commandCenter-activeForeground);
+	background-color: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent);
+	outline: 2px solid var(--vscode-focusBorder);
+	outline-offset: -2px;
+}
+
 .monaco-workbench .basehalf-command-center-breadcrumb-separator {
 	flex: none;
 	width: 12px;

@@ -108,6 +108,19 @@
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-canvas-intent) 70%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
 }
 
+/* A folder's card that would take the dragged cards or items, in the intent
+ * color, and the cards that would go into it, through which it shows
+ * (dropping into a folder). */
+.monaco-workbench .basehalf-canvas-card.folder[data-basehalf-drop-target] {
+	border-color: var(--bh-canvas-intent);
+	background: color-mix(in srgb, var(--bh-canvas-intent) 14%, var(--bh-card-folder));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--bh-canvas-intent) 50%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
+}
+
+.monaco-workbench .basehalf-canvas-card[data-basehalf-dropping] {
+	opacity: 0.5;
+}
+
 .monaco-workbench .basehalf-canvas-card-content {
 	position: relative;
 	flex: 1;
