@@ -546,8 +546,8 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		const third = open({ provider: TWO_REGIONS });
 		await service.refresh(TWO_REGIONS, SPEECH);
 		assert.deepStrictEqual({ refused, south, busy: status(third.element) }, {
-			refused: 'The voices could not be loaded: The provider refused the credentials in Dunlin. If they are from South, choose that region in Providers: The API key is not valid. [Try Again]',
-			south: 'The voices could not be loaded: The provider refused the credentials in South. If they are from Dunlin, choose that region in Providers: The API key is not valid. [Try Again]',
+			refused: 'The voices could not be loaded: Credentials refused in Dunlin. If they are from South, choose that region in Providers: The API key is not valid. [Try Again]',
+			south: 'The voices could not be loaded: Credentials refused in South. If they are from Dunlin, choose that region in Providers: The API key is not valid. [Try Again]',
 			busy: 'The voices could not be loaded: Too many requests. [Try Again]'
 		});
 	});

@@ -462,10 +462,12 @@ so BaseHalf shows where the other region is chosen wherever that matters:
   link at once.
 - Credentials that a provider of more than one region refuses at its region's
   own address are refused in words that name that region and the other one,
-  followed by the provider's own message: "The provider refused the
-  credentials in China. If they are from International, choose that region
-  in Providers:". A provider of more regions says "another region" instead.
-  A generation's request says so on its card
+  followed by the provider's own message: "Credentials refused in China. If
+  they are from International, choose that region in Providers:". A
+  provider of more regions says "another region" instead. The words are
+  short so that the two lines a card shows of its error name both regions,
+  for the longest labels too ("China · Volcengine Ark" and "International ·
+  BytePlus ModelArk"). A generation's request says so on its card
   ([generation cards, Ending without its files](generation-cards.md#ending-without-its-files)),
   and the list of a speech model's voices in the voice menu, after "The voices
   could not be loaded:". At an endpoint the user entered, a relay with keys of
@@ -898,9 +900,10 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     the region first listed is chosen until the user chooses (D94).
 20. Credentials that a provider of more than one region refuses at its
     region's own address, for a generation or a list of voices, are refused
-    in words that name that region and the other one; at an endpoint the user
-    entered, for a provider of one region, and while BaseHalf asks about a
-    task the provider accepted, the words name no region (D94).
+    in words that name that region and the other one, both within the two
+    lines a card shows of its error; at an endpoint the user entered, for a
+    provider of one region, and while BaseHalf asks about a task the provider
+    accepted, the words name no region (D94).
 
 ## Verification
 
@@ -960,5 +963,8 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   and of a provider of one region (criterion 20). The workbench suite of the
   smoke reads, for each provider of more than one region, that the region
   and the console link come before the credentials and are in view on the
-  page; a window at 1440 × 900 points was looked at in both themes.
+  page; a window at 1440 × 900 points was looked at in both themes, and on
+  2026-10-27 a ByteDance image card generated in each region with a key the
+  region refused, against the local test provider put at both regions'
+  addresses, showed both regions in its two lines.
 - No real provider is called by tests.

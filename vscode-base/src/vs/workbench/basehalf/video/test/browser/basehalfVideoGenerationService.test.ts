@@ -999,7 +999,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		const errors = new Map((await harness.records()).map(task => [task.cards[0].path, task.error]));
 		assert.deepStrictEqual({ refused: errors.get('shots/refused.mp4'), unknown: errors.get('shots/unknown.mp4'), sent: commands.count(SUBMIT), polls: commands.count(POLL) }, {
 			// Acme has two regions, and the request went to the first one's own address (D94).
-			refused: 'The provider refused the credentials in East · Acme Cloud. If they are from West · Acme Global, choose that region in Providers: The API key *** is incorrect.',
+			refused: 'Credentials refused in East · Acme Cloud. If they are from West · Acme Global, choose that region in Providers: The API key *** is incorrect.',
 			unknown: `${unknownOutcomeMessage()} (The connection closed after the request was sent.)`,
 			sent: 2,
 			polls: 0
@@ -1038,7 +1038,7 @@ suite('BaseHalfVideoGenerationService', () => {
 		oneRegion.dispose();
 
 		assert.deepStrictEqual({ west, relay, asked, one }, {
-			west: 'The provider refused the credentials in West · Acme Global. If they are from East · Acme Cloud, choose that region in Providers: Unauthorized.',
+			west: 'Credentials refused in West · Acme Global. If they are from East · Acme Cloud, choose that region in Providers: Unauthorized.',
 			relay: 'The provider refused the credentials: Unauthorized.',
 			asked: 'The provider refused the credentials while BaseHalf asked about the generation: Unauthorized.',
 			one: 'The provider refused the credentials: Unauthorized.'

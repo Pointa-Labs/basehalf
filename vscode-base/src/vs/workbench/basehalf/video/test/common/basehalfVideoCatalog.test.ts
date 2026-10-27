@@ -411,9 +411,9 @@ suite('BaseHalfVideoCatalog', () => {
 			unknownRegion: refused(ACME, 'south', east.baseUrl),
 			noProvider: refused(undefined, 'east', east.baseUrl)
 		}, {
-			east: 'The provider refused the credentials in East · Acme Cloud. If they are from West · Acme Global, choose that region in Providers: Unauthorized.',
-			west: 'The provider refused the credentials in West · Acme Global. If they are from East · Acme Cloud, choose that region in Providers: Unauthorized.',
-			three: 'The provider refused the credentials in West · Acme Global. If they are from another region, choose it in Providers: Unauthorized.',
+			east: 'Credentials refused in East · Acme Cloud. If they are from West · Acme Global, choose that region in Providers: Unauthorized.',
+			west: 'Credentials refused in West · Acme Global. If they are from East · Acme Cloud, choose that region in Providers: Unauthorized.',
+			three: 'Credentials refused in West · Acme Global. If they are from another region, choose it in Providers: Unauthorized.',
 			relay: undefined,
 			oneRegion: undefined,
 			unknownRegion: undefined,
