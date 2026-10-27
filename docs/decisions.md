@@ -238,6 +238,10 @@ users (curious learners using AI tools) over-index on Mac.
 
 ## D16 — Target user = curious learners using AI to learn (NEW)
 
+> **Revised by D95 (2026-10-27).** BaseHalf has no single main user: learners
+> are among the people it is for, with creators of AI media, people who think
+> in maps, and people who review code. The rest of D16 stands.
+
 **Decision.** The primary user is **someone who learns new things with AI**
 — students cramming, PMs ramping on a new domain, anyone teaching themselves
 a field by chatting with Claude / Codex. The product is *not* scope-locked
@@ -3824,3 +3828,35 @@ after a model was chosen from its menu.
 - The catalog, the parameters, what is sent, and what `generation.yaml` and
   `made.yaml` store are unchanged: an image card's mode is still `reference`,
   and `basehalf --list-capabilities` still gives agents each model's count.
+
+## D95 — BaseHalf is for anyone who thinks with AI on a canvas, not one kind of user (NEW, 2026-10-27)
+
+**Decision.** BaseHalf has no single main user. It is for anyone whose
+thinking and an AI's flow on one canvas: someone learning a field (D16),
+someone making images, video, and sound with AI models (D58, D63, D64, D78),
+someone who thinks in maps, for whom notes made small with their connections
+are a mind map, and someone reviewing code on a canvas. The affordances stay
+generic, as D16 already said: no surface is shaped for one of these alone,
+and a feature made for one is also judged by what it does for the others.
+
+**Why.** Generation cards had become a large part of the product while D16
+still named learners as the primary user, so on 2026-10-22 the user was asked
+whether professional creators of AI media and small studios should take that
+place, with a recommendation that they should. On 2026-10-27 the user
+answered that BaseHalf has many learning uses and that creators of AI media
+are not the only ones who can use it: learners can too; a note made very
+small on the canvas becomes a mind map; the canvas can also become a tool for
+reviewing code; what BaseHalf is mainly about is the AI's and the user's
+thinking flowing on the canvas, a broad use.
+
+**What was set aside.**
+- Creators of AI media and small studios as the main user, the
+  recommendation of 2026-10-22: it would weigh every choice by paid
+  generation, while the same canvas serves learning, maps, and review.
+- An edition or a mode for each audience: one canvas and one set of
+  affordances serve all of them.
+
+**Consequences.**
+- Revises D16: learners are among the people BaseHalf is for, not its
+  primary user. D17 stays: compound thinking is the product form.
+- Nothing in the window changes.
