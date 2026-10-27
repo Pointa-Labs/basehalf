@@ -301,6 +301,8 @@ canvas work at once
   criteria 1, 3, 5, 6, 7, and 10, of 11 the size, the yellow, the grown edge,
   and the path, and of 12 the guides and the move of 3 pixels. The step
   `canvas-snap-guides` lets its card go off the folder it aligns the card
-  with, since a card let go on a folder's card goes into it.
+  with, since a card let go on a folder's card goes into it, and drags the
+  card by its caption, above the folder, since nothing snaps a card that a
+  folder takes.
 - Real window, per frame while dragging: criteria 1, 2, 4, 5, 8, 9, 11, and
   12, with reduced motion and forced colors.
