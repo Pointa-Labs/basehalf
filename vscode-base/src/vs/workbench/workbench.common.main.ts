@@ -492,6 +492,7 @@ import './basehalf/navigation/browser/basehalfNavigation.contribution.js';
 import './basehalf/canvas/basehalfCanvas.all.js';
 import './basehalf/workspace/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/workspace/browser/basehalfKeptVersions.contribution.js';
+import './basehalf/workspace/browser/basehalfEditorUndo.contribution.js';
 import './basehalf/video/browser/basehalfGenerationCardCopy.contribution.js';
 import './basehalf/video/browser/basehalfGenerationMentionFollower.contribution.js';
 import './basehalf/references/browser/basehalfBadgeQuickAccess.contribution.js';

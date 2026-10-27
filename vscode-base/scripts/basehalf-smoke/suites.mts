@@ -21,6 +21,7 @@ import { assertCanvasCardFollowsOutsideRename, assertCanvasCardsFollowManyOutsid
 import { assertCanvasInlineRename } from './areas/canvas/names.mts';
 import { assertCanvasNoteInlineWysiwygEditor } from './areas/canvas/noteEditor.mts';
 import { assertCanvasNoteResizeWhileEditing } from './areas/canvas/noteResize.mts';
+import { assertCanvasNoteUndoAsksNothing } from './areas/canvas/noteUndo.mts';
 import { assertCanvasNoteRendersMarkdown, assertCanvasNoteWheelScroll, assertNoteThatCannotHoldAListKeepsItWithBaseHalf } from './areas/canvas/notes.mts';
 import { assertCanvasMarqueeSelectsConnections, assertCanvasSelectionAndArrangement } from './areas/canvas/selection.mts';
 import { assertCanvasSnapGuides, assertCanvasZoomControls } from './areas/canvas/zoomAndSnap.mts';
@@ -162,6 +163,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-create-note', () => assertCanvasCreateNote(page));
 	await step('canvas-note-selection-controls', () => assertCanvasNoteInlineWysiwygEditor(page));
 	await step('canvas-note-resize-while-editing', () => assertCanvasNoteResizeWhileEditing(page));
+	await step('canvas-note-undo-asks-nothing', () => assertCanvasNoteUndoAsksNothing(page));
 	await step('canvas-numeric-folder-names', () => assertCanvasNumericFolderNames(page));
 	await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 	await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
