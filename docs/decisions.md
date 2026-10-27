@@ -3872,7 +3872,8 @@ of video zoom their timeline with one.
   does, the wheel zooming it and a drag moving it: a change of that page
   beyond the pinch, for formats that few generated images have.
 - A view of the whole length beside a spread-out stretch, as some editors
-  have: the length shows under the handles, and pinching in shows the whole.
+  have: a thin bar shows where the stretch lies while it changes, as
+  BaseHalf's scrollbars show, and pinching in shows the whole.
 
 **Consequences.**
 - [Editing media](specs/media-editing.md): "Zooming the picture and the

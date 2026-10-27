@@ -412,7 +412,10 @@ sound, as editors of video and sound and a phone's voice recorder do.
   - While it is spread out, a sideways swipe of two fingers and the wheel
     move it along, as far as the start and the end go. The yellow frame, the
     handles, the selected stretch, and the playhead are cut at its edges
-    where they lie outside it, and a handle outside it does not show.
+    where they lie outside it, and a handle outside it does not show. While
+    the stretch changes, a thin bar over the bottom of the strip shows where
+    it lies in the whole length, and goes 1 s after the last change, as
+    BaseHalf's scrollbars float and hide.
   - A press, a drag of a handle or of the part, a selection, and Delete work
     there as on the whole length, at the times under the pointer. A handle
     or a selection dragged past an edge moves the stretch along, faster the
