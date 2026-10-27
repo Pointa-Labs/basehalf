@@ -203,9 +203,10 @@ Not in scope, and unchanged:
   22). A pinch over an image or the picture of a video zooms the place under
   the fingers, past the picture's box, and a two-finger swipe moves it, as on
   the canvas; while editing, one over the frame viewer of a video or the
-  waveform of a sound spreads its time out
+  waveform of a sound spreads its time out, and one over an image zooms its
+  picture under the crop frame
   ([editing media, "Zooming the picture and the time"](media-editing.md#zooming-the-picture-and-the-time),
-  D93, D96).
+  D93, D96, D97).
 
 ## Failure and recovery
 
