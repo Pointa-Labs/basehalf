@@ -152,8 +152,12 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			if (this.disposed || token !== this.selectionToken || !this.canvas.isCurrentScene(sceneKey)) {
 				return;
 			}
-			// A drag that selected the card keeps the panel away until the pointer is released.
+			// A drag that selected the card keeps the panel away until the pointer is released,
+			// and the panel of another card goes at once: the canvas draws a panel until it is taken away.
 			if (this.canvas.isInteracting()) {
+				if (this.mount && this.mount.path !== path) {
+					void this.closePanel();
+				}
 				mainWindow.requestAnimationFrame(show);
 				return;
 			}
