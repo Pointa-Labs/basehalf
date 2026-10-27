@@ -55,7 +55,10 @@ See [code organization](code-organization.md) and public decision D60.
   BaseHalf's terminal: `TERM_PROGRAM=BaseHalf`, a BaseHalf XTVERSION reply,
   and Ghostty wheel semantics. Do not reintroduce the `vscode` identity or
   xterm.js's one-report-per-event wheel input
-  ([Agent Area terminal](../specs/agent-area-terminal.md), D39).
+  ([Agent Area terminal](../specs/agent-area-terminal.md), D39). Their grid
+  keeps no width for the scrollbar, and the space around it takes the
+  background of the nearest cell, so a program's own background reaches the
+  edges of its pane (D86).
 - Context menus are drawn in the window by default (`window.menuStyle:
   custom`), as VS Code's Agents window does, on every platform. They follow
   the product theme, and canvas state shown while a menu is open, such as the
