@@ -13,11 +13,13 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
-import { baseHalfCanvasMediaUrl, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
+import { baseHalfCanvasMediaUrl, baseHalfKnownVideoAspect, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, rememberBaseHalfVideoAspect } from './basehalfCanvasCardMedia.js';
 import { BaseHalfCanvasVideoSound, BaseHalfVideoSoundGraph } from './basehalfCanvasVideoSound.js';
 
 /** The narrowest picture, in screen pixels, that shows the player's controls (video node, "The player"). */
 export const BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH = 160;
+/** In Card Detail, the controls of a video that plays fade this long after the pointer last moved (generation cards, "The player", D98). */
+export const BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS = 2500;
 
 /** How far Left and Right move the position slider, in seconds. */
 const SLIDER_STEP_SECONDS = 1;
@@ -49,8 +51,8 @@ export interface IBaseHalfCanvasCardVideoPlayerOptions {
 	readonly hoverService?: IHoverService;
 	/**
 	 * The player of Card Detail, not of a card (generation cards, "The
-	 * player"): its controls always show, a click on the picture plays and
-	 * pauses it, the pointer plays nothing, its sound is on, Full Screen stands
+	 * player"): its controls show as a player's do and fade while it plays
+	 * once the pointer rests (D98), a click on the picture plays and pauses it, the pointer plays nothing, its sound is on, Full Screen stands
 	 * where Open is, and it starts at the frame its card shows.
 	 */
 	readonly detail?: boolean;
@@ -211,6 +213,12 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	private readonly sound: BaseHalfCanvasVideoSound;
 	private hovered = false;
 	private selected = false;
+	/** In Card Detail: the pointer moved over the player, or a key was pressed, in the last {@link BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS}. */
+	private woken = false;
+	private wakeTimer: ReturnType<typeof setTimeout> | undefined;
+	/** In Card Detail: the pointer is on the controls, or the keyboard is in them. */
+	private pointerOnControls = false;
+	private keyboardInControls = false;
 	private muted = true;
 	private scrubbing: number | undefined;
 	private range: IBaseHalfCanvasVideoPlayRange | undefined;
@@ -239,6 +247,16 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		// On a card the picture is the card's: a press on it selects, moves, and opens the card.
 		if (!detail) {
 			this.video.style.pointerEvents = 'none';
+		}
+		// Card Detail draws its player in the video's shape from its first frame, never a box of another shape (D98):
+		// the shape its card measured, or else the video's own, which it waits for unseen.
+		if (detail && !isSound) {
+			const aspect = baseHalfKnownVideoAspect(this.file);
+			if (aspect !== undefined) {
+				this.element.style.setProperty('--basehalf-video-aspect', String(aspect));
+			} else {
+				this.element.classList.add('sizing');
+			}
 		}
 		// The frame where the video last stopped stands for it, at first its first frame.
 		// Card Detail starts at the frame its card shows, with the sound on.
@@ -480,8 +498,52 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 					if (video.videoWidth > 0 && video.videoHeight > 0) {
 						element.style.setProperty('--basehalf-video-aspect', String(video.videoWidth / video.videoHeight));
 					}
+					element.classList.remove('sizing');
+				}));
+				this._register(addDisposableListener(video, 'error', () => element.classList.remove('sizing')));
+			}
+			// The controls show as a player's do (D98): while the video is paused, the pointer moves over the picture
+			// or rests on a control, or the keyboard is in them; while it plays, they fade once the pointer rests.
+			this._register(addDisposableListener(element, 'pointermove', event => {
+				if (event.pointerType !== 'touch') {
+					this.wake();
+				}
+			}));
+			this._register(addDisposableListener(element, 'pointerleave', () => this.sleep()));
+			this._register(addDisposableListener(element.ownerDocument, 'keydown', () => {
+				if (element.isConnected) {
+					this.wake();
+				}
+			}));
+			for (const control of [this.top, this.bar]) {
+				this._register(addDisposableListener(control, 'pointerenter', () => {
+					this.pointerOnControls = true;
+					this.updateControls();
+				}));
+				this._register(addDisposableListener(control, 'pointerleave', () => {
+					this.pointerOnControls = false;
+					this.updateControls();
+				}));
+				// Only a control the keyboard moved to keeps them: Card Detail that opens puts the focus on Play by itself.
+				this._register(addDisposableListener(control, 'focusin', event => {
+					this.keyboardInControls = isHTMLElement(event.target) && event.target.matches(':focus-visible');
+					this.updateControls();
+				}));
+				this._register(addDisposableListener(control, 'keyup', () => {
+					const active = getActiveElement();
+					this.keyboardInControls = isHTMLElement(active) && control.contains(active) && active.matches(':focus-visible');
+					this.updateControls();
+				}));
+				this._register(addDisposableListener(control, 'focusout', event => {
+					const next = event.relatedTarget;
+					// A move to another of the controls is told by its focusin.
+					if (!isHTMLElement(next) || !(this.top.contains(next) || this.bar.contains(next))) {
+						this.keyboardInControls = false;
+						this.updateControls();
+					}
 				}));
 			}
+			this._register(toDisposable(() => this.clearWakeTimer()));
 		} else {
 			// The pointer plays the video, also on a selected card; it plays no sound, which has no picture to show.
 			this._register(addDisposableListener(element, 'pointerenter', event => {
@@ -510,7 +572,17 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		}
 
 		for (const type of ['play', 'pause'] as const) {
-			this._register(addDisposableListener(video, type, () => this.updatePlayButton()));
+			this._register(addDisposableListener(video, type, () => {
+				this.updatePlayButton();
+				// In Card Detail a video that starts keeps its controls a while before they fade; one that pauses shows them.
+				if (this.detail) {
+					if (type === 'play') {
+						this.wake();
+					} else {
+						this.updateControls();
+					}
+				}
+			}));
 		}
 		this._register(addDisposableListener(video, 'ended', () => {
 			// A part that ends where the video does starts again too, unless it plays once.
@@ -532,6 +604,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		for (const type of ['timeupdate', 'durationchange', 'loadedmetadata', 'seeked'] as const) {
 			this._register(addDisposableListener(video, type, () => this.updateTime()));
 		}
+		// The shape of the video's frame, for Card Detail's player that opens it next (D98).
+		this._register(addDisposableListener(video, 'loadedmetadata', () => rememberBaseHalfVideoAspect(this.file, video.videoWidth, video.videoHeight)));
 		this._register(addDisposableListener(video, 'error', () => this.options.onError()));
 
 		// A press on the controls is theirs: it selects, moves, and opens no card.
@@ -718,20 +792,63 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 			: localize('basehalf.canvas.videoPlayer.mute', "Mute"));
 	}
 
-	/** The controls show while the pointer is on the card or the card is selected, and always in Card Detail, on a picture wide enough on screen. */
+	/** In Card Detail: the pointer moved or a key was pressed; the controls show, and fade once that long has passed. */
+	private wake(): void {
+		this.woken = true;
+		this.clearWakeTimer();
+		this.wakeTimer = setTimeout(() => {
+			this.wakeTimer = undefined;
+			this.woken = false;
+			this.updateControls();
+		}, BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS);
+		this.updateControls();
+	}
+
+	/** In Card Detail: the pointer left the player; a video that plays lets its controls go at once. */
+	private sleep(): void {
+		this.clearWakeTimer();
+		this.woken = false;
+		this.pointerOnControls = false;
+		this.updateControls();
+	}
+
+	private clearWakeTimer(): void {
+		if (this.wakeTimer !== undefined) {
+			clearTimeout(this.wakeTimer);
+			this.wakeTimer = undefined;
+		}
+	}
+
+	/**
+	 * On a card the controls show while the pointer is on it or it is selected.
+	 * In Card Detail they show as a player's do (D98): while the video is
+	 * paused, the pointer moved a moment ago or rests on a control, or the
+	 * keyboard is in them; while it plays they otherwise fade, and stay where
+	 * the keyboard and the pointer can reach them. Either way only on a picture
+	 * wide enough on screen.
+	 */
 	private updateControls(): void {
-		const shown = (this.hovered || this.selected || this.detail)
-			&& this.element.getBoundingClientRect().width >= BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH;
-		this.element.dataset.controls = shown ? 'shown' : 'hidden';
+		const wide = this.element.getBoundingClientRect().width >= BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH;
+		let state: 'shown' | 'faded' | 'hidden';
+		if (!wide) {
+			state = 'hidden';
+		} else if (this.detail) {
+			const playing = !this.video.paused && !this.video.ended;
+			state = !playing || this.woken || this.pointerOnControls || this.keyboardInControls || this.scrubbing !== undefined ? 'shown' : 'faded';
+		} else {
+			state = this.hovered || this.selected ? 'shown' : 'hidden';
+		}
+		const reachable = state !== 'hidden';
+		this.element.dataset.controls = state;
 		for (const control of [this.top, this.bar]) {
-			control.setAttribute('aria-hidden', String(!shown));
+			control.setAttribute('aria-hidden', String(!reachable));
 		}
 		for (const focusable of [this.soundButton, this.playButton, this.slider, this.openButton]) {
-			focusable.tabIndex = shown && !focusable.hidden && !focusable.parentElement?.hidden ? 0 : -1;
+			focusable.tabIndex = reachable && !focusable.hidden && !focusable.parentElement?.hidden ? 0 : -1;
 		}
 		// A control that hides takes the keyboard focus to its card, not to nowhere.
 		const active = getActiveElement();
-		if (!shown && isHTMLElement(active) && (this.top.contains(active) || this.bar.contains(active))) {
+		if (!reachable && isHTMLElement(active) && (this.top.contains(active) || this.bar.contains(active))) {
 			const card = this.element.closest<HTMLElement>('.basehalf-canvas-card');
 			if (card) {
 				card.focus({ preventScroll: true });

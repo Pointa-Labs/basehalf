@@ -49,6 +49,7 @@ import { assertCardDetailImageEdit } from './areas/cardDetail/imageEdit.mts';
 import { assertCardDetailMediaPinch } from './areas/cardDetail/mediaPinch.mts';
 import { assertCardDetailSoundEdit } from './areas/cardDetail/soundEdit.mts';
 import { assertCardDetailVideoEdit } from './areas/cardDetail/videoEdit.mts';
+import { assertCardDetailVideoEdgeFollow } from './areas/cardDetail/videoEdge.mts';
 import {
 	assertMarkdownRichBlockMenuPortal,
 	assertMarkdownRichBlockquoteEditable,
@@ -259,6 +260,7 @@ async function runCardDetailSuite(page) {
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	await step('card-detail-rename-is-canvas-undo', () => assertCardDetailRenameIsCanvasUndo(page));
 	await step('card-detail-video-edit', () => assertCardDetailVideoEdit(page));
+	await step('card-detail-video-edge-follow', () => assertCardDetailVideoEdgeFollow(page));
 	await step('card-detail-image-edit', () => assertCardDetailImageEdit(page));
 	await step('card-detail-image-crop-back', () => assertCardDetailImageCropBack(page));
 	await step('card-detail-edit-shows-on-its-card', () => assertCardDetailEditShowsOnItsCard(page));

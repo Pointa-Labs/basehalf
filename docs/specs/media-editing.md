@@ -514,8 +514,20 @@ in Card Detail.
     BaseHalf's scrollbars float and hide.
   - A press, a drag of a handle or of the part, a selection, and Delete work
     there as on the whole length, at the times under the pointer. A drag of
-    a handle, of the part, of the playhead, or of a selection past an edge
-    moves the stretch along, faster the farther the pointer is past it. Holding a handle still spreads the
+    a handle, of the part, of the playhead, or of a selection that comes
+    within 24 px of an edge of the strip, or goes past it, moves the stretch
+    along (D98), as a phone's trim follows a handle held against its edge,
+    by the rule the crop frame of an image follows too
+    ([The crop frame](#the-crop-frame)). The depth of the pointer counts
+    from the margin's inner side, the edge itself being 24 and a pixel past
+    it one more; each second the stretch moves by that depth / 100 of its
+    length, at most 4 times its length, until the start or the end of the
+    length is in view. Meanwhile what the drag holds stays at the margin's
+    inner side, at the time the moving stretch shows there, so that it never
+    slides under the strip's edge; once the start or the end is in view, it
+    goes on to the edge. Bringing the pointer back out of the margin stops
+    the stretch. The stretch only moves; its length stays. A held handle's
+    spread moves along so too. Holding a handle still spreads the
     viewer further around it when the hold's stretch is the shorter one, and
     letting go of the handle shows the stretch the pinch chose again.
   - While the video or the sound plays, the stretch follows the playhead:
@@ -1080,6 +1092,13 @@ in Card Detail.
 26. Edit pressed with the picture zoomed in by a pinch while viewing: the
     picture glides to as it fits in 200 ms, drawn in every frame, and the frame
     then stands on the part kept.
+27. With the frame viewer of a 6 s video spread out around its held start
+    handle, the pointer held 12 px inside the strip's right edge, without
+    going past it, moves the stretch along, the handle 24 px inside the edge
+    at a later time in every frame and never closer to the edge; moved back
+    to 40 px inside the edge, the stretch and the handle stop; the stretch's
+    length is the same throughout (D98). The waveform of a sound does the
+    same.
 
 ## Verification
 

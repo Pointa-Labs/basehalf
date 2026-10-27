@@ -150,13 +150,44 @@ suite('BaseHalfTimeZoom', () => {
 		zoom.dragAt(undefined);
 		clock.advance(16);
 		assert.deepStrictEqual({ first, second, inside, back: stretchOf(zoom), moves, waiting: clock.waiting }, {
-			// 100 pixels past the end: a stretch of 1.5 s each second; 300 pixels: three of them.
-			first: { from: 2.274, to: 3.774 },
-			second: { from: 2.346, to: 3.846 },
-			inside: { stretch: { from: 2.346, to: 3.846 }, waiting: 0 },
-			back: { from: 2.334, to: 3.834 },
-			moves: [1100, 1300, -50],
+			// The depth counts from the 24 px margin's inner side (D98): 100 pixels past the end is 124, which moves a
+			// stretch of 1.5 s 1.24 stretches each second; 300 pixels past, 3.24; 50 pixels before the start, 0.74.
+			first: { from: 2.28, to: 3.78 },
+			second: { from: 2.358, to: 3.858 },
+			inside: { stretch: { from: 2.358, to: 3.858 }, waiting: 0 },
+			back: { from: 2.34, to: 3.84 },
+			// What the drag holds goes to the margin's inner side, 24 px inside the edge, never under it.
+			moves: [976, 976, 24],
 			waiting: 0
+		});
+	});
+
+	test('a drag held inside the 24 px margin at an edge carries the stretch along from a crawl, holds what it drags at the margin\'s inner side, and stops when it comes out of the margin or the end is in view (D98)', () => {
+		const { strip, clock, moves, zoom } = setUp();
+		pinch(strip, 500, 4);
+		// 12 pixels inside the end: a depth of 12, 0.12 of a stretch each second.
+		zoom.dragAt(988);
+		clock.advance(1000);
+		const inMargin = { stretch: stretchOf(zoom), place: zoom.place(988) };
+		zoom.dragAt(960);
+		clock.advance(1000);
+		const outOfIt = { stretch: stretchOf(zoom), waiting: clock.waiting, place: zoom.place(960) };
+		zoom.dragAt(12);
+		clock.advance(1000);
+		const atTheStart = stretchOf(zoom);
+		// Past the end, until the end is in view: then nothing follows, and the drag reaches the edge.
+		zoom.dragAt(1100);
+		for (let frame = 0; frame < 300; frame++) {
+			clock.advance(16);
+		}
+		const toTheEnd = { stretch: stretchOf(zoom), waiting: clock.waiting, place: zoom.place(988) };
+		zoom.dragAt(undefined);
+		assert.deepStrictEqual({ inMargin, outOfIt, atTheStart, toTheEnd, moves: moves.slice(0, 2) }, {
+			inMargin: { stretch: { from: 2.43, to: 3.93 }, place: 976 },
+			outOfIt: { stretch: { from: 2.43, to: 3.93 }, waiting: 0, place: 960 },
+			atTheStart: { from: 2.25, to: 3.75 },
+			toTheEnd: { stretch: { from: 4.5, to: 6 }, waiting: 0, place: 988 },
+			moves: [976, 24]
 		});
 	});
 

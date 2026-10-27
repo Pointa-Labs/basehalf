@@ -7,7 +7,7 @@ import { raceTimeout } from '../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
-import { baseHalfCanvasMediaUrl } from './basehalfCanvasCardMedia.js';
+import { baseHalfCanvasMediaUrl, rememberBaseHalfVideoAspect } from './basehalfCanvasCardMedia.js';
 
 /** At most this many pictures are measured at a time. */
 const MEASURING_AT_ONCE = 6;
@@ -78,7 +78,11 @@ export function createBaseHalfCanvasPictureMeasurer(targetWindow: Window & typeo
 					video.removeAttribute('src');
 					video.load();
 				};
-				video.onloadedmetadata = () => finish(ratioOf(video.videoWidth, video.videoHeight));
+				video.onloadedmetadata = () => {
+					// Card Detail draws its player in this shape from its first frame (generation cards, "The player", D98).
+					rememberBaseHalfVideoAspect(picture.resource, video.videoWidth, video.videoHeight);
+					finish(ratioOf(video.videoWidth, video.videoHeight));
+				};
 				video.onerror = () => finish(undefined);
 				video.src = url;
 			});

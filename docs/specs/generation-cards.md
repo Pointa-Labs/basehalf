@@ -1385,6 +1385,18 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   The controls scale with the canvas, as the rest of the card does, and stay
   hidden on a picture narrower than 160 screen pixels, as the zoom or a
   resize leaves it.
+- **The controls float over the picture and darken nothing else** (D98), as
+  a photo app's player has them. The bar lies 8 px inside the picture's
+  bottom, left, and right edges, 30 px high with rounded corners, and is at
+  most 480 px wide, in the middle; under a frame viewer, which is the
+  video's timeline, it has no position slider and is as wide as its
+  controls. The sound button is a round button 8 px
+  inside the top left corner. Each has its own small translucent backing,
+  which blurs the picture behind it, so that its controls read over a white
+  picture as over a black one. No shade goes across the picture, and a card
+  at rest has nothing over its picture. Where a card cannot take its video's
+  shape, the card's own surface shows around the picture, as around an
+  image's, not black.
 - **Sound starts off.** The sound button turns it on for that card while the
   card shows its video, also when the canvas draws the card again; the video
   then plays with sound while the pointer is on it.
@@ -1401,10 +1413,20 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   one stopped.
 - **Card Detail plays it the same way.** Card Detail shows the video in this
   player, not the system's, with what a card that is opened needs: the
-  controls always show, a click on the picture plays and pauses it, Space
-  does too, the pointer on it plays nothing, the sound is on, and **Full
-  Screen** stands where **Open** is. The video starts at the frame its card
-  showed; when Card Detail closes, the card shows the frame where it stopped
+  controls show as a player's do (D98), a click on the picture plays and
+  pauses it, Space does too, the pointer on it plays nothing, the sound is
+  on, and **Full Screen** stands where **Open** is. The controls show while
+  the video is paused, while the pointer moves over the picture or rests on
+  a control, and while the keyboard is on one of them after a key took it
+  there (Card Detail that opens puts it on Play by itself, which keeps
+  nothing). While the video plays, they fade 2.5 s after the pointer last
+  moved or a key was pressed, and at once when the pointer leaves the
+  picture; a move or a key in Card Detail brings them back. Faded, they can
+  still be reached by the keyboard, which shows them. The player has the
+  video's shape in the first frame it is drawn in, never a box of another
+  shape: the shape its card measured, or, for a video no card measured yet,
+  the video's own, which it waits for before it is drawn (D98). The video
+  starts at the frame its card showed; when Card Detail closes, the card shows the frame where it stopped
   ([opening and closing Card Detail](card-detail-opening.md)), unless an edit
   wrote the file anew meanwhile: the card then shows the new file. A video
   that BaseHalf can edit plays with the frame viewer of its editor under the
@@ -2193,8 +2215,11 @@ The player
     sound on bring the sound up over 40 ms; the sound reaches silence before
     the video's end; recorded at the window's output, no sample after the
     pause differs from silence.
-40. Card Detail plays a video in the player with its controls shown, the
-    sound on, and Full Screen; a click on the picture plays and pauses it.
+40. Card Detail plays a video in the player with its controls shown while it
+    is paused, the sound on, and Full Screen; a click on the picture plays
+    and pauses it. While it plays, its controls fade 2.5 s after the
+    pointer rests over the picture and when the pointer leaves it, come back
+    with a move, and stay while the keyboard is on Play.
     It starts at the frame the card showed, and the card shows the frame
     where Card Detail stopped.
 41. The card of a WAV file shows the glyph of a sound and no system control;
@@ -2473,6 +2498,13 @@ Each kind's panel (D91)
     its own shape from the first frame it is drawn in. While a draft of any
     kind generates, no button that adds an input can be reached by the
     pointer, the keyboard, or assistive technology.
+99. The controls of a video, on a card and in Card Detail, darken nothing
+    of the picture but what lies behind their own backing. With the
+    controls shown, the picture's pixels 4 px or more from the bar's and
+    the sound button's backing are the same as without them, and the bar is
+    8 px inside the picture's edges, 30 px high, and at most 480 px wide.
+    The time on the bar reads over a white picture and over a black one. A
+    card at rest shows its picture with nothing over it.
 
 ## Verification
 

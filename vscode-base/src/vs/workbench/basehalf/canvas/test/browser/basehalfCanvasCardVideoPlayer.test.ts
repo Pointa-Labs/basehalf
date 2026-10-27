@@ -5,9 +5,11 @@
 
 import * as assert from 'assert';
 import { mainWindow } from '../../../../../base/browser/window.js';
+import { timeout } from '../../../../../base/common/async.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { createBaseHalfCanvasCardVideoPlayer, formatBaseHalfCanvasVideoTime, IBaseHalfCanvasCardVideoPlayer, layoutBaseHalfCanvasCardVideoPlayers } from '../../browser/basehalfCanvasCardVideoPlayer.js';
+import { BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS, createBaseHalfCanvasCardVideoPlayer, formatBaseHalfCanvasVideoTime, IBaseHalfCanvasCardVideoPlayer, layoutBaseHalfCanvasCardVideoPlayers } from '../../browser/basehalfCanvasCardVideoPlayer.js';
 
 suite('BaseHalfCanvasCardVideoPlayer', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
@@ -275,7 +277,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		player.dispose();
 		assert.deepStrictEqual({ inCard: container.contains(player.element), source: player.video.getAttribute('src') }, { inCard: false, source: null });
 	});
-	test('in Card Detail the picture is the player\'s: the controls always show, a click plays and pauses the video with its sound, the pointer plays nothing, and Full Screen stands where Open is', () => {
+	test('in Card Detail the picture is the player\'s: the controls show while it is paused, a click plays and pauses the video with its sound, the pointer plays nothing, and Full Screen stands where Open is', () => {
 		const { player, media, control } = createPlayer(640, undefined, true);
 		const seen = {
 			controls: player.element.dataset.controls,
@@ -293,6 +295,70 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			playing: 'Pause',
 			media: ['play', 'pause'],
 			focused: true
+		});
+	});
+
+	test('in Card Detail the controls fade while the video plays once the pointer rests, come back with a move or a key, go when the pointer leaves, and stay while it is paused; faded, the keyboard still reaches them (D98)', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+		const { player, control } = createPlayer(640, undefined, true);
+		const seen: string[] = [];
+		const note = () => seen.push(player.element.dataset.controls ?? '');
+		const move = () => player.element.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
+		note();
+		move();
+		player.video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		note();
+		await timeout(BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS + 10);
+		note();
+		const reachable = { play: control('play').tabIndex, hidden: player.element.querySelector('.basehalf-canvas-video-player-bar')!.getAttribute('aria-hidden') };
+		move();
+		note();
+		player.element.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+		note();
+		mainWindow.document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' }));
+		note();
+		await timeout(BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS + 10);
+		note();
+		player.video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		note();
+		await timeout(BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS + 10);
+		note();
+		assert.deepStrictEqual({ seen, reachable }, {
+			seen: ['shown', 'shown', 'faded', 'shown', 'faded', 'shown', 'faded', 'shown', 'shown'],
+			reachable: { play: 0, hidden: 'false' }
+		});
+	}));
+
+	test('on a card the controls neither fade nor wait: they show while the pointer is on it and go when it leaves, also while the video plays (D98)', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+		const { player } = createPlayer(320);
+		const seen: string[] = [];
+		point(player.element, 'pointerenter');
+		seen.push(player.element.dataset.controls ?? '');
+		await timeout(BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS + 10);
+		seen.push(player.element.dataset.controls ?? '');
+		point(player.element, 'pointerleave');
+		seen.push(player.element.dataset.controls ?? '');
+		assert.deepStrictEqual(seen, ['shown', 'shown', 'hidden']);
+	}));
+
+	test('Card Detail\'s player has the shape a card\'s player loaded for the same video from its first frame, and one no card loaded waits unseen for its own (D98)', () => {
+		const loaded = (player: IBaseHalfCanvasCardVideoPlayer, width: number, height: number) => {
+			Object.defineProperty(player.video, 'videoWidth', { configurable: true, get: () => width });
+			Object.defineProperty(player.video, 'videoHeight', { configurable: true, get: () => height });
+			player.video.dispatchEvent(new Event('loadedmetadata'));
+		};
+		const shape = (player: IBaseHalfCanvasCardVideoPlayer) => ({ aspect: player.element.style.getPropertyValue('--basehalf-video-aspect'), sizing: player.element.classList.contains('sizing') });
+		// A portrait video that its card played: Card Detail draws it as tall as it is at once.
+		const card = createPlayer(320, '/workspace/portrait.mp4');
+		loaded(card.player, 720, 1280);
+		const known = shape(createPlayer(640, '/workspace/portrait.mp4', true).player);
+		// A video no card loaded: Card Detail's player is not seen until it has its own shape.
+		const unknown = createPlayer(640, '/workspace/unseen.mp4', true).player;
+		const before = shape(unknown);
+		loaded(unknown, 1080, 1080);
+		assert.deepStrictEqual({ known, before, after: shape(unknown) }, {
+			known: { aspect: String(720 / 1280), sizing: false },
+			before: { aspect: '', sizing: true },
+			after: { aspect: '1', sizing: false }
 		});
 	});
 

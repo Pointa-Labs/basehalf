@@ -245,20 +245,17 @@
 	will-change: transform;
 }
 
-/* The shade under the controls goes across the zoomed picture, not only across the player's box. */
-.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-bar {
-	background: none;
+/*
+ * Card Detail's controls float on their own backing over a zoomed picture as
+ * over one that fits (D98), and a press on that backing is theirs: it plays
+ * and pauses nothing.
+ */
+.monaco-workbench .basehalf-canvas-video-player.detail .basehalf-canvas-video-player-bar {
+	pointer-events: auto;
 }
 
-.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-bar::before {
-	content: '';
-	position: absolute;
-	z-index: -1;
-	top: 0;
-	bottom: 0;
-	left: -100vw;
-	right: -100vw;
-	background: linear-gradient(to top, rgb(0 0 0 / 50%), rgb(0 0 0 / 22%) 55%, transparent);
+/* Faded, the backing lets a press through to the picture, which plays and pauses. */
+.monaco-workbench .basehalf-canvas-video-player.detail[data-controls="faded"] .basehalf-canvas-video-player-bar {
 	pointer-events: none;
 }
 

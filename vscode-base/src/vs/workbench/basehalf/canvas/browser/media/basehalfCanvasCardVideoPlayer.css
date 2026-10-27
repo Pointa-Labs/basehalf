@@ -23,6 +23,19 @@
 	user-select: none;
 }
 
+/*
+ * Where a card cannot take its video's shape, the card's own surface shows
+ * around the picture, as around an image's, not a black band (D98).
+ */
+.monaco-workbench .basehalf-canvas-video-player:not(.detail) .basehalf-canvas-video-player-video {
+	background: transparent;
+}
+
+/* Card Detail's player waits unseen for the video's shape when no card measured it, so no box of another shape shows (D98). */
+.monaco-workbench .basehalf-canvas-video-player.detail.sizing {
+	visibility: hidden;
+}
+
 .monaco-workbench .basehalf-canvas-video-player-top,
 .monaco-workbench .basehalf-canvas-video-player-bar {
 	position: absolute;
@@ -83,18 +96,59 @@
 	transition: opacity 150ms ease;
 }
 
+/*
+ * In Card Detail the controls of a video that plays fade once the pointer
+ * rests (D98), as a player's do: they stay where the keyboard and the pointer
+ * reach them, and the first move or key brings them back.
+ */
+.monaco-workbench .basehalf-canvas-video-player[data-controls="faded"] .basehalf-canvas-video-player-top,
+.monaco-workbench .basehalf-canvas-video-player[data-controls="faded"] .basehalf-canvas-video-player-bar {
+	opacity: 0;
+	visibility: visible;
+	transition: opacity 400ms ease;
+}
+
+/*
+ * The controls float over the picture and darken nothing else (generation
+ * cards, "The player", D98), as a photo app's player has them: each on a
+ * small translucent backing of its own that blurs the picture behind it, so
+ * that they read over a white picture as over a black one. No shade goes
+ * across the picture.
+ */
 .monaco-workbench .basehalf-canvas-video-player-top {
-	top: 10px;
-	left: 10px;
+	top: 8px;
+	left: 8px;
 }
 
 .monaco-workbench .basehalf-canvas-video-player-bar {
-	right: 0;
-	bottom: 0;
-	left: 0;
-	gap: 8px;
-	padding: 28px 10px 8px;
-	background: linear-gradient(to top, rgb(0 0 0 / 50%), rgb(0 0 0 / 22%) 55%, transparent);
+	right: 8px;
+	bottom: 8px;
+	left: 8px;
+	box-sizing: border-box;
+	max-width: 480px;
+	height: 30px;
+	margin-inline: auto;
+	gap: 6px;
+	padding: 1px 6px 1px 1px;
+	border-radius: 10px;
+	background: var(--basehalf-video-control-backing);
+	-webkit-backdrop-filter: var(--basehalf-video-control-blur);
+	backdrop-filter: var(--basehalf-video-control-blur);
+	box-shadow: var(--basehalf-video-control-edge);
+	/* Its own width decides which parts fit: a narrow bar drops the time played first. */
+	container-type: inline-size;
+}
+
+.monaco-workbench .basehalf-canvas-video-player {
+	--basehalf-video-control-backing: rgb(24 24 26 / 62%);
+	--basehalf-video-control-blur: blur(12px) saturate(140%);
+	--basehalf-video-control-edge: inset 0 0 0 0.5px rgb(255 255 255 / 14%), 0 1px 3px rgb(0 0 0 / 18%);
+}
+
+@container (max-width: 220px) {
+	.monaco-workbench .basehalf-canvas-video-player-time.played {
+		display: none;
+	}
 }
 
 .monaco-workbench .basehalf-canvas-video-player-button {
@@ -116,11 +170,15 @@
 }
 
 .monaco-workbench .basehalf-canvas-video-player-button.sound {
-	background: rgb(0 0 0 / 50%);
+	border-radius: 50%;
+	background: var(--basehalf-video-control-backing);
+	-webkit-backdrop-filter: var(--basehalf-video-control-blur);
+	backdrop-filter: var(--basehalf-video-control-blur);
+	box-shadow: var(--basehalf-video-control-edge);
 }
 
 .monaco-workbench .basehalf-canvas-video-player-button.sound:hover {
-	background: rgb(0 0 0 / 70%);
+	background: rgb(24 24 26 / 78%);
 }
 
 .monaco-workbench .basehalf-canvas-video-player-icon {
