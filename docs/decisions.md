@@ -3455,6 +3455,12 @@ goes the same way.
   for reading, and moving the caret would change, unasked, where typing goes
   and what agents see as the selection.
 - An outline in the Source projection: its editor is the base's code editor.
+- An outline only where the margin is wide enough already: the user works
+  with the sidebar and the Agent Area open on a display of 1440 points, where
+  Card Detail is about 834 pixels wide and its 61 empty pixels are taken by
+  the editor's handles of a block. Moving those handles, or laying the ticks
+  over them, was set aside too: the handles are how a block is added and
+  moved. The text column gives up the room instead.
 
 **Consequences.**
 - The Rich projection takes a pinch in the window and hands it to its page;
@@ -3462,5 +3468,8 @@ goes the same way.
   `basehalf.noteZoom` of the profile's storage, never in the workspace.
 - A pinch over a PDF, a book, an image, a sound, or a video in Card Detail
   still does nothing; their pages can take it the same way.
-- The outline needs a left margin of 48 pixels, so a Card Detail narrower
-  than 808 pixels shows none at 100%.
+- In Card Detail the Rich projection keeps 85 pixels at each side of its text
+  for the outline at the edge and the editor's handles of a block beside the
+  text: in a Card Detail of 834 pixels the text column is 664 pixels wide
+  instead of 712, and the handles, cut off at the edge in a narrower one
+  before, show whole.

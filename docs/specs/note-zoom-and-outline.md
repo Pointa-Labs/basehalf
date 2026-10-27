@@ -119,14 +119,12 @@ Not in scope, and unchanged:
 10. At rest the outline shows nothing.
 11. While the pointer is in the left margin, the ticks fade in, in 200 ms,
     and they fade out in 200 ms when it leaves the margin. A note without
-    headings, and a left margin narrower than 48 pixels, show nothing. In
-    Rich the margin must be 105 pixels wide: the editor's handles of a block
-    (add and drag) stand in its 57 pixels next to the text, and the outline
-    never lies on them. The outline is drawn over those handles and the
-    editor's menus, which never cover its panel.
+    headings, and a left margin narrower than 28 pixels, show nothing. The
+    outline is drawn over the editor's handles of a block and its menus,
+    which never cover its panel.
 12. **The ticks.** One tick for each heading, top to bottom, in a column
     whose middle is the middle of the view. A tick is 2 pixels high with
-    rounded ends; its right end is 36 pixels from the left edge of the view.
+    rounded ends; its right end is 22 pixels from the left edge of the view.
     It is 16 pixels long for the highest level that the note has, 12 pixels
     for the level below, and 8 pixels for any level further down. Ticks are
     14 pixels apart. When they do not fit in the height of the view less 32
@@ -134,11 +132,13 @@ Not in scope, and unchanged:
     shows the ticks around the current heading.
 13. The tick of the current heading is drawn in the foreground color at 83%,
     the others at 30%, and a tick changes between them in 200 ms.
-14. **The outline panel.** While the pointer is over the column of ticks, the
-    outline panel shows the names of the headings, at once: it fades in and
-    moves 10 pixels to the right into its place, in 200 ms. It goes the same
-    way as soon as the pointer is neither over it nor over the ticks.
-15. The panel is 240 pixels wide, 12 pixels from the left edge of the view,
+14. **The outline panel.** Once the pointer has rested on the column of
+    ticks for 150 ms, the outline panel shows the names of the headings: it
+    fades in and moves 10 pixels to the right into its place, in 200 ms. A
+    pointer that passes over the ticks to the text or to the handles of a
+    block opens nothing. The panel goes the same way as soon as the pointer
+    is neither over it nor over the ticks.
+15. The panel is 240 pixels wide, 8 pixels from the left edge of the view,
     its top 10 pixels above the first tick and inside the view. A name is
     one line of 13 pixels, its row 25 pixels high, indented 12 pixels for each
     level below the highest; a name too long for the row ends in "…". The
@@ -169,6 +169,17 @@ Not in scope, and unchanged:
     the ticks and the panel come and go in one frame, and a click on a name
     scrolls at once.
 
+### Room for the outline in Rich
+
+21. In Card Detail the Rich projection keeps 85 pixels between each edge of
+    the view and its text, at every level: 28 for the outline at the edge
+    and 57 for the editor's handles of a block, add and drag, which stand
+    next to the text. Neither ever lies on the other, and the text stays in
+    the middle. A wide Card Detail has that room anyway; in one of 834
+    pixels the text column is 664 pixels wide instead of 712, and in one
+    narrower than 760 pixels the handles, which were partly cut off at the
+    edge, show whole.
+
 ## Limits
 
 - L1. A long note is laid out in more than 16 ms. Measured on 2026-10-27,
@@ -178,11 +189,9 @@ Not in scope, and unchanged:
   in about 100 ms. Such a note is shown as rule 6 says, so its text can
   break into new lines once the fingers rest, when the column has reached
   the width of the view during the gesture.
-- L2. At 100% the outline needs a Card Detail at least 922 pixels wide in
-  Rich (760 for the column, whose own margin of 24 pixels on each side counts
-  toward the 105 of rule 11) and 856 in Preview. With the Agent Area open at
-  its first width on a window of 1440 points, Card Detail is 834 pixels wide
-  and shows no outline in Rich; with the Agent Area closed it is 1130 wide.
+- L2. The outline shows at every width of Card Detail. In Rich the text
+  column gives up the width that rule 21 takes: 48 pixels in a Card Detail
+  of 834 pixels, 122 in one of 700 (530 are left for the text).
 - L3. The outline is for the pointer. The keyboard does not reach it; a
   screen reader reads the headings in the page itself.
 - L4. A heading inside a list item or a quote is shown as a heading by the
@@ -217,8 +226,7 @@ its scroll position. Nothing of this is written into the workspace.
    leaves 100%.
 7. At rest no outline is drawn. With the pointer in the left margin of a
    note with headings, the ticks show, one for each heading, the current
-   one brighter; in a note without headings, and in a margin of 40 pixels,
-   nothing shows.
+   one brighter; in a note without headings nothing shows.
 8. Over the ticks, the panel lists the headings by name, indented by level;
    a click on the third scrolls it to 24 pixels below the top, the caret and
    the selection stay where they were, and the keyboard is still in the
@@ -228,6 +236,11 @@ its scroll position. Nothing of this is written into the workspace.
     with `#` add no tick, and a heading that the Rich projection shows in its
     rendered form adds one.
 11. The ticks and the panel keep their size at 200%.
+12. In a Card Detail of 834 pixels and of 700 pixels, in Rich and in
+    Preview, the ticks show with the pointer in the margin. A pointer that
+    passes from the ticks to a block's handles within 150 ms opens no panel,
+    and the handles show and work; resting on the ticks again opens the
+    panel after 150 ms.
 
 ## Verification
 
