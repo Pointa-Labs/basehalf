@@ -83,6 +83,23 @@ export async function assertCanvasDropIntoFolder(page) {
 		await page.locator('.basehalf-canvas-cards').focus();
 		await page.keyboard.press(key);
 	};
+	// Where the file `name` is once the files rest, a second without change:
+	// in the box, here, or neither.
+	const restingPlaceOf = async name => {
+		const placeOf = () => exists('box', name) && !exists(name) ? 'box' : exists(name) && !exists('box', name) ? 'here' : 'neither';
+		const started = Date.now();
+		let last = placeOf();
+		let since = started;
+		while (Date.now() - started < 15_000 && (Date.now() - since < 1000 || Date.now() - started < 1500)) {
+			await page.waitForTimeout(50);
+			const now = placeOf();
+			if (now !== last) {
+				last = now;
+				since = Date.now();
+			}
+		}
+		return last;
+	};
 	const restingView = () => waitForReading(async () => {
 		const first = await readCanvasView(page);
 		await page.waitForTimeout(200);
@@ -164,6 +181,23 @@ export async function assertCanvasDropIntoFolder(page) {
 	await pressOnCanvas(undoKey);
 	await waitUntil(() => exists('a.md') && !exists('box', 'a.md'), 'a second undo to bring a.md back out of the box');
 	await card('a.md').waitFor({ state: 'visible', timeout: 10_000 });
+
+	// Exact undo, criterion 20: redo pressed at once after the undo of a drop,
+	// before the files are back, waits for the undo and redoes the drop; the
+	// undo of before dropped the whole history of the files instead.
+	await pressOnCanvas(redoKey);
+	await waitUntil(() => exists('box', 'a.md') && !exists('a.md'), 'redo to move a.md into the box before the quick undo and redo');
+	await card('a.md').waitFor({ state: 'detached', timeout: 10_000 });
+	await pressOnCanvas(undoKey);
+	await pressOnCanvas(redoKey);
+	const resting = await restingPlaceOf('a.md');
+	if (resting !== 'box') {
+		throw new Error(`Redo pressed at once after an undo must redo the drop once the undo is done: a.md rests ${resting === 'here' ? 'out of' : 'nowhere near'} the box.`);
+	}
+	await pressOnCanvas(undoKey);
+	await waitUntil(() => exists('a.md') && !exists('box', 'a.md'), 'the next undo to bring a.md back out of the box');
+	await card('a.md').waitFor({ state: 'visible', timeout: 10_000 });
+	await waitUntil(() => same(rowOf('a.md'), firstRows['a.md']), 'a.md to be back at its place and size after the quick undo and redo');
 
 	// 5. A name the folder holds: plan.md let go on the box, which holds a
 	// plan.md, is plan 2.md there, the box's own plan.md is untouched, and the

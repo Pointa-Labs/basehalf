@@ -54,6 +54,7 @@ import { IBaseHalfMovedItemsService } from '../../workspace/common/basehalfMoved
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNoteFocusLeaseOwner, BaseHalfCanvasNoteFormatSelectionBarrier, IBaseHalfCanvasNoteFocusLease } from '../common/basehalfCanvasNoteFormatLifecycle.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
+import { BaseHalfCanvasUndoRedoQueue } from '../common/basehalfCanvasUndoRedoQueue.js';
 import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } from '../common/basehalfCanvasActionContext.js';
 import { BaseHalfCanvasViewportPersister, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../../cardDetail/common/basehalfCardDetail.js';
@@ -184,6 +185,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		readonly focus: () => void;
 	} | undefined;
 	readonly canvasUndoRedoSource = BASEHALF_CANVAS_UNDO_REDO_SOURCE;
+	/** The canvas's undo and redo, one after another (exact undo, "One step after another"). */
+	private readonly canvasUndoRedoQueue = new BaseHalfCanvasUndoRedoQueue();
 
 	renderSeq = 0;
 	/** Renders started by `requestRender` that have not resolved yet. */
@@ -596,16 +599,18 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			return Promise.resolve(active.instance.redo()).catch(error => this.reportCanvasMutationError(error));
 		}));
 		this._register(UndoCommand.addImplementation(BASEHALF_CANVAS_UNDO_REDO_PRIORITY, 'basehalfCanvas', () => {
-			if (!this.geometry.isCanvasUndoRedoActive() || !this.undoRedoService.canUndo(this.canvasUndoRedoSource)) {
+			if (!this.geometry.isCanvasUndoRedoActive()) {
 				return false;
 			}
-			return Promise.resolve(this.undoRedoService.undo(this.canvasUndoRedoSource)).catch(error => this.reportCanvasMutationError(error));
+			const step = this.canvasUndoRedoQueue.take(() => this.undoRedoService.canUndo(this.canvasUndoRedoSource), () => this.undoRedoService.undo(this.canvasUndoRedoSource));
+			return step && step.catch(error => this.reportCanvasMutationError(error));
 		}));
 		this._register(RedoCommand.addImplementation(BASEHALF_CANVAS_UNDO_REDO_PRIORITY, 'basehalfCanvas', () => {
-			if (!this.geometry.isCanvasUndoRedoActive() || !this.undoRedoService.canRedo(this.canvasUndoRedoSource)) {
+			if (!this.geometry.isCanvasUndoRedoActive()) {
 				return false;
 			}
-			return Promise.resolve(this.undoRedoService.redo(this.canvasUndoRedoSource)).catch(error => this.reportCanvasMutationError(error));
+			const step = this.canvasUndoRedoQueue.take(() => this.undoRedoService.canRedo(this.canvasUndoRedoSource), () => this.undoRedoService.redo(this.canvasUndoRedoSource));
+			return step && step.catch(error => this.reportCanvasMutationError(error));
 		}));
 		this._register(this.viewportStateService.onDidImport(folders => this.geometry.onDidImportViewports(folders)));
 		this._register(toDisposable(() => {
