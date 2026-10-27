@@ -102,7 +102,7 @@ const ELEVENLABS_MODELS = ['eleven-v4', 'eleven-v3', 'eleven-multilingual-v2', '
 
 // --- Audio cards (D78, docs/specs/generation-cards.md) ---------------------------------------------
 //
-// Acceptance criteria 80 to 89 of generation cards, and criterion 8 of
+// Acceptance criteria 80 to 89 and the audio card's part of 96 of generation cards, and criterion 8 of
 // providers for the Providers page's Audio, through the window and against the
 // local test provider, reached through the ElevenLabs and Mureka modules.
 // New Audio from Create from Connection is in the canvas suite.
@@ -245,6 +245,15 @@ async function assertNewAudioMakesDraft(page) {
 	const shown = await readGenerationPanel(panel);
 	if (shown.kind !== 'audio' || shown.model !== 'Choose Model' || shown.generate?.label !== 'Choose a model to generate.' || shown.placeholder !== PLACEHOLDER.sound || shown.voice !== null) {
 		throw new Error(`The panel of an audio draft without a model must ask for a model and describe the sound: ${JSON.stringify(shown)}`);
+	}
+	// Criterion 96 (D91): an audio draft's panel is its own and keeps its row, which says what it takes, with the two buttons at its right end.
+	const parts = await panel.evaluate(element => ({
+		row: Array.from(element.querySelector('.bh-input-row')?.children ?? []).map(child => child.classList[0]),
+		hint: element.querySelector('.bh-input-row-hint')?.textContent ?? null,
+		footer: element.querySelector('.bh-video-panel-footer')?.firstElementChild?.classList[0] ?? null
+	}));
+	if (JSON.stringify(parts.row) !== JSON.stringify(['bh-input-row-list', 'bh-input-row-hint', 'bh-add-inputs']) || parts.hint !== 'Add images or audio as references' || parts.footer !== 'bh-video-panel-model') {
+		throw new Error(`An audio draft's row must say what it takes and hold the two buttons at its right end, and its footer begin with the model: ${JSON.stringify(parts)}`);
 	}
 	// What a draft takes is added from its panel: no toolbar above it.
 	await page.waitForTimeout(400);

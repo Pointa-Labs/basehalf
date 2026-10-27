@@ -7,12 +7,13 @@ import './media/basehalfGenerationInputRow.css';
 import { $, addDisposableListener, append, clearNode, getWindow, isHTMLElement } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { BaseHalfVideoInputKind } from '../common/basehalfVideoCatalog.js';
+import type { BaseHalfGenerationAddButtons } from './basehalfGenerationAddButtons.js';
 
 /** One input of the row (generation cards, "The panel", D68). */
 export interface IBaseHalfInputTile {
@@ -50,7 +51,7 @@ export interface IBaseHalfInputRowModel {
 	readonly hint?: string;
 	/** The inputs can be removed, named, reordered, and added to: a draft that does not generate. */
 	readonly editable: boolean;
-	/** Pick on Canvas is on (D69): its button is highlighted, and a click on it ends picking (D71). */
+	/** Pick on Canvas is on (D69): the row's hint gives way, as the button and the bar over the canvas say what a click does (D71). */
 	readonly picking?: boolean;
 }
 
@@ -66,12 +67,6 @@ export interface IBaseHalfInputRowDelegate {
 	swap(): void;
 	/** Opens the menu of an empty frame from `trigger`: Pick on Canvas and Import File…. */
 	openAddMenu(trigger: HTMLElement, byPointer: boolean): void;
-	/** Starts Pick on Canvas, or ends it while it is on (D71). */
-	togglePick(): void;
-	/** Copies a file into the card's folder and connects it (D71). */
-	importFile(): void;
-	/** Gives `element` BaseHalf's tooltip. */
-	setupHover(element: HTMLElement, content: string): IDisposable;
 	/** The canvas in window coordinates, for keeping the look inside it. */
 	canvasBounds(): { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
 }
@@ -91,9 +86,10 @@ const LOOK_MARGIN = 12;
 
 /**
  * The input row of a generation card's panel (generation cards, "The panel",
- * D68): the card's connections as tiles, in the order of its list, and at its
- * right end, the panel's top right, Pick on Canvas and Import File… (D71). A
- * tile shows the input's picture and on a frame its mark, and no number;
+ * D68): the card's connections as tiles, in the order of its list, and, on
+ * a kind whose panel puts them there, at its right end, the panel's top
+ * right, the two buttons that add an input (D71, D91; {@link holdAddButtons}).
+ * A tile shows the input's picture and on a frame its mark, and no number;
  * pointing at it shows a larger look above it with its name, a cross that
  * removes the connection, and an `@` that puts its mention into the prompt; a
  * drag moves it in the list. The row is read only for a card that generates
@@ -135,6 +131,8 @@ export class BaseHalfGenerationInputRow extends Disposable {
 	/** The control of the row that takes its one tab stop. */
 	private focusKey: string | undefined;
 	private dragging = false;
+	/** The two buttons that add an input, when the row holds them at its right end (D71, D91). */
+	private addButtons: BaseHalfGenerationAddButtons | undefined;
 
 	constructor(
 		private readonly delegate: IBaseHalfInputRowDelegate,
@@ -205,7 +203,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			return;
 		}
 		this.element.classList.toggle('editable', model.editable);
-		this.element.classList.toggle('picking', !!model.picking);
 		const list = append(this.element, $('.bh-input-row-list'));
 		this.list = list;
 		this.rowStore.add(addDisposableListener(list, 'scroll', () => {
@@ -225,23 +222,13 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		for (const tile of model.tiles) {
 			this.renderTile(list, tile, model);
 		}
-		const hint = model.picking
-			? localize('basehalf.generation.inputRow.picking', "Click cards on the canvas. Escape or Done ends.")
-			: model.hint;
-		if (hint) {
-			const text = append(this.element, $('span.bh-input-row-hint'));
-			text.textContent = hint;
-			if (model.picking) {
-				text.setAttribute('role', 'status');
-			}
+		// While the draft picks, the highlighted button and the bar over the canvas say what a click does, and the tiles keep their room (D71).
+		if (model.hint && !model.picking) {
+			append(this.element, $('span.bh-input-row-hint')).textContent = model.hint;
 		}
-		if (model.editable) {
+		if (model.editable && this.addButtons) {
 			// At the panel's top right (D71).
-			const actions = append(this.element, $('.bh-input-row-actions'));
-			const pick = this.renderAction(actions, 'pick', Codicon.inspect, localize('basehalf.generation.inputRow.pick', "Pick on Canvas"), () => this.delegate.togglePick());
-			pick.setAttribute('aria-pressed', String(!!model.picking));
-			// A paperclip, as an attachment has: nothing is uploaded anywhere, the file is copied into the folder.
-			this.renderAction(actions, 'import', Codicon.attach, localize('basehalf.generation.inputRow.import', "Import File…"), () => this.delegate.importFile());
+			this.element.append(this.addButtons.element);
 		}
 		this.dropUndrawnPictures();
 		list.scrollLeft = scrolled;
@@ -251,6 +238,19 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			this.findByKey(focused)?.focus({ preventScroll: true });
 		}
 		this.updateOverflow();
+	}
+
+	/**
+	 * Holds the two buttons that add an input at the row's right end, the
+	 * panel's top right, while the inputs can be added to (D71): the place a
+	 * video or an audio card's panel gives them (D91). The arrow keys reach
+	 * them as the row's other controls.
+	 */
+	holdAddButtons(buttons: BaseHalfGenerationAddButtons): void {
+		this.addButtons = buttons;
+		// Drawn again with them.
+		this.renderedKey = undefined;
+		this.update(this.model);
 	}
 
 	/** Fits the row to its width again: the fades at its edges and the look's place. */
@@ -334,18 +334,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 				this.hideLook();
 			}
 		}));
-	}
-
-	/** A button at the row's right end: an icon whose name is its tooltip and its accessible name. */
-	private renderAction(parent: HTMLElement, key: string, icon: ThemeIcon, name: string, run: () => void): HTMLButtonElement {
-		const button = append(parent, $<HTMLButtonElement>('button.bh-input-row-action'));
-		button.type = 'button';
-		button.dataset.key = key;
-		button.setAttribute('aria-label', name);
-		button.append(renderGlyph(icon));
-		this.rowStore.add(this.delegate.setupHover(button, name));
-		this.rowStore.add(addDisposableListener(button, 'click', () => run()));
-		return button;
 	}
 
 	private renderEmptyFrame(parent: HTMLElement, slot: IBaseHalfInputFrameSlot, model: IBaseHalfInputRowModel): void {

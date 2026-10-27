@@ -7,7 +7,7 @@ import './media/basehalfVideoNode.css';
 import './media/basehalfGenerationRecordPanel.css';
 import { $, addDisposableListener, append, getWindow } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
-import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { DeferredPromise, RunOnceScheduler } from '../../../../base/common/async.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -79,6 +79,9 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 	/** Fires when the panel's height changes; the workbench publishes the scene surface again. */
 	readonly onDidChangeHeight: Event<number> = this._onDidChangeHeight.event;
 
+	/** Settles when the first read of the card and of the inputs its record names is drawn, or could not be made. */
+	private readonly firstRead = new DeferredPromise<void>();
+
 	/** The look at an input lies over everything else of the panel; the layer is added last. */
 	private readonly layer: HTMLElement;
 	private readonly inputRow: BaseHalfGenerationInputRow;
@@ -139,9 +142,6 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			move: () => { },
 			swap: () => { },
 			openAddMenu: () => { },
-			togglePick: () => { },
-			importFile: () => { },
-			setupHover: (element, content) => this.hoverService.setupDelayedHover(element, () => ({ content }), { groupId: HOVER_GROUP }),
 			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
 		}, this.layer));
 		this.inputRow.element.hidden = true;
@@ -203,6 +203,15 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		return this.currentHeight;
 	}
 
+	/**
+	 * Settles once the panel has drawn its first read of what made the file,
+	 * or what kept it from reading it: from then on its parts and its height
+	 * are the card's, and the workbench shows it (D91).
+	 */
+	get ready(): Promise<void> {
+		return this.firstRead.p;
+	}
+
 	/** Nothing in the panel is saved: it changes nothing. */
 	async flush(): Promise<void> { }
 
@@ -228,6 +237,7 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 			this.readError = baseHalfUserFacingErrorMessage(error);
 			this.render();
 		}
+		void this.firstRead.complete();
 	}
 
 	/** New Version: a draft beside the card from what made it, which the workbench then selects. */
@@ -254,6 +264,8 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
+		// Nobody waits for a panel that is gone.
+		void this.firstRead.complete();
 		super.dispose();
 	}
 

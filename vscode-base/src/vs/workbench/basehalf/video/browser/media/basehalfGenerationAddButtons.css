@@ -1,0 +1,60 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Pick on Canvas and Import File…, the two buttons that add an input (D71, D91). */
+
+.monaco-workbench .bh-add-inputs {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+}
+
+/* At the right end of a video or an audio card's input row: the panel's top right (D71). */
+.monaco-workbench .bh-input-row > .bh-add-inputs {
+	align-self: flex-start;
+	margin-left: auto;
+}
+
+.monaco-workbench .bh-add-input {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	flex: none;
+	place-items: center;
+	padding: 0;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	background: var(--bh-video-panel-fill, color-mix(in srgb, var(--vscode-foreground) 6%, transparent));
+	border: 1px solid transparent;
+	border-radius: 8px;
+	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .bh-add-input > .codicon[class*='codicon-'] {
+	font-size: 14px;
+}
+
+.monaco-workbench .bh-add-input:hover {
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	background: var(--bh-video-panel-hover, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
+}
+
+/* Highlighted while the draft picks. */
+.monaco-workbench .bh-add-input[aria-pressed="true"] {
+	color: var(--bh-video-panel-accent, var(--vscode-focusBorder));
+	background: color-mix(in srgb, var(--bh-video-panel-accent, var(--vscode-focusBorder)) 16%, transparent);
+	border-color: color-mix(in srgb, var(--bh-video-panel-accent, var(--vscode-focusBorder)) 55%, transparent);
+}
+
+/* What a click does while the draft picks: read, not shown, so that nothing of the panel moves (D71). */
+.monaco-workbench .bh-add-inputs-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}

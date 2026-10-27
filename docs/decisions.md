@@ -2554,6 +2554,10 @@ seconds, a request the provider refuses.
 
 ## D71 — Adding an input is two buttons at the panel's top right, and notes are in the reference menu (NEW, 2026-10-24)
 
+> **Revised by D91 (2026-10-27).** On an image card the two buttons are at
+> the start of the panel's footer, since its panel has no input row until it
+> has an input. The rest of D71 stands.
+
 **Decision.** The plus at the end of a draft's input row gives way to two
 icon buttons at the panel's top right, at the row's right end: **Pick on
 Canvas**, which is highlighted with the accent while the draft picks and
@@ -3767,6 +3771,11 @@ command made "across all files"; it now takes it back in every file.
 
 ## D90 — An image card's panel shows what image models take (NEW, 2026-10-27)
 
+> **Revised by D91 (2026-10-27).** Each kind has a panel of its own. An image
+> card's has no input row until it has an input, its two buttons are at the
+> start of its footer, and its count goes from 1 to as many as its model
+> makes. The rest of D90 stands.
+
 **Decision.** The panel under an image card keeps what every generation card
 has, the input row with its two buttons, the prompt and its mentions, the
 model, the settings, and Generate, and drops what came with the video's
@@ -3828,6 +3837,79 @@ after a model was chosen from its menu.
 - The catalog, the parameters, what is sent, and what `generation.yaml` and
   `made.yaml` store are unchanged: an image card's mode is still `reference`,
   and `basehalf --list-capabilities` still gives agents each model's count.
+
+## D91 — Each kind of generation card has a panel of its own (NEW, 2026-10-27)
+
+**Decision.** The panel under an image, a video, and an audio draft is its
+kind's own. The three are made of the same parts, the input row, the two
+buttons that add an input, the prompt with its mentions, the reason line,
+the model, the voice, the settings, and Generate, which keep one set of rules
+wherever a kind places them, and they show what one presentation of the
+card's generation information, inputs, and catalog says. What a kind's panel
+shows of the parts, and where, is that kind's, in a module of its own, so
+that a change to one kind's panel changes no other. The one mechanism under
+the panels stays as it is: a generated file is its card (D63), its
+connections are its inputs (D68), and `check` answers the limits (D70). An
+image card's panel:
+
+- has no input row until the card has an input, and then a row of its tiles
+  alone: with nothing connected it is its prompt and its footer, 132 px tall
+  where it was 188 px;
+- has its two buttons, Pick on Canvas and Import File…, at the start of its
+  footer, before the model, where they stay when the row comes;
+- offers a count from 1 to as many as the model makes, a button for each
+  number, in one row up to six and in rows of five beyond six.
+
+The panels of video and audio cards keep what they showed. See
+[generation cards](specs/generation-cards.md#the-panel-of-each-kind).
+
+**Why.** On 2026-10-27 the user was asked whether the image panel's empty
+"Add images as references" row should show only once there is a reference,
+for every kind. They answered that the panels should be decoupled, since one
+of them cannot govern every card, and that this is why the image card had a
+design it did not need. In the code, one module drew all three kinds, and
+what a kind did not use was switched off by conditions on the kind: hiding
+the empty row of an image card alone meant one more condition in the module
+that every kind shares, and hiding it for all would also have taken a new
+video card's empty Start and End frames. The generality the user asks for is
+in the mechanism, the one way images, videos, and sounds are made, kept,
+and sent, not in one surface for every kind. Of the count, which D90 ended
+at 4 while models make up to 15, the user said it can follow the model and
+be solved with the panels: Seedream 5.0 Lite makes up to 15 images in one
+generation, GPT Image and Grok Imagine Image 10, Kling Image and MiniMax
+Image-01 9, and Qwen-Image 6, and only an agent could ask for more than 4.
+
+**What was set aside.**
+- One panel with switches per kind, as before: it is what made the image
+  card carry what the video card's row needs.
+- A panel per kind that copies the parts it shares: the prompt, the menus,
+  Pick on Canvas, `check`, and Generate would come to work differently for
+  each kind, while what is sent must follow one set of rules.
+- Hiding the empty row for every kind: a new video card's empty frames say
+  how a video can start, and an audio card's row says what its models take.
+- The image card's two buttons at the panel's top right with no row under
+  them, beside the prompt's first line: the prompt would lose their width on
+  that line, and the buttons would move when the first input brings the row.
+- The two buttons at the right end of the footer, beside Generate: a box
+  where text is written keeps its attachments at the start of its footer,
+  and Generate stays alone at the end.
+- A slider or a field for a larger count: a slider of 15 steps had 16 px a
+  step (D90), and a field needs typing, while a button for each number is one
+  click and shows how far the model goes.
+- Counts of 1, 2, and 4 alone, as the two canvas products for media work
+  offer them: the user asked that the count follow the model.
+
+**Consequences.**
+- Revises D90: an image card's count goes as far as its model makes, and its
+  model menu says "Up to 15 images" for a model that makes 15. That an image
+  card names no mode, and its reference menu of images and notes, stand.
+- Revises D71 for image cards: their two buttons are at the start of the
+  footer.
+- [Generation cards](specs/generation-cards.md): the parts of the panel and
+  the panel of each kind, the count, the place of Pick on Canvas, criteria 69
+  and 92, and criteria 95 to 97.
+- Nothing that is stored or sent changes, and agents ask for a count as
+  before.
 
 ## D93 — A pinch zooms the picture of an image or a video in Card Detail, and spreads out the time of a video or a sound (NEW, 2026-10-27)
 

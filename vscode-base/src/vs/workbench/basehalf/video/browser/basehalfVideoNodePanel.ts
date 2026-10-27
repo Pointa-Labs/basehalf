@@ -6,7 +6,7 @@
 import './media/basehalfVideoNode.css';
 import { $, addDisposableListener, append, clearNode, getWindow, isHTMLButtonElement, isHTMLElement, isHTMLInputElement } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
-import { RunOnceScheduler, TimeoutTimer } from '../../../../base/common/async.js';
+import { DeferredPromise, RunOnceScheduler, TimeoutTimer } from '../../../../base/common/async.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { compareFileNames } from '../../../../base/common/comparers.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -86,6 +86,7 @@ import {
 import { baseHalfPromptMention, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { BaseHalfReferenceMenuKind, IBaseHalfReferenceMenuItem, IBaseHalfReferenceMenuKindList, IBaseHalfReferenceMenuModel } from '../common/basehalfGenerationReferenceMenu.js';
 import { baseHalfVoiceNeedsList, IBaseHalfGenerationVoiceService } from '../common/basehalfGenerationVoices.js';
+import { BaseHalfGenerationAddButtons } from './basehalfGenerationAddButtons.js';
 import { BaseHalfGenerationInputRow, IBaseHalfInputRowModel, IBaseHalfInputTile } from './basehalfGenerationInputRow.js';
 import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip } from './basehalfGenerationPromptEditor.js';
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
@@ -154,6 +155,31 @@ export interface IBaseHalfVideoNodePanelOptions {
 	readonly checkDelay?: number;
 }
 
+/**
+ * The parts of a draft's panel (generation cards, "The panel"), which the
+ * panel makes and keeps working and each kind's panel places (D91).
+ */
+export interface IBaseHalfDraftPanelParts {
+	/** The card's connections as tiles (D68). */
+	readonly inputRow: BaseHalfGenerationInputRow;
+	/** Pick on Canvas and Import File… (D71). */
+	readonly addButtons: BaseHalfGenerationAddButtons;
+	/** The prompt, with the warning in its corner while it could not be saved. */
+	readonly prompt: HTMLElement;
+	/** What the panel says of a card it cannot read. */
+	readonly notice: HTMLElement;
+	/** Why Generate cannot run, with the action that fixes it (D70). */
+	readonly reason: HTMLElement;
+	/** The model of the card's kind and its menu. */
+	readonly model: HTMLButtonElement;
+	/** The voice of a model that speaks (D78). */
+	readonly voice: HTMLButtonElement;
+	/** The summary of the settings, which opens them. */
+	readonly settings: HTMLButtonElement;
+	/** Generate, or Stop while the card generates. */
+	readonly generate: HTMLButtonElement;
+}
+
 /** How long after typing stops the prompt is saved. */
 export const BASEHALF_VIDEO_PANEL_PROMPT_SAVE_DELAY = 500;
 /** How long after the model, mode, values, prompt, or inputs change the panel asks for the problems. */
@@ -204,22 +230,29 @@ interface IPendingCheck {
 }
 
 /**
- * The panel under a selected generation card (D63, D64, D78, generation
- * cards, "The panel"): the card's inputs, its prompt, and a footer with the
- * model of the card's kind, the voice of a model that speaks, the settings,
- * and Generate, all drawn from the model catalog. It reads and writes the
- * card's generation information through the card store, edits its
- * connections through the reference edit service, and generates and stops
- * through the generation service. It keeps its element
+ * The panel under a selected draft (D63, D64, D78, generation cards, "The
+ * panel"), named for the Video node it began as: the parts every kind's panel
+ * is made of and the rules they keep wherever a kind places them (D91). Its
+ * parts are the card's inputs, the two buttons that add one, its prompt, and
+ * a footer with the model of the card's kind, the voice of a model that
+ * speaks, the settings, and Generate, all drawn from the model catalog. It
+ * reads and writes the card's generation information through the card store,
+ * edits its connections through the reference edit service, and generates and
+ * stops through the generation service. It keeps its element
  * and its prompt for as long as it lives: updates never replace the prompt
  * while the user types in it, so the text, the selection, and an input method
  * keep their state.
+ *
+ * Each kind's panel ({@link arrange}, {@link inputRowModel}) places the parts
+ * and chooses what its input row shows: an image card's in
+ * `basehalfImageDraftPanel.ts`, a video card's in `basehalfVideoDraftPanel.ts`,
+ * and an audio card's in `basehalfAudioDraftPanel.ts`.
  *
  * The workbench creates one panel for the only selected generation card,
  * gives the scene its {@link element} and {@link height}, calls {@link flush}
  * when the card is deselected, and disposes it.
  */
-export class BaseHalfVideoNodePanel extends Disposable {
+export abstract class BaseHalfVideoNodePanel extends Disposable {
 
 	readonly element: HTMLElement;
 
@@ -227,8 +260,13 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	/** Fires when the panel's height changes; the workbench publishes the scene surface again. */
 	readonly onDidChangeHeight: Event<number> = this._onDidChangeHeight.event;
 
+	/** Settles when the first read of the card and its inputs is drawn, or could not be made. */
+	private readonly firstRead = new DeferredPromise<void>();
+
 	/** The card's connections as tiles (D68). */
 	private readonly inputRow: BaseHalfGenerationInputRow;
+	/** Pick on Canvas and Import File…, where the card's kind places them (D71, D91). */
+	private readonly addButtons: BaseHalfGenerationAddButtons;
 	private readonly promptBox: HTMLElement;
 	/** The prompt, whose names of inputs are chips (D68). */
 	private readonly editor: BaseHalfGenerationPromptEditor;
@@ -360,7 +398,10 @@ export class BaseHalfVideoNodePanel extends Disposable {
 					this.toggleMenu('add', trigger, byPointer);
 				}
 			},
-			// The buttons at the panel's top right (D71).
+			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
+		}, this.layer));
+		this.inputRow.element.hidden = true;
+		this.addButtons = this._register(new BaseHalfGenerationAddButtons({
 			togglePick: () => {
 				this.closeMenu(false);
 				if (this.picking) {
@@ -373,13 +414,12 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				this.closeMenu(false);
 				void this.importFile();
 			},
-			setupHover: (element, content) => this.hoverService.setupDelayedHover(element, () => ({ content }), { groupId: HOVER_GROUP }),
-			canvasBounds: () => this.canvasRect(this.element.getBoundingClientRect())
-		}, this.layer));
-		this.inputRow.element.hidden = true;
-		append(this.element, this.inputRow.element);
+			setupHover: (element, content) => this.hoverService.setupDelayedHover(element, () => ({ content }), { groupId: HOVER_GROUP })
+		}));
+		// Shown once the card is read, as the input row is.
+		this.addButtons.element.hidden = true;
 
-		this.promptBox = append(this.element, $('.bh-video-panel-prompt'));
+		this.promptBox = $('.bh-video-panel-prompt');
 		this.editor = this._register(new BaseHalfGenerationPromptEditor({
 			ariaLabel: localize('basehalf.video.panel.prompt', "Prompt"),
 			placeholder: baseHalfVideoPanelPlaceholder(options?.snapshot?.kind ?? 'video'),
@@ -399,11 +439,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.promptState.hidden = true;
 		this._register(this.hoverService.setupDelayedHover(this.promptState, () => ({ content: this.notSaved ?? '' }), { groupId: HOVER_GROUP }));
 
-		this.notice = append(this.element, $('.bh-video-panel-notice'));
+		this.notice = $('.bh-video-panel-notice');
 		this.notice.hidden = true;
 
 		// Why Generate cannot run, with the action that fixes it.
-		this.reason = append(this.element, $('.bh-video-panel-reason'));
+		this.reason = $('.bh-video-panel-reason');
 		this.reason.hidden = true;
 		this.reason.append(renderCodicon(Codicon.warning, 'bh-video-panel-reason-icon'));
 		this.reasonText = append(this.reason, $('span.bh-video-panel-reason-text'));
@@ -414,28 +454,26 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		// The whole reason when two lines cut it.
 		this._register(this.hoverService.setupDelayedHover(this.reasonText, () => ({ content: this.reasonText.scrollHeight > this.reasonText.clientHeight + 1 ? this.presentation?.reason?.text ?? '' : '' }), { groupId: HOVER_GROUP }));
 
-		const footer = append(this.element, $('.bh-video-panel-footer'));
-		this.modelButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-model'));
+		this.modelButton = $<HTMLButtonElement>('button.bh-video-panel-model');
 		this.modelButton.type = 'button';
 		this.modelButton.setAttribute('aria-haspopup', 'menu');
 		this.modelButton.setAttribute('aria-expanded', 'false');
 		this.modelLabel = append(this.modelButton, $('span.bh-video-panel-model-label'));
 		this.modelButton.append(renderCodicon(Codicon.chevronDown, 'bh-video-panel-chevron'));
 		// The glyph of a voice and the voice's name, for a model that has one (D78).
-		this.voiceButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-voice'));
+		this.voiceButton = $<HTMLButtonElement>('button.bh-video-panel-voice');
 		this.voiceButton.type = 'button';
 		this.voiceButton.hidden = true;
 		this.voiceButton.setAttribute('aria-haspopup', 'dialog');
 		this.voiceButton.setAttribute('aria-expanded', 'false');
 		this.voiceButton.append(renderCodicon(Codicon.voiceMode, 'bh-video-panel-voice-icon'));
 		this.voiceLabel = append(this.voiceButton, $('span.bh-video-panel-voice-label'));
-		this.settingsButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-settings'));
+		this.settingsButton = $<HTMLButtonElement>('button.bh-video-panel-settings');
 		this.settingsButton.type = 'button';
 		this.settingsButton.setAttribute('aria-haspopup', 'dialog');
 		this.settingsButton.setAttribute('aria-expanded', 'false');
 		this.settingsLabel = append(this.settingsButton, $('span.bh-video-panel-settings-label'));
-		append(footer, $('.bh-video-panel-footer-space'));
-		this.generateButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-generate'));
+		this.generateButton = $<HTMLButtonElement>('button.bh-video-panel-generate');
 		this.generateButton.type = 'button';
 		this.generateButton.setAttribute('aria-keyshortcuts', isMacintosh ? 'Meta+Enter' : 'Control+Enter');
 		this.generateIcon = append(this.generateButton, renderCodicon(Codicon.arrowUp));
@@ -444,9 +482,21 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this._register(this.hoverService.setupDelayedHover(this.settingsButton, () => ({ content: this.settingsTitle() }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.generateButton, () => ({ content: this.generateTitle() }), { groupId: HOVER_GROUP }));
 
+		// The card's kind places the parts (D91).
+		this.arrange(this.element, {
+			inputRow: this.inputRow,
+			addButtons: this.addButtons,
+			prompt: this.promptBox,
+			notice: this.notice,
+			reason: this.reason,
+			model: this.modelButton,
+			voice: this.voiceButton,
+			settings: this.settingsButton,
+			generate: this.generateButton
+		});
 		append(this.element, this.layer);
 
-		this.currentHeight = this.computeHeight(true);
+		this.currentHeight = this.computeHeight(this.showsInputRowBeforeRead());
 		this.element.style.height = `${this.currentHeight}px`;
 
 		this.registerListeners();
@@ -460,6 +510,25 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	get height(): number {
 		return this.currentHeight;
 	}
+
+	/**
+	 * Settles once the panel has drawn its first read of the card and its
+	 * inputs, or what kept it from reading them: from then on its parts and its
+	 * height are the card's, and the workbench shows it (D91).
+	 */
+	get ready(): Promise<void> {
+		return this.firstRead.p;
+	}
+
+	/**
+	 * Places the parts in the panel's element, from top to bottom, as the
+	 * card's kind does (generation cards, "The panel of each kind"; D91). Called
+	 * once, while the panel is made.
+	 */
+	protected abstract arrange(element: HTMLElement, parts: IBaseHalfDraftPanelParts): void;
+
+	/** Whether the input row shows before the card is read: what the kind's row does for a card that has no inputs yet. */
+	protected abstract showsInputRowBeforeRead(): boolean;
 
 	/**
 	 * Saves the prompt now and waits for every write the panel started. The
@@ -500,6 +569,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.readError = baseHalfUserFacingErrorMessage(error);
 			this.render();
 		}
+		void this.firstRead.complete();
 	}
 
 	/** What Generate does: generates when the card can, and stops a generation that runs. */
@@ -539,6 +609,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.disposed = true;
 		this.closeMenu(false);
 		this.referenceMenu.clear();
+		// Nobody waits for a panel that is gone.
+		void this.firstRead.complete();
 		super.dispose();
 	}
 
@@ -913,10 +985,18 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	private renderInputRow(): void {
 		this.inputRow.update(this.inputRowModel());
+		// Wherever the kind placed them, the two buttons show whether the draft picks, and go while it generates (D67, D69).
+		this.addButtons.update(this.picking);
+		this.addButtons.element.hidden = this.isLocked();
 	}
 
-	/** What the input row shows: the frames and the other inputs as tiles (D68), from the presentation. */
-	private inputRowModel(): IBaseHalfInputRowModel | undefined {
+	/**
+	 * What the input row shows, from the presentation (D68): the frames, the
+	 * other inputs as tiles, and what a row without inputs says, or nothing
+	 * when the mode takes no input. A kind whose row shows less draws less
+	 * (D91).
+	 */
+	protected inputRowModel(): IBaseHalfInputRowModel | undefined {
 		const presentation = this.presentation;
 		const row = presentation?.inputRow;
 		if (!presentation || !row) {
@@ -1188,7 +1268,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private updateHeight(): void {
-		const height = this.computeHeight(this.snapshot ? !this.inputRow.element.hidden : true);
+		const height = this.computeHeight(this.snapshot ? !this.inputRow.element.hidden : this.showsInputRowBeforeRead());
 		if (height === this.currentHeight) {
 			return;
 		}
@@ -1710,7 +1790,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			case 'buttons':
 			case 'list':
 			case 'ratio': {
-				const section = this.radioGroup(parent, control.label, control.choices, control.kind, value => this.changeParam(control.name, value), control.tooltip);
+				const section = this.radioGroup(parent, control.label, control.choices, control.kind, value => this.changeParam(control.name, value), control.tooltip, control.columns);
 				section.dataset.parameter = control.name;
 				this.renderLimit(section, control);
 				return;
@@ -1849,7 +1929,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		choices: readonly IBaseHalfVideoPanelChoice<T>[],
 		kind: 'buttons' | 'list' | 'ratio',
 		choose: (value: T | undefined) => void,
-		tooltip?: string
+		tooltip?: string,
+		columns?: number
 	): HTMLElement {
 		// Returns the section, which holds the label and the choices.
 		const section = this.settingSection(parent, label, tooltip);
@@ -1857,6 +1938,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		const group = append(section, $('.bh-video-panel-choices'));
 		group.setAttribute('role', 'radiogroup');
 		group.setAttribute('aria-label', label);
+		if (columns) {
+			// Buttons that wrap into rows, as a long count's (D91).
+			group.classList.add('rows');
+			group.style.setProperty('--bh-video-panel-choice-columns', String(columns));
+		}
 		const buttons: HTMLButtonElement[] = [];
 		const selectedIndex = Math.max(0, choices.findIndex(choice => choice.selected));
 		choices.forEach((choice, index) => {

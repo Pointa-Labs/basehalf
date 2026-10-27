@@ -542,6 +542,12 @@
 	grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* Buttons that wrap into rows of equal columns, as a count of more than six numbers (D91). */
+.monaco-workbench .bh-video-panel-setting.buttons .bh-video-panel-choices.rows {
+	display: grid;
+	grid-template-columns: repeat(var(--bh-video-panel-choice-columns, 5), minmax(0, 1fr));
+}
+
 .monaco-workbench .bh-video-panel-choice {
 	display: inline-flex;
 	min-width: 0;

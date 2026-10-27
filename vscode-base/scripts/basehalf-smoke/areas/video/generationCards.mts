@@ -75,6 +75,7 @@ import {
 	showCardOnCanvas,
 	START_IMAGE,
 	PICK_BUTTON,
+	PICKING_STATUS,
 	startPickOnCanvas,
 	statesOf,
 	taskRecordOf,
@@ -164,7 +165,7 @@ const smoke = { provider: undefined, models: undefined, notOffered: undefined, s
 // --- Generation cards (D63, D64, D67, docs/specs/generation-cards.md) ------------------------------
 //
 // Acceptance criteria 1 to 8, 13 to 29, 32 to 38, 42, 43, the canvas's part
-// of 45 and 46, 59, 60, 69 to 76, and 78 of generation cards, through the window and against the
+// of 45 and 46, 59, 60, 69 to 76, 78, 92, 95, and 97 of generation cards, through the window and against the
 // local test provider with its test key, reached through the provider module
 // of SMOKE_PROVIDER; no paid provider is called. Criterion 30, Sequence, is
 // in workflowTemplate.mts. The steps run in order, each where the one before
@@ -179,6 +180,7 @@ export async function runGenerationCardSteps(page) {
 	await step('video-panel-model-and-settings', () => assertPanelModelAndSettings(page));
 	await step('video-provider-key-stays-secret', () => assertProviderKeyStaysSecret(page));
 	await step('video-image-model-menu', () => assertImageModelMenu(page));
+	await step('video-image-panel-of-its-own', () => assertImagePanelOfItsOwn(page));
 	await step('video-panel-inputs-and-mentions', () => assertPanelInputsAndMentions(page));
 	await step('video-pick-on-canvas', () => assertPickOnCanvas(page));
 	await step('video-input-box-buttons', () => assertInputBoxButtons(page));
@@ -869,6 +871,116 @@ async function assertImageModelMenu(page) {
 	await clickBlankCanvas(page);
 }
 
+// Criteria 95, 97, and 92 (D91): an image draft's panel is its own. With
+// nothing connected it is its prompt and its footer, which begins with Pick on
+// Canvas and Import File…; a line drawn on the canvas brings the row with its
+// tile while the two buttons stay where they were; Pick on Canvas from the
+// footer removes the input again, and the row goes. Its count goes as far as
+// its model makes, in rows of five, and its model menu says so. The step
+// leaves the draft unconnected, with its model and settings, as it found it.
+async function assertImagePanelOfItsOwn(page) {
+	let panel = await selectGenerationCard(page, IMAGE);
+	if ((readUpstreamSidecar(IMAGE) ?? []).length !== 0 || readGenerationInfo(IMAGE)?.model !== SET_MODEL) {
+		throw new Error(`The step starts with ${IMAGE} unconnected, on ${SET_MODEL}: ${JSON.stringify({ upstream: readUpstreamSidecar(IMAGE), info: readGenerationInfo(IMAGE) })}`);
+	}
+	const read = () => panel.evaluate(element => {
+		const box = element.getBoundingClientRect();
+		const row = element.querySelector('.bh-input-row');
+		const footer = element.querySelector('.bh-video-panel-footer');
+		return {
+			height: Math.round(box.height),
+			row: !!row && !row.hidden && row.getBoundingClientRect().height > 0,
+			tiles: Array.from(element.querySelectorAll('.bh-input-row .bh-input-tile')).map(tile => tile.getAttribute('data-path')),
+			says: element.querySelectorAll('.bh-input-row-hint').length + (element.textContent.includes('as references') ? 1 : 0),
+			footer: Array.from(footer?.children ?? []).filter(child => !child.hidden).map(child => child.classList[0]),
+			// Where the buttons are, from the panel's left and bottom edges.
+			buttons: Array.from(element.querySelectorAll('.bh-video-panel-footer .bh-add-input')).map(button => {
+				const at = button.getBoundingClientRect();
+				return `${button.getAttribute('data-key')} ${Math.round(at.left - box.left)},${Math.round(box.bottom - at.top)}`;
+			})
+		};
+	});
+	const footer = ['bh-add-inputs', 'bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'];
+	const empty = await read();
+	if (empty.height !== 132 || empty.row || empty.says !== 0 || JSON.stringify(empty.footer) !== JSON.stringify(footer) || empty.buttons.length !== 2) {
+		throw new Error(`An image draft with nothing connected must be its prompt and its footer, 132 px tall, its footer beginning with the two buttons, and no line about references: ${JSON.stringify(empty)}`);
+	}
+	await drawCanvasConnectionInto(page, START_IMAGE, IMAGE);
+	await waitUntil(() => JSON.stringify(readUpstreamSidecar(IMAGE)) === JSON.stringify([START_IMAGE]), `the drawn connection to connect ${START_IMAGE} to ${IMAGE}`, 10_000);
+	panel = await selectGenerationCard(page, IMAGE);
+	const connected = await waitForReading(read, seen => seen.row && JSON.stringify(seen.tiles) === JSON.stringify([START_IMAGE]), `the panel of ${IMAGE} to show the row with its tile`);
+	if (connected.height !== 188 || JSON.stringify(connected.footer) !== JSON.stringify(footer) || JSON.stringify(connected.buttons) !== JSON.stringify(empty.buttons)) {
+		throw new Error(`The first input must bring the row above the prompt while the two buttons stay in the footer where they were: ${JSON.stringify({ empty, connected })}`);
+	}
+	// Criterion 98: a panel's first frame has the shape it keeps, and selecting another card shows a panel in every frame.
+	await clickBlankCanvas(page);
+	await page.evaluate(() => {
+		const frames = [];
+		globalThis.__basehalfPanelFrames = frames;
+		const tick = () => {
+			if (globalThis.__basehalfPanelFrames !== frames) {
+				return;
+			}
+			const surface = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface')).find(element => element.offsetParent !== null);
+			const shown = surface?.querySelector('.bh-video-panel');
+			const row = shown?.querySelector('.bh-input-row');
+			frames.push(shown ? `${surface.getAttribute('data-basehalf-card-path')} ${Math.round(shown.getBoundingClientRect().height)} ${row && !row.hidden ? 'row' : 'no row'}` : 'none');
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+	await clickCanvasCardOnTop(page, IMAGE);
+	await waitForGenerationPanel(page, IMAGE);
+	await clickCanvasCardOnTop(page, VIDEO);
+	await waitForGenerationPanel(page, VIDEO);
+	await page.waitForTimeout(300);
+	const frames = await page.evaluate(() => {
+		const recorded = globalThis.__basehalfPanelFrames;
+		globalThis.__basehalfPanelFrames = undefined;
+		return recorded;
+	});
+	const firstShown = frames.findIndex(frame => frame !== 'none');
+	const imageFrames = frames.filter(frame => frame.startsWith(`${IMAGE} `));
+	const videoFrames = frames.filter(frame => frame.startsWith(`${VIDEO} `));
+	if (firstShown < 0 || frames.slice(firstShown).includes('none') || new Set(imageFrames).size !== 1 || imageFrames[0] !== `${IMAGE} 188 row` || new Set(videoFrames).size !== 1) {
+		throw new Error(`Each panel must show in the shape it keeps from its first frame, and a panel must be drawn in every frame from the first one on: ${JSON.stringify([...new Set(frames)])} over ${frames.length} frames`);
+	}
+	panel = await selectGenerationCard(page, IMAGE);
+	// Criterion 97: picking from the footer; a click on the connected card removes it.
+	await startPickOnCanvas(page, panel);
+	if (await panel.locator(`.bh-video-panel-footer ${PICK_BUTTON}[aria-pressed="true"]`).count() !== 1) {
+		throw new Error('While an image draft picks, its Pick on Canvas in the footer must be highlighted');
+	}
+	await clickCanvasCardOnTop(page, START_IMAGE);
+	await waitUntil(() => (readUpstreamSidecar(IMAGE) ?? []).length === 0, `a click while picking to remove ${START_IMAGE} from ${IMAGE}`, 10_000);
+	await panel.locator(PICK_BUTTON).click();
+	await page.locator('.basehalf-canvas-pick-bar').waitFor({ state: 'detached', timeout: 10_000 });
+	const again = await waitForReading(read, seen => !seen.row, `the row of ${IMAGE} to go with its last input`);
+	if (again.height !== 132 || JSON.stringify(again.buttons) !== JSON.stringify(empty.buttons)) {
+		throw new Error(`Removing the last input must take the row away again: ${JSON.stringify(again)}`);
+	}
+	// Criterion 92: the count of a model that makes up to 15 images, and its model menu.
+	await openSettings(panel);
+	const count = await panel.evaluate(element => {
+		const section = element.querySelector('.bh-video-panel-menu.settings .bh-video-panel-setting[data-parameter="count"]');
+		const choices = section?.querySelector('.bh-video-panel-choices');
+		const buttons = Array.from(section?.querySelectorAll('.bh-video-panel-choice') ?? []);
+		return {
+			labels: buttons.map(button => button.textContent).join(' '),
+			rows: new Set(buttons.map(button => Math.round(button.getBoundingClientRect().top))).size,
+			columns: choices ? element.ownerDocument.defaultView.getComputedStyle(choices).gridTemplateColumns.split(' ').length : 0
+		};
+	});
+	await closePanelMenu(page, panel, 'settings');
+	const menu = await openModelMenu(panel);
+	await closePanelMenu(page, panel, 'model');
+	const line = menu.groups.flatMap(group => group.items).find(item => item.model === SET_MODEL)?.detail ?? '';
+	if (count.labels !== '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15' || count.rows !== 3 || count.columns !== 5 || !line.includes('Up to 15 images')) {
+		throw new Error(`${SET_MODEL} makes up to 15 images: its count must offer 1 to 15 in three rows of five, and its model menu say so: ${JSON.stringify({ count, line })}`);
+	}
+	await clickBlankCanvas(page);
+}
+
 // Criterion 19, and the inputs: an image connected with Pick on Canvas and one
 // connected by a drawn line are the start and end frames, in upstream order,
 // and a note connected by a line is a text input; the swap arrow exchanges the
@@ -1111,8 +1223,8 @@ async function assertPickOnCanvas(page) {
 	await page.keyboard.press('Escape');
 	await waitForReading(() => readCanvasPick(page), seen => seen === null, 'Escape to end picking and take away the bar and the looks of the cards');
 	panel = await waitForGenerationPanel(page, VIDEO);
-	if (await panel.locator('.bh-input-row.picking').count() !== 0) {
-		throw new Error('The input row must stop saying that the draft picks once Escape ended it');
+	if (await panel.locator(`${PICK_BUTTON}[aria-pressed="true"]`).count() !== 0 || await panel.locator(PICKING_STATUS, { hasText: 'Click cards' }).count() !== 0) {
+		throw new Error('The panel must stop saying that the draft picks once Escape ended it');
 	}
 	await waitForCanvasCardSelection(page, VIDEO);
 
@@ -1171,7 +1283,7 @@ async function assertInputBoxButtons(page) {
 		const style = element.ownerDocument.defaultView.getComputedStyle(element);
 		const right = box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
 		const top = box.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
-		const actions = Array.from(element.querySelectorAll('.bh-input-row-action'));
+		const actions = Array.from(element.querySelectorAll('.bh-input-row .bh-add-input'));
 		return {
 			plus: element.querySelectorAll('.bh-input-row-add').length,
 			buttons: actions.map(button => ({ key: button.getAttribute('data-key'), name: button.getAttribute('aria-label'), top: Math.round(button.getBoundingClientRect().top - top), pressed: button.getAttribute('aria-pressed'), icon: Array.from(button.querySelector('.codicon')?.classList ?? []).find(name => name.startsWith('codicon-') && name !== 'codicon') ?? null })),
@@ -1197,7 +1309,7 @@ async function assertInputBoxButtons(page) {
 	const looks = await panel.evaluate(element => {
 		const view = element.ownerDocument.defaultView;
 		const look = key => {
-			const style = view.getComputedStyle(element.querySelector(`.bh-input-row-action[data-key="${key}"]`));
+			const style = view.getComputedStyle(element.querySelector(`.bh-add-input[data-key="${key}"]`));
 			return `${style.color} on ${style.backgroundColor}`;
 		};
 		return { pick: look('pick'), import: look('import') };

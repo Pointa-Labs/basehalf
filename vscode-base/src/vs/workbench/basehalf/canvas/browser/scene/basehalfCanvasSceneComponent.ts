@@ -532,12 +532,12 @@ export function createBaseHalfCanvasSceneComponent(environment: IBaseHalfCanvasS
 		const selectedNodes = nodes.filter(node => node.selected);
 		const selectionSurface = baseHalfCanvasSceneSelectionSurface(selectedNodes.map(node => node.data.card));
 		const adjacentChromeSuppressed = nodeDragChromePhase !== undefined;
+		// The panel stays under its card until the workbench replaces it or takes it away, also in the
+		// frames between a new selection and the panel that follows it, so that none is without one (D91).
 		const videoPanelNode = videoPanelSurface
 			&& videoPanelSurface.sceneKey === sceneKeyRef.current
 			&& videoPanelSurface.structuralEpoch === structuralEpochRef.current
-			&& selectedNodes.length === 1
-			&& selectedNodes[0].id === videoPanelSurface.path
-				? selectedNodes[0]
+				? nodes.find(node => node.id === videoPanelSurface.path)
 				: undefined;
 		return h(EdgeInteractionContext.Provider, { value: edgeInteraction },
 			h(SelectionSizeContext.Provider, { value: selectedNodes.length },

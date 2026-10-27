@@ -307,7 +307,7 @@ const RESOLUTION_ORDER: readonly string[] = Object.freeze(['360p', '480p', '512p
  * resolution, and Sound when it makes sound, such as `Frames · References ·
  * 4–15s · 1080p · Sound`; for an image its largest resolution, how many
  * images one generation can make, when more than one, and how many
- * references it takes, such as `4K · Up to 4 images · 14 references`; for an
+ * references it takes, such as `4K · Up to 15 images · 14 references`; for an
  * audio model what it makes first ({@link audioModelAbilities}). The model
  * menu shows it as each model's second line.
  */
@@ -332,8 +332,8 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 	if (!image && model.parameters.some(parameter => parameter.name === 'sound')) {
 		parts.push(localize('basehalf.video.catalog.abilitySound', "Sound"));
 	}
-	// As far as the count's buttons go (D90).
-	const most = image ? Math.min(baseHalfModelMostOutputs(model), BASEHALF_PANEL_MOST_COUNT) : 1;
+	// As far as the count's buttons go: as many as the model makes (D91).
+	const most = image ? baseHalfModelMostOutputs(model) : 1;
 	if (most > 1) {
 		parts.push(localize('basehalf.video.catalog.abilityCount', "Up to {0} images", most));
 	}
@@ -374,7 +374,7 @@ function audioModelAbilities(model: IBaseHalfVideoCatalogModel): string {
 			? secondsAbility(durations.max)
 			: localize('basehalf.video.catalog.abilityLongest', "Up to {0}s", durations.max));
 	}
-	const most = Math.min(baseHalfModelMostOutputs(model), BASEHALF_PANEL_MOST_COUNT);
+	const most = baseHalfModelMostOutputs(model);
 	if (most > 1) {
 		parts.push(localize('basehalf.video.catalog.abilitySongs', "Up to {0} songs", most));
 	}
@@ -438,9 +438,6 @@ function durationRange(parameter: BaseHalfVideoCatalogParameter | undefined): { 
 export function baseHalfModelMakesSeveral(model: IBaseHalfVideoCatalogModel): boolean {
 	return model.kind === 'image' || (model.kind === 'audio' && model.makes === 'music');
 }
-
-/** The most images or songs the panel offers for one generation: a count's buttons go from 1 to this (generation cards, "Settings"; D90). */
-export const BASEHALF_PANEL_MOST_COUNT = 4;
 
 /**
  * Whether the cards of a kind name their mode (generation cards, "Settings";
@@ -510,8 +507,11 @@ export function baseHalfModelOutputCount(model: IBaseHalfVideoCatalogModel, mode
 	return typeof count === 'number' ? clampOutputs(Math.floor(count)) : 1;
 }
 
+/** The most files one generation makes, whatever its count; a count's buttons go no further (D91). */
+export const BASEHALF_GENERATION_MOST_FILES = 16;
+
 function clampOutputs(value: number): number {
-	return Number.isFinite(value) ? Math.min(16, Math.max(1, value)) : 1;
+	return Number.isFinite(value) ? Math.min(BASEHALF_GENERATION_MOST_FILES, Math.max(1, value)) : 1;
 }
 
 /**

@@ -20,6 +20,7 @@ import { ILogService, NullLogService } from '../../../../../platform/log/common/
 import { INotification, INotificationHandle, INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { IWorkspaceContextService, toWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
+import { createBaseHalfDraftPanel } from '../../browser/basehalfDraftPanels.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../browser/basehalfVideoNodePanel.js';
 import { IBaseHalfCanvasCardPick } from '../../../canvas/common/basehalfCanvasCardPick.js';
 import { IBaseHalfCanvasMirrorService } from '../../../canvas/common/basehalfCanvasMirror.js';
@@ -475,7 +476,7 @@ suite('BaseHalfVideoNodePanel', () => {
 	});
 
 	async function createPanel(options?: IBaseHalfVideoNodePanelOptions): Promise<BaseHalfVideoNodePanel> {
-		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0, ...options }));
+		const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, store.kind, NODE, host, { checkDelay: 0, ...options }));
 		mainWindow.document.body.appendChild(panel.element);
 		mounted.push(panel.element);
 		await settle();
@@ -536,7 +537,7 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	/** The button at the panel's top right: `pick` or `import` (D71). */
 	function action(panel: BaseHalfVideoNodePanel, key: 'pick' | 'import'): HTMLButtonElement {
-		return find<HTMLButtonElement>(panel, `.bh-input-row-action[data-key="${key}"]`);
+		return find<HTMLButtonElement>(panel, `.bh-add-input[data-key="${key}"]`);
 	}
 
 	/** Starts Pick on Canvas with its button, and answers what the panel asked the canvas to pick with. */
@@ -725,19 +726,30 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('while the draft generates, its prompt is read only, its tiles have no cross, @, or buttons, and the model opens nothing (D67)', async () => {
+	test('while a draft of any kind generates, its prompt is read only, it has no cross, @, swap, or buttons that add an input that the pointer, the keyboard, or assistive technology can reach, and the model opens nothing (D67, D91)', async () => {
 		generation.generating = true;
-		const panel = await createPanel();
-		const prompt = promptOf(panel);
-		find(panel, '.bh-video-panel-model').click();
-		type(prompt, 'Rain @');
-		await settle();
-		assert.deepStrictEqual({
-			editable: prompt.contentEditable,
-			controls: findAll(panel, '.bh-input-tile-remove, .bh-input-tile-name, .bh-input-row-action, .bh-input-row-swap').length,
-			menus: findAll(panel, '.bh-video-panel-menu, .bh-reference-menu').length,
-			model: find(panel, '.bh-video-panel-model').getAttribute('aria-disabled')
-		}, { editable: 'false', controls: 0, menus: 0, model: 'true' });
+		/** Controls that are drawn and not hidden from assistive technology: `hidden` takes an element out of both. */
+		const reachable = (panel: BaseHalfVideoNodePanel) => findAll(panel, '.bh-input-tile-remove, .bh-input-tile-name, .bh-add-input, .bh-input-row-swap')
+			.filter(control => control.closest('[hidden], [aria-hidden="true"], [inert]') === null && control.getClientRects().length > 0)
+			.map(control => control.getAttribute('aria-label') ?? control.className);
+		const locked = async (panel: BaseHalfVideoNodePanel) => {
+			const prompt = promptOf(panel);
+			find(panel, '.bh-video-panel-model').click();
+			type(prompt, 'Rain @');
+			await settle();
+			return {
+				editable: prompt.contentEditable,
+				tiles: findAll(panel, '.bh-input-tile').length > 0,
+				controls: reachable(panel),
+				menus: findAll(panel, '.bh-video-panel-menu, .bh-reference-menu').length,
+				model: find(panel, '.bh-video-panel-model').getAttribute('aria-disabled')
+			};
+		};
+		const video = await locked(await createPanel());
+		const image = await locked(await createImagePanel(['refs/c.png']));
+		const audio = await locked(await createAudioPanel({ prompt: 'A sea shanty.', provider: 'dunlin', model: 'dunlin-song', mode: 'reference', params: { count: 2 } }, ['refs/c.png']));
+		const expected = { editable: 'false', tiles: true, controls: [], menus: 0, model: 'true' };
+		assert.deepStrictEqual({ video, image, audio }, { video: expected, image: expected, audio: expected });
 	});
 
 	test('a card clicked while picking that the model cannot use says why and connects nothing (D67)', async () => {
@@ -761,7 +773,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			unusable: pick.cardOf('refs/brief.pdf', false),
 			folder: pick.cardOf('refs', true),
 			pressed: action(panel, 'pick').getAttribute('aria-pressed'),
-			hint: find(panel, '.bh-input-row-hint').textContent
+			status: find(panel, '.bh-add-inputs-status').textContent
 		}, {
 			title: 'Click cards to connect them to shot.mp4, or a connected card to remove it.',
 			self: { action: 'self' },
@@ -771,7 +783,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			unusable: { action: 'refused', label: 'An image, video, or audio card cannot use brief.pdf.' },
 			folder: { action: 'refused', label: 'A folder cannot be an input.' },
 			pressed: 'true',
-			hint: 'Click cards on the canvas. Escape or Done ends.'
+			status: 'Click cards on the canvas. Escape or Done ends.'
 		});
 	});
 
@@ -821,14 +833,14 @@ suite('BaseHalfVideoNodePanel', () => {
 		const ended = startPick(panel);
 		host.pick = undefined;
 		ended.ended();
-		const byCanvas = { pressed: action(panel, 'pick').getAttribute('aria-pressed'), hint: findAll(panel, '.bh-input-row-hint').map(hint => hint.textContent) };
+		const byCanvas = { pressed: action(panel, 'pick').getAttribute('aria-pressed'), status: find(panel, '.bh-add-inputs-status').textContent };
 		startPick(panel);
 		generation.generating = true;
 		catalog.set(catalog.state);
 		assert.deepStrictEqual({ byButton, byEscape, byCanvas, generating: !!host.pick }, {
 			byButton: { picking: false, menus: 0, pressed: 'false' },
 			byEscape: { picking: false, cardFocused: 0 },
-			byCanvas: { pressed: 'false', hint: [] },
+			byCanvas: { pressed: 'false', status: '' },
 			generating: false
 		});
 	});
@@ -1235,7 +1247,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		store.info = { prompt: 'A heron.', provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: { count: 2 } };
 		const renamed: string[] = [];
 		host.didRenameCard = resource => renamed.push(resource.path);
-		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, store.resource, host, { checkDelay: 0 }));
+		const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, store.kind, store.resource, host, { checkDelay: 0 }));
 		mainWindow.document.body.appendChild(panel.element);
 		mounted.push(panel.element);
 		await settle();
@@ -1255,6 +1267,129 @@ suite('BaseHalfVideoNodePanel', () => {
 			written: { provider: 'corvid', model: 'corvid-print', mode: 'reference', params: { resolution: '2k', count: 2 } },
 			moves: ['/workspace/shots/image.png -> /workspace/shots/image.jpg'],
 			renamed: ['/workspace/shots/image.jpg']
+		});
+	});
+
+	/** The panel of an image draft at `shots/image.png`, with the image models of the catalog and every provider set up. */
+	async function createImagePanel(upstream: readonly string[]): Promise<BaseHalfVideoNodePanel> {
+		catalog.state = { kind: 'ready', catalog: TEST_GENERATION_CATALOG };
+		providers.notSetUp = new Set();
+		store.kind = 'image';
+		store.path = 'shots/image.png';
+		store.info = { prompt: 'A heron.', provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: { count: 2 } };
+		store.upstream = upstream;
+		const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, 'image', store.resource, host, { checkDelay: 0 }));
+		mainWindow.document.body.appendChild(panel.element);
+		mounted.push(panel.element);
+		await settle();
+		return panel;
+	}
+
+	/** The parts of a panel from top to bottom, its footer's, and its input row's, by their class, `(hidden)` when hidden (D91). */
+	function partsOf(panel: BaseHalfVideoNodePanel): { readonly parts: string[]; readonly footer: string[]; readonly row: string[] } {
+		const name = (element: Element) => {
+			const html = element as HTMLElement;
+			const part = [...html.classList].find(candidate => candidate.startsWith('bh-')) ?? html.tagName.toLowerCase();
+			return html.hidden ? `${part} (hidden)` : part;
+		};
+		const children = (selector: string) => [...panel.element.querySelector(selector)?.children ?? []].map(name);
+		return { parts: [...panel.element.children].map(name), footer: children('.bh-video-panel-footer'), row: children('.bh-input-row') };
+	}
+
+	test('an image draft\'s panel is its prompt and its footer, which begins with the two buttons that add an input; its first input brings a row of its tiles, and its last takes the row away (D91)', async () => {
+		const panel = await createImagePanel([]);
+		const empty = { ...partsOf(panel), height: panel.height, hints: findAll(panel, '.bh-input-row-hint').length };
+		store.upstream = ['refs/c.png'];
+		await panel.refresh();
+		const connected = { ...partsOf(panel), tiles: findAll(panel, '.bh-input-tile').map(tile => tile.dataset.path), height: panel.height };
+		store.upstream = [];
+		await panel.refresh();
+		const footer = ['bh-add-inputs', 'bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'];
+		assert.deepStrictEqual({ empty, connected, again: { parts: partsOf(panel).parts, height: panel.height } }, {
+			empty: {
+				parts: ['bh-input-row (hidden)', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
+				footer,
+				row: [],
+				height: 132,
+				hints: 0
+			},
+			connected: {
+				parts: ['bh-input-row', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
+				footer,
+				row: ['bh-input-row-list'],
+				tiles: ['refs/c.png'],
+				height: 188
+			},
+			again: {
+				parts: ['bh-input-row (hidden)', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
+				height: 132
+			}
+		});
+	});
+
+	test('a panel is ready once it has drawn its first read, in the shape it keeps: an image draft with an input has its row, one without has none, and one that cannot be read says so (D91)', async () => {
+		catalog.state = { kind: 'ready', catalog: TEST_GENERATION_CATALOG };
+		providers.notSetUp = new Set();
+		store.kind = 'image';
+		store.path = 'shots/image.png';
+		store.info = { prompt: 'A heron.', provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: { count: 2 } };
+		const shapes = async (upstream: readonly string[]) => {
+			store.upstream = upstream;
+			const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, 'image', store.resource, host, { checkDelay: 0 }));
+			mainWindow.document.body.appendChild(panel.element);
+			mounted.push(panel.element);
+			// What the panel would show before its read: the workbench does not show it yet.
+			const before = { height: panel.height, row: !find(panel, '.bh-input-row').hidden };
+			await panel.ready;
+			return { before, ready: { height: panel.height, row: !find(panel, '.bh-input-row').hidden, tiles: findAll(panel, '.bh-input-tile').length } };
+		};
+		const withInput = await shapes(['refs/c.png']);
+		const without = await shapes([]);
+		store.unreadable = new Error('The disk is gone.');
+		const unreadable = disposables.add(createBaseHalfDraftPanel(instantiationService, 'image', store.resource, host, { checkDelay: 0 }));
+		await unreadable.ready;
+		assert.deepStrictEqual({ withInput, without, unreadable: unreadable.element.dataset.state }, {
+			withInput: { before: { height: 132, row: false }, ready: { height: 188, row: true, tiles: 1 } },
+			without: { before: { height: 132, row: false }, ready: { height: 132, row: false, tiles: 0 } },
+			unreadable: 'unreadable'
+		});
+	});
+
+	test('an image draft picks from its footer, where Pick on Canvas is highlighted and tells what a click does; while it generates, its footer has no buttons that add an input (D91)', async () => {
+		const panel = await createImagePanel([]);
+		const pick = action(panel, 'pick');
+		const inFooter = pick.closest('.bh-video-panel-footer') !== null;
+		startPick(panel);
+		const picking = { pressed: pick.getAttribute('aria-pressed'), status: find(panel, '.bh-add-inputs-status').textContent, row: find(panel, '.bh-input-row').hidden };
+		pick.click();
+		const ended = { picking: !!host.pick, pressed: pick.getAttribute('aria-pressed') };
+		generation.generating = true;
+		catalog.set(catalog.state);
+		assert.deepStrictEqual({ inFooter, picking, ended, generating: find(panel, '.bh-add-inputs').hidden }, {
+			inFooter: true,
+			picking: { pressed: 'true', status: 'Click cards on the canvas. Escape or Done ends.', row: true },
+			ended: { picking: false, pressed: 'false' },
+			generating: true
+		});
+	});
+
+	test('a video draft and an audio draft keep their row, with its empty frames or what it says and the two buttons at its right end, and an audio draft its voice (D91)', async () => {
+		store.upstream = [];
+		const video = partsOf(await createPanel());
+		const song = partsOf(await createAudioPanel({ prompt: 'A sea shanty.', provider: 'dunlin', model: 'dunlin-song', mode: 'reference', params: { count: 2 } }));
+		const speech = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
+		assert.deepStrictEqual({ video, song, speech: partsOf(speech).footer }, {
+			video: {
+				parts: ['bh-input-row', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
+				footer: ['bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
+				row: ['bh-input-row-list', 'bh-add-inputs']
+			},
+			song: {
+				parts: ['bh-input-row', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
+				footer: ['bh-video-panel-model', 'bh-video-panel-voice (hidden)', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
+				row: ['bh-input-row-list', 'bh-input-row-hint', 'bh-add-inputs']
+			},
+			speech: ['bh-video-panel-model', 'bh-video-panel-voice', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate']
 		});
 	});
 
@@ -1434,7 +1569,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		mounted.push(frame);
 		// Borealis Media is not set up: the reason shows, with Set Up.
 		store.info = { prompt: '@[frames/a.png] rides along the sea, @[frames/b.png] behind', provider: 'borealis', model: 'borealis-one' };
-		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0 }));
+		const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, store.kind, NODE, host, { checkDelay: 0 }));
 		frame.replaceChildren(panel.element);
 		await settle();
 		const box = (element: Element) => element.getBoundingClientRect();
@@ -1477,7 +1612,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		mounted.push(frame);
 		const measure = async (generationChoice: IBaseHalfVideoGenerationChoice) => {
 			store.info = { prompt: '@[frames/a.png] rides along the sea at dusk.', ...generationChoice };
-			const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0 }));
+			const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, store.kind, NODE, host, { checkDelay: 0 }));
 			frame.replaceChildren(panel.element);
 			await settle();
 			const box = (selector: string) => find(panel, selector).getBoundingClientRect();
@@ -1526,7 +1661,8 @@ suite('BaseHalfVideoNodePanel', () => {
 				reported: 188,
 				modelClipped: false,
 				settingsClipped: false,
-				footerHolds: ['bh-video-panel-model', 'bh-video-panel-voice', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
+				// A video card's footer has no voice: no video model speaks (D91).
+				footerHolds: ['bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
 				footerInOrder: true,
 				footerInside: true,
 				slotsInside: true,
@@ -1559,7 +1695,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		store.path = path;
 		store.info = info;
 		store.upstream = upstream;
-		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, store.resource, host, { checkDelay: 0 }));
+		const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, store.kind, store.resource, host, { checkDelay: 0 }));
 		mainWindow.document.body.appendChild(panel.element);
 		mounted.push(panel.element);
 		await settle();

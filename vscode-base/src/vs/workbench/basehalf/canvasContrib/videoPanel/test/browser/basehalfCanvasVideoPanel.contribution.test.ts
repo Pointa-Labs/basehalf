@@ -5,10 +5,11 @@
 
 import assert from 'assert';
 import { mainWindow } from '../../../../../../base/browser/window.js';
-import { timeout } from '../../../../../../base/common/async.js';
+import { DeferredPromise, timeout } from '../../../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../../../base/common/event.js';
 import { extUri } from '../../../../../../base/common/resources.js';
 import { URI } from '../../../../../../base/common/uri.js';
+import { runWithFakedTimers } from '../../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { IFileDialogService } from '../../../../../../platform/dialogs/common/dialogs.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../../../platform/files/common/files.js';
@@ -21,7 +22,8 @@ import { baseHalfTestCanvasItem, createBaseHalfTestCanvasView, IBaseHalfTestCanv
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfGenerationRecordPanelHost } from '../../../../video/browser/basehalfGenerationRecordPanel.js';
 import { IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../../video/browser/basehalfVideoNodePanel.js';
-import { BaseHalfCanvasVideoPanel, IBaseHalfCanvasVideoPanelWidget } from '../../browser/basehalfCanvasVideoPanel.contribution.js';
+import { BaseHalfGenerationKind } from '../../../../video/common/basehalfGenerationInfo.js';
+import { BASEHALF_CANVAS_PANEL_READ_WAIT, BaseHalfCanvasVideoPanel, IBaseHalfCanvasVideoPanelWidget } from '../../browser/basehalfCanvasVideoPanel.contribution.js';
 
 /** A panel that records what the canvas asks of it. */
 class TestVideoPanel implements IBaseHalfCanvasVideoPanelWidget {
@@ -31,8 +33,21 @@ class TestVideoPanel implements IBaseHalfCanvasVideoPanelWidget {
 	disposed = false;
 	private readonly onDidChangeHeightEmitter = new Emitter<number>();
 	readonly onDidChangeHeight = this.onDidChangeHeightEmitter.event;
+	private readonly reading = new DeferredPromise<void>();
+	/** For a panel that reads its card first, as the panels of the workbench do (D91): settles on {@link read}. */
+	readonly ready: Promise<void> | undefined;
 
-	constructor(readonly resource: URI, readonly host: IBaseHalfVideoNodePanelHost, readonly options: IBaseHalfVideoNodePanelOptions) { }
+	constructor(readonly resource: URI, readonly host: IBaseHalfVideoNodePanelHost, readonly options: IBaseHalfVideoNodePanelOptions, readonly kind?: BaseHalfGenerationKind, reads = false) {
+		this.ready = reads ? this.reading.p : undefined;
+	}
+
+	/** The panel has drawn its first read of the card, at `height`. */
+	async read(height = this.height): Promise<void> {
+		this.height = height;
+		await this.reading.complete();
+		// The canvas shows it after the promise's reactions.
+		await timeout(0);
+	}
 
 	async flush(): Promise<void> {
 		this.flushed++;
@@ -51,22 +66,24 @@ class TestVideoPanel implements IBaseHalfCanvasVideoPanelWidget {
 
 /** The panel of a card with its file, which shows what made it. */
 class TestRecordPanel extends TestVideoPanel {
-	constructor(resource: URI, readonly recordHost: IBaseHalfGenerationRecordPanelHost) {
-		super(resource, undefined!, {});
+	constructor(resource: URI, readonly recordHost: IBaseHalfGenerationRecordPanelHost, reads = false) {
+		super(resource, undefined!, {}, undefined, reads);
 	}
 }
 
 class TestCanvasVideoPanel extends BaseHalfCanvasVideoPanel {
 	readonly panels: TestVideoPanel[] = [];
+	/** The panels it makes read their card first, and settle `ready` when a test says so. */
+	reads = false;
 
-	protected override createPanel(resource: URI, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
-		const panel = new TestVideoPanel(resource, host, options);
+	protected override createPanel(resource: URI, kind: BaseHalfGenerationKind, host: IBaseHalfVideoNodePanelHost, options: IBaseHalfVideoNodePanelOptions): IBaseHalfCanvasVideoPanelWidget {
+		const panel = new TestVideoPanel(resource, host, options, kind, this.reads);
 		this.panels.push(panel);
 		return panel;
 	}
 
 	protected override createRecordPanel(resource: URI, host: IBaseHalfGenerationRecordPanelHost): IBaseHalfCanvasVideoPanelWidget {
-		const panel = new TestRecordPanel(resource, host);
+		const panel = new TestRecordPanel(resource, host, this.reads);
 		this.panels.push(panel);
 		return panel;
 	}
@@ -155,6 +172,67 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		assert.ok(feature.panels.at(-1) instanceof TestRecordPanel, 'a card with its file gets the panel that shows what made it (D67)');
 		assert.ok(!(feature.panels[0] instanceof TestRecordPanel), 'a draft gets the panel that makes its file');
 	});
+
+	test('a draft gets the panel of its kind (D91)', () => {
+		const { canvas, feature } = createPanel();
+		const image = 'folder/poster.png';
+		const sound = 'folder/theme.mp3';
+		canvas.setItem(generationItem(image, { kind: 'image', draft: true }), { kind: 'draft' });
+		canvas.setItem(generationItem(sound, { kind: 'audio', draft: true }), { kind: 'draft' });
+		for (const path of [CLIP, image, sound]) {
+			canvas.changeSelection([path]);
+		}
+		assert.deepStrictEqual(feature.panels.map(panel => [panel.resource.path, panel.kind]), [
+			['/workspace/folder/clip.mp4', 'video'],
+			['/workspace/folder/poster.png', 'image'],
+			['/workspace/folder/theme.mp3', 'audio']
+		]);
+	});
+
+	test('a panel shows once it has read its card, at the height it keeps, and the panel before it stays until it takes its place, so that no frame is without one (D91)', async () => {
+		const { canvas, feature } = createPanel();
+		feature.reads = true;
+		const image = 'folder/poster.png';
+		canvas.setItem(generationItem(image, { kind: 'image', draft: true }), { kind: 'draft' });
+		canvas.changeSelection([CLIP]);
+		const beforeRead = [...canvas.calls];
+		await feature.panels[0].read(188);
+		const clipShown = [...canvas.calls];
+		canvas.calls.length = 0;
+		// Another card: the clip's panel stays on the canvas while the image's reads its card.
+		canvas.changeSelection([image]);
+		await timeout(0);
+		const whileReading = { calls: [...canvas.calls], clip: { flushed: feature.panels[0].flushed, disposed: feature.panels[0].disposed } };
+		await feature.panels[1].read(132);
+		assert.deepStrictEqual({ beforeRead, clipShown, whileReading, swapped: canvas.calls, clip: { flushed: feature.panels[0].flushed, disposed: feature.panels[0].disposed } }, {
+			beforeRead: [],
+			clipShown: [`showCardPanel folder ${CLIP} 188`],
+			whileReading: { calls: [], clip: { flushed: 0, disposed: false } },
+			// The image's panel takes the clip's place in one call, and the clip's is saved and let go of after it.
+			swapped: [`showCardPanel folder ${image} 132`],
+			clip: { flushed: 1, disposed: true }
+		});
+	});
+
+	test('a panel still reading its card when another card is selected is never shown, and one that does not finish reading in time shows as it is (D91)', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+		const { canvas, feature } = createPanel();
+		feature.reads = true;
+		const image = 'folder/poster.png';
+		canvas.setItem(generationItem(image, { kind: 'image', draft: true }), { kind: 'draft' });
+		canvas.changeSelection([CLIP]);
+		canvas.changeSelection([image]);
+		await feature.panels[0].read();
+		const skipped = { calls: [...canvas.calls], clip: { flushed: feature.panels[0].flushed, disposed: feature.panels[0].disposed } };
+		// The image's panel never says it has read its card.
+		await timeout(BASEHALF_CANVAS_PANEL_READ_WAIT - 10);
+		const beforeWait = [...canvas.calls];
+		await timeout(20);
+		assert.deepStrictEqual({ skipped, beforeWait, after: canvas.calls }, {
+			skipped: { calls: [], clip: { flushed: 1, disposed: true } },
+			beforeWait: [],
+			after: [`showCardPanel folder ${image} 120`]
+		});
+	}));
 
 	test('a draft whose file lands gets the panel of a card with its file in place of its own, on the same card (D67)', async () => {
 		const { canvas, feature } = createPanel();
