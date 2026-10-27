@@ -13,13 +13,15 @@ import { assertCanvasFolder, emptyCanvasPoint, openRootCanvas, readCanvasCardGeo
 import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 // Dropping into a folder (docs/specs/canvas-drop-into-folder.md), criteria 1,
-// 3, 5, 6, 7, and 10, with real pointer drags on a folder of its own: a note
-// let go on a folder's card goes into it, in one step of undo and redo; a name
-// the folder holds is kept beside it, and the note that names it follows; the
-// drag and the click right after a drop work; the pointer decides, not the
-// card; a card let go over Files goes back, and the view does not move while
-// the pointer is outside the canvas; and a card let go on a folder of the path
-// in the title bar goes up into it.
+// 3, 5, 6, 7, and 10, and of 11 the size, the yellow, the grown edge, and the
+// path, with real pointer drags on a folder of its own: a note let go on a
+// folder's card goes into it, in one step of undo and redo, while the folder
+// grows and glows yellow and takes it on its grown edge too; a name the folder
+// holds is kept beside it, and the note that names it follows; the drag and
+// the click right after a drop work; the pointer decides, not the card; a card
+// let go over Files goes back, and the view does not move while the pointer is
+// outside the canvas; and a card let go on a folder of the path in the title
+// bar, which shows the yellow, goes up into it.
 export async function assertCanvasDropIntoFolder(page) {
 	const folderName = 'dropping';
 	const inFolder = (...segments) => path.join(workspacePath, folderName, ...segments);
@@ -59,8 +61,15 @@ export async function assertCanvasDropIntoFolder(page) {
 	};
 	const lookOf = names => page.evaluate(paths => Object.fromEntries(paths.map(p => {
 		const element = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(p)}"]`);
-		return [p, element ? { target: element.hasAttribute('data-basehalf-drop-target'), dropping: element.hasAttribute('data-basehalf-dropping'), filter: getComputedStyle(element).filter } : null];
+		if (!element) {
+			return [p, null];
+		}
+		const style = getComputedStyle(element);
+		return [p, { target: element.hasAttribute('data-basehalf-drop-target'), dropping: element.hasAttribute('data-basehalf-dropping'), filter: style.filter, scale: style.scale, border: style.borderTopColor, glow: style.boxShadow }];
 	})), names.map(cardPath));
+	// The yellow of a folder that takes a drop (D92), as computed styles give it.
+	const yellow = 'rgb(240, 197, 76)';
+	const glowsYellow = look => look?.border === yellow && /color\(srgb 0\.941176 0\.772549 0\.298039 \/ 0\.38\) 0px 0px 36px 10px/.test(look.glow ?? '');
 	const selectedCards = () => page.evaluate(() => document.querySelectorAll('.react-flow__node.selected').length);
 	// A drag as the user makes it: the press, a small first move that starts
 	// the drag, steps to the end, and what `beforeRelease` reads while the
@@ -158,12 +167,29 @@ export async function assertCanvasDropIntoFolder(page) {
 	// 1. A note let go on a folder's card goes into it. While it is held there,
 	// the folder shows that it takes the note and the note is half transparent;
 	// afterwards the card is gone, the folder lists the note, and nothing is
-	// selected.
-	const held = await drag(await grip('a.md'), centreOf(await rectOf('box')), () => lookOf(['box', 'shelf', 'a.md']));
-	if (!held[cardPath('box')]?.target || held[cardPath('shelf')]?.target || !held[cardPath('a.md')]?.dropping || held[cardPath('a.md')]?.filter !== 'opacity(0.5)') {
+	// selected. 11. The folder grows to 108 percent and glows yellow, and the
+	// note let go on its grown edge, outside its place, still goes into it.
+	const boxAtRest = await rectOf('box');
+	const held = await drag(await grip('a.md'), centreOf(boxAtRest), async () => {
+		const middle = await lookOf(['box', 'shelf', 'a.md']);
+		// Between the folder's own edge and the edge it is drawn with now.
+		const grown = await rectOf('box');
+		const rim = { x: Math.round((boxAtRest.x + boxAtRest.width + grown.x + grown.width) / 2), y: Math.round(grown.y + grown.height / 2) };
+		await page.mouse.move(rim.x, rim.y, { steps: 2 });
+		await page.waitForTimeout(150);
+		return { middle, grown, rim, onRim: (await lookOf(['box']))[cardPath('box')] };
+	});
+	const heldBox = held.middle[cardPath('box')];
+	if (!heldBox?.target || held.middle[cardPath('shelf')]?.target || !held.middle[cardPath('a.md')]?.dropping || held.middle[cardPath('a.md')]?.filter !== 'opacity(0.5)') {
 		throw new Error(`While a note is held over a folder's card, that folder alone must show that it takes the note, and the note must be half transparent: ${JSON.stringify(held)}`);
 	}
-	await waitUntil(() => exists('box', 'a.md') && !exists('a.md'), 'a.md, let go on the box, to move into it');
+	if (heldBox.scale !== '1.08' || !glowsYellow(heldBox) || held.rim.x <= boxAtRest.x + boxAtRest.width) {
+		throw new Error(`A folder's card that takes a note must grow to 108 percent and glow yellow: ${JSON.stringify({ heldBox, boxAtRest, grown: held.grown })}`);
+	}
+	if (!held.onRim?.target || held.onRim.scale !== '1.08') {
+		throw new Error(`With the pointer on the grown edge of the folder's card, outside its place, the folder must still take the note: ${JSON.stringify({ onRim: held.onRim, rim: held.rim, boxAtRest })}`);
+	}
+	await waitUntil(() => exists('box', 'a.md') && !exists('a.md'), 'a.md, let go on the grown edge of the box, to move into it');
 	await card('a.md').waitFor({ state: 'detached', timeout: 10_000 });
 	await waitForReading(() => card('box').locator('.basehalf-canvas-folder-preview-label').allTextContents(), labels => labels.includes('a'), 'the card of the box to list the note it took');
 	const afterDrop = await lookOf(['box']);
@@ -289,11 +315,11 @@ export async function assertCanvasDropIntoFolder(page) {
 		throw new Error(`The path must show ${folderName} as a folder above the box.`);
 	}
 	const up = await drag(await grip('box/inner.md'), centreOf(segmentBox), async () => ({
-		lit: await segment.evaluate(element => element.hasAttribute('data-basehalf-drop-target')),
+		lit: await segment.evaluate(element => element.hasAttribute('data-basehalf-drop-target') && getComputedStyle(element).outlineColor),
 		dropping: (await lookOf(['box/inner.md']))[cardPath('box/inner.md')]?.dropping,
 		...await viewWhileOutside()
 	}));
-	if (!up.lit || !up.dropping || !same(up.first, up.second)) {
+	if (up.lit !== yellow || !up.dropping || !same(up.first, up.second)) {
 		throw new Error(`A card held over a folder of the path must show that it goes there, with the view still: ${JSON.stringify(up)}`);
 	}
 	await waitUntil(() => exists('inner.md') && !exists('box', 'inner.md'), 'inner.md, let go on the folder above in the path, to move up into it');
