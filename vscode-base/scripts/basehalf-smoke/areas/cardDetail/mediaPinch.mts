@@ -10,6 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 import { waitForViewTransitions } from '../../app.mts';
 import { root, workspacePath } from '../../context.mts';
 import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
@@ -106,6 +107,88 @@ function timeAt(strip, x) {
 	return strip.from + (x - strip.x) / strip.width * (strip.to - strip.from);
 }
 
+/** The pixels of a PNG of 8 bits a channel, gray, RGB, or RGBA, as the window's screenshots are. */
+function decodePng(png) {
+	let offset = 8;
+	let width = 0;
+	let height = 0;
+	let channels = 0;
+	const data = [];
+	while (offset < png.length) {
+		const length = png.readUInt32BE(offset);
+		const type = png.toString('latin1', offset + 4, offset + 8);
+		const body = png.subarray(offset + 8, offset + 8 + length);
+		if (type === 'IHDR') {
+			width = body.readUInt32BE(0);
+			height = body.readUInt32BE(4);
+			channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[body[9]];
+			if (body[8] !== 8 || !channels) {
+				throw new Error(`A screenshot of ${body[8]} bits in color type ${body[9]} cannot be read here.`);
+			}
+		} else if (type === 'IDAT') {
+			data.push(body);
+		}
+		offset += 12 + length;
+	}
+	const raw = zlib.inflateSync(Buffer.concat(data));
+	const stride = width * channels;
+	const pixels = Buffer.alloc(stride * height);
+	for (let row = 0; row < height; row++) {
+		const filter = raw[row * (stride + 1)];
+		const line = raw.subarray(row * (stride + 1) + 1, (row + 1) * (stride + 1));
+		for (let index = 0; index < stride; index++) {
+			const left = index >= channels ? pixels[row * stride + index - channels] : 0;
+			const up = row > 0 ? pixels[(row - 1) * stride + index] : 0;
+			const upLeft = row > 0 && index >= channels ? pixels[(row - 1) * stride + index - channels] : 0;
+			const paeth = () => {
+				const estimate = left + up - upLeft;
+				const [a, b, c] = [Math.abs(estimate - left), Math.abs(estimate - up), Math.abs(estimate - upLeft)];
+				return a <= b && a <= c ? left : b <= c ? up : upLeft;
+			};
+			const predicted = filter === 1 ? left : filter === 2 ? up : filter === 3 ? Math.floor((left + up) / 2) : filter === 4 ? paeth() : 0;
+			pixels[row * stride + index] = (line[index] + predicted) & 0xff;
+		}
+	}
+	return { width, height, channels, pixels };
+}
+
+/**
+ * Under the player of a zoomed video, down to the frame viewer, the window shows only Card Detail's background:
+ * the band of the viewer meets the player's bottom edge, and no sliver of the picture shows between them (editing
+ * media, "Zooming the picture and the time"). The rows checked stop 6 pixels above the strip, where its playhead
+ * and its frame reach.
+ */
+async function assertNothingUnderPlayer(page, when) {
+	const geometry = await page.evaluate(({ player, frames }) => {
+		const box = document.querySelector(player).getBoundingClientRect();
+		const area = document.querySelector('.basehalf-card-detail-surface.active .basehalf-card-detail-media-webview').getBoundingClientRect();
+		const strip = document.querySelector(`${frames} .basehalf-video-frames-strip`).getBoundingClientRect();
+		const background = getComputedStyle(document.querySelector('.basehalf-card-detail.visible')).backgroundColor;
+		return { bottom: box.bottom, stripTop: strip.top, left: area.left, right: area.right, background };
+	}, { player: PLAYER, frames: FRAMES });
+	const top = Math.ceil(geometry.bottom);
+	const height = Math.floor(geometry.stripTop) - 6 - top;
+	const left = Math.ceil(geometry.left) + 1;
+	const width = Math.floor(geometry.right) - 1 - left;
+	if (height < 1 || width < 1) {
+		throw new Error(`The frame viewer stands under the player, with room between them: ${JSON.stringify(geometry)}`);
+	}
+	const shot = decodePng(await page.screenshot({ clip: { x: left, y: top, width, height } }));
+	const background = (geometry.background.match(/\d+/g) ?? []).slice(0, 3).map(Number);
+	let different = 0;
+	let first;
+	for (let index = 0; index < shot.width * shot.height; index++) {
+		const pixel = Array.from(shot.pixels.subarray(index * shot.channels, index * shot.channels + 3));
+		if (pixel.some((value, channel) => Math.abs(value - background[channel]) > 6)) {
+			different++;
+			first ??= { x: index % shot.width, y: Math.floor(index / shot.width), pixel };
+		}
+	}
+	if (different) {
+		throw new Error(`${when}: under the player, down to the frame viewer, no picture shows, only Card Detail's background: ${different} of ${shot.width * shot.height} pixels are not ${geometry.background}, first ${JSON.stringify(first)}, rows ${top} to ${top + height}`);
+	}
+}
+
 async function readPlayer(page) {
 	return page.evaluate(selector => {
 		const player = document.querySelector(selector);
@@ -146,6 +229,7 @@ async function assertVideoPinch(page) {
 		|| !(zoomed.rect.x < zoomed.box.x - 1 && zoomed.rect.y < zoomed.box.y - 1 && zoomed.rect.x + zoomed.rect.width > zoomed.box.x + zoomed.box.width + 1)) {
 		throw new Error(`A pinch by 1.6 over the picture of a video draws it 1.6 times larger, past its player's box, the point under the pointer staying under it, the player and its controls at their size: ${JSON.stringify({ before, zoomed, zoom, under, at })}`);
 	}
+	await assertNothingUnderPlayer(page, 'Zoomed in by a pinch');
 	// Criterion 20: a two-finger swipe moves the zoomed picture with the fingers, and zooms nothing.
 	await page.mouse.move(at.x, at.y);
 	await page.mouse.wheel(50, 30);
@@ -154,6 +238,7 @@ async function assertVideoPinch(page) {
 	if (Math.abs(swiped.rect.width - zoomed.rect.width) > 0.5 || Math.abs(swiped.rect.x - (zoomed.rect.x - 50)) > 1 || Math.abs(swiped.rect.y - (zoomed.rect.y - 30)) > 1) {
 		throw new Error(`A swipe moves the zoomed picture with the fingers and zooms nothing: ${JSON.stringify({ zoomed: zoomed.rect, swiped: swiped.rect })}`);
 	}
+	await assertNothingUnderPlayer(page, 'Moved by a swipe');
 
 	// A drag moves the zoomed picture and plays nothing; a click plays it.
 	const middle = { x: before.box.x + before.box.width / 2, y: before.box.y + before.box.height / 2 };

@@ -443,7 +443,9 @@ in Card Detail.
   Detail, as the page under a browser's toolbar does. Card Detail's controls
   keep their place and their size over it: the header, the player's
   controls, Edit or Done, the frame viewer, Play, the tools, and the line
-  under the editor, which hide what is under them. The media area zooms from
+  under the editor, which hide what is under them. The background behind the
+  frame viewer reaches up to the player's bottom edge, so that no sliver of
+  the picture shows between the player and the viewer. The media area zooms from
   as it fits up to 5 times that, as a browser zooms a page, or up to twice
   the picture's own pixels when that is more. A pinch follows the fingers, by
   e^(−Δy / 100) for each of its events, the measure the browser gives a
@@ -950,9 +952,11 @@ in Card Detail.
     a video of 1280 × 720 in Card Detail draws it 1.6 times larger, with the
     point that was under the pointer within 2 pixels of it, past the box of
     its player, which keeps its place and size, and the controls at their
-    size. A drag then moves the picture and does not play it; a click plays
-    it; a pinch by 0.5 shows it as it fits. A video of 854 × 480 that fits at
-    1,280 pixels zooms to 5 times that.
+    size; between the player and the frame viewer the window shows only Card
+    Detail's background, also after a swipe. A drag then moves the picture
+    and does not play it; a click plays it; a pinch by 0.5 shows it as it
+    fits. A video of 854 × 480 that fits at 1,280 pixels zooms to 5 times
+    that.
 17. The same pinch over an SVG draws it 1.6 times larger around the pointer,
     and Fit shows it as it fits again; over a PNG it zooms the crop view, while
     viewing and while editing.

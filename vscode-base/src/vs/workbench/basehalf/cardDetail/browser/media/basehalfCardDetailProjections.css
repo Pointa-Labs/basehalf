@@ -216,10 +216,12 @@
  * height of the space.
  */
 .monaco-workbench .basehalf-card-detail-video-stage {
+	/* The room between the player and the frame viewer, which the viewer's band covers from the player's bottom edge. */
+	--basehalf-video-stage-gap: 12px;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 12px;
+	gap: var(--basehalf-video-stage-gap);
 }
 
 .monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing {
@@ -263,8 +265,9 @@
 /*
  * The frame viewer and the line under the editor keep their place over a
  * zoomed picture, as a browser's toolbar does over its page: a band of the
- * background, as wide as the media area, stands behind them from just above
- * the viewer down, and hides the picture there. At rest it covers nothing.
+ * background, as wide as the media area, stands behind them from the
+ * player's bottom edge down, and hides the picture there, so that no sliver
+ * of it shows between the player and the viewer. At rest it covers nothing.
  */
 .monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames {
 	position: relative;
@@ -275,7 +278,7 @@
 	content: '';
 	position: absolute;
 	z-index: -1;
-	top: -6px;
+	top: calc(-1 * var(--basehalf-video-stage-gap));
 	left: -100vw;
 	right: -100vw;
 	height: 100vh;
