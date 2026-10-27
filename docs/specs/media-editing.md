@@ -403,10 +403,12 @@ sound, as editors of video and sound and a phone's voice recorder do.
   pinch over a page to the window, which hands it on to the page, as for a
   PDF ([zoom and outline of a note](note-zoom-and-outline.md), L5).
 - **A pinch over the frame viewer of a video or the waveform of a sound
-  spreads its time out** around the pointer: the time under the pointer stays
-  under it, from the whole length down to half a second, or, for a video, to
-  as many frames as the strip has pictures when that is longer. Pinching in
-  to the whole length ends it.
+  spreads its time out** around the pointer, and so does the wheel with
+  Command (Ctrl on Windows and Linux) or Ctrl held, as over a note: by
+  e^(−Δy / 100) for each event, a notch of the wheel at most 10%. The time
+  under the pointer stays under it, from the whole length down to half a
+  second, or, for a video, to as many frames as the strip has pictures when
+  that is longer. Pinching in to the whole length ends it.
   - While it is spread out, a sideways swipe of two fingers and the wheel
     move it along, as far as the start and the end go. The yellow frame, the
     handles, the selected stretch, and the playhead are cut at its edges
