@@ -731,9 +731,9 @@ The settings of a draft are drawn from its model's
   button for each number from 1 to as many as the model makes (D91): one row
   of up to six buttons, and rows of five beyond six, so that 1 to 9 is a row
   of five and a row of four and 1 to 15 is three rows of five. It follows the
-  model: Seedream 5.0 Lite offers 1 to 15, GPT Image 2 1 to 10, Kling Image
-  3.0 1 to 9, Qwen-Image 3.0 1 to 6, Wan 2.7 Image 1 to 4, and a music model
-  1 to 3. A count the inputs narrow (D70) dims the buttons beyond its range
+  model: Seedream 5.0 Lite offers 1 to 15; GPT Image 2, 1 to 10; Kling Image
+  3.0, 1 to 9; Qwen-Image 3.0, 1 to 6; Wan 2.7 Image, 1 to 4; and a music
+  model, 1 to 3. A count the inputs narrow (D70) dims the buttons beyond its range
   with the reason and says why under them, as a number of five or fewer
   steps does. One generation lands at most 16 files, so no count goes further.
 - **More** opens the advanced parameters, such as the seed and the negative
