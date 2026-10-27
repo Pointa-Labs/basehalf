@@ -8,6 +8,7 @@ import type { VoicesResult } from '../../../../platform/basehalfProviders/common
 import {
 	BASEHALF_IMAGE_DEFAULT_MODE_INPUTS,
 	BASEHALF_VIDEO_DEFAULT_MODE_INPUTS,
+	baseHalfKindNamesModes,
 	BaseHalfModelKind,
 	BaseHalfVideoCatalogState,
 	BaseHalfVideoInputKind,
@@ -115,8 +116,10 @@ export function createBaseHalfGenerationRecordPresentation(state: IBaseHalfGener
 	const line = base !== undefined && edited !== undefined ? localize('basehalf.generation.record.lineEdited', "{0} {1}", base, edited) : base ?? edited;
 	const region = ref?.provider.regions.find(candidate => candidate.id === made.region);
 	const recorded = () => [made.mode, ...Object.entries(made.params).map(([name, value]) => `${name} ${String(value)}`)];
-	const settings = ref ? baseHalfVideoRecordedSettingsSummary(ref.model, made.mode, made.params) : recorded();
-	const everySetting = ref ? baseHalfVideoRecordedSettingsSummary(ref.model, made.mode, made.params, true) : recorded();
+	// As the draft's summary: a mode is named where the models of the card's kind differ in it (D90).
+	const namesMode = baseHalfKindNamesModes(catalog, state.kind);
+	const settings = ref ? baseHalfVideoRecordedSettingsSummary(ref.model, made.mode, made.params, false, namesMode) : recorded();
+	const everySetting = ref ? baseHalfVideoRecordedSettingsSummary(ref.model, made.mode, made.params, true, namesMode) : recorded();
 	// The voice a speech model spoke in, as it was sent (D78); without the catalog it is among the recorded values.
 	const voiceParameter = ref ? baseHalfVoiceParameter(ref.model) : undefined;
 	const spokenIn = voiceParameter ? made.params[voiceParameter.name] : undefined;

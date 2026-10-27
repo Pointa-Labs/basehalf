@@ -337,7 +337,7 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		lists.set('dunlin/main', { voices: [{ id: 'sea-captain', label: 'Captain of the Northern Sea Shanty Choir', own: true }] });
 		listed.fire();
 		assert.deepStrictEqual({ settings: part('.bh-record-panel-settings').textContent, whole, long: { ...footer(), width: part('.bh-record-panel-voice').getBoundingClientRect().width } }, {
-			settings: 'From Text · Speed 1 · Stability 0.5 · Similarity 0.75',
+			settings: 'Speed 1 · Stability 0.5 · Similarity 0.75',
 			whole: { voice: 'Sea Captain', voiceClipped: false, modelClipped: false, settingsClipped: true, newVersionInside: true },
 			// A longer name ends in an ellipsis at the voice's width, 148 px and its padding.
 			long: { voice: 'Captain of the Northern Sea Shanty Choir', voiceClipped: true, modelClipped: false, settingsClipped: true, newVersionInside: true, width: 156 }

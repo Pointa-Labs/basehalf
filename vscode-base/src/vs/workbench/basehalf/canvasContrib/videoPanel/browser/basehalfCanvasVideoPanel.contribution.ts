@@ -19,7 +19,7 @@ import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseH
 import { baseHalfCanvasChildPath } from '../../../canvas/common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
-import { BASEHALF_VIDEO_INPUT_EXTENSIONS } from '../../../video/common/basehalfVideoCatalog.js';
+import { BASEHALF_VIDEO_INPUT_EXTENSIONS, BaseHalfTakenInputKind } from '../../../video/common/basehalfVideoCatalog.js';
 import { BaseHalfGenerationRecordPanel, IBaseHalfGenerationRecordPanelHost } from '../../../video/browser/basehalfGenerationRecordPanel.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../../video/browser/basehalfVideoNodePanel.js';
 
@@ -232,7 +232,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		return {
 			startPick: pick => this.canvas.startCardPick(pick),
 			didChangeConnections: () => this.canvas.requestRender(),
-			importFile: accept => this.importFile(path, accept),
+			importFile: (accept, kinds) => this.importFile(path, accept, kinds),
 			focusCard: () => this.canvas.focusCard(path),
 			didGenerateInNode: resource => this.selectCardWhenDrawn(sceneKey, resource),
 			// The draft a model of another format renamed keeps the selection and its panel at its new name.
@@ -275,8 +275,10 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 	 * under a name that no file, folder, or draft has, and returns its path.
 	 * `accept` is asked first, with the path the file would have, and nothing
 	 * is copied when it refuses (generation cards, "What is connected is sent").
+	 * The dialog offers the files of `kinds`, those some model of the card's
+	 * kind takes: images and notes on an image card (D90).
 	 */
-	private async importFile(targetPath: string, accept: (path: string) => Promise<boolean>): Promise<string | undefined> {
+	private async importFile(targetPath: string, accept: (path: string) => Promise<boolean>, kinds: readonly BaseHalfTakenInputKind[]): Promise<string | undefined> {
 		const item = this.canvas.getItem(targetPath);
 		const folder = this.canvas.getFolder();
 		if (!item || !folder) {
@@ -289,8 +291,8 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			title: localize('basehalf.canvas.video.importInput', "Import a File as an Input"),
 			openLabel: localize('basehalf.canvas.video.importInputButton', "Import"),
 			filters: [{
-				name: localize('basehalf.canvas.video.importInputFilter', "Images, Videos, Audio, and Text"),
-				extensions: Object.values(BASEHALF_VIDEO_INPUT_EXTENSIONS).flat()
+				name: importFilterName(kinds),
+				extensions: kinds.flatMap(kind => BASEHALF_VIDEO_INPUT_EXTENSIONS[kind])
 			}]
 		});
 		const source = picked?.[0];
@@ -322,6 +324,17 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		}
 		return undefined;
 	}
+}
+
+/** The name of Import File…'s filter, by the kinds it offers: "Images and Text" on an image card (D90). */
+function importFilterName(kinds: readonly BaseHalfTakenInputKind[]): string {
+	const offers = (kind: BaseHalfTakenInputKind) => kinds.includes(kind);
+	if (offers('image') && !offers('video')) {
+		return offers('audio')
+			? localize('basehalf.canvas.video.importInputFilterImagesAudio', "Images, Audio, and Text")
+			: localize('basehalf.canvas.video.importInputFilterImages', "Images and Text");
+	}
+	return localize('basehalf.canvas.video.importInputFilter', "Images, Videos, Audio, and Text");
 }
 
 registerBaseHalfCanvasContribution(BaseHalfCanvasVideoPanel.ID, BaseHalfCanvasVideoPanel);

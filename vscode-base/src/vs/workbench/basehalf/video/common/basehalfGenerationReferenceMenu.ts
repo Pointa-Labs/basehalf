@@ -94,9 +94,20 @@ export function baseHalfReferenceMenuRows(model: IBaseHalfReferenceMenuModel, qu
 		}
 	}
 	if (!rows.length) {
-		rows.push({ type: 'empty', text: localize('basehalf.generation.references.nothing', "Connect an image, a video, audio, or a note, or add one to this canvas.") });
+		rows.push({ type: 'empty', text: nothingToList(model.canvas.map(list => list.kind)) });
 	}
 	return Object.freeze(rows);
+}
+
+/** What a menu with nothing to list says, by the kinds it lists: every kind when it does not know them (D90). */
+function nothingToList(kinds: readonly BaseHalfReferenceMenuKind[]): string {
+	const lists = (kind: BaseHalfReferenceMenuKind) => kinds.length === 0 || kinds.includes(kind);
+	if (lists('image') && !lists('video')) {
+		return lists('audio')
+			? localize('basehalf.generation.references.nothingImagesAudio', "Connect an image, audio, or a note, or add one to this canvas.")
+			: localize('basehalf.generation.references.nothingImages', "Connect an image or a note, or add one to this canvas.");
+	}
+	return localize('basehalf.generation.references.nothing', "Connect an image, a video, audio, or a note, or add one to this canvas.");
 }
 
 /** The rows of the list of one kind: every card of that kind on the canvas, the connected ones marked so. */
