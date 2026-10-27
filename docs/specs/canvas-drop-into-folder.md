@@ -1,7 +1,8 @@
 # Dropping into a folder
 
-Status: Active (2026-10-27)
-Decision: [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
+Status: Active (2026-10-27; the look of a folder that takes a drop, D92)
+Decision: [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27),
+[D92](../decisions.md#d92--a-folder-that-would-take-a-drop-grows-and-glows-yellow-new-2026-10-27)
 Related: [canvas card placement](canvas-card-placement.md) (where the cards
 appear in the folder), [following moved items](following-moved-items.md)
 (what follows an item that moves), [exact undo](exact-undo.md) (one step of
@@ -46,6 +47,14 @@ notes upstream:
   A drop into a folder is such a move: the drag right after it would have
   failed the same way
   ([canvas card interaction continuity](canvas-card-interaction-continuity.md#a-change-elsewhere-in-the-workspace)).
+- The look that came of it, measured later on 2026-10-27 on main
+  (`e4523148c`) with a note held over a folder's card, at a zoom of 93
+  percent: the note, 280 by 205 screen pixels, covered most of the folder's
+  card, 232 by 176, and the folder showed that it would take the note only at
+  the edges the note left free, with a ring and a tint of the canvas's intent
+  blue, the blue of a connection that would be made. It kept its size. The
+  user asked for a folder's card that grows and shows a yellow glow, the sign
+  that it can take the file, without words.
 
 ## What three references do
 
@@ -66,8 +75,9 @@ notes upstream:
 
 - A card, or a set of cards, dragged onto a folder's card goes into that
   folder, in one step of undo.
-- While dragging, the folder that would take the cards shows it, and the
-  cards show that they would go.
+- While dragging, the folder that would take the cards shows it: its card
+  grows a little and glows yellow, with no words. The cards show that they
+  would go.
 - A card comes out of a folder the same way: onto a folder of the path in
   the title bar.
 - An item from Files and a file from outside the window go into a folder's
@@ -105,7 +115,9 @@ Not in this version:
 
 - **A folder's card**: the card on top under the pointer, as the canvas draws
   it, leaving the dragged cards out. Where another card lies over the
-  folder's card at the pointer, the folder does not take them there.
+  folder's card at the pointer, the folder does not take them there. The
+  taking folder takes them over all of its card as it is drawn, grown
+  included: the pointer keeps it while it is over what shows it.
 - **A folder of the path**: the workspace folder, and every folder between
   it and the folder whose canvas is shown, that the path shows. The shown
   folder itself, the current place, takes nothing: the cards are in it
@@ -119,13 +131,25 @@ Not in this version:
 
 ### While dragging
 
-- The taking folder's card shows the canvas's intent color, the color a card
-  shows when a connection would go into it: its border, a ring around it,
-  and a light tint of the color over its face.
+- **The taking folder's card grows and glows yellow.** It grows to 108
+  percent of its size around its middle, its caption with it, in 150 ms. Its
+  border turns yellow, a ring and a soft glow of the yellow lie around it,
+  and a light tint of the yellow lies over its face. No words are drawn.
+  When the pointer leaves it, or the drag ends, it goes back in the same
+  time. The yellow (`#f0c54c`) is the gold of a folder's glyph made bright;
+  the canvas's intent blue stays the sign of a connection.
+- Growing moves no other card and saves nothing: the card is drawn larger
+  over its place. What is drawn over the folder's card stays over it, the
+  dragged cards too.
+- With reduced motion, the card does not grow, and the yellow shows at once.
+  With forced colors, an outline in the system's highlight color is drawn
+  around it.
 - The dragged cards are drawn at half their opacity while a folder takes
   them, so that the folder shows under them. When the pointer leaves the
   folder, both are drawn as before.
-- A folder of the path that takes them shows the same color around its name.
+- A folder of the path that takes them shows the same yellow around its
+  name, without growing: the path is a row of names, and a grown name would
+  cover its neighbours.
 - Near the edge of the canvas, inside it, the canvas moves as before. While
   the pointer is outside the canvas, it does not move.
 
@@ -134,8 +158,8 @@ Not in this version:
 - Every dragged card's item moves into the taking folder, as one step of the
   canvas undo, named "Move `<name>` to `<folder>`" for one item and "Move
   `<n>` items to `<folder>`" for more.
-- The cards leave the canvas when they are let go. No card is selected
-  afterwards.
+- The cards leave the canvas when they are let go, and the folder's card
+  goes back to its size. No card is selected afterwards.
 - Their card information and the entries that name them follow, as after
   any move in the workbench ([following moved items](following-moved-items.md),
   [reference graph](reference-graph.md#rename-refactor)). A connection
@@ -180,8 +204,8 @@ Not in this version:
   that folder. Let go elsewhere on the canvas, it is copied into the shown
   folder at the point, as before. A copy is named and undone as before
   ([exact undo](exact-undo.md#what-the-canvas-made)).
-- The taking folder's card shows it while the pointer is over it, as for
-  cards.
+- The taking folder's card grows and glows while the pointer is over it, as
+  for cards.
 
 ### Failure
 
@@ -202,7 +226,7 @@ canvas work at once
 ## Acceptance criteria
 
 1. **One card.** A note dragged with the pointer over a folder's card: the
-   folder's card shows the intent color and the note is half transparent
+   folder's card grows and glows yellow and the note is half transparent
    before it is let go. Let go, the note is in the folder, its card is not
    on the canvas, and the folder's card lists it. One undo puts the note
    back, its card at its place and size; redo moves it again.
@@ -212,8 +236,8 @@ canvas work at once
 3. **The pointer decides.** A card dragged so that it covers a folder's card
    while the pointer is beside it is saved where it is let go, and nothing
    moves.
-4. **Not into itself.** A folder's card that is dragged never shows the
-   intent color itself; another folder's card takes it.
+4. **Not into itself.** A folder's card that is dragged never grows or glows
+   itself; another folder's card takes it.
 5. **A taken name.** `plan.md`, which a note names upstream, dropped on a
    folder that holds `plan.md`, is `plan 2.md` in it, and the note's entry
    names the new path. Undo brings `plan.md` back under its name.
@@ -229,15 +253,28 @@ canvas work at once
 10. **The next gesture.** Right after a drop into a folder, a drag of another
     card stays where it is let go, and the first click on empty canvas ends
     the selection.
+11. **The look.** Sampled on every frame while a note is held over a
+    folder's card: the folder's card is at 108 percent of its size within
+    150 ms of the first frame that marks it, its border and its glow are the
+    yellow, and no other card moves. With the pointer on its grown edge,
+    outside its place, the folder still takes the note; off it, the folder
+    is at its size and look again within 150 ms. An item from Files and a
+    file from outside the window get the same look. With reduced motion the
+    folder keeps its size and the yellow is there in the first frame that
+    marks it. A folder of the path that takes a card shows the yellow around
+    its name.
 
 ## Verification
 
 - Unit tests: which card takes a drop at a point (the card on top, the
-  dragged cards left out, only a folder); the canvas does not move for a
+  dragged cards left out, only a folder, the taking folder over its grown
+  card but not under a card drawn over it); the canvas does not move for a
   pointer outside it; the names that keep both; the step that moves files
   and drafts and its undo and redo.
 - `npm run basehalf:smoke`, canvas suite, step `canvas-drop-into-folder`:
-  criteria 1, 3, 5, 6, 7, and 10. The step `canvas-snap-guides` lets its
-  card go off the folder it aligns the card with, since a card let go on a
-  folder's card goes into it.
-- Real window, per frame while dragging: criteria 1, 2, 4, 5, 8, and 9.
+  criteria 1, 3, 5, 6, 7, and 10, and of 11 the size, the yellow, the grown
+  edge, and the path. The step `canvas-snap-guides` lets its card go off the
+  folder it aligns the card with, since a card let go on a folder's card goes
+  into it.
+- Real window, per frame while dragging: criteria 1, 2, 4, 5, 8, 9, and 11,
+  with reduced motion and forced colors.

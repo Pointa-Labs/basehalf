@@ -3606,6 +3606,10 @@ goes the same way.
 
 ## D88 — Cards let go on a folder go into it (NEW, 2026-10-27)
 
+> **Revised by D92 (2026-10-27).** A folder that would take a drop shows it
+> by growing a little and glowing yellow, not in the canvas's intent color,
+> and a folder of the path shows the same yellow. The rest of D88 stands.
+
 **Decision.** Where the pointer is when the button is let go decides. A card,
 or a set, let go with the pointer over a folder's card goes into that
 folder; let go over a folder of the path in the title bar, into that folder.
@@ -3824,3 +3828,57 @@ after a model was chosen from its menu.
 - The catalog, the parameters, what is sent, and what `generation.yaml` and
   `made.yaml` store are unchanged: an image card's mode is still `reference`,
   and `basehalf --list-capabilities` still gives agents each model's count.
+
+## D92 — A folder that would take a drop grows and glows yellow (NEW, 2026-10-27)
+
+**Decision.** While what is dragged, cards of the canvas, items from Files,
+or files from outside the window, would go into a folder's card, that card
+grows to 108 percent of its size around its middle in 150 ms, its border
+turns yellow, a ring and a soft glow of the yellow lie around it, and a light
+tint of the yellow lies over its face. No words are drawn. It goes back when
+the pointer leaves it or the drag ends. The yellow is the gold of a folder's
+glyph made bright. A folder of the path in the title bar that takes the
+cards shows the same yellow around its name, without growing. The folder
+takes the drop over all of its card as it is drawn, so letting go on its
+grown edge still drops into it. With reduced motion it does not grow; with
+forced colors it gets an outline in the system's highlight color. See
+[dropping into a folder](specs/canvas-drop-into-folder.md#while-dragging).
+
+**Why.** On 2026-10-27 the user described the look they want: dragged onto a
+folder's card, the folder's card can grow, and a yellow shadow area appears
+that shows it can take the file and make it a file in the folder, with no
+text. Measured that day on D88's look, at a zoom of 93 percent: a held note
+covered most of the folder's card (a note's card is 300 by 220 canvas
+pixels, a folder's 248 by 188), so the folder showed that it would take the
+note only at the edges the note left free, with a ring and a tint of the
+canvas's intent blue, the blue of a connection that would be made, and it
+kept its size. Tried in the window at 106 and 110 percent with the same glow:
+both showed in the edges a held note leaves free; at 110 percent the caption
+moved far enough to draw the eye away from the note being aimed.
+
+**What was set aside.**
+- Words such as "Move into drafts": the user asked for none, and the card
+  under the pointer is the place the words would name.
+- A growth as large as a magnified icon's, a third or more: in the plain
+  grid a note stands 40 canvas pixels beside a folder's card, and it would be
+  covered.
+- Keeping the intent blue: on the canvas it says that a connection would be
+  made, and the user asked for yellow, the color of a folder.
+- Growing a folder of the path: the path is a row of names, and a grown name
+  would cover the names beside it.
+- Taking the drop only over the folder's place, as before: on the grown edge
+  the folder would then shrink under the pointer, and a card let go there
+  would stay beside the folder that showed it would take it.
+- Drawing the folder over the dragged cards: the dragged cards are what the
+  user holds, and they stay half transparent over it as D88 has them.
+
+**Consequences.**
+- Revises D88's look: the canvas's intent color on a taking folder's card,
+  and the focus color on a folder of the path, give way to the yellow.
+- [Dropping into a folder](specs/canvas-drop-into-folder.md): the goals,
+  which folder takes them (the grown card), what shows while dragging, and
+  criteria 1, 4, and 11; [the location in the title bar](specs/title-bar-location.md#a-drop),
+  requirement 11.
+- The canvas's stylesheet has the yellow as a color of its own,
+  `--bh-card-folder-drop`, beside the folder's other colors; the title bar's
+  rule names the same yellow.
