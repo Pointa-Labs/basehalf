@@ -6,7 +6,7 @@
 import './media/basehalfVideoNode.css';
 import { $, addDisposableListener, append, clearNode, getWindow, isHTMLButtonElement, isHTMLElement, isHTMLInputElement } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
-import { RunOnceScheduler, TimeoutTimer } from '../../../../base/common/async.js';
+import { DeferredPromise, RunOnceScheduler, TimeoutTimer } from '../../../../base/common/async.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { compareFileNames } from '../../../../base/common/comparers.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -253,6 +253,9 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	private readonly _onDidChangeHeight = this._register(new Emitter<number>());
 	/** Fires when the panel's height changes; the workbench publishes the scene surface again. */
 	readonly onDidChangeHeight: Event<number> = this._onDidChangeHeight.event;
+
+	/** Settles when the first read of the card and its inputs is drawn, or could not be made. */
+	private readonly firstRead = new DeferredPromise<void>();
 
 	/** The card's connections as tiles (D68). */
 	private readonly inputRow: BaseHalfGenerationInputRow;
@@ -501,6 +504,15 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	/**
+	 * Settles once the panel has drawn its first read of the card and its
+	 * inputs, or what kept it from reading them: from then on its parts and its
+	 * height are the card's, and the workbench shows it (D91).
+	 */
+	get ready(): Promise<void> {
+		return this.firstRead.p;
+	}
+
+	/**
 	 * Places the parts in the panel's element, from top to bottom, as the
 	 * card's kind does (generation cards, "The panel of each kind"; D91). Called
 	 * once, while the panel is made.
@@ -549,6 +561,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			this.readError = baseHalfUserFacingErrorMessage(error);
 			this.render();
 		}
+		void this.firstRead.complete();
 	}
 
 	/** What Generate does: generates when the card can, and stops a generation that runs. */
@@ -588,6 +601,8 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		this.disposed = true;
 		this.closeMenu(false);
 		this.referenceMenu.clear();
+		// Nobody waits for a panel that is gone.
+		void this.firstRead.complete();
 		super.dispose();
 	}
 

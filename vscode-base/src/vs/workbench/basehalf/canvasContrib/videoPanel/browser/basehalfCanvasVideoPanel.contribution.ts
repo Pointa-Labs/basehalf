@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { mainWindow } from '../../../../../base/browser/window.js';
+import { RunOnceScheduler } from '../../../../../base/common/async.js';
 import { Event } from '../../../../../base/common/event.js';
 import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname, joinPath } from '../../../../../base/common/resources.js';
@@ -31,9 +32,17 @@ export interface IBaseHalfCanvasVideoPanelWidget extends IDisposable {
 	/** Its height in screen pixels. */
 	readonly height: number;
 	readonly onDidChangeHeight: Event<unknown>;
+	/** Settles once the panel has drawn its first read of the card: the canvas shows it from then on (D91). */
+	readonly ready?: Promise<unknown>;
 	/** Saves the prompt. */
 	flush(): Promise<void>;
 }
+
+/**
+ * How long the canvas waits at most for a new panel to read its card before
+ * it shows the panel as it is, so that a slow disk never keeps it away.
+ */
+export const BASEHALF_CANVAS_PANEL_READ_WAIT = 300;
 
 /** The panel under the selected generation card and what it lives on. */
 interface IBaseHalfCanvasVideoPanelMount {
@@ -54,13 +63,19 @@ interface IBaseHalfCanvasVideoPanelMount {
  * drawn again, becomes the other panel when a draft's file lands, saves the
  * prompt when it goes, and lets the user pick a card or import a file as an
  * input of a draft.
+ *
+ * A new panel shows once it has read its card, so that its first frame has the
+ * shape it keeps; until then the panel the canvas showed stays, and the new one
+ * takes its place in the same drawing, so that no frame is without one (D91).
  */
 export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCanvasContribution {
 	static readonly ID = 'basehalf.canvas.videoPanel';
 
 	private readonly canvas: IBaseHalfCanvasView;
-	/** The panel under the selected generation card. */
+	/** The panel under the selected generation card, shown or still reading its card. */
 	private mount: IBaseHalfCanvasVideoPanelMount | undefined;
+	/** The panel the canvas shows: the selected card's, or the one before it while the new one reads its card. */
+	private shown: IBaseHalfCanvasVideoPanelMount | undefined;
 	/** A card that Generate made, or a draft its model renamed: it is selected once it is drawn. */
 	private pendingCardSelection: { readonly sceneKey: string; readonly path: string } | undefined;
 	/** Counts selections, so a panel that waits for a drag to end shows only for the latest one. */
@@ -84,14 +99,17 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		this._register(this.canvas.onDidChangeSelection(({ sceneKey, paths }) => this.followSelection(sceneKey, paths)));
 		this._register(this.canvas.onDidChangeScene(change => this.onDidChangeScene(change)));
 		this._register(lifecycleService.onWillShutdown(event => event.join(
-			this.mount?.panel.flush() ?? Promise.resolve(),
+			Promise.all(this.mounts().map(mount => mount.panel.flush())).then(() => undefined),
 			{ id: 'join.basehalfVideoPrompt', label: localize('join.basehalfVideoPrompt', "Saving the prompt of an image or video card") }
 		)));
 		this._register(toDisposable(() => {
 			this.disposed = true;
 			this.canvas.endCardPick();
-			this.mount?.store.dispose();
+			for (const mount of this.mounts()) {
+				mount.store.dispose();
+			}
 			this.mount = undefined;
+			this.shown = undefined;
 		}));
 	}
 
@@ -180,6 +198,11 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			return;
 		}
 		this.publish(mount);
+		// The panel before it stays on its card while the new one reads its card (D91).
+		const shown = this.shown;
+		if (shown && shown !== mount && shown.sceneKey === sceneKey) {
+			this.canvas.showCardPanel(shown.sceneKey, shown.path, shown.panel.element, shown.panel.height);
+		}
 	}
 
 	private showPanel(sceneKey: string, path: string): void {
@@ -189,10 +212,16 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			this.publish(current);
 			return;
 		}
-		void this.closePanel();
 		const item = this.canvas.getItem(path);
 		if (!item?.generation) {
+			void this.closePanel();
 			return;
+		}
+		// Another card is selected: picking for the card before it ends (D69).
+		this.canvas.endCardPick();
+		// A panel that was still reading its card is never shown.
+		if (current && current !== this.shown) {
+			void this.retire(current);
 		}
 		const focusPrompt = this.canvas.takeCreatedNodeFocus(path);
 		const store = new DisposableStore();
@@ -202,25 +231,55 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		const mount: IBaseHalfCanvasVideoPanelMount = { sceneKey, path, draft, panel, store };
 		this.mount = mount;
 		store.add(panel.onDidChangeHeight(() => this.publish(mount)));
-		this.publish(mount);
+		// Shown once it has read its card, in the shape it keeps, in place of the panel before it (D91).
+		const show = (): void => {
+			if (this.disposed || this.mount !== mount || this.shown === mount) {
+				return;
+			}
+			const before = this.shown;
+			this.shown = mount;
+			this.publish(mount);
+			if (before) {
+				void this.retire(before);
+			}
+		};
+		if (!panel.ready) {
+			show();
+			return;
+		}
+		const wait = store.add(new RunOnceScheduler(show, BASEHALF_CANVAS_PANEL_READ_WAIT));
+		wait.schedule();
+		void panel.ready.then(() => {
+			wait.cancel();
+			show();
+		});
 	}
 
 	private publish(mount: IBaseHalfCanvasVideoPanelMount): void {
-		if (this.mount !== mount) {
+		if (this.mount !== mount || this.shown !== mount) {
 			return;
 		}
 		this.canvas.showCardPanel(mount.sceneKey, mount.path, mount.panel.element, mount.panel.height);
 	}
 
-	/** Saves the panel's prompt and takes the panel away. */
+	/** Saves the panel's prompt and takes the panel away, and one that was still reading its card. */
 	private async closePanel(): Promise<void> {
-		const mount = this.mount;
-		if (!mount) {
+		const mounts = this.mounts();
+		const shown = this.shown;
+		this.mount = undefined;
+		this.shown = undefined;
+		if (!mounts.length) {
 			return;
 		}
-		this.mount = undefined;
 		this.canvas.endCardPick();
-		this.canvas.clearCardPanel(mount.panel.element);
+		if (shown) {
+			this.canvas.clearCardPanel(shown.panel.element);
+		}
+		await Promise.all(mounts.map(mount => this.retire(mount)));
+	}
+
+	/** Saves the prompt of a panel that goes, and lets go of it. */
+	private async retire(mount: IBaseHalfCanvasVideoPanelMount): Promise<void> {
 		try {
 			await mount.panel.flush();
 		} catch (error) {
@@ -228,6 +287,17 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		} finally {
 			mount.store.dispose();
 		}
+	}
+
+	/** The panel of the selected card and the one the canvas still shows, each once. */
+	private mounts(): IBaseHalfCanvasVideoPanelMount[] {
+		const mounts: IBaseHalfCanvasVideoPanelMount[] = [];
+		for (const mount of [this.mount, this.shown]) {
+			if (mount && !mounts.includes(mount)) {
+				mounts.push(mount);
+			}
+		}
+		return mounts;
 	}
 
 	private panelHost(sceneKey: string, path: string): IBaseHalfVideoNodePanelHost {

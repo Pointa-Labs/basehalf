@@ -1316,6 +1316,34 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('a panel is ready once it has drawn its first read, in the shape it keeps: an image draft with an input has its row, one without has none, and one that cannot be read says so (D91)', async () => {
+		catalog.state = { kind: 'ready', catalog: TEST_GENERATION_CATALOG };
+		providers.notSetUp = new Set();
+		store.kind = 'image';
+		store.path = 'shots/image.png';
+		store.info = { prompt: 'A heron.', provider: 'corvid', model: 'corvid-paint', mode: 'reference', params: { count: 2 } };
+		const shapes = async (upstream: readonly string[]) => {
+			store.upstream = upstream;
+			const panel = disposables.add(createBaseHalfDraftPanel(instantiationService, 'image', store.resource, host, { checkDelay: 0 }));
+			mainWindow.document.body.appendChild(panel.element);
+			mounted.push(panel.element);
+			// What the panel would show before its read: the workbench does not show it yet.
+			const before = { height: panel.height, row: !find(panel, '.bh-input-row').hidden };
+			await panel.ready;
+			return { before, ready: { height: panel.height, row: !find(panel, '.bh-input-row').hidden, tiles: findAll(panel, '.bh-input-tile').length } };
+		};
+		const withInput = await shapes(['refs/c.png']);
+		const without = await shapes([]);
+		store.unreadable = new Error('The disk is gone.');
+		const unreadable = disposables.add(createBaseHalfDraftPanel(instantiationService, 'image', store.resource, host, { checkDelay: 0 }));
+		await unreadable.ready;
+		assert.deepStrictEqual({ withInput, without, unreadable: unreadable.element.dataset.state }, {
+			withInput: { before: { height: 132, row: false }, ready: { height: 188, row: true, tiles: 1 } },
+			without: { before: { height: 132, row: false }, ready: { height: 132, row: false, tiles: 0 } },
+			unreadable: 'unreadable'
+		});
+	});
+
 	test('an image draft picks from its footer, where Pick on Canvas is highlighted and tells what a click does; while it generates, its footer has no buttons that add an input (D91)', async () => {
 		const panel = await createImagePanel([]);
 		const pick = action(panel, 'pick');
