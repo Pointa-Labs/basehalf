@@ -140,7 +140,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-video-player {
-	--basehalf-video-control-backing: rgb(24 24 26 / 52%);
+	--basehalf-video-control-backing: rgb(24 24 26 / 62%);
 	--basehalf-video-control-blur: blur(12px) saturate(140%);
 	--basehalf-video-control-edge: inset 0 0 0 0.5px rgb(255 255 255 / 14%), 0 1px 3px rgb(0 0 0 / 18%);
 }
@@ -178,7 +178,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-video-player-button.sound:hover {
-	background: rgb(24 24 26 / 72%);
+	background: rgb(24 24 26 / 78%);
 }
 
 .monaco-workbench .basehalf-canvas-video-player-icon {
