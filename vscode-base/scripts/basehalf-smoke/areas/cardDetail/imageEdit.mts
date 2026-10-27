@@ -37,7 +37,7 @@ function chunk(type, body) {
 }
 
 /** A PNG of a pattern in which every pixel of a row and of a column differs, with a text chunk. */
-function patternPng(width, height) {
+export function patternPng(width, height) {
 	const header = Buffer.alloc(13);
 	header.writeUInt32BE(width, 0);
 	header.writeUInt32BE(height, 4);

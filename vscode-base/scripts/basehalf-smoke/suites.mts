@@ -44,6 +44,7 @@ import {
 } from './areas/cardDetail/cardDetail.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import { assertCardDetailImageEdit } from './areas/cardDetail/imageEdit.mts';
+import { assertCardDetailMediaPinch } from './areas/cardDetail/mediaPinch.mts';
 import { assertCardDetailSoundEdit } from './areas/cardDetail/soundEdit.mts';
 import { assertCardDetailVideoEdit } from './areas/cardDetail/videoEdit.mts';
 import {
@@ -258,6 +259,7 @@ async function runCardDetailSuite(page) {
 	await step('card-detail-video-edit', () => assertCardDetailVideoEdit(page));
 	await step('card-detail-image-edit', () => assertCardDetailImageEdit(page));
 	await step('card-detail-sound-edit', () => assertCardDetailSoundEdit(page));
+	await step('card-detail-media-pinch', () => assertCardDetailMediaPinch(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */
