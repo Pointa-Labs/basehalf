@@ -40,7 +40,7 @@ import {
 } from '../common/basehalfImageCrop.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
-import { BASEHALF_PAGE_AT_REST, BASEHALF_TIME_ZOOM_REST_MS, baseHalfClampPageZoom, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
+import { BASEHALF_EDGE_FOLLOW_MARGIN, BASEHALF_PAGE_AT_REST, BASEHALF_TIME_ZOOM_REST_MS, baseHalfClampPageZoom, baseHalfEdgeFollowRate, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 
 /**
@@ -78,17 +78,10 @@ export interface IBaseHalfImageCropViewOptions {
 }
 
 /** The room between the frame at rest and the edges of the view, and the margin in which a pushed handle makes the picture follow (D97). */
-const MARGIN = 24;
+const MARGIN = BASEHALF_EDGE_FOLLOW_MARGIN;
 const GLIDE_MILLISECONDS = 200;
 /** How long the frame stays where a drag let it go before it glides to rest, as a phone's photo editor waits (D97). */
 const REST_DELAY_MILLISECONDS = 1000;
-/**
- * A handle this many pixels deep in the margin, or past it, makes the picture
- * shrink by e^(−1) each second while it follows; deeper is faster, up to
- * `EDGE_MAX_RATE` (D97), as a strip moves along past its edge (D93).
- */
-const EDGE_PIXELS_PER_RATE = 100;
-const EDGE_MAX_RATE = 4;
 /** How near a frame's edge counts as at the margin, in pixels of the screen. */
 const EDGE_TOUCH_PIXELS = 0.5;
 /** Pixels of the dial for each degree. */
@@ -885,7 +878,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			drag.followedAt = undefined;
 			return;
 		}
-		const rate = Math.min(EDGE_MAX_RATE, depth / EDGE_PIXELS_PER_RATE);
+		// A handle deeper in the margin, or past it, shrinks the picture faster, as a strip moves along (D97, D98).
+		const rate = baseHalfEdgeFollowRate(depth);
 		const scale = Math.max(fit, drag.mapping.scale * Math.exp(-rate * elapsed / 1000));
 		drag.mapping = this.mappingAt(drag.anchor, this.toScreen(drag.anchor, drag.mapping), scale);
 		this.holdFrame(drag);

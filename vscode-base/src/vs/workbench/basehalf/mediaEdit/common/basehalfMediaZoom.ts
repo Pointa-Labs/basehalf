@@ -26,10 +26,17 @@ export const BASEHALF_TIME_ZOOM_SHORTEST_SECONDS = 0.5;
 /** How long after the last event of a gesture it has ended, in milliseconds: the frame viewer then reads the frames of its new stretch. */
 export const BASEHALF_TIME_ZOOM_REST_MS = 150;
 
-/** A pointer this far past an edge of a spread-out stretch moves it along by its own length each second, in pixels. */
-const EDGE_PIXELS_PER_STRETCH_SECOND = 100;
-/** The fastest an edge moves a stretch along, in stretches each second. */
-const EDGE_MAX_STRETCHES_PER_SECOND = 4;
+/**
+ * A handle held against an edge of what an editor shows makes it follow, as a
+ * phone's photo editor and its trim do (D97, D98): from the inner side of a
+ * margin this wide at the edge of the view, in pixels of the screen. The crop
+ * view's frame rests this far inside the view, too.
+ */
+export const BASEHALF_EDGE_FOLLOW_MARGIN = 24;
+/** A pointer this many pixels past the margin's inner side follows at a rate of 1 each second. */
+const EDGE_PIXELS_PER_RATE = 100;
+/** The fastest rate of following, each second. */
+const EDGE_MAX_RATE = 4;
 
 export interface IBaseHalfZoomWheel {
 	readonly deltaX?: number;
@@ -182,11 +189,20 @@ export function baseHalfStretchWheelSeconds(event: IBaseHalfZoomWheel, span: num
 }
 
 /**
- * The seconds a drag past an edge moves a stretch of `span` seconds along in
- * `milliseconds`: faster the farther the pointer is past the edge, negative
- * past the start.
+ * How fast what an editor shows follows a handle `depth` pixels past the inner
+ * side of the edge's margin, each second (D97, D98): the crop view shrinks its
+ * picture by e^(−rate), and a strip moves its stretch along by rate times its
+ * length. Deeper is faster, up to a rate of 4.
+ */
+export function baseHalfEdgeFollowRate(depth: number): number {
+	return Math.min(EDGE_MAX_RATE, Math.abs(depth) / EDGE_PIXELS_PER_RATE);
+}
+
+/**
+ * The seconds a drag `pastEdge` pixels past the inner side of a strip's margin
+ * moves a stretch of `span` seconds along in `milliseconds`: faster the
+ * deeper the pointer is, negative at the start.
  */
 export function baseHalfEdgeSeconds(pastEdge: number, span: number, milliseconds: number): number {
-	const stretchesPerSecond = Math.min(EDGE_MAX_STRETCHES_PER_SECOND, Math.abs(pastEdge) / EDGE_PIXELS_PER_STRETCH_SECOND);
-	return Math.sign(pastEdge) * stretchesPerSecond * span * Math.max(0, milliseconds) / 1000;
+	return Math.sign(pastEdge) * baseHalfEdgeFollowRate(pastEdge) * span * Math.max(0, milliseconds) / 1000;
 }

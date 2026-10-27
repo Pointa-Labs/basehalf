@@ -8,7 +8,9 @@ import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
 import {
+	BASEHALF_EDGE_FOLLOW_MARGIN,
 	BASEHALF_TIME_ZOOM_REST_MS,
+	baseHalfEdgeSeconds,
 	baseHalfFitStretch,
 	baseHalfIsWholeStretch,
 	baseHalfMoveStretch,
@@ -24,14 +26,12 @@ const BAR_MILLISECONDS = 1000;
 /*
  * A drag held against a strip's edge carries what the strip shows along
  * (editing media, D98), as a phone's trim follows a handle held there, by the
- * rule the crop view of an image keeps too: from the inner side of a margin
- * at the edge, the depth of the pointer in it and past the edge, a pixel for
- * a pixel, moves the stretch by depth / EDGE_PIXELS_PER_RATE of its length
- * each second, at most EDGE_MAX_RATE.
+ * rule the crop view of an image keeps too: from the inner side of the margin
+ * at the edge ({@link BASEHALF_EDGE_FOLLOW_MARGIN}), the depth of the pointer
+ * in it and past the edge, a pixel for a pixel, moves the stretch along at
+ * {@link baseHalfEdgeSeconds}.
  */
-const MARGIN = 24;
-const EDGE_PIXELS_PER_RATE = 100;
-const EDGE_MAX_RATE = 4;
+const MARGIN = BASEHALF_EDGE_FOLLOW_MARGIN;
 /** A stretch this close to the start or the end of the length shows it, in seconds. */
 const STRETCH_EPSILON = 0.0005;
 
@@ -145,8 +145,7 @@ export class BaseHalfStripEdgeFollow extends Disposable {
 			this.edge = undefined;
 			return;
 		}
-		const rate = Math.min(EDGE_MAX_RATE, Math.abs(depth) / EDGE_PIXELS_PER_RATE);
-		this.move(Math.sign(depth) * rate * this.span() * elapsed / 1000, edge.clientX);
+		this.move(baseHalfEdgeSeconds(depth, this.span(), elapsed), edge.clientX);
 		this.frame.value = this.clock.frame(() => this.step());
 	}
 }
@@ -270,7 +269,7 @@ export class BaseHalfTimeZoom extends Disposable {
 
 	/**
 	 * Where the pointer of a drag stands, or nothing when the drag ends: within
-	 * {@link BASEHALF_STRIP_EDGE_MARGIN} of an edge of a spread-out stretch, or
+	 * {@link BASEHALF_EDGE_FOLLOW_MARGIN} of an edge of a spread-out stretch, or
 	 * past it, the stretch moves along, faster the deeper the pointer is (D98).
 	 */
 	dragAt(clientX: number | undefined): void {
