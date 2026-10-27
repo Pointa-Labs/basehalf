@@ -888,8 +888,9 @@ sound, as editors of video and sound and a phone's voice recorder do.
   the window of the unit tests of the zoom of a video's picture
   (`basehalfVideoPictureZoom.test.ts`: a pinch, the wheel, a drag and the
   click after it, Escape, and a smaller player) and of the time of the frame
-  viewer and the waveform (`basehalfTimelineZoom.test.ts`: a pinch, the
-  wheel, the rest after a gesture, and a drag past an edge).
+  viewer and the waveform (`basehalfTimeZoom.test.ts`: a pinch, the zoom key,
+  the wheel, the rest after a gesture, the bar, a drag past an edge, the
+  playhead, and a cut).
 - Unit tests of the notes of originals whose file is gone, at opens on a file
   system in memory with a clock that moves on: a file that is back, a path
   whose move waits, a record that cannot be read, a folder that is gone, and a
