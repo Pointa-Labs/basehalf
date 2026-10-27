@@ -20,6 +20,7 @@ import {
 	baseHalfStraightenCrop,
 	baseHalfTurnCropLeft,
 	baseHalfTurnedSize,
+	baseHalfZoomCrop,
 	IBaseHalfCropState,
 	IBaseHalfPoint
 } from '../../common/basehalfImageCrop.js';
@@ -187,5 +188,34 @@ suite('BaseHalfImageCrop', () => {
 			nearEdge: { x: 500, y: 1500, width: 1000, height: 1000 },
 			rotated: [{ x: 0, y: 1 }]
 		});
+	});
+
+	test('a pinch while cropping zooms the picture under the frame: the part grows smaller about the point under the pointer, and larger as far as the picture holds its ratio (D97)', () => {
+		const at = { x: 1000, y: 1000 };
+		const part = { turn: 0, flip: false, straighten: 0, crop: { x: 2000, y: 1500, width: 2000, height: 1000 } } as const;
+		assert.deepStrictEqual({
+			// By 2: half as wide and high, and the point under the pointer keeps its place in the part.
+			inByTwo: roundCrop(baseHalfZoomCrop(ORIGINAL, part, 2, at)).crop,
+			// By ½ from a part of 2:1 in a picture of 4:3: as wide as the picture, no more.
+			outByHalf: roundCrop(baseHalfZoomCrop(ORIGINAL, part, 0.5, at)).crop,
+			// In as far as the shortest side the part may have, 64 pixels.
+			inFar: roundCrop(baseHalfZoomCrop(ORIGINAL, part, 1000, at)).crop,
+			// Out near an edge, the part slides so that it holds only picture.
+			outNearEdge: roundCrop(baseHalfZoomCrop(ORIGINAL, { ...part, crop: { x: 600, y: 600, width: 1000, height: 1000 } }, 0.4, { x: 600, y: 600 })).crop
+		}, {
+			inByTwo: { x: 1500, y: 1250, width: 1000, height: 500 },
+			outByHalf: { x: 2000, y: 2000, width: 4000, height: 2000 },
+			inFar: { x: 1064, y: 1032, width: 128, height: 64 },
+			outNearEdge: { x: 1250, y: 1250, width: 2500, height: 2500 }
+		});
+	});
+
+	test('a pinch while cropping keeps the part all picture at an angle, and changes nothing when the part is as large as its ratio may be (D97)', () => {
+		const straightened = baseHalfStraightenCrop(ORIGINAL, { turn: 0, flip: false, straighten: 0, crop: { x: 2000, y: 1500, width: 4000, height: 3000 } }, 10);
+		const zoomedOut = baseHalfZoomCrop(ORIGINAL, straightened, 0.5, { x: 2000, y: 1500 });
+		assert.ok(baseHalfCropHoldsOnlyPicture(ORIGINAL, zoomedOut.crop, 10));
+		assert.deepStrictEqual(roundCrop(zoomedOut), roundCrop(straightened));
+		const whole = { turn: 0, flip: false, straighten: 0, crop: { x: 2000, y: 1500, width: 4000, height: 3000 } } as const;
+		assert.deepStrictEqual(roundCrop(baseHalfZoomCrop(ORIGINAL, whole, 0.7, { x: 100, y: 100 })), roundCrop(whole));
 	});
 });

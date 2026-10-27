@@ -7,7 +7,7 @@ import './media/basehalfImageCropView.css';
 import { $, addDisposableListener, append, getWindow } from '../../../../base/browser/dom.js';
 import { toAction, Separator } from '../../../../base/common/actions.js';
 import { Emitter } from '../../../../base/common/event.js';
-import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
@@ -33,13 +33,14 @@ import {
 	baseHalfStraightenCrop,
 	baseHalfTurnCropLeft,
 	baseHalfTurnedSize,
+	baseHalfZoomCrop,
 	IBaseHalfCropState,
 	IBaseHalfPoint,
 	IBaseHalfSize
 } from '../common/basehalfImageCrop.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
-import { BASEHALF_PAGE_AT_REST, baseHalfClampPageZoom, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
+import { BASEHALF_PAGE_AT_REST, BASEHALF_TIME_ZOOM_REST_MS, baseHalfClampPageZoom, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 
 /**
@@ -48,13 +49,23 @@ import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor
  * and straightened as the choices say and only the part kept, as large as
  * fits; the crop frame on its edges, which shows while the pointer is over
  * the picture or the keyboard is on it; and a row of tools under it (Turn
- * Left, Flip, Ratio, and the Straighten dial). While a corner, a side, or the
- * picture is dragged, the rest of the original shows around the frame,
- * dimmed, and when the drag ends both glide until the frame is at rest again.
- * A pinch zooms the view, never the edit. While viewing ("Viewing and
- * editing"), it shows the picture as the file holds it, with no frame and no
- * tools, whose room stays empty.
+ * Left, Flip, Ratio, and the Straighten dial). While editing, the rest of the
+ * original shows dimmed around the frame (D97). A corner or a side pushed
+ * into the view's margin stops there, and the picture follows, moving and
+ * shrinking around the corner or side across from it; when a drag ends, the
+ * frame waits a second and then glides with the picture until it is at rest
+ * again. While editing, a pinch zooms the picture under the frame and a
+ * two-finger swipe moves it, which changes the part kept. While viewing
+ * ("Viewing and editing"), it shows the picture as the file holds it, with no
+ * frame and no tools, whose room stays empty, and a pinch zooms the view.
  */
+
+/** The frames and timers of a crop view, which a test runs when it says. */
+export interface IBaseHalfImageCropClock {
+	frame(callback: () => void): IDisposable;
+	timeout(callback: () => void, milliseconds: number): IDisposable;
+	now(): number;
+}
 
 export interface IBaseHalfImageCropViewOptions {
 	/** The copy of the original of an edited image, or of the image, that the editor reads. */
@@ -63,11 +74,23 @@ export interface IBaseHalfImageCropViewOptions {
 	readonly size: IBaseHalfSize;
 	/** The choices that the view starts with: those of the edit before. */
 	readonly choices: IBaseHalfMediaChoices;
+	readonly clock?: IBaseHalfImageCropClock;
 }
 
-/** The room between the frame at rest and the edges of the view. */
+/** The room between the frame at rest and the edges of the view, and the margin in which a pushed handle makes the picture follow (D97). */
 const MARGIN = 24;
 const GLIDE_MILLISECONDS = 200;
+/** How long the frame stays where a drag let it go before it glides to rest, as a phone's photo editor waits (D97). */
+const REST_DELAY_MILLISECONDS = 1000;
+/**
+ * A handle this many pixels deep in the margin, or past it, makes the picture
+ * shrink by e^(−1) each second while it follows; deeper is faster, up to
+ * `EDGE_MAX_RATE` (D97), as a strip moves along past its edge (D93).
+ */
+const EDGE_PIXELS_PER_RATE = 100;
+const EDGE_MAX_RATE = 4;
+/** How near a frame's edge counts as at the margin, in pixels of the screen. */
+const EDGE_TOUCH_PIXELS = 0.5;
 /** Pixels of the dial for each degree. */
 const DIAL_PIXELS_PER_DEGREE = 6;
 /** Within this of 0°, a turn of the dial rests at 0°. */
@@ -97,10 +120,32 @@ interface IDrag {
 	/** The screen offset from the pointer to the point it holds: a corner's or a side's place. */
 	readonly grabX: number;
 	readonly grabY: number;
-	readonly mapping: IMapping;
+	/** Where the picture is for the drag: as it started, or as the picture followed a handle pushed to the edge. */
+	mapping: IMapping;
 	/** The zoom of the view when the drag started, which a drag of the zoomed view moves. */
 	readonly page: IBaseHalfPageZoom;
+	/** The point of the picture that keeps its place while a corner or a side is dragged: the corner across, or the middle of the side across. */
+	readonly anchor?: IBaseHalfPoint;
+	/** Where the pointer holds the handle on screen, before the margin stops it. */
+	held?: IBaseHalfPoint;
+	/** When the picture last followed the handle. */
+	followedAt?: number;
 }
+
+/** The ways a handle moves the frame outwards on screen, along each axis: −1 to the left or the top, 1 to the right or the bottom. */
+function outwards(what: DragKind): IBaseHalfPoint {
+	switch (what.kind) {
+		case 'corner':
+			return { x: what.corner === 'topLeft' || what.corner === 'bottomLeft' ? -1 : 1, y: what.corner === 'topLeft' || what.corner === 'topRight' ? -1 : 1 };
+		case 'side':
+			return what.side === 'left' ? { x: -1, y: 0 } : what.side === 'right' ? { x: 1, y: 0 } : what.side === 'top' ? { x: 0, y: -1 } : { x: 0, y: 1 };
+		default:
+			return { x: 0, y: 0 };
+	}
+}
+
+const OPPOSITE_CORNER: Record<BaseHalfCropCorner, BaseHalfCropCorner> = { topLeft: 'bottomRight', topRight: 'bottomLeft', bottomLeft: 'topRight', bottomRight: 'topLeft' };
+const OPPOSITE_SIDE: Record<BaseHalfCropSide, BaseHalfCropSide> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
 
 export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaEditor {
 
@@ -134,7 +179,15 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	/** The view zoomed as a browser zooms its page, around a pinch (D96). */
 	private page: IBaseHalfPageZoom = BASEHALF_PAGE_AT_REST;
 	private drag: IDrag | undefined;
-	private glideFrame: number | undefined;
+	private readonly clock: IBaseHalfImageCropClock;
+	private readonly glideFrame = this._register(new MutableDisposable());
+	/** The wait after a drag before the frame glides to rest (D97). */
+	private readonly restWait = this._register(new MutableDisposable());
+	/** The next frame in which the picture follows a handle pushed to the edge. */
+	private readonly followFrame = this._register(new MutableDisposable());
+	/** What the view held when a pinch or a swipe while editing started, for one change, and the wait for it to rest. */
+	private gestureBefore: IBaseHalfCropState | undefined;
+	private readonly gestureRest = this._register(new MutableDisposable());
 	private keyRest: ReturnType<typeof setTimeout> | undefined;
 	/** What the view held when keys started to move a corner or the picture, for one change. */
 	private keyBefore: IBaseHalfCropState | undefined;
@@ -149,6 +202,18 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		@IHoverService private readonly hoverService: IHoverService
 	) {
 		super();
+		const targetWindow = getWindow(container);
+		this.clock = options.clock ?? {
+			frame: callback => {
+				const handle = targetWindow.requestAnimationFrame(() => callback());
+				return toDisposable(() => targetWindow.cancelAnimationFrame(handle));
+			},
+			timeout: (callback, milliseconds) => {
+				const handle = targetWindow.setTimeout(callback, milliseconds);
+				return toDisposable(() => targetWindow.clearTimeout(handle));
+			},
+			now: () => targetWindow.performance.now()
+		};
 		this.original = options.size;
 		this.state = baseHalfCropStateOf(this.original, options.choices);
 		this.setRatioOf(options.choices);
@@ -235,9 +300,18 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		this.endDrag();
 		this.settleKeys();
+		this.endGesture();
+		this.restWait.clear();
 		this.editing = editing;
 		this.showControls();
-		this.render();
+		// While editing, a pinch is the crop's: a zoom of the view glides back to as it fits, as a phone's photo
+		// editor shows the whole picture to crop it (D97); a frame that waited to rest comes to rest now.
+		if (this.page.zoom > 1 || !this.atRest()) {
+			this.resetZoom();
+			this.glideToRest();
+		} else {
+			this.render();
+		}
 	}
 
 	/** While viewing, the frame, its corners, and the tools take no keyboard and no pointer, and do not show. */
@@ -268,6 +342,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		this.endDrag();
 		this.dropKeys();
+		this.dropGesture();
+		this.restWait.clear();
 		this.stopGlide();
 		this.state = baseHalfCropStateOf(this.original, choices);
 		this.setRatioOf(choices);
@@ -324,6 +400,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.ratio = ratio;
 		this.tall = tall;
 		this.resetZoom();
+		this.restWait.clear();
 		if (glide) {
 			this.glideToRest();
 		} else {
@@ -416,30 +493,77 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const to = this.restMapping();
 		const window = getWindow(this.element);
 		const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-		if (reduced) {
+		if (reduced || sameMapping(from, to)) {
 			this.mapping = to;
 			this.render();
 			return;
 		}
-		const start = window.performance.now();
+		const start = this.clock.now();
 		const tick = () => {
-			const t = Math.min(1, (window.performance.now() - start) / GLIDE_MILLISECONDS);
+			const t = Math.min(1, (this.clock.now() - start) / GLIDE_MILLISECONDS);
 			const eased = 1 - Math.pow(1 - t, 3);
 			this.mapping = {
 				center: { x: from.center.x + (to.center.x - from.center.x) * eased, y: from.center.y + (to.center.y - from.center.y) * eased },
 				scale: Math.exp(Math.log(from.scale) + (Math.log(to.scale) - Math.log(from.scale)) * eased)
 			};
 			this.render();
-			this.glideFrame = t < 1 && !this.disposed ? window.requestAnimationFrame(tick) : undefined;
+			if (t < 1 && !this.disposed) {
+				this.glideFrame.value = this.clock.frame(tick);
+			} else {
+				this.glideFrame.clear();
+			}
 		};
-		this.glideFrame = window.requestAnimationFrame(tick);
+		this.glideFrame.value = this.clock.frame(tick);
 	}
 
 	private stopGlide(): void {
-		if (this.glideFrame !== undefined) {
-			getWindow(this.element).cancelAnimationFrame(this.glideFrame);
-			this.glideFrame = undefined;
-		}
+		this.glideFrame.clear();
+	}
+
+	/** The frame and the picture are where they rest: the part kept as large as fits, at the middle of the view. */
+	private atRest(): boolean {
+		return this.page.zoom <= 1 && sameMapping(this.mapping, this.restMapping());
+	}
+
+	/** The frame stays where a drag let it go for a second, then glides to rest, as a phone's photo editor waits (D97). */
+	private restLater(): void {
+		this.restWait.value = this.clock.timeout(() => {
+			this.restWait.clear();
+			if (!this.drag) {
+				this.glideToRest();
+			}
+		}, REST_DELAY_MILLISECONDS);
+	}
+
+	/** The mapping at `scale` that shows the point `point` of the picture at the point `screen` of the view. */
+	private mappingAt(point: IBaseHalfPoint, screen: IBaseHalfPoint, scale: number): IMapping {
+		const back = baseHalfRotate({ x: (screen.x - this.viewSize.width / 2) / scale, y: (screen.y - this.viewSize.height / 2) / scale }, -this.state.straighten);
+		return { center: { x: point.x - back.x, y: point.y - back.y }, scale };
+	}
+
+	/** The room of the frame: the view inside its margin, where the frame rests and where a pushed handle stops. */
+	private room(): { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number } {
+		const left = Math.min(MARGIN, this.viewSize.width / 2);
+		const top = Math.min(MARGIN, this.viewSize.height / 2);
+		return { left, top, right: this.viewSize.width - left, bottom: this.viewSize.height - top };
+	}
+
+	/** The frame of a part kept on screen, upright. */
+	private frameOf(state: IBaseHalfCropState, mapping: IMapping): { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number } {
+		const center = this.toScreen(state.crop, mapping);
+		const width = state.crop.width * mapping.scale;
+		const height = state.crop.height * mapping.scale;
+		return { left: center.x - width / 2, top: center.y - height / 2, right: center.x + width / 2, bottom: center.y + height / 2 };
+	}
+
+	/** The scale at which the whole picture, at its angle, fits the room: the picture follows a handle no further. */
+	private fitScale(): number {
+		const picture = this.pictureSize();
+		const radians = this.state.straighten * Math.PI / 180;
+		const c = Math.abs(Math.cos(radians));
+		const s = Math.abs(Math.sin(radians));
+		const room = this.room();
+		return Math.min((room.right - room.left) / (picture.width * c + picture.height * s), (room.bottom - room.top) / (picture.width * s + picture.height * c));
 	}
 
 	// #endregion
@@ -511,6 +635,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		const target = event.target as Element | null;
 		let what: DragKind | undefined = forced;
+		let grabbed: IBaseHalfPoint | undefined;
 		let anchor: IBaseHalfPoint | undefined;
 		if (!what && this.page.zoom > 1) {
 			// While the view is zoomed in, a drag moves the view.
@@ -523,10 +648,12 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			const side = [...this.sides].find(([, element]) => element.contains(target))?.[0];
 			if (corner) {
 				what = { kind: 'corner', corner };
-				anchor = this.cornerPoint(corner);
+				grabbed = this.cornerPoint(corner);
+				anchor = this.cornerPoint(OPPOSITE_CORNER[corner]);
 			} else if (side) {
 				what = { kind: 'side', side };
-				anchor = this.sidePoint(side);
+				grabbed = this.sidePoint(side);
+				anchor = this.sidePoint(OPPOSITE_SIDE[side]);
 			} else if (this.frame.contains(target) || target === this.picture || target === this.view) {
 				what = { kind: 'move' };
 			}
@@ -537,10 +664,13 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		event.preventDefault();
 		event.stopPropagation();
 		this.settleKeys();
+		this.endGesture();
+		// A press within the second after a drag starts from where the frame and the picture are (D97).
+		this.restWait.clear();
 		this.stopGlide();
 		const at = this.viewPoint(event);
-		const grab = anchor ? this.toScreen(anchor) : at;
-		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, page: this.page };
+		const grab = grabbed ? this.toScreen(grabbed) : at;
+		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, page: this.page, anchor };
 		const capture = what.kind === 'dial' ? this.dial : this.view;
 		try {
 			capture.setPointerCapture(event.pointerId);
@@ -560,20 +690,19 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const at = this.viewPoint(event);
 		const held = { x: at.x + drag.grabX, y: at.y + drag.grabY };
 		const before = drag.before;
-		// While the frame is dragged it is never smaller on screen than its handles need.
-		const minimum = Math.max(baseHalfCropMinSize(this.pictureSize(before)), MIN_FRAME_PIXELS / drag.mapping.scale);
 		switch (drag.what.kind) {
 			case 'corner':
-				this.state = baseHalfDragCropCorner(this.original, before, drag.what.corner, this.toPicture(held, drag.mapping), this.ratioValue(), minimum);
-				break;
 			case 'side':
-				this.state = baseHalfDragCropSide(this.original, before, drag.what.side, this.toPicture(held, drag.mapping), this.ratioValue(), minimum);
+				// The frame stops at the margin of the view, and a handle held there makes the picture follow (D97).
+				drag.held = held;
+				this.holdFrame(drag);
+				this.followEdge(drag);
 				break;
 			case 'move': {
 				// The frame stays where it is and the picture moves under it.
 				const moved = baseHalfRotate({ x: -(event.clientX - drag.startX) / drag.mapping.scale, y: -(event.clientY - drag.startY) / drag.mapping.scale }, -before.straighten);
 				this.state = baseHalfMoveCrop(this.original, before, moved);
-				this.mapping = { center: { x: this.state.crop.x, y: this.state.crop.y }, scale: drag.mapping.scale };
+				this.mapping = this.mappingAt(this.state.crop, this.toScreen(before.crop, drag.mapping), drag.mapping.scale);
 				break;
 			}
 			case 'dial': {
@@ -601,28 +730,34 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			return;
 		}
 		this.drag = undefined;
+		this.followFrame.clear();
 		this.element.classList.remove('adjusting', 'panning');
 		if (drag.what.kind === 'pan') {
 			this.render();
 			return;
 		}
-		if (drag.what.kind === 'corner' || drag.what.kind === 'side') {
-			this.glideToRest();
-		} else {
+		if (drag.what.kind === 'dial') {
 			this.mapping = this.restMapping();
-			this.render();
+		} else if (!this.atRest()) {
+			// The frame stays where it was let go for a second, then glides to rest (D97).
+			this.restLater();
 		}
+		this.render();
 		this.changed(drag.what.kind === 'dial' ? 'straighten' : 'crop', drag.before);
 	}
 
-	/** Escape during a drag: what it changed goes back. */
+	/** Escape during a drag: what it changed goes back, and the picture with it. */
 	private cancelDrag(): void {
 		const drag = this.endDrag();
 		if (drag) {
 			this.state = drag.before;
 			this.page = drag.page;
-			this.mapping = this.viewMapping();
-			this.render();
+			if (drag.what.kind === 'pan') {
+				this.mapping = this.viewMapping();
+				this.render();
+			} else {
+				this.glideToRest();
+			}
 		}
 	}
 
@@ -633,6 +768,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			return undefined;
 		}
 		this.drag = undefined;
+		this.followFrame.clear();
 		this.element.classList.remove('adjusting', 'panning');
 		for (const target of [this.view, this.dial]) {
 			try {
@@ -644,17 +780,199 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		return drag;
 	}
 
+	/** The frame of a corner or a side dragged to the pointer, stopped at the margin of the view (D97). */
+	private holdFrame(drag: IDrag): void {
+		const held = drag.held;
+		if (!held || (drag.what.kind !== 'corner' && drag.what.kind !== 'side')) {
+			return;
+		}
+		const room = this.room();
+		const at = { x: Math.min(Math.max(held.x, room.left), room.right), y: Math.min(Math.max(held.y, room.top), room.bottom) };
+		// While the frame is dragged it is never smaller on screen than its handles need.
+		const minimum = Math.max(baseHalfCropMinSize(this.pictureSize(drag.before)), MIN_FRAME_PIXELS / drag.mapping.scale);
+		const to = this.toPicture(at, drag.mapping);
+		const state = drag.what.kind === 'corner'
+			? baseHalfDragCropCorner(this.original, drag.before, drag.what.corner, to, this.ratioValue(), minimum)
+			: baseHalfDragCropSide(this.original, drag.before, drag.what.side, to, this.ratioValue(), minimum);
+		this.state = drag.anchor ? this.withinRoom(state, drag.anchor, drag.mapping) : state;
+		this.mapping = drag.mapping;
+	}
+
+	/** A part whose frame reaches past the margin, as a ratio can take it across the drag, made smaller about the anchor until it stands inside. */
+	private withinRoom(state: IBaseHalfCropState, anchor: IBaseHalfPoint, mapping: IMapping): IBaseHalfCropState {
+		const frame = this.frameOf(state, mapping);
+		const room = this.room();
+		const a = this.toScreen(anchor, mapping);
+		let shrink = 1;
+		if (frame.left < room.left - EDGE_TOUCH_PIXELS && a.x > frame.left) {
+			shrink = Math.min(shrink, (a.x - room.left) / (a.x - frame.left));
+		}
+		if (frame.right > room.right + EDGE_TOUCH_PIXELS && frame.right > a.x) {
+			shrink = Math.min(shrink, (room.right - a.x) / (frame.right - a.x));
+		}
+		if (frame.top < room.top - EDGE_TOUCH_PIXELS && a.y > frame.top) {
+			shrink = Math.min(shrink, (a.y - room.top) / (a.y - frame.top));
+		}
+		if (frame.bottom > room.bottom + EDGE_TOUCH_PIXELS && frame.bottom > a.y) {
+			shrink = Math.min(shrink, (room.bottom - a.y) / (frame.bottom - a.y));
+		}
+		if (!(shrink < 1) || !(shrink > 0)) {
+			return state;
+		}
+		const { crop } = state;
+		return { ...state, crop: { x: anchor.x + (crop.x - anchor.x) * shrink, y: anchor.y + (crop.y - anchor.y) * shrink, width: crop.width * shrink, height: crop.height * shrink } };
+	}
+
 	/**
-	 * A pinch, or the wheel with the zoom key, over the picture zooms the view
-	 * around the pointer as a browser zooms its page; a two-finger swipe and
-	 * the wheel move it while it is zoomed in, as on the canvas (D96). The edit
-	 * stays as it is.
+	 * How deep a handle is in the margin of the view, or past it, along the
+	 * ways it pushes the frame out, while the frame stands at the margin on a
+	 * side it is pushed toward: with a ratio, a side held at the margin keeps
+	 * the frame from growing toward the other. 0 when the pointer is inside the
+	 * room, or the picture's own edges hold the frame back first.
+	 */
+	private edgeDepth(drag: IDrag): number {
+		const held = drag.held;
+		if (!held) {
+			return 0;
+		}
+		const out = outwards(drag.what);
+		const room = this.room();
+		const frame = this.frameOf(this.state, drag.mapping);
+		const atMargin = (out.x < 0 && frame.left <= room.left + EDGE_TOUCH_PIXELS)
+			|| (out.x > 0 && frame.right >= room.right - EDGE_TOUCH_PIXELS)
+			|| (out.y < 0 && frame.top <= room.top + EDGE_TOUCH_PIXELS)
+			|| (out.y > 0 && frame.bottom >= room.bottom - EDGE_TOUCH_PIXELS);
+		if (!atMargin) {
+			return 0;
+		}
+		const depthX = out.x < 0 ? room.left - held.x : out.x > 0 ? held.x - room.right : 0;
+		const depthY = out.y < 0 ? room.top - held.y : out.y > 0 ? held.y - room.bottom : 0;
+		return Math.max(0, depthX, depthY);
+	}
+
+	/** A handle held in the margin of the view or past it: the picture follows it in every frame of the screen (D97). */
+	private followEdge(drag: IDrag): void {
+		if (this.edgeDepth(drag) > 0 && this.drag === drag) {
+			if (!this.followFrame.value) {
+				drag.followedAt = this.clock.now();
+				this.followFrame.value = this.clock.frame(() => this.stepFollow());
+			}
+		} else {
+			this.followFrame.clear();
+			drag.followedAt = undefined;
+		}
+	}
+
+	/**
+	 * One frame of following: the picture shrinks around the corner or the
+	 * side across from the handle, which keeps its place on screen, by e^(−r)
+	 * of its size each second, r growing with the depth of the handle, down to
+	 * the whole picture as it fits; the frame then takes in what the handle
+	 * reaches.
+	 */
+	private stepFollow(): void {
+		this.followFrame.clear();
+		const drag = this.drag;
+		if (!drag?.anchor || drag.followedAt === undefined) {
+			return;
+		}
+		const now = this.clock.now();
+		const elapsed = Math.max(0, now - drag.followedAt);
+		drag.followedAt = now;
+		const depth = this.edgeDepth(drag);
+		const fit = this.fitScale();
+		if (depth <= 0 || drag.mapping.scale <= fit) {
+			drag.followedAt = undefined;
+			return;
+		}
+		const rate = Math.min(EDGE_MAX_RATE, depth / EDGE_PIXELS_PER_RATE);
+		const scale = Math.max(fit, drag.mapping.scale * Math.exp(-rate * elapsed / 1000));
+		drag.mapping = this.mappingAt(drag.anchor, this.toScreen(drag.anchor, drag.mapping), scale);
+		this.holdFrame(drag);
+		this.render();
+		this.followFrame.value = this.clock.frame(() => this.stepFollow());
+	}
+
+	/** A pinch or a swipe while editing goes on: what the view held before it is kept, for one change once it rests. */
+	private gesturing(): void {
+		this.settleKeys();
+		this.restWait.clear();
+		this.stopGlide();
+		if (!this.gestureBefore) {
+			this.gestureBefore = this.state;
+		}
+		this.element.classList.add('gesturing');
+		this.gestureRest.value = this.clock.timeout(() => this.endGesture(), BASEHALF_TIME_ZOOM_REST_MS);
+	}
+
+	/** A pinch or a swipe has rested: it is one change, and a frame away from its rest glides there a second later. */
+	private endGesture(): void {
+		const before = this.gestureBefore;
+		this.dropGesture();
+		if (before) {
+			if (!this.atRest()) {
+				this.restLater();
+			}
+			this.render();
+			this.changed('crop', before);
+		}
+	}
+
+	private dropGesture(): void {
+		this.gestureBefore = undefined;
+		this.gestureRest.clear();
+		this.element.classList.remove('gesturing');
+	}
+
+	/** A pinch while editing: the picture zooms under the frame around a point of the view, and the part kept changes with it (D97). */
+	private zoomCropAround(at: IBaseHalfPoint, factor: number): void {
+		const frame = this.frameOf(this.state, this.mapping);
+		const center = { x: (frame.left + frame.right) / 2, y: (frame.top + frame.bottom) / 2 };
+		this.state = baseHalfZoomCrop(this.original, this.state, factor, this.toPicture(at));
+		// The frame keeps its place and size: the picture's scale follows the part.
+		this.mapping = this.mappingAt(this.state.crop, center, (frame.right - frame.left) / this.state.crop.width);
+		this.render();
+	}
+
+	/** A swipe while editing: the picture moves under the frame with the fingers, as a drag inside the frame moves it. */
+	private moveCropBy(move: IBaseHalfPoint): void {
+		const scale = this.mapping.scale;
+		const frame = this.frameOf(this.state, this.mapping);
+		const center = { x: (frame.left + frame.right) / 2, y: (frame.top + frame.bottom) / 2 };
+		const moved = baseHalfRotate({ x: -move.x / scale, y: -move.y / scale }, -this.state.straighten);
+		this.state = baseHalfMoveCrop(this.original, this.state, moved);
+		this.mapping = this.mappingAt(this.state.crop, center, scale);
+		this.render();
+	}
+
+	/**
+	 * While viewing, a pinch, or the wheel with the zoom key, over the picture
+	 * zooms the view around the pointer as a browser zooms its page, and a
+	 * two-finger swipe and the wheel move it while it is zoomed in, as on the
+	 * canvas (D96). While editing, they zoom and move the picture under the
+	 * crop frame instead, which changes the part kept (D97).
 	 */
 	private onWheel(event: WheelEvent): void {
 		if (this.drag) {
 			return;
 		}
-		if (isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+		const zoom = isBaseHalfNoteZoomWheel(event, isMacintosh);
+		if (this.editing) {
+			if (!zoom && this.element.classList.contains('whole')) {
+				// The whole picture kept: there is nothing to move under the frame.
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			this.gesturing();
+			if (zoom) {
+				this.zoomCropAround(this.viewPoint(event), baseHalfNoteZoomFactor(event));
+			} else {
+				this.moveCropBy(baseHalfWheelMove(event));
+			}
+			return;
+		}
+		if (zoom) {
 			event.preventDefault();
 			event.stopPropagation();
 			this.settleKeys();
@@ -673,9 +991,9 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.render();
 	}
 
-	/** A double click shows the picture as it fits, or, as it fits, at its own pixels around the pointer. */
+	/** While viewing, a double click shows the picture as it fits, or, as it fits, at its own pixels around the pointer; while editing it does nothing (D97). */
 	private onDoubleClick(event: MouseEvent): void {
-		if (this.drag) {
+		if (this.drag || this.editing) {
 			return;
 		}
 		this.settleKeys();
@@ -718,7 +1036,9 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		event.stopPropagation();
 		this.frame.classList.add('keyboard');
 		this.stopGlide();
-		if (this.page.zoom > 1) {
+		this.endGesture();
+		this.restWait.clear();
+		if (!this.atRest()) {
 			this.resetZoom();
 			this.mapping = this.restMapping();
 		}
@@ -909,4 +1229,11 @@ function toolIcon(path: string): SVGElement {
 
 function sameChoices(a: IBaseHalfMediaChoices, b: IBaseHalfMediaChoices): boolean {
 	return JSON.stringify(normalizeBaseHalfMediaChoices(a)) === JSON.stringify(normalizeBaseHalfMediaChoices(b));
+}
+
+/** Whether two mappings put the picture in the same place, within a hundredth of a pixel of a picture of 10,000 pixels. */
+function sameMapping(a: IMapping, b: IMapping): boolean {
+	return Math.abs(a.scale - b.scale) <= 1e-6 * Math.max(a.scale, b.scale)
+		&& Math.abs(a.center.x - b.center.x) * a.scale <= 0.01
+		&& Math.abs(a.center.y - b.center.y) * a.scale <= 0.01;
 }

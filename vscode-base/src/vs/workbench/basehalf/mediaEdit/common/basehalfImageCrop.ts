@@ -265,6 +265,33 @@ export function baseHalfMoveCrop(original: IBaseHalfSize, state: IBaseHalfCropSt
 	return { ...state, crop: baseHalfClampCropCenter(picture, { ...state.crop, x: state.crop.x + delta.x, y: state.crop.y + delta.y }, state.straighten) };
 }
 
+/**
+ * The part kept when the picture zooms by `factor` under a frame that stays
+ * where it is, as a pinch while cropping zooms it (D97): the part grows
+ * smaller by the factor about `at`, the point of the picture under the
+ * pointer, which stays under it. The part keeps its ratio, is never smaller
+ * than its shortest side may be nor larger than the largest part of its ratio
+ * that the picture holds at its angle, and slides to hold only picture.
+ */
+export function baseHalfZoomCrop(original: IBaseHalfSize, state: IBaseHalfCropState, factor: number, at: IBaseHalfPoint, minimum = baseHalfCropMinSize(baseHalfTurnedSize(original, state.turn))): IBaseHalfCropState {
+	const { crop, straighten } = state;
+	if (!(factor > 0) || !Number.isFinite(factor) || !(crop.width > 0) || !(crop.height > 0)) {
+		return state;
+	}
+	const picture = baseHalfTurnedSize(original, state.turn);
+	const largest = baseHalfLargestCrop(picture, crop.width / crop.height, straighten);
+	const shortest = Math.min(crop.width, crop.height);
+	// A factor above 1 zooms the picture in: the part grows smaller, down to its shortest side; below 1, larger, up to the largest part.
+	const zoom = Math.min(Math.max(factor, Math.min(1, crop.width / largest.width)), Math.max(1, shortest / minimum));
+	const part = {
+		x: at.x + (crop.x - at.x) / zoom,
+		y: at.y + (crop.y - at.y) / zoom,
+		width: crop.width / zoom,
+		height: crop.height / zoom
+	};
+	return { ...state, crop: baseHalfClampCropCenter(picture, part, straighten) };
+}
+
 /** The part's own axes in the picture, towards the signs given along them. */
 function axes(degrees: number, signX: number, signY: number): { readonly across: IBaseHalfPoint; readonly down: IBaseHalfPoint } {
 	return { across: baseHalfRotate({ x: signX, y: 0 }, -degrees), down: baseHalfRotate({ x: 0, y: signY }, -degrees) };
