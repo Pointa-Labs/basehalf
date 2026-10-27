@@ -4,9 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { baseHalfCanvasFolderDropTarget, baseHalfCanvasKeptName, IBaseHalfCanvasDropCard } from '../../common/basehalfCanvasFolderDrop.js';
 
 suite('BaseHalfCanvasFolderDrop', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	const card = (path: string, x: number, y: number, folder = false, selected = false): IBaseHalfCanvasDropCard => ({ path, x, y, width: 248, height: 188, folder, selected });
 
 	test('the folder card on top under the pointer takes a drop, leaving the dragged cards out', () => {

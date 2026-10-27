@@ -120,12 +120,14 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 	/** Follows the drag of one card by the canvas library. */
 	const followNodeDrag = vendor.useCallback((event: MouseEvent | TouchEvent): void => {
 		const drag = nodeDragState.current;
-		if (!drag || drag.cancelled || !('clientX' in event)) {
+		// A touch has no point of its own here: the drop follows the mouse.
+		const { clientX, clientY } = event as Partial<MouseEvent>;
+		if (!drag || drag.cancelled || clientX === undefined || clientY === undefined) {
 			return;
 		}
 		followedNodeDrag.current = drag.token;
-		setAutoPan(isInside(host.getBoundingClientRect(), event.clientX, event.clientY));
-		follow(event.clientX, event.clientY, drag);
+		setAutoPan(isInside(host.getBoundingClientRect(), clientX, clientY));
+		follow(clientX, clientY, drag);
 	}, [follow, setAutoPan]);
 
 	/**
