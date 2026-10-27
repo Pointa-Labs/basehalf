@@ -1031,6 +1031,23 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('a chip is drawn again at its input\'s new version when only the input\'s file is written anew', async () => {
+		const files = disposables.add(new Emitter<FileChangesEvent>());
+		instantiationService.stub(IFileService, { onDidFilesChange: files.event });
+		let version = '1-10';
+		const resolve = store.resolveInputs.bind(store);
+		store.resolveInputs = async snapshot => (await resolve(snapshot)).map(input => ({ ...input, file: URI.joinPath(WORKSPACE, input.path), fileVersion: version }));
+		store.info = { ...store.info, prompt: 'Rain over @[frames/a.png]' };
+		const panel = await createPanel();
+		// The version the chip was drawn at, as its key holds it: the test's file cannot be loaded, so the picture itself gives way to a glyph.
+		const chipVersion = () => /basehalfCanvasVersion=([^&\0]*)/.exec(panel.element.querySelector<HTMLElement>('.bh-prompt-chip')?.dataset.chipKey ?? '')?.[1];
+		const before = chipVersion();
+		version = '2-20';
+		files.fire(new FileChangesEvent([{ resource: URI.joinPath(WORKSPACE, 'frames', 'a.png'), type: FileChangeType.UPDATED }], false));
+		await settle();
+		assert.deepStrictEqual([before, chipVersion()], ['1-10', '2-20']);
+	});
+
 	test('a number field in seconds shows s after it and says so to a screen reader', async () => {
 		store.info = { prompt: 'Rain', provider: 'acme', model: 'acme-clip', mode: 'edit', params: { start: 2.5 } };
 		const panel = await createPanel();
