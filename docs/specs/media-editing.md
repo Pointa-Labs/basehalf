@@ -417,9 +417,9 @@ sound, as editors of video and sound and a phone's voice recorder do.
     it lies in the whole length, and goes 1 s after the last change, as
     BaseHalf's scrollbars float and hide.
   - A press, a drag of a handle or of the part, a selection, and Delete work
-    there as on the whole length, at the times under the pointer. A handle
-    or a selection dragged past an edge moves the stretch along, faster the
-    farther the pointer is past it. Holding a handle still spreads the
+    there as on the whole length, at the times under the pointer. A drag of
+    a handle, of the part, of the playhead, or of a selection past an edge
+    moves the stretch along, faster the farther the pointer is past it. Holding a handle still spreads the
     viewer further around it when the hold's stretch is the shorter one, and
     letting go of the handle shows the stretch the pinch chose again.
   - While the video or the sound plays, the stretch follows the playhead:
