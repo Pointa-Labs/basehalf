@@ -3462,6 +3462,9 @@ after a model was chosen from its menu.
   for a kind whose models differ in it; a count is buttons from 1 to 4, and
   the model menu says "Up to 4 images"; the reference menu and Import File…
   offer the kinds the card's kind takes; the model button's tooltip.
+- The same rule takes Videos from an audio card's reference menu and its
+  Import File…, since no audio model takes a video; nothing else of an audio
+  card changes.
 - The catalog, the parameters, what is sent, and what `generation.yaml` and
   `made.yaml` store are unchanged: an image card's mode is still `reference`,
   and `basehalf --list-capabilities` still gives agents each model's count.

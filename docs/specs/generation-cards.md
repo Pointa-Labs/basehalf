@@ -896,7 +896,8 @@ From top to bottom:
        use is dimmed with the reason and cannot be chosen, and so is a kind
        of which the model takes none. A kind that no model of the card's
        kind takes is not listed (D90): an image card lists Images and
-       Notes, since no image model takes a video or a sound, and a kind
+       Notes, since no image model takes a video or a sound, an audio card
+       Images, Audio, and Notes, since no audio model takes a video, and a kind
        that one video model takes and another does not is listed, dimmed
        for the model that does not.
      - Typing in the search field shows, in place of the two parts, the
