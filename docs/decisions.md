@@ -3193,6 +3193,11 @@ about; until now the agent saw only which PDF was open.
 
 ## D82 — A delete on the canvas asks nothing, and undo brings back exactly what a step took (NEW, 2026-10-25)
 
+> **Extended by D89 (2026-10-27).** Undo asks nothing either: Command+Z
+> and Shift+Command+Z in an editor of text undo and redo its own text and
+> never reach a step of the canvas, Card Detail's header, or Files, which
+> VS Code asked about.
+
 **Decision.** A delete on the canvas, by a card's Delete, the selection
 toolbar, or the Delete key, happens at once and asks nothing. Every step of
 the canvas that deletes, makes, or changes files keeps what it takes away
@@ -3405,7 +3410,7 @@ built without asking back, after research.
   Ogg are encoded again by the window, in AAC and in Opus. A sound longer than
   30 minutes is not edited: it is decoded whole in memory.
 
-## D89 — A Note resizes while it is edited on its card (NEW, 2026-10-27)
+## D89 — A Note resizes while it is edited on its card, and an editor of text undoes only its own text (NEW, 2026-10-27)
 
 **Decision.** A Note that is being edited on its card keeps its resize
 targets, and they work as they do at rest. A press on one leaves the keyboard
@@ -3414,6 +3419,14 @@ composition, the scroll position, and the editor's own undo go on through the
 resize. The size is saved after pointer-up as one step of the canvas undo,
 which Command+Z reaches once the keyboard is out of the editor. See
 [canvas card resize, "While a Note is edited"](specs/canvas-card-resize.md#while-a-note-is-edited).
+
+Command+Z and Shift+Command+Z in an editor of text, the editor of a note on
+its card and the editors of Card Detail, undo and redo the edits of that text
+and nothing else. A step that changes files, a folder, or the layout, made on
+the canvas, in Card Detail's header, or in Files, is not reached from an
+editor: when it is the file's next step, the keys do nothing there and
+nothing asks, and the step is undone where it was made. See
+[exact undo, "Undo in an editor of text"](specs/exact-undo.md#undo-in-an-editor-of-text).
 
 **Why.** On 2026-10-27 the user found that a Note, once double-clicked to be
 edited on its card, could not be resized any more, and asked that it could
@@ -3428,6 +3441,18 @@ rest they paint nothing, and a corner's indicator shows only under the
 pointer or while that corner resizes, so keeping them puts nothing over the
 text.
 
+Testing the resize found the question of the system "Would you like to undo
+'Move or resize canvas cards'?" in the note's editor, and the editor waited
+for an answer until the window could not close. The same question came, on
+main as well, after a rename of a note on the canvas, typing in it, and
+Command+Z past the typing ("Would you like to undo 'Rename Groceries.md to
+Shopping.md'?"). VS Code asks when the undo of a file in an editor reaches a
+step that another place made, and D82 says that nothing asks. The steps of
+D82's kept versions and the connections of notes already stay out of the
+history of a file the user edits; the renames and moves that VS Code's file
+edits make, and the connections of files that are no notes, do not, so one
+rule is kept where the keys are: the editor of text undoes its text.
+
 **What was set aside.**
 - Ending the editing when a resize begins and beginning it again after: the
   caret, the selection, a composition, and the editor's undo would not
@@ -3439,6 +3464,12 @@ text.
 - Showing the corners' indicators all the time while editing, to say that
   the card resizes: they would lie over the corners of the text, and a corner
   shows its indicator under the pointer as at rest.
+- Undoing a step of another place from the editor without asking: Command+Z
+  in a new note's editor would then delete the note it is typed in, and in a
+  renamed note's editor rename the file under the editor.
+- Keeping every step out of the histories of the files it names, as the kept
+  versions do: the renames and moves that VS Code's file edits make name
+  their files, and the editor would still ask about the steps of Files.
 
 **Consequences.**
 - Revises [canvas card resize, "Which cards resize"](specs/canvas-card-resize.md#which-cards-resize),
@@ -3449,5 +3480,9 @@ text.
   reached it, asked "Would you like to undo 'Move or resize canvas cards'?",
   and the editor waited for the answer. Text typed after a resize no longer
   keeps the canvas from undoing it either.
+- Extends D82 to undo in the editors of text: the steps of the canvas, Card
+  Detail's header, and Files are undone where they were made. An edit across
+  files that an editor makes with its own commands, as a rename of a symbol
+  in code, is such a step too; BaseHalf makes none.
 - The connection handles of a Note being edited stay hidden
   ([canvas connection handles](specs/canvas-connection-handles.md#scope)).
