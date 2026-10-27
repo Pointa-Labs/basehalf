@@ -265,6 +265,14 @@ Its row holds its size, so that the layout stores what the canvas shows.
   phone held upright. BaseHalf measures it in the window, once for each
   version of a file (its time and its size), at most six files at a time,
   and gives one up after 3 s.
+- **Each version is loaded by an address of its own**, the file's with its
+  time and its size: the measure of its ratio, the picture the card shows,
+  and the video or the sound the card plays. The window keeps what it loaded
+  by its address. With one address for every version, after an edit, its
+  undo or redo, or another program's write, a card was drawn anew with the
+  picture and the shape of the version the window had loaded first (the
+  user, 2026-10-27: the edited picture and the canvas's "became two
+  different pictures").
 - **A draft** has the ratio its settings choose: the value of its model's
   ratio setting, or that setting's default. A ratio that follows an input,
   such as Adaptive, and a draft without a model have the ratio of their
@@ -983,6 +991,12 @@ written with this document.
     says so. A note moved to 20 beside a card leaves that card as it is. A
     video row of 720 × 405 becomes 533 × 300, and a card that already lies
     over another one does not grow over it.
+40. **Each version shows.** A 2048 × 2048 PNG on the canvas is cropped to
+    16:9 in Card Detail, which is closed before the write lands. Once the
+    write lands, the card shows the picture of 2048 × 1152 and is 533 × 300.
+    A video trimmed and a sound cut the same way play their new length on
+    their cards. So does a version that an undo or a redo of the edit
+    writes, or another program.
 
 ## Verification
 
@@ -1023,6 +1037,10 @@ written with this document.
   `video-new-video-makes-draft` for criteria 8 and 23, and
   `video-picture-cards-keep-their-shape` for two images laid out in the
   earlier grid (criterion 39).
+- Unit tests of the addresses by which a card loads its picture, its video,
+  or its sound and by which a picture is measured, and the smoke step
+  `card-detail-edit-shows-on-its-card`, which crops an image and closes
+  Card Detail before the write lands: criterion 40.
 - Criteria 37 to 39 in the real window on 2026-10-23, as recorded below.
 
 ### Tried in the real window, 2026-10-11
