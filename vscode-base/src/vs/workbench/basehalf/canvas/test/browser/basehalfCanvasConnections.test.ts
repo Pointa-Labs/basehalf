@@ -95,6 +95,22 @@ suite('BaseHalfCanvasConnections', () => {
 		});
 	});
 
+	test('places a new line\'s ends by where the cards are now, as the next drawing from the layout places them', () => {
+		const { view, connections, index } = createCanvas(['a.png']);
+		// c.png was moved to the right of the card after the last drawing: the scene has its new place, the drawn items its old row.
+		const moved = ROWS.map(row => row.path === 'c.png' ? { ...row, x: 1200 } : row);
+		view.renderedSceneCards = view.renderedSceneCards.map(card => card.path === 'c.png' ? { ...card, x: 1200 } : card);
+		index.list = ['a.png', 'c.png'];
+		connections.showUpstreamLines(SCENE, CARD, ['a.png', 'c.png']);
+		assert.deepStrictEqual({
+			drawn: lines(view.renderedSceneEdges),
+			next: lines(sceneEdges(model(moved, ['a.png', 'c.png']).edges))
+		}, {
+			drawn: ['a.png -> shot.mp4 east west', 'c.png -> shot.mp4 west east'],
+			next: ['a.png -> shot.mp4 east west', 'c.png -> shot.mp4 west east']
+		});
+	});
+
 	function model(rows: readonly IBaseHalfCanvasCard[], upstream: readonly string[]) {
 		return baseHalfCanvasModelFromStat(folder('/workspace', rows.map(row => file(`/workspace/${row.path}`))), {
 			rootLevel: true,

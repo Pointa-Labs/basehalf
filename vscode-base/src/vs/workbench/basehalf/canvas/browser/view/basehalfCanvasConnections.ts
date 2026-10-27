@@ -129,7 +129,8 @@ export class BaseHalfCanvasConnections {
 	 * cards, "The line on the canvas changes with the tile"). The drawing that
 	 * reads the folder derives the same lines from the reference index: a list
 	 * that is not the one the index holds now draws nothing, so a panel's read
-	 * that came late never takes the canvas back to an older list.
+	 * that came late never takes the canvas back to an older list, and the
+	 * ends of the lines follow where the cards are now.
 	 */
 	showUpstreamLines(sceneKey: string, path: string, upstream: readonly string[]): void {
 		const view = this.view;
@@ -152,7 +153,13 @@ export class BaseHalfCanvasConnections {
 		if (!current || current.length !== upstream.length || current.some((entry, index) => identity.key(entry) !== identity.key(upstream[index]))) {
 			return;
 		}
-		const items = [...view.renderedItemsByPath.values()];
+		// Where the cards are now: a card moved since the last drawing has the place the layout holds
+		// for it, from which the next drawing derives the ends of its lines.
+		const places = new Map(view.renderedSceneCards.map(card => [card.path, card]));
+		const items = [...view.renderedItemsByPath.values()].map(item => {
+			const place = places.get(item.path);
+			return place && item.card ? { ...item, card: { ...item.card, x: place.x, y: place.y, width: place.width, height: place.height } } : item;
+		});
 		const siblingUpstream = baseHalfCanvasResolveSiblingUpstream(upstream, items.map(item => item.path), identity);
 		const edges: IBaseHalfCanvasSceneEdge[] = baseHalfCanvasEdgesWithUpstream(items, view.renderedLayoutEdges, path, siblingUpstream).map(edge => ({
 			...edge,
