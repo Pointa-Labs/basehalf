@@ -19,6 +19,7 @@ import { waitUntil } from '../../lib/steps.mts';
 
 const UNDO_KEY = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
 const REDO_KEY = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y';
+const SAVE_KEY = process.platform === 'darwin' ? 'Meta+S' : 'Control+S';
 
 /** The width and height of a card's row in the layout of the workspace's root. */
 function readLayoutSize(cardPath) {
@@ -96,9 +97,23 @@ export async function assertCanvasNoteResizeWhileEditing(page) {
 	const editor = await waitForCanvasNoteInlineEditor(page, 'README.md');
 	await placeCanvasInlineCaretAfter(editor.editable, needle);
 
+	// The fixture saves a note only when asked to.
+	const editorText = () => editor.editable.evaluate(root => root.textContent ?? '');
+	const editorHolds = (text, description) => page.waitForFunction(
+		expected => document.querySelector('[data-testid="canvas-note-editor-README.md"] .ProseMirror')?.textContent?.includes(expected),
+		text,
+		{ timeout: 10_000 }
+	).catch(() => {
+		throw new Error(`Timed out waiting for ${description}`);
+	});
+	const saveAndExpect = async (expected, description) => {
+		await page.keyboard.press(SAVE_KEY);
+		await waitUntil(() => readme() === expected, description, 15_000);
+	};
+
 	// Typing, a resize from the corner, and more typing: the letters go where the caret was.
 	await page.keyboard.type(' resize-marker');
-	await waitUntil(() => readme() === originalMarkdown.replace(needle, `${needle} resize-marker`), 'the typing before the resize to be saved', 15_000);
+	await editorHolds(`${needle} resize-marker`, 'the typing before the resize');
 	await recordEditorEvents(editor.editable);
 	const boxBefore = await note.boundingBox();
 	const grown = await dragBottomRightBand(page, note, editor.editable, { x: 84, y: 60 });
@@ -111,17 +126,25 @@ export async function assertCanvasNoteResizeWhileEditing(page) {
 		throw new Error(`A resize ended the editing of the Note: ${JSON.stringify(eventsOfResize)}`);
 	}
 	await page.keyboard.type('Q');
-	await waitUntil(() => readme() === originalMarkdown.replace(needle, `${needle} resize-markerQ`), 'letters typed after the resize to go where the caret was', 15_000);
+	await editorHolds(`${needle} resize-markerQ`, 'letters typed after the resize to go where the caret was');
+	await saveAndExpect(originalMarkdown.replace(needle, `${needle} resize-markerQ`), 'the note to hold exactly the text typed around the resize');
 
-	// Command+Z in the editor undoes its text, not the size.
-	for (let press = 0; press < 3 && readme() !== originalMarkdown; press++) {
-		const before = readme();
+	// Command+Z in the editor undoes its text, asks nothing, and leaves the size.
+	for (let press = 0; press < 3; press++) {
+		const before = await editorText();
+		if (!before.includes('resize-marker')) {
+			break;
+		}
 		await page.keyboard.press(UNDO_KEY);
-		await waitUntil(() => readme() !== before, 'Command+Z in the Note being edited to undo its text after a resize', 10_000);
+		await page.waitForFunction(
+			previous => document.querySelector('[data-testid="canvas-note-editor-README.md"] .ProseMirror')?.textContent !== previous,
+			before,
+			{ timeout: 10_000 }
+		).catch(() => {
+			throw new Error('Command+Z in the Note being edited did not undo its text after a resize');
+		});
 	}
-	if (readme() !== originalMarkdown) {
-		throw new Error('Command+Z in the Note being edited did not undo its text after a resize');
-	}
+	await saveAndExpect(originalMarkdown, 'Command+Z in the Note being edited to undo its text after a resize');
 	if (JSON.stringify(readLayoutSize('README.md')) !== JSON.stringify(grown)) {
 		throw new Error(`Command+Z in the Note being edited changed its size: ${JSON.stringify({ grown, now: readLayoutSize('README.md') })}`);
 	}
@@ -138,9 +161,15 @@ export async function assertCanvasNoteResizeWhileEditing(page) {
 		throw new Error(`A resize ended an open composition in the Note being edited: ${JSON.stringify(eventsOfComposition)}`);
 	}
 	await cdp.send('Input.insertText', { text: '你' });
-	await waitUntil(() => readme() === originalMarkdown.replace(needle, `${needle}你`), 'the composition ended after a resize to put its text at the caret', 15_000);
+	await editorHolds(`${needle}你`, 'the composition ended after a resize to put its text at the caret');
+	await saveAndExpect(originalMarkdown.replace(needle, `${needle}你`), 'the note to hold the text of the composition');
 	await page.keyboard.press(UNDO_KEY);
-	await waitUntil(() => readme() === originalMarkdown, 'Command+Z to undo the text of the composition', 10_000);
+	await page.waitForFunction(
+		token => !document.querySelector('[data-testid="canvas-note-editor-README.md"] .ProseMirror')?.textContent?.includes(`${token}你`),
+		needle,
+		{ timeout: 10_000 }
+	);
+	await saveAndExpect(originalMarkdown, 'Command+Z to undo the text of the composition');
 	await cdp.detach();
 
 	// Once the editing has ended, the canvas undoes and redoes the sizes.

@@ -423,12 +423,14 @@ function assertCanvasNoteTransitionFrames(result, tokens, expectedPreviewIdentit
 				liveConnectionHandles: frame.liveConnectionHandles
 			});
 		}
+		// A double click on a Note that is not selected yet selects it in the
+		// frame its editing begins: its targets come with the selection.
 		const previous = frames[frameIndex - 1];
-		if (frame.noteEditing && previous && frame.resizeTargets !== previous.resizeTargets) {
+		if (frame.noteEditing && previous && previous.resizeTargets > 0 && frame.resizeTargets !== previous.resizeTargets) {
 			violations.push({
 				frameIndex,
 				phase: frame.phase,
-				issue: 'the resize targets changed when or while the Note was edited',
+				issue: 'the resize targets of the selected Note changed when or while it was edited',
 				resizeTargets: frame.resizeTargets,
 				previousResizeTargets: previous.resizeTargets
 			});
