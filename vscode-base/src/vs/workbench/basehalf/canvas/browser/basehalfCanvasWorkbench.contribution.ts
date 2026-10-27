@@ -889,6 +889,23 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		return { workspaceKey: folder.workspaceFolder.toString(), structuralEpoch };
 	}
 
+	/**
+	 * Whether a gesture that began on the scene drawn at `structuralEpoch` may
+	 * still act on the cards at `paths`: no change since touched them, the
+	 * shown folder, or a folder above it. A change elsewhere in the workspace,
+	 * also of another card of this canvas, leaves the gesture as it was
+	 * (canvas card interaction continuity, "A change elsewhere in the
+	 * workspace").
+	 */
+	isSceneStampCurrent(folder: IBaseHalfCanvasFolderState, structuralEpoch: number, paths: readonly string[] = []): boolean {
+		return this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch), this.sceneStampPaths(folder, paths));
+	}
+
+	/** The paths a gesture on the scene acts on: the shown folder and the cards it names. */
+	sceneStampPaths(folder: IBaseHalfCanvasFolderState, paths: readonly string[]): readonly string[] {
+		return [folder.relativePath, ...paths];
+	}
+
 	upstreamIdentity(workspaceFolder: URI): IBaseHalfUpstreamIdentity {
 		return baseHalfUpstreamIdentity(workspaceFolder, this.uriIdentityService.extUri);
 	}

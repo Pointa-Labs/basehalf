@@ -418,6 +418,8 @@ export class BaseHalfCanvasPreviews {
 				continue;
 			}
 			this.view.renderedSceneCards = Object.freeze(this.view.renderedSceneCards.map(card => replacements.get(card.path) ?? card));
+			// The epoch the view keeps for its features follows every drawing of the scene.
+			this.view.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
 			this.view.canvasScene.update({
 				key: hydrationBatch.sceneKey,
 				structuralEpoch: structuralStamp.structuralEpoch,

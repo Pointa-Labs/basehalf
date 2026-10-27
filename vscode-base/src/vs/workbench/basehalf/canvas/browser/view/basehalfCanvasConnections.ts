@@ -226,7 +226,8 @@ export class BaseHalfCanvasConnections {
 				async lease => {
 					this.view.folderForSceneMutation(sceneKey);
 					await this.view.canvasMirrorService.upsertCanvasEdge(folder, edge, lease);
-				}
+				},
+				this.view.sceneStampPaths(folder, [edge.from, edge.to])
 			);
 		} catch (error) {
 			// The connection itself is saved; its anchors fall back to defaults.
@@ -247,8 +248,7 @@ export class BaseHalfCanvasConnections {
 		drop: IBaseHalfCanvasSceneConnectionDrop
 	): Promise<boolean> {
 		const queuedFolder = this.view.folderForSceneMutation(sceneKey);
-		const stamp = this.view.sceneMutationStamp(queuedFolder, structuralEpoch);
-		if (!this.view.workspaceMutationCoordinator.isStampCurrent(queuedFolder.workspaceFolder, stamp)) {
+		if (!this.view.isSceneStampCurrent(queuedFolder, structuralEpoch, [drop.from])) {
 			return false;
 		}
 		this.view.markCanvasUserInteraction();
@@ -292,7 +292,7 @@ export class BaseHalfCanvasConnections {
 
 			mainWindow.setTimeout(() => {
 				if (this.view.disposed || !this.view.isCurrentSceneKey(sceneKey)
-					|| !this.view.workspaceMutationCoordinator.isStampCurrent(queuedFolder.workspaceFolder, stamp)) {
+					|| !this.view.isSceneStampCurrent(queuedFolder, structuralEpoch, [drop.from])) {
 					resolve(false);
 					return;
 				}
@@ -329,7 +329,7 @@ export class BaseHalfCanvasConnections {
 		drop: IBaseHalfCanvasSceneConnectionDrop
 	): Promise<void> {
 		const folder = this.view.folderForSceneMutation(sceneKey);
-		if (!this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+		if (!this.view.isSceneStampCurrent(folder, structuralEpoch, [drop.from])) {
 			return;
 		}
 		this.view.markCanvasUserInteraction();
@@ -365,7 +365,7 @@ export class BaseHalfCanvasConnections {
 		kind: BaseHalfGenerationKind
 	): Promise<void> {
 		const folder = this.view.folderForSceneMutation(sceneKey);
-		if (!this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch)) || !this.view.isCurrentSceneKey(sceneKey)) {
+		if (!this.view.isSceneStampCurrent(folder, structuralEpoch, [drop.from]) || !this.view.isCurrentSceneKey(sceneKey)) {
 			return;
 		}
 		this.view.markCanvasUserInteraction();

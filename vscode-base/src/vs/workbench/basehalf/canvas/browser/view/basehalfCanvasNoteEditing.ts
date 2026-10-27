@@ -71,7 +71,7 @@ export class BaseHalfCanvasNoteEditing {
 	async prepareSceneNoteSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean> {
 		const folder = this.view.getCurrentFolder();
 		if (!folder || this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+			|| !this.view.isSceneStampCurrent(folder, structuralEpoch, paths)) {
 			return false;
 		}
 		const notePath = this.view.canvasNoteSurfacePath ?? this.view.activeCanvasNoteEditor?.path;
@@ -93,7 +93,7 @@ export class BaseHalfCanvasNoteEditing {
 		}
 		const currentFolder = this.view.getCurrentFolder();
 		if (!currentFolder || this.view.sceneKey(currentFolder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.view.sceneMutationStamp(currentFolder, structuralEpoch))) {
+			|| !this.view.isSceneStampCurrent(currentFolder, structuralEpoch, paths)) {
 			return false;
 		}
 		const active = this.view.activeCanvasNoteEditor;
@@ -133,7 +133,7 @@ export class BaseHalfCanvasNoteEditing {
 		const owner = { sceneKey, path, resourceKey };
 		if (acceptedFormatOwner
 			? !baseHalfCanvasNoteFormatOwnersEqual(acceptedFormatOwner, owner)
-			: !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+			: !this.view.isSceneStampCurrent(folder, structuralEpoch, [path])) {
 			return;
 		}
 		const markdownPreview = this.view.cardRenderer.shownMarkdownPreview(path);
@@ -162,7 +162,7 @@ export class BaseHalfCanvasNoteEditing {
 					path,
 					resourceKey: this.view.uriIdentityService.extUri.getComparisonKey(currentItem.stat.resource)
 				})
-				: this.view.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.view.sceneMutationStamp(currentFolder, structuralEpoch));
+				: this.view.isSceneStampCurrent(currentFolder, structuralEpoch, [path]);
 		};
 		const active = this.view.activeCanvasNoteEditor;
 		const rememberedSelection = point ? undefined : this.canvasNoteSelections.get(resourceKey);
@@ -233,7 +233,7 @@ export class BaseHalfCanvasNoteEditing {
 		const item = this.view.renderedItemsByPath.get(path);
 		if (!folder || !item || !isBaseHalfMarkdownResource(item.stat.resource)
 			|| this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+			|| !this.view.isSceneStampCurrent(folder, structuralEpoch, [path])) {
 			return;
 		}
 		const resourceKey = this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
@@ -246,7 +246,7 @@ export class BaseHalfCanvasNoteEditing {
 		const item = this.view.renderedItemsByPath.get(path);
 		if (!folder || !item || !isBaseHalfMarkdownResource(item.stat.resource)
 			|| this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+			|| !this.view.isSceneStampCurrent(folder, structuralEpoch, [path])) {
 			return;
 		}
 		const resourceKey = this.view.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
@@ -333,7 +333,7 @@ export class BaseHalfCanvasNoteEditing {
 		const item = this.view.renderedItemsByPath.get(path);
 		if (!folder || !item || !isBaseHalfMarkdownResource(item.stat.resource)
 			|| this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+			|| !this.view.isSceneStampCurrent(folder, structuralEpoch, [path])) {
 			return;
 		}
 		const active = this.view.activeCanvasNoteEditor;
@@ -361,7 +361,7 @@ export class BaseHalfCanvasNoteEditing {
 		const item = this.view.renderedItemsByPath.get(path);
 		if (!folder || !item || !isBaseHalfMarkdownResource(item.stat.resource)
 			|| this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+			|| !this.view.isSceneStampCurrent(folder, structuralEpoch, [path])) {
 			return;
 		}
 		await this.view.appearanceWrites.run(path, () => this.view.canvasAppearanceService.setBackground(folder.workspaceFolder, path, background));
@@ -844,7 +844,7 @@ export class BaseHalfCanvasNoteEditing {
 		const folder = this.view.getCurrentFolder();
 		const active = this.view.activeCanvasNoteEditor;
 		if (!folder || this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+			|| !this.view.isSceneStampCurrent(folder, structuralEpoch, [path])) {
 			return;
 		}
 		if (active?.path === path && !active.closing) {

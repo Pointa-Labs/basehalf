@@ -94,8 +94,7 @@ export class BaseHalfCanvasSelectionActions {
 		this.cancelPendingNodeActivation();
 		const intent = this.cardOpenIntent;
 		const folder = this.view.getCurrentFolder();
-		if (!folder || this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+		if (!folder || this.view.sceneKey(folder) !== sceneKey || !this.view.isSceneStampCurrent(folder, structuralEpoch, [path])) {
 			return;
 		}
 		const item = this.view.renderedItemsByPath.get(path);
@@ -110,7 +109,7 @@ export class BaseHalfCanvasSelectionActions {
 		const folderBeforeClose = this.view.getCurrentFolder();
 		const itemBeforeClose = this.view.renderedItemsByPath.get(path);
 		if (!folderBeforeClose || this.view.sceneKey(folderBeforeClose) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folderBeforeClose.workspaceFolder, this.view.sceneMutationStamp(folderBeforeClose, structuralEpoch))
+			|| !this.view.isSceneStampCurrent(folderBeforeClose, structuralEpoch, [path])
 			|| !itemBeforeClose
 			|| this.view.uriIdentityService.extUri.getComparisonKey(itemBeforeClose.stat.resource) !== targetResourceKey) {
 			return;
@@ -122,7 +121,7 @@ export class BaseHalfCanvasSelectionActions {
 		const currentItem = this.view.renderedItemsByPath.get(path);
 		const currentStampValid = !!currentFolder
 			&& this.view.sceneKey(currentFolder) === sceneKey
-			&& this.view.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.view.sceneMutationStamp(currentFolder, structuralEpoch));
+			&& this.view.isSceneStampCurrent(currentFolder, structuralEpoch, [path]);
 		if (this.cardOpenIntent !== intent
 			|| !currentStampValid
 			|| !currentItem
@@ -207,7 +206,7 @@ export class BaseHalfCanvasSelectionActions {
 		paths: readonly string[]
 	): Promise<{ readonly folder: IBaseHalfCanvasFolderState; readonly items: readonly IBaseHalfCanvasItem[] }> {
 		const folder = this.view.folderForSceneMutation(sceneKey);
-		if (!this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+		if (!this.view.isSceneStampCurrent(folder, structuralEpoch, paths)) {
 			throw new Error('The canvas changed before the selection action could be applied.');
 		}
 		const items = paths.map(path => this.view.renderedItemsByPath.get(path));
@@ -348,8 +347,11 @@ export class BaseHalfCanvasSelectionActions {
 		createPositionComputed?: boolean
 	): void {
 		const folder = this.view.getCurrentFolder();
-		if (!folder || this.view.sceneKey(folder) !== sceneKey
-			|| !this.view.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.view.sceneMutationStamp(folder, structuralEpoch))) {
+		// What the menu acts on: the card, or both ends of each connection.
+		const requestPaths = request.kind === 'card'
+			? [request.path]
+			: request.kind === 'edge' ? request.edges.flatMap(edge => [edge.from, edge.to]) : [];
+		if (!folder || this.view.sceneKey(folder) !== sceneKey || !this.view.isSceneStampCurrent(folder, structuralEpoch, requestPaths)) {
 			return;
 		}
 		this.view.markCanvasUserInteraction();
@@ -359,7 +361,7 @@ export class BaseHalfCanvasSelectionActions {
 				const ids = new Set(request.edges.map(edge => edge.id));
 				const edges = this.view.renderedSceneEdges.filter(candidate => ids.has(candidate.id));
 				if (this.view.disposed || !current || this.view.sceneKey(current) !== sceneKey || edges.length === 0
-					|| !this.view.workspaceMutationCoordinator.isStampCurrent(current.workspaceFolder, this.view.sceneMutationStamp(current, structuralEpoch))) {
+					|| !this.view.isSceneStampCurrent(current, structuralEpoch, requestPaths)) {
 					return;
 				}
 				this.view.lastCanvasContextMenu = undefined;
@@ -389,7 +391,7 @@ export class BaseHalfCanvasSelectionActions {
 		mainWindow.setTimeout(async () => {
 			const current = this.view.getCurrentFolder();
 			if (this.view.disposed || !current || this.view.sceneKey(current) !== sceneKey
-				|| !this.view.workspaceMutationCoordinator.isStampCurrent(current.workspaceFolder, this.view.sceneMutationStamp(current, structuralEpoch))) {
+				|| !this.view.isSceneStampCurrent(current, structuralEpoch, requestPaths)) {
 				return;
 			}
 			let context: IBaseHalfCanvasActionContext;
@@ -401,7 +403,7 @@ export class BaseHalfCanvasSelectionActions {
 			}
 			const latest = this.view.getCurrentFolder();
 			if (this.view.disposed || !latest || this.view.sceneKey(latest) !== sceneKey
-				|| !this.view.workspaceMutationCoordinator.isStampCurrent(latest.workspaceFolder, this.view.sceneMutationStamp(latest, structuralEpoch))) {
+				|| !this.view.isSceneStampCurrent(latest, structuralEpoch, requestPaths)) {
 				return;
 			}
 			this.view.lastCanvasContextMenu = { context, request, createPosition, createPositionComputed };
