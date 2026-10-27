@@ -491,8 +491,13 @@ in Card Detail.
     BaseHalf's scrollbars float and hide.
   - A press, a drag of a handle or of the part, a selection, and Delete work
     there as on the whole length, at the times under the pointer. A drag of
-    a handle, of the part, of the playhead, or of a selection past an edge
-    moves the stretch along, faster the farther the pointer is past it. Holding a handle still spreads the
+    a handle, of the part, of the playhead, or of a selection that comes
+    within 24 px of an edge of the strip, or goes past it, moves the stretch
+    along (D98), as a phone's trim follows a handle held against its edge:
+    from a crawl at the margin's inner side to faster the deeper the pointer
+    is in the margin and past the edge, until the start or the end of the
+    length is in view. Bringing the pointer back out of the margin stops it.
+    The stretch only moves; its length stays. Holding a handle still spreads the
     viewer further around it when the hold's stretch is the shorter one, and
     letting go of the handle shows the stretch the pinch chose again.
   - While the video or the sound plays, the stretch follows the playhead:
@@ -984,6 +989,12 @@ in Card Detail.
     record, and the undo as they were; a change after Edit is saved with
     nothing more pressed; Card Detail closed while editing opens to viewing
     again.
+23. With the frame viewer spread out to a stretch of a 6 s video, a handle
+    dragged to 12 px inside the strip's right edge, and held there without
+    going past it, moves the stretch along until its end is the video's end,
+    the handle following to the times under the pointer; moved back to
+    40 px inside the edge, the stretch stops; the stretch's length is the
+    same throughout (D98). The waveform of a sound does the same.
 
 ## Verification
 

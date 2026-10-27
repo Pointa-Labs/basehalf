@@ -4219,3 +4219,67 @@ here changes nothing of the picture's place.
 - While viewing, Play plays the file through once, and the player counts its
   time from the start of the part an edit keeps.
 - The undo of an edit, the file, its record, and its original are unchanged.
+
+## D98 — A video's controls float over its picture and darken nothing else, and a trim follows a handle held against its edge (NEW, 2026-10-28)
+
+**Decision.** The controls of a video's player, on a card and in Card Detail,
+float over the picture as a photo app's player has them. The bar lies 8 px
+inside the picture's bottom, left, and right edges, 30 px high with rounded
+corners, at most 480 px wide, in the middle. The sound button is a round
+button inside the top left corner. Each has its own small translucent
+backing that blurs the picture behind it, so that the controls read over a
+white picture as over a black one. No shade goes across the picture, and a
+card at rest has nothing over its picture. In Card Detail the controls show
+as a player's do: while the video is paused, while the pointer moves over the
+picture or rests on a control, and while the keyboard is on one of them. While
+it plays, they fade 2.5 s after the pointer last moved, and at once when it
+leaves the picture. In the frame viewer of a video and the waveform of a
+sound, a drag that comes within 24 px of the strip's edge, not only past it,
+moves a spread-out stretch along, from a crawl to faster the deeper the
+pointer is. See [generation cards, "The player"](specs/generation-cards.md#the-player)
+and [editing media](specs/media-editing.md#zooming-the-picture-and-the-time).
+
+**Why.** On 2026-10-28 the user found a video card's black edge too wide and
+asked for it to be narrower, or not felt at all, and asked that a video's
+editing follow the phone's. Measured in a window with videos of 16:9, 9:16,
+4:3, 1:1, and 21:9 on a blue grid:
+- No picture was letterboxed. Each card took its video's shape (D66) with
+  the 1 px edge of an image card. Card Detail's player had the picture's size
+  from its first frame.
+- The black was the shade under the controls. It was a gradient from half
+  black at the picture's bottom edge, 64 px high: a fifth of a 300 px card
+  while it was hovered or selected. In Card Detail it was 56 px, always
+  shown, and darkened the bottom of the picture by up to 45%. On a dark video
+  it reads as a black band along the bottom edge.
+
+A photo app's player shows its controls on a small floating bar of their own
+and darkens nothing else. While the video plays, it hides them once the
+pointer rests. The phone's trim already matched BaseHalf's frame viewer: the
+yellow frame and its handles, the frame at the handle in the picture, and
+holding a handle to spread the strip out. Only its edge differed. The phone
+follows a handle held against the edge of the strip, while BaseHalf's moved
+only once the pointer went past the edge.
+
+**What was set aside.**
+- A shorter or lighter shade: it is still a band across the picture.
+- The controls under the picture, outside it: the card's shape is the
+  picture's (D66), and Card Detail's frame viewer is there.
+- Hiding the controls of a selected card while the pointer is elsewhere: the
+  selected card is where the keyboard is, and its bar is now small.
+- Controls that fade while a Card Detail video is paused: a paused video
+  with nothing on it reads as a still picture.
+- A strip that also zooms out while it follows a handle: its stretch is a
+  window onto the length, which moving along reaches; holding a handle and
+  the pinch choose its scale.
+- A placeholder of the video's shape before Card Detail knows its size: none
+  shows, since Card Detail draws the player once it has its first frame.
+
+**Consequences.**
+- [Generation cards, "The player"](specs/generation-cards.md#the-player): the
+  controls float over the picture with their own backing. Card Detail's show
+  as a player's do. Criteria 40 and 99.
+- [Editing media](specs/media-editing.md#zooming-the-picture-and-the-time):
+  the 24 px margin at the strip's edges, and criterion 23.
+- The zoomed picture of D96 gets no shade across it either.
+- The cards' shapes, the player's behaviour on a card (D62), and the
+  frame viewer's other gestures are unchanged.
