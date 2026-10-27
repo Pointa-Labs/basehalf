@@ -237,5 +237,7 @@ canvas work at once
   pointer outside it; the names that keep both; the step that moves files
   and drafts and its undo and redo.
 - `npm run basehalf:smoke`, canvas suite, step `canvas-drop-into-folder`:
-  criteria 1, 3, 6, 7, and 10.
+  criteria 1, 3, 5, 6, 7, and 10. The step `canvas-snap-guides` lets its
+  card go off the folder it aligns the card with, since a card let go on a
+  folder's card goes into it.
 - Real window, per frame while dragging: criteria 1, 2, 4, 5, 8, and 9.

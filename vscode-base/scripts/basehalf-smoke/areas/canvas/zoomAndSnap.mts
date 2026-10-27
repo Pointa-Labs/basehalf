@@ -13,6 +13,19 @@ import { logsPath, opts, root, workspacePath } from '../../context.mts';
 import { emptyCanvasPoint, openCanvasZoomMenu, zoomCanvas } from '../../lib/canvas.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
+// Moves the pointer that holds a card down from a point until no folder
+// would take the card where it is let go (dropping into a folder).
+async function movePointerOffFolders(page, x, y) {
+	const takenByFolder = () => page.evaluate(() => document.querySelector('[data-basehalf-drop-target]') !== null);
+	for (let offset = 24; await takenByFolder(); offset += 24) {
+		if (offset > 480) {
+			throw new Error('The card found no place off the folders to be let go.');
+		}
+		await page.mouse.move(x, y + offset, { steps: 2 });
+		await page.waitForTimeout(32);
+	}
+}
+
 export async function assertCanvasZoomControls(page) {
 	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
@@ -313,6 +326,9 @@ export async function assertCanvasSnapGuides(page) {
 	await page.mouse.move(geometry.startX, geometry.startY);
 	await page.mouse.down();
 	await page.mouse.move(geometry.endX, geometry.endY, { steps: 14 });
+	// docs is a folder, and README let go on its card would go into it
+	// (dropping into a folder): README goes down along docs' axis, off it.
+	await movePointerOffFolders(page, geometry.endX, geometry.endY);
 	await page.waitForFunction(targetAxesX => Array.from(document.querySelectorAll('[data-testid="canvas-snap-guide"]')).some(line => {
 		const x1 = Number(line.getAttribute('x1'));
 		const x2 = Number(line.getAttribute('x2'));
@@ -368,6 +384,7 @@ export async function assertCanvasSnapGuides(page) {
 		throw new Error('Canvas snap toggle did not disable snapping during an active drag');
 	}
 	await page.waitForFunction(() => document.querySelectorAll('[data-testid="canvas-snap-guide"]').length === 0, null, { timeout: 10_000 });
+	await movePointerOffFolders(page, toggleDragStartX + 3 * geometry.zoom, toggleDragStartY);
 	await page.mouse.up();
 	await snapToggle.click();
 	if (await snapToggle.getAttribute('aria-pressed') !== 'true') {
