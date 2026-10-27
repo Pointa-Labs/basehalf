@@ -12,7 +12,7 @@ import { toErrorMessage } from '../../../../base/common/errorMessage.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
-import { language } from '../../../../base/common/platform.js';
+import { isMacintosh, language } from '../../../../base/common/platform.js';
 import { basename, dirname, isEqual, joinPath, relativePath } from '../../../../base/common/resources.js';
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -20,12 +20,14 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IQuickInput, IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -71,6 +73,7 @@ import { IBaseHalfMarkdownAttachmentService } from '../../markdown/common/baseha
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
+import { BASEHALF_NOTE_ZOOM_STORAGE_KEY, isBaseHalfNoteZoomWheel, normalizeBaseHalfNoteZoom } from '../common/basehalfNoteZoom.js';
 import { localize } from '../../../../nls.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
@@ -308,13 +311,33 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfMarkdownAttachmentService private readonly attachmentService: IBaseHalfMarkdownAttachmentService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IStorageService private readonly storageService: IStorageService,
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
 		super();
 		this.canvasAuthoring = this.surface !== 'canvas' || this.options.canvasAuthoring === true;
 
 		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
 		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
+		if (this.surface === 'detail') {
+			// The browser hands a pinch of the trackpad to the window, aimed at the
+			// element of the page, not to the page that draws the note: the window
+			// passes it on (zoom and outline of a note, rule 1).
+			this._register(addDisposableListener(this.webviewHost, EventType.MOUSE_WHEEL, (event: WheelEvent) => {
+				if (!isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+					return;
+				}
+				event.preventDefault();
+				event.stopPropagation();
+				const box = this.webviewHost.getBoundingClientRect();
+				void this.bridge?.sendZoomGesture({ deltaY: event.deltaY, deltaMode: event.deltaMode, x: event.clientX - box.left, y: event.clientY - box.top });
+			}, { passive: false }));
+			// A level that changed in Preview or in another window reaches this page.
+			this._register(this.storageService.onDidChangeValue(StorageScope.PROFILE, BASEHALF_NOTE_ZOOM_STORAGE_KEY, this._store)(() => {
+				void this.bridge?.sendZoom(this.noteZoom());
+			}));
+		}
 		applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'booting');
 		this.setSaveStatus('saving');
 		this._register(this.quickInputService.onShow(() => {
@@ -808,6 +831,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.selectionChanged':
 				this.options.onSelectionChange?.(this.selectedText(state, model, message.text, message.startLineNumber, message.endLineNumber));
 				break;
+			case 'basehalf.markdownRich.zoomChanged':
+				if (this.surface === 'detail') {
+					this.storageService.store(BASEHALF_NOTE_ZOOM_STORAGE_KEY, normalizeBaseHalfNoteZoom(message.zoom), StorageScope.PROFILE, StorageTarget.MACHINE);
+				}
+				break;
 			case 'basehalf.markdownRich.error':
 				this.setSaveStatus('saving');
 				this.logService.error(message.stack ?? message.message);
@@ -1021,8 +1049,15 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
-		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection);
+		const reading = this.surface === 'detail' ? { zoom: this.noteZoom(), reducedMotion: this.accessibilityService.isMotionReduced() } : undefined;
+		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection, reading);
 		await this.sendAdhdState(state);
+	}
+
+	/** The level of notes in Card Detail, one for every note (zoom and outline of a note, rule 8). */
+	private noteZoom(): number {
+		// The storage's numbers are whole numbers; the level is read as text.
+		return normalizeBaseHalfNoteZoom(this.storageService.get(BASEHALF_NOTE_ZOOM_STORAGE_KEY, StorageScope.PROFILE));
 	}
 
 	private webviewBaseUri(resource: URI): string {

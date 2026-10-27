@@ -86,12 +86,15 @@ body,
 	background-color: color-mix(in srgb, var(--vscode-editor-foreground) 24%, transparent);
 }
 
+/* At a level of zoom the page is laid out as wide as the view allows at that
+ * level and drawn larger from its top middle (zoom and outline of a note). */
 .basehalf-markdown-rich-page {
 	box-sizing: border-box;
-	max-width: 760px;
-	min-height: 100%;
+	max-width: min(760px, calc(100% / var(--basehalf-note-zoom, 1)));
+	min-height: calc(100% / var(--basehalf-note-zoom, 1));
 	margin: 0 auto;
 	padding: 56px 24px 80px;
+	transform-origin: top center;
 }
 
 .basehalf-markdown-rich:not(.ready) .basehalf-markdown-rich-page {
@@ -624,5 +627,117 @@ body,
 
 .basehalf-sideways-scrollbar.shown {
 	opacity: 1;
+	transition: none;
+}
+
+/* The outline of the note's headings in the margin to the left of its text
+ * (zoom and outline of a note): the same rules as the workbench's
+ * `cardDetail/browser/media/basehalfNoteOutline.css`. */
+
+
+/* It lies in the view's flow before the page, takes no height, and sticks to
+ * the top of the view; the ticks and the panel are placed from there. */
+.basehalf-note-outline {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	height: 0;
+}
+
+.basehalf-note-outline-ticks {
+	position: absolute;
+	width: 32px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 200ms ease;
+}
+
+.basehalf-note-outline-ticks.shown {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.basehalf-note-outline-tick {
+	position: absolute;
+	height: 2px;
+	border-radius: 1px;
+	background-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+	transition: background-color 200ms ease;
+}
+
+.basehalf-note-outline-tick.current {
+	background-color: color-mix(in srgb, var(--vscode-foreground) 83%, transparent);
+}
+
+/* The panel has the look of BaseHalf's other menus. */
+.basehalf-note-outline-panel {
+	position: absolute;
+	display: flex;
+	box-sizing: border-box;
+	width: 240px;
+	flex-direction: column;
+	padding: 6px;
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	font-size: 13px;
+	opacity: 0;
+	transform: translateX(-10px);
+	visibility: hidden;
+	pointer-events: none;
+	transition: opacity 200ms ease, transform 200ms ease, visibility 0s linear 200ms;
+}
+
+.basehalf-note-outline-panel.open {
+	opacity: 1;
+	transform: none;
+	visibility: visible;
+	pointer-events: auto;
+	transition: opacity 200ms ease, transform 200ms ease, visibility 0s;
+}
+
+.basehalf-note-outline-list {
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+
+.basehalf-note-outline-item {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	height: 25px;
+	padding-block: 0;
+	padding-inline-end: 8px;
+	border: 0;
+	border-radius: 6px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	background: none;
+	font: inherit;
+	line-height: 25px;
+	text-align: start;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+.basehalf-note-outline-item.current {
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+}
+
+.basehalf-note-outline-item:hover {
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	background: var(--vscode-list-hoverBackground);
+}
+
+.basehalf-note-outline.reduced-motion .basehalf-note-outline-ticks,
+.basehalf-note-outline.reduced-motion .basehalf-note-outline-tick,
+.basehalf-note-outline.reduced-motion .basehalf-note-outline-panel,
+.basehalf-note-outline.reduced-motion .basehalf-note-outline-panel.open {
 	transition: none;
 }

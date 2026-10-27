@@ -68,8 +68,11 @@
 .monaco-workbench .basehalf-card-detail-markdown-preview-content {
 	/* The bar of a table that is scrolled sideways is placed in this box. */
 	position: relative;
-	max-width: 760px;
+	/* At a level of zoom the column is laid out as wide as the view allows at
+	 * that level and drawn larger from its top middle (zoom and outline of a note). */
+	max-width: min(760px, calc(100% / var(--basehalf-note-zoom, 1)));
 	margin: 0 auto;
+	transform-origin: top center;
 	color: var(--vscode-editor-foreground);
 	font-size: 14px;
 	line-height: 1.65;

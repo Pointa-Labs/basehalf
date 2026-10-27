@@ -33,6 +33,19 @@ export interface IBaseHalfMarkdownRichFocusPoint {
 	readonly y: number;
 }
 
+/**
+ * A wheel event of a pinch that the window took over the page. The browser
+ * hands a pinch of the trackpad to the window, not to the page that draws the
+ * note, so the window passes it on (zoom and outline of a note). The point is
+ * in the page's coordinates.
+ */
+export interface IBaseHalfMarkdownRichZoomGesture {
+	readonly deltaY: number;
+	readonly deltaMode: number;
+	readonly x: number;
+	readonly y: number;
+}
+
 export interface IBaseHalfMarkdownRichFormatState extends IBaseHalfMarkdownFormatState {
 	readonly canSetBlockType: boolean;
 	readonly canToggleStyle: boolean;
@@ -84,6 +97,21 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly editable: boolean;
 		readonly surface: BaseHalfMarkdownRichSurface;
 		readonly selection?: IBaseHalfMarkdownRichTextSelection;
+		/** The level of notes in Card Detail, which the page is laid out at from its first frame. */
+		readonly zoom?: number;
+		/** Whether motion is reduced, for the outline (zoom and outline of a note, rule 20). */
+		readonly reducedMotion?: boolean;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.zoomGesture';
+		readonly key: string;
+		readonly gesture: IBaseHalfMarkdownRichZoomGesture;
+	}
+	| {
+		/** The level of notes changed elsewhere: in Preview, or in another window. */
+		readonly type: 'basehalf.markdownRich.setZoom';
+		readonly key: string;
+		readonly zoom: number;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.applyYjsUpdate';
@@ -269,6 +297,12 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly endLineNumber?: number;
 	}
 	| {
+		/** A zoom ended at this level, which the window keeps for every note. */
+		readonly type: 'basehalf.markdownRich.zoomChanged';
+		readonly key: string;
+		readonly zoom: number;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.error';
 		readonly key: string;
 		readonly message: string;
@@ -294,7 +328,13 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& typeof candidate.content === 'string'
 				&& typeof candidate.editable === 'boolean'
 				&& isBaseHalfMarkdownRichSurface(candidate.surface)
-				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection));
+				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection))
+				&& (candidate.zoom === undefined || isPositiveNumber(candidate.zoom))
+				&& (candidate.reducedMotion === undefined || typeof candidate.reducedMotion === 'boolean');
+		case 'basehalf.markdownRich.zoomGesture':
+			return isBaseHalfMarkdownRichZoomGesture(candidate.gesture);
+		case 'basehalf.markdownRich.setZoom':
+			return isPositiveNumber(candidate.zoom);
 		case 'basehalf.markdownRich.applyYjsUpdate':
 			return candidate.update instanceof ArrayBuffer;
 		case 'basehalf.markdownRich.setEditable':
@@ -404,6 +444,8 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return typeof candidate.text === 'string' && (candidate.text.length === 0
 				? candidate.startLineNumber === undefined && candidate.endLineNumber === undefined
 				: isPositiveInteger(candidate.startLineNumber) && isPositiveInteger(candidate.endLineNumber) && candidate.startLineNumber <= candidate.endLineNumber);
+		case 'basehalf.markdownRich.zoomChanged':
+			return isPositiveNumber(candidate.zoom);
 		case 'basehalf.markdownRich.error':
 			return typeof candidate.message === 'string'
 				&& (candidate.stack === undefined || typeof candidate.stack === 'string');
@@ -518,6 +560,26 @@ function isBaseHalfMarkdownRichFileLink(value: unknown): value is IBaseHalfMarkd
 		&& file.path.length > 0
 		&& typeof file.href === 'string'
 		&& file.href.length > 0;
+}
+
+function isBaseHalfMarkdownRichZoomGesture(value: unknown): value is IBaseHalfMarkdownRichZoomGesture {
+	if (!isObject(value)) {
+		return false;
+	}
+
+	const gesture = value as Partial<IBaseHalfMarkdownRichZoomGesture>;
+	return isFiniteNumber(gesture.deltaY)
+		&& (gesture.deltaMode === 0 || gesture.deltaMode === 1 || gesture.deltaMode === 2)
+		&& isFiniteNumber(gesture.x)
+		&& isFiniteNumber(gesture.y);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPositiveNumber(value: unknown): value is number {
+	return isFiniteNumber(value) && value > 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {
