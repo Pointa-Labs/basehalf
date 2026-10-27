@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { workspacePath } from '../../context.mts';
 import { assertCanvasFolder, openRootCanvas } from '../../lib/canvas.mts';
-import { assertCardDetail } from '../../lib/cardDetail.mts';
+import { assertCardDetail, enterEditing } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { chooseRatio, patternPng, waitForCrop } from './imageEdit.mts';
@@ -97,6 +97,8 @@ export async function assertCardDetailEditShowsOnItsCard(page) {
 		await card.dblclick();
 		await assertCardDetail(page, 'photo.png');
 		await waitForCrop(page);
+		// Card Detail opens to view the picture; Edit brings up the crop's tools (D96).
+		await enterEditing(page);
 		await chooseRatio(page, '16:9');
 		// Closed at once, before the rest after a change: the write lands on the canvas.
 		await startCardSampler(page);
