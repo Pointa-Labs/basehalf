@@ -32,23 +32,31 @@ export interface IBaseHalfCanvasDropCard extends IBaseHalfCanvasBounds {
 	readonly selected: boolean;
 }
 
+/** The folder's card that takes the dragged cards now, and where it is drawn (it grows while it takes them). */
+export interface IBaseHalfCanvasTakingFolder extends IBaseHalfCanvasBounds {
+	readonly path: string;
+}
+
 /**
  * The path of the folder's card that takes dragged cards let go at `point`,
  * in canvas coordinates (dropping into a folder, "Which folder takes them"):
  * the card drawn on top there, leaving the dragged cards out, when it is a
  * folder's card. `cards` are in the order they are drawn: a later card is
- * drawn over an earlier one, and a selected card over the others.
+ * drawn over an earlier one, and a selected card over the others. The
+ * folder that takes them now, `taking`, takes them over all of its card as
+ * it is drawn, grown included, where no card is drawn over it.
  */
 export function baseHalfCanvasFolderDropTarget(
 	cards: readonly IBaseHalfCanvasDropCard[],
 	dragged: ReadonlySet<string>,
-	point: IBaseHalfCanvasPosition
+	point: IBaseHalfCanvasPosition,
+	taking?: IBaseHalfCanvasTakingFolder
 ): string | undefined {
+	const covers = (bounds: IBaseHalfCanvasBounds): boolean => point.x >= bounds.x && point.x <= bounds.x + bounds.width
+		&& point.y >= bounds.y && point.y <= bounds.y + bounds.height;
 	let top: IBaseHalfCanvasDropCard | undefined;
 	for (const card of cards) {
-		if (dragged.has(card.path)
-			|| point.x < card.x || point.x > card.x + card.width
-			|| point.y < card.y || point.y > card.y + card.height) {
+		if (dragged.has(card.path) || !(covers(card) || (card.path === taking?.path && covers(taking)))) {
 			continue;
 		}
 		if (!top || !top.selected || card.selected) {

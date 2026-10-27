@@ -8,7 +8,8 @@ import {
 	BASEHALF_CANVAS_DROP_TARGET_ATTRIBUTE,
 	BASEHALF_CANVAS_DROPPING_ATTRIBUTE,
 	BaseHalfCanvasDropFolder,
-	baseHalfCanvasFolderDropTarget
+	baseHalfCanvasFolderDropTarget,
+	IBaseHalfCanvasTakingFolder
 } from '../../common/basehalfCanvasFolderDrop.js';
 import type { ReactFlowInstance } from '@xyflow/react';
 import type { RefObject } from 'react';
@@ -67,6 +68,22 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		}
 	}, []);
 
+	/**
+	 * The folder's card that takes the dragged cards now, where it is drawn:
+	 * it grows while it takes them, and it takes them over what shows.
+	 */
+	const takingFolder = (flow: ReactFlowInstance<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>): IBaseHalfCanvasTakingFolder | undefined => {
+		const target = look.current.target;
+		const path = target?.dataset.basehalfCardPath;
+		if (!target || !path) {
+			return undefined;
+		}
+		const drawn = target.getBoundingClientRect();
+		const start = flow.screenToFlowPosition({ x: drawn.left, y: drawn.top });
+		const end = flow.screenToFlowPosition({ x: drawn.right, y: drawn.bottom });
+		return { path, x: start.x, y: start.y, width: end.x - start.x, height: end.y - start.y };
+	};
+
 	const decide = vendor.useCallback((clientX: number, clientY: number, dragged: ReadonlySet<string>): BaseHalfCanvasSceneDropDecision => {
 		if (!isInside(host.getBoundingClientRect(), clientX, clientY)) {
 			const element = host.ownerDocument.elementFromPoint(clientX, clientY)?.closest<HTMLElement>(`[${BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE}]`);
@@ -85,7 +102,7 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 			...flowNodeRect(node),
 			folder: node.data.card.kind === 'folder',
 			selected: !!node.selected
-		})), dragged, point);
+		})), dragged, point, takingFolder(flow));
 		return path
 			? { kind: 'folder', folder: { kind: 'card', path }, element: shown.find(node => node.id === path)?.data.card.element }
 			: { kind: 'place' };

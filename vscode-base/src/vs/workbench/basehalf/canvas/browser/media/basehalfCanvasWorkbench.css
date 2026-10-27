@@ -70,6 +70,8 @@
 	--bh-card-folder: #252524;
 	--bh-card-folder-border: #494437;
 	--bh-card-folder-glyph: #c5ad69;
+	/* A folder that would take a drop: the gold of its glyph made bright. */
+	--bh-card-folder-drop: #f0c54c;
 	--basehalf-detail-badge-ghost: color-mix(in srgb, var(--vscode-descriptionForeground) 64%, transparent);
 
 	position: absolute;
@@ -88,6 +90,7 @@
 		--bh-canvas-focus-ring: Highlight;
 		--bh-canvas-intent: LinkText;
 		--bh-canvas-intent-soft: LinkText;
+		--bh-card-folder-drop: Highlight;
 	}
 }
 

@@ -39,6 +39,37 @@ suite('BaseHalfCanvasFolderDrop', () => {
 		});
 	});
 
+	test('the taking folder takes a drop over its grown card, but not under a card drawn over it', () => {
+		// A folder at 700..948 by 0..188, drawn at 108 percent around its
+		// middle while it takes the drop: 690.08..957.92 by -7.52..195.52.
+		const docs = card('docs', 700, 0, true);
+		const grown = { path: 'docs', x: 690.08, y: -7.52, width: 267.84, height: 203.04 };
+		// A note drawn after the folder, 4 canvas pixels to its right, so the
+		// grown folder reaches under it.
+		const note = card('note.md', 952, 0);
+		const dragged = card('a.md', 400, 0, false, true);
+		const at = (x: number, y: number, taking?: typeof grown) =>
+			baseHalfCanvasFolderDropTarget([docs, note, dragged], new Set(['a.md']), { x, y }, taking);
+		assert.deepStrictEqual({
+			leftEdgeWhileTaking: at(694, 90, grown),
+			bottomEdgeWhileTaking: at(820, 193, grown),
+			// The note is drawn over the grown folder there.
+			underTheNote: at(955, 90, grown),
+			beyondTheGrownCard: at(686, 90, grown),
+			// A folder that does not take the drop now has its place only.
+			leftEdgeNotTaking: at(694, 90),
+			// The grown card of another path counts for that path only.
+			grownOfAnother: at(694, 90, { ...grown, path: 'other' })
+		}, {
+			leftEdgeWhileTaking: 'docs',
+			bottomEdgeWhileTaking: 'docs',
+			underTheNote: undefined,
+			beyondTheGrownCard: undefined,
+			leftEdgeNotTaking: undefined,
+			grownOfAnother: undefined
+		});
+	});
+
 	test('a moved item keeps both names, with a number after its name, before its extension', () => {
 		assert.deepStrictEqual({
 			note: [0, 1].map(attempt => baseHalfCanvasKeptName('plan.md', false, attempt)),
