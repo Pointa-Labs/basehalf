@@ -969,13 +969,16 @@ export async function drawCanvasConnectionInto(page, sourcePath, targetPath) {
 	await page.mouse.up();
 }
 
-/** The button of Pick on Canvas at the panel's top right (D71). */
-export const PICK_BUTTON = 'button.bh-input-row-action[data-key="pick"]';
+/** The button of Pick on Canvas: at the panel's top right on a video or an audio card (D71), at the start of the footer on an image card (D91). */
+export const PICK_BUTTON = 'button.bh-add-input[data-key="pick"]';
+
+/** What the two buttons that add an input tell assistive technology while the draft picks (D71, D91). */
+export const PICKING_STATUS = '.bh-add-inputs-status[role="status"]';
 
 /**
- * Starts Pick on Canvas with its button at the panel's top right, or from the
- * menu of an empty frame, `emptyFrame`; the button is highlighted, and the
- * panel and the bar over the canvas say what a click does (D69, D71).
+ * Starts Pick on Canvas with its button, or from the menu of an empty frame,
+ * `emptyFrame`; the button is highlighted, and the panel and the bar over the
+ * canvas say what a click does (D69, D71).
  */
 export async function startPickOnCanvas(page, panel, emptyFrame = undefined) {
 	if (emptyFrame) {
@@ -986,8 +989,8 @@ export async function startPickOnCanvas(page, panel, emptyFrame = undefined) {
 	} else {
 		await panel.locator(PICK_BUTTON).click();
 	}
-	// The row tells assistive technology; the highlighted button shows it (D71).
-	await panel.locator('.bh-input-row.picking .bh-input-row-hint[role="status"]').waitFor({ state: 'attached', timeout: 10_000 });
+	// The button tells assistive technology, and its highlight shows it (D71, D91).
+	await panel.locator(PICKING_STATUS, { hasText: 'Click cards on the canvas.' }).waitFor({ state: 'attached', timeout: 10_000 });
 	await panel.locator(`${PICK_BUTTON}[aria-pressed="true"]`).waitFor({ state: 'visible', timeout: 10_000 });
 	await page.locator('.basehalf-canvas-pick-bar').waitFor({ state: 'visible', timeout: 10_000 });
 }
@@ -1002,7 +1005,7 @@ export async function pickInputOnCanvas(page, panel, sourcePath, emptyFrame = un
 	await clickCanvasCardOnTop(page, sourcePath);
 	await waitForReading(() => readCanvasPick(page), seen => seen?.cards[sourcePath] === 'remove', `Pick on Canvas to show ${sourcePath} as connected`);
 	await page.locator('.basehalf-canvas-pick-done').click();
-	await panel.locator('.bh-input-row.picking').waitFor({ state: 'detached', timeout: 10_000 });
+	await panel.locator(`${PICK_BUTTON}[aria-pressed="false"]`).waitFor({ state: 'attached', timeout: 10_000 });
 	await page.locator('.basehalf-canvas-pick-bar').waitFor({ state: 'detached', timeout: 10_000 });
 }
 
