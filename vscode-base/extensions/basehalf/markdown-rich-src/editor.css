@@ -640,7 +640,9 @@ body,
 .basehalf-note-outline {
 	position: sticky;
 	top: 0;
-	z-index: 3;
+	/* Above the editor's own menus and handles of a block (the portal, 30),
+	 * which would otherwise be drawn over the panel. */
+	z-index: 31;
 	height: 0;
 }
 

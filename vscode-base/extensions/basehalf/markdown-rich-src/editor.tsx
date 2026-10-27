@@ -78,6 +78,7 @@ import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/base
 import { isBaseHalfNoteZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteZoom.js';
 import { BaseHalfNoteZoomGesture } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoomGesture.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
+import { BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteOutlineLayout.js';
 import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
@@ -1704,6 +1705,7 @@ function MarkdownRichEditor(): JSX.Element {
 				headings: () => baseHalfNoteOutlineHeadings(text()),
 				label: 'Outline',
 				reducedMotion: () => aids.reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+				minMargin: BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES,
 			}),
 			reducedMotion,
 		};

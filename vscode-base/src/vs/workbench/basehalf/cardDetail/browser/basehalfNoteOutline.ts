@@ -64,6 +64,8 @@ export interface IBaseHalfNoteOutlineOptions {
 	readonly label: string;
 	/** With reduced motion the outline comes and goes in one frame, and a click scrolls at once (rule 20). */
 	readonly reducedMotion: () => boolean;
+	/** The narrowest left margin that shows the outline, when the page puts more than the outline there (rule 11). */
+	readonly minMargin?: number;
 }
 
 /**
@@ -269,7 +271,7 @@ export class BaseHalfNoteOutline {
 		const viewLeft = viewBox.left + view.clientLeft;
 		const height = view.clientHeight;
 		const margin = text ? text.getBoundingClientRect().left - viewLeft : 0;
-		const available = this.headings.length > 0 && height > 0 && margin >= BASEHALF_NOTE_OUTLINE_MIN_MARGIN;
+		const available = this.headings.length > 0 && height > 0 && margin >= (this.options.minMargin ?? BASEHALF_NOTE_OUTLINE_MIN_MARGIN);
 		this.root.classList.toggle('reduced-motion', this.options.reducedMotion());
 		if (!available) {
 			this.column.classList.remove('shown');

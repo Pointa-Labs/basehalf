@@ -8,6 +8,12 @@
 
 /** The narrowest left margin that shows the outline (zoom and outline of a note, rule 11). */
 export const BASEHALF_NOTE_OUTLINE_MIN_MARGIN = 48;
+/**
+ * The narrowest left margin of the Rich projection that shows it: the
+ * editor's handles of a block stand in the 57 pixels left of the text, and the
+ * outline keeps 4 pixels from them (rule 11).
+ */
+export const BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES = 105;
 /** Where the right ends of the ticks stand, from the left edge of the view (rule 12). */
 export const BASEHALF_NOTE_OUTLINE_TICK_END = 36;
 export const BASEHALF_NOTE_OUTLINE_TICK_HEIGHT = 2;
