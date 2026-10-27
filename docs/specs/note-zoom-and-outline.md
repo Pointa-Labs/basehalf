@@ -86,7 +86,8 @@ Not in scope, and unchanged:
    the factor e^(−Δy / 100), the browser's own measure of a pinch, and a
    notch of a mouse wheel changes it by at most 10%.
 4. The line under the pointer stays at the height of the pointer while the
-   level changes.
+   level changes, as far as the note can scroll: at its start or its end
+   the page grows or shrinks from there.
 5. The level is between 50% and 300%. A gesture that ends between 94% and
    106% ends at 100%.
 6. While the browser lays the page out within 16 ms, every frame of a gesture
@@ -94,7 +95,9 @@ Not in scope, and unchanged:
    longer, which a long note does (rule L1), the other frames of that gesture
    show the page as it was last laid out, made larger or smaller around the
    line under the pointer, and the page is laid out at the level the gesture
-   ends at, 150 ms after its last event.
+   ends at, 150 ms after its last event. A page of more than 1,500 elements
+   is taken to need longer until one of its layouts has been measured, and so
+   is a page whose last layout needed longer.
 7. A zoom changes nothing else of the note: the caret, the selection, what
    agents can see of it, the editor's undo, and an open menu of the editor
    stay as they were. A click, a drag, and typing work in a zoomed page as at
