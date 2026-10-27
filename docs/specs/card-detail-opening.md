@@ -91,8 +91,8 @@ another.
   keyboard: the editor of a note has the caret at the end of the note, so
   that what is typed goes on from there; the editor of another text has it
   at its start, or where it was opened, as from a result of Search; the
-  player of a video or a sound has it on Play; an image, a PDF, and a book
-  have it in their page. It does not when it was opened to keep the keyboard where it
+  player of a video or a sound has it on Play; an image has it on its
+  picture, and a PDF and a book in their page. It does not when it was opened to keep the keyboard where it
   was, as a click in Files does, or when the keyboard went out of the canvas
   meanwhile.
 - Escape closes Card Detail, wherever in it the keyboard is: in its header,
@@ -104,8 +104,10 @@ another.
   the PDF viewer, the contents and the search of the book reader
   ([PDFs and books](documents-and-books.md#the-book-reader)), the
   composition of an input method, full screen, a drag in an editor of a video,
-  an image, or a sound, which Escape ends first, and a selected part of a
-  sound, which it drops first ([editing media](media-editing.md#the-keyboard)).
+  an image, or a sound, which Escape ends first, a selected part of a
+  sound, which it drops first, and the editing of a video, an image, or a
+  sound, which it leaves first, back to viewing the file, wherever in Card
+  Detail the keyboard is ([editing media](media-editing.md#the-keyboard)).
 - When Card Detail closes with the keyboard in it, the keyboard goes back to
   the canvas, where the keys of the selected card work again.
 

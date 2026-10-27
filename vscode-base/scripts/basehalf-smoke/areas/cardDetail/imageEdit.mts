@@ -3,13 +3,14 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// Card Detail's crop view of an image (editing media): the editor at once, a ratio, a turn and a flip saved as they are made, the wheel that zooms only the view, Revert to Original, and undo.
+// Card Detail's crop view of an image (editing media): viewing first, Edit, a ratio, a turn and a flip saved as they are made, a pinch that zooms
+// only the view and a wheel that zooms nothing, Revert to Original, undo, and Escape back to viewing (D96).
 
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 import { workspacePath } from '../../context.mts';
-import { assertCardDetail } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
@@ -88,13 +89,26 @@ export async function assertCardDetailImageEdit(page) {
 		await quickOpen(page, 'concept.svg');
 		await assertCardDetail(page, 'concept.svg');
 		await page.locator(`${SURFACE} .basehalf-card-detail-media-webview iframe, ${SURFACE} .basehalf-card-detail-media-webview webview`).first().waitFor({ state: 'attached', timeout: 15_000 });
-		if (await page.locator(CROP).count() || await page.locator(LINE).count()) {
-			throw new Error('Card Detail of an SVG shows its page, without a crop view or a line.');
+		if (await page.locator(CROP).count() || await page.locator(LINE).count() || await cardDetailModeLabel(page)) {
+			throw new Error('Card Detail of an SVG shows its page, without a crop view, a line, or Edit.');
 		}
 
 		await quickOpen(page, IMAGE);
 		await assertCardDetail(page, 'still.png');
 		await waitForCrop(page);
+		// Card Detail opens to view the picture: with the pointer over it no frame comes, and its tools are not there.
+		const viewBox = await page.locator(`${CROP} .basehalf-image-crop-view`).boundingBox();
+		await page.mouse.move(viewBox.x + viewBox.width / 2, viewBox.y + viewBox.height / 2);
+		await page.waitForTimeout(250);
+		const viewing = await page.evaluate(selector => ({
+			corner: getComputedStyle(document.querySelector(`${selector} .basehalf-image-crop-corner.topLeft`)).opacity,
+			tools: getComputedStyle(document.querySelector(`${selector} .basehalf-image-crop-tools`)).visibility,
+			inert: document.querySelector(`${selector} .basehalf-image-crop-tools`).hasAttribute('inert')
+		}), CROP);
+		if (viewing.corner !== '0' || viewing.tools !== 'hidden' || !viewing.inert || await cardDetailModeLabel(page) !== 'Edit' || await lineText(page) !== '') {
+			throw new Error(`Card Detail of an image opens to view it: no frame with the pointer over it, no tools, Edit in the header, and an empty line: ${JSON.stringify({ viewing, line: await lineText(page) })}`);
+		}
+		await enterEditing(page);
 		// At rest the frame waits for the pointer: no corner shows while it is elsewhere.
 		await page.mouse.move(2, 2);
 		await page.waitForTimeout(250);
@@ -126,14 +140,22 @@ export async function assertCardDetailImageEdit(page) {
 			throw new Error(`A turn and a flip are written as an edit of the original: ${turnedRecord}`);
 		}
 
-		// The wheel over the picture zooms the view and changes no edit; a double click shows the picture as it fits again.
+		// The wheel alone over the picture zooms nothing, as on the canvas; with the zoom key it zooms the view and changes no edit; a double click shows the picture as it fits again.
 		const view = await page.locator(`${CROP} .basehalf-image-crop-view`).boundingBox();
 		await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
 		await page.mouse.wheel(0, -400);
+		await page.waitForTimeout(300);
+		if (await page.locator(`${CROP}.zoomed`).count()) {
+			throw new Error('The wheel alone over the picture zooms nothing.');
+		}
+		const zoomKey = process.platform === 'darwin' ? 'Meta' : 'Control';
+		await page.keyboard.down(zoomKey);
+		await page.mouse.wheel(0, -400);
+		await page.keyboard.up(zoomKey);
 		await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('zoomed'), CROP, { timeout: 5_000 });
 		await page.waitForTimeout(1_500);
 		if (!fs.readFileSync(workspaceFile(IMAGE)).equals(turned) || recordText() !== turnedRecord) {
-			throw new Error('The wheel zooms the view only: the file and its record stay as they were.');
+			throw new Error('The wheel with the zoom key zooms the view only: the file and its record stay as they were.');
 		}
 		await page.mouse.dblclick(view.x + view.width / 2, view.y + view.height / 2);
 		await page.waitForFunction(selector => !document.querySelector(selector)?.classList.contains('zoomed'), CROP, { timeout: 5_000 });
@@ -145,7 +167,7 @@ export async function assertCardDetailImageEdit(page) {
 		await page.keyboard.press(UNDO);
 		await waitUntil(() => !!read(workspaceFile(IMAGE))?.equals(turned) && recordText() === turnedRecord, 'undo to bring the edit back', 30_000);
 
-		// Escape during a drag of a corner puts the frame back and leaves Card Detail open; the next Escape closes it.
+		// Escape during a drag of a corner puts the frame back and leaves the editor open; the next Escape goes back to viewing, the one after closes Card Detail.
 		const corner = await page.locator(`${CROP} .basehalf-image-crop-corner.topLeft`).boundingBox();
 		await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2);
 		await page.mouse.down();
@@ -153,9 +175,11 @@ export async function assertCardDetailImageEdit(page) {
 		await page.keyboard.press('Escape');
 		await page.mouse.up();
 		await page.waitForTimeout(400);
-		if (!(await page.locator(DETAIL).isVisible()) || !fs.readFileSync(workspaceFile(IMAGE)).equals(turned) || recordText() !== turnedRecord) {
-			throw new Error('Escape during a drag puts the frame back and leaves Card Detail open, with no change.');
+		if (!(await page.locator(DETAIL).isVisible()) || !fs.readFileSync(workspaceFile(IMAGE)).equals(turned) || recordText() !== turnedRecord || await cardDetailModeLabel(page) !== 'Done') {
+			throw new Error('Escape during a drag puts the frame back and leaves the editor open, with no change.');
 		}
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('viewing'), CROP, { timeout: 5_000 });
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 	} finally {

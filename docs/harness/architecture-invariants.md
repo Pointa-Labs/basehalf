@@ -109,8 +109,10 @@ See [code organization](code-organization.md) and public decision D60.
   ([PDFs and books](../specs/documents-and-books.md)). A file that the
   system cannot decode says so where it would show.
 - **A change is the result** (D85). What the user changes, on the canvas or in
-  Card Detail, is saved as they make it: there is no mode to enter and no
-  Save, Done, Apply, or Cancel to press, as a note saves itself as it is typed.
+  Card Detail, is saved as they make it: there is no Save, Apply, or Cancel to
+  press, as a note saves itself as it is typed. Editing a video, an image, or
+  a sound starts with Edit, so that looking at a file shows nothing that
+  changes it, and its Done only goes back to viewing (D96).
   Undo is the way back, one step at a time, the same in every part of the
   window; what a change replaces that the user may want back stays one action
   away, as an edited file keeps its original

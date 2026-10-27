@@ -167,6 +167,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly detailSaveStatusIcon: HTMLElement;
 	readonly detailSaveStatusLabel: HTMLElement;
 	readonly detailProjectionActions: HTMLElement;
+	/** Edit and Done of a video, an image, or a sound that Card Detail shows (editing media). */
+	readonly detailModeActions: HTMLElement;
 	readonly detailBadgeZone: HTMLElement;
 	readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
@@ -467,10 +469,11 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.detailSaveStatusIcon.setAttribute('aria-hidden', 'true');
 		this.detailSaveStatusLabel = append(this.detailSaveStatus, $('span.basehalf-card-detail-save-status-label'));
 		this.detailProjectionActions = append(detailActions, $('.basehalf-card-detail-projections'));
-		// No layout control here, and no control of editing: the sidebar belongs
-		// to the window, and its control is in the title bar
-		// (docs/specs/layout-controls.md); a video, an image, or a sound is
-		// edited in its editor (docs/specs/media-editing.md).
+		// Edit and Done of a video, an image, or a sound, which its Card Detail
+		// draws here (docs/specs/media-editing.md). No layout control: the
+		// sidebar belongs to the window, and its control is in the title bar
+		// (docs/specs/layout-controls.md).
+		this.detailModeActions = append(detailActions, $('.basehalf-card-detail-mode'));
 		const close = append(detailActions, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
 		setBaseHalfHover(close, 'Close');

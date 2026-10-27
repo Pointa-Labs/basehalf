@@ -90,6 +90,12 @@ export interface IBaseHalfCanvasVideoPlayRange {
 	readonly end: number;
 	/** Where the part's last frame starts: once it has been shown for its length, the part starts again. */
 	readonly lastFrame: number;
+	/**
+	 * The part stands for the file as an edit made it, while Card Detail views
+	 * it (editing media, "Viewing and editing"): it plays once, to its end,
+	 * and the time counts from its start, to its length.
+	 */
+	readonly once?: boolean;
 }
 
 /** A video on a card (video node, "The player"). Dispose it with the card's body. */
@@ -106,7 +112,7 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
 	togglePlay(): void;
 	/** Shows the frame at a time, in seconds. */
 	seek(time: number): void;
-	/** Plays only a part of the video, over and over, or the whole video again. */
+	/** Plays only a part of the video, over and over or once, or the whole video again. */
 	setPlayRange(range: IBaseHalfCanvasVideoPlayRange | undefined): void;
 	/** Turns the sound off or on, as its sound button does: for an edit that saves a video without its sound (editing media). */
 	setMuted(muted: boolean): void;
@@ -342,6 +348,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 			}
 			this.watchRange();
 		}
+		this.updateTime();
 	}
 
 	setMuted(muted: boolean): void {
@@ -377,6 +384,14 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 				this.rangeJump = setTimeout(() => {
 					this.rangeJump = undefined;
 					if (this.range && !this.video.paused) {
+						if (this.range.once) {
+							// The file plays to its end and stops there, on its last frame, as a video's end stops it:
+							// its sound went down before the end already, and no frame after the part shows.
+							this.video.pause();
+							this.video.currentTime = this.range.lastFrame + RANGE_START_INSIDE;
+							this.updatePlayButton();
+							return;
+						}
 						this.video.currentTime = this.range.start + RANGE_START_INSIDE;
 					}
 				}, remaining * 1000 * RANGE_JUMP_AFTER);
@@ -498,8 +513,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 			this._register(addDisposableListener(video, type, () => this.updatePlayButton()));
 		}
 		this._register(addDisposableListener(video, 'ended', () => {
-			// A part that ends where the video does starts again too.
-			if (this.range) {
+			// A part that ends where the video does starts again too, unless it plays once.
+			if (this.range && !this.range.once) {
 				video.currentTime = this.range.start + RANGE_START_INSIDE;
 				this.play();
 				return;
@@ -665,9 +680,14 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	}
 
 	private updateTime(): void {
-		const duration = this.duration();
+		const whole = this.duration();
 		const current = Number.isFinite(this.video.currentTime) ? this.video.currentTime : 0;
-		const time = duration === undefined ? current : Math.min(current, duration);
+		// A part that stands for the file counts from its start, to its length.
+		const part = this.range?.once ? this.range : undefined;
+		const duration = part ? part.end - part.start : whole;
+		const time = part
+			? Math.min(Math.max(current - part.start, 0), part.end - part.start)
+			: duration === undefined ? current : Math.min(current, duration);
 		this.played.textContent = formatBaseHalfCanvasVideoTime(time);
 		this.length.textContent = duration === undefined ? '' : formatBaseHalfCanvasVideoTime(duration);
 		this.slider.style.setProperty('--basehalf-video-played', `${duration === undefined ? 0 : (time / duration * 100).toFixed(3)}%`);

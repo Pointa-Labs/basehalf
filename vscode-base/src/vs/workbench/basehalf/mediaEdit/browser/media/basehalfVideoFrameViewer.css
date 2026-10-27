@@ -271,3 +271,15 @@
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }
+
+/*
+ * While viewing (editing media, "Viewing and editing"), the strip is the
+ * timeline of the file as it is: no yellow frame, handle, shade, or length.
+ * The waveform of a sound shares these rules.
+ */
+.monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-part,
+.monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-handle,
+.monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-shade,
+.monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-length {
+	visibility: hidden;
+}

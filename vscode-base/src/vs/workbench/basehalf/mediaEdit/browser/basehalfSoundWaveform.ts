@@ -38,7 +38,10 @@ import { BaseHalfTimeZoom } from './basehalfTimeZoom.js';
  * drag inside the part, with Delete on it, which cuts it out; and Play under
  * it, which plays the sound as it is edited, the part between the handles
  * over and over while it is shorter than the whole. A pinch spreads its time
- * out ("Zooming the picture and the time").
+ * out ("Zooming the picture and the time"). While viewing ("Viewing and
+ * editing"), it shows the sound as the file holds it, from the first handle
+ * to the second, with the playhead, which a press moves, and Play plays it
+ * through once.
  */
 
 export interface IBaseHalfSoundWaveformOptions {
@@ -125,6 +128,8 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	/** The loudness of the loudest stretch of the original, which the bars are set against. */
 	private reference = 0;
 	private playing: IPlaying | undefined;
+	/** The waveform edits the sound; otherwise it views the file as it is. */
+	private editing = false;
 	private disposed = false;
 
 	constructor(
@@ -136,10 +141,12 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		const shown = baseHalfSoundShown(options.choices.keep, options.info.duration);
 		this.parts = shown.parts;
 		this.range = this.timeline().normalize(shown.range);
-		this.view = { from: 0, to: this.timeline().duration };
+		// It starts by viewing the file: the stretch between the handles.
+		this.view = { from: this.range.start, to: this.range.end };
+		this.position = this.range.start;
 
 		// The look of the frame viewer of a video: its frame, handles, playhead, and length.
-		this.element = append(container, $('.basehalf-video-frames.basehalf-sound-waveform'));
+		this.element = append(container, $('.basehalf-video-frames.basehalf-sound-waveform.viewing'));
 		this.element.setAttribute('role', 'group');
 		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.sound.label', "Waveform"));
 		const row = append(this.element, $('.basehalf-video-frames-row'));
@@ -160,9 +167,9 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			handle.setAttribute('role', 'slider');
 			handle.setAttribute('aria-label', label);
 			handle.setAttribute('aria-valuemin', '0');
-			handle.tabIndex = 0;
 			append(handle, chevron(handle === this.startHandle ? 'left' : 'right'));
 		}
+		this.showHandles();
 		// Delete stands on the selected stretch, while there is one.
 		this.deleteButton = append(this.strip, $<HTMLButtonElement>('button.basehalf-sound-waveform-delete'));
 		this.deleteButton.type = 'button';
@@ -180,6 +187,8 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}));
 		this.zoom = this._register(new BaseHalfTimeZoom({
 			strip: this.strip,
+			// While viewing, the waveform shows the file's length, and a pinch over it does nothing.
+			active: () => this.editing,
 			length: () => this.timeline().duration,
 			shortest: () => BASEHALF_TIME_ZOOM_SHORTEST_SECONDS,
 			onDidChange: () => this.onDidZoom(),
@@ -212,9 +221,44 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.position = Math.min(this.position, this.timeline().duration);
 		// An undo or a redo keeps the stretch a pinch spread out, as far as the length then allows.
 		this.zoom.fit();
-		this.view = this.zoom.stretch;
+		this.view = this.restingView();
 		this.render();
 		this.drawWaveform();
+	}
+
+	setEditing(editing: boolean): void {
+		if (editing === this.editing) {
+			return;
+		}
+		this.endDrag();
+		this.selected = undefined;
+		this.editing = editing;
+		this.element.classList.toggle('viewing', !editing);
+		if (!editing) {
+			// Done shows the file's length again; the next Edit starts from the whole sound.
+			this.zoom.reset();
+		}
+		this.showHandles();
+		this.view = this.restingView();
+		this.render();
+		this.drawWaveform();
+	}
+
+	/** The handles take the keyboard while editing, and are not there while viewing. */
+	private showHandles(): void {
+		for (const handle of [this.startHandle, this.endHandle]) {
+			handle.tabIndex = this.editing ? 0 : -1;
+			if (this.editing) {
+				handle.removeAttribute('aria-hidden');
+			} else {
+				handle.setAttribute('aria-hidden', 'true');
+			}
+		}
+	}
+
+	/** What the strip shows when no handle is held: the stretch between the handles while viewing, the file as it is; while editing, the stretch a pinch spread out, or the whole. */
+	private restingView(): { from: number; to: number } {
+		return this.editing ? this.zoom.stretch : { from: this.range.start, to: this.range.end };
 	}
 
 	private timeline(parts = this.parts): BaseHalfSoundTimeline {
@@ -364,7 +408,8 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.stop();
 		void context.resume();
 		const timeline = this.timeline();
-		const loop = !timeline.isWhole(this.range);
+		// While viewing, the file plays through once.
+		const loop = this.editing && !timeline.isWhole(this.range);
 		// Outside the stretch, or at its end, playing starts at its start.
 		let start = from;
 		if (start < this.range.start - 1e-6 || start >= this.range.end - 0.01) {
@@ -608,10 +653,14 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		event.preventDefault();
 		event.stopPropagation();
 		const time = this.timeAt(event.clientX);
-		const handle = this.handleAt(event);
+		const handle = this.editing ? this.handleAt(event) : undefined;
 		let kind: DragKind;
 		let grab = 0;
-		if (handle) {
+		if (!this.editing) {
+			// While viewing, a press anywhere moves the playhead, and a drag from there moves it along.
+			kind = 'scrub';
+			this.seek(time);
+		} else if (handle) {
 			kind = handle;
 			grab = time - (handle === 'start' ? this.range.start : this.range.end);
 			this.stop();
@@ -654,7 +703,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			}
 		}
 		// Past an edge of the stretch a pinch spread out, the drag carries the stretch along.
-		this.zoom.dragAt(current.kind === 'press' || this.element.classList.contains('spread') ? undefined : event.clientX);
+		this.zoom.dragAt(!this.editing || current.kind === 'press' || this.element.classList.contains('spread') ? undefined : event.clientX);
 		this.dragTo(event.clientX);
 	}
 
@@ -786,14 +835,14 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			return;
 		}
 		// The stretch a pinch chose shows again, or the whole sound.
-		this.view = this.zoom.stretch;
+		this.view = this.restingView();
 		this.element.classList.remove('spread');
 		this.drawWaveform();
 	}
 
 	/** A pinch, the wheel, or a drag past an edge changed the stretch shown: the waveform is drawn anew. A held handle's spread stays until it is let go. */
 	private onDidZoom(): void {
-		if (this.element.classList.contains('spread')) {
+		if (!this.editing || this.element.classList.contains('spread')) {
 			return;
 		}
 		this.view = this.zoom.stretch;
@@ -802,7 +851,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	}
 
 	private onHandleKey(event: KeyboardEvent, handle: Handle): void {
-		if (event.isComposing) {
+		if (event.isComposing || !this.editing) {
 			return;
 		}
 		const timeline = this.timeline();
@@ -855,14 +904,18 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 
 	private updatePlayhead(): void {
 		const time = this.playedTime();
-		if (this.playing && !this.drag && !this.element.classList.contains('spread')) {
+		if (this.editing && this.playing && !this.drag && !this.element.classList.contains('spread')) {
 			// While the sound plays, the stretch a pinch spread out follows the playhead.
 			this.zoom.follow(time);
 		}
 		const fraction = this.fractionOf(time);
 		this.playhead.classList.toggle('outside', fraction < 0 || fraction > 1);
 		this.playhead.style.left = `${(Math.min(Math.max(fraction, 0), 1) * 100).toFixed(3)}%`;
-		this.time.textContent = localize('basehalf.mediaEdit.sound.time', "{0} / {1}", formatBaseHalfVideoTrimLength(time), formatBaseHalfVideoTrimLength(this.timeline().duration));
+		// While viewing, the time counts from the first handle, to the file's length.
+		const shown = this.editing
+			? { time, length: this.timeline().duration }
+			: { time: Math.min(Math.max(time - this.range.start, 0), this.range.end - this.range.start), length: this.range.end - this.range.start };
+		this.time.textContent = localize('basehalf.mediaEdit.sound.time', "{0} / {1}", formatBaseHalfVideoTrimLength(shown.time), formatBaseHalfVideoTrimLength(shown.length));
 	}
 
 	private render(): void {

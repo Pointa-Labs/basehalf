@@ -6,18 +6,21 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
-	baseHalfClampPicturePan,
+	BASEHALF_PAGE_AT_REST,
+	baseHalfClampPageZoom,
 	baseHalfContainedSize,
 	baseHalfEdgeSeconds,
 	baseHalfFitStretch,
 	baseHalfIsWholeStretch,
+	baseHalfMovePage,
 	baseHalfMoveStretch,
+	baseHalfPagePoint,
 	baseHalfPictureMaxZoom,
 	baseHalfSpreadStretch,
 	baseHalfStretchShowing,
 	baseHalfStretchWheelSeconds,
-	baseHalfZoomFactor,
-	baseHalfZoomPanAround,
+	baseHalfWheelMove,
+	baseHalfZoomPageAround,
 	IBaseHalfTimeStretch
 } from '../../common/basehalfMediaZoom.js';
 
@@ -27,43 +30,39 @@ const roundStretch = (stretch: IBaseHalfTimeStretch) => ({ from: round(stretch.f
 suite('BaseHalfMediaZoom', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('a pinch follows the fingers, and the wheel zooms by e^(−Δy / 500)', () => {
-		// Fingers that spread to 1.6 times their distance: the browser's 25 events add up to −100 ln 1.6.
-		let zoom = 1;
-		for (let index = 0; index < 25; index++) {
-			zoom *= baseHalfZoomFactor({ deltaY: -100 * Math.log(1.6) / 25, deltaMode: 0, ctrlKey: true });
-		}
-		assert.deepStrictEqual({
-			pinch: round(zoom),
-			notch: round(baseHalfZoomFactor({ deltaY: -100, deltaMode: 0, ctrlKey: false })),
-			lines: round(baseHalfZoomFactor({ deltaY: -3, deltaMode: 1, ctrlKey: false })),
-			nothing: baseHalfZoomFactor({ deltaY: Number.NaN, deltaMode: 0, ctrlKey: true })
-		}, { pinch: 1.6, notch: round(Math.exp(0.2)), lines: round(Math.exp(48 / 500)), nothing: 1 });
+	test('a picture zooms up to 5 times as it fits, as a page does, or to twice its pixels when that is more', () => {
+		assert.deepStrictEqual([0.1, 0.25, 0.5, 1, 1.27, 2, 3.4, 0, Number.NaN].map(scale => round(baseHalfPictureMaxZoom(scale))), [20, 8, 5, 5, 5, 5, 5, 5, 5]);
 	});
 
-	test('a picture zooms up to twice its pixels, and not at all when it fits larger', () => {
-		assert.deepStrictEqual([0.5, 1, 1.27, 2, 3.4, 0, Number.NaN].map(scale => round(baseHalfPictureMaxZoom(scale))), [4, 2, 1.575, 1, 1, 1, 1]);
+	test('a media area zooms around a point as a browser zooms its page: what is under the point stays under it', () => {
+		const area = { width: 1400, height: 900 };
+		const at = { x: 500, y: 300 };
+		const once = baseHalfZoomPageAround(BASEHALF_PAGE_AT_REST, at, 1.6, 5, area);
+		const twice = baseHalfZoomPageAround(once, at, 2, 5, area);
+		// The point of the area at rest that is under the pointer: (at − origin) / zoom.
+		const under = (page: typeof once) => ({ x: round((at.x - page.origin.x) / page.zoom), y: round((at.y - page.origin.y) / page.zoom) });
+		assert.deepStrictEqual({ once: under(once), twice: under(twice), zoom: [round(once.zoom), round(twice.zoom)], capped: baseHalfZoomPageAround(twice, at, 4, 5, area).zoom }, {
+			once: { x: 500, y: 300 }, twice: { x: 500, y: 300 }, zoom: [1.6, 3.2], capped: 5
+		});
 	});
 
-	test('the point of the picture under the pointer stays under it', () => {
-		// A picture point under the pointer: (at − pan) / zoom, before and after.
-		const pan = { x: 40, y: -10 };
-		const at = { x: 200, y: 100 };
-		const zoom = 1.5;
-		const next = baseHalfZoomPanAround(pan, at, 2);
-		const before = { x: (at.x - pan.x) / zoom, y: (at.y - pan.y) / zoom };
-		const after = { x: (at.x - next.x) / (zoom * 2), y: (at.y - next.y) / (zoom * 2) };
-		assert.deepStrictEqual({ before: { x: round(before.x), y: round(before.y) }, after: { x: round(after.x), y: round(after.y) } }, { before: { x: round(before.x), y: round(before.y) }, after: { x: round(before.x), y: round(before.y) } });
-	});
-
-	test('a zoomed picture covers the view, and stays in its middle where it is smaller', () => {
-		const view = { width: 1000, height: 560 };
+	test('the zoomed area is never moved off itself, and as it fits it does not move at all', () => {
+		const area = { width: 1000, height: 600 };
+		const zoomed = { zoom: 2, origin: { x: -500, y: -300 } };
 		assert.deepStrictEqual([
-			baseHalfClampPicturePan({ x: 900, y: -900 }, { width: 1600, height: 900 }, view),
-			baseHalfClampPicturePan({ x: -120, y: 50 }, { width: 1600, height: 900 }, view),
-			// Letterboxed: wider than the view, not taller.
-			baseHalfClampPicturePan({ x: 80, y: 80 }, { width: 1200, height: 400 }, view)
-		], [{ x: 300, y: -170 }, { x: -120, y: 50 }, { x: 80, y: 0 }]);
+			baseHalfMovePage(zoomed, { x: 800, y: 50 }, area).origin,
+			baseHalfMovePage(zoomed, { x: -800, y: -400 }, area).origin,
+			baseHalfClampPageZoom({ zoom: 1, origin: { x: 40, y: -40 } }, area),
+			baseHalfClampPageZoom({ zoom: 0.5, origin: { x: 0, y: 0 } }, area).zoom
+		], [{ x: 0, y: -250 }, { x: -1000, y: -600 }, { zoom: 1, origin: { x: 0, y: 0 } }, 1]);
+	});
+
+	test('a swipe moves what is zoomed with the fingers, in pixels, lines, or pages', () => {
+		assert.deepStrictEqual([
+			baseHalfWheelMove({ deltaX: 30, deltaY: -12, deltaMode: 0, ctrlKey: false }),
+			baseHalfWheelMove({ deltaY: 3, deltaMode: 1, ctrlKey: false }),
+			baseHalfPagePoint({ zoom: 2, origin: { x: -100, y: -40 } }, { x: 300, y: 200 })
+		], [{ x: -30, y: 12 }, { x: -0, y: -48 }, { x: 500, y: 360 }]);
 	});
 
 	test('a picture is drawn as large as fits, its shape kept', () => {

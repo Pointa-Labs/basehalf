@@ -3,15 +3,17 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// A pinch in Card Detail (editing media, "Zooming the picture and the time", criteria 16 to 19): the picture of a
-// video and the page of an SVG zoom, the crop view of a PNG zooms, the frame viewer and the waveform spread their time
-// out, and nothing else zooms, neither the window nor the canvas.
+// A pinch in Card Detail (editing media, "Zooming the picture and the time", criteria 16 to 20): the picture of a
+// video grows past its player as a browser zooms its page, the page of an SVG zooms, the crop view of a PNG zooms, a
+// swipe moves a zoomed picture and zooms nothing, the frame viewer and the waveform spread their time out while they
+// are edited, and nothing else zooms, neither the window nor the canvas.
 
 import fs from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 import { waitForViewTransitions } from '../../app.mts';
 import { root, workspacePath } from '../../context.mts';
-import { assertCardDetail } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { patternPng } from './imageEdit.mts';
 
@@ -81,8 +83,13 @@ async function zoomOutside(page) {
 	}));
 }
 
+/** Escape goes back to viewing while editing, and closes Card Detail while viewing (D96). */
 async function closeDetail(page) {
 	await page.mouse.move(4, 4);
+	if (await cardDetailModeLabel(page) === 'Done') {
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(() => document.querySelector('.basehalf-card-detail.visible .basehalf-card-detail-mode-button')?.getAttribute('aria-label') === 'Edit', undefined, { timeout: 5_000 });
+	}
 	await page.keyboard.press('Escape');
 	await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 }
@@ -98,6 +105,88 @@ async function readStrip(page, selector) {
 
 function timeAt(strip, x) {
 	return strip.from + (x - strip.x) / strip.width * (strip.to - strip.from);
+}
+
+/** The pixels of a PNG of 8 bits a channel, gray, RGB, or RGBA, as the window's screenshots are. */
+function decodePng(png) {
+	let offset = 8;
+	let width = 0;
+	let height = 0;
+	let channels = 0;
+	const data = [];
+	while (offset < png.length) {
+		const length = png.readUInt32BE(offset);
+		const type = png.toString('latin1', offset + 4, offset + 8);
+		const body = png.subarray(offset + 8, offset + 8 + length);
+		if (type === 'IHDR') {
+			width = body.readUInt32BE(0);
+			height = body.readUInt32BE(4);
+			channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[body[9]];
+			if (body[8] !== 8 || !channels) {
+				throw new Error(`A screenshot of ${body[8]} bits in color type ${body[9]} cannot be read here.`);
+			}
+		} else if (type === 'IDAT') {
+			data.push(body);
+		}
+		offset += 12 + length;
+	}
+	const raw = zlib.inflateSync(Buffer.concat(data));
+	const stride = width * channels;
+	const pixels = Buffer.alloc(stride * height);
+	for (let row = 0; row < height; row++) {
+		const filter = raw[row * (stride + 1)];
+		const line = raw.subarray(row * (stride + 1) + 1, (row + 1) * (stride + 1));
+		for (let index = 0; index < stride; index++) {
+			const left = index >= channels ? pixels[row * stride + index - channels] : 0;
+			const up = row > 0 ? pixels[(row - 1) * stride + index] : 0;
+			const upLeft = row > 0 && index >= channels ? pixels[(row - 1) * stride + index - channels] : 0;
+			const paeth = () => {
+				const estimate = left + up - upLeft;
+				const [a, b, c] = [Math.abs(estimate - left), Math.abs(estimate - up), Math.abs(estimate - upLeft)];
+				return a <= b && a <= c ? left : b <= c ? up : upLeft;
+			};
+			const predicted = filter === 1 ? left : filter === 2 ? up : filter === 3 ? Math.floor((left + up) / 2) : filter === 4 ? paeth() : 0;
+			pixels[row * stride + index] = (line[index] + predicted) & 0xff;
+		}
+	}
+	return { width, height, channels, pixels };
+}
+
+/**
+ * Under the player of a zoomed video, down to the frame viewer, the window shows only Card Detail's background:
+ * the band of the viewer meets the player's bottom edge, and no sliver of the picture shows between them (editing
+ * media, "Zooming the picture and the time"). The rows checked stop 6 pixels above the strip, where its playhead
+ * and its frame reach.
+ */
+async function assertNothingUnderPlayer(page, when) {
+	const geometry = await page.evaluate(({ player, frames }) => {
+		const box = document.querySelector(player).getBoundingClientRect();
+		const area = document.querySelector('.basehalf-card-detail-surface.active .basehalf-card-detail-media-webview').getBoundingClientRect();
+		const strip = document.querySelector(`${frames} .basehalf-video-frames-strip`).getBoundingClientRect();
+		const background = getComputedStyle(document.querySelector('.basehalf-card-detail.visible')).backgroundColor;
+		return { bottom: box.bottom, stripTop: strip.top, left: area.left, right: area.right, background };
+	}, { player: PLAYER, frames: FRAMES });
+	const top = Math.ceil(geometry.bottom);
+	const height = Math.floor(geometry.stripTop) - 6 - top;
+	const left = Math.ceil(geometry.left) + 1;
+	const width = Math.floor(geometry.right) - 1 - left;
+	if (height < 1 || width < 1) {
+		throw new Error(`The frame viewer stands under the player, with room between them: ${JSON.stringify(geometry)}`);
+	}
+	const shot = decodePng(await page.screenshot({ clip: { x: left, y: top, width, height } }));
+	const background = (geometry.background.match(/\d+/g) ?? []).slice(0, 3).map(Number);
+	let different = 0;
+	let first;
+	for (let index = 0; index < shot.width * shot.height; index++) {
+		const pixel = Array.from(shot.pixels.subarray(index * shot.channels, index * shot.channels + 3));
+		if (pixel.some((value, channel) => Math.abs(value - background[channel]) > 6)) {
+			different++;
+			first ??= { x: index % shot.width, y: Math.floor(index / shot.width), pixel };
+		}
+	}
+	if (different) {
+		throw new Error(`${when}: under the player, down to the frame viewer, no picture shows, only Card Detail's background: ${different} of ${shot.width * shot.height} pixels are not ${geometry.background}, first ${JSON.stringify(first)}, rows ${top} to ${top + height}`);
+	}
 }
 
 async function readPlayer(page) {
@@ -117,7 +206,16 @@ async function assertVideoPinch(page) {
 	await page.waitForFunction(selector => (document.querySelector(`${selector} video`)?.videoWidth ?? 0) > 0, PLAYER, { timeout: 15_000 });
 	await page.waitForFunction(selector => !!document.querySelector(selector)?.querySelector('.basehalf-video-frames-picture'), FRAMES, { timeout: 15_000 });
 
-	// Criterion 16: the picture grows 1.6 times around the pointer; the player and its controls keep their size.
+	// Criterion 20: as it fits, a swipe over the picture moves nothing and zooms nothing.
+	const fitting = await readPlayer(page);
+	await page.mouse.move(fitting.box.x + fitting.box.width / 2, fitting.box.y + fitting.box.height / 2);
+	await page.mouse.wheel(40, 120);
+	await page.waitForTimeout(200);
+	if ((await readPlayer(page)).transform !== '') {
+		throw new Error('As it fits, a swipe over the picture of a video moves nothing and zooms nothing.');
+	}
+
+	// Criterion 16: the picture grows 1.6 times around the pointer, past its player; the player and its controls keep their size.
 	const before = await readPlayer(page);
 	const at = { x: before.box.x + before.box.width * 0.3, y: before.box.y + before.box.height * 0.4 };
 	const fromMiddle = { x: at.x - (before.box.x + before.box.width / 2), y: at.y - (before.box.y + before.box.height / 2) };
@@ -127,9 +225,20 @@ async function assertVideoPinch(page) {
 	const zoom = zoomed.rect.width / zoomed.box.width;
 	const under = { x: zoomed.rect.x + zoomed.rect.width / 2 + fromMiddle.x * zoom, y: zoomed.rect.y + zoomed.rect.height / 2 + fromMiddle.y * zoom };
 	if (Math.abs(zoom - 1.6) > 0.01 || Math.hypot(under.x - at.x, under.y - at.y) > 2
-		|| JSON.stringify(zoomed.box) !== JSON.stringify(before.box) || JSON.stringify(zoomed.bar) !== JSON.stringify(before.bar)) {
-		throw new Error(`A pinch by 1.6 over the picture of a video draws it 1.6 times larger, the point under the pointer staying under it, the player and its controls at their size: ${JSON.stringify({ before, zoomed, zoom, under, at })}`);
+		|| JSON.stringify(zoomed.box) !== JSON.stringify(before.box) || JSON.stringify(zoomed.bar) !== JSON.stringify(before.bar)
+		|| !(zoomed.rect.x < zoomed.box.x - 1 && zoomed.rect.y < zoomed.box.y - 1 && zoomed.rect.x + zoomed.rect.width > zoomed.box.x + zoomed.box.width + 1)) {
+		throw new Error(`A pinch by 1.6 over the picture of a video draws it 1.6 times larger, past its player's box, the point under the pointer staying under it, the player and its controls at their size: ${JSON.stringify({ before, zoomed, zoom, under, at })}`);
 	}
+	await assertNothingUnderPlayer(page, 'Zoomed in by a pinch');
+	// Criterion 20: a two-finger swipe moves the zoomed picture with the fingers, and zooms nothing.
+	await page.mouse.move(at.x, at.y);
+	await page.mouse.wheel(50, 30);
+	await page.waitForTimeout(250);
+	const swiped = await readPlayer(page);
+	if (Math.abs(swiped.rect.width - zoomed.rect.width) > 0.5 || Math.abs(swiped.rect.x - (zoomed.rect.x - 50)) > 1 || Math.abs(swiped.rect.y - (zoomed.rect.y - 30)) > 1) {
+		throw new Error(`A swipe moves the zoomed picture with the fingers and zooms nothing: ${JSON.stringify({ zoomed: zoomed.rect, swiped: swiped.rect })}`);
+	}
+	await assertNothingUnderPlayer(page, 'Moved by a swipe');
 
 	// A drag moves the zoomed picture and plays nothing; a click plays it.
 	const middle = { x: before.box.x + before.box.width / 2, y: before.box.y + before.box.height / 2 };
@@ -156,7 +265,17 @@ async function assertVideoPinch(page) {
 		throw new Error(`A pinch by 0.5 shows the picture as it fits: ${JSON.stringify({ back, before })}`);
 	}
 
-	// Criterion 18: a pinch by 2 over the frame viewer spreads its time out around the pointer, and its pictures come.
+	// Criterion 19: while viewing, a pinch over the frame viewer does nothing.
+	const viewed = await readStrip(page, FRAMES);
+	await pinch(page, viewed.x + viewed.width * 0.6, viewed.y + viewed.height / 2, 2);
+	await page.waitForTimeout(300);
+	const afterViewingPinch = await readStrip(page, FRAMES);
+	if (afterViewingPinch.from !== viewed.from || afterViewingPinch.to !== viewed.to) {
+		throw new Error(`While viewing, a pinch over the frame viewer spreads nothing out: ${JSON.stringify({ viewed, afterViewingPinch })}`);
+	}
+
+	// Criterion 18: after Edit, a pinch by 2 over the frame viewer spreads its time out around the pointer, and its pictures come.
+	await enterEditing(page);
 	const strip = await readStrip(page, FRAMES);
 	const pointer = { x: strip.x + strip.width * 0.6, y: strip.y + strip.height / 2 };
 	await pinch(page, pointer.x, pointer.y, 2);
@@ -188,8 +307,17 @@ async function assertSoundPinch(page) {
 		throw new Error(`A pinch over Play spreads nothing out: ${JSON.stringify({ whole, afterPlay })}`);
 	}
 
-	// Criterion 18: a pinch by 4 over the middle of the waveform spreads its time out 4 times around the pointer.
+	// Criterion 19: while viewing, a pinch over the waveform does nothing.
 	const middle = { x: whole.x + whole.width / 2, y: whole.y + whole.height / 2 };
+	await pinch(page, middle.x, middle.y, 4);
+	await page.waitForTimeout(300);
+	const afterViewingPinch = await readStrip(page, WAVE);
+	if (afterViewingPinch.from !== whole.from || afterViewingPinch.to !== whole.to) {
+		throw new Error(`While viewing, a pinch over the waveform spreads nothing out: ${JSON.stringify({ whole, afterViewingPinch })}`);
+	}
+
+	// Criterion 18: after Edit, a pinch by 4 over the middle of the waveform spreads its time out 4 times around the pointer.
+	await enterEditing(page);
 	await pinch(page, middle.x, middle.y, 4);
 	await page.waitForTimeout(300);
 	const spread = await readStrip(page, WAVE);
@@ -235,7 +363,7 @@ async function assertSoundPinch(page) {
 }
 
 async function assertPicturePinch(page) {
-	// Criterion 17: over a PNG the pinch zooms the crop view, as the wheel does, and changes no edit.
+	// Criterion 17: over a PNG the pinch zooms the crop view while viewing, and changes no edit.
 	const original = fs.readFileSync(workspaceFile(IMAGE));
 	await quickOpen(page, IMAGE);
 	await assertCardDetail(page, 'still.png');

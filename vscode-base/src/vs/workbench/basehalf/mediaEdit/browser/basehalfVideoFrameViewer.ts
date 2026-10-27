@@ -27,6 +27,9 @@ import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
  * the part's length. It plays the part in the player, spreads out around a
  * handle that is held still and where a pinch spreads it ("Zooming the
  * picture and the time"), and makes a change of each handle or part let go.
+ * While viewing ("Viewing and editing"), it is the timeline of the file as it
+ * is: the frames of the part kept, with the playhead, which a press moves,
+ * and no frame, handle, or length; the part plays once.
  */
 
 export interface IBaseHalfVideoFrameViewerOptions {
@@ -101,6 +104,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	private holdTimer: ReturnType<typeof setTimeout> | undefined;
 	private playheadFrame: number | undefined;
 	private picturesCount = 0;
+	/** The viewer edits the video; otherwise it views the file as it is. */
+	private editing = false;
 	private disposed = false;
 	private readonly picturesLoad = this._register(new MutableDisposable());
 	private readonly zoomLoad = this._register(new MutableDisposable());
@@ -114,9 +119,10 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		const video = options.video.file.video!;
 		this.timeline = new BaseHalfVideoTrimTimeline(baseHalfVideoFrameEdges(video));
 		this.range = this.timeline.normalize(options.choices.keep?.[0]);
-		this.view = { from: 0, to: this.timeline.duration };
+		// It starts by viewing the file: the part kept.
+		this.view = { from: this.range.start, to: this.range.end };
 
-		this.element = append(container, $('.basehalf-video-frames'));
+		this.element = append(container, $('.basehalf-video-frames.viewing'));
 		this.element.setAttribute('role', 'group');
 		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.video.label', "Frames"));
 		const row = append(this.element, $('.basehalf-video-frames-row'));
@@ -141,9 +147,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			handle.setAttribute('role', 'slider');
 			handle.setAttribute('aria-label', label);
 			handle.setAttribute('aria-valuemin', '0');
-			handle.tabIndex = 0;
 			append(handle, chevron(handle === this.startHandle ? 'left' : 'right'));
 		}
+		this.showHandles();
 		this._register(toDisposable(() => {
 			this.disposed = true;
 			this.clearHold();
@@ -153,6 +159,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		// The time under the pointer of a pinch stays under it, down to as many frames as the strip has pictures.
 		this.zoom = this._register(new BaseHalfTimeZoom({
 			strip: this.strip,
+			// While viewing, the strip shows the file's length, and a pinch over it does nothing.
+			active: () => this.editing,
 			length: () => this.timeline.duration,
 			shortest: () => Math.max(BASEHALF_TIME_ZOOM_SHORTEST_SECONDS, this.pictureCount(this.strip.clientWidth) * this.timeline.duration / Math.max(1, this.timeline.edges.length - 1)),
 			onDidChange: rested => this.onDidZoom(rested),
@@ -161,6 +169,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 		this.registerListeners();
 		this.applyChoice();
+		this.showStretch();
 		const window = getWindow(this.element);
 		const timer = window.setTimeout(() => this.loadPictures(), PICTURES_DELAY_MILLISECONDS);
 		this._register(toDisposable(() => window.clearTimeout(timer)));
@@ -171,7 +180,12 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	focus(): void {
-		this.startHandle.focus({ preventScroll: true });
+		// While viewing, the handles are not there: the keyboard goes to the player's Play.
+		if (this.editing) {
+			this.startHandle.focus({ preventScroll: true });
+		} else {
+			this.options.player.focus();
+		}
 	}
 
 	setChoices(choices: IBaseHalfMediaChoices): void {
@@ -184,6 +198,59 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		// The player shows where the part starts.
 		this.options.player.seek(this.range.start + 1e-4);
 		this.applyChoice();
+		if (!this.editing) {
+			// Viewing shows the file, which the choices made anew.
+			this.showStretch();
+		}
+	}
+
+	setEditing(editing: boolean): void {
+		if (editing === this.editing) {
+			return;
+		}
+		this.endDrag();
+		this.editing = editing;
+		this.element.classList.toggle('viewing', !editing);
+		if (!editing) {
+			// Done shows the file's length again; the next Edit starts from the whole video.
+			this.zoom.reset();
+		}
+		this.showHandles();
+		this.applyChoice();
+		this.showStretch();
+	}
+
+	/** The handles take the keyboard while editing, and are not there while viewing. */
+	private showHandles(): void {
+		for (const handle of [this.startHandle, this.endHandle]) {
+			handle.tabIndex = this.editing ? 0 : -1;
+			if (this.editing) {
+				handle.removeAttribute('aria-hidden');
+			} else {
+				handle.setAttribute('aria-hidden', 'true');
+			}
+		}
+	}
+
+	/** What the strip shows when no handle is held: the part kept while viewing, the file as it is; while editing, the stretch a pinch spread out, or the whole video. */
+	private restingView(): IStripView {
+		return this.editing ? this.zoom.stretch : { from: this.range.start, to: this.range.end };
+	}
+
+	/** Whether the strip shows the whole video. */
+	private showsWhole(view: IStripView = this.view): boolean {
+		return view.from <= 1e-9 && view.to >= this.timeline.duration - 1e-9;
+	}
+
+	/** Shows what the strip shows at rest, with the pictures of its stretch over the whole video's. */
+	private showStretch(): void {
+		this.view = this.restingView();
+		this.element.classList.toggle('zoomed', !this.showsWhole());
+		if (this.zoomDrawn?.from !== this.view.from || this.zoomDrawn?.to !== this.view.to) {
+			this.readZoomPictures();
+		}
+		this.placePictures();
+		this.render();
 	}
 
 	/** A part that differs from the one before is a change. */
@@ -282,7 +349,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			const observer = new ResizeObserverConstructor(() => {
 				this.render();
 				this.loadPictures();
-				if (this.zoom.spread && !this.element.classList.contains('spread')) {
+				if (!this.showsWhole() && !this.element.classList.contains('spread')) {
 					// As many pictures as fit at the new width; a held handle's spread reads them when it is let go.
 					this.readZoomPictures();
 					this.placePictures();
@@ -308,10 +375,14 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		event.preventDefault();
 		event.stopPropagation();
 		const time = this.timeAt(event.clientX);
-		const handle = this.handleAt(event);
+		const handle = this.editing ? this.handleAt(event) : undefined;
 		let kind: DragKind;
 		let grab = 0;
-		if (handle) {
+		if (!this.editing) {
+			// While viewing, a press anywhere moves the playhead, and a drag from there moves it along.
+			kind = 'scrub';
+			this.options.player.seek(time);
+		} else if (handle) {
 			kind = handle;
 			grab = time - (handle === 'start' ? this.range.start : this.range.end);
 			this.options.player.pause();
@@ -366,7 +437,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			}
 		}
 		// Past an edge of the stretch a pinch spread out, the drag carries the stretch along.
-		this.zoom.dragAt(current.kind === 'press' || this.element.classList.contains('spread') ? undefined : event.clientX);
+		this.zoom.dragAt(!this.editing || current.kind === 'press' || this.element.classList.contains('spread') ? undefined : event.clientX);
 		this.dragTo(event.clientX);
 	}
 
@@ -489,7 +560,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			return;
 		}
 		// The stretch a pinch chose shows again, or the whole video.
-		this.view = this.zoom.stretch;
+		this.view = this.restingView();
 		this.element.classList.remove('spread');
 		this.spreadLoad.clear();
 		clearNode(this.spreadPictures);
@@ -507,6 +578,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	 * let go.
 	 */
 	private onDidZoom(rested: boolean): void {
+		if (!this.editing) {
+			return;
+		}
 		this.element.classList.toggle('zoomed', this.zoom.spread);
 		if (this.element.classList.contains('spread')) {
 			return;
@@ -521,7 +595,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 	/** Reads the pictures of the stretch shown, over the whole video's stretched under them until they come. */
 	private readZoomPictures(): void {
-		if (!this.zoom.spread) {
+		if (this.showsWhole()) {
 			this.zoomLoad.clear();
 			clearNode(this.zoomPictures);
 			this.zoomDrawn = undefined;
@@ -555,7 +629,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	// #region The keyboard
 
 	private onHandleKey(event: KeyboardEvent, handle: BaseHalfVideoTrimHandle): void {
-		if (event.isComposing) {
+		if (event.isComposing || !this.editing) {
 			return;
 		}
 		const large = isMacintosh ? event.metaKey : event.ctrlKey;
@@ -597,7 +671,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	/** I and O, anywhere in the player or the viewer, put the start and the end at the frame the player shows. */
 	private onStageKey(event: KeyboardEvent): void {
 		const key = event.key.toLowerCase();
-		if ((key !== 'i' && key !== 'o') || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+		if (!this.editing || (key !== 'i' && key !== 'o') || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
 			return;
 		}
 		if (getWindow(this.element).document.fullscreenElement) {
@@ -626,11 +700,11 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.render();
 	}
 
-	/** The part plays in the player. */
+	/** The part plays in the player: over and over while editing, once while viewing, as the file plays. */
 	private applyChoice(): void {
 		this.options.player.setPlayRange(this.timeline.isWhole(this.range)
 			? undefined
-			: { start: this.range.start, end: this.range.end, lastFrame: this.timeline.stepFrame(this.range.end, -1) });
+			: { start: this.range.start, end: this.range.end, lastFrame: this.timeline.stepFrame(this.range.end, -1), ...(this.editing ? {} : { once: true }) });
 		this.render();
 	}
 
@@ -661,7 +735,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 	private updatePlayhead(): void {
 		const time = this.options.player.currentTime ?? 0;
-		if (!this.drag && !this.options.player.video.paused && !this.element.classList.contains('spread')) {
+		if (this.editing && !this.drag && !this.options.player.video.paused && !this.element.classList.contains('spread')) {
 			// While the video plays, the stretch a pinch spread out follows the playhead.
 			this.zoom.follow(time);
 		}

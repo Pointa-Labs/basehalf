@@ -200,10 +200,12 @@ Not in scope, and unchanged:
 - L5. A pinch over a PDF or a book in Card Detail zooms it with its own zoom,
   by the same way: the window takes the pinch and hands it to the page
   ([PDFs and books](documents-and-books.md#the-pdf-reader), rules 16 and
-  22). A pinch over an image or the picture of a video zooms it, and one over
-  the frame viewer of a video or the waveform of a sound spreads its time out
+  22). A pinch over an image or the picture of a video zooms the place under
+  the fingers, past the picture's box, and a two-finger swipe moves it, as on
+  the canvas; while editing, one over the frame viewer of a video or the
+  waveform of a sound spreads its time out
   ([editing media, "Zooming the picture and the time"](media-editing.md#zooming-the-picture-and-the-time),
-  D93).
+  D93, D96).
 
 ## Failure and recovery
 

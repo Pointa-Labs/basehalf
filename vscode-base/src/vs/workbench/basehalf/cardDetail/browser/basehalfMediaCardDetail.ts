@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCardDetailProjections.css';
-import { $, append, clearNode, getActiveElement } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, getActiveElement, getWindow } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { disposableTimeout, raceTimeout, RunOnceScheduler } from '../../../../base/common/async.js';
 import { safeIntl } from '../../../../base/common/date.js';
@@ -211,6 +211,9 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private player: IBaseHalfCanvasCardVideoPlayer | undefined;
 	/** The editing of a video, an image, or a sound, which shows its editor where BaseHalf can edit it (editing media). */
 	private readonly editingStore = this._register(new MutableDisposable<BaseHalfMediaEditing>());
+	private readonly editingListener = this._register(new MutableDisposable());
+	/** Edit, or Done, in the header of Card Detail, for a file whose editor shows (editing media, "What Card Detail shows"). */
+	private modeButton: HTMLButtonElement | undefined;
 	/** The version of the file that Card Detail shows. */
 	private shownVersion: string | undefined;
 	private playerVersion = 0;
@@ -237,6 +240,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		private readonly onEscape: () => void,
 		/** The text selected in a PDF or a book, which agents can see (PDFs and books, "What agents can see"). */
 		private readonly onSelectionChange: (selected: IBaseHalfAgentSelectionDocumentText | undefined) => void,
+		/** Where the header of Card Detail holds Edit and Done (layout controls, "Card Detail"). */
+		private readonly modeActions: HTMLElement | undefined,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
@@ -254,6 +259,39 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		super();
 		this.root = append(container, $('.basehalf-card-detail-media'));
 		this.webviewHost = append(this.root, $('.basehalf-card-detail-media-webview'));
+		this._register(toDisposable(() => {
+			this.modeButton?.remove();
+			this.modeButton = undefined;
+		}));
+		// Escape while editing goes back to viewing, wherever in Card Detail the keyboard is; what uses Escape itself takes it first (editing media, "The keyboard").
+		const detail = container.closest('.basehalf-card-detail') ?? container;
+		const plainEscape = (event: KeyboardEvent) => event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+			&& !detail.ownerDocument.fullscreenElement;
+		this._register(addDisposableListener(detail, 'keydown', event => {
+			const editing = this.editingStore.value;
+			if (!plainEscape(event) || !editing?.isEditing) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			editing.setEditing(false);
+		}));
+		// With the keyboard nowhere, on the window's body, as when a control that it was on went, one Escape still does
+		// what it does in Card Detail: it goes back to viewing, or it closes Card Detail.
+		this._register(addDisposableListener(getWindow(container), 'keydown', event => {
+			const targetDocument = detail.ownerDocument;
+			if (!plainEscape(event) || (event.target !== targetDocument.body && event.target !== targetDocument.documentElement) || !detail.isConnected) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			const editing = this.editingStore.value;
+			if (editing?.isEditing) {
+				editing.setEditing(false);
+			} else {
+				this.onEscape();
+			}
+		}));
 	}
 
 	/** An image, a video, or a sound is drawn when `open` resolves; the reader of a PDF or a book draws itself later. */
@@ -435,8 +473,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		// A file shown anew keeps the keyboard in Card Detail where it was.
 		const active = getActiveElement();
 		const focused = !!active && this.webviewHost.contains(active);
-		// The editing before goes, and the file follows at once what it changed.
+		// The editing before goes, and the file follows at once what it changed; a file shown anew is viewed.
 		const editing = this.editingStore.value = this.instantiationService.createInstance(BaseHalfMediaEditing, state);
+		this.editingListener.value = editing.onDidChangeEditing(() => this.renderModeButton());
+		this.renderModeButton();
 		const session = await editing.load();
 		if (this.disposed || version !== this.mediaVersion || this.state?.resource.toString() !== state.resource.toString()) {
 			return;
@@ -473,6 +513,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			this.webviewHost.classList.remove('holds-player');
 			this.webviewHost.classList.add('holds-editor');
 			const shown = editing.show({ stage: append(this.webviewHost, $('.basehalf-card-detail-image-stage')) });
+			this.renderModeButton();
 			if (focused) {
 				editing.focus();
 			}
@@ -483,9 +524,44 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		this.webviewHost.classList.remove('holds-editor');
 		this.webviewHost.classList.add('holds-player');
 		editing.show({ stage: append(this.webviewHost, $('.basehalf-card-detail-video-stage.sound')) });
+		this.renderModeButton();
 		if (focused) {
 			editing.focus();
 		}
+	}
+
+	/**
+	 * Edit in the header while the editor views the file, Done while it edits
+	 * it, and nothing where no editor shows (editing media, "What Card Detail
+	 * shows"). The button stays one, so that the keyboard stays on it.
+	 */
+	private renderModeButton(): void {
+		const slot = this.modeActions;
+		const editing = this.editingStore.value;
+		if (!slot || this.disposed) {
+			return;
+		}
+		let button = this.modeButton;
+		if (!button) {
+			button = this.modeButton = append(slot, $<HTMLButtonElement>('button.basehalf-card-detail-mode-button'));
+			button.type = 'button';
+			// Both words stand in the button, one over the other, so that it is as wide for each: nothing in the header moves when it changes.
+			append(button, $('span.basehalf-card-detail-mode-label.edit')).textContent = localize('basehalf.mediaEdit.edit', "Edit");
+			append(button, $('span.basehalf-card-detail-mode-label.done')).textContent = localize('basehalf.mediaEdit.done', "Done");
+			this._register(addDisposableListener(button, 'click', () => {
+				const current = this.editingStore.value;
+				current?.setEditing(!current.isEditing);
+			}));
+		}
+		button.hidden = !editing?.hasEditor;
+		if (!editing?.hasEditor) {
+			return;
+		}
+		const active = editing.isEditing;
+		button.classList.toggle('done', active);
+		button.setAttribute('aria-label', active
+			? localize('basehalf.mediaEdit.done', "Done")
+			: localize('basehalf.mediaEdit.edit', "Edit"));
 	}
 
 	/**
@@ -522,12 +598,16 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			hoverService: this.hoverService
 		}));
 		if (!sound) {
-			// A pinch or the wheel over the picture zooms it (editing media, "Zooming the picture and the time").
-			store.add(new BaseHalfVideoPictureZoom(player.element, player.video));
+			// A pinch zooms the place under the fingers over the media area, as a browser zooms its page, and a swipe
+			// moves it; over the frame viewer and the line under the editor a gesture is theirs (editing media,
+			// "Zooming the picture and the time").
+			store.add(new BaseHalfVideoPictureZoom(player.element, player.video, this.webviewHost,
+				target => target instanceof Element && !!target.closest('.basehalf-video-frames, .basehalf-media-edit-line')));
 		}
 		if (session) {
 			this.editingStore.value?.show({ stage, player });
 		}
+		this.renderModeButton();
 		if (focused) {
 			player.focus();
 		}
@@ -699,6 +779,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private renderNotice(message: string): void {
 		this.mediaVersion++;
 		this.editingStore.clear();
+		this.renderModeButton();
 		this.webviewStore.clear();
 		this.webview = undefined;
 		this.webviewHost.classList.remove('holds-editor');

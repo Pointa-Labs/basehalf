@@ -37,7 +37,9 @@ import {
 	IBaseHalfPoint,
 	IBaseHalfSize
 } from '../common/basehalfImageCrop.js';
-import { baseHalfClampPicturePan, baseHalfPictureMaxZoom, baseHalfZoomFactor, baseHalfZoomPanAround } from '../common/basehalfMediaZoom.js';
+import { isMacintosh } from '../../../../base/common/platform.js';
+import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
+import { BASEHALF_PAGE_AT_REST, baseHalfClampPageZoom, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 
 /**
@@ -49,7 +51,9 @@ import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor
  * Left, Flip, Ratio, and the Straighten dial). While a corner, a side, or the
  * picture is dragged, the rest of the original shows around the frame,
  * dimmed, and when the drag ends both glide until the frame is at rest again.
- * The wheel zooms the view, never the edit.
+ * A pinch zooms the view, never the edit. While viewing ("Viewing and
+ * editing"), it shows the picture as the file holds it, with no frame and no
+ * tools, whose room stays empty.
  */
 
 export interface IBaseHalfImageCropViewOptions {
@@ -94,8 +98,8 @@ interface IDrag {
 	readonly grabX: number;
 	readonly grabY: number;
 	readonly mapping: IMapping;
-	/** Where the part was on screen, off the middle of the view, when a drag of the zoomed view started. */
-	readonly pan: IBaseHalfPoint;
+	/** The zoom of the view when the drag started, which a drag of the zoomed view moves. */
+	readonly page: IBaseHalfPageZoom;
 }
 
 export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaEditor {
@@ -116,6 +120,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private readonly dial: HTMLElement;
 	private readonly dialRuler: HTMLElement;
 	private readonly dialValue: HTMLElement;
+	private readonly tools: HTMLElement;
 
 	private readonly onDidChangeEmitter = this._register(new Emitter<BaseHalfMediaChange>());
 	readonly onDidChange = this.onDidChangeEmitter.event;
@@ -126,15 +131,15 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private tall = false;
 	private mapping: IMapping = { center: { x: 0, y: 0 }, scale: 1 };
 	private viewSize: IBaseHalfSize = { width: 0, height: 0 };
-	/** How much larger than at rest the view shows the part, from 1. */
-	private zoom = 1;
-	/** Where the middle of the part is on screen, off the middle of the view, while the view is zoomed. */
-	private pan: IBaseHalfPoint = { x: 0, y: 0 };
+	/** The view zoomed as a browser zooms its page, around a pinch (D96). */
+	private page: IBaseHalfPageZoom = BASEHALF_PAGE_AT_REST;
 	private drag: IDrag | undefined;
 	private glideFrame: number | undefined;
 	private keyRest: ReturnType<typeof setTimeout> | undefined;
 	/** What the view held when keys started to move a corner or the picture, for one change. */
 	private keyBefore: IBaseHalfCropState | undefined;
+	/** The view edits the picture; otherwise it views the file as it is. */
+	private editing = false;
 	private disposed = false;
 
 	constructor(
@@ -148,10 +153,11 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.state = baseHalfCropStateOf(this.original, options.choices);
 		this.setRatioOf(options.choices);
 
-		this.element = append(container, $('.basehalf-image-crop'));
+		this.element = append(container, $('.basehalf-image-crop.viewing'));
 		this.element.setAttribute('role', 'group');
-		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.image.label', "Crop"));
 		this.view = append(this.element, $('.basehalf-image-crop-view'));
+		// While viewing, the keyboard is on the picture.
+		this.view.tabIndex = -1;
 		this.picture = append(this.view, $<HTMLImageElement>('img.basehalf-image-crop-picture'));
 		this.picture.alt = '';
 		this.picture.draggable = false;
@@ -185,7 +191,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		this.sizeLabel = append(this.view, $('.basehalf-image-crop-size'));
 
-		const tools = append(this.element, $('.basehalf-image-crop-tools'));
+		const tools = this.tools = append(this.element, $('.basehalf-image-crop-tools'));
 		this.turnButton = this.toolButton(tools, 'turn', localize('basehalf.mediaEdit.image.turnLeft', "Turn Left"), TURN_LEFT_PATH);
 		this.flipButton = this.toolButton(tools, 'flip', localize('basehalf.mediaEdit.image.flip', "Flip"), FLIP_PATH);
 		this.ratioButton = this.toolButton(tools, 'ratio', localize('basehalf.mediaEdit.image.ratio', "Ratio"), RATIO_PATH);
@@ -211,6 +217,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			}
 		}));
 		this.registerListeners();
+		this.showControls();
 		this.layout();
 	}
 
@@ -219,7 +226,40 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	}
 
 	focus(): void {
-		this.frame.focus({ preventScroll: true });
+		(this.editing ? this.frame : this.view).focus({ preventScroll: true });
+	}
+
+	setEditing(editing: boolean): void {
+		if (editing === this.editing) {
+			return;
+		}
+		this.endDrag();
+		this.settleKeys();
+		this.editing = editing;
+		this.showControls();
+		this.render();
+	}
+
+	/** While viewing, the frame, its corners, and the tools take no keyboard and no pointer, and do not show. */
+	private showControls(): void {
+		this.element.classList.toggle('viewing', !this.editing);
+		this.element.setAttribute('aria-label', this.editing
+			? localize('basehalf.mediaEdit.image.label', "Crop")
+			: localize('basehalf.mediaEdit.image.viewLabel', "Picture"));
+		this.frame.tabIndex = this.editing ? 0 : -1;
+		for (const corner of this.corners.values()) {
+			corner.tabIndex = this.editing ? 0 : -1;
+		}
+		if (!this.editing) {
+			this.frame.classList.remove('keyboard');
+		}
+		// The room of the tools stays while viewing, empty: the picture does not move when they come.
+		this.tools.toggleAttribute('inert', !this.editing);
+		if (this.editing) {
+			this.tools.removeAttribute('aria-hidden');
+		} else {
+			this.tools.setAttribute('aria-hidden', 'true');
+		}
 	}
 
 	setChoices(choices: IBaseHalfMediaChoices): void {
@@ -310,41 +350,30 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		return { center: { x: state.crop.x, y: state.crop.y }, scale: Math.min(room.width / state.crop.width, room.height / state.crop.height) };
 	}
 
-	/** The mapping of the view: at rest, or zoomed with the part where it was moved to. */
+	/** The mapping of the view: at rest, or the view at rest zoomed as a page, with what was at a point `p` now at `origin + zoom × p`. */
 	private viewMapping(): IMapping {
 		const rest = this.restMapping();
-		if (this.zoom <= 1) {
+		if (this.page.zoom <= 1) {
 			return rest;
 		}
-		const scale = rest.scale * this.zoom;
-		// The middle of the part stands `pan` off the middle of the view.
-		const back = baseHalfRotate({ x: this.pan.x / scale, y: this.pan.y / scale }, -this.state.straighten);
-		return { center: { x: this.state.crop.x - back.x, y: this.state.crop.y - back.y }, scale };
+		// What shows at the middle of the view stood at rest where the zoom takes it from.
+		const middle = { x: (this.viewSize.width / 2 - this.page.origin.x) / this.page.zoom, y: (this.viewSize.height / 2 - this.page.origin.y) / this.page.zoom };
+		return { center: this.toPicture(middle, rest), scale: rest.scale * this.page.zoom };
 	}
 
-	/** The zoomed part covers the view where it is larger than the view, and stays in its middle where it is not. */
-	private clampPan(pan: IBaseHalfPoint, zoom = this.zoom): IBaseHalfPoint {
-		const scale = this.restMapping().scale * zoom;
-		return baseHalfClampPicturePan(pan, { width: this.state.crop.width * scale, height: this.state.crop.height * scale }, this.viewSize);
-	}
-
-	/** Zooms the view to `zoom` around a point of it, which keeps the point of the picture under it. */
-	private zoomAround(at: IBaseHalfPoint, zoom: number): void {
-		const next = Math.max(1, zoom);
-		const moved = baseHalfZoomPanAround(this.pan, { x: at.x - this.viewSize.width / 2, y: at.y - this.viewSize.height / 2 }, next / this.zoom);
-		this.zoom = next;
-		this.pan = next > 1 ? this.clampPan(moved) : { x: 0, y: 0 };
+	/** Zooms the view by `factor` around a point of it, which keeps the point of the picture under it. */
+	private zoomAround(at: IBaseHalfPoint, factor: number): void {
+		this.page = baseHalfZoomPageAround(this.page, at, factor, this.maxZoom(), this.viewSize);
 		this.stopGlide();
 		this.mapping = this.viewMapping();
 		this.render();
 	}
 
 	private resetZoom(): void {
-		this.zoom = 1;
-		this.pan = { x: 0, y: 0 };
+		this.page = BASEHALF_PAGE_AT_REST;
 	}
 
-	/** The largest zoom: the picture at twice its pixels, or as it fits when that is larger already. */
+	/** The largest zoom: 5 times as the picture fits, or twice its pixels when that is more. */
 	private maxZoom(): number {
 		return baseHalfPictureMaxZoom(this.restMapping().scale);
 	}
@@ -375,7 +404,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.viewSize = { width, height };
 		if (!this.drag) {
 			this.stopGlide();
-			this.pan = this.clampPan(this.pan);
+			this.page = baseHalfClampPageZoom(this.page, this.viewSize);
 			this.mapping = this.viewMapping();
 		}
 		this.render();
@@ -483,9 +512,12 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const target = event.target as Element | null;
 		let what: DragKind | undefined = forced;
 		let anchor: IBaseHalfPoint | undefined;
-		if (!what && this.zoom > 1) {
+		if (!what && this.page.zoom > 1) {
 			// While the view is zoomed in, a drag moves the view.
 			what = { kind: 'pan' };
+		} else if (!what && !this.editing) {
+			// While viewing, a picture as it fits has nothing to drag.
+			return;
 		} else if (!what) {
 			const corner = [...this.corners].find(([, element]) => element.contains(target))?.[0];
 			const side = [...this.sides].find(([, element]) => element.contains(target))?.[0];
@@ -508,7 +540,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.stopGlide();
 		const at = this.viewPoint(event);
 		const grab = anchor ? this.toScreen(anchor) : at;
-		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, pan: this.pan };
+		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, page: this.page };
 		const capture = what.kind === 'dial' ? this.dial : this.view;
 		try {
 			capture.setPointerCapture(event.pointerId);
@@ -556,7 +588,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 				break;
 			}
 			case 'pan':
-				this.pan = this.clampPan({ x: drag.pan.x + event.clientX - drag.startX, y: drag.pan.y + event.clientY - drag.startY });
+				this.page = baseHalfMovePage(drag.page, { x: event.clientX - drag.startX, y: event.clientY - drag.startY }, this.viewSize);
 				this.mapping = this.viewMapping();
 				break;
 		}
@@ -588,7 +620,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const drag = this.endDrag();
 		if (drag) {
 			this.state = drag.before;
-			this.pan = drag.pan;
+			this.page = drag.page;
 			this.mapping = this.viewMapping();
 			this.render();
 		}
@@ -613,18 +645,32 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	}
 
 	/**
-	 * The wheel, or a pinch, over the picture zooms the view around the
-	 * pointer, from the picture as it fits to twice its pixels; the edit stays
-	 * as it is.
+	 * A pinch, or the wheel with the zoom key, over the picture zooms the view
+	 * around the pointer as a browser zooms its page; a two-finger swipe and
+	 * the wheel move it while it is zoomed in, as on the canvas (D96). The edit
+	 * stays as it is.
 	 */
 	private onWheel(event: WheelEvent): void {
 		if (this.drag) {
 			return;
 		}
+		if (isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+			event.preventDefault();
+			event.stopPropagation();
+			this.settleKeys();
+			this.zoomAround(this.viewPoint(event), baseHalfNoteZoomFactor(event));
+			return;
+		}
+		if (this.page.zoom <= 1) {
+			// As it fits, there is nothing to move.
+			return;
+		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.settleKeys();
-		this.zoomAround(this.viewPoint(event), Math.min(this.maxZoom(), this.zoom * baseHalfZoomFactor(event)));
+		this.page = baseHalfMovePage(this.page, baseHalfWheelMove(event), this.viewSize);
+		this.stopGlide();
+		this.mapping = this.viewMapping();
+		this.render();
 	}
 
 	/** A double click shows the picture as it fits, or, as it fits, at its own pixels around the pointer. */
@@ -634,7 +680,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		this.settleKeys();
 		const ownPixels = 1 / this.restMapping().scale;
-		this.zoomAround(this.viewPoint(event), this.zoom > 1 ? 1 : Math.min(this.maxZoom(), ownPixels > 1 ? ownPixels : this.maxZoom()));
+		const target = this.page.zoom > 1 ? 1 : Math.min(this.maxZoom(), ownPixels > 1 ? ownPixels : this.maxZoom());
+		this.zoomAround(this.viewPoint(event), target / this.page.zoom);
 	}
 
 	// #endregion
@@ -648,7 +695,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const target = event.target as Element | null;
 		const arrows: Record<string, IBaseHalfPoint> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } };
 		const arrow = arrows[event.key];
-		if (!arrow || this.drag) {
+		if (!arrow || this.drag || !this.editing) {
 			return;
 		}
 		if (target === this.dial) {
@@ -671,7 +718,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		event.stopPropagation();
 		this.frame.classList.add('keyboard');
 		this.stopGlide();
-		if (this.zoom > 1) {
+		if (this.page.zoom > 1) {
 			this.resetZoom();
 			this.mapping = this.restMapping();
 		}
@@ -831,7 +878,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.dial.setAttribute('aria-valuetext', this.dialValue.textContent);
 		this.dial.classList.toggle('turned', shown !== 0);
 		// While the view is zoomed in, the frame does not show, and a drag moves the view.
-		this.element.classList.toggle('zoomed', this.zoom > 1);
+		this.element.classList.toggle('zoomed', this.page.zoom > 1);
 		// While the part is the whole picture, a drag inside it moves nothing.
 		this.element.classList.toggle('whole', !choices.crop && !straighten);
 	}

@@ -216,10 +216,12 @@
  * height of the space.
  */
 .monaco-workbench .basehalf-card-detail-video-stage {
+	/* The room between the player and the frame viewer, which the viewer's band covers from the player's bottom edge. */
+	--basehalf-video-stage-gap: 12px;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 12px;
+	gap: var(--basehalf-video-stage-gap);
 }
 
 .monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing {
@@ -227,13 +229,66 @@
 }
 
 /*
- * A pinch or the wheel zooms the picture of the player, which keeps its place
- * and size; while it is zoomed in, a drag moves the picture (editing media,
- * "Zooming the picture and the time").
+ * A pinch zooms the place under the fingers as a browser zooms its page: the
+ * picture grows past the player's box over the media area, while the player
+ * keeps its place and size, and its controls theirs; while it is zoomed in, a
+ * swipe and a drag move the picture (editing media, "Zooming the picture and
+ * the time", D96).
  */
+.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed {
+	overflow: visible;
+	background: transparent;
+}
+
 .monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-video {
 	cursor: grab;
 	will-change: transform;
+}
+
+/* The shade under the controls goes across the zoomed picture, not only across the player's box. */
+.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-bar {
+	background: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-bar::before {
+	content: '';
+	position: absolute;
+	z-index: -1;
+	top: 0;
+	bottom: 0;
+	left: -100vw;
+	right: -100vw;
+	background: linear-gradient(to top, rgb(0 0 0 / 50%), rgb(0 0 0 / 22%) 55%, transparent);
+	pointer-events: none;
+}
+
+/*
+ * The frame viewer and the line under the editor keep their place over a
+ * zoomed picture, as a browser's toolbar does over its page: a band of the
+ * background, as wide as the media area, stands behind them from the
+ * player's bottom edge down, and hides the picture there, so that no sliver
+ * of it shows between the player and the viewer. At rest it covers nothing.
+ */
+.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames {
+	position: relative;
+	z-index: 1;
+}
+
+.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before {
+	content: '';
+	position: absolute;
+	z-index: -1;
+	top: calc(-1 * var(--basehalf-video-stage-gap));
+	left: -100vw;
+	right: -100vw;
+	height: 100vh;
+	background: var(--vscode-editor-background);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-media-edit-line {
+	position: relative;
+	z-index: 1;
 }
 
 .monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-panning .basehalf-canvas-video-player-video {
@@ -330,4 +385,81 @@
 	inset: 0;
 	display: flex;
 	flex-direction: column;
+}
+
+/*
+ * Edit and Done of a video, an image, or a sound, in the header's right group
+ * before Close (editing media, "What Card Detail shows"): Edit while the file
+ * is viewed, Done, in the yellow of the editor, while it is edited.
+ */
+.monaco-workbench .basehalf-card-detail-mode {
+	display: flex;
+	align-items: center;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button {
+	--basehalf-card-detail-mode-yellow: #f5c400;
+	/* Edit and Done stand one over the other: the button is as wide for each. */
+	display: inline-grid;
+	place-items: center;
+	height: 24px;
+	min-width: 48px;
+	padding: 0 10px;
+	box-sizing: border-box;
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+	border: 0;
+	border-radius: 12px;
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 24px;
+	cursor: pointer;
+}
+
+.monaco-workbench.vs-dark .basehalf-card-detail-mode-button,
+.monaco-workbench.hc-black .basehalf-card-detail-mode-button {
+	--basehalf-card-detail-mode-yellow: #ffd60a;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button[hidden] {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-label {
+	grid-area: 1 / 1;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button.done .basehalf-card-detail-mode-label.edit,
+.monaco-workbench .basehalf-card-detail-mode-button:not(.done) .basehalf-card-detail-mode-label.done {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button:hover {
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 17%, transparent);
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button.done {
+	color: #1c1c1e;
+	background: var(--basehalf-card-detail-mode-yellow);
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button.done:hover {
+	background: color-mix(in srgb, var(--basehalf-card-detail-mode-yellow) 88%, #fff);
+}
+
+/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
+.monaco-workbench .basehalf-card-detail-mode-button:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-card-detail-mode-button {
+		border: 1px solid ButtonText;
+	}
 }

@@ -22,6 +22,12 @@ export interface IBaseHalfMediaEditor extends IDisposable {
 	setChoices(choices: IBaseHalfMediaChoices): void;
 	/** Takes the keyboard on the editor's first control. */
 	focus(): void;
+	/**
+	 * Views the file as it is, or edits it (editing media, "Viewing and
+	 * editing"): while viewing, the controls of editing do not show and take
+	 * no keyboard and no pointer. An editor starts by viewing.
+	 */
+	setEditing(editing: boolean): void;
 }
 
 /** What a change did, which names its step: "Trim shot.mp4", "Cut take.wav", "Crop still.png". */

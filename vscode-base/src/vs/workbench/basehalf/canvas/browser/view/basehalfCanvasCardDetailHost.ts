@@ -672,7 +672,8 @@ export class BaseHalfCanvasCardDetailHost {
 						(resource, selection) => this.view.creation.createDocumentBranch(resource, selection),
 						() => this.view.markCanvasUserInteraction(),
 						() => void this.view.canvasNavigationService.closeCardDetail(),
-						selected => this.setAgentSelectionDetailText('media', selected)
+						selected => this.setAgentSelectionDetailText('media', selected),
+						this.view.detailModeActions
 					)
 				};
 			}

@@ -3431,6 +3431,11 @@ built without asking back, after research.
 
 ## D85 — Editing media is direct: a change is saved as it is made, with no edit mode (NEW, 2026-10-26)
 
+> **Revised by D96 (2026-10-27).** Card Detail opens to view the file, and
+> **Edit** in its header shows the editor, which **Done** leaves. A change
+> is still saved as it is made, and Done saves nothing. The rest of D85
+> stands.
+
 **Decision.** Card Detail of a video, an image, or a sound shows its editor at
 once: the player of a video with the frame viewer under it, the waveform of a
 sound with Play under it, and the crop view of an image with its tools. Every
@@ -3984,6 +3989,13 @@ going into the folder and their place no longer mattered.
 
 ## D93 — A pinch zooms the picture of an image or a video in Card Detail, and spreads out the time of a video or a sound (NEW, 2026-10-27)
 
+> **Revised by D96 (2026-10-27).** The wheel and a two-finger swipe move a
+> zoomed picture, as on the canvas, and only a pinch or the zoom key zooms
+> it. The picture of a video grows past its player over Card Detail, as a
+> browser zooms its page, up to 5 times as it fits or twice its pixels when
+> that is more. The time of the frame viewer and of the waveform spreads
+> out while they are edited. The rest of D93 stands.
+
 **Decision.** In Card Detail a pinch of the trackpad zooms what is under the
 fingers. Over the picture of a video, it and the wheel zoom the picture as
 the crop view zooms an image (D85): around the pointer, from as it fits to
@@ -4131,3 +4143,79 @@ thinking flowing on the canvas, a broad use.
 - Revises D16: learners are among the people BaseHalf is for, not its
   primary user. D17 stays: compound thinking is the product form.
 - Nothing in the window changes.
+
+## D96 — Media in Card Detail opens to view it, Edit edits it, and its gestures are the canvas's (NEW, 2026-10-27)
+
+**Decision.** Card Detail of a video, an image, or a sound opens to look at
+the file, as a phone's photo library and voice recorder show what they hold:
+the picture of an image, the player of a video with its timeline under it,
+and the waveform of a sound with Play, each as the file is, with nothing of
+editing on it. **Edit**, in the header's right group before Close, shows the
+editor in place: the crop frame and the tools, the yellow frame and the
+handles of the frame viewer over the whole original, and the handles, the
+trims, and the selection of the waveform, with the line under them. Edit
+becomes **Done**, which goes back to viewing, as Escape does. A change is
+still saved as it is made (D85): Edit and Done change nothing of the file,
+and nothing waits for Done. The picture keeps its place and size, in every
+frame, when the editor comes and goes: the room of the tools under it is
+kept while viewing. In Card Detail the gestures are the canvas's: a
+two-finger swipe and the mouse wheel move a zoomed picture, and a pinch, or
+the wheel with the zoom key, zooms it; the wheel alone never zooms. A pinch
+zooms the place under the fingers as a browser zooms its page: the picture
+of an image or a video grows past its own box over Card Detail's media area,
+up to 5 times as it fits, or twice its own pixels when that is more, while
+Card Detail's controls keep their size. See
+[editing media](specs/media-editing.md#editing-in-card-detail).
+
+**Why.** On 2026-10-27, after D85 and D93, the user set a phone's photo
+editor as the reference for editing in BaseHalf, and named three problems.
+Opening an image went into editing at once: its crop frame showed as soon as
+the pointer was over the picture, and its tools stood under it; the user
+asked for an Edit button that editing starts with, as on the phone. A
+two-finger swipe zoomed the picture, since a trackpad sends it as the wheel,
+which D85 and D93 had zoom it, and a zoomed picture moved only by a drag,
+which the user's three-finger drag made: the canvas does the opposite, so the
+same fingers did two things on one screen. And a pinch over a video zoomed
+it inside its player, whose box cut it, while the user expected the place
+under the fingers to grow as a browser's page does. This morning the user
+had complained that D84's Edit made the video jump up and flash; so Edit
+here changes nothing of the picture's place.
+
+**What was set aside.**
+- Saving on Done and a Cancel, as the phone's editor has: changes save
+  themselves (D85), and undo and Revert to Original are the ways back. The
+  user asked to change how editing starts, not how it saves.
+- Edit under the picture, where the tools appear: the header holds the
+  card's views and Close, Edit and Done stand in one place, and they take no
+  room from the picture.
+- The player's own time bar while viewing a video, and the frame viewer only
+  while editing: the picture would move to make room for the viewer, as it
+  did in D84. Viewing keeps the viewer as the video's timeline, showing the
+  file as it is.
+- Showing the whole picture again when Edit is pressed, as the phone does:
+  it would move a zoomed picture.
+- A pinch that crops in editing, as the phone's crop tool does: a pinch never
+  changes the file, while viewing or editing.
+- The tools and the player's controls zooming with the picture, as a page's
+  do: they are Card Detail's, as a browser's toolbar is.
+- Twice the picture's pixels as the limit of a zoom (D93): a video of 480
+  lines that fits larger than its pixels could hardly zoom.
+- Spreading out the time of the timeline or the waveform while viewing:
+  that is for precise editing (D93).
+
+**Consequences.**
+- Revises D85: Card Detail opens to view, Edit shows the editor, and the
+  header holds Edit or Done; the line under the editor shows the edit and
+  Revert to Original only while editing. The invariant "a change is the
+  result" keeps no Save, Apply, or Cancel; editing a media file starts with
+  Edit, and its Done only goes back
+  ([architecture invariants](harness/architecture-invariants.md#product-shell)).
+- Revises D93: the wheel moves a zoomed picture; a pinch zooms the picture of
+  a video over Card Detail, past its player; the limit of a zoom; the time
+  spreads out only while editing.
+- [Layout controls](specs/layout-controls.md#card-detail): Edit and Done in
+  the header. [Opening and closing Card Detail](specs/card-detail-opening.md#the-keyboard):
+  Escape leaves editing before it closes Card Detail.
+- While viewing, Play plays the file through once, and the player counts its
+  time from the start of the part an edit keeps.
+- The undo of an edit, the file, its record, and its original are unchanged.

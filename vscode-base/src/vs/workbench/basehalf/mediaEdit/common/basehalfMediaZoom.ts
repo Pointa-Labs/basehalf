@@ -7,13 +7,17 @@ import { IBaseHalfPoint, IBaseHalfSize } from './basehalfImageCrop.js';
 
 /**
  * What a zoom in Card Detail computes (editing media, "Zooming the picture
- * and the time"): the factor of a pinch or of the wheel, how far a picture
- * zooms and where it then stands, and the stretch of time that the frame
- * viewer of a video or the waveform of a sound shows when a pinch spreads it
- * out.
+ * and the time"): how far a picture zooms, the media area zoomed around a
+ * point as a browser zooms its page and moved by a swipe, and the stretch of
+ * time that the frame viewer of a video or the waveform of a sound shows when
+ * a pinch spreads it out. The factor of a pinch or of the wheel with the zoom
+ * key is a note's (`baseHalfNoteZoomFactor`).
  */
 
-/** A picture zooms up to this many screen pixels for each of its pixels. */
+/** A media area zooms up to this many times as it fits, as a browser zooms a page (D96). */
+export const BASEHALF_PAGE_ZOOM_MAX = 5;
+
+/** A picture zooms at least up to this many screen pixels for each of its pixels. */
 export const BASEHALF_PICTURE_ZOOM_MAX_SCALE = 2;
 
 /** The shortest stretch of time that a pinch spreads the frame viewer or the waveform out to, in seconds. */
@@ -48,40 +52,58 @@ function pixels(delta: number, deltaMode: number): number {
 }
 
 /**
- * How much one wheel event zooms: a pinch by e^(−Δy / 100), the measure the
- * browser gives a pinch, so that what it zooms follows the fingers; the wheel
- * by e^(−Δy / 500).
- */
-export function baseHalfZoomFactor(event: IBaseHalfZoomWheel): number {
-	return Math.exp(-pixels(event.deltaY, event.deltaMode) / (event.ctrlKey ? 100 : 500));
-}
-
-/**
  * The largest zoom of a picture that fits at `scale` screen pixels for each of
- * its pixels: twice its pixels, or as it fits when that is larger already.
+ * its pixels: 5 times as it fits, as a browser zooms a page, or twice its own
+ * pixels when that is more (D96).
  */
 export function baseHalfPictureMaxZoom(scale: number): number {
-	return scale > 0 && Number.isFinite(scale) ? Math.max(1, BASEHALF_PICTURE_ZOOM_MAX_SCALE / scale) : 1;
+	return scale > 0 && Number.isFinite(scale) ? Math.max(BASEHALF_PAGE_ZOOM_MAX, BASEHALF_PICTURE_ZOOM_MAX_SCALE / scale) : BASEHALF_PAGE_ZOOM_MAX;
 }
 
 /**
- * Where the middle of a picture stands, off the middle of the view, once its
- * zoom changes by `ratio` around `at`, a point off the middle of the view: the
- * point of the picture under `at` stays under it.
+ * A media area zoomed as a browser zooms its page (D96): `zoom` times as
+ * large as at rest, from 1, with its top left at `origin`, in pixels of the
+ * area. What was at a point `p` of the area at rest shows at `origin + zoom × p`.
  */
-export function baseHalfZoomPanAround(pan: IBaseHalfPoint, at: IBaseHalfPoint, ratio: number): IBaseHalfPoint {
-	return { x: at.x - (at.x - pan.x) * ratio, y: at.y - (at.y - pan.y) * ratio };
+export interface IBaseHalfPageZoom {
+	readonly zoom: number;
+	readonly origin: IBaseHalfPoint;
+}
+
+/** The media area at rest: as it fits. */
+export const BASEHALF_PAGE_AT_REST: IBaseHalfPageZoom = Object.freeze({ zoom: 1, origin: Object.freeze({ x: 0, y: 0 }) });
+
+/** The zoomed area covers the area, as a browser's page covers its view: it is never moved off itself. */
+export function baseHalfClampPageZoom(page: IBaseHalfPageZoom, area: IBaseHalfSize): IBaseHalfPageZoom {
+	const zoom = Number.isFinite(page.zoom) ? Math.max(1, page.zoom) : 1;
+	const clamp = (value: number, length: number) => Number.isFinite(value) ? Math.min(0, Math.max(length * (1 - zoom), value)) : 0;
+	return { zoom, origin: { x: clamp(page.origin.x, area.width), y: clamp(page.origin.y, area.height) } };
 }
 
 /**
- * Where the middle of a zoomed picture of `picture`'s size on screen may stand
- * off the middle of the view: the picture covers the view where it is larger
- * than the view, and stays in its middle where it is not.
+ * The area zoomed by `factor` around `at`, a point of the area, from 1 to
+ * `max`: what is under the point stays under it, as far as the area's edges
+ * allow.
  */
-export function baseHalfClampPicturePan(pan: IBaseHalfPoint, picture: IBaseHalfSize, view: IBaseHalfSize): IBaseHalfPoint {
-	const roomX = Math.max(0, (picture.width - view.width) / 2);
-	const roomY = Math.max(0, (picture.height - view.height) / 2);
-	return { x: Math.min(roomX, Math.max(-roomX, pan.x)), y: Math.min(roomY, Math.max(-roomY, pan.y)) };
+export function baseHalfZoomPageAround(page: IBaseHalfPageZoom, at: IBaseHalfPoint, factor: number, max: number, area: IBaseHalfSize): IBaseHalfPageZoom {
+	const zoom = Math.min(Math.max(1, max), Math.max(1, page.zoom * (Number.isFinite(factor) && factor > 0 ? factor : 1)));
+	const ratio = zoom / page.zoom;
+	return baseHalfClampPageZoom({ zoom, origin: { x: at.x - (at.x - page.origin.x) * ratio, y: at.y - (at.y - page.origin.y) * ratio } }, area);
+}
+
+/** The zoomed area moved by a swipe, the wheel, or a drag, as far as its edges go. */
+export function baseHalfMovePage(page: IBaseHalfPageZoom, by: IBaseHalfPoint, area: IBaseHalfSize): IBaseHalfPageZoom {
+	return baseHalfClampPageZoom({ zoom: page.zoom, origin: { x: page.origin.x + by.x, y: page.origin.y + by.y } }, area);
+}
+
+/** Where a point of the area at rest shows in the zoomed area. */
+export function baseHalfPagePoint(page: IBaseHalfPageZoom, point: IBaseHalfPoint): IBaseHalfPoint {
+	return { x: page.origin.x + page.zoom * point.x, y: page.origin.y + page.zoom * point.y };
+}
+
+/** How far a two-finger swipe or the wheel moves what is zoomed: it follows the fingers, as the canvas does. */
+export function baseHalfWheelMove(event: IBaseHalfZoomWheel): IBaseHalfPoint {
+	return { x: -pixels(event.deltaX ?? 0, event.deltaMode), y: -pixels(event.deltaY, event.deltaMode) };
 }
 
 /** The size of a picture of `size` drawn as large as fits in `view`, its shape kept, as `object-fit: contain` draws it. */

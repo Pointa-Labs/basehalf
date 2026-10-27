@@ -5,6 +5,7 @@
 
 import './media/basehalfMediaEditing.css';
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
+import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -26,7 +27,9 @@ import { BaseHalfVideoFrameViewer } from './basehalfVideoFrameViewer.js';
  * the editor reads; draws the editor where Card Detail gives it room, with the
  * line under it; gives each change to the service, as one step of the canvas
  * undo that the file follows; and shows in the editor the choices that an
- * undo, a redo, or Revert to Original set.
+ * undo, a redo, or Revert to Original set. The editor starts by viewing the
+ * file, and Edit and Done of Card Detail's header go to editing and back
+ * ("Viewing and editing").
  */
 
 /** What an editor of the file starts from, read for Card Detail. */
@@ -55,8 +58,16 @@ export class BaseHalfMediaEditing extends Disposable {
 	private readonly sessionStore = this._register(new MutableDisposable<DisposableStore>());
 	private readonly editorStore = this._register(new MutableDisposable<DisposableStore>());
 	private editor: IBaseHalfMediaEditor | undefined;
+	/** Where Card Detail gave the editor room. */
+	private stage: HTMLElement | undefined;
 	private line: IEditLine | undefined;
+	/** The editor edits the file; otherwise it views it. */
+	private editing = false;
 	private disposed = false;
+
+	private readonly onDidChangeEditingEmitter = this._register(new Emitter<boolean>());
+	/** The editor went to editing or back to viewing. */
+	readonly onDidChangeEditing = this.onDidChangeEditingEmitter.event;
 
 	constructor(
 		private readonly file: IBaseHalfWorkspaceResource,
@@ -148,11 +159,14 @@ export class BaseHalfMediaEditing extends Disposable {
 			return undefined;
 		}
 		this.editor = editor;
+		this.stage = view.stage;
+		editor.setEditing(this.editing);
 		view.stage.classList.add('basehalf-media-editing');
 		store.add(toDisposable(() => {
 			view.stage.classList.remove('basehalf-media-editing');
 			if (this.editor === editor) {
 				this.editor = undefined;
+				this.stage = undefined;
 				this.line = undefined;
 			}
 		}));
@@ -165,6 +179,30 @@ export class BaseHalfMediaEditing extends Disposable {
 	/** Whether the editor shows. */
 	get hasEditor(): boolean {
 		return !!this.editor;
+	}
+
+	/** Whether the editor edits the file, rather than views it. */
+	get isEditing(): boolean {
+		return this.editing && !!this.editor;
+	}
+
+	/** Goes to editing, as Edit does, or back to viewing, as Done and Escape do; nothing of the file changes. */
+	setEditing(editing: boolean): void {
+		const editor = this.editor;
+		if (!editor || editing === this.editing) {
+			return;
+		}
+		// A control of editing that goes with the editing would drop the keyboard to the window's body,
+		// where Escape and Command+Z reach nothing: it goes to what viewing has instead.
+		const targetDocument = this.stage?.ownerDocument;
+		const keyboardInEditor = !!targetDocument?.activeElement && !!this.stage?.contains(targetDocument.activeElement);
+		this.editing = editing;
+		editor.setEditing(editing);
+		this.renderLine();
+		if (!editing && keyboardInEditor) {
+			editor.focus();
+		}
+		this.onDidChangeEditingEmitter.fire(editing);
 	}
 
 	/** Takes the keyboard on the editor's first control. */
@@ -250,7 +288,8 @@ export class BaseHalfMediaEditing extends Disposable {
 		const choices = this.mediaEditService.choicesOf(this.file.resource, session.state);
 		const writing = this.mediaEditService.writing(this.file.resource);
 		const failed = writing?.state === 'failed';
-		let summary = baseHalfEditSummary(choices);
+		// What the edit is, and Revert to Original, show while editing; a write and its failure concern the file, and show while viewing too.
+		let summary = this.editing ? baseHalfEditSummary(choices) : undefined;
 		if (summary && this.mediaEditService.soundDropped(this.file.resource)) {
 			summary = localize('basehalf.mediaEdit.line.withoutSound', "{0} · Without sound: BaseHalf can't write this video's sound here", summary);
 		}
