@@ -300,6 +300,10 @@ Its row holds its size, so that the layout stores what the canvas shows.
   drawn. The card takes a new shape where it is when the file of a draft
   arrives, when a file is replaced by one of another shape, when a draft's
   ratio changes, and when a picture is measured after its card was drawn.
+  A drawing that brings a new version of the picture a card shows waits for
+  its measure, as one that brings a new card does, at most 1 s, so that the
+  card takes the new picture and its new shape in the same frame and never
+  shows the new picture in the old shape.
   It grows when room comes free at its corner, as when the user moves a card
   away, and keeps its size when a card is moved next to it. Its place never
   changes, no other card moves, and a row whose size changes is saved. A
@@ -993,8 +997,10 @@ written with this document.
     over another one does not grow over it.
 40. **Each version shows.** A 2048 × 2048 PNG on the canvas is cropped to
     16:9 in Card Detail, which is closed before the write lands. Once the
-    write lands, the card shows the picture of 2048 × 1152 and is 533 × 300.
-    A video trimmed and a sound cut the same way play their new length on
+    write lands, the card shows the picture of 2048 × 1152 and is 533 × 300,
+    from the same frame on, recorded on every frame: no frame shows the card
+    without a picture, or the new picture in the old shape. A video trimmed
+    and a sound cut the same way play their new length on
     their cards. So does a version that an undo or a redo of the edit
     writes, or another program.
 
