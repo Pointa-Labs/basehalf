@@ -226,6 +226,41 @@ suite('BaseHalfImageCropView', () => {
 		assert.deepStrictEqual({ choices: crop.choices, frame: frame() }, { choices: {}, frame: atRest });
 	});
 
+	test('a drag inside the frame, as a three-finger drag makes it, moves the picture under the still frame with the pointer, as far as the picture covers it, one change at the release (D97)', () => {
+		const { crop, clock, changes, element, view, picture, frame, pointer } = setUp({ crop: { x: 1200, y: 800, width: 1200, height: 800 } });
+		crop.setEditing(true);
+		const frameElement = element.querySelector('.basehalf-image-crop-frame') as HTMLElement;
+		const translation = () => {
+			const values = /matrix\(([^)]+)\)/.exec(picture.style.transform)![1].split(',').map(Number);
+			return { x: values[4], y: values[5] };
+		};
+		const atRest = frame();
+		/** The frame where it rests, within a hundredth of a pixel. */
+		const still = () => [frame().left - atRest.left, frame().top - atRest.top, frame().width - atRest.width, frame().height - atRest.height].every(delta => Math.abs(delta) < 0.01);
+		const near = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+		const from = { x: (atRest.left + atRest.right) / 2 + 90, y: (atRest.top + atRest.bottom) / 2 + 50 };
+		const before = translation();
+		pointer('pointerdown', frameElement, from.x, from.y);
+		assert.ok(still() && near(translation(), before), 'nothing moves at the press');
+		for (let step = 1; step <= 10; step++) {
+			pointer('pointermove', view, from.x - 20 * step, from.y - 10 * step);
+			assert.ok(still(), `the frame stays, step ${step}`);
+			assert.ok(near(translation(), { x: before.x - 20 * step, y: before.y - 10 * step }), `the picture follows the pointer exactly, step ${step}: ${JSON.stringify({ before, moved: translation() })}`);
+		}
+		const held = translation();
+		pointer('pointerup', view, from.x - 200, from.y - 100);
+		assert.deepStrictEqual(changes, ['crop'], 'one change at the release');
+		assert.ok(still() && near(translation(), held), 'nothing moves at the release');
+		clock.advance(1500);
+		assert.ok(still() && near(translation(), held), 'the frame was at rest: nothing glides after');
+		// Far to the left: the picture stops where its right edge meets the frame's.
+		pointer('pointerdown', frameElement, from.x, from.y);
+		pointer('pointermove', view, from.x - 2000, from.y);
+		pointer('pointerup', view, from.x - 2000, from.y);
+		assert.ok(still());
+		assert.deepStrictEqual({ right: crop.choices.crop!.x + crop.choices.crop!.width / 2, changes }, { right: 2400, changes: ['crop', 'crop'] });
+	});
+
 	test('while editing, a swipe over the whole picture moves nothing, and a double click changes nothing (D97)', () => {
 		const { crop, clock, changes, element, view, picture, frame, wheel } = setUp({});
 		crop.setEditing(true);

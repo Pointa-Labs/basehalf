@@ -36,15 +36,18 @@ async function pinch(page, x, y, scaleFactor) {
 	}
 }
 
-/** Records every frame of the screen: the picture's scale and whether it is drawn, and the frame's place in the view. */
+/** Records every frame of the screen: the picture's scale, where it is, and whether it is drawn, the frame's place in the view, and the pointer. */
 async function startFrames(page) {
 	await page.evaluate(selector => {
 		const root = document.querySelector(selector);
 		const picture = root.querySelector('.basehalf-image-crop-picture');
 		const frame = root.querySelector('.basehalf-image-crop-frame');
 		const view = root.querySelector('.basehalf-image-crop-view');
-		const state = { running: true, frames: [] };
+		const state = { running: true, frames: [], pointer: { x: NaN, y: NaN } };
 		globalThis.__bhCropBackFrames = state;
+		for (const type of ['pointerdown', 'pointermove']) {
+			root.addEventListener(type, event => { state.pointer = { x: event.clientX, y: event.clientY }; }, true);
+		}
 		const tick = time => {
 			if (!state.running) {
 				return;
@@ -57,10 +60,13 @@ async function startFrames(page) {
 			state.frames.push({
 				time,
 				scale: Math.hypot(values[0], values[1]),
+				x: values[4], y: values[5],
 				drawn: picture.complete && picture.naturalWidth > 0 && getComputedStyle(picture).visibility !== 'hidden',
 				left, top, right: left + width, bottom: top + height,
 				viewWidth: view.clientWidth, viewHeight: view.clientHeight,
-				size: root.querySelector('.basehalf-image-crop-size')?.textContent
+				size: root.querySelector('.basehalf-image-crop-size')?.textContent,
+				adjusting: root.classList.contains('adjusting'),
+				pointer: { ...state.pointer }
 			});
 			requestAnimationFrame(tick);
 		};
@@ -169,7 +175,42 @@ export async function assertCardDetailImageCropBack(page) {
 			throw new Error(`A pinch by 2 while editing keeps the frame and halves the part kept around the pointer: ${JSON.stringify({ restFrame, pinchedFrame, pinchedSize })}`);
 		}
 		await waitUntil(() => /\ncrop:\n {2}x: [\d.]+\n {2}y: [\d.]+\n {2}width: 1200\n {2}height: 800\n/.test(recordText()), 'the pinch to be written as a crop of 1200 × 800', 30_000);
-		const pinchedX = /\ncrop:\n {2}x: ([\d.]+)\n/.exec(recordText())?.[1];
+		const cropX = () => /\ncrop:\n {2}x: ([\d.]+)\n/.exec(recordText())?.[1];
+		const pinchedX = cropX();
+
+		// A drag inside the frame, as a trackpad's three-finger drag makes it: the picture follows the pointer exactly under the still
+		// frame, as a phone's photo editor and the photo app move it, with no jump at the press or the release; one change.
+		const from = { x: middle.x + 90, y: middle.y + 50 };
+		await page.mouse.move(from.x, from.y);
+		await startFrames(page);
+		await page.waitForTimeout(150);
+		await page.mouse.down();
+		await page.waitForTimeout(100);
+		for (let i = 1; i <= 20; i++) {
+			await page.mouse.move(from.x - 8 * i, from.y - 4 * i);
+			await page.waitForTimeout(16);
+		}
+		await page.waitForTimeout(100);
+		await page.mouse.up();
+		await page.waitForTimeout(1_200);
+		const dragged = await stopFrames(page);
+		const pressed = dragged.filter(frame => frame.adjusting && Number.isFinite(frame.pointer.x));
+		const offsets = pressed.map(frame => ({ x: frame.x - frame.pointer.x, y: frame.y - frame.pointer.y }));
+		const spread = values => Math.max(...values) - Math.min(...values);
+		const framesMoved = dragged.filter(frame => Math.abs(frame.left - dragged[0].left) > 0.5 || Math.abs(frame.top - dragged[0].top) > 0.5 || Math.abs(frame.right - dragged[0].right) > 0.5 || Math.abs(frame.bottom - dragged[0].bottom) > 0.5);
+		const pressAt = dragged.findIndex(frame => frame.adjusting);
+		const releaseAt = dragged.findIndex((frame, index) => index > pressAt && !frame.adjusting);
+		const untilPress = dragged.slice(0, pressAt + 1);
+		const fromRelease = dragged.slice(releaseAt - 1);
+		const letGoAt = pressed[pressed.length - 1];
+		if (pressed.length < 10 || framesMoved.length || spread(offsets.map(o => o.x)) > 0.5 || spread(offsets.map(o => o.y)) > 0.5
+			|| untilPress.some(frame => Math.abs(frame.x - untilPress[0].x) > 0.01 || Math.abs(frame.y - untilPress[0].y) > 0.01)
+			|| fromRelease.some(frame => Math.abs(frame.x - letGoAt.x) > 0.01 || Math.abs(frame.y - letGoAt.y) > 0.01)
+			|| Math.abs(letGoAt.x - dragged[0].x + 160) > 0.5 || Math.abs(letGoAt.y - dragged[0].y + 80) > 0.5) {
+			throw new Error(`A drag inside the frame moves the picture under the still frame with the pointer, with no jump at the press or the release: ${JSON.stringify({ pressed: pressed.length, framesMoved: framesMoved.length, spreadX: spread(offsets.map(o => o.x)), spreadY: spread(offsets.map(o => o.y)), moved: letGoAt && { x: letGoAt.x - dragged[0].x, y: letGoAt.y - dragged[0].y } })}`);
+		}
+		await waitUntil(() => cropX() !== undefined && cropX() !== pinchedX, 'the drag inside the frame to be written as a crop moved', 30_000);
+		const draggedX = cropX();
 		const transformOf = () => page.evaluate(selector => document.querySelector(`${selector} .basehalf-image-crop-picture`).style.transform, CROP);
 		const beforeSwipe = await transformOf();
 		await page.mouse.move(middle.x, middle.y);
@@ -182,7 +223,7 @@ export async function assertCardDetailImageCropBack(page) {
 		if (await transformOf() === beforeSwipe || Math.abs(swipedFrame.x - restFrame.x) > 1 || await sizeText(page) !== '1200 × 800') {
 			throw new Error('A two-finger swipe while editing moves the picture under the frame, which stays where it is.');
 		}
-		await waitUntil(() => { const x = /\ncrop:\n {2}x: ([\d.]+)\n/.exec(recordText())?.[1]; return x !== undefined && x !== pinchedX; }, 'the swipe to be written as a crop moved', 30_000);
+		await waitUntil(() => cropX() !== undefined && cropX() !== draggedX, 'the swipe to be written as a crop moved', 30_000);
 		await page.mouse.dblclick(middle.x, middle.y);
 		await page.waitForTimeout(300);
 		if (await sizeText(page) !== '1200 × 800' || await page.locator(`${CROP}.zoomed`).count()) {
