@@ -1,7 +1,7 @@
 # Layout controls
 
 Status: Active (2026-10-13, revised 2026-10-24)
-Decision: [D56](../decisions.md), [D72](../decisions.md)
+Decision: [D56](../decisions.md), [D72](../decisions.md), [D96](../decisions.md) (Edit and Done of media)
 Related: [workbench appearance](workbench-appearance.md) (the cards that the
 controls show and hide), [architecture invariants](../harness/architecture-invariants.md)
 (product shell), roadmap tracks 1, 2, and 9
@@ -101,10 +101,11 @@ Not in scope, and unchanged:
 
 ### Card Detail
 
-9. The header of Card Detail holds no layout control and no control of
-   editing. Its right group is the sign that saving failed (only when it
-   did), the views of the card, and Close. A video, an image, or a sound is
-   edited in its editor, where it shows (D85,
+9. The header of Card Detail holds no layout control. Its right group is
+   the sign that saving failed (only when it did), the views of the card,
+   **Edit** or **Done** of a video, an image, or a sound that BaseHalf can
+   edit, and Close. Edit shows the editor of the file in place and becomes
+   Done, which goes back to viewing it (D96,
    [editing media](media-editing.md#editing-in-card-detail)).
 
 ### Implementation boundary
