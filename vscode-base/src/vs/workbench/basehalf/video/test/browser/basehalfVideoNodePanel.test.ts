@@ -726,19 +726,30 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('while the draft generates, its prompt is read only, its tiles have no cross, @, or buttons, and the model opens nothing (D67)', async () => {
+	test('while a draft of any kind generates, its prompt is read only, it has no cross, @, swap, or buttons that add an input that the pointer, the keyboard, or assistive technology can reach, and the model opens nothing (D67, D91)', async () => {
 		generation.generating = true;
-		const panel = await createPanel();
-		const prompt = promptOf(panel);
-		find(panel, '.bh-video-panel-model').click();
-		type(prompt, 'Rain @');
-		await settle();
-		assert.deepStrictEqual({
-			editable: prompt.contentEditable,
-			controls: findAll(panel, '.bh-input-tile-remove, .bh-input-tile-name, .bh-add-input, .bh-input-row-swap').length,
-			menus: findAll(panel, '.bh-video-panel-menu, .bh-reference-menu').length,
-			model: find(panel, '.bh-video-panel-model').getAttribute('aria-disabled')
-		}, { editable: 'false', controls: 0, menus: 0, model: 'true' });
+		/** Controls that are drawn and not hidden from assistive technology: `hidden` takes an element out of both. */
+		const reachable = (panel: BaseHalfVideoNodePanel) => findAll(panel, '.bh-input-tile-remove, .bh-input-tile-name, .bh-add-input, .bh-input-row-swap')
+			.filter(control => control.closest('[hidden], [aria-hidden="true"], [inert]') === null && control.getClientRects().length > 0)
+			.map(control => control.getAttribute('aria-label') ?? control.className);
+		const locked = async (panel: BaseHalfVideoNodePanel) => {
+			const prompt = promptOf(panel);
+			find(panel, '.bh-video-panel-model').click();
+			type(prompt, 'Rain @');
+			await settle();
+			return {
+				editable: prompt.contentEditable,
+				tiles: findAll(panel, '.bh-input-tile').length > 0,
+				controls: reachable(panel),
+				menus: findAll(panel, '.bh-video-panel-menu, .bh-reference-menu').length,
+				model: find(panel, '.bh-video-panel-model').getAttribute('aria-disabled')
+			};
+		};
+		const video = await locked(await createPanel());
+		const image = await locked(await createImagePanel(['refs/c.png']));
+		const audio = await locked(await createAudioPanel({ prompt: 'A sea shanty.', provider: 'dunlin', model: 'dunlin-song', mode: 'reference', params: { count: 2 } }, ['refs/c.png']));
+		const expected = { editable: 'false', tiles: true, controls: [], menus: 0, model: 'true' };
+		assert.deepStrictEqual({ video, image, audio }, { video: expected, image: expected, audio: expected });
 	});
 
 	test('a card clicked while picking that the model cannot use says why and connects nothing (D67)', async () => {
