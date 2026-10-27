@@ -233,6 +233,8 @@ Done means:
 - Agent Area terminals identify as BaseHalf and turn the wheel into input with
   Ghostty's semantics, so full-screen TUI agents scroll smoothly
   ([Agent Area terminal](specs/agent-area-terminal.md)).
+- A full-screen program's own background reaches the edges of its Agent Area
+  pane, with no strip of another color beside or under it (D86).
 - Stock VS Code Agent/Chat/Copilot/Sessions UI does not leak into the product.
 
 ### 8. Extension Allowlist, Authentication, And Secrets

@@ -948,6 +948,9 @@ heuristics.
   BaseHalf's were 14 px, and it drops the fraction of a row whenever it sends
   rows. BaseHalf takes both: the default font size and line height of the
   Agent Area terminal give rows of 17 px, and the fraction is dropped.
+- Refined 2026-10-27 by D86: the terminal keeps no width for its scrollbar,
+  and the space around its grid takes the background of the nearest cell, so
+  a program that paints its own background reaches the edges of its pane.
 
 ## D40 — Mirror metadata never blocks the user (NEW, 2026-10-10)
 
@@ -3471,3 +3474,54 @@ only on a selected part.
   the frame viewer is its timeline.
 - A file BaseHalf cannot edit shows no editor, and nothing more: its image
   page or its player as before.
+
+## D86 — A program in an Agent Area terminal reaches the edges of its pane (NEW, 2026-10-27)
+
+**Decision.** An Agent Area terminal keeps no width for its scrollbar, which
+lies over the rows, and keeps 2 px at each side of its grid, as the reference
+terminal does by default. The space left around the grid, less than a cell's
+width at the right and less than a row's height at the bottom, takes the
+background of the nearest cell, as the reference terminal does when its
+padding color is set to extend: always beside the rows, and above and under
+them when the first or the last row has no cell in the default background and
+no powerline glyph. See
+[Agent Area terminal](specs/agent-area-terminal.md#the-grid-and-its-edges).
+
+**Why.** On 2026-10-27 the user saw a long strip down the right side of the
+Agent Area while a full-screen agent that paints its own background ran
+there. The terminal counted its columns as VS Code's does, after keeping 14
+px for a scrollbar, and it painted that space, the rest of a cell beside it,
+and the rest of a row under the grid in the theme's terminal background: 17
+px at the right and 13 px at the bottom of a pane 289 px wide, gray beside
+the program's near black. VS Code 1.143.1 shows the same. In BaseHalf those
+14 px served nothing: the scrollbar lies over the rows, and it never shows
+for a program in the alternate buffer. Without them, what is left is less
+than a cell at the right and a row at the bottom, and it still shows as a
+line of another color at most sizes of the pane. The color of the nearest
+cell closes it at every size and for every program, and a shell looks as
+before, because its cells have the default background.
+
+**What was set aside.**
+- Only giving up the 14 px: the rest of a cell and of a row stay, up to a
+  cell and 2 px at the right and a row and 2 px at the bottom.
+- One color for all the edges, the program's most common one: a program with
+  a side panel or a status line at an edge would get a wrong color along it.
+- Wider cells, so that whole cells fill the pane: glyphs would no longer sit
+  at the font's advance, and the rest of a row would stay.
+- Centering the grid, as the reference terminal can: it splits the strip in
+  two.
+- The reference terminal's default, its background color, or a setting to
+  choose it: that is the strip, only narrower, and wherever a program paints
+  no background of its own the edges look as before.
+
+**Consequences.**
+- Refines D39 and D21: in the same pane, an Agent Area terminal has one or
+  two columns more than VS Code's terminal at the default font size.
+- While it shows over a shell's rows, the scrollbar lies over the last
+  column.
+- The edges read the grid's element and the terminal's current colors
+  through xterm.js internals, which a test pins; without them the edges keep
+  the theme's background.
+- One line of a VS Code file changes: a terminal keeps no width for its
+  scrollbar, in every terminal, since every terminal in BaseHalf is an Agent
+  Area terminal.

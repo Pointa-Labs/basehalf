@@ -85,6 +85,7 @@ export async function assertAgentAreaTerminalCommand(page) {
 	await assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page);
 	await assertAgentAreaTerminalScrollbarFollowsScrollback(page);
 	await assertAgentAreaTerminalVersionAndWheelReports(page);
+	await assertAgentAreaTerminalEdges(page);
 	await assertStockTerminalPanelHidden(page);
 	await runCommand(page, 'Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
@@ -424,8 +425,9 @@ async function assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page) {
 	}, null, { timeout: 20_000 });
 }
 
-// A terminal program that prints the terminal's XTVERSION reply, or counts the
-// wheel reports it receives while tracking the mouse in the alternate buffer.
+// A terminal program that prints the terminal's XTVERSION reply, counts the
+// wheel reports it receives while tracking the mouse in the alternate buffer,
+// or paints every cell of the alternate buffer in one color until q.
 function agentAreaTerminalProbeSource() {
 	return String.raw`
 const mode = process.argv[2];
@@ -447,6 +449,15 @@ if (mode === 'xtversion') {
 		}
 	});
 	process.stdout.write('\x1b[>0q');
+} else if (mode === 'paint') {
+	const { columns, rows } = process.stdout;
+	process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[H\x1b[48;2;200;100;50m' + ' '.repeat(columns * rows) + '\x1b[0m');
+	process.stdin.on('data', chunk => {
+		if (chunk.includes('q')) {
+			process.stdout.write('\x1b[?25h\x1b[?1049l');
+			finish('BH_PAINT_DONE');
+		}
+	});
 } else {
 	let up = 0;
 	let down = 0;
@@ -599,6 +610,77 @@ async function assertAgentAreaTerminalVersionAndWheelReports(page) {
 	if (!(cellHeight > 0) || down !== 0 || Math.abs(up - expected) > 1) {
 		throw new Error(`Agent Area terminal sent ${up} up and ${down} down wheel reports for ${pixels}px of trackpad scroll and two wheel notches; expected ${expected} (cell height ${cellHeight}).`);
 	}
+}
+
+// The grid keeps 2 px at each side and no width for the scrollbar, and the
+// space around it takes the background of the nearest cell, so a program that
+// paints its own background reaches the edges of its pane (D86,
+// docs/specs/agent-area-terminal.md).
+async function assertAgentAreaTerminalEdges(page) {
+	const geometry = await page.evaluate(() => {
+		const session = document.querySelector('.basehalf-agent-area-session.active.kind-terminal');
+		const wrapper = session?.querySelector('.terminal-wrapper') as HTMLElement & { xterm?: { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } } } } } | null;
+		const screen = session?.querySelector('.terminal-xterm-host > .xterm .xterm-screen');
+		if (!session || !screen) {
+			return undefined;
+		}
+		const pane = session.getBoundingClientRect();
+		const grid = screen.getBoundingClientRect();
+		const cell = wrapper?.xterm?._core?._renderService?.dimensions?.css?.cell;
+		return { left: grid.left - pane.left, right: pane.right - grid.right, bottom: pane.bottom - grid.bottom, cellWidth: cell?.width ?? 0, cellHeight: cell?.height ?? 0 };
+	});
+	if (!geometry || !(geometry.cellWidth > 0) || Math.abs(geometry.left - 2) > 0.5 || geometry.right < 1.5 || geometry.right >= geometry.cellWidth + 2.5 || geometry.bottom >= geometry.cellHeight + 2.5) {
+		throw new Error(`Agent Area terminal grid leaves more of its pane than the rest of a cell and of a row with 2 px: ${JSON.stringify(geometry)}`);
+	}
+
+	const probe = path.join(runRoot, 'agent-area-terminal-probe.cjs');
+	fs.writeFileSync(probe, agentAreaTerminalProbeSource());
+	await page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first().click();
+	await page.keyboard.insertText(`node ${JSON.stringify(probe)} paint`);
+	await page.keyboard.press('Enter');
+	await waitForAgentAreaTerminalEdges(page, edges => edges.sides.every(side => side.shown && side.colors.join() === '200,100,50')
+		&& edges.corners.every(corner => corner.shown && corner.color === 'rgb(200, 100, 50)'), 'the color of a program that paints every cell, on the four sides and the corners');
+	await page.keyboard.press('q');
+	await waitForActiveAgentAreaTerminalLine(page, 'BH_PAINT_DONE');
+	// Back in the shell, whose rows have cells in the default background,
+	// nothing above or under the grid is colored.
+	await waitForAgentAreaTerminalEdges(page, edges => !edges.sides[2].shown && !edges.sides[3].shown && edges.corners.every(corner => !corner.shown), 'left above and under the grid for a shell');
+}
+
+function readAgentAreaTerminalEdges(page) {
+	return page.evaluate(() => {
+		const layer = document.querySelector('.basehalf-agent-area-session.active.kind-terminal > .basehalf-agent-session-edges');
+		if (!layer) {
+			return undefined;
+		}
+		// Left, right, above, and under the grid.
+		const sides = [...layer.querySelectorAll<HTMLCanvasElement>(':scope > canvas')].map(canvas => {
+			const data = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data ?? [];
+			const colors = new Set<string>();
+			for (let index = 0; index < data.length; index += 4) {
+				colors.add(`${data[index]},${data[index + 1]},${data[index + 2]}`);
+			}
+			return { shown: getComputedStyle(canvas).display !== 'none', colors: [...colors] };
+		});
+		const corners = [...layer.querySelectorAll<HTMLElement>(':scope > .basehalf-agent-session-edge-corner')].map(corner => {
+			const style = getComputedStyle(corner);
+			return { shown: style.display !== 'none', color: style.backgroundColor };
+		});
+		return sides.length === 4 && corners.length === 4 ? { sides, corners } : undefined;
+	});
+}
+
+async function waitForAgentAreaTerminalEdges(page, isExpected, expectation) {
+	const deadline = Date.now() + 15_000;
+	let edges;
+	do {
+		edges = await readAgentAreaTerminalEdges(page);
+		if (edges && isExpected(edges)) {
+			return;
+		}
+		await page.waitForTimeout(100);
+	} while (Date.now() < deadline);
+	throw new Error(`Agent Area terminal edges do not have ${expectation}: ${JSON.stringify(edges ?? 'no edges')}`);
 }
 
 async function assertAgentAreaGhosttySplitVisuals(page) {

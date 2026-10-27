@@ -1,7 +1,8 @@
-# Agent Area terminal identity, wheel input, and scrollbar
+# Agent Area terminal identity, wheel input, scrollbar, and the edges of its grid
 
-Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13)
-Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09)
+Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13; the grid's width and the edges around it added 2026-10-27)
+Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09),
+[D86](../decisions.md#d86--a-program-in-an-agent-area-terminal-reaches-the-edges-of-its-pane-new-2026-10-27)
 Related: [D21](../decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30),
 [agent launch context](agent-launch-context.md)
 
@@ -84,6 +85,22 @@ the workbench's wheel classifier takes equal events of 40 points or more for
 notches of a physical wheel, which count three rows each. The reference
 terminal asks the operating system which device it is; a web page cannot.
 
+A full-screen program paints the background of each of its cells. On
+2026-10-27 the user saw a long strip down the right side of the Agent Area
+while a full-screen agent that paints its own background ran there. Measured
+that day in a pane 289 px wide and 797 px high, at a scale factor of 2, with
+cells of 7.5 by 17 px: the grid was 270 px wide, and the 17 px to its right
+and the 13 px under it showed the theme's terminal background, rgb(31, 31,
+31), beside the program's rgb(4, 4, 4). The terminal counted its columns as
+VS Code's terminal does, after keeping 14 px at the right for a scrollbar,
+and 3 px were left of a cell's width. Under the grid lay the 11 px left of a
+row's height and the pane's inset of 2 px. VS Code 1.143.1 showed the same
+program with 10 px to the right of its grid and 26 px under it in its
+panel's background. The reference terminal keeps 2 px at each side by
+default and leaves the rest of a cell at the right and of a row at the
+bottom. It fills that space with its background color, or, when its padding
+color is set to extend, with the color of the nearest cell.
+
 ## Goals
 
 - Agent Area terminals behave like a native terminal at the input and identity
@@ -97,6 +114,8 @@ terminal asks the operating system which device it is; a web page cannot.
 - A program's output reaches the window as soon as the pty has delivered it,
   so that a frame that answers a wheel report shows without a wait of the
   terminal's own.
+- A program that paints its own background reaches the edges of its pane, at
+  every size of the pane, and a shell looks as it did.
 
 ## Non-goals
 
@@ -125,6 +144,13 @@ terminal asks the operating system which device it is; a web page cannot.
 - **Precise event**: a wheel event from a trackpad or another device that
   reports pixel deltas. **Discrete event**: a notch of a physical mouse wheel,
   as VS Code's `MouseWheelClassifier` classifies this terminal's wheel events.
+- **Grid**: the rectangle of the cells that the terminal shows, as many whole
+  rows and columns as fit. **Edges**: the part of the pane outside the grid.
+- **Background of a cell**: the color the terminal draws behind the cell: its
+  palette entry or its RGB color, its foreground when the cell is drawn
+  inverse, and the terminal's default background otherwise. The default
+  background is the terminal's background at that moment, also after the
+  program changed it (OSC 11); a palette entry likewise follows OSC 4.
 
 ## Required behavior
 
@@ -209,6 +235,36 @@ rows are part of scrolling like the reference terminal.
 2. A user who sets another font size or line height gets other rows and a
    proportionally different scroll distance, as in the reference terminal.
 
+### The grid and its edges
+
+1. **Width and height.** The grid takes the pane less 2 px at each of its
+   four sides, as the reference terminal's default padding does, and as many
+   whole cells as fit in what remains. The terminal keeps no width for the
+   scrollbar: the scrollbar lies over the rows (Scrollbar), and a program in
+   the alternate buffer has none. What is left of a cell's width lies at the
+   right of the grid, and what is left of a row's height lies under it.
+2. **Beside the rows.** At the left and at the right of the grid, the edge of
+   each row has the background of the row's first and of its last cell.
+3. **Above and under the rows.** Above the grid, the edge of each column has
+   the background of the column's cell in the first row, and under the grid,
+   of its cell in the last row. The corners take the background of the
+   corner cell. A row colors its edge this way only when none of its cells
+   has the default background and none holds a powerline glyph, U+E0B0 to
+   U+E0C8, U+E0CA, U+E0CC to U+E0D2, or U+E0D4: a row with a cell in the
+   default background looks right with the default background beside it, and
+   a powerline glyph drawn wider looks wrong. Otherwise that edge and its
+   corners have the default background. These are the reference terminal's
+   rules when its padding color is set to extend, without its third rule,
+   which leaves out a row that shell integration marks as a prompt.
+4. **Not extended.** The selection, the cursor, the scrollbar, and links
+   draw over the grid and color no edge.
+5. **Timing.** The edges follow each frame the terminal draws, in the same
+   frame: new output, a scroll, a switch of buffer, a change of colors, and a
+   change of the pane's size or of the cells' size.
+6. A shell's cells mostly have the default background, so its edges have the
+   default background as before. A line that a program colors up to the last
+   column, such as a full-width bar, continues to the pane's right edge.
+
 ### Glyph atlas maintenance
 
 xterm.js's WebGL renderer keeps glyphs in a texture atlas shared by terminals
@@ -252,7 +308,8 @@ terminal.
    out the way xterm.js fades it. The slider's length and position come from
    xterm.js.
 3. The scrollbar is a 6 px rounded slider in a 12 px transparent track
-   without arrows. While xterm.js shows it, it is at full opacity when the
+   without arrows, at the right edge of the pane. It lies over the rows; the
+   terminal keeps no width for it. While xterm.js shows it, it is at full opacity when the
    pointer is over the terminal or the slider is dragged, and dimmed
    otherwise. BaseHalf sets neither the opacity nor its transition on a
    scrollbar that xterm.js hides, so one that xterm.js hides at once
@@ -335,6 +392,13 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
   or hidden, BaseHalf's opacity rules stop matching and xterm.js's own
   opacity applies. The scrollbar still hides where nothing can scroll. A test
   pins the class names so that such an upgrade fails tests instead.
+- The edges read the grid's element and the terminal's current colors from
+  xterm.js internals. If an upgrade removes them, the terminal draws no
+  edges, logs a warning once, and the pane shows the theme's terminal
+  background around the grid. A test pins those internals so that such an
+  upgrade fails tests instead.
+- The edges read the cells, not the renderer, so they are the same when VS
+  Code falls back to its DOM renderer.
 
 ## Acceptance criteria
 
@@ -393,7 +457,11 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
      the pointer is over the terminal, and no scrollbar once the pointer has
      left;
    - no scrollbar for a program in the alternate buffer while the pointer is
-     over the terminal.
+     over the terminal;
+   - a grid that ends less than a cell and 2 px from the pane's right edge and
+     less than a row and 2 px from its bottom edge, and, for a program in the
+     alternate buffer that paints every cell in one color, that color on the
+     four edges.
 9. Recorded manual check: trackpad gestures posted as system events give, in
    an Agent Area terminal with BaseHalf's default font, the number of wheel
    reports that they give in the reference terminal with its default font,
@@ -426,3 +494,37 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
    enabled`, and after each of 18 swipes, slow, medium, and fast, the screen
    was the same as after Ctrl+L. The table under Scroll regions for Claude
    Code holds the times.
+11. A unit test of the background of a cell covers the default background, a
+    palette entry of the 16 and of the 256 colors, an RGB color, and an
+    inverse cell with a default and with a set foreground. A unit test of the
+    rows above and under the grid shows that a row with a cell in the default
+    background, with an RGB background equal to the default, or with a
+    powerline glyph colors no edge, and that a row of colored cells does.
+12. A browser test with a real xterm.js terminal opened in the DOM and its
+    edges shows:
+    - a row whose last cell has a colored background colors the edge at the
+      right of that row, and no other row;
+    - in the alternate buffer, a screen painted in one color colors the four
+      edges and the corners in that color;
+    - a last row with a cell in the default background leaves the edge under
+      the grid in the default background;
+    - a default background that the program sets (OSC 11) reaches the edges;
+    - the xterm.js internals that the edges read exist.
+13. Recorded manual check: the full-screen agent of the Problem section in an
+    Agent Area terminal, at three widths of the pane and with the sidebar
+    shown and hidden, leaves no pixel of the theme's terminal background
+    between its grid and the pane's border, and a shell looks as before.
+
+    Recorded 2026-10-27 at a scale factor of 2, with the agent painting
+    rgb(10, 10, 10), and rgb(255, 255, 255) under a light terminal
+    background: at pane widths of 289, 349, 469, 482, 519, and 769 px, the
+    last with the sidebar hidden, a pixel row from the grid's last column to
+    the pane's border and a pixel column under the grid held only the
+    program's color, with 2 or 7 px left beside the grid and 13 px under it.
+    In a shell, a line colored to its last column reached both edges, the
+    other rows and the space above and under the grid kept the default
+    background, and the scrollbar showed over the last column at the pane's
+    edge. Claude Code kept edges of the default background, and a full-width
+    panel of Codex reached the edges. With every row in a new color at about
+    120 frames a second, the edges took 9 ms of the window's 593 ms of work
+    over 4.6 s, and frames came at a median of 8.3 ms.

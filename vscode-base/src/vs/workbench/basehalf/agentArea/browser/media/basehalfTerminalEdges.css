@@ -1,0 +1,23 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The edges (D86): what lies around a terminal's grid takes the background of
+   the nearest cell. The layer lies under the pane's surface and covers the
+   pane; each side is a canvas of one pixel per row or per column, stretched
+   over the side without smoothing. */
+.basehalf-agent-session-edges {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.basehalf-agent-session-edges > .basehalf-agent-session-edge,
+.basehalf-agent-session-edges > .basehalf-agent-session-edge-corner {
+	position: absolute;
+}
+
+.basehalf-agent-session-edges > .basehalf-agent-session-edge {
+	image-rendering: pixelated;
+}
