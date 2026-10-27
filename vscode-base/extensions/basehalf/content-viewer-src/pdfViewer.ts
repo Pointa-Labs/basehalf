@@ -18,6 +18,7 @@ import EmbedPDF, {
 	type ZoomLevel
 } from '@embedpdf/snippet';
 import { FontCharset, PdfErrorCode } from '@embedpdf/models';
+import { baseHalfNoteZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteZoom.js';
 import { BASEHALF_PDF_AUTOMATIC_ZOOM_MAX, BASEHALF_PDF_SELECTION_TEXT_LIMIT, type BaseHalfPdfWebviewMessage, type BaseHalfPdfZoom, type IBaseHalfPdfSelection, type IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
 
 interface VsCodeApi {
@@ -322,6 +323,29 @@ async function initializeRegistry(registry: PluginRegistry): Promise<void> {
 				: boundedNumber(String(event.newZoom), 1, 0.25, 5);
 		emitViewState();
 	});
+	// A pinch that the window took over the page zooms the PDF with its own
+	// zoom, once a frame, around the fingers, and is the user's zoom (PDFs and
+	// books, "The PDF reader").
+	let pinch: { factor: number; x: number; y: number } | undefined;
+	window.addEventListener('message', event => {
+		const message = baseHalfPagePinchFromMessage(event.data);
+		if (!message || locked) {
+			return;
+		}
+		lastUserInput = Date.now();
+		if (!pinch) {
+			// The point in the viewer's scrolling viewport, below its toolbar.
+			const viewport = scrollingViewport();
+			pinch = { factor: 1, x: message.x - viewport.x, y: message.y - viewport.y };
+			window.requestAnimationFrame(() => {
+				const next = pinch!;
+				pinch = undefined;
+				const shown = zoomScope.getState().currentZoomLevel;
+				zoomScope.requestZoom(Math.min(5, Math.max(0.25, shown * next.factor)), { vx: next.x, vy: next.y });
+			});
+		}
+		pinch.factor *= baseHalfNoteZoomFactor(message);
+	});
 	// While the PDF fits the width of Card Detail, it follows the width.
 	new ResizeObserver(() => {
 		if (zoom === undefined && ready) {
@@ -575,4 +599,17 @@ function baseHalfPdfTheme(): { preference: 'light' | 'dark'; light: DeepPartial<
 		}
 	};
 	return { preference: currentThemePreference(), light: workbenchColors, dark: workbenchColors };
+}
+
+/** Where the viewer's scrolling viewport stands in the page: the zoom's center is given in it. */
+function scrollingViewport(): { readonly x: number; readonly y: number } {
+	const scope: ParentNode = root.shadowRoot ?? root;
+	for (const element of scope.querySelectorAll<HTMLElement>('*')) {
+		const overflow = getComputedStyle(element).overflowY;
+		if ((overflow === 'auto' || overflow === 'scroll') && element.scrollHeight > element.clientHeight) {
+			const box = element.getBoundingClientRect();
+			return { x: box.left, y: box.top };
+		}
+	}
+	return { x: 0, y: 0 };
 }

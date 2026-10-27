@@ -10,6 +10,8 @@ import {
 	BASEHALF_NOTE_ZOOM_MIN,
 	baseHalfNoteZoomFactor,
 	clampBaseHalfNoteZoom,
+	baseHalfPagePinchFromMessage,
+	BASEHALF_PAGE_PINCH_MESSAGE,
 	isBaseHalfNoteZoomWheel,
 	normalizeBaseHalfNoteZoom,
 	settleBaseHalfNoteZoom
@@ -54,6 +56,14 @@ suite('BaseHalfNoteZoom', () => {
 		assert.strictEqual(settleBaseHalfNoteZoom(0.95), 1);
 		assert.strictEqual(settleBaseHalfNoteZoom(1.07), 1.07);
 		assert.strictEqual(settleBaseHalfNoteZoom(0.2), 0.5);
+	});
+
+	test('a pinch handed to a page of Card Detail carries its event and its point, and nothing else', () => {
+		assert.deepStrictEqual(baseHalfPagePinchFromMessage({ type: BASEHALF_PAGE_PINCH_MESSAGE, deltaY: -2.4, deltaMode: 0, x: 10, y: 20, extra: true }), { type: BASEHALF_PAGE_PINCH_MESSAGE, deltaY: -2.4, deltaMode: 0, x: 10, y: 20 });
+		assert.strictEqual(baseHalfPagePinchFromMessage({ type: BASEHALF_PAGE_PINCH_MESSAGE, deltaY: Number.NaN, deltaMode: 0, x: 0, y: 0 }), undefined);
+		assert.strictEqual(baseHalfPagePinchFromMessage({ type: BASEHALF_PAGE_PINCH_MESSAGE, deltaY: 1, deltaMode: 4, x: 0, y: 0 }), undefined);
+		assert.strictEqual(baseHalfPagePinchFromMessage({ type: 'basehalf.pdf.viewState', deltaY: 1, deltaMode: 0, x: 0, y: 0 }), undefined);
+		assert.strictEqual(baseHalfPagePinchFromMessage(undefined), undefined);
 	});
 
 	test('a level read from storage that is no level is 100%', () => {

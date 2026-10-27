@@ -83,3 +83,28 @@ export function normalizeBaseHalfNoteZoom(value: unknown): number {
 	}
 	return level;
 }
+
+/**
+ * A pinch that the window took over a page of Card Detail, a PDF or a book,
+ * and hands on to that page: the browser gives a pinch of the trackpad to the
+ * window, aimed at the element of the page, never to the page itself (zoom and
+ * outline of a note, L5). The point is in the page's coordinates.
+ */
+export const BASEHALF_PAGE_PINCH_MESSAGE = 'basehalf.page.pinch';
+
+export interface IBaseHalfPagePinchMessage extends IBaseHalfNoteZoomWheel {
+	readonly type: typeof BASEHALF_PAGE_PINCH_MESSAGE;
+	readonly x: number;
+	readonly y: number;
+}
+
+export function baseHalfPagePinchFromMessage(value: unknown): IBaseHalfPagePinchMessage | undefined {
+	const candidate = value as Partial<IBaseHalfPagePinchMessage> | null | undefined;
+	if (!candidate || typeof candidate !== 'object' || candidate.type !== BASEHALF_PAGE_PINCH_MESSAGE) {
+		return undefined;
+	}
+	const finite = (number: unknown): number is number => typeof number === 'number' && Number.isFinite(number);
+	return finite(candidate.deltaY) && finite(candidate.x) && finite(candidate.y) && (candidate.deltaMode === 0 || candidate.deltaMode === 1 || candidate.deltaMode === 2)
+		? { type: BASEHALF_PAGE_PINCH_MESSAGE, deltaY: candidate.deltaY, deltaMode: candidate.deltaMode, x: candidate.x, y: candidate.y }
+		: undefined;
+}
