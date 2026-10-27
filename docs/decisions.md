@@ -3194,9 +3194,10 @@ about; until now the agent saw only which PDF was open.
 ## D82 — A delete on the canvas asks nothing, and undo brings back exactly what a step took (NEW, 2026-10-25)
 
 > **Extended by D89 (2026-10-27).** Undo asks nothing either: Command+Z
-> and Shift+Command+Z in an editor of text undo and redo its own text and
-> never reach a step of the canvas, Card Detail's header, or Files, which
-> VS Code asked about.
+> and Shift+Command+Z in an editor of text leave a step of the canvas, Card
+> Detail's header, Files, or a service of BaseHalf to that place, and undo
+> and redo what editors did, an edit across files among it, in every file,
+> where VS Code asked.
 
 **Decision.** A delete on the canvas, by a card's Delete, the selection
 toolbar, or the Delete key, happens at once and asks nothing. Every step of
@@ -3410,7 +3411,7 @@ built without asking back, after research.
   Ogg are encoded again by the window, in AAC and in Opus. A sound longer than
   30 minutes is not edited: it is decoded whole in memory.
 
-## D89 — A Note resizes while it is edited on its card, and an editor of text undoes only its own text (NEW, 2026-10-27)
+## D89 — A Note resizes while it is edited on its card, and an editor of text leaves the steps of other places to them (NEW, 2026-10-27)
 
 **Decision.** A Note that is being edited on its card keeps its resize
 targets, and they work as they do at rest. A press on one leaves the keyboard
@@ -3421,11 +3422,15 @@ which Command+Z reaches once the keyboard is out of the editor. See
 [canvas card resize, "While a Note is edited"](specs/canvas-card-resize.md#while-a-note-is-edited).
 
 Command+Z and Shift+Command+Z in an editor of text, the editor of a note on
-its card and the editors of Card Detail, undo and redo the edits of that text
-and nothing else. A step that changes files, a folder, or the layout, made on
-the canvas, in Card Detail's header, or in Files, is not reached from an
-editor: when it is the file's next step, the keys do nothing there and
-nothing asks, and the step is undone where it was made. See
+its card and the editors of Card Detail, undo and redo what was done in
+editors. A step made outside them, by the canvas, Files, Card Detail's
+header, or a service of BaseHalf, is left to that place: when it is the
+file's next step, the keys do nothing there and nothing asks. A step that an
+editor's own command made across files, such as a rename of a symbol or of a
+heading across notes, is undone and redone from the editor in every file it
+changed, and nothing asks. VS Code tells the two apart by the source of the
+step: a place with an undo of its own pushes its steps with one, an editor's
+commands push theirs without. See
 [exact undo, "Undo in an editor of text"](specs/exact-undo.md#undo-in-an-editor-of-text).
 
 **Why.** On 2026-10-27 the user found that a Note, once double-clicked to be
@@ -3450,8 +3455,11 @@ Shopping.md'?"). VS Code asks when the undo of a file in an editor reaches a
 step that another place made, and D82 says that nothing asks. The steps of
 D82's kept versions and the connections of notes already stay out of the
 history of a file the user edits; the renames and moves that VS Code's file
-edits make, and the connections of files that are no notes, do not, so one
-rule is kept where the keys are: the editor of text undoes its text.
+edits make, and the connections of files that are no notes, do not. So the
+rule is kept in VS Code's undo, which knows how each step was made: an undo
+from an editor leaves a step that a place with an undo of its own made. The
+same undo asked whether to undo an edit across files that an editor's own
+command made "across all files"; it now takes it back in every file.
 
 **What was set aside.**
 - Ending the editing when a resize begins and beginning it again after: the
@@ -3470,6 +3478,13 @@ rule is kept where the keys are: the editor of text undoes its text.
 - Keeping every step out of the histories of the files it names, as the kept
   versions do: the renames and moves that VS Code's file edits make name
   their files, and the editor would still ask about the steps of Files.
+- Leaving to other places every step over several files, as a first build
+  on 2026-10-27 did: a rename of a symbol, or of a heading across notes,
+  made in the editor, could then be undone neither there nor anywhere else,
+  while main undid it after a question.
+- Telling the steps apart by their codes, or by a mark that BaseHalf puts on
+  its own: the moves and renames of VS Code's file edits carry the codes of
+  Files, and the source of a step is what VS Code itself asks by.
 
 **Consequences.**
 - Revises [canvas card resize, "Which cards resize"](specs/canvas-card-resize.md#which-cards-resize),
@@ -3480,9 +3495,9 @@ rule is kept where the keys are: the editor of text undoes its text.
   reached it, asked "Would you like to undo 'Move or resize canvas cards'?",
   and the editor waited for the answer. Text typed after a resize no longer
   keeps the canvas from undoing it either.
-- Extends D82 to undo in the editors of text: the steps of the canvas, Card
-  Detail's header, and Files are undone where they were made. An edit across
-  files that an editor makes with its own commands, as a rename of a symbol
-  in code, is such a step too; BaseHalf makes none.
+- Extends D82 to undo in the editors of text, with two changes to VS Code's
+  undo service, marked BaseHalf: an undo or a redo by resource, which is an
+  editor's, leaves an element of a source, and the undo of an element that
+  can be split takes it back in every file without asking.
 - The connection handles of a Note being edited stay hidden
   ([canvas connection handles](specs/canvas-connection-handles.md#scope)).
