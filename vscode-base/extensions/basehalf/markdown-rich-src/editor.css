@@ -101,6 +101,14 @@ body,
 	opacity: 0.65;
 }
 
+/* In Card Detail the page keeps 85 pixels at each side of its text, at every
+ * level and width: the outline's strip at the edge and the editor's handles of
+ * a block beside the text never lie on each other, and the text stays in the
+ * middle (zoom and outline of a note, rule 21). */
+.basehalf-markdown-rich.surface-detail .basehalf-markdown-rich-page {
+	padding-inline: max(24px, calc((85px - max(0px, (100% - 760px * var(--basehalf-note-zoom, 1)) / 2)) / var(--basehalf-note-zoom, 1)));
+}
+
 .basehalf-markdown-rich.surface-canvas {
 	--basehalf-canvas-note-primary: #e1e2e3;
 	--basehalf-canvas-note-secondary: #b0b3b5;
@@ -648,7 +656,7 @@ body,
 
 .basehalf-note-outline-ticks {
 	position: absolute;
-	width: 32px;
+	width: 24px;
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity 200ms ease;

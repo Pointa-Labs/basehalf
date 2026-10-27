@@ -6,23 +6,27 @@
 // This module is also compiled into the rich editor's webview, whose type
 // check follows every import. It imports nothing.
 
-/** The narrowest left margin that shows the outline (zoom and outline of a note, rule 11). */
-export const BASEHALF_NOTE_OUTLINE_MIN_MARGIN = 48;
+/** The narrowest left margin that shows the outline: its strip, 2 to 26 pixels from the edge (zoom and outline of a note, rule 11). */
+export const BASEHALF_NOTE_OUTLINE_MIN_MARGIN = 26;
 /**
- * The narrowest left margin of the Rich projection that shows it: the
- * editor's handles of a block stand in the 57 pixels left of the text, and the
- * outline keeps 4 pixels from them (rule 11).
+ * The room the Rich projection keeps left of its text, so that the outline's
+ * strip of 28 pixels and the editor's handles of a block, in the 57 pixels
+ * next to the text, never lie on each other (rule 21).
  */
-export const BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES = 105;
+export const BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES = 85;
 /** Where the right ends of the ticks stand, from the left edge of the view (rule 12). */
-export const BASEHALF_NOTE_OUTLINE_TICK_END = 36;
+export const BASEHALF_NOTE_OUTLINE_TICK_END = 22;
+/** Where the column of ticks, which the pointer finds them by, begins, from the left edge of the view. */
+export const BASEHALF_NOTE_OUTLINE_COLUMN_LEFT = 2;
 export const BASEHALF_NOTE_OUTLINE_TICK_HEIGHT = 2;
 const TICK_PITCH = 14;
 const TICK_MIN_PITCH = 4;
 /** The room the column of ticks leaves above and below it (rule 12). */
 const COLUMN_INSET = 16;
 
-export const BASEHALF_NOTE_OUTLINE_PANEL_LEFT = 12;
+export const BASEHALF_NOTE_OUTLINE_PANEL_LEFT = 8;
+/** How long the pointer rests on the ticks before the panel opens, so that one passing to the text opens nothing (rule 14). */
+export const BASEHALF_NOTE_OUTLINE_OPEN_DELAY_MS = 150;
 export const BASEHALF_NOTE_OUTLINE_PANEL_WIDTH = 240;
 /** How far the panel's top stands above the first tick (rule 15). */
 const PANEL_ABOVE = 10;

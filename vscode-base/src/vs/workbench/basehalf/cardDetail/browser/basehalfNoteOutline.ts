@@ -7,7 +7,9 @@
 // check follows every import. It imports only its sibling in common/.
 
 import {
+	BASEHALF_NOTE_OUTLINE_COLUMN_LEFT,
 	BASEHALF_NOTE_OUTLINE_MIN_MARGIN,
+	BASEHALF_NOTE_OUTLINE_OPEN_DELAY_MS,
 	BASEHALF_NOTE_OUTLINE_PANEL_LEFT,
 	BASEHALF_NOTE_OUTLINE_ROW_HEIGHT,
 	BASEHALF_NOTE_OUTLINE_SCROLL_GAP,
@@ -29,7 +31,7 @@ import {
 export const BASEHALF_NOTE_OUTLINE_CLASS = 'basehalf-note-outline';
 
 /** How far the column of ticks reaches beyond them, so that the pointer finds it: left, right, above, and below. */
-const COLUMN_SLACK = 8;
+const COLUMN_SLACK = 4;
 
 export interface IBaseHalfNoteOutlineHeading {
 	readonly element: HTMLElement;
@@ -86,6 +88,8 @@ export class BaseHalfNoteOutline {
 	private inMargin = false;
 	private overOutline = false;
 	private open = false;
+	/** While the pointer rests on the ticks, before the panel opens. */
+	private openTimer: number | undefined;
 	private pendingFrame: number | undefined;
 	private observedText: HTMLElement | undefined;
 	/** The headings are read again in the next frame: the page changed. */
@@ -122,11 +126,28 @@ export class BaseHalfNoteOutline {
 		this.listen(view, 'pointermove', event => this.onPointerMove(event as PointerEvent), { passive: true });
 		this.listen(view, 'pointerleave', () => this.setInMargin(false), { passive: true });
 		this.listen(view, 'scroll', () => this.schedule(), { passive: true });
+		// The panel opens once the pointer rests on the ticks; over the panel it stays (rule 14).
+		this.listen(this.column, 'pointerenter', () => {
+			this.window.clearTimeout(this.openTimer);
+			this.openTimer = this.window.setTimeout(() => {
+				this.openTimer = undefined;
+				this.setOverOutline(true);
+			}, BASEHALF_NOTE_OUTLINE_OPEN_DELAY_MS);
+		});
+		this.listen(this.panel, 'pointerenter', () => {
+			if (this.open) {
+				this.setOverOutline(true);
+			}
+		});
 		for (const element of [this.column, this.panel]) {
-			this.listen(element, 'pointerenter', () => this.setOverOutline(true));
 			this.listen(element, 'pointerleave', event => {
 				const next = (event as PointerEvent).relatedTarget;
-				this.setOverOutline(next instanceof Node && (this.column.contains(next) || this.panel.contains(next)));
+				const staying = next instanceof Node && (this.column.contains(next) || (this.open && this.panel.contains(next)));
+				if (!staying) {
+					this.window.clearTimeout(this.openTimer);
+					this.openTimer = undefined;
+				}
+				this.setOverOutline(staying && this.overOutline);
 			});
 			// A press here moves neither the keyboard nor the caret, and reaches nothing under it (rule 17).
 			this.listen(element, 'mousedown', event => {
@@ -175,6 +196,7 @@ export class BaseHalfNoteOutline {
 			this.window.cancelAnimationFrame(this.pendingFrame);
 			this.pendingFrame = undefined;
 		}
+		this.window.clearTimeout(this.openTimer);
 		this.resizeObserver.disconnect();
 		this.mutationObserver.disconnect();
 		for (const remove of this.listeners.splice(0)) {
@@ -196,7 +218,7 @@ export class BaseHalfNoteOutline {
 			tick.className = `${BASEHALF_NOTE_OUTLINE_CLASS}-tick`;
 			const length = baseHalfNoteOutlineTickLength(heading.level, highest);
 			tick.style.width = `${length}px`;
-			tick.style.left = `${BASEHALF_NOTE_OUTLINE_TICK_END - BASEHALF_NOTE_OUTLINE_PANEL_LEFT - length}px`;
+			tick.style.left = `${BASEHALF_NOTE_OUTLINE_TICK_END - BASEHALF_NOTE_OUTLINE_COLUMN_LEFT - length}px`;
 			return tick;
 		});
 		this.rows = this.headings.map(heading => {
@@ -288,7 +310,7 @@ export class BaseHalfNoteOutline {
 		const rootBox = this.root.getBoundingClientRect();
 		const offsetLeft = rootBox.left - viewLeft;
 		const offsetTop = rootBox.top - viewTop;
-		this.column.style.left = `${BASEHALF_NOTE_OUTLINE_PANEL_LEFT - offsetLeft}px`;
+		this.column.style.left = `${BASEHALF_NOTE_OUTLINE_COLUMN_LEFT - offsetLeft}px`;
 		this.column.style.top = `${column.top - COLUMN_SLACK - offsetTop}px`;
 		this.column.style.height = `${(column.last - column.first) * column.pitch + BASEHALF_NOTE_OUTLINE_TICK_HEIGHT + 2 * COLUMN_SLACK}px`;
 		this.ticks.forEach((tick, index) => {
