@@ -115,8 +115,10 @@ export class BaseHalfCanvasRenderer {
 	 * A PDF or a book has the ratio of its card, 3:4, without measuring. It
 	 * waits for the pictures of cards that appear, at most
 	 * {@link PICTURES_APPEAR_WAIT_MS}, so that their places are chosen with
-	 * their shape. A draft whose model the catalog cannot tell yet is left out,
-	 * and keeps the size of its row.
+	 * their shape, and for a new version of the picture a card shows, so that
+	 * the card takes the new picture and its shape in one drawing. A draft
+	 * whose model the catalog cannot tell yet is left out, and keeps the size
+	 * of its row.
 	 */
 	private async readPictureRatios(
 		folder: IBaseHalfCanvasFolderState,
@@ -127,7 +129,7 @@ export class BaseHalfCanvasRenderer {
 		pathKey: (path: string) => string
 	): Promise<ReadonlyMap<string, number>> {
 		const rows = new Set((canvas?.cards ?? []).map(card => pathKey(card.path)));
-		const pictures: { readonly path: string; readonly picture: IBaseHalfCanvasPicture; readonly appears: boolean }[] = [];
+		const pictures: { readonly path: string; readonly picture: IBaseHalfCanvasPicture; readonly appears: boolean; readonly replaced: boolean }[] = [];
 		const drafts: { readonly path: string; readonly resource: URI; readonly kind: 'image' | 'video' }[] = [];
 		const documents: string[] = [];
 		for (const child of stat.children ?? []) {
@@ -145,17 +147,22 @@ export class BaseHalfCanvasRenderer {
 				drafts.push({ path, resource: child.resource, kind });
 				continue;
 			}
+			const version = `${child.mtime ?? 0}-${child.size ?? 0}`;
+			const shown = this.view.renderedItemsByPath.get(path)?.stat;
 			pictures.push({
 				path,
-				picture: { resource: child.resource, version: `${child.mtime ?? 0}-${child.size ?? 0}`, kind },
-				appears: !rows.has(pathKey(path)) && !waiting?.has(path)
+				picture: { resource: child.resource, version, kind },
+				appears: !rows.has(pathKey(path)) && !waiting?.has(path),
+				// The card shows another version of the file, as after an edit: it takes the new one with its shape.
+				replaced: !!shown && `${shown.mtime ?? 0}-${shown.size ?? 0}` !== version
 			});
 		}
 		const ratios = new Map<string, number>(documents.map(path => [path, BASEHALF_CANVAS_DOCUMENT_CARD_RATIO]));
 		const appearing = pictures.some(entry => entry.appears) || drafts.some(draft => !rows.has(pathKey(draft.path)));
+		const replaced = pictures.some(entry => entry.replaced && this.view.pictureShapes.ratioOf(entry.picture) === undefined);
 		const [catalog] = await Promise.all([
 			drafts.length > 0 ? this.catalogForDrafts(appearing ? PICTURES_APPEAR_WAIT_MS : 0) : Promise.resolve(undefined),
-			this.view.pictureShapes.measure(pictures.map(entry => entry.picture), appearing ? PICTURES_APPEAR_WAIT_MS : 0)
+			this.view.pictureShapes.measure(pictures.map(entry => entry.picture), appearing || replaced ? PICTURES_APPEAR_WAIT_MS : 0)
 		]);
 		for (const { path, picture } of pictures) {
 			const ratio = this.view.pictureShapes.ratioOf(picture);

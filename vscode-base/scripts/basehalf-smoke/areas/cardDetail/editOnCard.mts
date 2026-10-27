@@ -54,6 +54,36 @@ function waitForCard(page, picture, ratio, timeout) {
 	}, { cardPath: IMAGE, picture, ratio }, { timeout });
 }
 
+/** Records on every frame what the card of the image shows: its picture, or the cover that stands in for it, and its ratio. */
+function startCardSampler(page) {
+	return page.evaluate(cardPath => {
+		const sampler = { running: true, frames: [] };
+		globalThis.basehalfEditOnCardSampler = sampler;
+		const tick = () => {
+			if (!sampler.running) {
+				return;
+			}
+			const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`);
+			const image = card?.querySelector('img.basehalf-canvas-card-media-visual');
+			const rect = card?.getBoundingClientRect();
+			sampler.frames.push({
+				picture: card?.querySelector('.basehalf-canvas-card-picture-cover') ? 'cover' : image?.complete && image.naturalWidth > 0 ? `${image.naturalWidth}x${image.naturalHeight}` : 'none',
+				ratio: rect ? Math.round(rect.width / rect.height * 100) / 100 : undefined
+			});
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	}, IMAGE);
+}
+
+function stopCardSampler(page) {
+	return page.evaluate(() => {
+		const sampler = globalThis.basehalfEditOnCardSampler;
+		sampler.running = false;
+		return sampler.frames;
+	});
+}
+
 export async function assertCardDetailEditShowsOnItsCard(page) {
 	fs.mkdirSync(workspaceFile(FOLDER), { recursive: true });
 	// A new file each run: the edit is the first one of the file, which writes its original beside it.
@@ -69,6 +99,7 @@ export async function assertCardDetailEditShowsOnItsCard(page) {
 		await waitForCrop(page);
 		await chooseRatio(page, '16:9');
 		// Closed at once, before the rest after a change: the write lands on the canvas.
+		await startCardSampler(page);
 		await page.locator('.basehalf-card-detail-close').click();
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 		await waitUntil(() => pngSizeOnDisk() === '1200x675', 'the 16:9 crop to be written', 30_000);
@@ -76,6 +107,14 @@ export async function assertCardDetailEditShowsOnItsCard(page) {
 			await waitForCard(page, '1200x675', 1.78, 10_000);
 		} catch {
 			throw new Error(`The card shows the version that the edit wrote, 1200 × 675 at 16:9: ${JSON.stringify(await page.evaluate(readCard, IMAGE))}`);
+		}
+		// On every frame the card shows a picture, and the new one only in its new shape.
+		await page.waitForTimeout(300);
+		const frames = await stopCardSampler(page);
+		const withoutPicture = frames.filter(frame => frame.picture === 'none').length;
+		const newInOldShape = frames.filter(frame => frame.picture === '1200x675' && frame.ratio !== 1.78).length;
+		if (withoutPicture > 0 || newInOldShape > 0) {
+			throw new Error(`Of ${frames.length} frames, ${withoutPicture} showed the card without a picture and ${newInOldShape} the new picture in the old shape.`);
 		}
 	} finally {
 		await openRootCanvas(page).catch(() => undefined);
