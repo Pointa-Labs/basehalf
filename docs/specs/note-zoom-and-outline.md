@@ -107,11 +107,12 @@ Not in scope, and unchanged:
 ### The outline
 
 9. The headings are the headings that the page shows: a heading of any level
-   written with `#` or underlined, and a heading that the Rich projection
-   shows in its rendered form because it cannot edit it
-   ([note rendering](note-rendering.md#a-block-the-rich-projection-cannot-edit)).
-   A line of the front matter or of a code block is no heading, since the
-   page shows it as text. A heading without text is left out.
+   written with `#` or underlined, a heading that the Rich projection shows
+   in its rendered form because it cannot edit it
+   ([note rendering](note-rendering.md#a-block-the-rich-projection-cannot-edit)),
+   and a heading written in HTML, which the page shows as a heading too. A
+   line of the front matter or of a code block is no heading, since the page
+   shows it as text. A heading without text is left out.
 10. At rest the outline shows nothing.
 11. While the pointer is in the left margin, the ticks fade in, in 200 ms,
     and they fade out in 200 ms when it leaves the margin. A note without
