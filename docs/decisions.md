@@ -3404,3 +3404,50 @@ built without asking back, after research.
   samples that cannot be read back as the file's whole numbers. An M4A and an
   Ogg are encoded again by the window, in AAC and in Opus. A sound longer than
   30 minutes is not edited: it is decoded whole in memory.
+
+## D89 — A Note resizes while it is edited on its card (NEW, 2026-10-27)
+
+**Decision.** A Note that is being edited on its card keeps its resize
+targets, and they work as they do at rest. A press on one leaves the keyboard
+in the editor: the editing, the caret, the selection, an input method's
+composition, the scroll position, and the editor's own undo go on through the
+resize. The size is saved after pointer-up as one step of the canvas undo,
+which Command+Z reaches once the keyboard is out of the editor. See
+[canvas card resize, "While a Note is edited"](specs/canvas-card-resize.md#while-a-note-is-edited).
+
+**Why.** On 2026-10-27 the user found that a Note, once double-clicked to be
+edited on its card, could not be resized any more, and asked that it could
+("Note 节点双击进入卡片上的编辑时，没有办法改变卡片大小了。我们是不是也应该允许改变卡片大小？").
+A note grows while it is written, and a card that is too small for its text
+is found while typing. Making it larger took three steps and lost the place
+of the typing: a click on the canvas to end the editing, the resize, and a
+double click to edit again, which put the caret at that double click. Now it
+is one drag, and the typing goes on where it was. The targets had been taken
+away while editing so that structural chrome never lay over the text, but at
+rest they paint nothing, and a corner's indicator shows only under the
+pointer or while that corner resizes, so keeping them puts nothing over the
+text.
+
+**What was set aside.**
+- Ending the editing when a resize begins and beginning it again after: the
+  caret, the selection, a composition, and the editor's undo would not
+  survive the close.
+- One undo for the text and the size together: the keyboard in an editor of
+  text undoes its text everywhere in BaseHalf
+  ([exact undo](specs/exact-undo.md#undo-while-card-detail-is-open)), and the
+  canvas undo holds the sizes and places of every card.
+- Showing the corners' indicators all the time while editing, to say that
+  the card resizes: they would lie over the corners of the text, and a corner
+  shows its indicator under the pointer as at rest.
+
+**Consequences.**
+- Revises [canvas card resize, "Which cards resize"](specs/canvas-card-resize.md#which-cards-resize),
+  where a Note being edited had no resize controls since 2026-10-09.
+- The step of a move or a resize is no part of the undo of the cards' files,
+  only of the layout. It had been part of both since the canvas first had
+  undo; in the window, Command+Z in the editor right after typing and a resize
+  reached it, asked "Would you like to undo 'Move or resize canvas cards'?",
+  and the editor waited for the answer. Text typed after a resize no longer
+  keeps the canvas from undoing it either.
+- The connection handles of a Note being edited stay hidden
+  ([canvas connection handles](specs/canvas-connection-handles.md#scope)).
