@@ -33,6 +33,7 @@ import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, IBaseHalfRe
 import {
 	BASEHALF_VIDEO_IMAGE_FORMATS,
 	BaseHalfModelKind,
+	BaseHalfTakenInputKind,
 	BaseHalfVideoImageFormat,
 	BaseHalfVideoModeId,
 	BaseHalfVideoParamValue,
@@ -113,7 +114,8 @@ export interface IBaseHalfVideoNodePanelHost {
 	 * chose none. `accept` is asked first with the path the file would have,
 	 * and nothing is copied when it refuses. The panel connects it as an input.
 	 */
-	importFile(accept: (path: string) => Promise<boolean>): Promise<string | undefined>;
+	/** `kinds` are the kinds of input its dialog offers: those some model of the card's kind takes (D90). */
+	importFile(accept: (path: string) => Promise<boolean>, kinds: readonly BaseHalfTakenInputKind[]): Promise<string | undefined>;
 	/** Moves the focus to the card: Escape with no menu open. */
 	focusCard(): void;
 	/**
@@ -284,6 +286,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private starting = false;
 	/** What the Generate button was drawn as last: Generate or Stop. */
 	private generateKind: 'generate' | 'stop' | undefined;
+	private modelTitle: string | undefined;
 	/** Pick on Canvas while it is on (D69). */
 	private readonly pick = this._register(new MutableDisposable<IDisposable>());
 	private readonly _onDidChangePick = this._register(new Emitter<void>());
@@ -987,6 +990,11 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.hoverService.hideHover(true);
 		}
 		this.generateKind = generate.kind;
+		// So does the model button's: a model chosen from its menu is never followed by "Choose a model to generate." (D90).
+		if (this.modelTitle !== undefined && this.modelTitle !== presentation.model.title && this.modelButton.matches(':hover')) {
+			this.hoverService.hideHover(true);
+		}
+		this.modelTitle = presentation.model.title;
 		const busy = this.starting && generate.kind === 'generate';
 		const enabled = generate.enabled && !busy;
 		this.generateButton.classList.toggle('stop', generate.kind === 'stop');
@@ -2050,7 +2058,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		items.sort((left, right) => compareFileNames(left.title, right.title));
 		const connected = new Set(snapshot.upstream);
 		const lists: IBaseHalfReferenceMenuKindList[] = [];
-		for (const kind of ['image', 'video', 'audio', 'text'] as const) {
+		// A kind that no model of the card's kind takes is not listed: an image card lists images and notes (D90).
+		for (const kind of this.presentation?.inputKinds ?? (['image', 'video', 'audio', 'text'] as const)) {
 			const ofKind = items.filter(item => item.kind === kind);
 			// The model takes one more of a kind or none, whichever card it is: asked once, for the first that is not connected.
 			const candidate = ofKind.find(item => !connected.has(item.path));
@@ -2248,7 +2257,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		let path: string | undefined;
 		try {
 			// Nothing is copied for a file the model cannot use (D67).
-			path = await this.host.importFile(candidate => this.acceptInput(candidate));
+			path = await this.host.importFile(candidate => this.acceptInput(candidate), this.presentation?.inputKinds ?? ['image', 'video', 'audio', 'text']);
 		} catch (error) {
 			this.reportReferenceError(error);
 			return;

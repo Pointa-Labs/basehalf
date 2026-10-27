@@ -8,8 +8,12 @@ import { localize } from '../../../../nls.js';
 import type { VoiceParameter, VoicesResult } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { baseHalfItemDisplayName } from '../../cardDetail/common/basehalfCardDetail.js';
 import {
+	BASEHALF_PANEL_MOST_COUNT,
 	baseHalfDefaultModeId,
 	baseHalfDefaultModeInputs,
+	baseHalfKindInputKinds,
+	baseHalfKindNamesModes,
+	BaseHalfTakenInputKind,
 	BaseHalfVideoCatalogParameter,
 	BaseHalfVideoCatalogState,
 	BaseHalfVideoGenerateBlocker,
@@ -291,6 +295,8 @@ export interface IBaseHalfVideoPanelPresentation {
 	readonly placeholder: string;
 	/** Absent until the catalog has the card's model. */
 	readonly settingsView?: IBaseHalfVideoPanelSettingsView;
+	/** The kinds of input some model of the card's kind takes: what the reference menu lists and Import File… offers (D90). */
+	readonly inputKinds: readonly BaseHalfTakenInputKind[];
 	readonly generate: IBaseHalfVideoPanelGenerateButton;
 	readonly blocker?: BaseHalfVideoGenerateBlocker;
 	readonly blockerText?: string;
@@ -344,7 +350,9 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	});
 	const blockerText = blocker ? baseHalfVideoGenerateBlockerText(blocker) : undefined;
 	const modelLabel = ref?.model.label ?? localize('basehalf.video.panel.thisModel', "This model");
-	const modeLabel = mode?.label ?? localize('basehalf.video.panel.thisMode', "this mode");
+	// A mode is named where the models of the card's kind differ in it: not on an image card (D90).
+	const namesMode = baseHalfKindNamesModes(catalog, state.kind);
+	const modeLabel = namesMode ? mode?.label ?? localize('basehalf.video.panel.thisMode', "this mode") : undefined;
 	const items = plan.map((item, index) => inputItem(item, index, modeInputs, modelLabel, modeLabel, state.kind));
 	const row = inputRow(modeId, modeInputs, items);
 	// The voice of a model that speaks has its own button, not a setting (D78).
@@ -361,7 +369,8 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 		modelMenu: modelMenu(state),
 		...(voice ? { voice } : {}),
 		placeholder: baseHalfVideoPanelPlaceholder(state.kind, ref?.model, mode?.id),
-		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, checkRequest ? state.check?.limits : undefined) } : {}),
+		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region, state.inputs, checkRequest ? state.check?.limits : undefined, namesMode) } : {}),
+		inputKinds: baseHalfKindInputKinds(catalog, state.kind),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
 		...(blocker && blockerText ? reasonOf(blocker, blockerText, ref?.provider.id) : {}),
@@ -449,7 +458,8 @@ function voiceButton(parameter: VoiceParameter, params: BaseHalfVideoParams, lis
 
 // --- inputs --------------------------------------------------------------------------------------
 
-function inputItem(item: IBaseHalfVideoInputPlanItem, index: number, inputs: IBaseHalfVideoModeInputs, modelLabel: string, modeLabel: string, kind: BaseHalfModelKind): IBaseHalfVideoPanelInputItem {
+/** `modeLabel` is absent where the card's kind names no mode, and a reason then names none (D90). */
+function inputItem(item: IBaseHalfVideoInputPlanItem, index: number, inputs: IBaseHalfVideoModeInputs, modelLabel: string, modeLabel: string | undefined, kind: BaseHalfModelKind): IBaseHalfVideoPanelInputItem {
 	const fileName = baseHalfVideoPanelInputFileName(item.path);
 	const used = item.use !== 'unused';
 	const reason = used ? undefined : unusedReason(item, inputs, modelLabel, modeLabel, kind);
@@ -476,7 +486,10 @@ function usePurpose(item: IBaseHalfVideoInputPlanItem): string {
 	}
 }
 
-function unusedReason(item: IBaseHalfVideoInputPlanItem, inputs: IBaseHalfVideoModeInputs, modelLabel: string, modeLabel: string, kind: BaseHalfModelKind): string {
+function unusedReason(item: IBaseHalfVideoInputPlanItem, inputs: IBaseHalfVideoModeInputs, modelLabel: string, modeLabel: string | undefined, kind: BaseHalfModelKind): string {
+	if (modeLabel === undefined) {
+		return unusedReasonWithoutMode(item, inputs, modelLabel, kind);
+	}
 	switch (item.reason) {
 		case 'missing':
 			return localize('basehalf.video.panel.unused.missing', "Not used: the file is missing.");
@@ -513,6 +526,42 @@ function unusedReason(item: IBaseHalfVideoInputPlanItem, inputs: IBaseHalfVideoM
 			return count === 1
 				? localize('basehalf.video.panel.unused.oneAudio', "Not used: {0} takes one audio file in {1}.", modelLabel, modeLabel)
 				: localize('basehalf.video.panel.unused.audios', "Not used: {0} takes up to {1} audio files in {2}.", modelLabel, count, modeLabel);
+		}
+	}
+}
+
+/** Why an input is not used, on a card whose kind names no mode, as an image card: "Not used: Seedream 5.0 Pro takes no videos." (D90). */
+function unusedReasonWithoutMode(item: IBaseHalfVideoInputPlanItem, inputs: IBaseHalfVideoModeInputs, modelLabel: string, kind: BaseHalfModelKind): string {
+	switch (item.reason) {
+		case 'missing':
+		case 'draft':
+		case 'kind':
+			return unusedReason(item, inputs, modelLabel, '', kind);
+		case 'mode':
+			return item.kind === 'image'
+				? localize('basehalf.video.panel.unused.noImagesAtAll', "Not used: {0} takes no images.", modelLabel)
+				: item.kind === 'video'
+					? localize('basehalf.video.panel.unused.noVideosAtAll', "Not used: {0} takes no videos.", modelLabel)
+					: localize('basehalf.video.panel.unused.noAudioAtAll', "Not used: {0} takes no audio.", modelLabel);
+		default: {
+			const count = item.kind === 'image'
+				? (inputs.startFrame !== 'none' ? 1 : 0) + (inputs.endFrame !== 'none' ? 1 : 0) + inputs.images.max
+				: item.kind === 'video'
+					? (inputs.source !== 'none' ? 1 : 0) + inputs.videos.max
+					: inputs.audios.max;
+			if (item.kind === 'image') {
+				return count === 1
+					? localize('basehalf.video.panel.unused.oneImageAtAll', "Not used: {0} takes one image.", modelLabel)
+					: localize('basehalf.video.panel.unused.imagesAtAll', "Not used: {0} takes up to {1} images.", modelLabel, count);
+			}
+			if (item.kind === 'video') {
+				return count === 1
+					? localize('basehalf.video.panel.unused.oneVideoAtAll', "Not used: {0} takes one video.", modelLabel)
+					: localize('basehalf.video.panel.unused.videosAtAll', "Not used: {0} takes up to {1} videos.", modelLabel, count);
+			}
+			return count === 1
+				? localize('basehalf.video.panel.unused.oneAudioAtAll', "Not used: {0} takes one audio file.", modelLabel)
+				: localize('basehalf.video.panel.unused.audiosAtAll', "Not used: {0} takes up to {1} audio files.", modelLabel, count);
 		}
 	}
 }
@@ -665,18 +714,20 @@ function settingsView(
 	startFrame: boolean,
 	region: IBaseHalfVideoCatalogRegion | undefined,
 	inputs: readonly IBaseHalfVideoInputSource[],
-	limits: IBaseHalfVideoCheckResult['limits']
+	limits: IBaseHalfVideoCheckResult['limits'],
+	namesMode: boolean
 ): IBaseHalfVideoPanelSettingsView {
 	// A value beyond a range the inputs narrow shows as what is sent: the end of the range (D70).
 	const fitted = fitBaseHalfVideoParams(ref.model, params, limits);
-	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, fitted, startFrame);
+	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, fitted, startFrame, namesMode);
 	// The voice is not among the settings: it has its own button (D78).
 	const parameters = baseHalfVideoModeParameters(ref.model, mode.id).filter(isSetting);
 	const shown = (parameter: BaseHalfVideoSetting) => startFrame && parameter.setByStartFrame
 		? Object.freeze({ name: parameter.name, label: parameter.label, ...(parameter.tooltip ? { tooltip: parameter.tooltip } : {}), kind: 'fixed' as const, text: localize('basehalf.video.panel.setByStartFrame', "Set by the start frame") })
 		: control(parameter, fitted[parameter.name], limits?.[parameter.name]);
 	return Object.freeze({
-		summary: parts.join(' · '),
+		// A model with nothing to sum up still has its button, by its name.
+		summary: parts.join(' · ') || localize('basehalf.video.panel.settingsNoSummary', "Settings"),
 		summaryParts: parts,
 		...(ref.model.modes.length > 1 ? {
 			modes: Object.freeze(ref.model.modes.map(candidate => {
@@ -734,6 +785,9 @@ function control(parameter: BaseHalfVideoSetting, value: BaseHalfVideoParamValue
 		}
 		case 'integer':
 		case 'number':
+			if (parameter.name === 'count' && parameter.kind === 'integer' && !parameter.optional && !limit) {
+				return countControl(parameter, value, base);
+			}
 			return numberControl(parameter, value, limit ? { ...base, limit: limitNote(parameter, limit) } : base, limit);
 		case 'boolean':
 			return Object.freeze({ ...base, kind: 'switch', on: value === true });
@@ -813,6 +867,26 @@ function numberControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalf
 		...(auto ? { auto } : {}),
 		...(parameter.unit ? { unit: parameter.unit } : {})
 	});
+}
+
+/**
+ * A count, how many images or songs one generation makes, as buttons from 1
+ * to 4 as far as the model makes, and a count the card stores beyond them,
+ * as an agent may write one, as one more button (generation cards,
+ * "Settings"; D90).
+ */
+function countControl(parameter: IBaseHalfVideoNumberParameter, value: BaseHalfVideoParamValue | undefined, base: { readonly name: string; readonly label: string; readonly tooltip?: string }): BaseHalfVideoPanelControl {
+	const numbers = baseHalfVideoNumberValues(parameter).filter(number => number <= BASEHALF_PANEL_MOST_COUNT);
+	if (typeof value === 'number' && value > BASEHALF_PANEL_MOST_COUNT && value <= parameter.max) {
+		numbers.push(value);
+	}
+	const choices = numbers.map(number => Object.freeze<IBaseHalfVideoPanelChoice<BaseHalfVideoParamValue>>({
+		key: `${parameter.name}:${number}`,
+		value: number,
+		label: baseHalfVideoParamValueLabel(parameter, number),
+		selected: number === value
+	}));
+	return Object.freeze({ ...base, kind: 'buttons', choices: Object.freeze(choices) });
 }
 
 /** The value a number takes when Auto is turned off: its default, within its range. */

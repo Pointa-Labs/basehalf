@@ -311,7 +311,8 @@ export function baseHalfVideoModelAbilities(model: IBaseHalfVideoCatalogModel): 
 	if (!image && model.parameters.some(parameter => parameter.name === 'sound')) {
 		parts.push(localize('basehalf.video.catalog.abilitySound', "Sound"));
 	}
-	const most = image ? baseHalfModelMostOutputs(model) : 1;
+	// As far as the count's buttons go (D90).
+	const most = image ? Math.min(baseHalfModelMostOutputs(model), BASEHALF_PANEL_MOST_COUNT) : 1;
 	if (most > 1) {
 		parts.push(localize('basehalf.video.catalog.abilityCount', "Up to {0} images", most));
 	}
@@ -352,7 +353,7 @@ function audioModelAbilities(model: IBaseHalfVideoCatalogModel): string {
 			? secondsAbility(durations.max)
 			: localize('basehalf.video.catalog.abilityLongest', "Up to {0}s", durations.max));
 	}
-	const most = baseHalfModelMostOutputs(model);
+	const most = Math.min(baseHalfModelMostOutputs(model), BASEHALF_PANEL_MOST_COUNT);
 	if (most > 1) {
 		parts.push(localize('basehalf.video.catalog.abilitySongs', "Up to {0} songs", most));
 	}
@@ -415,6 +416,55 @@ function durationRange(parameter: BaseHalfVideoCatalogParameter | undefined): { 
  */
 export function baseHalfModelMakesSeveral(model: IBaseHalfVideoCatalogModel): boolean {
 	return model.kind === 'image' || (model.kind === 'audio' && model.makes === 'music');
+}
+
+/** The most images or songs the panel offers for one generation: a count's buttons go from 1 to this (generation cards, "Settings"; D90). */
+export const BASEHALF_PANEL_MOST_COUNT = 4;
+
+/**
+ * Whether the cards of a kind name their mode (generation cards, "Settings";
+ * D90): where the models of the kind differ in it, as video models start
+ * from frames, references, or a clip, and audio models make speech, music,
+ * or sound effects. A kind whose models all have the same one mode, as
+ * every image model has References, names none. Without a catalog, or
+ * without a model of the kind, the mode is named.
+ */
+export function baseHalfKindNamesModes(catalog: IBaseHalfVideoCatalog | undefined, kind: BaseHalfModelKind): boolean {
+	const modes = new Set<string>();
+	for (const model of modelsOfKind(catalog, kind)) {
+		for (const mode of model.modes) {
+			modes.add(`${mode.id}:${mode.label}`);
+		}
+	}
+	return modes.size !== 1;
+}
+
+/** A kind of input that the reference menu lists and Import File… offers. */
+export type BaseHalfTakenInputKind = 'image' | 'video' | 'audio' | 'text';
+
+const EVERY_INPUT_KIND: readonly BaseHalfTakenInputKind[] = Object.freeze(['image', 'video', 'audio', 'text']);
+
+/**
+ * The kinds of input that some model of a kind takes, in the order images,
+ * videos, audio, and notes (generation cards, "The panel"; D90): what the
+ * reference menu lists and Import File… offers on a card of that kind. Every
+ * model takes notes, whose text joins the prompt. Without a catalog, or
+ * without a model of the kind, every kind.
+ */
+export function baseHalfKindInputKinds(catalog: IBaseHalfVideoCatalog | undefined, kind: BaseHalfModelKind): readonly BaseHalfTakenInputKind[] {
+	const models = modelsOfKind(catalog, kind);
+	if (!models.length) {
+		return EVERY_INPUT_KIND;
+	}
+	const inputs = models.flatMap(model => model.modes.map(mode => mode.inputs));
+	const image = inputs.some(input => input.startFrame !== 'none' || input.endFrame !== 'none' || input.images.max > 0);
+	const video = inputs.some(input => input.source !== 'none' || input.videos.max > 0);
+	const audio = inputs.some(input => input.audios.max > 0);
+	return Object.freeze(EVERY_INPUT_KIND.filter(candidate => candidate === 'text' || (candidate === 'image' ? image : candidate === 'video' ? video : audio)));
+}
+
+function modelsOfKind(catalog: IBaseHalfVideoCatalog | undefined, kind: BaseHalfModelKind): readonly IBaseHalfVideoCatalogModel[] {
+	return catalog ? catalog.providers.flatMap(provider => provider.models.filter(model => model.kind === kind)) : [];
 }
 
 /** The most images or songs one generation of a model makes: the highest `count` it declares, at most 16; 1 for a model that makes one file. */
@@ -775,15 +825,16 @@ export function baseHalfVideoParamValueLabel(parameter: BaseHalfVideoCatalogPara
 }
 
 /**
- * The summary of the settings (generation cards, "Settings"): the mode, then
- * each parameter that is not advanced and has a value, such as `Frames ·
- * 720p · 5s · Sound`. The voice of a speech model is not among the settings:
- * its own button shows it, and the summary leaves it out (D78).
+ * The summary of the settings (generation cards, "Settings"): the mode, when
+ * the card's kind names it ({@link baseHalfKindNamesModes}), then each
+ * parameter that is not advanced and has a value, such as `Frames · 720p ·
+ * 5s · Sound`. The voice of a speech model is not among the settings: its
+ * own button shows it, and the summary leaves it out (D78).
  */
-export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined, startFrame = false): readonly string[] {
+export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined, startFrame = false, namesMode = true): readonly string[] {
 	const mode = baseHalfVideoModeOf(model, modeId);
 	const values = normalizeBaseHalfVideoParams(model, mode.id, params);
-	const parts = [mode.label];
+	const parts = namesMode ? [mode.label] : [];
 	for (const parameter of baseHalfVideoModeParameters(model, mode.id)) {
 		const value = values[parameter.name];
 		if (parameter.advanced || parameter.kind === 'voice' || value === undefined || (startFrame && parameter.setByStartFrame)) {
@@ -799,14 +850,15 @@ export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, 
 
 /**
  * The settings a generation was made with, from its record (generation cards,
- * "The panel of a card with its file"): the mode, then the values as they
- * were sent, never made legal again, in the model's order with the catalog's
- * names, then the values the catalog does not know by their recorded names.
- * The advanced ones only with `advanced`. The voice of a speech model is left
- * out: the panel names it beside the model (D78).
+ * "The panel of a card with its file"): the mode, when the card's kind names
+ * it, then the values as they were sent, never made legal again, in the
+ * model's order with the catalog's names, then the values the catalog does
+ * not know by their recorded names. The advanced ones only with `advanced`.
+ * The voice of a speech model is left out: the panel names it beside the
+ * model (D78).
  */
-export function baseHalfVideoRecordedSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: string, params: BaseHalfVideoParams, advanced = false): readonly string[] {
-	const parts = [model.modes.find(mode => mode.id === modeId)?.label ?? modeId];
+export function baseHalfVideoRecordedSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: string, params: BaseHalfVideoParams, advanced = false, namesMode = true): readonly string[] {
+	const parts = namesMode ? [model.modes.find(mode => mode.id === modeId)?.label ?? modeId] : [];
 	for (const parameter of model.parameters) {
 		const value = params[parameter.name];
 		if (value === undefined || parameter.kind === 'voice' || (parameter.advanced && !advanced)) {

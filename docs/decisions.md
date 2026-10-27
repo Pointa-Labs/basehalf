@@ -3760,3 +3760,67 @@ command made "across all files"; it now takes it back in every file.
   can be split takes it back in every file without asking.
 - The connection handles of a Note being edited stay hidden
   ([canvas connection handles](specs/canvas-connection-handles.md#scope)).
+
+## D90 — An image card's panel shows what image models take (NEW, 2026-10-27)
+
+**Decision.** The panel under an image card keeps what every generation card
+has, the input row with its two buttons, the prompt and its mentions, the
+model, the settings, and Generate, and drops what came with the video's
+panel: an image card names no mode, since every image model makes its image
+from references or from the prompt alone; its count of images is a row of
+buttons from 1 to 4 instead of a slider of up to 15; and its reference menu
+and Import File… offer only the kinds of input an image model uses, images
+and notes. The model button's tooltip goes when the model changes under the
+pointer. Video and audio cards keep their panels: the models of each of those
+kinds differ in their modes, and a song's count was buttons already. See
+[generation cards](specs/generation-cards.md#settings).
+
+**Why.** On 2026-10-27 the user found the image generation component odd: it
+does not need to be as complex as the video one. Seen in a development window
+with the catalog's 37 image models: each has exactly one mode, References, so
+the settings of every image card began with "References", under "Add images
+as references" in the row above and for a picture made from the prompt alone
+too; a generated image's panel said "References · Adaptive · 2K · Images 4"
+under "Image 1 of 4". The count of 17 of them was a slider of 230 px for 1 to
+15 images, about 16 px a step, drawn as a video's Duration is, so choosing 4
+meant finding the fourth of fifteen steps; it is one click now. The reference
+menu offered Videos and Audio, dimmed, on every image card, since no image
+model takes either, and Import File… offered videos and sounds that it then
+refused. The two canvas products for media work that BaseHalf follows name
+no mode on an image node, offer 1, 2, or 4 images, and sum an image's
+settings up as its ratio and resolution, while their video nodes begin with
+the mode. A tooltip "Choose a model to generate." stayed on the model button
+after a model was chosen from its menu.
+
+**What was set aside.**
+- Naming the mode only for a model that has more than one: it would also take
+  the mode from the 28 video models and the 15 audio models that have one,
+  where it says something, that a video model starts from frames and not from
+  references, and what an audio model makes, speech or sound effects. The
+  kind decides instead: a kind whose models all have the same one mode names
+  none.
+- Hiding an image card's input row until it has an input: its two buttons are
+  where D71 put adding an input, on every card.
+- Counts of 1, 2, and 4 alone, as the two products offer: 3 is as good a count,
+  and BaseHalf draws a number of so few steps as all of its buttons.
+- The count beside Generate, as one of the products has it: a card's settings
+  are one popover for every kind.
+- Larger counts in the panel: more than four images from one click is rare,
+  each is paid for, and each is a card of the row. An agent may still ask for
+  as many as a model makes, and the panel then shows that count as a button
+  of its own.
+
+**Consequences.**
+- Revises D64, an image made with "the same panel": the panel without what
+  image models do not take. D71's two buttons and D74's mentions stay.
+- [Generation cards](specs/generation-cards.md): the summary, the panel of a
+  card with its file, and the reason an input is not used name the mode only
+  for a kind whose models differ in it; a count is buttons from 1 to 4, and
+  the model menu says "Up to 4 images"; the reference menu and Import File…
+  offer the kinds the card's kind takes; the model button's tooltip.
+- The same rule takes Videos from an audio card's reference menu and its
+  Import File…, since no audio model takes a video; nothing else of an audio
+  card changes.
+- The catalog, the parameters, what is sent, and what `generation.yaml` and
+  `made.yaml` store are unchanged: an image card's mode is still `reference`,
+  and `basehalf --list-capabilities` still gives agents each model's count.

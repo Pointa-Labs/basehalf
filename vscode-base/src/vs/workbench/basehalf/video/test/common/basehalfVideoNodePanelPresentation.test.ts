@@ -114,7 +114,7 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 					'a.png:reference',
 					'b.png:reference',
 					'c.png:reference',
-					'move.mp4:unused (Not used: This model takes no videos in this mode.)',
+					'move.mp4:unused (Not used: This model takes no videos.)',
 					'scene:text',
 					'brief.pdf:unused (Not used: this kind of file cannot be sent to an image model.)'
 				],

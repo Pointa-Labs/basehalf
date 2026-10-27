@@ -88,6 +88,7 @@ suite('BaseHalfCanvasVideoPanel', () => {
 	let drafts: Set<string>;
 	let copies: string[];
 	let picked: URI | undefined;
+	let filters: { readonly name: string; readonly extensions: readonly string[] }[] | undefined;
 	let shutdown: Emitter<WillShutdownEvent>;
 
 	function createPanel(): { canvas: IBaseHalfTestCanvasView; feature: TestCanvasVideoPanel } {
@@ -103,7 +104,12 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		canvas.setItem(baseHalfTestCanvasItem(NOTE), { kind: 'markdown', text: '# Note' });
 		const instantiationService = store.add(new TestInstantiationService());
 		instantiationService.stub(IBaseHalfCanvasNavigationService, { get state() { return navigationState; } });
-		instantiationService.stub(IFileDialogService, { showOpenDialog: async () => picked ? [picked] : undefined });
+		instantiationService.stub(IFileDialogService, {
+			showOpenDialog: async (options: { readonly filters?: { readonly name: string; readonly extensions: readonly string[] }[] }) => {
+				filters = options.filters;
+				return picked ? [picked] : undefined;
+			}
+		});
 		instantiationService.stub(IFileService, {
 			exists: async (resource: URI) => existing.has(resource.path),
 			stat: async (resource: URI) => {
@@ -294,20 +300,34 @@ suite('BaseHalfCanvasVideoPanel', () => {
 		// A draft has the next name.
 		drafts.add('/workspace/.bh/mirror/folder/frame 2.png/generation.yaml');
 		const accept = async () => true;
-		assert.strictEqual(await host.importFile(accept), 'folder/frame 3.png');
+		const every = ['image', 'video', 'audio', 'text'] as const;
+		assert.strictEqual(await host.importFile(accept, every), 'folder/frame 3.png');
 		assert.deepStrictEqual(copies, ['/elsewhere/frame.png -> /workspace/folder/frame 3.png']);
 
 		picked = URI.file('/workspace/folder/already.png');
-		assert.strictEqual(await host.importFile(accept), 'folder/already.png');
+		assert.strictEqual(await host.importFile(accept, every), 'folder/already.png');
 		assert.strictEqual(copies.length, 1);
 
 		picked = undefined;
-		assert.strictEqual(await host.importFile(accept), undefined);
+		assert.strictEqual(await host.importFile(accept, every), undefined);
 
 		// A file the model cannot use is refused before anything is copied (D67).
 		picked = URI.file('/elsewhere/notes.pdf');
-		assert.strictEqual(await host.importFile(async path => path !== 'folder/notes.pdf'), undefined);
+		assert.strictEqual(await host.importFile(async path => path !== 'folder/notes.pdf', every), undefined);
 		assert.strictEqual(copies.length, 1);
+	});
+
+	test('offers the files of the kinds the card takes: images and notes on an image card, every kind on a video card (D90)', async () => {
+		const { canvas, feature } = createPanel();
+		canvas.changeSelection([CLIP]);
+		const host = feature.panels[0].host;
+		await host.importFile(async () => true, ['image', 'text']);
+		const image = filters;
+		await host.importFile(async () => true, ['image', 'video', 'audio', 'text']);
+		assert.deepStrictEqual({ image, video: filters?.map(filter => filter.name) }, {
+			image: [{ name: 'Images and Text', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp', 'md', 'markdown', 'txt'] }],
+			video: ['Images, Videos, Audio, and Text']
+		});
 	});
 
 	test('saves the prompt when the window closes, and when it is disposed', () => {

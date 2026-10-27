@@ -306,22 +306,18 @@ async function createDraftFromMenu(page, label) {
 }
 
 /**
- * Sets the number of images of an image card in its settings, a step at a
- * time with the keyboard on the slider: each step is saved, and the popover
- * is drawn again with the slider keeping the focus.
+ * Sets the number of images of an image card in its settings with its
+ * button: a count is buttons from 1 to 4 (criterion 92), and the choice is
+ * saved at once.
  */
 async function setImageCount(page, panel, cardPath, count) {
 	await openSettings(panel);
-	const slider = panel.locator('.bh-video-panel-menu.settings input.bh-video-panel-slider[data-key="count:slider"]');
-	let value = readGenerationInfo(cardPath)?.params?.count ?? 1;
-	while (value !== count) {
-		const next = value < count ? value + 1 : value - 1;
-		await slider.focus();
-		await page.keyboard.press(value < count ? 'ArrowRight' : 'ArrowLeft');
-		await waitForReading(() => readGenerationInfo(cardPath), info => info?.params?.count === next, `${cardPath} to store ${next} images`, 10_000);
-		value = next;
+	const button = panel.locator(`.bh-video-panel-menu.settings button[data-key="count:${count}"]`);
+	if ((readGenerationInfo(cardPath)?.params?.count ?? 1) !== count) {
+		await button.click();
+		await waitForReading(() => readGenerationInfo(cardPath), info => info?.params?.count === count, `${cardPath} to store ${count} images`, 10_000);
 	}
-	await waitForReading(() => slider.inputValue(), shown => shown === String(count), `the slider to show ${count} images`);
+	await waitForReading(() => button.getAttribute('aria-checked'), checked => checked === 'true', `the button ${count} of Images to be checked`);
 	await closePanelMenu(page, panel, 'settings');
 }
 
