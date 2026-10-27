@@ -296,6 +296,18 @@ Not in scope, and unchanged:
   of text: their changes are steps of the canvas
   ([editing media](media-editing.md#the-keyboard)).
 
+### One step after another
+
+- Cmd+Z and Shift+Cmd+Z pressed while a step of the canvas is still being
+  undone or redone, such as the files of a drop into a folder or of a rename
+  being moved back, wait for it, and then run in the order they were
+  pressed. A key that comes early never loses the history.
+- Until 2026-10-27, VS Code's undo refused a key that came while a step ran
+  on the same files, and then dropped the whole history of those files: a
+  redo pressed at once after the undo of a rename or of a drop did nothing,
+  and nothing could be redone afterwards (three of three, measured on main
+  and on the drop).
+
 ### Editing media
 
 - Each change of an edit in Card Detail, a trim, a cut, a crop, a turn, a
@@ -392,6 +404,9 @@ Not in scope, and unchanged:
 19. A rename made with an editor's own command across two files is undone
     by Cmd+Z in the editor of either file and redone by Shift+Cmd+Z, in both
     files, and nothing asks.
+20. Shift+Cmd+Z pressed at once after Cmd+Z on the canvas undid a drop into
+    a folder, before the card is drawn again, redoes the drop, and the next
+    Cmd+Z undoes it again.
 
 ## Verification
 
@@ -414,6 +429,12 @@ Not in scope, and unchanged:
   code editor: a rename of the canvas is left and nothing asks, and the
   editor's own text is still undone (criterion 18); a rename across files
   without a source is undone and redone and nothing asks (criterion 19).
+- Unit tests of the canvas's queue of undo and redo: a key pressed while a
+  step runs waits for it, also when nothing could be undone or redone at the
+  moment it was pressed, and a step that fails does not stop the next
+  (criterion 20).
+- Smoke, canvas suite: `canvas-drop-into-folder` presses Shift+Cmd+Z at
+  once after the undo of a drop (criterion 20).
 - Smoke, canvas suite: `canvas-note-undo-asks-nothing` renames a note,
   types in its editor on the card, presses Cmd+Z past the typing, and
   closes the editor with Escape (criterion 18); with the editor's undo of
