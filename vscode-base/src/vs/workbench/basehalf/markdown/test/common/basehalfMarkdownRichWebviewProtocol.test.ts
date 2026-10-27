@@ -421,6 +421,23 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		}), false);
 	});
 
+	test('carries the zoom of a note: its level at init, a pinch the window took, and the level a zoom ended at', () => {
+		const init = { type: 'basehalf.markdownRich.init', key: 'k', resource: 'file:///n.md', baseUri: 'vscode-webview://x/', content: '', editable: true, surface: 'detail' };
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ ...init, zoom: 1.5, reducedMotion: false }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ ...init, zoom: 0 }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ ...init, zoom: '1.5' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ ...init, reducedMotion: 'yes' }), false);
+
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.zoomGesture', key: 'k', gesture: { deltaY: -2.4, deltaMode: 0, x: 300, y: 120 } }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.zoomGesture', key: 'k', gesture: { deltaY: Number.NaN, deltaMode: 0, x: 0, y: 0 } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.zoomGesture', key: 'k', gesture: { deltaY: 1, deltaMode: 3, x: 0, y: 0 } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.setZoom', key: 'k', zoom: 2 }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.setZoom', key: 'k', zoom: -1 }), false);
+
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.zoomChanged', key: 'k', zoom: 1.25 }), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.zoomChanged', key: 'k' }), false);
+	});
+
 	test('copies YJS updates into exact transferable buffers', () => {
 		const backing = new Uint8Array([9, 8, 7, 6, 5]);
 		const sliced = backing.subarray(1, 4);

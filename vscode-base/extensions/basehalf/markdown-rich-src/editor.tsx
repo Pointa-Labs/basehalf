@@ -75,6 +75,10 @@ import {
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownHtml.js';
 import dompurify from '../../../src/vs/base/browser/dompurify/dompurify.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
+import { isBaseHalfNoteZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteZoom.js';
+import { BaseHalfNoteZoomGesture } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoomGesture.js';
+import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
+import { BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteOutlineLayout.js';
 import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
@@ -280,9 +284,20 @@ interface IIncomingInit {
 	readonly baseUri: string;
 	readonly surface: BaseHalfMarkdownRichSurface;
 	readonly selection?: IBaseHalfMarkdownRichTextSelection;
+	readonly zoom?: number;
+	readonly reducedMotion?: boolean;
 	/** Arrival order; a payload older than the latest arrival is stale. */
 	readonly generation: number;
 }
+
+/** The zoom and the outline of a note in Card Detail (zoom and outline of a note). */
+interface IReadingAids {
+	readonly zoom: BaseHalfNoteZoomGesture;
+	readonly outline: BaseHalfNoteOutline;
+	reducedMotion: boolean;
+}
+
+const macintosh = /Mac/.test(navigator.platform);
 
 interface ContextMenuItem {
 	readonly id: string;
@@ -606,6 +621,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const fragment = useMemo(() => ydoc.getXmlFragment(BLOCKNOTE_FRAGMENT_NAME), [ydoc]);
 	const session = useRef(createSessionState(initialKey));
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const readingAids = useRef<IReadingAids | undefined>(undefined);
 	const saveTimer = useRef<number | undefined>(undefined);
 	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const composing = useRef(false);
@@ -1045,7 +1061,7 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 		const onPointerDown = (event: PointerEvent): void => {
 			const target = event.target;
-			const page = scroll.firstElementChild;
+			const page = scroll.querySelector(':scope > .basehalf-markdown-rich-page');
 			const container = page?.querySelector(':scope > .bn-container');
 			if (event.button !== 0 || (target !== scroll && target !== page && target !== container)) {
 				return;
@@ -1653,6 +1669,70 @@ function MarkdownRichEditor(): JSX.Element {
 	// otherwise. Arrivals during IME composition are parked and replayed on
 	// compositionend — mutating the document mid-composition would abort the
 	// user's uncommitted input.
+	// The zoom and the outline of a note in Card Detail (zoom and outline of a
+	// note). They are made with the first init of Card Detail's page; a later
+	// init only changes the level.
+	const ensureReadingAids = useCallback((level: number, reducedMotion: boolean): void => {
+		const scroll = scrollRef.current;
+		const page = scroll?.querySelector<HTMLElement>(':scope > .basehalf-markdown-rich-page');
+		if (!scroll || !page) {
+			return;
+		}
+		const existing = readingAids.current;
+		if (existing) {
+			existing.reducedMotion = reducedMotion;
+			existing.zoom.setLevel(level);
+			return;
+		}
+		const text = () => scroll.querySelector<HTMLElement>('.ProseMirror');
+		let outline: BaseHalfNoteOutline | undefined;
+		const zoom = new BaseHalfNoteZoomGesture({
+			view: scroll,
+			page,
+			text,
+			onDidDraw: () => outline?.refresh(),
+		}, level, settled => {
+			const key = session.current.key;
+			if (key) {
+				vscode.postMessage({ type: 'basehalf.markdownRich.zoomChanged', key, zoom: settled });
+			}
+		});
+		const aids: IReadingAids = {
+			zoom,
+			outline: outline = new BaseHalfNoteOutline({
+				view: scroll,
+				text,
+				headings: () => baseHalfNoteOutlineHeadings(text()),
+				label: 'Outline',
+				reducedMotion: () => aids.reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+				minMargin: BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES,
+			}),
+			reducedMotion,
+		};
+		readingAids.current = aids;
+	}, [vscode]);
+
+	useEffect(() => () => {
+		readingAids.current?.zoom.dispose();
+		readingAids.current?.outline.dispose();
+		readingAids.current = undefined;
+	}, []);
+
+	// The wheel with the zoom key or Ctrl held inside the page zooms it; a pinch
+	// of the trackpad comes from the window instead (rule 1).
+	useEffect(() => {
+		const onWheel = (event: WheelEvent): void => {
+			const aids = readingAids.current;
+			if (!aids || !isBaseHalfNoteZoomWheel(event, macintosh)) {
+				return;
+			}
+			event.preventDefault();
+			aids.zoom.zoomBy(event);
+		};
+		window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+		return () => window.removeEventListener('wheel', onWheel, { capture: true });
+	}, []);
+
 	const handleIncomingInit = useCallback(async (payload: IIncomingInit): Promise<void> => {
 		// A payload that a newer arrival superseded — whether parked during
 		// composition and replayed late, or overtaken at an await point — must
@@ -1671,6 +1751,10 @@ function MarkdownRichEditor(): JSX.Element {
 		session.current.surface = payload.surface;
 		session.current.baseUri = payload.baseUri;
 		renderedNote.baseUri = payload.baseUri;
+		if (payload.surface === 'detail') {
+			// The page is laid out at the level of notes before the note fills it.
+			ensureReadingAids(payload.zoom ?? 1, payload.reducedMotion ?? false);
+		}
 		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
 			.catch(() => false);
 		if (!merged) {
@@ -1690,10 +1774,11 @@ function MarkdownRichEditor(): JSX.Element {
 			await applyContent(payload.content, payload.editable, payload.key, payload.resource, payload.baseUri);
 			revealSelection(payload.selection);
 		}
+		readingAids.current?.outline.refresh();
 		if (payload.generation === initGeneration.current) {
 			flushPendingEditorCommands();
 		}
-	}, [applyContent, applyExternalContent, editor, flushPendingEditorCommands, revealSelection]);
+	}, [applyContent, applyExternalContent, editor, ensureReadingAids, flushPendingEditorCommands, revealSelection]);
 
 	useEffect(() => {
 		const onCompositionStart = () => {
@@ -1768,8 +1853,21 @@ function MarkdownRichEditor(): JSX.Element {
 						baseUri: message.baseUri,
 						surface: message.surface,
 						generation: ++initGeneration.current,
-						...(message.selection ? { selection: message.selection } : {})
+						...(message.selection ? { selection: message.selection } : {}),
+						...(message.zoom !== undefined ? { zoom: message.zoom } : {}),
+						...(message.reducedMotion !== undefined ? { reducedMotion: message.reducedMotion } : {})
 					}).catch(reportError);
+					break;
+				case 'basehalf.markdownRich.zoomGesture':
+					readingAids.current?.zoom.zoomBy({
+						deltaY: message.gesture.deltaY,
+						deltaMode: message.gesture.deltaMode,
+						clientX: message.gesture.x,
+						clientY: message.gesture.y,
+					});
+					break;
+				case 'basehalf.markdownRich.setZoom':
+					readingAids.current?.zoom.setLevel(message.zoom);
 					break;
 				case 'basehalf.markdownRich.applyYjsUpdate':
 					if (!state.ready || state.structuralFrozen) {

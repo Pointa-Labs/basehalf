@@ -4,12 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCardDetailProjections.css';
+import './media/basehalfNoteOutline.css';
 import '../../shell/browser/media/basehalfSidewaysScrollbar.css';
-import { $, append, clearNode } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { MarkdownString } from '../../../../base/common/htmlContent.js';
-import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
+import { isMacintosh } from '../../../../base/common/platform.js';
 import { isEqual } from '../../../../base/common/resources.js';
+import { localize } from '../../../../nls.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
@@ -21,6 +26,9 @@ import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHa
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { installBaseHalfSidewaysScrollbar } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehalfMarkdownRichTextModel.js';
+import { BASEHALF_NOTE_ZOOM_STORAGE_KEY, isBaseHalfNoteZoomWheel, normalizeBaseHalfNoteZoom } from '../common/basehalfNoteZoom.js';
+import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from './basehalfNoteOutline.js';
+import { BaseHalfNoteZoomGesture } from './basehalfNoteZoomGesture.js';
 
 /** The rendered preview shares the rich projection's frontmatter boundary. */
 export function baseHalfMarkdownPreviewBody(source: string): string {
@@ -30,6 +38,7 @@ export function baseHalfMarkdownPreviewBody(source: string): string {
 export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private readonly previewScroll: HTMLElement;
 	private readonly previewContent: HTMLElement;
+	private readonly outline: BaseHalfNoteOutline;
 	private readonly rendered = this._register(new DisposableStore());
 
 	private model: ITextModel | undefined;
@@ -48,7 +57,9 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IStorageService private readonly storageService: IStorageService,
+		@IAccessibilityService accessibilityService: IAccessibilityService
 	) {
 		super();
 
@@ -61,6 +72,32 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			boxSelector: '.basehalf-card-detail-markdown-preview-content table, .basehalf-card-detail-markdown-preview-content pre',
 			container: () => this.previewContent
 		}));
+
+		// The zoom and the outline of the note, as in Rich (zoom and outline of a
+		// note). Preview is drawn in the window, so it takes a pinch itself.
+		const outline = this.outline = new BaseHalfNoteOutline({
+			view: this.previewScroll,
+			text: () => this.previewContent,
+			headings: () => baseHalfNoteOutlineHeadings(this.previewContent),
+			label: localize('basehalf.noteOutline', "Outline"),
+			reducedMotion: () => accessibilityService.isMotionReduced()
+		});
+		this._register(toDisposable(() => outline.dispose()));
+		const zoom = new BaseHalfNoteZoomGesture({
+			view: this.previewScroll,
+			page: this.previewContent,
+			onDidDraw: () => outline.refresh()
+		}, this.noteZoom(), level => this.storageService.store(BASEHALF_NOTE_ZOOM_STORAGE_KEY, level, StorageScope.PROFILE, StorageTarget.MACHINE));
+		this._register(toDisposable(() => zoom.dispose()));
+		this._register(addDisposableListener(this.previewScroll, EventType.MOUSE_WHEEL, (event: WheelEvent) => {
+			if (!isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			zoom.zoomBy(event);
+		}, { passive: false }));
+		this._register(this.storageService.onDidChangeValue(StorageScope.PROFILE, BASEHALF_NOTE_ZOOM_STORAGE_KEY, this._store)(() => zoom.setLevel(this.noteZoom())));
 		this.setSaveStatus('saving');
 
 		this._register(this.textFileService.files.onDidChangeDirty(model => {
@@ -212,8 +249,15 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		}, this.previewContent);
 		rendered.element.classList.add('basehalf-card-detail-markdown-preview-content');
 		this.rendered.add(rendered);
+		this.outline.refresh();
 		this.updateStatus();
 		this.revealSelection();
+	}
+
+	/** The level of notes in Card Detail, one for every note (zoom and outline of a note, rule 8). */
+	private noteZoom(): number {
+		// The storage's numbers are whole numbers; the level is read as text.
+		return normalizeBaseHalfNoteZoom(this.storageService.get(BASEHALF_NOTE_ZOOM_STORAGE_KEY, StorageScope.PROFILE));
 	}
 
 	private updateStatus(): void {

@@ -14,6 +14,7 @@ import {
 	IBaseHalfMarkdownRichFileLink,
 	IBaseHalfMarkdownRichFocusPoint,
 	IBaseHalfMarkdownRichTextSelection,
+	IBaseHalfMarkdownRichZoomGesture,
 	baseHalfMarkdownRichUpdateFromPayload,
 	isBaseHalfMarkdownRichWebviewMessage,
 	toBaseHalfMarkdownRichTransferableUpdate
@@ -48,7 +49,8 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		content: string,
 		editable: boolean,
 		surface: BaseHalfMarkdownRichSurface,
-		selection?: IBaseHalfMarkdownRichTextSelection
+		selection?: IBaseHalfMarkdownRichTextSelection,
+		reading?: { readonly zoom: number; readonly reducedMotion: boolean }
 	): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.init',
@@ -58,7 +60,24 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			content,
 			editable,
 			surface,
-			...(selection ? { selection } : {})
+			...(selection ? { selection } : {}),
+			...(reading ? { zoom: reading.zoom, reducedMotion: reading.reducedMotion } : {})
+		});
+	}
+
+	sendZoomGesture(gesture: IBaseHalfMarkdownRichZoomGesture): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.zoomGesture',
+			key: this.key,
+			gesture
+		});
+	}
+
+	sendZoom(zoom: number): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.setZoom',
+			key: this.key,
+			zoom
 		});
 	}
 

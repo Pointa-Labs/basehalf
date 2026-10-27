@@ -3525,3 +3525,75 @@ before, because its cells have the default background.
 - One line of a VS Code file changes: a terminal keeps no width for its
   scrollbar, in every terminal, since every terminal in BaseHalf is an Agent
   Area terminal.
+
+## D87 — A pinch zooms a note in Card Detail, and its left margin shows its outline (NEW, 2026-10-27)
+
+**Decision.** In Card Detail, a pinch of the trackpad, or the wheel with the
+zoom key or Ctrl held, zooms a note in its Rich and its Preview projection.
+The note's page is laid out larger or smaller, from 50% to 300%, around the
+line under the pointer, and the level is one for every note, kept for the
+user's profile on this computer. The empty margin to the left of the note's
+text shows nothing at rest. With the pointer in it, a column of short ticks
+fades in, one for each heading, the heading being read brighter; over the
+ticks, a panel lists the headings by name, and a click on a name scrolls the
+note to it. See [zoom and outline of a note](specs/note-zoom-and-outline.md).
+
+**Why.** On 2026-10-27 the user asked that the enlarged note take a pinch of
+two fingers, and that the empty area to its left hold the navigation of a
+picture they gave: a column of short ticks, one of them brighter,
+"平常是隐藏的，鼠标放上去有导航". Measured that day, a pinch over a note in Card
+Detail reached nothing: the browser hands a pinch to the window, not to the
+page that draws the note, and nothing in the window took it. The same was
+true over a PDF, whose viewer zooms only on a wheel turned with Ctrl inside
+it. Card Detail draws a note in a column of at most 760 pixels, which leaves
+209 pixels empty to its left in a Card Detail of 1130 pixels, and 61 with
+the Agent Area open, while a long note showed none of its 42 headings
+unless the user scrolled to each. The look and the timing follow the outline
+of a document product measured the same day: ticks of 16 by 2 pixels, 14
+pixels apart, the current one at 83% of the foreground and the others at
+30%, a panel of names 232 pixels wide in 13-pixel type that opens at once
+under the pointer, fading in and moving 10 pixels into place in 200 ms, and
+goes the same way.
+
+**What was set aside.**
+- Ticks shown at rest, with the names under the pointer, as the document
+  product shows them: the user asked that the navigation be hidden at rest.
+  It is one rule of the stylesheet, should the user want the ticks always.
+- A level for each note, as each PDF keeps its own: a PDF is pages of a set
+  size, while a note is text that the projection lays out, as a book's is,
+  and the text size of the book reader is one for every book.
+- The PDF's range of 25% to 500%: at 25% the text of a note is 4 pixels
+  high, and at 500% a line of a narrow Card Detail holds a few words.
+- Drawing the page larger as a picture for the whole gesture, as a viewer of
+  pages does, and laying it out when the fingers rest: the text is blurred
+  meanwhile, and its lines break anew at the end. Laying the page out in
+  every frame is exact, and fast enough for notes of ordinary length; the
+  picture stands in only for the frames whose layout would take too long.
+- Command with `=`, `-`, and `0` for the note: they zoom the whole window
+  everywhere in BaseHalf, also over a PDF, and the same keys would mean two
+  things.
+- A click on a name that puts the caret into its heading: the outline is
+  for reading, and moving the caret would change, unasked, where typing goes
+  and what agents see as the selection.
+- An outline in the Source projection: its editor is the base's code editor.
+- An outline only where the margin is wide enough already: the user works
+  with the sidebar and the Agent Area open on a display of 1440 points, where
+  Card Detail is about 834 pixels wide and its 61 empty pixels are taken by
+  the editor's handles of a block. Moving those handles, or laying the ticks
+  over them, was set aside too: the handles are how a block is added and
+  moved. The text column gives up the room instead.
+
+**Consequences.**
+- The Rich projection takes a pinch in the window and hands it to its page;
+  Preview, drawn in the window, takes it itself. Both keep the level in
+  `basehalf.noteZoom` of the profile's storage, never in the workspace.
+- A pinch over a PDF zooms it with its zoom of D81, and a pinch over a book
+  changes its text size by the steps of Larger Text and Smaller Text: the
+  window takes the pinch over the frame of the page and hands it to the page
+  that it names. A pinch over an image, a sound, or a video still does
+  nothing until D85 has changed their pages.
+- In Card Detail the Rich projection keeps 85 pixels at each side of its text
+  for the outline at the edge and the editor's handles of a block beside the
+  text: in a Card Detail of 834 pixels the text column is 664 pixels wide
+  instead of 712, and the handles, cut off at the edge in a narrower one
+  before, show whole.

@@ -1,0 +1,115 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The outline of a note's headings in the margin to the left of its text
+ * (zoom and outline of a note). The rich editor's page draws it with the
+ * same rules in its own stylesheet, `editor.css`. */
+
+/* It lies in the view's flow before the page, takes no height, and sticks to
+ * the top of the view; the ticks and the panel are placed from there. */
+.monaco-workbench .basehalf-note-outline {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	height: 0;
+}
+
+.monaco-workbench .basehalf-note-outline-ticks {
+	position: absolute;
+	width: 24px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 200ms ease;
+}
+
+.monaco-workbench .basehalf-note-outline-ticks.shown {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-note-outline-tick {
+	position: absolute;
+	height: 2px;
+	border-radius: 1px;
+	background-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+	transition: background-color 200ms ease;
+}
+
+.monaco-workbench .basehalf-note-outline-tick.current {
+	background-color: color-mix(in srgb, var(--vscode-foreground) 83%, transparent);
+}
+
+/* The panel has the look of BaseHalf's other menus. */
+.monaco-workbench .basehalf-note-outline-panel {
+	position: absolute;
+	display: flex;
+	box-sizing: border-box;
+	width: 240px;
+	flex-direction: column;
+	padding: 6px;
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+	border-width: 1px;
+	border-style: solid;
+	border-color: var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+	font-size: 13px;
+	opacity: 0;
+	transform: translateX(-10px);
+	visibility: hidden;
+	pointer-events: none;
+	transition: opacity 200ms ease, transform 200ms ease, visibility 0s linear 200ms;
+}
+
+.monaco-workbench .basehalf-note-outline-panel.open {
+	opacity: 1;
+	transform: none;
+	visibility: visible;
+	pointer-events: auto;
+	transition: opacity 200ms ease, transform 200ms ease, visibility 0s;
+}
+
+.monaco-workbench .basehalf-note-outline-list {
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+
+.monaco-workbench .basehalf-note-outline-item {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	height: 25px;
+	padding-block: 0;
+	padding-inline-end: 8px;
+	border: 0;
+	border-radius: 6px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	background: none;
+	font: inherit;
+	line-height: 25px;
+	text-align: start;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-note-outline-item.current {
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+}
+
+.monaco-workbench .basehalf-note-outline-item:hover {
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	background: var(--vscode-list-hoverBackground);
+}
+
+.monaco-workbench .basehalf-note-outline.reduced-motion .basehalf-note-outline-ticks,
+.monaco-workbench .basehalf-note-outline.reduced-motion .basehalf-note-outline-tick,
+.monaco-workbench .basehalf-note-outline.reduced-motion .basehalf-note-outline-panel,
+.monaco-workbench .basehalf-note-outline.reduced-motion .basehalf-note-outline-panel.open {
+	transition: none;
+}

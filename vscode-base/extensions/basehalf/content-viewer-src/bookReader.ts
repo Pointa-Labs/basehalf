@@ -9,6 +9,7 @@
 // network, and every link to the web goes to the workbench.
 
 import './bookReader.css';
+import { baseHalfNoteZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteZoom.js';
 import { makeComicBook } from 'foliate-js/comic-book.js';
 import { Overlayer } from 'foliate-js/overlayer.js';
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from 'foliate-js/vendor/zip.js';
@@ -422,6 +423,31 @@ largerButton.addEventListener('click', () => {
 	changePreferences({ ...preferences, textSize: BASEHALF_BOOK_TEXT_SIZES[Math.min(BASEHALF_BOOK_TEXT_SIZES.length - 1, index + 1)] });
 });
 flowButton.addEventListener('click', () => changePreferences({ ...preferences, flow: preferences.flow === 'paginated' ? 'scrolled' : 'paginated' }));
+
+// A pinch that the window took over the page makes the text larger or smaller,
+// a step of Larger Text or Smaller Text each time the fingers have spread or
+// closed by as much as that step (PDFs and books, "The book reader").
+let pinchSpread = 0;
+let pinchRest: number | undefined;
+window.addEventListener('message', event => {
+	const message = baseHalfPagePinchFromMessage(event.data);
+	if (!message) {
+		return;
+	}
+	window.clearTimeout(pinchRest);
+	pinchRest = window.setTimeout(() => pinchSpread = 0, 300);
+	pinchSpread += Math.log(baseHalfNoteZoomFactor(message));
+	const index = BASEHALF_BOOK_TEXT_SIZES.indexOf(preferences.textSize);
+	const larger = BASEHALF_BOOK_TEXT_SIZES[index + 1];
+	const smaller = BASEHALF_BOOK_TEXT_SIZES[index - 1];
+	if (larger !== undefined && pinchSpread >= Math.log(larger / preferences.textSize)) {
+		pinchSpread -= Math.log(larger / preferences.textSize);
+		changePreferences({ ...preferences, textSize: larger });
+	} else if (smaller !== undefined && pinchSpread <= -Math.log(preferences.textSize / smaller)) {
+		pinchSpread += Math.log(preferences.textSize / smaller);
+		changePreferences({ ...preferences, textSize: smaller });
+	}
+});
 previousButton.addEventListener('click', () => void view?.goLeft());
 nextButton.addEventListener('click', () => void view?.goRight());
 
