@@ -8,9 +8,9 @@ See also:
 
 - [decisions.md D20](decisions.md#d20--vs-code-as-substrate-basehalf-as-canvas-first-product-new-2026-06-30)
   for the VS Code substrate decision.
-- [decisions.md D21](decisions.md#d21--right-side-agent-area-hosts-tui-extension-agents-and-terminal-new-2026-06-30)
+- [decisions.md D21](decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30)
   for Agent Area direction.
-- [decisions.md D22](decisions.md#d22--vs-code-sidebar-extension-and-file-open-boundaries-new-2026-06-30)
+- [decisions.md D22](decisions.md#d22--sidebar-extension-allowlist-and-file-open-remapping-revised-2026-07-13)
   for sidebar and extension boundaries.
 - [decisions.md D23](decisions.md#d23--module-complete-migration-not-mvp-or-intermediate-shell-new-2026-06-30)
   for the quality bar: module-complete migration, not an MVP shell.

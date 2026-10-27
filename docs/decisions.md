@@ -202,7 +202,7 @@ bh doesn't gate.
 
 > **Note (2026-06).** The *principle* (publish a file protocol, don't inject)
 > still holds. The specific file shapes below were replaced by the
-> `.bh/mirror/` YAML tree — see [D19](#d19--bhmirror-yaml-model-cli--inbound--proposals--focusmd-deleted-new-2026-06).
+> `.bh/mirror/` YAML tree — see [D19](#d19--bhmirror-yaml-model-cli--inbound--proposals--focusmd-deleted-new-2026-06-focus-superseded-by-d35-references-by-d37-hint-and-git-policy-by-d36).
 
 **Decision.** bh publishes the workspace graph to known paths in `.bh/`:
 
