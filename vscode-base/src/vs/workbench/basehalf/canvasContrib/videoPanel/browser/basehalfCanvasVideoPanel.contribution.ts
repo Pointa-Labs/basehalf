@@ -232,6 +232,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 		return {
 			startPick: pick => this.canvas.startCardPick(pick),
 			didChangeConnections: () => this.canvas.requestRender(),
+			didShowInputs: upstream => this.canvas.showUpstreamLines(sceneKey, path, upstream),
 			importFile: (accept, kinds) => this.importFile(path, accept, kinds),
 			focusCard: () => this.canvas.focusCard(path),
 			didGenerateInNode: resource => this.selectCardWhenDrawn(sceneKey, resource),

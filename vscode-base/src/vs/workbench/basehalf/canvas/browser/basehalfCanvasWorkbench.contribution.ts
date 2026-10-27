@@ -39,7 +39,7 @@ import { ITextFileService } from '../../../services/textfile/common/textfiles.js
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { IWorkingCopyFileService } from '../../../services/workingCopy/common/workingCopyFileService.js';
 import { mainWindow } from '../../../../base/browser/window.js';
-import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeFile, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../../references/common/basehalfBadgeMirror.js';
 import { BaseHalfCanvasChosenPlaces } from '../common/basehalfCanvasChosenPlaces.js';
 import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
@@ -244,6 +244,8 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	readonly pictureShapes = this._register(new BaseHalfCanvasPictureShapes(createBaseHalfCanvasPictureMeasurer(mainWindow)));
 	/** The rows of the layout that the shown canvas was last drawn from. A row takes its place also when its item is gone. */
 	renderedLayoutRows: readonly IBaseHalfCanvasCard[] = [];
+	/** The anchors of lines in that layout: a pair keeps its row also while it is not connected. */
+	renderedLayoutEdges: readonly IBaseHalfCanvasEdge[] = [];
 	canvasLayoutReconcileGeneration = 0;
 	readonly canvasInteractionEndWaiters = new Set<() => void>();
 	inlineEdit: BaseHalfCanvasInlineEdit | undefined;
@@ -684,6 +686,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 			getItem: path => this.renderedItemsByPath.get(path),
 			getCardPreview: path => this.renderedCardPreviewsByPath.get(path)?.preview,
 			requestRender: () => this.requestRender(),
+			showUpstreamLines: (sceneKey, path, upstream) => this.connections.showUpstreamLines(sceneKey, path, upstream),
 			onDidChangeSelection: this.onDidChangeSelectionEmitter.event,
 			select: paths => this.canvasScene.select({ cardPaths: paths }),
 			selectCreatedCard: path => {

@@ -39,7 +39,7 @@ import { IBaseHalfCanvasPicture } from '../basehalfCanvasPictureShapes.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneEdge } from '../../common/basehalfCanvasScene.js';
 import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, IBaseHalfCanvasCardRenderCacheEntry, baseHalfBadgeResourceIdentity, baseHalfCanvasLayoutNotice, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasRetainedCardChromeIsStale } from './basehalfCanvasViewShared.js';
+import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, IBaseHalfCanvasCardRenderCacheEntry, baseHalfBadgeResourceIdentity, baseHalfCanvasLayoutNotice, baseHalfCanvasSceneEdgeId, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasRetainedCardChromeIsStale } from './basehalfCanvasViewShared.js';
 
 /**
  * The longest the canvas waits with a redraw for items that are being
@@ -57,10 +57,6 @@ const BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS = 500;
 
 /** How long a later redraw waits for the comparison at open: no change is on its way, the folder is only being read. */
 const BASEHALF_CANVAS_MOVED_ITEMS_OPENING_HOLD_MS = 2000;
-
-function edgeId(from: string, to: string): string {
-	return `${from}\u0000${to}`;
-}
 
 /** How long a drawing waits at most for the pictures of the cards that appear in it (canvas card placement). */
 const PICTURES_APPEAR_WAIT_MS = 1000;
@@ -728,7 +724,7 @@ export class BaseHalfCanvasRenderer {
 			}
 			return {
 				...edge,
-				id: edgeId(edge.from, edge.to),
+				id: baseHalfCanvasSceneEdgeId(edge.from, edge.to),
 				fromKind: from.kind,
 				toKind: to.kind
 			};
@@ -755,6 +751,7 @@ export class BaseHalfCanvasRenderer {
 		// The cards are drawn: the places BaseHalf chose for them are kept from
 		// now on, and saved when the layout can take them.
 		this.view.renderedLayoutRows = canvas?.cards ?? [];
+		this.view.renderedLayoutEdges = canvas?.edges ?? [];
 		this.view.chosenCanvasPlaces.drawn(folder, model.appeared);
 		this.renderedPictureRatios = { folder: currentSceneKey, ratios: pictureRatios };
 		if (canvasReadInFull) {
@@ -1073,6 +1070,7 @@ export class BaseHalfCanvasRenderer {
 			pathKey: this.view.creation.canvasPathKey(folder)
 		});
 		this.view.renderedLayoutRows = canvas?.cards ?? [];
+		this.view.renderedLayoutEdges = canvas?.edges ?? [];
 		if (model.items.length !== this.view.renderedItemsByPath.size
 			|| model.items.some(item => {
 				const rendered = this.view.renderedItemsByPath.get(item.path);
@@ -1105,7 +1103,7 @@ export class BaseHalfCanvasRenderer {
 			}
 			nextEdges.push({
 				...edge,
-				id: edgeId(edge.from, edge.to),
+				id: baseHalfCanvasSceneEdgeId(edge.from, edge.to),
 				fromKind: from.kind,
 				toKind: to.kind
 			});

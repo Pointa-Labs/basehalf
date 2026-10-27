@@ -120,10 +120,16 @@ export interface IBaseHalfVideoNodePanelHost {
 	focusCard(): void;
 	/**
 	 * The panel changed the card's connections, or such a change was undone or
-	 * done again: the canvas draws its lines at once, as it does for a line
-	 * drawn on it, so a line changes with its tile.
+	 * done again: the canvas reads the folder again at once, instead of
+	 * waiting to learn of it from the file.
 	 */
 	didChangeConnections?(): void;
+	/**
+	 * The panel drew the card's inputs anew, for the card's upstream list
+	 * `upstream`: the canvas draws the lines into the card from the same list
+	 * at once, so that a line changes with its tile.
+	 */
+	didShowInputs?(upstream: readonly string[]): void;
 	/**
 	 * Generate ran on another card: a card with its file makes a new draft
 	 * beside it and generates there. The workbench selects that card.
@@ -274,6 +280,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private presentation: IBaseHalfVideoPanelPresentation | undefined;
 	private readError: string | undefined;
 	private refreshSequence = 0;
+	/** The upstream list whose inputs the panel drew last, as the host was told it. */
+	private shownUpstream: string | undefined;
 	private readonly refreshScheduler = this._register(new RunOnceScheduler(() => { void this.refresh(); }, 0));
 	private writeQueue: Promise<unknown> = Promise.resolve();
 	private savedPrompt: string | undefined;
@@ -562,6 +570,12 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			this.editor.refreshChips();
 		}
 		this.render();
+		// The canvas draws the card's lines with its tiles (generation cards, "The line on the canvas changes with the tile").
+		const upstream = JSON.stringify(snapshot.upstream);
+		if (inputs && upstream !== this.shownUpstream) {
+			this.shownUpstream = upstream;
+			this.host.didShowInputs?.(snapshot.upstream);
+		}
 		if (firstRead && this.focusWhenShown && this.layout?.visible) {
 			this.focusWhenShown = false;
 			this.focus();

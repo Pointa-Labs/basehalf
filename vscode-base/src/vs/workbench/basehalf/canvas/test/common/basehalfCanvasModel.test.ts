@@ -15,6 +15,7 @@ import {
 	baseHalfCanvasCardResizes,
 	baseHalfCanvasCardToggleConnections,
 	baseHalfCanvasEdgeLayouts,
+	baseHalfCanvasEdgesWithUpstream,
 	baseHalfCanvasCenteredPlace,
 	baseHalfCanvasEdgePath,
 	baseHalfCanvasDraftStat,
@@ -304,6 +305,56 @@ suite('BaseHalfCanvasModel', () => {
 			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
 			{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
 		]);
+	});
+
+	test('derives the edges again for a card\'s new upstream list from the drawn cards, as the model does', () => {
+		const root = folder('/workspace', [
+			file('/workspace/a.md'),
+			file('/workspace/b.md'),
+			file('/workspace/c.md')
+		]);
+		const styled = [
+			{ from: 'a.md', from_anchor: 'east' as const, to: 'b.md', to_anchor: 'west' as const },
+			// Anchor memory of a pair that is not connected: it anchors the pair once it is.
+			{ from: 'b.md', from_anchor: 'south' as const, to: 'c.md', to_anchor: 'north' as const }
+		];
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			relationships: new Map([
+				['b.md', relationships({ upstream: ['a.md'] })],
+				['c.md', relationships({ upstream: ['a.md'] })]
+			]),
+			canvas: { path: '', cards: [], edges: styled }
+		});
+		// c takes b too, and names itself and a card of another folder, which draw nothing.
+		const connected = baseHalfCanvasEdgesWithUpstream(model.items, styled, 'c.md', ['a.md', 'b.md', 'c.md', 'docs/far.md']);
+		// b's list empties, and a card without relationships gets a list.
+		const removed = baseHalfCanvasEdgesWithUpstream(model.items, styled, 'b.md', []);
+		const added = baseHalfCanvasEdgesWithUpstream(model.items, styled, 'a.md', ['c.md']);
+		const viaModel = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			relationships: new Map([
+				['b.md', relationships({ upstream: ['a.md'] })],
+				['c.md', relationships({ upstream: ['a.md', 'b.md', 'c.md', 'docs/far.md'] })]
+			]),
+			canvas: { path: '', cards: [], edges: styled }
+		}).edges;
+		assert.deepStrictEqual({ connected, sameAsModel: JSON.stringify(connected) === JSON.stringify(viaModel), removed, added }, {
+			connected: [
+				{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
+				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' },
+				{ from: 'b.md', from_anchor: 'south', to: 'c.md', to_anchor: 'north' }
+			],
+			sameAsModel: true,
+			removed: [
+				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
+			],
+			added: [
+				{ from: 'c.md', from_anchor: 'west', to: 'a.md', to_anchor: 'east' },
+				{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
+				{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
+			]
+		});
 	});
 
 	test('draws no edges without the index and never from a downstream list alone', () => {

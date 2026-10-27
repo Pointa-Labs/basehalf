@@ -209,6 +209,11 @@ export const CANVAS_MARKDOWN_FULL_EDITOR_LABEL = localize(
 /** The key of the scene the canvas shows when no folder is open. */
 export const BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY = 'no-folder';
 
+/** The scene's id of the line from the card at `from` to the card at `to`. */
+export function baseHalfCanvasSceneEdgeId(from: string, to: string): string {
+	return `${from}\u0000${to}`;
+}
+
 export function reverseCanvasStateTransition(transition: IBaseHalfCanvasStateTransition, reverse: boolean): IBaseHalfCanvasStateTransition {
 	if (!reverse) {
 		return transition;

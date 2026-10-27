@@ -129,6 +129,7 @@ export function createBaseHalfTestCanvasView(
 		getItem: path => items.get(path)?.item,
 		getCardPreview: path => items.get(path)?.preview,
 		requestRender: () => calls.push('requestRender'),
+		showUpstreamLines: (sceneKey, path, upstream) => calls.push(`showUpstreamLines ${sceneKey} ${path}: ${upstream.join(', ')}`),
 		onDidChangeSelection: onDidChangeSelection.event,
 		select: paths => calls.push(`select ${paths.join(', ')}`),
 		// The canvas selects the card once a drawing shows it, and its panel takes the focus.

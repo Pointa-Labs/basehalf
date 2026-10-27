@@ -11,6 +11,7 @@ import { IFileStat } from '../../../../../platform/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
 	baseHalfCanvasChildPath,
+	baseHalfCanvasEdgesWithUpstream,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 	baseHalfCanvasGenerationCardSize,
@@ -37,6 +38,7 @@ import {
 	baseHalfCanvasOppositeAnchor
 } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
+import { baseHalfCanvasSceneEdgeId } from './basehalfCanvasViewShared.js';
 
 /**
  * Connections on the canvas: reading them from the reference graph,
@@ -118,6 +120,47 @@ export class BaseHalfCanvasConnections {
 			relationships.set(path, { upstream, downstream, issueCount: view?.issueCount ?? 0 });
 		}));
 		return { state, relationships, views, refusals };
+	}
+
+	/**
+	 * Draws the lines into the card at `path` for its upstream list at once,
+	 * between the cards that are shown, without reading the folder: a panel
+	 * that draws the card's inputs anew draws its lines with them (generation
+	 * cards, "The line on the canvas changes with the tile"). The drawing that
+	 * reads the folder derives the same lines from the reference index.
+	 */
+	showUpstreamLines(sceneKey: string, path: string, upstream: readonly string[]): void {
+		const view = this.view;
+		const folder = view.getCurrentFolder();
+		if (!folder || view.sceneKey(folder) !== sceneKey || !view.renderedItemsByPath.has(path)
+			|| view.canvasNavigationService.state.cardDetail || view.canvasScene.isInteracting()) {
+			return;
+		}
+		// No lines until the index is ready, as `readCanvasConnections` draws them.
+		const state = view.referenceIndexService.getState(folder.workspaceFolder);
+		if (state === undefined || state === 'building') {
+			return;
+		}
+		const items = [...view.renderedItemsByPath.values()];
+		const siblingUpstream = baseHalfCanvasResolveSiblingUpstream(upstream, items.map(item => item.path), view.upstreamIdentity(folder.workspaceFolder));
+		const edges: IBaseHalfCanvasSceneEdge[] = baseHalfCanvasEdgesWithUpstream(items, view.renderedLayoutEdges, path, siblingUpstream).map(edge => ({
+			...edge,
+			id: baseHalfCanvasSceneEdgeId(edge.from, edge.to),
+			fromKind: view.renderedItemsByPath.get(edge.from)!.kind,
+			toKind: view.renderedItemsByPath.get(edge.to)!.kind
+		}));
+		const drawn = (list: readonly IBaseHalfCanvasSceneEdge[]) => JSON.stringify(list.map(edge => [edge.id, edge.from_anchor, edge.to_anchor]));
+		if (drawn(edges) === drawn(view.renderedSceneEdges)) {
+			return;
+		}
+		view.renderedSceneEdges = Object.freeze(edges);
+		view.canvasScene.update({
+			key: sceneKey,
+			structuralEpoch: view.renderedSceneStructuralEpoch,
+			revision: view.renderSeq,
+			cards: view.renderedSceneCards,
+			edges: view.renderedSceneEdges
+		});
 	}
 
 	/** Why a card can never receive a connection right now, if it cannot. */
