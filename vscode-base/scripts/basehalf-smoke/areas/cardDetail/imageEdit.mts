@@ -56,7 +56,7 @@ function pngSize(bytes) {
 }
 
 /** The crop view, once its picture is loaded. */
-async function waitForCrop(page) {
+export async function waitForCrop(page) {
 	await page.locator(CROP).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.waitForFunction(selector => (document.querySelector(selector)?.naturalWidth ?? 0) > 0, `${CROP} .basehalf-image-crop-picture`, { timeout: 15_000 });
 }
@@ -66,7 +66,7 @@ async function lineText(page) {
 	return page.evaluate(selector => Array.from(document.querySelector(selector)?.querySelectorAll('.basehalf-media-edit-line-part:not([hidden])') ?? []).map(part => part.textContent).join(' | '), LINE);
 }
 
-async function chooseRatio(page, label) {
+export async function chooseRatio(page, label) {
 	await page.locator(`${CROP} .basehalf-image-crop-tool.ratio`).click();
 	const item = page.locator('.context-view.monaco-menu-container .action-label').filter({ hasText: new RegExp(`^${label}$`) }).filter({ visible: true }).last();
 	await item.waitFor({ state: 'visible', timeout: 10_000 });
