@@ -119,7 +119,11 @@ Not in scope, and unchanged:
 10. At rest the outline shows nothing.
 11. While the pointer is in the left margin, the ticks fade in, in 200 ms,
     and they fade out in 200 ms when it leaves the margin. A note without
-    headings, and a left margin narrower than 48 pixels, show nothing.
+    headings, and a left margin narrower than 48 pixels, show nothing. In
+    Rich the margin must be 105 pixels wide: the editor's handles of a block
+    (add and drag) stand in its 57 pixels next to the text, and the outline
+    never lies on them. The outline is drawn over those handles and the
+    editor's menus, which never cover its panel.
 12. **The ticks.** One tick for each heading, top to bottom, in a column
     whose middle is the middle of the view. A tick is 2 pixels high with
     rounded ends; its right end is 36 pixels from the left edge of the view.
@@ -174,10 +178,11 @@ Not in scope, and unchanged:
   in about 100 ms. Such a note is shown as rule 6 says, so its text can
   break into new lines once the fingers rest, when the column has reached
   the width of the view during the gesture.
-- L2. At 100% the outline needs a Card Detail at least 808 pixels wide
-  (760 for the column, 24 for the page's own margin on each side, and 48 for
-  the outline). With the Agent Area open at its first width on a window of
-  1440 points, Card Detail is 834 pixels wide.
+- L2. At 100% the outline needs a Card Detail at least 922 pixels wide in
+  Rich (760 for the column, whose own margin of 24 pixels on each side counts
+  toward the 105 of rule 11) and 856 in Preview. With the Agent Area open at
+  its first width on a window of 1440 points, Card Detail is 834 pixels wide
+  and shows no outline in Rich; with the Agent Area closed it is 1130 wide.
 - L3. The outline is for the pointer. The keyboard does not reach it; a
   screen reader reads the headings in the page itself.
 - L4. A heading inside a list item or a quote is shown as a heading by the
