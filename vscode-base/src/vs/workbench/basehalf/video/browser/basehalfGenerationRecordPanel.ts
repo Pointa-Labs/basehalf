@@ -425,8 +425,8 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 
 	private renderPrompt(presentation: IBaseHalfGenerationRecordPresentation): void {
 		const prompt = presentation.prompt.trim() ? presentation.prompt : '';
-		// The chips show the pictures of the inputs, which change when one is gone or comes back.
-		const chipsKey = JSON.stringify(this.inputs.map(input => [input.path, input.available, input.file?.toString() ?? '']));
+		// The chips show the pictures of the inputs, which change when one is gone or comes back, or is written anew.
+		const chipsKey = JSON.stringify(this.inputs.map(input => [input.path, input.available, input.file?.toString() ?? '', input.fileVersion ?? '']));
 		if (this.editor.value !== prompt) {
 			this.renderedChipsKey = chipsKey;
 			this.editor.setValue(prompt);

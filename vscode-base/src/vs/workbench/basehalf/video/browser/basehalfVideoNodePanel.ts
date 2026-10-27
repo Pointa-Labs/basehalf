@@ -1028,7 +1028,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	/** Which inputs the card has, and their files: what the chips of the prompt are drawn from. */
 	private inputsKey(): string {
 		return JSON.stringify(this.inputs.length
-			? this.inputs.map(input => [input.path, input.kind, input.available, input.file?.toString() ?? ''])
+			? this.inputs.map(input => [input.path, input.kind, input.available, input.file?.toString() ?? '', input.fileVersion ?? ''])
 			: this.snapshot?.upstream ?? []);
 	}
 
