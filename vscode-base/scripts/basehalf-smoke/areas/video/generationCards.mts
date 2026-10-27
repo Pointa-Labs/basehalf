@@ -912,6 +912,40 @@ async function assertImagePanelOfItsOwn(page) {
 	if (connected.height !== 188 || JSON.stringify(connected.footer) !== JSON.stringify(footer) || JSON.stringify(connected.buttons) !== JSON.stringify(empty.buttons)) {
 		throw new Error(`The first input must bring the row above the prompt while the two buttons stay in the footer where they were: ${JSON.stringify({ empty, connected })}`);
 	}
+	// Criterion 98: a panel's first frame has the shape it keeps, and selecting another card shows a panel in every frame.
+	await clickBlankCanvas(page);
+	await page.evaluate(() => {
+		const frames = [];
+		globalThis.__basehalfPanelFrames = frames;
+		const tick = () => {
+			if (globalThis.__basehalfPanelFrames !== frames) {
+				return;
+			}
+			const surface = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface')).find(element => element.offsetParent !== null);
+			const shown = surface?.querySelector('.bh-video-panel');
+			const row = shown?.querySelector('.bh-input-row');
+			frames.push(shown ? `${surface.getAttribute('data-basehalf-card-path')} ${Math.round(shown.getBoundingClientRect().height)} ${row && !row.hidden ? 'row' : 'no row'}` : 'none');
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+	await clickCanvasCardOnTop(page, IMAGE);
+	await waitForGenerationPanel(page, IMAGE);
+	await clickCanvasCardOnTop(page, VIDEO);
+	await waitForGenerationPanel(page, VIDEO);
+	await page.waitForTimeout(300);
+	const frames = await page.evaluate(() => {
+		const recorded = globalThis.__basehalfPanelFrames;
+		globalThis.__basehalfPanelFrames = undefined;
+		return recorded;
+	});
+	const firstShown = frames.findIndex(frame => frame !== 'none');
+	const imageFrames = frames.filter(frame => frame.startsWith(`${IMAGE} `));
+	const videoFrames = frames.filter(frame => frame.startsWith(`${VIDEO} `));
+	if (firstShown < 0 || frames.slice(firstShown).includes('none') || new Set(imageFrames).size !== 1 || imageFrames[0] !== `${IMAGE} 188 row` || new Set(videoFrames).size !== 1) {
+		throw new Error(`Each panel must show in the shape it keeps from its first frame, and a panel must be drawn in every frame from the first one on: ${JSON.stringify([...new Set(frames)])} over ${frames.length} frames`);
+	}
+	panel = await selectGenerationCard(page, IMAGE);
 	// Criterion 97: picking from the footer; a click on the connected card removes it.
 	await startPickOnCanvas(page, panel);
 	if (await panel.locator(`.bh-video-panel-footer ${PICK_BUTTON}[aria-pressed="true"]`).count() !== 1) {
