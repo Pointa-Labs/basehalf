@@ -1309,7 +1309,9 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   wrote the file anew meanwhile: the card then shows the new file. A video
   that BaseHalf can edit plays with the frame viewer of its editor under the
   player, and a sound shows its waveform in place of the player
-  ([editing media](media-editing.md)).
+  ([editing media](media-editing.md)). A pinch or the wheel over the picture
+  zooms it, and a drag then moves it
+  ([editing media, "Zooming the picture and the time"](media-editing.md#zooming-the-picture-and-the-time)).
 - **A sound plays in the same player.** There is nothing to see, so the card
   of a sound shows the glyph of a sound where a video shows its frame, and
   the player has no sound button: the pointer on the card plays
