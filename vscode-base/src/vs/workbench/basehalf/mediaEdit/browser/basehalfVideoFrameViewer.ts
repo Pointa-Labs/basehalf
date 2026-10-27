@@ -282,8 +282,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			const observer = new ResizeObserverConstructor(() => {
 				this.render();
 				this.loadPictures();
-				if (this.zoom.spread) {
-					// As many pictures as fit at the new width.
+				if (this.zoom.spread && !this.element.classList.contains('spread')) {
+					// As many pictures as fit at the new width; a held handle's spread reads them when it is let go.
 					this.readZoomPictures();
 					this.placePictures();
 				}
