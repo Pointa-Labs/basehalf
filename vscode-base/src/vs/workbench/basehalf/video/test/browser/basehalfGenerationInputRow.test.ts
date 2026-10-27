@@ -168,6 +168,17 @@ suite('BaseHalfGenerationInputRow (D68)', () => {
 		}, { image: true, clip: true, clipLoads: true, left: false, back: true });
 	});
 
+	test('a tile loads its file at its version, and a new version of the file, as after an edit, draws its picture anew', () => {
+		const file = URI.file('/work/shots/a.png');
+		const row = create({ tiles: [tile('shots/a.png', { file, fileVersion: '1-10' })], editable: true });
+		const picture = () => row.element.querySelector<HTMLImageElement>('.bh-input-tile img');
+		const first = picture();
+		row.update({ tiles: [tile('shots/a.png', { file, fileVersion: '2-20' })], editable: true });
+		const second = picture();
+		const version = (image: HTMLImageElement | null) => new URL(image?.getAttribute('src') ?? 'about:blank').searchParams.get('basehalfCanvasVersion');
+		assert.deepStrictEqual({ first: version(first), second: version(second), drawnAnew: first !== second }, { first: '1-10', second: '2-20', drawnAnew: true });
+	});
+
 	test('a video and a sound show their length once their file tells it, and keep it when the row is drawn again (D70)', () => {
 		const clip = tile('shots/clip.mp4', { kind: 'video', file: URI.file('/work/shots/clip.mp4') });
 		const sound = tile('sounds/rain.mp3', { kind: 'audio', file: URI.file('/work/sounds/rain.mp3') });

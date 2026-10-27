@@ -138,7 +138,12 @@ const PICTURE_COVER_MAX_SIDE = 1280;
  * written anew is read anew.
  */
 export function baseHalfCanvasMediaVersionQuery(stat: { readonly mtime?: number; readonly size?: number }): string {
-	return `basehalfCanvasVersion=${stat.mtime ?? 0}-${stat.size ?? 0}`;
+	return `basehalfCanvasVersion=${baseHalfCanvasMediaVersion(stat)}`;
+}
+
+/** The version of a file as the canvas names it: its time of change and its size, `<mtime>-<size>`. */
+export function baseHalfCanvasMediaVersion(stat: { readonly mtime?: number; readonly size?: number }): string {
+	return `${stat.mtime ?? 0}-${stat.size ?? 0}`;
 }
 
 /**
@@ -156,6 +161,11 @@ export function baseHalfCanvasMediaUrl(resource: URI): string {
 	}
 	// A remote address carries a query of its own: the version is added to it.
 	return address.with({ query: [address.query, resource.query].filter(Boolean).join('&') }).toString(true);
+}
+
+/** The address of the file of `resource` at `version` (`baseHalfCanvasMediaVersion`), or its plain address when no version is known. */
+export function baseHalfCanvasMediaUrlAt(resource: URI, version: string | undefined): string {
+	return baseHalfCanvasMediaUrl(version ? resource.with({ query: `basehalfCanvasVersion=${version}` }) : resource);
 }
 
 /**

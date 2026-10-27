@@ -11,7 +11,6 @@ import { Codicon } from '../../../../base/common/codicons.js';
 import { compareFileNames } from '../../../../base/common/comparers.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { basename, dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
@@ -92,6 +91,7 @@ import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptChip
 import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMenu.js';
 import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from './basehalfGenerationVoiceMenu.js';
 import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
+import { baseHalfCanvasMediaUrlAt, baseHalfCanvasMediaVersion } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import {
 	BASEHALF_VIDEO_PANEL_MAX_HEIGHT,
 	BASEHALF_VIDEO_PANEL_MIN_HEIGHT,
@@ -1009,7 +1009,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 				path: item.path,
 				kind: item.kind,
 				fileName: item.fileName,
-				...(file ? { file } : {}),
+				...(file ? { file, ...(input?.fileVersion ? { fileVersion: input.fileVersion } : {}) } : {}),
 				dimmed: !item.used,
 				...(item.reason ? { note: item.reason } : {}),
 				...(frame ? { frame } : {})
@@ -2110,7 +2110,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 					kind: item.kind,
 					title: item.fileName,
 					connected: true,
-					...pictureOf(item.kind, input?.available ? input.file : undefined)
+					...pictureOf(item.kind, input?.available ? input.file : undefined, input?.fileVersion)
 				}));
 			}
 		}
@@ -2139,8 +2139,8 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		try {
 			const [stat, drafts] = await Promise.all([this.fileService.resolve(folder), this.store.listDrafts(folder)]);
 			const entries = [
-				...(stat.children ?? []).filter(child => !child.isDirectory).map(child => ({ name: child.name, file: child.resource as URI | undefined })),
-				...drafts.map(draft => ({ name: draft.name, file: undefined }))
+				...(stat.children ?? []).filter(child => !child.isDirectory).map(child => ({ name: child.name, file: child.resource as URI | undefined, version: baseHalfCanvasMediaVersion(child) as string | undefined })),
+				...drafts.map(draft => ({ name: draft.name, file: undefined, version: undefined }))
 			];
 			for (const entry of entries) {
 				const path = folderPath ? `${folderPath}/${entry.name}` : entry.name;
@@ -2148,7 +2148,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 				if (path === snapshot.path || entry.name.startsWith('.') || !isReferenceMenuKind(kind)) {
 					continue;
 				}
-				items.push(Object.freeze({ path, kind, title: baseHalfVideoPanelInputFileName(path), ...pictureOf(kind, entry.file) }));
+				items.push(Object.freeze({ path, kind, title: baseHalfVideoPanelInputFileName(path), ...pictureOf(kind, entry.file, entry.version) }));
 			}
 		} catch (error) {
 			this.logService.warn('[BaseHalf] the reference menu could not read the cards of the canvas', error);
@@ -2549,9 +2549,9 @@ const EMPTY_CANVAS_CARDS: readonly IBaseHalfReferenceMenuKindList[] = Object.fre
 	Object.freeze({ kind: 'audio' as const, items: [] })
 ]);
 
-/** The picture of an image the window can show; a video and audio have their glyph. */
-function pictureOf(kind: BaseHalfReferenceMenuKind, file: URI | undefined): { readonly picture?: string } {
-	return kind === 'image' && file ? { picture: FileAccess.uriToBrowserUri(file).toString(true) } : {};
+/** The picture of an image the window can show, at its file's version; a video and audio have their glyph. */
+function pictureOf(kind: BaseHalfReferenceMenuKind, file: URI | undefined, version: string | undefined): { readonly picture?: string } {
+	return kind === 'image' && file ? { picture: baseHalfCanvasMediaUrlAt(file, version) } : {};
 }
 
 /** The kinds of input the reference menu lists: images, videos, sounds, and notes. */

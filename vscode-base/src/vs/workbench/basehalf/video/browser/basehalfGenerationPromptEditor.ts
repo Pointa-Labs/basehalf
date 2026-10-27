@@ -9,9 +9,9 @@ import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js'
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { RedoCommand, SelectAllCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
+import { baseHalfCanvasMediaUrlAt } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import { baseHalfMentionedIndex, baseHalfMentionLabels, findBaseHalfPromptMentions, IBaseHalfPromptMention } from '../common/basehalfGenerationMentions.js';
 import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
 
@@ -693,7 +693,7 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
  * its folder as tells it from another input with the same name; a mention
  * whose path no entry names is a file that is not connected.
  */
-export function baseHalfPromptChip(mention: IBaseHalfPromptMention, entries: readonly string[], inputOf: (index: number) => { readonly kind: BaseHalfVideoInputKind; readonly available: boolean; readonly file?: URI } | undefined): IBaseHalfPromptChip {
+export function baseHalfPromptChip(mention: IBaseHalfPromptMention, entries: readonly string[], inputOf: (index: number) => { readonly kind: BaseHalfVideoInputKind; readonly available: boolean; readonly file?: URI; readonly fileVersion?: string } | undefined): IBaseHalfPromptChip {
 	const index = baseHalfMentionedIndex(mention, entries);
 	if (index === undefined) {
 		const label = baseHalfMentionLabels([...entries, mention.path]).get(mention.path) ?? mention.path;
@@ -702,7 +702,8 @@ export function baseHalfPromptChip(mention: IBaseHalfPromptMention, entries: rea
 	const path = entries[index];
 	const input = inputOf(index);
 	const kind = input?.kind ?? baseHalfVideoInputKindOfPath(path);
-	const picture = kind === 'image' && input?.available && input.file ? FileAccess.uriToBrowserUri(input.file).toString(true) : undefined;
+	// At the file's version: an input edited shows as it is now.
+	const picture = kind === 'image' && input?.available && input.file ? baseHalfCanvasMediaUrlAt(input.file, input.fileVersion) : undefined;
 	return Object.freeze({ kind, label: baseHalfMentionLabels(entries).get(path) ?? path, ...(picture ? { picture } : {}), known: true });
 }
 

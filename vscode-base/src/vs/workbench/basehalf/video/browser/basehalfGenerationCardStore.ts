@@ -29,6 +29,7 @@ import { baseHalfPreserveMirrorBytes } from '../../workspace/common/basehalfMirr
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfMirrorRoot } from '../../workspace/common/basehalfMirrorTree.js';
 import { BaseHalfMirrorWriteRejected } from '../../workspace/common/basehalfMirrorYaml.js';
 import { BASEHALF_EDIT_RECORD_FILE, IBaseHalfMediaChoices, parseBaseHalfEditRecord } from '../../mediaEdit/common/basehalfEditRecord.js';
+import { baseHalfCanvasMediaVersion } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import { baseHalfIsDraft, baseHalfPathHoldsDraft, baseHalfReadDraftFacts } from '../common/basehalfGenerationDraft.js';
 import {
 	BASEHALF_GENERATION_FILE_MAX_BYTES,
@@ -531,7 +532,7 @@ export class BaseHalfGenerationCardStore extends Disposable implements IBaseHalf
 			return Object.freeze({ path, kind: 'other', available: true });
 		}
 		if (stat) {
-			return Object.freeze({ path, kind: baseHalfVideoInputKindOfPath(path), available: true, file: resource });
+			return Object.freeze({ path, kind: baseHalfVideoInputKindOfPath(path), available: true, file: resource, fileVersion: baseHalfCanvasMediaVersion(stat) });
 		}
 		const kind = baseHalfGenerationKindOfPath(path);
 		if (kind && await baseHalfPathHoldsDraft(this.fileService, workspaceFolder, path).catch(() => false)) {

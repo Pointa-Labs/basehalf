@@ -443,8 +443,10 @@ suite('BaseHalfGenerationCardStore', () => {
 		});
 		const snapshot = await harness.store.read(harness.resource('shots/hero.png'));
 		const inputs = await harness.store.resolveInputs(snapshot);
-		assert.deepStrictEqual(inputs.map(input => ({ ...input, ...(input.file ? { file: input.file.path } : {}) })), [
-			{ path: 'refs/a.png', kind: 'image', available: true, file: '/work/refs/a.png' },
+		// A file's version is its time of change and its size, 3 bytes here, by which the panel loads its picture.
+		const version = (fileVersion: string) => fileVersion.replace(/^\d+-/, '<mtime>-');
+		assert.deepStrictEqual(inputs.map(input => ({ ...input, ...(input.file ? { file: input.file.path } : {}), ...(input.fileVersion ? { fileVersion: version(input.fileVersion) } : {}) })), [
+			{ path: 'refs/a.png', kind: 'image', available: true, file: '/work/refs/a.png', fileVersion: '<mtime>-3' },
 			{ path: 'refs/folder', kind: 'other', available: true },
 			{ path: 'shots/draft.mp4', kind: 'video', available: false, draft: true },
 			{ path: 'refs/gone.png', kind: 'image', available: false },

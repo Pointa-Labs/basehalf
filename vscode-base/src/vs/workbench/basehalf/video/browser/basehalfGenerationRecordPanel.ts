@@ -396,11 +396,12 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		}
 		const tile = (item: IBaseHalfGenerationRecordInput): IBaseHalfInputTile => {
 			const file = item.gone ? undefined : this.inputs[item.index]?.file;
+			const fileVersion = this.inputs[item.index]?.fileVersion;
 			return Object.freeze({
 				path: item.path,
 				kind: item.kind,
 				fileName: baseHalfVideoPanelInputFileName(item.path),
-				...(file ? { file } : {}),
+				...(file ? { file, ...(fileVersion ? { fileVersion } : {}) } : {}),
 				dimmed: item.gone,
 				...(item.gone ? { note: localize('basehalf.generation.record.inputGone', "Not there any more.") } : {}),
 				...(item.frame ? { frame: item.frame } : {})

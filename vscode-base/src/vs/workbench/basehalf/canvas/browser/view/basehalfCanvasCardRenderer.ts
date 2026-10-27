@@ -545,7 +545,7 @@ export class BaseHalfCanvasCardRenderer {
 		let image: URI;
 		try {
 			image = await captureBaseHalfVideoFrame(this.view.fileService, {
-				video: item.stat.resource,
+				video: item.stat.resource.with({ query: baseHalfCanvasMediaVersionQuery(item.stat) }),
 				folder: folder.resource,
 				title: baseHalfCanvasCardBaseName(item.name),
 				frame,

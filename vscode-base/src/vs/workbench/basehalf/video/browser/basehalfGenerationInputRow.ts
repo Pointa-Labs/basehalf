@@ -8,10 +8,10 @@ import { $, addDisposableListener, append, clearNode, getWindow, isHTMLElement }
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { baseHalfCanvasMediaUrlAt } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import { BaseHalfVideoInputKind } from '../common/basehalfVideoCatalog.js';
 import type { BaseHalfGenerationAddButtons } from './basehalfGenerationAddButtons.js';
 
@@ -24,6 +24,8 @@ export interface IBaseHalfInputTile {
 	readonly fileName: string;
 	/** The file it shows: an image, or a video's first frame. Absent while it has none. */
 	readonly file?: URI;
+	/** The version of the file, by which its picture is loaded, so that an edited file shows as it is now. */
+	readonly fileVersion?: string;
 	/** Dimmed: it cannot be used, it is gone, or it has no file yet. */
 	readonly dimmed: boolean;
 	/** What its look says under its names: why it cannot be used, or that it is gone. */
@@ -435,7 +437,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			sound.preload = 'metadata';
 			sound.setAttribute('aria-hidden', 'true');
 			length(sound);
-			sound.src = FileAccess.uriToBrowserUri(tile.file).toString(true);
+			sound.src = baseHalfCanvasMediaUrlAt(tile.file, tile.fileVersion);
 			store.add(toDisposable(() => {
 				sound.removeAttribute('src');
 				sound.load();
@@ -446,7 +448,7 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			glyph();
 			return;
 		}
-		const source = FileAccess.uriToBrowserUri(tile.file).toString(true);
+		const source = baseHalfCanvasMediaUrlAt(tile.file, tile.fileVersion);
 		if (tile.kind === 'image') {
 			const image = append(container, $<HTMLImageElement>('img'));
 			image.alt = '';
@@ -829,9 +831,9 @@ export class BaseHalfGenerationInputRow extends Disposable {
 	}
 }
 
-/** What identifies a tile's picture: its input and its file. */
+/** What identifies a tile's picture: its input, its file, and the file's version. */
 function pictureKey(tile: IBaseHalfInputTile): string {
-	return `${tile.path}\0${tile.kind}\0${tile.file?.toString() ?? ''}`;
+	return `${tile.path}\0${tile.kind}\0${tile.file?.toString() ?? ''}\0${tile.fileVersion ?? ''}`;
 }
 
 /** What the look at a tile shows: its picture and its names. */
