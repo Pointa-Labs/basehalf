@@ -276,10 +276,11 @@ export function useBaseHalfCanvasScenePressGesture(environment: IBaseHalfCanvasS
 			if (current.kind === 'marquee') {
 				drawMarquee(current);
 			} else {
-				moveSet(current, false);
+				// Which folder takes the set first: nothing snaps it while one does.
 				if (current.drag && !current.drag.cancelled) {
 					sceneGesture.current.followSetMove(current.clientX, current.clientY, current.drag);
 				}
+				moveSet(current, false);
 			}
 		};
 		const autoPan = (current: IBaseHalfCanvasScenePressGesture): void => {

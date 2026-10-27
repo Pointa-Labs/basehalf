@@ -271,3 +271,55 @@ export function snapBaseHalfCanvasFlowNodeChanges<TNode extends Node>(
 
 	return { changes: nextChanges, guides };
 }
+
+/**
+ * What a drag of cards keeps of snapping from one move to the next (dropping
+ * into a folder, "While dragging"): what every place the drag gives the cards
+ * is moved by, and what snapping moved them by at the last move.
+ */
+export interface IBaseHalfCanvasHeldSnap {
+	readonly kept: { readonly x: number; readonly y: number };
+	readonly last: { readonly x: number; readonly y: number };
+}
+
+export const BASEHALF_CANVAS_HELD_SNAP_NONE: IBaseHalfCanvasHeldSnap = Object.freeze({
+	kept: Object.freeze({ x: 0, y: 0 }),
+	last: Object.freeze({ x: 0, y: 0 })
+});
+
+/**
+ * Snaps the places a drag gives its cards as snapBaseHalfCanvasFlowNodeChanges
+ * does, except while a folder takes them (`takenByFolder`): then nothing snaps
+ * them and no guides show, since they go into the folder. They never jump:
+ * when a folder takes them, they keep what snapping moved them by at the last
+ * move and from there move exactly as the pointer does; when it lets go of
+ * them, snapping goes on from where they are.
+ */
+export function snapBaseHalfCanvasHeldCards<TNode extends Node>(
+	previousNodes: readonly TNode[],
+	changes: readonly NodeChange<TNode>[],
+	options: IBaseHalfCanvasFlowSnapOptions,
+	held: IBaseHalfCanvasHeldSnap,
+	takenByFolder: boolean
+): { readonly changes: NodeChange<TNode>[]; readonly guides: readonly IBaseHalfCanvasSnapGuide[]; readonly held: IBaseHalfCanvasHeldSnap } {
+	const isHeld = (change: NodeChange<TNode>): change is BaseHalfCanvasPositionChange<TNode> =>
+		change.type === 'position' && change.position !== undefined && change.dragging !== undefined;
+	const first = changes.findIndex(isHeld);
+	if (first < 0) {
+		return { ...snapBaseHalfCanvasFlowNodeChanges(previousNodes, changes, options), held };
+	}
+	const kept = takenByFolder
+		? { x: held.kept.x + held.last.x, y: held.kept.y + held.last.y }
+		: held.kept;
+	const placed = changes.map(change => isHeld(change) ? nudgePositionChange(change, kept.x, kept.y) : { ...change }) as NodeChange<TNode>[];
+	if (takenByFolder) {
+		return { changes: placed, guides: [], held: { kept, last: { x: 0, y: 0 } } };
+	}
+	const snapped = snapBaseHalfCanvasFlowNodeChanges(previousNodes, placed, options);
+	const before = placed[first];
+	const after = snapped.changes[first];
+	const last = before.type === 'position' && before.position && after?.type === 'position' && after.position
+		? { x: after.position.x - before.position.x, y: after.position.y - before.position.y }
+		: { x: 0, y: 0 };
+	return { changes: snapped.changes, guides: snapped.guides, held: { kept, last } };
+}

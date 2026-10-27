@@ -132,6 +132,8 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		const dropping = decision.kind === 'folder'
 			? nodesRef.current.filter(node => dragged.has(node.id)).map(node => node.data.card.element)
 			: [];
+		// The cards go into the folder: nothing snaps them while it takes them.
+		drag.takenByFolder = decision.kind === 'folder';
 		showLook(decision.kind === 'folder' ? decision.element : undefined, dropping);
 	}, [decide, showLook]);
 
@@ -207,6 +209,15 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		if (!view) {
 			return;
 		}
+		// A move of the pointer reaches the window before the canvas library moves
+		// the card for it (on the mouse event after it), so the card is not
+		// snapped on the move that takes it over a folder.
+		const onPointerMove = (event: PointerEvent): void => {
+			const drag = nodeDragState.current;
+			if (drag && !drag.cancelled && followedNodeDrag.current === drag.token) {
+				follow(event.clientX, event.clientY, drag);
+			}
+		};
 		const onPointerUp = (event: PointerEvent): void => {
 			const drag = nodeDragState.current;
 			if (drag && !drag.cancelled && followedNodeDrag.current === drag.token) {
@@ -215,6 +226,10 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		};
 		const clear = (): void => {
 			followedNodeDrag.current = undefined;
+			const drag = nodeDragState.current;
+			if (drag) {
+				drag.takenByFolder = false;
+			}
 			showLook(undefined, []);
 			setAutoPan(true);
 		};
@@ -223,18 +238,20 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 				clear();
 			}
 		};
+		view.addEventListener('pointermove', onPointerMove, true);
 		view.addEventListener('pointerup', onPointerUp, true);
 		view.addEventListener('pointercancel', clear, true);
 		view.addEventListener('keydown', onKeyDown, true);
 		view.addEventListener('blur', clear);
 		return () => {
+			view.removeEventListener('pointermove', onPointerMove, true);
 			view.removeEventListener('pointerup', onPointerUp, true);
 			view.removeEventListener('pointercancel', clear, true);
 			view.removeEventListener('keydown', onKeyDown, true);
 			view.removeEventListener('blur', clear);
 			clear();
 		};
-	}, [releaseDrop, setAutoPan, showLook]);
+	}, [follow, releaseDrop, setAutoPan, showLook]);
 
 	return { autoPanOnNodeDrag, followNodeDrag, followSetMove: follow, releaseDrop };
 }

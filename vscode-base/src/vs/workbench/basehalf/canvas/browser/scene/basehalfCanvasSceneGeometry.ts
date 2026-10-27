@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT, BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, BASEHALF_CANVAS_MIN_CARD_HEIGHT, BASEHALF_CANVAS_MIN_CARD_WIDTH } from '../../common/basehalfCanvasModel.js';
-import { BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD, sameBaseHalfCanvasSnapGuides, snapBaseHalfCanvasFlowNodeChanges } from '../../common/basehalfCanvasFlowSnap.js';
+import { BASEHALF_CANVAS_HELD_SNAP_NONE, BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD, sameBaseHalfCanvasSnapGuides, snapBaseHalfCanvasFlowNodeChanges, snapBaseHalfCanvasHeldCards } from '../../common/basehalfCanvasFlowSnap.js';
 import { IBaseHalfCanvasSnapGuide } from '../../common/basehalfCanvasSnap.js';
 import {
 	IBaseHalfCanvasSceneCard,
@@ -175,14 +175,24 @@ export function useBaseHalfCanvasSceneGeometry(environment: IBaseHalfCanvasScene
 				return;
 			}
 		}
-		const snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, nonSelectionChanges, {
+		const options = {
 			threshold: BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom),
 			disabled: disableSnap || !snapEnabledRef.current,
 			defaultWidth: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 			defaultHeight: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 			minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
 			minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT
-		});
+		};
+		// Cards that are dragged are not snapped while a folder takes them, and
+		// never jump when it takes them or lets go of them (dropping into a folder).
+		let snapped: { readonly changes: NodeChange<BaseHalfCanvasFlowNode>[]; readonly guides: readonly IBaseHalfCanvasSnapGuide[] };
+		if (drag && !drag.cancelled) {
+			const held = snapBaseHalfCanvasHeldCards(nodesRef.current, nonSelectionChanges, options, drag.heldSnap ?? BASEHALF_CANVAS_HELD_SNAP_NONE, !!drag.takenByFolder);
+			drag.heldSnap = held.held;
+			snapped = held;
+		} else {
+			snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, nonSelectionChanges, options);
+		}
 		setGuides(current => sameBaseHalfCanvasSnapGuides(current, snapped.guides) ? current : snapped.guides);
 		const next = vendor.applyNodeChanges(snapped.changes, nodesRef.current);
 		setLiveNodes(next);
