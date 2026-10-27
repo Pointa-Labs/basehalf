@@ -3894,8 +3894,6 @@ Image-01 9, and Qwen-Image 6, and only an agent could ask for more than 4.
   click and shows how far the model goes.
 - Counts of 1, 2, and 4 alone, as the two canvas products for media work
   offer them: the user asked that the count follow the model.
-- Buttons for a count beyond 24: no model of the catalog makes more than 15,
-  and a larger count is drawn as any other number is.
 
 **Consequences.**
 - Revises D90: an image card's count goes as far as its model makes, and its

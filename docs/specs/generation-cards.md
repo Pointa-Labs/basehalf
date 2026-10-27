@@ -735,8 +735,7 @@ The settings of a draft are drawn from its model's
   3.0 1 to 9, Qwen-Image 3.0 1 to 6, Wan 2.7 Image 1 to 4, and a music model
   1 to 3. A count the inputs narrow (D70) dims the buttons beyond its range
   with the reason and says why under them, as a number of five or fewer
-  steps does. A count of more than 24, which no model of the catalog makes,
-  is drawn as any other number is.
+  steps does. One generation lands at most 16 files, so no count goes further.
 - **More** opens the advanced parameters, such as the seed and the negative
   prompt. An optional parameter left empty sends nothing: an optional number
   is a number field, or buttons with **None** when it has five or fewer
@@ -2527,8 +2526,10 @@ Each kind's panel (D91)
 - Unit tests for D91: the parts of each kind's panel and their order, an
   image card's row that comes with its first input and goes with its last,
   its two buttons in the footer, also while it picks and while it
-  generates, and the kind's panel that the panel host creates
-  (`basehalfDraftPanels.test.ts`, `basehalfCanvasVideoPanel.contribution.test.ts`);
+  generates, the video and audio panels as they were, and the kind's panel
+  that the panel host creates (`basehalfVideoNodePanel.test.ts`,
+  `basehalfCanvasVideoPanel.contribution.test.ts`); the buttons the input
+  row holds (`basehalfGenerationInputRow.test.ts`);
   the count's buttons from 1 to as far as the model makes, in rows, and the
   model menu's line (`basehalfGenerationKindParts.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
