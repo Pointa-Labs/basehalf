@@ -7,8 +7,10 @@ import {
 	BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE,
 	BASEHALF_CANVAS_DROP_TARGET_ATTRIBUTE,
 	BASEHALF_CANVAS_DROPPING_ATTRIBUTE,
+	BASEHALF_CANVAS_FOLDER_TAKES_ATTRIBUTE,
 	BaseHalfCanvasDropFolder,
-	baseHalfCanvasFolderDropTarget
+	baseHalfCanvasFolderDropTarget,
+	IBaseHalfCanvasTakingFolder
 } from '../../common/basehalfCanvasFolderDrop.js';
 import type { ReactFlowInstance } from '@xyflow/react';
 import type { RefObject } from 'react';
@@ -67,6 +69,23 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		}
 	}, []);
 
+	/**
+	 * The folder's card that takes the dragged cards now, where it is drawn:
+	 * it grows while it takes them, and it takes them over what shows.
+	 */
+	const takingFolder = (flow: ReactFlowInstance<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>): IBaseHalfCanvasTakingFolder | undefined => {
+		const target = look.current.target;
+		const path = target?.dataset.basehalfCardPath;
+		// A card drawn again while it takes them is marked anew at the next move.
+		if (!target?.isConnected || !path) {
+			return undefined;
+		}
+		const drawn = target.getBoundingClientRect();
+		const start = flow.screenToFlowPosition({ x: drawn.left, y: drawn.top });
+		const end = flow.screenToFlowPosition({ x: drawn.right, y: drawn.bottom });
+		return { path, x: start.x, y: start.y, width: end.x - start.x, height: end.y - start.y };
+	};
+
 	const decide = vendor.useCallback((clientX: number, clientY: number, dragged: ReadonlySet<string>): BaseHalfCanvasSceneDropDecision => {
 		if (!isInside(host.getBoundingClientRect(), clientX, clientY)) {
 			const element = host.ownerDocument.elementFromPoint(clientX, clientY)?.closest<HTMLElement>(`[${BASEHALF_CANVAS_DROP_FOLDER_ATTRIBUTE}]`);
@@ -85,7 +104,7 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 			...flowNodeRect(node),
 			folder: node.data.card.kind === 'folder',
 			selected: !!node.selected
-		})), dragged, point);
+		})), dragged, point, takingFolder(flow));
 		return path
 			? { kind: 'folder', folder: { kind: 'card', path }, element: shown.find(node => node.id === path)?.data.card.element }
 			: { kind: 'place' };
@@ -105,6 +124,9 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		for (const element of dropping) {
 			element.setAttribute(BASEHALF_CANVAS_DROPPING_ATTRIBUTE, '');
 		}
+		// The guides go in the frame the folder lights, not when the scene is
+		// drawn again without them.
+		host.toggleAttribute(BASEHALF_CANVAS_FOLDER_TAKES_ATTRIBUTE, !!target);
 		look.current = { target, dropping };
 	}, []);
 
@@ -114,6 +136,8 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		const dropping = decision.kind === 'folder'
 			? nodesRef.current.filter(node => dragged.has(node.id)).map(node => node.data.card.element)
 			: [];
+		// The cards go into the folder: nothing snaps them while it takes them.
+		drag.takenByFolder = decision.kind === 'folder';
 		showLook(decision.kind === 'folder' ? decision.element : undefined, dropping);
 	}, [decide, showLook]);
 
@@ -189,6 +213,16 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		if (!view) {
 			return;
 		}
+		// The canvas library moves the card on the window's mouse move, in a
+		// listener it adds when the drag starts: this one, added before it, decides
+		// the folder first, with the same point, so the card is not snapped on the
+		// move that takes it over a folder.
+		const onMouseMove = (event: MouseEvent): void => {
+			const drag = nodeDragState.current;
+			if (drag && !drag.cancelled && followedNodeDrag.current === drag.token) {
+				follow(event.clientX, event.clientY, drag);
+			}
+		};
 		const onPointerUp = (event: PointerEvent): void => {
 			const drag = nodeDragState.current;
 			if (drag && !drag.cancelled && followedNodeDrag.current === drag.token) {
@@ -197,6 +231,10 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 		};
 		const clear = (): void => {
 			followedNodeDrag.current = undefined;
+			const drag = nodeDragState.current;
+			if (drag) {
+				drag.takenByFolder = false;
+			}
 			showLook(undefined, []);
 			setAutoPan(true);
 		};
@@ -205,18 +243,20 @@ export function useBaseHalfCanvasSceneFolderDrop(environment: IBaseHalfCanvasSce
 				clear();
 			}
 		};
+		view.addEventListener('mousemove', onMouseMove, true);
 		view.addEventListener('pointerup', onPointerUp, true);
 		view.addEventListener('pointercancel', clear, true);
 		view.addEventListener('keydown', onKeyDown, true);
 		view.addEventListener('blur', clear);
 		return () => {
+			view.removeEventListener('mousemove', onMouseMove, true);
 			view.removeEventListener('pointerup', onPointerUp, true);
 			view.removeEventListener('pointercancel', clear, true);
 			view.removeEventListener('keydown', onKeyDown, true);
 			view.removeEventListener('blur', clear);
 			clear();
 		};
-	}, [releaseDrop, setAutoPan, showLook]);
+	}, [follow, releaseDrop, setAutoPan, showLook]);
 
 	return { autoPanOnNodeDrag, followNodeDrag, followSetMove: follow, releaseDrop };
 }

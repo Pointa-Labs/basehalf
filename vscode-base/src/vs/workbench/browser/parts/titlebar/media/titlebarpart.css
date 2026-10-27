@@ -264,11 +264,13 @@
 	outline-offset: -1px;
 }
 
-/* BaseHalf: a folder of the path that would take the cards dragged from the canvas (D88). */
+/* BaseHalf: a folder of the path that would take the cards dragged from the
+ * canvas (D88), in the yellow of a folder's card that takes a drop, without
+ * growing (D92). */
 .monaco-workbench button.basehalf-command-center-breadcrumb-segment[data-basehalf-drop-target] {
 	color: var(--vscode-commandCenter-activeForeground);
-	background-color: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent);
-	outline: 2px solid var(--vscode-focusBorder);
+	background-color: color-mix(in srgb, #f0c54c 30%, transparent);
+	outline: 2px solid #f0c54c;
 	outline-offset: -2px;
 }
 

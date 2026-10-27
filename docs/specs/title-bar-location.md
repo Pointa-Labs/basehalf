@@ -2,7 +2,8 @@
 
 Status: Active (2026-10-24; a folder of the path takes what is dropped on it,
 2026-10-27)
-Decision: [D73](../decisions.md), [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)
+Decision: [D73](../decisions.md), [D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27),
+[D92](../decisions.md#d92--a-folder-that-would-take-a-drop-grows-and-glows-yellow-new-2026-10-27)
 Related: [layout controls](layout-controls.md) (the two ends of the title
 bar), [canvas card name](canvas-card-name.md) (the name of an open note in
 the path), [architecture invariants](../harness/architecture-invariants.md)
@@ -94,7 +95,8 @@ Not in scope, and unchanged:
 ### A drop
 
 11. A folder button takes cards dragged from the canvas. While the pointer is
-    over it with cards, it shows the canvas's intent color around its name,
+    over it with cards, it shows the yellow of a folder that takes a drop
+    around its name, as a folder's card does on the canvas, without growing,
     and cards let go there move into its folder. The current place and "…"
     take nothing ([dropping into a folder](canvas-drop-into-folder.md)).
 

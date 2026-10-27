@@ -50,6 +50,8 @@
 .monaco-workbench .basehalf-canvas-card.folder {
 	background: var(--bh-card-folder);
 	border-color: var(--bh-card-folder-border);
+	/* It also grows while it would take a drop. */
+	transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), scale 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .monaco-workbench .basehalf-canvas-workbench .react-flow__node-basehalf-card:focus,
@@ -108,13 +110,34 @@
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-canvas-intent) 70%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
 }
 
-/* A folder's card that would take the dragged cards or items, in the intent
- * color, and the cards that would go into it, through which it shows
- * (dropping into a folder). */
+/* A folder's card that would take the dragged cards or items grows around
+ * its middle and glows in a folder's yellow, with no words, and the cards
+ * that would go into it are half transparent, so that it shows through them
+ * (dropping into a folder, D92). It is drawn larger over its place: no card
+ * moves, and what is drawn over it stays over it. The canvas scene takes a
+ * drop over the card as it is drawn, grown included. */
 .monaco-workbench .basehalf-canvas-card.folder[data-basehalf-drop-target] {
-	border-color: var(--bh-canvas-intent);
-	background: color-mix(in srgb, var(--bh-canvas-intent) 14%, var(--bh-card-folder));
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--bh-canvas-intent) 50%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
+	scale: 1.08;
+	border-color: var(--bh-card-folder-drop);
+	background: color-mix(in srgb, var(--bh-card-folder-drop) 12%, var(--bh-card-folder));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--bh-card-folder-drop) 60%, transparent), 0 0 36px 10px color-mix(in srgb, var(--bh-card-folder-drop) 38%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-card.folder {
+		transition: none;
+	}
+
+	.monaco-workbench .basehalf-canvas-card.folder[data-basehalf-drop-target] {
+		scale: none;
+	}
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-card.folder[data-basehalf-drop-target] {
+		outline: 2px solid var(--bh-card-folder-drop);
+		outline-offset: 2px;
+	}
 }
 
 .monaco-workbench .basehalf-canvas-card[data-basehalf-dropping] {

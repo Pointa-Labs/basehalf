@@ -366,7 +366,10 @@ export async function assertCanvasSnapGuides(page) {
 	const snapToggle = page.locator('.basehalf-canvas-snap-toggle:visible');
 	const pane = page.locator('.basehalf-canvas-cards .react-flow__pane');
 	await pane.click({ position: { x: 20, y: 20 } });
-	const toggleDrag = await readme.boundingBox();
+	// By its caption, as above: README lies over docs, which would take it if
+	// the pointer were on its middle, and nothing snaps a card that a folder
+	// takes (dropping into a folder, D92).
+	const toggleDrag = await readme.locator('.basehalf-canvas-card-caption-identity').boundingBox();
 	if (!toggleDrag) {
 		throw new Error('README.md card disappeared before exercising the snap toggle');
 	}

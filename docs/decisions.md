@@ -3614,6 +3614,11 @@ goes the same way.
 
 ## D88 — Cards let go on a folder go into it (NEW, 2026-10-27)
 
+> **Revised by D92 (2026-10-27).** A folder that would take a drop shows it
+> by growing a little and glowing yellow, not in the canvas's intent color,
+> and a folder of the path shows the same yellow. While a folder takes the
+> cards, nothing snaps them. The rest of D88 stands.
+
 **Decision.** Where the pointer is when the button is let go decides. A card,
 or a set, let go with the pointer over a folder's card goes into that
 folder; let go over a folder of the path in the title bar, into that folder.
@@ -3910,6 +3915,72 @@ Image-01 9, and Qwen-Image 6, and only an agent could ask for more than 4.
   and 92, and criteria 95 to 97.
 - Nothing that is stored or sent changes, and agents ask for a count as
   before.
+
+## D92 — A folder that would take a drop grows and glows yellow (NEW, 2026-10-27)
+
+**Decision.** While what is dragged, cards of the canvas, items from Files,
+or files from outside the window, would go into a folder's card, that card
+grows to 108 percent of its size around its middle in 150 ms, its border
+turns yellow, a ring and a soft glow of the yellow lie around it, and a light
+tint of the yellow lies over its face. No words are drawn. It goes back when
+the pointer leaves it or the drag ends. The yellow is the gold of a folder's
+glyph made bright. A folder of the path in the title bar that takes the
+cards shows the same yellow around its name, without growing. The folder
+takes the drop over all of its card as it is drawn, so letting go on its
+grown edge still drops into it. With reduced motion it does not grow; with
+forced colors it gets an outline in the system's highlight color. While a
+folder takes the cards, nothing snaps them and no snap guides are drawn: they
+keep the place snapping gave them at the last move and from there follow the
+pointer exactly, and when the folder lets go of them snapping goes on from
+where they are, so they never jump. See
+[dropping into a folder](specs/canvas-drop-into-folder.md#while-dragging).
+
+**Why.** On 2026-10-27 the user described the look they want: dragged onto a
+folder's card, the folder's card can grow, and a yellow shadow area appears
+that shows it can take the file and make it a file in the folder, with no
+text. Measured that day on D88's look, at a zoom of 93 percent: a held note
+covered most of the folder's card (a note's card is 300 by 220 canvas
+pixels, a folder's 248 by 188), so the folder showed that it would take the
+note only at the edges the note left free, with a ring and a tint of the
+canvas's intent blue, the blue of a connection that would be made, and it
+kept its size. Tried in the window at 106 and 110 percent with the same glow:
+both showed in the edges a held note leaves free; at 110 percent the caption
+moved far enough to draw the eye away from the note being aimed. With the
+look built, a note held over the middle of a folder's card still snapped to
+it: the guides of the folder's middle crossed the glow, and the note stayed
+put while the pointer moved up to 5 screen pixels, though the cards were
+going into the folder and their place no longer mattered.
+
+**What was set aside.**
+- Words such as "Move into drafts": the user asked for none, and the card
+  under the pointer is the place the words would name.
+- A growth as large as a magnified icon's, a third or more: in the plain
+  grid a note stands 40 canvas pixels beside a folder's card, and it would be
+  covered.
+- Keeping the intent blue: on the canvas it says that a connection would be
+  made, and the user asked for yellow, the color of a folder.
+- Growing a folder of the path: the path is a row of names, and a grown name
+  would cover the names beside it.
+- Taking the drop only over the folder's place, as before: on the grown edge
+  the folder would then shrink under the pointer, and a card let go there
+  would stay beside the folder that showed it would take it.
+- Drawing the folder over the dragged cards: the dragged cards are what the
+  user holds, and they stay half transparent over it as D88 has them.
+- Putting the cards back under the pointer when a folder takes them, or
+  when it lets go of them: what snapping had moved them by, up to 5 screen
+  pixels, would then show as a jump in that frame.
+
+**Consequences.**
+- Revises D88's look: the canvas's intent color on a taking folder's card,
+  and the focus color on a folder of the path, give way to the yellow.
+- [Dropping into a folder](specs/canvas-drop-into-folder.md): the goals,
+  which folder takes them (the grown card), what shows while dragging, and
+  criteria 1, 4, 11, and 12; [the location in the title bar](specs/title-bar-location.md#a-drop),
+  requirement 11; [canvas selection and arrangement](specs/canvas-selection-and-arrangement.md#moving-a-set),
+  Snap to Cards for a moved set.
+- The canvas's stylesheet has the yellow as a color of its own,
+  `--bh-card-folder-drop`, beside the folder's other colors; the title bar's
+  rule names the same yellow.
 
 ## D93 — A pinch zooms the picture of an image or a video in Card Detail, and spreads out the time of a video or a sound (NEW, 2026-10-27)
 

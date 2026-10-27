@@ -27,6 +27,12 @@
 	opacity: 0.48;
 }
 
+/* Nothing snaps the dragged cards while a folder takes them, and the guides
+ * go in the frame the folder lights (dropping into a folder, D92). */
+.monaco-workbench .basehalf-canvas-react-island[data-basehalf-folder-takes] .basehalf-canvas-snap-guides {
+	display: none;
+}
+
 /* Capture circles lie below the viewport's edges and nodes (negative z-index
  * in the viewport's stacking context): cards and edges keep the pointer over
  * them. The scene sets --bh-connect-reach-limit (flow pixels) so a circle stays

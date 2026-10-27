@@ -25,6 +25,12 @@ export interface IBaseHalfCanvasFlowSnapOptions {
 	readonly minHeight: number;
 	readonly maxWidth?: number;
 	readonly maxHeight?: number;
+	/**
+	 * What the drag keeps of snapping from before a folder took its cards
+	 * (snapBaseHalfCanvasHeldCards): an axis it moves them on counts as
+	 * snapped, so that its guides show.
+	 */
+	readonly kept?: { readonly x: number; readonly y: number };
 }
 
 export function sameBaseHalfCanvasSnapGuides(
@@ -140,12 +146,13 @@ function dragGuidesForMovedAxes(
 	guides: readonly IBaseHalfCanvasSnapGuide[],
 	before: IBaseHalfCanvasSnapRect | null,
 	draft: IBaseHalfCanvasSnapRect,
-	snapped: IBaseHalfCanvasSnapRect
+	snapped: IBaseHalfCanvasSnapRect,
+	kept: { readonly x: number; readonly y: number } | undefined
 ): readonly IBaseHalfCanvasSnapGuide[] {
 	const movedX = before ? Math.abs(draft.x - before.x) > 0.5 : true;
 	const movedY = before ? Math.abs(draft.y - before.y) > 0.5 : true;
-	const snappedX = Math.abs(snapped.x - draft.x) > 0.5;
-	const snappedY = Math.abs(snapped.y - draft.y) > 0.5;
+	const snappedX = Math.abs(snapped.x - draft.x) > 0.5 || Math.abs(kept?.x ?? 0) > 0.5;
+	const snappedY = Math.abs(snapped.y - draft.y) > 0.5 || Math.abs(kept?.y ?? 0) > 0.5;
 	return guides.filter(guide => guide.orientation === 'vertical' ? movedX || snappedX : movedY || snappedY);
 }
 
@@ -198,7 +205,7 @@ export function snapBaseHalfCanvasFlowNodeChanges<TNode extends Node>(
 				}
 			}
 			if (dragChanges.some(change => change.dragging === true)) {
-				guides = dragGuidesForMovedAxes(snapped.guides, beforeSelectionRect, selectionRect, snapped.rect);
+				guides = dragGuidesForMovedAxes(snapped.guides, beforeSelectionRect, selectionRect, snapped.rect, options.kept);
 			}
 		}
 	}
@@ -270,4 +277,56 @@ export function snapBaseHalfCanvasFlowNodeChanges<TNode extends Node>(
 	}
 
 	return { changes: nextChanges, guides };
+}
+
+/**
+ * What a drag of cards keeps of snapping from one move to the next (dropping
+ * into a folder, "While dragging"): what every place the drag gives the cards
+ * is moved by, and what snapping moved them by at the last move.
+ */
+export interface IBaseHalfCanvasHeldSnap {
+	readonly kept: { readonly x: number; readonly y: number };
+	readonly last: { readonly x: number; readonly y: number };
+}
+
+export const BASEHALF_CANVAS_HELD_SNAP_NONE: IBaseHalfCanvasHeldSnap = Object.freeze({
+	kept: Object.freeze({ x: 0, y: 0 }),
+	last: Object.freeze({ x: 0, y: 0 })
+});
+
+/**
+ * Snaps the places a drag gives its cards as snapBaseHalfCanvasFlowNodeChanges
+ * does, except while a folder takes them (`takenByFolder`): then nothing snaps
+ * them and no guides show, since they go into the folder. They never jump:
+ * when a folder takes them, they keep what snapping moved them by at the last
+ * move and from there move exactly as the pointer does; when it lets go of
+ * them, snapping goes on from where they are.
+ */
+export function snapBaseHalfCanvasHeldCards<TNode extends Node>(
+	previousNodes: readonly TNode[],
+	changes: readonly NodeChange<TNode>[],
+	options: IBaseHalfCanvasFlowSnapOptions,
+	held: IBaseHalfCanvasHeldSnap,
+	takenByFolder: boolean
+): { readonly changes: NodeChange<TNode>[]; readonly guides: readonly IBaseHalfCanvasSnapGuide[]; readonly held: IBaseHalfCanvasHeldSnap } {
+	const isHeld = (change: NodeChange<TNode>): change is BaseHalfCanvasPositionChange<TNode> =>
+		change.type === 'position' && change.position !== undefined && change.dragging !== undefined;
+	const first = changes.findIndex(isHeld);
+	if (first < 0) {
+		return { ...snapBaseHalfCanvasFlowNodeChanges(previousNodes, changes, options), held };
+	}
+	const kept = takenByFolder
+		? { x: held.kept.x + held.last.x, y: held.kept.y + held.last.y }
+		: held.kept;
+	const placed = changes.map(change => isHeld(change) ? nudgePositionChange(change, kept.x, kept.y) : { ...change }) as NodeChange<TNode>[];
+	if (takenByFolder) {
+		return { changes: placed, guides: [], held: { kept, last: { x: 0, y: 0 } } };
+	}
+	const snapped = snapBaseHalfCanvasFlowNodeChanges(previousNodes, placed, { ...options, kept });
+	const before = placed[first];
+	const after = snapped.changes[first];
+	const last = before.type === 'position' && before.position && after?.type === 'position' && after.position
+		? { x: after.position.x - before.position.x, y: after.position.y - before.position.y }
+		: { x: 0, y: 0 };
+	return { changes: snapped.changes, guides: snapped.guides, held: { kept, last } };
 }

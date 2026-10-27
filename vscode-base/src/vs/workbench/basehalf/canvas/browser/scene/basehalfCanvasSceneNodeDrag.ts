@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import type { IBaseHalfCanvasHeldSnap } from '../../common/basehalfCanvasFlowSnap.js';
+
 export interface IBaseHalfCanvasNodeDragOrigin {
 	readonly id: string;
 	readonly x: number;
@@ -17,6 +19,10 @@ export interface IBaseHalfCanvasNodeDragState {
 	readonly selectionAtStart: readonly string[];
 	readonly origins: readonly IBaseHalfCanvasNodeDragOrigin[];
 	cancelled: boolean;
+	/** A folder takes the dragged cards now (dropping into a folder): nothing snaps them. */
+	takenByFolder?: boolean;
+	/** What the drag keeps of snapping from one move to the next. */
+	heldSnap?: IBaseHalfCanvasHeldSnap;
 }
 
 export function captureBaseHalfCanvasNodeDragOrigins(

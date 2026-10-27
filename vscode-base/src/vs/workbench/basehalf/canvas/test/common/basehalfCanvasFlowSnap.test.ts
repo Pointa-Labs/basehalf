@@ -6,9 +6,12 @@
 import * as assert from 'assert';
 import type { Node, NodeChange } from '@xyflow/react';
 import {
+	BASEHALF_CANVAS_HELD_SNAP_NONE,
 	IBaseHalfCanvasFlowSnapOptions,
+	IBaseHalfCanvasHeldSnap,
 	sameBaseHalfCanvasSnapGuides,
-	snapBaseHalfCanvasFlowNodeChanges
+	snapBaseHalfCanvasFlowNodeChanges,
+	snapBaseHalfCanvasHeldCards
 } from '../../common/basehalfCanvasFlowSnap.js';
 
 type TestNode = Node<Record<string, unknown>>;
@@ -22,6 +25,55 @@ const options: IBaseHalfCanvasFlowSnapOptions = {
 };
 
 suite('BaseHalfCanvasFlowSnap', () => {
+	test('a held card is not snapped while a folder takes it, never jumps, and is snapped again from where it is', () => {
+		// A neighbour whose top is at y 20; the held card moves along that line,
+		// into a folder (taken) and out again. Each move starts where the last
+		// one drew the card, as in the scene.
+		let nodes = [node('moving', 0, 300, 100, 80), node('neighbour', 200, 20, 100, 80)];
+		let held: IBaseHalfCanvasHeldSnap = BASEHALF_CANVAS_HELD_SNAP_NONE;
+		const move = (x: number, y: number, taken: boolean, dragging = true) => {
+			const result = snapBaseHalfCanvasHeldCards(nodes, [{ id: 'moving', type: 'position', position: { x, y }, dragging }], options, held, taken);
+			held = result.held;
+			const change = result.changes[0];
+			const at = change.type === 'position' ? change.position : undefined;
+			nodes = [node('moving', at?.x ?? 0, at?.y ?? 0, 100, 80), nodes[1]];
+			return { at, guides: result.guides.length > 0 };
+		};
+		assert.deepStrictEqual([
+			// Snapped to the neighbour's top, 3 below it.
+			move(500, 23, false),
+			// Taken: no guide, and the card moves by exactly what the pointer
+			// does (7, 1) from where it was drawn, with what snapping gave it.
+			move(507, 24, true),
+			move(510, 26, true),
+			// Let go: snapped again from where it is, 1 below the line.
+			move(512, 24, false),
+			// Along the line it is on, by what it kept: the guide stays.
+			move(520, 23, false),
+			// Away from the line: nothing pulls it.
+			move(530, 40, false),
+			// The place it is let go is the place it was drawn.
+			move(530, 40, false, false)
+		], [
+			{ at: { x: 500, y: 20 }, guides: true },
+			{ at: { x: 507, y: 21 }, guides: false },
+			{ at: { x: 510, y: 23 }, guides: false },
+			{ at: { x: 512, y: 20 }, guides: true },
+			{ at: { x: 520, y: 20 }, guides: true },
+			{ at: { x: 530, y: 37 }, guides: false },
+			{ at: { x: 530, y: 37 }, guides: false }
+		]);
+	});
+
+	test('a change that is not of a held card passes as it would without a drag', () => {
+		const nodes = [node('resized', 0, 0, 100, 80), node('neighbour', 200, 20, 100, 80)];
+		const held: IBaseHalfCanvasHeldSnap = { kept: { x: 4, y: -3 }, last: { x: 0, y: 2 } };
+		const changes: NodeChange<TestNode>[] = [{ id: 'resized', type: 'dimensions', dimensions: { width: 197, height: 80 }, resizing: true }];
+		const result = snapBaseHalfCanvasHeldCards(nodes, changes, options, held, true);
+		assert.deepStrictEqual(result.changes, snapBaseHalfCanvasFlowNodeChanges(nodes, changes, options).changes);
+		assert.strictEqual(result.held, held);
+	});
+
 	test('snaps one dragged node and its absolute position', () => {
 		const nodes = [
 			node('moving', 0, 20, 100, 80),
