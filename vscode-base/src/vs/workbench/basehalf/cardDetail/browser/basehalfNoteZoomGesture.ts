@@ -175,6 +175,8 @@ export class BaseHalfNoteZoomGesture {
 			return;
 		}
 		const anchor = this.takeAnchor(this.pointer?.x, this.pointer?.y);
+		// The page is drawn by the note's renderer; only its size is counted here.
+		// eslint-disable-next-line no-restricted-syntax
 		this.slow ??= this.target.page.getElementsByTagName('*').length > BASEHALF_NOTE_ZOOM_LIVE_ELEMENTS;
 		if (this.slow && this.active) {
 			this.drawOnly = true;

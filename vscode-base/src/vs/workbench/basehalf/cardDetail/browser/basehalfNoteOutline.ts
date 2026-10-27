@@ -46,6 +46,8 @@ export interface IBaseHalfNoteOutlineHeading {
  */
 export function baseHalfNoteOutlineHeadings(root: ParentNode | null | undefined): IBaseHalfNoteOutlineHeading[] {
 	const headings: IBaseHalfNoteOutlineHeading[] = [];
+	// The headings are drawn by the note's renderer, not built here.
+	// eslint-disable-next-line no-restricted-syntax
 	for (const element of root?.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6') ?? []) {
 		const name = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
 		if (name) {

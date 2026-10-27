@@ -5,8 +5,6 @@
 
 // The canvas core: the canvas view, which creates the features registered below.
 import './browser/basehalfCanvasWorkbench.contribution.js';
-// A pinch over a PDF or a book in Card Detail, which the window takes, reaches its page.
-import '../cardDetail/browser/basehalfCardDetailPagePinch.js';
 
 // Canvas features, each in its own folder under canvasContrib/. They register
 // themselves with the canvas, which never imports them; their view controls
