@@ -6,8 +6,8 @@
 import { raceTimeout } from '../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
+import { baseHalfCanvasMediaUrl } from './basehalfCanvasCardMedia.js';
 
 /** At most this many pictures are measured at a time. */
 const MEASURING_AT_ONCE = 6;
@@ -31,7 +31,7 @@ export interface IBaseHalfCanvasPictureMeasurer {
 
 /** The address of a version of a picture: the one the card's preview loads, so that the browser loads it once. */
 export function baseHalfCanvasPictureUrl(picture: Pick<IBaseHalfCanvasPicture, 'resource' | 'version'>): string {
-	return FileAccess.uriToBrowserUri(picture.resource.with({ query: `basehalfCanvasVersion=${picture.version}` })).toString(true);
+	return baseHalfCanvasMediaUrl(picture.resource.with({ query: `basehalfCanvasVersion=${picture.version}` }));
 }
 
 /**

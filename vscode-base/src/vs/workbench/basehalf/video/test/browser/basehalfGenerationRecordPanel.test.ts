@@ -167,6 +167,24 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		return [...panel.element.querySelectorAll<HTMLElement>(selector)].filter(element => !element.closest('[hidden]')).map(element => element.textContent ?? '');
 	}
 
+	test('a chip is drawn again at its input\'s new version when only the input\'s file is written anew', async () => {
+		let version = '1-10';
+		instantiationService.stub(IBaseHalfGenerationCardStore, {
+			onDidChange: changed.event,
+			read: async () => snapshot,
+			resolveInputs: async (card: IBaseHalfGenerationCardSnapshot): Promise<readonly IBaseHalfVideoResolvedInput[]> => card.upstream.map(path => ({ path, kind: baseHalfVideoInputKindOfPath(path), available: true, file: URI.joinPath(WORKSPACE, ...path.split('/')), fileVersion: version }))
+		});
+		snapshot = { ...snapshot, made: { ...MADE, prompt: '@[frames/a.png] rides along the sea.' } };
+		const panel = await createPanel();
+		// The version the chip was drawn at, as its key holds it: the test's file cannot be loaded, so the picture itself gives way to a glyph.
+		const chipVersion = () => /basehalfCanvasVersion=([^&\0]*)/.exec(panel.element.querySelector<HTMLElement>('.bh-prompt-chip')?.dataset.chipKey ?? '')?.[1];
+		const before = chipVersion();
+		version = '2-20';
+		changed.fire(CARD);
+		await settle();
+		assert.deepStrictEqual([before, chipVersion()], ['1-10', '2-20']);
+	});
+
 	test('shows what made the file, from its record and not from a generation.yaml beside it, and nothing in it changes the card (criteria 42 and 58)', async () => {
 		gone.add('frames/b.png');
 		snapshot = { ...snapshot, made: { ...MADE, prompt: '@[frames/a.png] rides along the sea to @[frames/b.png].' } };

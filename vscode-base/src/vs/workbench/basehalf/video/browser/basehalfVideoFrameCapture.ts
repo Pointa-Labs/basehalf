@@ -4,11 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
+import { baseHalfCanvasMediaUrl } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import type { BaseHalfCanvasSceneVideoFrame } from '../../canvas/common/basehalfCanvasScene.js';
 
 /**
@@ -21,7 +21,7 @@ import type { BaseHalfCanvasSceneVideoFrame } from '../../canvas/common/basehalf
  */
 
 export interface IBaseHalfVideoFrameCaptureRequest {
-	/** The video file. */
+	/** The video file, with the query that names its version, so that the frame is of the video as it is now. */
 	readonly video: URI;
 	/** The folder the frame is written into: the card's. */
 	readonly folder: URI;
@@ -141,7 +141,7 @@ export function createBaseHalfVideoFrameReader(targetWindow: Window): IBaseHalfV
 			element.preload = 'auto';
 			try {
 				const loaded = waitFor(element, 'loadedmetadata', targetWindow);
-				element.src = FileAccess.uriToBrowserUri(video).toString(true);
+				element.src = baseHalfCanvasMediaUrl(video);
 				await loaded;
 				if (!Number.isFinite(element.duration)) {
 					// Some recorded videos do not say how long they are: a seek past

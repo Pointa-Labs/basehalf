@@ -12,7 +12,8 @@ import { IContextKeyService } from '../../../../../platform/contextkey/common/co
 import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { MockContextKeyService } from '../../../../../platform/keybinding/test/common/mockKeybindingService.js';
 import { ILogService, NullLogService } from '../../../../../platform/log/common/log.js';
-import { BaseHalfGenerationPromptEditor, IBaseHalfPromptEditorOptions } from '../../browser/basehalfGenerationPromptEditor.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { BaseHalfGenerationPromptEditor, baseHalfPromptChip, IBaseHalfPromptEditorOptions } from '../../browser/basehalfGenerationPromptEditor.js';
 
 /** Two images and a video are connected: a.png has a picture, b.png has none yet; anything else is a file that is not connected. */
 const CHIPS: IBaseHalfPromptEditorOptions['chipOf'] = mention => {
@@ -90,6 +91,13 @@ suite('BaseHalfGenerationPromptEditor (D68, D74)', () => {
 			drawn: ['chip a.png with picture', 'text 骑车经过', 'chip v.mp4', 'text ，', 'chip b.png', 'text  and ', 'unknown shots/z.png', 'text  or 图片1\n', 'br'],
 			value: '@[a.png]骑车经过@[v.mp4]，@[b.png] and @[shots/z.png] or 图片1\n'
 		});
+	});
+
+	test('the chip of an image shows its file at its version, so that an input edited shows as it is now', () => {
+		const file = URI.file('/work/refs/a.png');
+		const chip = (fileVersion: string) => baseHalfPromptChip({ path: 'refs/a.png', start: 0, end: 13 }, ['refs/a.png'], () => ({ kind: 'image', available: true, file, fileVersion }));
+		const version = (picture: string | undefined) => new URL(picture ?? 'about:blank').searchParams.get('basehalfCanvasVersion');
+		assert.deepStrictEqual([version(chip('1-10').picture), version(chip('2-20').picture)], ['1-10', '2-20']);
 	});
 
 	test('a mention typed by hand turns into a chip once its ] is typed', () => {

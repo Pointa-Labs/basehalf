@@ -888,6 +888,13 @@ a panel shows them:
      again blinks nothing, and an input that comes back soon, as by undo or a
      second click of Pick on Canvas, shows its picture at once; the prompt's
      chips keep their pictures too.
+   - A tile, a chip, and an image of the reference menu show their file as
+     it is now: each loads the file by the address of its version, its time
+     and its size, as a card does ([canvas card placement, "Each version is
+     loaded by an address of its own"](canvas-card-placement.md#the-card-of-an-image-or-a-video-has-its-pictures-shape)).
+     An input that is edited, as in Card Detail, shows its new picture once
+     the write lands, and so does a frame that Capture Frame takes after a
+     trim.
    - The line on the canvas changes with the tile. A connection that the
      panel makes or removes, by Pick on Canvas, the reference menu, Import
      File…, or a tile's cross, and its undo and redo, draws the canvas at

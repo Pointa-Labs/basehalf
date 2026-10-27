@@ -8,10 +8,21 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, playBaseHalfCanvasMediaOneAtATime, playBaseHalfCanvasSoundInTurn, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../../browser/basehalfCanvasCardMedia.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaUrl, baseHalfCanvasMediaVersionQuery, playBaseHalfCanvasMediaOneAtATime, playBaseHalfCanvasSoundInTurn, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, whenBaseHalfCanvasMediaDrawn } from '../../browser/basehalfCanvasCardMedia.js';
 
 suite('BaseHalfCanvasCardMedia', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('a file is loaded by an address that keeps the query naming its version, and one without a version by its plain address', () => {
+		const file = URI.file('/workspace/folder/photo.png');
+		const versions = [{ mtime: 1, size: 10 }, { mtime: 2, size: 10 }].map(stat => new URL(baseHalfCanvasMediaUrl(file.with({ query: baseHalfCanvasMediaVersionQuery(stat) }))));
+		const plain = new URL(baseHalfCanvasMediaUrl(file));
+		assert.deepStrictEqual({ versions: versions.map(url => [url.pathname, url.search]), plain: [plain.pathname, plain.search] }, {
+			versions: [['/workspace/folder/photo.png', '?basehalfCanvasVersion=1-10'], ['/workspace/folder/photo.png', '?basehalfCanvasVersion=2-10']],
+			plain: ['/workspace/folder/photo.png', '']
+		});
+	});
 
 	test('stops and unloads detached transports', () => {
 		const calls: string[] = [];

@@ -131,6 +131,24 @@ export class BaseHalfCanvasPreviews {
 		return item.generation?.draft ? BASEHALF_CANVAS_DRAFT_PREVIEW : undefined;
 	}
 
+	/**
+	 * The face of a picture, a video, a sound, a PDF, or a book, which reads
+	 * nothing of the file: it names the file at its version. Nothing for
+	 * another kind of file.
+	 */
+	mediaPreview(item: IBaseHalfCanvasItem): BaseHalfCanvasCardPreview | undefined {
+		// The canvas shows the files that Card Detail shows (architecture invariants, "Product shell").
+		const mediaKind = item.kind === 'file' ? baseHalfRenderableContentKind(item.stat.resource) : undefined;
+		if (!mediaKind) {
+			return undefined;
+		}
+		// The face of a PDF or a book draws its cover, which is made from the file's version.
+		const resource = mediaKind === 'pdf' || mediaKind === 'book' ? item.stat.resource : item.stat.resource.with({
+			query: baseHalfCanvasMediaVersionQuery(item.stat)
+		});
+		return { kind: 'media', text: MEDIA_LABELS[mediaKind], mediaKind, resource };
+	}
+
 	private async readCardPreview(item: IBaseHalfCanvasItem): Promise<BaseHalfCanvasCardPreview> {
 		const withoutFile = this.cardPreviewWithoutFile(item);
 		if (withoutFile) {
@@ -164,14 +182,9 @@ export class BaseHalfCanvasPreviews {
 			};
 		}
 
-		// The canvas shows the files that Card Detail shows (architecture invariants, "Product shell").
-		const mediaKind = baseHalfRenderableContentKind(item.stat.resource);
-		if (mediaKind) {
-			// The face of a PDF or a book draws its cover, which is made from the file's version.
-			const resource = mediaKind === 'pdf' || mediaKind === 'book' ? item.stat.resource : item.stat.resource.with({
-				query: baseHalfCanvasMediaVersionQuery(item.stat)
-			});
-			return { kind: 'media', text: MEDIA_LABELS[mediaKind], mediaKind, resource };
+		const media = this.mediaPreview(item);
+		if (media) {
+			return media;
 		}
 
 		const kind = markdownPreviewKind(item.name);

@@ -6,6 +6,8 @@
 import { addDisposableListener } from '../../../../base/browser/dom.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
 import { DisposableStore, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { FileAccess } from '../../../../base/common/network.js';
+import { URI } from '../../../../base/common/uri.js';
 
 export function releaseBaseHalfCanvasCardMedia(media: HTMLMediaElement): void {
 	media.pause();
@@ -136,7 +138,34 @@ const PICTURE_COVER_MAX_SIDE = 1280;
  * written anew is read anew.
  */
 export function baseHalfCanvasMediaVersionQuery(stat: { readonly mtime?: number; readonly size?: number }): string {
-	return `basehalfCanvasVersion=${stat.mtime ?? 0}-${stat.size ?? 0}`;
+	return `basehalfCanvasVersion=${baseHalfCanvasMediaVersion(stat)}`;
+}
+
+/** The version of a file as the canvas names it: its time of change and its size, `<mtime>-<size>`. */
+export function baseHalfCanvasMediaVersion(stat: { readonly mtime?: number; readonly size?: number }): string {
+	return `${stat.mtime ?? 0}-${stat.size ?? 0}`;
+}
+
+/**
+ * The address by which the window loads the file of `resource`, with the
+ * query that names its version. The window keeps what it loaded by its
+ * address, and the browser address of a file drops its query: without it,
+ * every version of a file has one address, and a card drawn anew after an
+ * edit shows the picture the window loaded first (canvas card placement,
+ * "Each version is loaded by an address of its own").
+ */
+export function baseHalfCanvasMediaUrl(resource: URI): string {
+	const address = FileAccess.uriToBrowserUri(resource);
+	if (!resource.query || address.query === resource.query) {
+		return address.toString(true);
+	}
+	// A remote address carries a query of its own: the version is added to it.
+	return address.with({ query: [address.query, resource.query].filter(Boolean).join('&') }).toString(true);
+}
+
+/** The address of the file of `resource` at `version` (`baseHalfCanvasMediaVersion`), or its plain address when no version is known. */
+export function baseHalfCanvasMediaUrlAt(resource: URI, version: string | undefined): string {
+	return baseHalfCanvasMediaUrl(version ? resource.with({ query: `basehalfCanvasVersion=${version}` }) : resource);
 }
 
 /**

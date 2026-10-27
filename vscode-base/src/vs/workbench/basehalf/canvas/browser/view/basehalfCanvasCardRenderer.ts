@@ -10,7 +10,6 @@ import { disposableTimeout } from '../../../../../base/common/async.js';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname, isEqual } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
-import { FileAccess } from '../../../../../base/common/network.js';
 import { localize } from '../../../../../nls.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasChildPath, baseHalfCanvasItemBounds, baseHalfCanvasShowsDocument, IBaseHalfCanvasBounds, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
@@ -24,7 +23,7 @@ import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase, IBaseHal
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
-import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaVersionQuery, baseHalfCanvasPictureCover, whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
+import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaUrl, baseHalfCanvasMediaVersionQuery, baseHalfCanvasPictureCover, whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCanvasCardDocumentFace, renderBaseHalfCanvasCardDocument } from '../basehalfCanvasCardDocument.js';
 import { baseHalfDocumentVersion } from '../../../documents/common/basehalfDocuments.js';
@@ -546,7 +545,7 @@ export class BaseHalfCanvasCardRenderer {
 		let image: URI;
 		try {
 			image = await captureBaseHalfVideoFrame(this.view.fileService, {
-				video: item.stat.resource,
+				video: item.stat.resource.with({ query: baseHalfCanvasMediaVersionQuery(item.stat) }),
 				folder: folder.resource,
 				title: baseHalfCanvasCardBaseName(item.name),
 				frame,
@@ -607,7 +606,7 @@ export class BaseHalfCanvasCardRenderer {
 			if (drawn) {
 				whenBaseHalfCanvasMediaDrawn(image, listeners, drawn);
 			}
-			image.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
+			image.src = baseHalfCanvasMediaUrl(preview.resource);
 			this.coverUntilDrawn(card, image, preview.resource.query, listeners);
 			image.addEventListener('error', () => {
 				image.remove();

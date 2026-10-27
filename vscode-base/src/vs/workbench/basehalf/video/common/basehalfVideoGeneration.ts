@@ -42,6 +42,8 @@ import { IBaseHalfMediaChoices } from '../../mediaEdit/common/basehalfEditRecord
 export interface IBaseHalfVideoResolvedInput extends IBaseHalfVideoInputSource {
 	/** The file to read: the entry itself. Absent when unavailable, as for an entry that names a draft. */
 	readonly file?: URI;
+	/** The version of the file, `<mtime>-<size>`, by which the panel loads its picture, so that an input edited shows as it is now. */
+	readonly fileVersion?: string;
 }
 
 // --- catalog ---------------------------------------------------------------------------------
