@@ -24,9 +24,11 @@ import {
 	baseHalfSoundShown,
 	IBaseHalfSoundRange
 } from '../common/basehalfSoundParts.js';
+import { BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
 import { formatBaseHalfVideoTrimLength } from '../common/basehalfVideoTrimSelection.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
+import { BaseHalfTimeZoom } from './basehalfTimeZoom.js';
 
 /**
  * The waveform of a sound in Card Detail (editing media, "Editing a sound"):
@@ -35,7 +37,8 @@ import { IBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
  * video, whose handles trim it when they are let go; a stretch selected by a
  * drag inside the part, with Delete on it, which cuts it out; and Play under
  * it, which plays the sound as it is edited, the part between the handles
- * over and over while it is shorter than the whole.
+ * over and over while it is shorter than the whole. A pinch spreads its time
+ * out ("Zooming the picture and the time").
  */
 
 export interface IBaseHalfSoundWaveformOptions {
@@ -107,7 +110,9 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	private range: IBaseHalfSoundRange;
 	/** The stretch selected for Delete. */
 	private selected: IBaseHalfSoundRange | undefined;
+	/** The times the strip shows: the whole sound, the stretch a pinch spread out, or a stretch around a held handle. */
 	private view: { from: number; to: number };
+	private readonly zoom: BaseHalfTimeZoom;
 	private drag: IDrag | undefined;
 	private holdTimer: ReturnType<typeof setTimeout> | undefined;
 	private frame: number | undefined;
@@ -173,6 +178,13 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			this.stop();
 			void this.context?.close().catch(() => undefined);
 		}));
+		this.zoom = this._register(new BaseHalfTimeZoom({
+			strip: this.strip,
+			length: () => this.timeline().duration,
+			shortest: () => BASEHALF_TIME_ZOOM_SHORTEST_SECONDS,
+			onDidChange: () => this.onDidZoom(),
+			onDidMoveUnderDrag: clientX => this.dragTo(clientX)
+		}));
 		this.registerListeners();
 		this.render();
 		void this.load();
@@ -198,7 +210,9 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.range = this.timeline().normalize(shown.range);
 		this.selected = undefined;
 		this.position = Math.min(this.position, this.timeline().duration);
-		this.view = { from: 0, to: this.timeline().duration };
+		// An undo or a redo keeps the stretch a pinch spread out, as far as the length then allows.
+		this.zoom.fit();
+		this.view = this.zoom.stretch;
 		this.render();
 		this.drawWaveform();
 	}
@@ -503,7 +517,9 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.parts = baseHalfDeleteParts(this.parts, selected.start, selected.end);
 		this.range = this.timeline().normalize({ start: this.range.start, end: this.range.end - length });
 		this.selected = undefined;
-		this.view = { from: 0, to: this.timeline().duration };
+		// A cut keeps the stretch a pinch spread out, as far as the length then allows.
+		this.zoom.fit();
+		this.view = this.zoom.stretch;
 		this.position = Math.min(selected.start, this.range.end);
 		this.render();
 		this.drawWaveform();
@@ -637,7 +653,18 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 				this.scheduleHold();
 			}
 		}
-		const time = this.timeAt(event.clientX);
+		// Past an edge of the stretch a pinch spread out, the drag carries the stretch along.
+		this.zoom.dragAt(current.kind === 'press' || this.element.classList.contains('spread') ? undefined : event.clientX);
+		this.dragTo(event.clientX);
+	}
+
+	/** What the drag holds goes to the time under the pointer. */
+	private dragTo(clientX: number): void {
+		const current = this.drag;
+		if (!current) {
+			return;
+		}
+		const time = this.timeAt(clientX);
 		const timeline = this.timeline();
 		switch (current.kind) {
 			case 'start':
@@ -667,6 +694,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 		this.drag = undefined;
 		this.clearHold();
+		this.zoom.dragAt(undefined);
 		this.element.classList.remove('dragging');
 		if (drag.kind === 'press' && released) {
 			// A press that did not move drops the selection and moves the playhead there.
@@ -702,6 +730,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 		this.drag = undefined;
 		this.clearHold();
+		this.zoom.dragAt(undefined);
 		this.element.classList.remove('dragging');
 		try {
 			this.strip.releasePointerCapture(drag.pointerId);
@@ -714,8 +743,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 
 	private scheduleHold(): void {
 		this.clearHold();
-		const duration = this.timeline().duration;
-		if (this.view.from > 0 || this.view.to < duration) {
+		if (this.element.classList.contains('spread')) {
 			return;
 		}
 		this.holdTimer = setTimeout(() => {
@@ -731,7 +759,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 	}
 
-	/** Spreads the waveform out around the held handle, with the handle where it stands on the screen. */
+	/** Spreads the waveform out around the held handle, with the handle where it stands on the screen; not when a pinch spread it as far already. */
 	private spread(): void {
 		const drag = this.drag;
 		if (!drag || (drag.kind !== 'start' && drag.kind !== 'end') || this.disposed) {
@@ -739,7 +767,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 		const duration = this.timeline().duration;
 		const span = Math.max(duration * SPREAD_FRACTION, SPREAD_MIN_SECONDS);
-		if (span >= duration) {
+		if (span >= this.view.to - this.view.from) {
 			return;
 		}
 		const time = drag.kind === 'start' ? this.range.start : this.range.end;
@@ -757,8 +785,19 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		if (!this.element.classList.contains('spread')) {
 			return;
 		}
-		this.view = { from: 0, to: this.timeline().duration };
+		// The stretch a pinch chose shows again, or the whole sound.
+		this.view = this.zoom.stretch;
 		this.element.classList.remove('spread');
+		this.drawWaveform();
+	}
+
+	/** A pinch, the wheel, or a drag past an edge changed the stretch shown: the waveform is drawn anew. A held handle's spread stays until it is let go. */
+	private onDidZoom(): void {
+		if (this.element.classList.contains('spread')) {
+			return;
+		}
+		this.view = this.zoom.stretch;
+		this.render();
 		this.drawWaveform();
 	}
 
@@ -816,6 +855,10 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 
 	private updatePlayhead(): void {
 		const time = this.playedTime();
+		if (this.playing && !this.drag && !this.element.classList.contains('spread')) {
+			// While the sound plays, the stretch a pinch spread out follows the playhead.
+			this.zoom.follow(time);
+		}
 		const fraction = this.fractionOf(time);
 		this.playhead.classList.toggle('outside', fraction < 0 || fraction > 1);
 		this.playhead.style.left = `${(Math.min(Math.max(fraction, 0), 1) * 100).toFixed(3)}%`;
@@ -832,6 +875,9 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.strip.style.setProperty('--basehalf-video-frames-end', `${(clamp(end) * 100).toFixed(4)}%`);
 		this.startHandle.classList.toggle('outside', start < 0);
 		this.endHandle.classList.toggle('outside', end > 1);
+		// The times the strip shows, in seconds of the parts joined, as its bars and its handles stand.
+		this.strip.dataset.from = this.view.from.toFixed(3);
+		this.strip.dataset.to = this.view.to.toFixed(3);
 		this.element.classList.toggle('whole', timeline.isWhole(this.range));
 		this.length.textContent = formatBaseHalfVideoTrimLength(this.range.end - this.range.start);
 		const partWidth = (clamp(end) - clamp(start)) * this.strip.clientWidth;

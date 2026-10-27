@@ -1,0 +1,312 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+// A pinch in Card Detail (editing media, "Zooming the picture and the time", criteria 16 to 19): the picture of a
+// video and the page of an SVG zoom, the crop view of a PNG zooms, the frame viewer and the waveform spread their time
+// out, and nothing else zooms, neither the window nor the canvas.
+
+import fs from 'fs';
+import path from 'path';
+import { waitForViewTransitions } from '../../app.mts';
+import { root, workspacePath } from '../../context.mts';
+import { assertCardDetail } from '../../lib/cardDetail.mts';
+import { quickOpen } from '../../lib/quickInput.mts';
+import { patternPng } from './imageEdit.mts';
+
+const FOLDER = 'pinch';
+const VIDEO = `${FOLDER}/wide.mp4`;
+const SOUND = `${FOLDER}/voice.wav`;
+const IMAGE = `${FOLDER}/still.png`;
+const DETAIL = '.basehalf-card-detail.visible';
+const SURFACE = '.basehalf-card-detail-surface.active';
+const PLAYER = `${SURFACE} .basehalf-canvas-video-player.detail`;
+const FRAMES = `${SURFACE} .basehalf-video-frames:not(.basehalf-sound-waveform)`;
+const WAVE = `${SURFACE} .basehalf-sound-waveform`;
+const CROP = `${SURFACE} .basehalf-image-crop`;
+const RATE = 16000;
+
+function workspaceFile(relativePath) {
+	return path.join(workspacePath, ...relativePath.split('/'));
+}
+
+/** Six seconds of a tone at 16 kHz in mono, 16 bits, in three phrases with pauses between them. */
+function phrasesWav() {
+	const frames = RATE * 6;
+	const data = Buffer.alloc(frames * 2);
+	for (let index = 0; index < frames; index++) {
+		const second = Math.floor(index / RATE);
+		const loud = second % 2 === 0 ? 1 : 0.25;
+		data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 220 * index / RATE) * 14000 * loud), index * 2);
+	}
+	const header = Buffer.alloc(44);
+	header.write('RIFF', 0);
+	header.writeUInt32LE(36 + data.length, 4);
+	header.write('WAVE', 8);
+	header.write('fmt ', 12);
+	header.writeUInt32LE(16, 16);
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(1, 22);
+	header.writeUInt32LE(RATE, 24);
+	header.writeUInt32LE(RATE * 2, 28);
+	header.writeUInt16LE(2, 32);
+	header.writeUInt16LE(16, 34);
+	header.write('data', 36);
+	header.writeUInt32LE(data.length, 40);
+	return Buffer.concat([header, data]);
+}
+
+/**
+ * A pinch of the trackpad made through the browser's protocol: its wheel events with Ctrl held, as the system's.
+ * Like the smoke's own pointer input, it waits for Card Detail's transition to end: while one runs, every point of
+ * the window hits its root.
+ */
+async function pinch(page, x, y, scaleFactor) {
+	await waitForViewTransitions(page);
+	const cdp = await page.context().newCDPSession(page);
+	try {
+		await cdp.send('Input.synthesizePinchGesture', { x, y, scaleFactor, relativeSpeed: 600, gestureSourceType: 'mouse' });
+	} finally {
+		await cdp.detach().catch(() => undefined);
+	}
+}
+
+/** What a pinch must never change: the zoom of the window and of the canvas under Card Detail. */
+async function zoomOutside(page) {
+	return page.evaluate(() => ({
+		visual: window.visualViewport?.scale,
+		ratio: window.devicePixelRatio,
+		canvas: Array.from(document.querySelectorAll('.basehalf-canvas-chrome *')).map(element => element.textContent?.trim()).find(text => /%$/.test(text ?? ''))
+	}));
+}
+
+async function closeDetail(page) {
+	await page.mouse.move(4, 4);
+	await page.keyboard.press('Escape');
+	await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
+}
+
+/** The times a strip shows, and its box. */
+async function readStrip(page, selector) {
+	return page.evaluate(selector => {
+		const strip = document.querySelector(`${selector} .basehalf-video-frames-strip`);
+		const box = strip.getBoundingClientRect();
+		return { from: Number(strip.dataset.from), to: Number(strip.dataset.to), x: box.x, y: box.y, width: box.width, height: box.height };
+	}, selector);
+}
+
+function timeAt(strip, x) {
+	return strip.from + (x - strip.x) / strip.width * (strip.to - strip.from);
+}
+
+async function readPlayer(page) {
+	return page.evaluate(selector => {
+		const player = document.querySelector(selector);
+		const video = player.querySelector('video');
+		const box = player.getBoundingClientRect();
+		const rect = video.getBoundingClientRect();
+		const bar = player.querySelector('.basehalf-canvas-video-player-bar').getBoundingClientRect();
+		return { box: { x: box.x, y: box.y, width: box.width, height: box.height }, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, bar: { width: bar.width, height: bar.height }, transform: video.style.transform, paused: video.paused };
+	}, PLAYER);
+}
+
+async function assertVideoPinch(page) {
+	await quickOpen(page, VIDEO);
+	await assertCardDetail(page, 'wide.mp4');
+	await page.waitForFunction(selector => (document.querySelector(`${selector} video`)?.videoWidth ?? 0) > 0, PLAYER, { timeout: 15_000 });
+	await page.waitForFunction(selector => !!document.querySelector(selector)?.querySelector('.basehalf-video-frames-picture'), FRAMES, { timeout: 15_000 });
+
+	// Criterion 16: the picture grows 1.6 times around the pointer; the player and its controls keep their size.
+	const before = await readPlayer(page);
+	const at = { x: before.box.x + before.box.width * 0.3, y: before.box.y + before.box.height * 0.4 };
+	const fromMiddle = { x: at.x - (before.box.x + before.box.width / 2), y: at.y - (before.box.y + before.box.height / 2) };
+	await pinch(page, at.x, at.y, 1.6);
+	await page.waitForTimeout(300);
+	const zoomed = await readPlayer(page);
+	const zoom = zoomed.rect.width / zoomed.box.width;
+	const under = { x: zoomed.rect.x + zoomed.rect.width / 2 + fromMiddle.x * zoom, y: zoomed.rect.y + zoomed.rect.height / 2 + fromMiddle.y * zoom };
+	if (Math.abs(zoom - 1.6) > 0.01 || Math.hypot(under.x - at.x, under.y - at.y) > 2
+		|| JSON.stringify(zoomed.box) !== JSON.stringify(before.box) || JSON.stringify(zoomed.bar) !== JSON.stringify(before.bar)) {
+		throw new Error(`A pinch by 1.6 over the picture of a video draws it 1.6 times larger, the point under the pointer staying under it, the player and its controls at their size: ${JSON.stringify({ before, zoomed, zoom, under, at })}`);
+	}
+
+	// A drag moves the zoomed picture and plays nothing; a click plays it.
+	const middle = { x: before.box.x + before.box.width / 2, y: before.box.y + before.box.height / 2 };
+	await page.mouse.move(middle.x, middle.y);
+	await page.mouse.down();
+	for (let index = 1; index <= 8; index++) {
+		await page.mouse.move(middle.x - 15 * index, middle.y - 5 * index);
+		await page.waitForTimeout(16);
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(250);
+	const dragged = await readPlayer(page);
+	await page.mouse.click(middle.x, middle.y);
+	await page.waitForFunction(selector => !document.querySelector(`${selector} video`)?.paused, PLAYER, { timeout: 5_000 }).catch(() => undefined);
+	const clicked = await readPlayer(page);
+	if (dragged.transform === zoomed.transform || !dragged.paused || clicked.paused) {
+		throw new Error(`A drag moves the zoomed picture without playing it, and a click then plays it: ${JSON.stringify({ zoomed: zoomed.transform, dragged, clicked: clicked.paused })}`);
+	}
+	await page.mouse.click(middle.x, middle.y);
+	await pinch(page, middle.x, middle.y, 0.5);
+	await page.waitForTimeout(300);
+	const back = await readPlayer(page);
+	if (back.transform !== '' || JSON.stringify(back.rect) !== JSON.stringify(before.rect)) {
+		throw new Error(`A pinch by 0.5 shows the picture as it fits: ${JSON.stringify({ back, before })}`);
+	}
+
+	// Criterion 18: a pinch by 2 over the frame viewer spreads its time out around the pointer, and its pictures come.
+	const strip = await readStrip(page, FRAMES);
+	const pointer = { x: strip.x + strip.width * 0.6, y: strip.y + strip.height / 2 };
+	await pinch(page, pointer.x, pointer.y, 2);
+	await page.waitForFunction(selector => {
+		const viewer = document.querySelector(selector);
+		const layer = viewer?.querySelector('.basehalf-video-frames-pictures.zoom');
+		return !!viewer?.classList.contains('zoomed') && !!layer?.querySelector('.basehalf-video-frames-picture') && layer.style.transform === '';
+	}, FRAMES, { timeout: 5_000 });
+	const spread = await readStrip(page, FRAMES);
+	const frame = 1 / 24;
+	if (Math.abs((strip.to - strip.from) / (spread.to - spread.from) - 2) > 0.02 || Math.abs(timeAt(spread, pointer.x) - timeAt(strip, pointer.x)) > frame) {
+		throw new Error(`A pinch by 2 over the frame viewer spreads its time out 2 times around the pointer: ${JSON.stringify({ strip, spread })}`);
+	}
+	await closeDetail(page);
+}
+
+async function assertSoundPinch(page) {
+	await quickOpen(page, SOUND);
+	await assertCardDetail(page, 'voice.wav');
+	await page.waitForFunction(selector => document.querySelector(`${selector} .basehalf-sound-waveform-play`)?.getAttribute('aria-disabled') === 'false', WAVE, { timeout: 15_000 });
+
+	// Criterion 19: a pinch over Play changes nothing.
+	const whole = await readStrip(page, WAVE);
+	const play = await page.locator(`${WAVE} .basehalf-sound-waveform-play`).boundingBox();
+	await pinch(page, play.x + play.width / 2, play.y + play.height / 2, 3);
+	await page.waitForTimeout(200);
+	const afterPlay = await readStrip(page, WAVE);
+	if (afterPlay.from !== whole.from || afterPlay.to !== whole.to) {
+		throw new Error(`A pinch over Play spreads nothing out: ${JSON.stringify({ whole, afterPlay })}`);
+	}
+
+	// Criterion 18: a pinch by 4 over the middle of the waveform spreads its time out 4 times around the pointer.
+	const middle = { x: whole.x + whole.width / 2, y: whole.y + whole.height / 2 };
+	await pinch(page, middle.x, middle.y, 4);
+	await page.waitForTimeout(300);
+	const spread = await readStrip(page, WAVE);
+	const bar = (spread.to - spread.from) / (spread.width / 5);
+	if (Math.abs((whole.to - whole.from) / (spread.to - spread.from) - 4) > 0.04 || Math.abs(timeAt(spread, middle.x) - timeAt(whole, middle.x)) > bar) {
+		throw new Error(`A pinch by 4 over the waveform spreads its time out 4 times around the pointer: ${JSON.stringify({ whole, spread })}`);
+	}
+	// The wheel moves it along.
+	await page.mouse.move(middle.x, middle.y);
+	await page.mouse.wheel(150, 0);
+	await page.waitForTimeout(200);
+	const moved = await readStrip(page, WAVE);
+	if (!(moved.from > spread.from) || Math.abs((moved.to - moved.from) - (spread.to - spread.from)) > 1e-3) {
+		throw new Error(`The wheel moves a spread-out waveform along: ${JSON.stringify({ spread, moved })}`);
+	}
+	// A press moves the playhead to the time under the pointer.
+	const pressX = moved.x + moved.width * 0.25;
+	await page.mouse.click(pressX, middle.y);
+	await page.waitForTimeout(150);
+	const playhead = await page.evaluate(selector => parseFloat(document.querySelector(`${selector} .basehalf-video-frames-playhead`).style.left), WAVE);
+	if (Math.abs(playhead - 25) > 1) {
+		throw new Error(`A press on a spread-out waveform moves the playhead to the time under the pointer: ${playhead}%`);
+	}
+	// A drag selects a stretch that Delete cuts out, and the waveform stays spread out.
+	const from = moved.x + moved.width * 0.4;
+	const to = moved.x + moved.width * 0.6;
+	await page.mouse.move(from, middle.y);
+	await page.mouse.down();
+	for (let index = 1; index <= 8; index++) {
+		await page.mouse.move(from + (to - from) * index / 8, middle.y);
+		await page.waitForTimeout(16);
+	}
+	await page.mouse.up();
+	const remove = page.locator(`${WAVE} .basehalf-sound-waveform-delete`);
+	await remove.waitFor({ state: 'visible', timeout: 5_000 });
+	await remove.click();
+	await page.waitForFunction(selector => document.querySelector(`${selector} .basehalf-sound-waveform-delete`)?.hidden, WAVE, { timeout: 5_000 });
+	const cut = await readStrip(page, WAVE);
+	if (Math.abs((cut.to - cut.from) - (moved.to - moved.from)) > 1e-3) {
+		throw new Error(`A cut keeps the stretch that a pinch spread out: ${JSON.stringify({ moved, cut })}`);
+	}
+	await closeDetail(page);
+}
+
+async function assertPicturePinch(page) {
+	// Criterion 17: over a PNG the pinch zooms the crop view, as the wheel does, and changes no edit.
+	const original = fs.readFileSync(workspaceFile(IMAGE));
+	await quickOpen(page, IMAGE);
+	await assertCardDetail(page, 'still.png');
+	await page.waitForFunction(selector => (document.querySelector(selector)?.naturalWidth ?? 0) > 0, `${CROP} .basehalf-image-crop-picture`, { timeout: 15_000 });
+	const view = await page.locator(`${CROP} .basehalf-image-crop-view`).boundingBox();
+	await pinch(page, view.x + view.width / 2, view.y + view.height / 2, 1.6);
+	await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('zoomed'), CROP, { timeout: 5_000 });
+	await page.waitForTimeout(1_500);
+	if (!fs.readFileSync(workspaceFile(IMAGE)).equals(original) || fs.existsSync(workspaceFile(`.bh/mirror/${IMAGE}/edit.yaml`))) {
+		throw new Error('A pinch zooms the crop view only: the file and its record stay as they were.');
+	}
+	await closeDetail(page);
+
+	// Over an SVG the pinch makes the picture 1.6 times larger around the pointer, and Fit shows it as it fits.
+	await quickOpen(page, 'concept.svg');
+	await assertCardDetail(page, 'concept.svg');
+	let frame;
+	for (let tries = 0; tries < 60 && !frame; tries++) {
+		for (const candidate of page.frames()) {
+			if (await candidate.evaluate(() => (document.getElementById('media')?.naturalWidth ?? 0) > 0).catch(() => false)) {
+				frame = candidate;
+			}
+		}
+		if (!frame) {
+			await page.waitForTimeout(150);
+		}
+	}
+	if (!frame) {
+		throw new Error('Card Detail of an SVG shows the picture in its page.');
+	}
+	const host = await page.locator(`${SURFACE} .basehalf-card-detail-media-webview`).first().boundingBox();
+	const width = () => frame.evaluate(() => document.getElementById('media').getBoundingClientRect().width);
+	const fitted = await width();
+	const box = await frame.evaluate(() => {
+		const rect = document.getElementById('media').getBoundingClientRect();
+		return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+	});
+	await pinch(page, host.x + box.x + box.width / 2, host.y + box.y + box.height / 2, 1.6);
+	await page.waitForTimeout(400);
+	const pinched = await width();
+	await frame.locator('button[data-action="fit"]').click();
+	await page.waitForTimeout(200);
+	const again = await width();
+	if (Math.abs(pinched / fitted - 1.6) > 0.02 || Math.abs(again - fitted) > 0.5) {
+		throw new Error(`A pinch by 1.6 over an SVG draws it 1.6 times larger, and Fit shows it as it fits: ${JSON.stringify({ fitted, pinched, again })}`);
+	}
+	await closeDetail(page);
+}
+
+export async function assertCardDetailMediaPinch(page) {
+	fs.mkdirSync(workspaceFile(FOLDER), { recursive: true });
+	fs.copyFileSync(path.join(root, 'scripts', 'fixtures', 'basehalf-video-720p-mock.mp4'), workspaceFile(VIDEO));
+	fs.writeFileSync(workspaceFile(SOUND), phrasesWav());
+	// Large enough that the view can zoom it: it zooms up to twice its pixels.
+	fs.writeFileSync(workspaceFile(IMAGE), patternPng(1200, 800));
+	try {
+		const outside = await zoomOutside(page);
+		await assertVideoPinch(page);
+		await assertSoundPinch(page);
+		await assertPicturePinch(page);
+		// Criterion 19: no pinch zoomed the window or the canvas.
+		const after = await zoomOutside(page);
+		if (JSON.stringify(after) !== JSON.stringify(outside)) {
+			throw new Error(`No pinch in Card Detail zooms the window or the canvas under it: ${JSON.stringify({ outside, after })}`);
+		}
+	} finally {
+		if (await page.locator(DETAIL).isVisible().catch(() => false)) {
+			await page.keyboard.press('Escape').catch(() => undefined);
+		}
+		fs.rmSync(workspaceFile(FOLDER), { recursive: true, force: true });
+		// The cut of the sound kept its original beside its card information.
+		fs.rmSync(workspaceFile(`.bh/mirror/${FOLDER}`), { recursive: true, force: true });
+	}
+}

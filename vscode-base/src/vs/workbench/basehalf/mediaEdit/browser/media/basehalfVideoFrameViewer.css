@@ -54,12 +54,67 @@
 	cursor: default;
 }
 
+/* The pictures are cut at the strip's edges; its handles stand outside them. */
+.monaco-workbench .basehalf-video-frames-clip {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	border-radius: 6px;
+	pointer-events: none;
+}
+
+/*
+ * A layer of pictures stretches to the times the strip shows while a pinch
+ * spreads it out or the wheel moves it along, until the frames of the new
+ * stretch are read (editing media, "Zooming the picture and the time").
+ */
 .monaco-workbench .basehalf-video-frames-pictures {
 	position: absolute;
 	inset: 0;
 	display: flex;
 	overflow: hidden;
 	border-radius: 6px;
+	transform-origin: 0 0;
+}
+
+/* The pictures of the stretch a pinch spread out stand over the whole video's, which show through until they come. */
+.monaco-workbench .basehalf-video-frames-pictures.zoom {
+	visibility: hidden;
+	border-radius: 0;
+}
+
+.monaco-workbench .basehalf-video-frames.zoomed .basehalf-video-frames-pictures.zoom {
+	visibility: visible;
+}
+
+/*
+ * Where a spread-out stretch lies in the whole length, while it changes: it
+ * floats over the bottom of the strip, takes no room, and hides, as BaseHalf's
+ * scrollbars do.
+ */
+.monaco-workbench .basehalf-time-zoom-bar {
+	position: absolute;
+	z-index: 2;
+	bottom: 5px;
+	height: 4px;
+	min-width: 8px;
+	box-sizing: border-box;
+	border-radius: 2px;
+	background: var(--vscode-scrollbarSlider-activeBackground);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 300ms ease;
+}
+
+.monaco-workbench .basehalf-time-zoom-bar.visible {
+	opacity: 1;
+	transition-duration: 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-time-zoom-bar {
+		transition: none;
+	}
 }
 
 /* While a held handle spreads the viewer out, its own pictures stand over the whole video's. */

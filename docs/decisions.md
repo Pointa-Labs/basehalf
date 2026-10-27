@@ -3829,6 +3829,67 @@ after a model was chosen from its menu.
   `made.yaml` store are unchanged: an image card's mode is still `reference`,
   and `basehalf --list-capabilities` still gives agents each model's count.
 
+## D93 — A pinch zooms the picture of an image or a video in Card Detail, and spreads out the time of a video or a sound (NEW, 2026-10-27)
+
+**Decision.** In Card Detail a pinch of the trackpad zooms what is under the
+fingers. Over the picture of a video, it and the wheel zoom the picture as
+the crop view zooms an image (D85): around the pointer, from as it fits to
+twice its pixels; while it is zoomed in, a drag moves it and a click still
+plays and pauses it. The page of an image that BaseHalf cannot edit, a GIF,
+an AVIF, a BMP, or an SVG, zooms with a pinch, and with the wheel and the
+zoom key, as its − and + do, around the pointer, as a PDF's page does (D87).
+Over the frame viewer of a video and the waveform of a sound, a pinch spreads
+their time out around the pointer, down to half a second; the wheel then
+moves it along, a handle dragged past an edge carries it with it, and it
+follows the playhead while the video or the sound plays. Elsewhere a pinch
+does nothing, and none zooms the window or the canvas. See
+[editing media](specs/media-editing.md#zooming-the-picture-and-the-time).
+
+**Why.** On 2026-10-27 the user had the pinch added to Card Detail of a note
+(D87), and agreed to it over images, videos, and sounds once D85 had rebuilt
+their Card Detail. Measured that day in a development window with a pinch
+made through the browser's protocol (25 wheel events with Ctrl held, a scale
+of 1.6): over the crop view of a PNG of 2048 × 2048 the picture grew from 663
+to 1,061 pixels, as D85 built it; over a generated video of 854 × 480, over
+its frame viewer, and over the waveform of a WAV nothing changed, since none
+of them took the events; over a GIF the window handed the pinch on to its
+page, which did nothing with it. The window and the canvas kept their zoom in
+every case. A phone's photos zoom a video that plays with a pinch as they
+zoom a photo. A phone's voice recorder, which the editor of a sound follows
+(D84), zooms its waveform with a pinch "for more precise editing", and editors
+of video zoom their timeline with one.
+
+**What was set aside.**
+- A pinch that zooms only the picture, and leaves the time alone: the voice
+  recorder and the editors zoom their time, and a stretch of a long sound to
+  cut out is hard to select at the whole length, where a bar of the waveform
+  holds a second of a song of four minutes. Holding a handle still keeps its
+  spread for a handle's precision.
+- The wheel scrolling a zoomed video, and zooming only with a pinch or the
+  zoom key, as a page does: the picture fits Card Detail, so there is nothing
+  to scroll, and the crop view zooms with the wheel.
+- A double click that shows the video as it fits, as on an image: a double
+  click on the player fills the screen (generation cards, "The player").
+- Zooming beyond twice the pixels of the picture: what is drawn larger shows
+  no more of it; the limit is the crop view's.
+- The page of an image that BaseHalf cannot edit made to work as the crop view
+  does, the wheel zooming it and a drag moving it: a change of that page
+  beyond the pinch, for formats that few generated images have.
+- A view of the whole length beside a spread-out stretch, as some editors
+  have: a thin bar shows where the stretch lies while it changes, as
+  BaseHalf's scrollbars show, and pinching in shows the whole.
+
+**Consequences.**
+- [Editing media](specs/media-editing.md): "Zooming the picture and the
+  time", the hold's release, and criteria 16 to 19;
+  [generation cards](specs/generation-cards.md#the-player) points to it from
+  Card Detail's player, and [zoom and outline of a note](specs/note-zoom-and-outline.md)
+  from L5.
+- The crop view and the player of a video share one computation of a zoom's
+  factor, its largest zoom, the point under the pointer, and the edges; the
+  frame viewer and the waveform share the spreading out of their time.
+- Nothing is stored: a zoom is the view's, and goes when Card Detail closes.
+
 ## D94 — The region of a provider is the user's choice, and the other region is easy to find (NEW, 2026-10-27)
 
 **Decision.** A provider's region stays the user's choice, and the region

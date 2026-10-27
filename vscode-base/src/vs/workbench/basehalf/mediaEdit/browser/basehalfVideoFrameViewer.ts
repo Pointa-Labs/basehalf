@@ -12,10 +12,12 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import { IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
+import { BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
 import { baseHalfVideoFrameEdges } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimHandle, BaseHalfVideoTrimTimeline, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../common/basehalfVideoTrimSelection.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfEditVideo } from './basehalfMediaEditService.js';
+import { BaseHalfTimeZoom } from './basehalfTimeZoom.js';
 import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
 
 /**
@@ -23,8 +25,8 @@ import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
  * "Editing a video"): the video's timeline, a strip of the original's frames
  * with the part kept in a yellow frame, its two handles, the playhead, and
  * the part's length. It plays the part in the player, spreads out around a
- * handle that is held still, and makes a change of each handle or part let
- * go.
+ * handle that is held still and where a pinch spreads it ("Zooming the
+ * picture and the time"), and makes a change of each handle or part let go.
  */
 
 export interface IBaseHalfVideoFrameViewerOptions {
@@ -66,7 +68,7 @@ interface IDrag {
 	lastX: number;
 }
 
-/** The times the strip shows: the whole video, or a stretch of it around a held handle. */
+/** The times the strip shows: the whole video, the stretch a pinch spread out, or a stretch around a held handle. */
 interface IStripView {
 	readonly from: number;
 	readonly to: number;
@@ -76,7 +78,10 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 	readonly element: HTMLElement;
 	private readonly strip: HTMLElement;
+	/** The pictures of the whole video, read once. */
 	private readonly pictures: HTMLElement;
+	/** The pictures of the stretch a pinch spread out, over the whole video's. */
+	private readonly zoomPictures: HTMLElement;
 	private readonly spreadPictures: HTMLElement;
 	private readonly length: HTMLElement;
 	private readonly startHandle: HTMLElement;
@@ -87,14 +92,18 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	readonly onDidChange = this.onDidChangeEmitter.event;
 
 	private readonly timeline: BaseHalfVideoTrimTimeline;
+	private readonly zoom: BaseHalfTimeZoom;
 	private range: IBaseHalfVideoTrimRange;
 	private view: IStripView;
+	/** The stretch whose pictures the pictures of the zoom show. */
+	private zoomDrawn: IStripView | undefined;
 	private drag: IDrag | undefined;
 	private holdTimer: ReturnType<typeof setTimeout> | undefined;
 	private playheadFrame: number | undefined;
 	private picturesCount = 0;
 	private disposed = false;
 	private readonly picturesLoad = this._register(new MutableDisposable());
+	private readonly zoomLoad = this._register(new MutableDisposable());
 	private readonly spreadLoad = this._register(new MutableDisposable());
 
 	constructor(
@@ -112,8 +121,11 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.video.label', "Frames"));
 		const row = append(this.element, $('.basehalf-video-frames-row'));
 		this.strip = append(row, $('.basehalf-video-frames-strip'));
-		this.pictures = append(this.strip, $('.basehalf-video-frames-pictures'));
-		this.spreadPictures = append(this.strip, $('.basehalf-video-frames-pictures.spread'));
+		// The pictures are cut at the strip's edges, where its handles stand outside it.
+		const clip = append(this.strip, $('.basehalf-video-frames-clip'));
+		this.pictures = append(clip, $('.basehalf-video-frames-pictures'));
+		this.zoomPictures = append(clip, $('.basehalf-video-frames-pictures.zoom'));
+		this.spreadPictures = append(clip, $('.basehalf-video-frames-pictures.spread'));
 		// The shades and the part's frame follow the strip's properties of the part.
 		append(this.strip, $('.basehalf-video-frames-shade.before'));
 		append(this.strip, $('.basehalf-video-frames-shade.after'));
@@ -137,6 +149,14 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			this.clearHold();
 			this.stopPlayhead();
 			this.options.player.setPlayRange(undefined);
+		}));
+		// The time under the pointer of a pinch stays under it, down to as many frames as the strip has pictures.
+		this.zoom = this._register(new BaseHalfTimeZoom({
+			strip: this.strip,
+			length: () => this.timeline.duration,
+			shortest: () => Math.max(BASEHALF_TIME_ZOOM_SHORTEST_SECONDS, this.pictureCount(this.strip.clientWidth) * this.timeline.duration / Math.max(1, this.timeline.edges.length - 1)),
+			onDidChange: rested => this.onDidZoom(rested),
+			onDidMoveUnderDrag: clientX => this.dragTo(clientX)
 		}));
 
 		this.registerListeners();
@@ -262,6 +282,11 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			const observer = new ResizeObserverConstructor(() => {
 				this.render();
 				this.loadPictures();
+				if (this.zoom.spread && !this.element.classList.contains('spread')) {
+					// As many pictures as fit at the new width; a held handle's spread reads them when it is let go.
+					this.readZoomPictures();
+					this.placePictures();
+				}
 			});
 			observer.observe(this.strip);
 			this._register(toDisposable(() => observer.disconnect()));
@@ -340,7 +365,18 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 				this.scheduleHold();
 			}
 		}
-		const time = this.timeAt(event.clientX);
+		// Past an edge of the stretch a pinch spread out, the drag carries the stretch along.
+		this.zoom.dragAt(current.kind === 'press' || this.element.classList.contains('spread') ? undefined : event.clientX);
+		this.dragTo(event.clientX);
+	}
+
+	/** What the drag holds goes to the time under the pointer. */
+	private dragTo(clientX: number): void {
+		const current = this.drag;
+		if (!current) {
+			return;
+		}
+		const time = this.timeAt(clientX);
 		switch (current.kind) {
 			case 'start':
 			case 'end':
@@ -362,6 +398,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		this.drag = undefined;
 		this.clearHold();
+		this.zoom.dragAt(undefined);
 		this.element.classList.remove('dragging');
 		if (drag.kind === 'press' && released) {
 			// A press inside the part that did not move moves the playhead there.
@@ -389,6 +426,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		this.drag = undefined;
 		this.clearHold();
+		this.zoom.dragAt(undefined);
 		this.element.classList.remove('dragging');
 		try {
 			this.strip.releasePointerCapture(drag.pointerId);
@@ -401,7 +439,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 	private scheduleHold(): void {
 		this.clearHold();
-		if (this.view.from > 0 || this.view.to < this.timeline.duration) {
+		if (this.element.classList.contains('spread')) {
 			return;
 		}
 		this.holdTimer = setTimeout(() => {
@@ -420,7 +458,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	/**
 	 * Spreads the viewer out around the held handle: it shows a tenth of the
 	 * video, or 2 s, whichever is longer, with the handle where it stands on
-	 * the screen, and its frames read anew.
+	 * the screen, and its frames read anew; not when the stretch shown is as
+	 * short already, a pinch having spread it.
 	 */
 	private spread(): void {
 		const drag = this.drag;
@@ -429,8 +468,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		const duration = this.timeline.duration;
 		const span = Math.max(duration * SPREAD_FRACTION, SPREAD_MIN_SECONDS);
-		if (span >= duration) {
-			// A video this short shows its frames one by one already.
+		if (span >= this.view.to - this.view.from) {
+			// A video this short, or a stretch this short, shows its frames one by one already.
 			return;
 		}
 		const time = drag.kind === 'start' ? this.range.start : this.range.end;
@@ -449,11 +488,66 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		if (!this.element.classList.contains('spread')) {
 			return;
 		}
-		this.view = { from: 0, to: this.timeline.duration };
+		// The stretch a pinch chose shows again, or the whole video.
+		this.view = this.zoom.stretch;
 		this.element.classList.remove('spread');
 		this.spreadLoad.clear();
 		clearNode(this.spreadPictures);
+		if (this.zoomDrawn?.from !== this.view.from || this.zoomDrawn?.to !== this.view.to) {
+			this.readZoomPictures();
+		}
+		this.placePictures();
 		this.render();
+	}
+
+	/**
+	 * A pinch, the wheel, or a drag past an edge changed the stretch shown:
+	 * the pictures drawn stretch with it, and once the gesture rests the frames
+	 * of the new stretch are read. A held handle's spread stays until it is
+	 * let go.
+	 */
+	private onDidZoom(rested: boolean): void {
+		this.element.classList.toggle('zoomed', this.zoom.spread);
+		if (this.element.classList.contains('spread')) {
+			return;
+		}
+		this.view = this.zoom.stretch;
+		if (rested) {
+			this.readZoomPictures();
+		}
+		this.placePictures();
+		this.render();
+	}
+
+	/** Reads the pictures of the stretch shown, over the whole video's stretched under them until they come. */
+	private readZoomPictures(): void {
+		if (!this.zoom.spread) {
+			this.zoomLoad.clear();
+			clearNode(this.zoomPictures);
+			this.zoomDrawn = undefined;
+			return;
+		}
+		const width = this.strip.clientWidth;
+		if (width <= 0) {
+			return;
+		}
+		this.zoomDrawn = this.view;
+		this.readPictures(this.zoomPictures, this.zoomLoad, this.view, this.pictureCount(width), width);
+	}
+
+	/** Draws the pictures of the whole video and of the zoom at the times the strip shows. */
+	private placePictures(): void {
+		const span = this.view.to - this.view.from;
+		const place = (container: HTMLElement, drawn: IStripView | undefined) => {
+			if (!drawn || span <= 0 || (drawn.from === this.view.from && drawn.to === this.view.to)) {
+				container.style.transform = '';
+				return;
+			}
+			const offset = (drawn.from - this.view.from) / span * 100;
+			container.style.transform = `translateX(${offset.toFixed(4)}%) scaleX(${((drawn.to - drawn.from) / span).toFixed(5)})`;
+		};
+		place(this.pictures, { from: 0, to: this.timeline.duration });
+		place(this.zoomPictures, this.zoomDrawn);
 	}
 
 	// #endregion
@@ -566,7 +660,12 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	private updatePlayhead(): void {
-		const fraction = this.fractionOf(this.options.player.currentTime ?? 0);
+		const time = this.options.player.currentTime ?? 0;
+		if (!this.drag && !this.options.player.video.paused && !this.element.classList.contains('spread')) {
+			// While the video plays, the stretch a pinch spread out follows the playhead.
+			this.zoom.follow(time);
+		}
+		const fraction = this.fractionOf(time);
 		this.playhead.classList.toggle('outside', fraction < 0 || fraction > 1);
 		this.playhead.style.left = `${(Math.min(Math.max(fraction, 0), 1) * 100).toFixed(3)}%`;
 	}
@@ -580,6 +679,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.strip.style.setProperty('--basehalf-video-frames-end', `${(clamp(end) * 100).toFixed(4)}%`);
 		this.startHandle.classList.toggle('outside', start < 0);
 		this.endHandle.classList.toggle('outside', end > 1);
+		// The times the strip shows, in seconds, as its pictures and its handles stand.
+		this.strip.dataset.from = this.view.from.toFixed(3);
+		this.strip.dataset.to = this.view.to.toFixed(3);
 		this.element.classList.toggle('whole', this.timeline.isWhole(this.range));
 		this.length.textContent = formatBaseHalfVideoTrimLength(this.range.end - this.range.start);
 		// A part narrower than its length shows the length above the strip.

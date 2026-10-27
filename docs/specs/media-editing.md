@@ -4,7 +4,9 @@ Status: Draft (2026-10-26)
 Decision: [D84](../decisions.md#d84--a-video-an-image-or-a-sound-is-edited-in-card-detail-and-its-original-is-kept-new-2026-10-26),
 which revises [D79](../decisions.md#d79--card-detail-trims-a-video-in-place-and-undo-puts-it-back-new-2026-10-25),
 and [D85](../decisions.md#d85--editing-media-is-direct-a-change-is-saved-as-it-is-made-with-no-edit-mode-new-2026-10-26),
-which makes the editing direct
+which makes the editing direct;
+[D93](../decisions.md#d93--a-pinch-zooms-the-picture-of-an-image-or-a-video-in-card-detail-and-spreads-out-the-time-of-a-video-or-a-sound-new-2026-10-27)
+for zooming the picture and the time
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -368,6 +370,72 @@ crop:
   as in the player
   ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
 
+### Zooming the picture and the time
+
+A pinch of the trackpad zooms what is under the fingers (D93): the picture of
+an image or a video, as a phone's photos do, and the time of a video or a
+sound, as editors of video and sound and a phone's voice recorder do.
+
+- **A pinch, or the wheel, over the picture of an image or a video** zooms the
+  view, never the edit: around the pointer, so that the point of the picture
+  under it stays under it, from the picture as it fits up to twice its
+  pixels; a picture that fits at more than twice its pixels does not zoom. A
+  pinch follows the fingers, by e^(−Δy / 100) for each of its events, the
+  measure the browser gives a pinch; the wheel zooms by e^(−Δy / 500). The
+  crop view of an image zooms so ([The crop frame](#the-crop-frame)), and so
+  does the player of every video in Card Detail, edited or not.
+- **A video zoomed in** stays in its player, which keeps its place and size,
+  with its controls over the picture at their size. A drag on the picture
+  moves it, as far as its edges go, and neither plays nor pauses it; a click
+  that does not move plays and pauses it, and a double click fills the
+  screen, as at rest. The pointer over the zoomed picture is a grab hand.
+  Escape during the drag puts the picture back where the drag took it from
+  and leaves Card Detail open. The frame viewer, a trim and its undo, Full
+  Screen, and a change of the size of Card Detail keep the zoom, as far as
+  the new size allows. Card Detail opens with the picture as it fits, and so
+  does a file shown anew.
+- **An image that BaseHalf cannot edit**, a GIF, an AVIF, a BMP, or an SVG,
+  shows in its page with −, Fit, 100%, and + at the bottom right. A pinch
+  over it, and the wheel with Command (Ctrl on Windows and Linux) or Ctrl
+  held, zoom it as − and + do, from 10% to 800% of its pixels, around the
+  pointer; the wheel without them scrolls a picture larger than the view, and
+  a picture smaller than the view stays in its middle. The browser gives a
+  pinch over a page to the window, which hands it on to the page, as for a
+  PDF ([zoom and outline of a note](note-zoom-and-outline.md), L5).
+- **A pinch over the frame viewer of a video or the waveform of a sound
+  spreads its time out** around the pointer, and so does the wheel with
+  Command (Ctrl on Windows and Linux) or Ctrl held, as over a note: by
+  e^(−Δy / 100) for each event, a notch of the wheel at most 10%. The time
+  under the pointer stays under it, from the whole length down to half a
+  second, or, for a video, to as many frames as the strip has pictures when
+  that is longer. Pinching in to the whole length ends it.
+  - While it is spread out, a sideways swipe of two fingers and the wheel
+    move it along, as far as the start and the end go. The yellow frame, the
+    handles, the selected stretch, and the playhead are cut at its edges
+    where they lie outside it, and a handle outside it does not show. While
+    the stretch changes, a thin bar over the bottom of the strip shows where
+    it lies in the whole length, and goes 1 s after the last change, as
+    BaseHalf's scrollbars float and hide.
+  - A press, a drag of a handle or of the part, a selection, and Delete work
+    there as on the whole length, at the times under the pointer. A drag of
+    a handle, of the part, of the playhead, or of a selection past an edge
+    moves the stretch along, faster the farther the pointer is past it. Holding a handle still spreads the
+    viewer further around it when the hold's stretch is the shorter one, and
+    letting go of the handle shows the stretch the pinch chose again.
+  - While the video or the sound plays, the stretch follows the playhead:
+    when the playhead leaves it, the stretch of the same length that begins
+    at the playhead shows.
+  - The frame viewer shows its pictures stretched while the fingers move,
+    and reads the frames of the new stretch 150 ms after the last movement;
+    the waveform draws its bars anew in every frame.
+  - A trim, a cut, their undo and redo, and a change of the size of Card
+    Detail keep the stretch, as far as the length then allows. Card Detail
+    opens with the whole length.
+- **A pinch elsewhere in Card Detail of a video or a sound**, over the player
+  of a sound that BaseHalf cannot edit, Play, the line under the editor, the
+  tools, and what made a generated file, does nothing. A pinch in Card Detail
+  never zooms the window or the canvas under it.
+
 ## Editing a video
 
 ### The frame viewer
@@ -402,7 +470,8 @@ crop:
   viewer then shows a tenth of the video, or 2 s, whichever is longer, around
   the handle's time, with its frames read anew, so that the handle moves a
   frame at a time across a wider stretch of the screen; releasing it shows the
-  whole video again.
+  whole video again, or the stretch that a pinch spread out
+  ([Zooming the picture and the time](#zooming-the-picture-and-the-time)).
 - **The part is at least 1.0 s long**, or the whole video when it is
   shorter. A handle moved closer than that to the other one pushes the other
   along, until it reaches the start or the end of the video, where both stop.
@@ -748,7 +817,8 @@ crop:
 7. Cropping a 2048 × 2048 PNG to 16:9 with Ratio gives a PNG of 2048 × 1152
    whose pixels are the original's rows kept; a quarter turn and a flip give
    the original's pixels turned and mirrored; an angle of 10° leaves no empty
-   corner. The wheel over the picture zooms the view and changes no edit.
+   corner. The wheel and a pinch over the picture zoom the view and change no
+   edit.
 8. Delete on a selected stretch of a WAV, and letting go of a handle, give a
    WAV of the kept samples, with 5 ms fades at the joints, its other chunks
    unchanged; an MP3 edited the same way decodes in the window without an
@@ -776,6 +846,26 @@ crop:
     write, its undo, and Revert to Original land; and closing Card Detail
     shows no frame without the card's picture (the user, 2026-10-27: the video
     "jumped up" and "flashed" when Edit was pressed, and Cancel flashed).
+16. A pinch made through the browser's protocol, by 1.6, over the picture of
+    a video of 1280 × 720 in Card Detail draws it 1.6 times larger, with the
+    point that was under the pointer within 2 pixels of it, the player at its
+    place and size, and the controls at their size. A drag then moves the
+    picture and does not play it; a click plays it; a pinch by 0.5 shows it
+    as it fits.
+17. The same pinch over an SVG draws it 1.6 times larger around the pointer,
+    and Fit shows it as it fits again; over a PNG it zooms the crop view, as
+    the wheel does.
+18. A pinch by 4 over the middle of the waveform of a sound spreads its time
+    out 4 times around the pointer, the time under the pointer within a bar
+    of where it was; the wheel then moves it along. A press there moves the
+    playhead to the time under the pointer, and a drag there selects a
+    stretch that Delete cuts out, while the waveform stays spread out. A
+    pinch by 2 over the frame viewer of a video spreads it 2 times, and
+    within a second of the last movement its pictures are frames of the new
+    stretch.
+19. A pinch over Play, the line under the editor, and the player of a sound
+    that BaseHalf cannot edit changes nothing, and no pinch in Card Detail
+    changes the zoom of the window or of the canvas.
 
 ## Verification
 
@@ -791,6 +881,16 @@ crop:
   one write at a time, the steps of undo and their names, undo and redo byte
   for byte from what was written, a first change, Revert to Original, a file
   changed meanwhile, and a write that fails.
+- Unit tests of zooming (`basehalfMediaZoom.test.ts`): the factor of a pinch
+  and of the wheel, the largest zoom of a picture, the point under the
+  pointer, the edges of a zoomed picture, and a stretch of time spread out,
+  moved along, kept inside the length, and following the playhead. Tests in
+  the window of the unit tests of the zoom of a video's picture
+  (`basehalfVideoPictureZoom.test.ts`: a pinch, the wheel, a drag and the
+  click after it, Escape, and a smaller player) and of the time of the frame
+  viewer and the waveform (`basehalfTimeZoom.test.ts`: a pinch, the zoom key,
+  the wheel, the rest after a gesture, the bar, a drag past an edge, the
+  playhead, and a cut).
 - Unit tests of the notes of originals whose file is gone, at opens on a file
   system in memory with a clock that moves on: a file that is back, a path
   whose move waits, a record that cannot be read, a folder that is gone, and a
@@ -802,7 +902,9 @@ crop:
   (`card-detail-image-edit`: an SVG shows no editor; Square, a turn and a
   flip, the wheel that zooms only the view, Revert to Original, and undo), and
   cutting a sound (`card-detail-sound-edit`: a stretch selected and cut, a
-  trim, the editor again, undo, and Revert to Original).
+  trim, the editor again, undo, and Revert to Original), and pinching
+  (`card-detail-media-pinch`: criteria 16 to 19, with pinches made through the
+  browser's protocol).
 - In a development window: each kind and format with the media of the
   development workspace, the time each write takes, the quality of the edited
   file against its original frame by frame, and the canvas card and Card Detail
@@ -812,12 +914,16 @@ crop:
 
 `src/vs/workbench/basehalf/mediaEdit/` ([code organization](../harness/code-organization.md)):
 the edit record, the choices of each editor, the readers and writers of each
-format, and the notes of originals whose file is gone in `common/`, which the
+format, what a zoom of a picture or of the time computes, and the notes of
+originals whose file is gone in `common/`, which the
 mirror cascade runs at open after its sweep of orphaned badges
 ([mirror file resilience](mirror-file-resilience.md)); the editing of Card
 Detail, the editors, the encoding with the window's encoders, and the service
 that applies a change, writes the file after it, and keeps the steps of its
-undo, in `browser/`. Card Detail gives the editors the place of its view; the
+undo, in `browser/`, with the spreading out of the time that the frame viewer
+and the waveform share. Card Detail gives the editors the place of its view,
+and zooms the picture of the player of every video
+(`src/vs/workbench/basehalf/cardDetail/browser/`); the
 player of a video gives the frame viewer its time, a jump to a time, and the
 playing of a range; the waveform of a sound plays the edit itself, with the
 window's audio.
