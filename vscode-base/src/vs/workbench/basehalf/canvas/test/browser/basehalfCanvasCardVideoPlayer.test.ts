@@ -340,6 +340,28 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		assert.deepStrictEqual(seen, ['shown', 'shown', 'hidden']);
 	}));
 
+	test('Card Detail\'s player has the shape a card\'s player loaded for the same video from its first frame, and one no card loaded waits unseen for its own (D98)', () => {
+		const loaded = (player: IBaseHalfCanvasCardVideoPlayer, width: number, height: number) => {
+			Object.defineProperty(player.video, 'videoWidth', { configurable: true, get: () => width });
+			Object.defineProperty(player.video, 'videoHeight', { configurable: true, get: () => height });
+			player.video.dispatchEvent(new Event('loadedmetadata'));
+		};
+		const shape = (player: IBaseHalfCanvasCardVideoPlayer) => ({ aspect: player.element.style.getPropertyValue('--basehalf-video-aspect'), sizing: player.element.classList.contains('sizing') });
+		// A portrait video that its card played: Card Detail draws it as tall as it is at once.
+		const card = createPlayer(320, '/workspace/portrait.mp4');
+		loaded(card.player, 720, 1280);
+		const known = shape(createPlayer(640, '/workspace/portrait.mp4', true).player);
+		// A video no card loaded: Card Detail's player is not seen until it has its own shape.
+		const unknown = createPlayer(640, '/workspace/unseen.mp4', true).player;
+		const before = shape(unknown);
+		loaded(unknown, 1080, 1080);
+		assert.deepStrictEqual({ known, before, after: shape(unknown) }, {
+			known: { aspect: String(720 / 1280), sizing: false },
+			before: { aspect: '', sizing: true },
+			after: { aspect: '1', sizing: false }
+		});
+	});
+
 	test('a sound shows the glyph of a sound, has no sound button, plays only by Play and with its sound, and goes on while its card is selected', () => {
 		const { player, media, control } = createPlayer(320, '/workspace/take.wav', false, true);
 		const seen = {

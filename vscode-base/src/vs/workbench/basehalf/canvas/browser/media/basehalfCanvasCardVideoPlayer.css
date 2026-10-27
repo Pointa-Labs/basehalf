@@ -23,6 +23,19 @@
 	user-select: none;
 }
 
+/*
+ * Where a card cannot take its video's shape, the card's own surface shows
+ * around the picture, as around an image's, not a black band (D98).
+ */
+.monaco-workbench .basehalf-canvas-video-player:not(.detail) .basehalf-canvas-video-player-video {
+	background: transparent;
+}
+
+/* Card Detail's player waits unseen for the video's shape when no card measured it, so no box of another shape shows (D98). */
+.monaco-workbench .basehalf-canvas-video-player.detail.sizing {
+	visibility: hidden;
+}
+
 .monaco-workbench .basehalf-canvas-video-player-top,
 .monaco-workbench .basehalf-canvas-video-player-bar {
 	position: absolute;

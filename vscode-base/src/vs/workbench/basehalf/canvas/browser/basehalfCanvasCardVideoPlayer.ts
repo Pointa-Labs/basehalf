@@ -13,7 +13,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { renderBaseHalfItemGlyph } from '../../shell/browser/basehalfItemGlyph.js';
-import { baseHalfCanvasMediaUrl, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
+import { baseHalfCanvasMediaUrl, baseHalfKnownVideoAspect, registerBaseHalfCanvasMediaPause, releaseBaseHalfCanvasCardMedia, rememberBaseHalfVideoAspect } from './basehalfCanvasCardMedia.js';
 import { BaseHalfCanvasVideoSound, BaseHalfVideoSoundGraph } from './basehalfCanvasVideoSound.js';
 
 /** The narrowest picture, in screen pixels, that shows the player's controls (video node, "The player"). */
@@ -247,6 +247,16 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		// On a card the picture is the card's: a press on it selects, moves, and opens the card.
 		if (!detail) {
 			this.video.style.pointerEvents = 'none';
+		}
+		// Card Detail draws its player in the video's shape from its first frame, never a box of another shape (D98):
+		// the shape its card measured, or else the video's own, which it waits for unseen.
+		if (detail && !isSound) {
+			const aspect = baseHalfKnownVideoAspect(this.file);
+			if (aspect !== undefined) {
+				this.element.style.setProperty('--basehalf-video-aspect', String(aspect));
+			} else {
+				this.element.classList.add('sizing');
+			}
 		}
 		// The frame where the video last stopped stands for it, at first its first frame.
 		// Card Detail starts at the frame its card shows, with the sound on.
@@ -488,7 +498,9 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 					if (video.videoWidth > 0 && video.videoHeight > 0) {
 						element.style.setProperty('--basehalf-video-aspect', String(video.videoWidth / video.videoHeight));
 					}
+					element.classList.remove('sizing');
 				}));
+				this._register(addDisposableListener(video, 'error', () => element.classList.remove('sizing')));
 			}
 			// The controls show as a player's do (D98): while the video is paused, the pointer moves over the picture
 			// or rests on a control, or the keyboard is in them; while it plays, they fade once the pointer rests.
@@ -592,6 +604,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		for (const type of ['timeupdate', 'durationchange', 'loadedmetadata', 'seeked'] as const) {
 			this._register(addDisposableListener(video, type, () => this.updateTime()));
 		}
+		// The shape of the video's frame, for Card Detail's player that opens it next (D98).
+		this._register(addDisposableListener(video, 'loadedmetadata', () => rememberBaseHalfVideoAspect(this.file, video.videoWidth, video.videoHeight)));
 		this._register(addDisposableListener(video, 'error', () => this.options.onError()));
 
 		// A press on the controls is theirs: it selects, moves, and opens no card.

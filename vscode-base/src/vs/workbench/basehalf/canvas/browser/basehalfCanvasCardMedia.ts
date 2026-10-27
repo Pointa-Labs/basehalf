@@ -168,6 +168,37 @@ export function baseHalfCanvasMediaUrlAt(resource: URI, version: string | undefi
 	return baseHalfCanvasMediaUrl(version ? resource.with({ query: `basehalfCanvasVersion=${version}` }) : resource);
 }
 
+/** How many videos the window remembers the shape of. */
+const KEPT_VIDEO_ASPECTS = 2000;
+/** The width to the height of the frame of videos the window measured or played, by file, the latest last. */
+const videoAspects = new Map<string, number>();
+
+function videoAspectKey(resource: URI): string {
+	return resource.with({ query: '', fragment: '' }).toString();
+}
+
+/**
+ * Remembers the shape of a video's frame, as a card measured it or a player
+ * loaded it, so that Card Detail draws its player in that shape from its first
+ * frame (generation cards, "The player", D98).
+ */
+export function rememberBaseHalfVideoAspect(resource: URI, width: number, height: number): void {
+	if (!(width > 0) || !(height > 0)) {
+		return;
+	}
+	const key = videoAspectKey(resource);
+	videoAspects.delete(key);
+	videoAspects.set(key, width / height);
+	if (videoAspects.size > KEPT_VIDEO_ASPECTS) {
+		videoAspects.delete(videoAspects.keys().next().value!);
+	}
+}
+
+/** The shape of a video's frame that the window measured or played last, whatever its version, or undefined. */
+export function baseHalfKnownVideoAspect(resource: URI): number | undefined {
+	return videoAspects.get(videoAspectKey(resource));
+}
+
 /**
  * The picture of a card, an image or the frame of a video, copied into a
  * canvas: the card drawn anew for a file written anew, as by an edit in Card
