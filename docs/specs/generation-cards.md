@@ -1495,7 +1495,11 @@ step 6 without downloading again.
 ### Ending without its files
 
 - **The provider refuses** (wrong key, refused content, too many requests):
-  the task fails with the provider's message.
+  the task fails with the provider's message. When a provider of more than
+  one region refuses the credentials at its region's own address, the
+  message names that region and the other one, which the user chooses in
+  Providers ([providers, Choosing a region](providers.md#choosing-a-region),
+  D94).
 - **The outcome is unknown**: the request may have reached the provider, but
   no answer came back. The task fails with a message saying so and asking
   the user to check the provider's console before generating again, since a

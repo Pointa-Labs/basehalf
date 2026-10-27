@@ -3824,3 +3824,60 @@ after a model was chosen from its menu.
 - The catalog, the parameters, what is sent, and what `generation.yaml` and
   `made.yaml` store are unchanged: an image card's mode is still `reference`,
   and `basehalf --list-capabilities` still gives agents each model's count.
+
+## D94 — The region of a provider is the user's choice, and the other region is easy to find (NEW, 2026-10-27)
+
+**Decision.** A provider's region stays the user's choice, and the region
+the catalog lists first stays chosen until the user picks another: China, for
+ByteDance, Kling, Alibaba, MiniMax, and Vidu. BaseHalf makes the other region
+easy to find where it matters. On the Providers page, the region's hint says
+that each region has its own console, keys, and models, and asks for the
+region the user's key comes from; the link to the console of the region
+chosen follows the choice, before the credential fields, so that both are in
+view without scrolling and choosing International changes the link at once.
+When such a provider refuses the credentials at its region's own address, for
+a generation or for the list of a speech model's voices, the message names
+the region the request went to and the other one, and says to choose that
+region in Providers. Nothing is asked, and nothing changes by itself. See
+[providers, Choosing a region](specs/providers.md#choosing-a-region).
+
+**Why.** On 2026-10-27 the user was told that these five providers still
+start in their China region although BaseHalf is not planned for mainland
+China for now, with the recommendation to start them in International. The
+user asked whether the region is not the user's own choice, why there is a
+default at all, and whether Set Up opens China's settings; China first was
+acceptable to them, as long as the design makes International easy to find.
+A window at 1440 × 900 points showed where it was not. Set Up opened the
+provider with China chosen and International one button beside it, under the
+hint "The region sets where requests go and which models are offered.",
+which says nothing of keys. The link to the console, where a key is made, was
+the last part of the page, under the endpoint, out of view without scrolling
+for all five. A key made in the International console and pasted while China
+is chosen is refused at the first generation, since nothing is checked when
+it is saved, and the card said only "The provider refused the credentials:"
+and the provider's words, which name no region.
+
+**What was set aside.**
+- International chosen first, the recommendation: the user keeps China
+  first.
+- No region chosen until the user picks one: a provider would be set up
+  without an address, and Set Up would ask a question before the key.
+- Telling the region from the key by trying it in each region: the key would
+  go to a region the user did not choose.
+- Switching the region by itself after a refusal: the user's choice would
+  change without the user.
+- A console link for each region at once: opening the International console
+  would not choose International, and a key made there would still go to
+  China.
+- An action that opens Providers on a card whose credentials were refused: a
+  failed card has no action for any failure, and its model menu already ends
+  with Providers…, which opens Providers at the card's provider.
+
+**Consequences.**
+- [Providers](specs/providers.md#credentials-regions-and-endpoints): the
+  region, the console link, the credentials, and the endpoint, in this order;
+  the region's hint; and the words of credentials refused in a region.
+- [Generation cards](specs/generation-cards.md#ending-without-its-files): a
+  generation refused for its credentials in a region says so.
+- The catalog, the regions and their order, the stored settings, and what is
+  sent are unchanged.
