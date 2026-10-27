@@ -1,12 +1,13 @@
 # Providers and the model catalog
 
-Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78)
+Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78; the region is the user's choice and the other region is easy to find, 2026-10-27, D94)
 Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
 [D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
-[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25)
+[D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
+[D94](../decisions.md#d94--the-region-of-a-provider-is-the-users-choice-and-the-other-region-is-easy-to-find-new-2026-10-27)
 Related: [generation cards](generation-cards.md),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
@@ -375,23 +376,29 @@ whether it knows it.
 
 Settings has one **Providers** page
 ([BaseHalf's pages in Settings](settings-pages.md) owns how it opens). It
-lists the providers of the catalog. For each:
+lists the providers of the catalog, each with its region under its name when
+it has more than one, and shows the one selected, in this order:
 
-- **Region**, when the provider has more than one. It sets the base URL and
-  which models are offered.
+- Its name, whether it is set up, and its models, by name, under Images,
+  Videos, and Audio, so that the user can tell which provider to get
+  credentials from. A kind the provider has no model of has no line; a model
+  the region does not offer is dimmed and says so.
+- **Region**, when the provider has more than one: a button per region, in
+  the catalog's order, the chosen one marked. Its hint says that each region
+  has its own console, keys, and models, and asks for the region the user's
+  key comes from ([Choosing a region](#choosing-a-region)). The region sets
+  the base URL and which models are offered.
+- A link to the provider's console for the region, named by the provider, and
+  by the region too when the provider has more than one ("Get credentials in
+  the console of OpenAI", "Get credentials in the console of Kling (China)").
+  It comes before the credentials, where the user looks for a key, and
+  changes with the region.
 - **Credentials**: one field per value the provider declares. A value is
   stored encrypted on this computer, never in the workspace, and never shown
   again: the field says whether it is set and offers Replace and Remove.
 - **Endpoint**: the region's base URL unless the user enters another one, an
   `https` URL, or an `http` URL on this computer. It is how a relay or a
   private gateway that mirrors the provider's own API is used.
-- A link to the provider's console for the region, named by the provider, and
-  by the region too when the provider has more than one ("Get credentials in
-  the console of OpenAI", "Get credentials in the console of Kling (China)").
-- The provider's models, by name, under Images, Videos, and Audio, so that
-  the user can tell which provider to get credentials from. A kind the provider has
-  no model of has no line; a model the region does not offer is dimmed and
-  says so.
 
 A provider is set up when every credential value is set. Nothing is checked
 with the provider when values are saved; the first generation tells the user
@@ -436,6 +443,43 @@ video are stored there under `basehalf.video.lastUsed.v2`, for an image
 under `basehalf.image.lastUsed.v1`, and for a sound under
 `basehalf.audio.lastUsed.v1`. A value is visible ASCII without spaces,
 at most 16 KiB.
+
+### Choosing a region
+
+The region of a provider is the user's choice (D94). Until the user chooses,
+it is the first region the catalog lists, since a request needs an address:
+ByteDance, Kling, Alibaba, MiniMax, and Vidu list China first, and
+International second. A key works only in the region whose console made it,
+so BaseHalf shows where the other region is chosen wherever that matters:
+
+- On the Providers page, the region's hint says that each region has its own
+  console, keys, and models, and asks for the region the user's key comes
+  from: "Each region has its own console, keys, and models. Choose the region
+  your key comes from." The choice and the console link of the region chosen
+  come before the credential fields; in Settings at 1440 × 900 points both
+  are in view without scrolling for each of the five providers, the longest
+  list of models among them included. Choosing another region changes the
+  link at once.
+- Credentials that a provider of more than one region refuses at its region's
+  own address are refused in words that name that region and the other one,
+  followed by the provider's own message: "Credentials refused in China. If
+  they are from International, choose that region in Providers:". A
+  provider of more regions says "another region" instead. The words are
+  short so that the two lines a card shows of its error name both regions,
+  for the longest labels too ("China · Volcengine Ark" and "International ·
+  BytePlus ModelArk"). A generation's request says so on its card
+  ([generation cards, Ending without its files](generation-cards.md#ending-without-its-files)),
+  and the list of a speech model's voices in the voice menu, after "The voices
+  could not be loaded:". At an endpoint the user entered, a relay with keys of
+  its own, and for a provider of one region, the words are those of any
+  other refusal: for a generation, "The provider refused the credentials:"
+  and the provider's message, and for the voices, the provider's message. A
+  refusal while BaseHalf asks about a task that the provider accepted names
+  no region: the provider took the credentials there.
+
+Nothing is asked and nothing changes by itself: the region is not chosen for
+the user, not told from the key by trying it in each region, and not switched
+after a refusal.
 
 ## Requests
 
@@ -848,6 +892,18 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     for a parameter that is not listed, only an option passes.
 18. In `lyrics` mode, the prompt reaches the provider as the lyrics and
     `style` as the style, in the fields or the form the provider documents.
+19. For each provider of more than one region, the Providers page shows the
+    region choice with its hint that each region has its own console, keys,
+    and models, and then the link to the console of the region chosen, before
+    the credential fields; in Settings at 1440 × 900 points both are in view
+    without scrolling; choosing another region changes the link at once; and
+    the region first listed is chosen until the user chooses (D94).
+20. Credentials that a provider of more than one region refuses at its
+    region's own address, for a generation or a list of voices, are refused
+    in words that name that region and the other one, both within the two
+    lines a card shows of its error; at an endpoint the user entered, for a
+    provider of one region, and while BaseHalf asks about a task the provider
+    accepted, the words name no region (D94).
 
 ## Verification
 
@@ -899,4 +955,16 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   under `/api/v3`. The tests of the two modules generate against it too, as
   the ByteDance module's do: speech in a voice of the account it lists, and
   two songs with a reference song it takes as an upload.
+- Unit tests of the Providers page for the order of the region, the console
+  link, and the credentials, the region's hint, and the link that changes
+  with the region (criterion 19); of a generation and of a list of voices
+  whose credentials a provider of two regions refuses at its region's
+  address, at an endpoint the user entered, and while a task is asked about,
+  and of a provider of one region (criterion 20). The workbench suite of the
+  smoke reads, for each provider of more than one region, that the region
+  and the console link come before the credentials and are in view on the
+  page; a window at 1440 × 900 points was looked at in both themes, and on
+  2026-10-27 a ByteDance image card generated in each region with a key the
+  region refused, against the local test provider put at both regions'
+  addresses, showed both regions in its two lines.
 - No real provider is called by tests.

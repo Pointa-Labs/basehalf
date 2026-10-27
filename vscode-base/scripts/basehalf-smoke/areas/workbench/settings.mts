@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { root } from '../../context.mts';
-import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION } from '../../lib/providers.mts';
+import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderLayout, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION } from '../../lib/providers.mts';
 import { runCommand } from '../../lib/quickInput.mts';
 import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
 import { waitForReading } from '../../lib/steps.mts';
@@ -108,5 +108,32 @@ export async function assertProvidersPage(page) {
 			throw new Error(`The page must name the models of ${provider} under the one kind it makes, ${expected}: ${JSON.stringify(other.kinds)}`);
 		}
 	}
+	await assertRegionsEasyToFind(providers, rows);
 	await closeProvidersPage(page, providers);
+}
+
+// Providers, criterion 19 (D94): a provider of more than one region shows the
+// region with its hint, then the console of the region chosen, before the
+// credentials, both in view as the provider opens; the region first listed
+// is chosen in a new profile.
+async function assertRegionsEasyToFind(providers, rows) {
+	const hint = 'Each region has its own console, keys, and models. Choose the region your key comes from.';
+	const seen = [];
+	for (const row of rows) {
+		await providers.locator(`.basehalf-video-provider-row[data-provider="${row.id}"]`).click();
+		const editor = await waitForReading(() => readProviderEditor(providers), shown => shown.provider === row.id, `the page to show ${row.id}`);
+		if (editor.regions.length < 2) {
+			continue;
+		}
+		const layout = await readProviderLayout(providers);
+		const order = layout.parts.join(' ');
+		if (!/^heading region console( credential)+ endpoint$/.test(order) || layout.hint !== hint || !editor.regions[0].checked
+			|| layout.scrollTop !== 0 || !layout.regionInView || !layout.consoleInView) {
+			throw new Error(`${row.id} must show its region with the hint, then the console of the region chosen, before the credentials, both in view, with the first region chosen: ${JSON.stringify({ layout, regions: editor.regions })}`);
+		}
+		seen.push(row.id);
+	}
+	if (!seen.includes(SMOKE_PROVIDER)) {
+		throw new Error(`${SMOKE_PROVIDER} has more than one region and must be among the providers checked: ${JSON.stringify(seen)}`);
+	}
 }

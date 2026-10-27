@@ -531,6 +531,27 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 		});
 	});
 
+	test('credentials that a provider of two regions refused at its region\'s address name that region and the other one; another refusal names none (D94)', async () => {
+		providers.voices = () => ({ ok: false, error: { code: 'auth', message: 'The API key is not valid.' } });
+		const first = open({ provider: TWO_REGIONS });
+		await service.refresh(TWO_REGIONS, SPEECH);
+		const refused = status(first.element);
+		first.menu.dispose();
+		settings.regions.set(TWO_REGIONS.id, 'south');
+		const second = open({ provider: TWO_REGIONS });
+		await service.refresh(TWO_REGIONS, SPEECH);
+		const south = status(second.element);
+		second.menu.dispose();
+		providers.voices = () => ({ ok: false, error: { code: 'rateLimited', message: 'Too many requests.' } });
+		const third = open({ provider: TWO_REGIONS });
+		await service.refresh(TWO_REGIONS, SPEECH);
+		assert.deepStrictEqual({ refused, south, busy: status(third.element) }, {
+			refused: 'The voices could not be loaded: Credentials refused in Dunlin. If they are from South, choose that region in Providers: The API key is not valid. [Try Again]',
+			south: 'The voices could not be loaded: Credentials refused in South. If they are from Dunlin, choose that region in Providers: The API key is not valid. [Try Again]',
+			busy: 'The voices could not be loaded: Too many requests. [Try Again]'
+		});
+	});
+
 	test('a provider that had more voices than BaseHalf keeps says so at the end of the list', async () => {
 		const voices = Array.from({ length: 2000 }, (_value, index) => ({ id: `voice-${index}`, label: `Voice ${index}`, own: false }));
 		providers.voices = () => ({ ok: true, value: { voices: [...voices, { id: 'voice-2000', label: 'Voice 2000', own: false }] } });

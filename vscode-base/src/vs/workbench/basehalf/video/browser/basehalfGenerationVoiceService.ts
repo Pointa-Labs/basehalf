@@ -22,7 +22,7 @@ import {
 	BASEHALF_VIDEO_SOUND_FADE_OUT_SECONDS,
 	IBaseHalfVideoSoundLevel
 } from '../../canvas/browser/basehalfCanvasVideoSound.js';
-import { baseHalfVideoGenerateBlockerText, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
+import { baseHalfVideoGenerateBlockerText, baseHalfVideoRefusedInRegion, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, IBaseHalfVideoProviderAccess } from '../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 import {
 	IBaseHalfGenerationVoiceService,
@@ -325,7 +325,7 @@ export class BaseHalfGenerationVoiceService extends Disposable implements IBaseH
 			throw new Error(plainMessage(error) || notAnswered());
 		}
 		if (!isRecord(answer) || answer.ok !== true) {
-			throw new Error(errorOf(answer));
+			throw new Error(errorOf(answer, { provider, access }));
 		}
 		const list = parseBaseHalfVoicesResult(answer.value);
 		if (!list) {
@@ -440,11 +440,19 @@ function unreadable(): string {
 	return localize('basehalf.generation.voices.unreadable', "The provider service answered in a form BaseHalf cannot read.");
 }
 
-/** The message of a refused call of the provider service. */
-function errorOf(answer: unknown): string {
-	return isRecord(answer) && answer.ok === false && isRecord(answer.error) && typeof answer.error.message === 'string' && answer.error.message.trim()
-		? plainMessage(answer.error.message)
-		: unreadable();
+/**
+ * The message of a refused call of the provider service. With the provider
+ * and the access of a list, credentials that a provider of more than one
+ * region refused at its region's own address name that region and the other
+ * one (D94).
+ */
+function errorOf(answer: unknown, refusedIn?: { readonly provider: IBaseHalfVideoCatalogProvider; readonly access: IBaseHalfVideoProviderAccess }): string {
+	if (!isRecord(answer) || answer.ok !== false || !isRecord(answer.error) || typeof answer.error.message !== 'string' || !answer.error.message.trim()) {
+		return unreadable();
+	}
+	const message = plainMessage(answer.error.message);
+	const inRegion = refusedIn && answer.error.code === 'auth' ? baseHalfVideoRefusedInRegion(refusedIn.provider, refusedIn.access, message) : undefined;
+	return inRegion ? plainMessage(inRegion) : message;
 }
 
 /** An error as plain text of at most 1,000 characters, on one line. */

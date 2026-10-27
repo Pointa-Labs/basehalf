@@ -269,6 +269,27 @@ export function baseHalfVideoRegionOffersModel(model: IBaseHalfVideoCatalogModel
 	return typeof model.providerModels[regionId] === 'string' && model.providerModels[regionId].length > 0;
 }
 
+/**
+ * The words of credentials that a provider of more than one region refused at
+ * its region's own address, followed by the provider's message (D94,
+ * providers, "Choosing a region"): the region the request went to, and where
+ * the other one is chosen, since a key works only in the region whose console
+ * made it. They are short, so that the two lines a card shows of its error
+ * name both regions. Undefined for a provider of one region, a region the
+ * catalog does not have, and an endpoint the user entered, a relay with keys
+ * of its own.
+ */
+export function baseHalfVideoRefusedInRegion(provider: IBaseHalfVideoCatalogProvider | undefined, access: Pick<IBaseHalfVideoProviderAccess, 'region' | 'endpoint'>, detail: string): string | undefined {
+	const region = provider?.regions.find(candidate => candidate.id === access.region);
+	if (!provider || !region || provider.regions.length < 2 || access.endpoint !== region.baseUrl) {
+		return undefined;
+	}
+	const others = provider.regions.filter(candidate => candidate !== region);
+	return others.length === 1
+		? localize('basehalf.video.catalog.refusedInRegion', "Credentials refused in {0}. If they are from {1}, choose that region in Providers: {2}", region.label, others[0].label, detail)
+		: localize('basehalf.video.catalog.refusedInRegions', "Credentials refused in {0}. If they are from another region, choose it in Providers: {1}", region.label, detail);
+}
+
 /** The resolutions of the shared names, smallest first, to find a model's largest. */
 /**
  * The `resolution` values of the catalog from the fewest pixels to the most,
