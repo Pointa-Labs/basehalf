@@ -180,7 +180,12 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	focus(): void {
-		this.startHandle.focus({ preventScroll: true });
+		// While viewing, the handles are not there: the keyboard goes to the player's Play.
+		if (this.editing) {
+			this.startHandle.focus({ preventScroll: true });
+		} else {
+			this.options.player.focus();
+		}
 	}
 
 	setChoices(choices: IBaseHalfMediaChoices): void {

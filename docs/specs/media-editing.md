@@ -411,6 +411,10 @@ crop:
   selection; while editing, it goes back to viewing, wherever in Card Detail
   the keyboard is; otherwise it closes Card Detail
   ([opening and closing Card Detail](card-detail-opening.md#the-keyboard)).
+  One press does it after any control was used: going back to viewing takes
+  the keyboard from a control of editing to what viewing has, the picture or
+  Play, and Escape with the keyboard nowhere, on the window's own body, is
+  Card Detail's.
 - **Command+Z** (Control+Z on Windows and Linux) undoes the last step of the
   canvas, a change of an edit among them, and **Shift+Command+Z** redoes it,
   with the keyboard anywhere in Card Detail outside an editor of text
@@ -920,7 +924,9 @@ in Card Detail.
 11. While viewing, Escape closes Card Detail; while editing, it goes back to
     viewing and leaves Card Detail open, also with the keyboard on Done;
     during a drag it puts back what the drag changed and leaves the editor
-    open.
+    open. After a ratio chosen from its menu, Turn Left, and a press on the
+    frame viewer, one Escape goes back to viewing and the next closes Card
+    Detail.
 12. A generated video edited keeps its `made.yaml` byte for byte, and its
     panel and the line under its editor say how it was edited.
 13. Changes, their undo and redo, Revert to Original, and then closing the

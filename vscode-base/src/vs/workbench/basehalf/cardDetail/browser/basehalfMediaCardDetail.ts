@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCardDetailProjections.css';
-import { $, addDisposableListener, append, clearNode, getActiveElement } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, getActiveElement, getWindow } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { disposableTimeout, raceTimeout, RunOnceScheduler } from '../../../../base/common/async.js';
 import { safeIntl } from '../../../../base/common/date.js';
@@ -265,15 +265,32 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		}));
 		// Escape while editing goes back to viewing, wherever in Card Detail the keyboard is; what uses Escape itself takes it first (editing media, "The keyboard").
 		const detail = container.closest('.basehalf-card-detail') ?? container;
+		const plainEscape = (event: KeyboardEvent) => event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+			&& !detail.ownerDocument.fullscreenElement;
 		this._register(addDisposableListener(detail, 'keydown', event => {
 			const editing = this.editingStore.value;
-			if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
-				|| !editing?.isEditing || detail.ownerDocument.fullscreenElement) {
+			if (!plainEscape(event) || !editing?.isEditing) {
 				return;
 			}
 			event.preventDefault();
 			event.stopPropagation();
 			editing.setEditing(false);
+		}));
+		// With the keyboard nowhere, on the window's body, as when a control that it was on went, one Escape still does
+		// what it does in Card Detail: it goes back to viewing, or it closes Card Detail.
+		this._register(addDisposableListener(getWindow(container), 'keydown', event => {
+			const targetDocument = detail.ownerDocument;
+			if (!plainEscape(event) || (event.target !== targetDocument.body && event.target !== targetDocument.documentElement) || !detail.isConnected) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			const editing = this.editingStore.value;
+			if (editing?.isEditing) {
+				editing.setEditing(false);
+			} else {
+				this.onEscape();
+			}
 		}));
 	}
 

@@ -58,6 +58,8 @@ export class BaseHalfMediaEditing extends Disposable {
 	private readonly sessionStore = this._register(new MutableDisposable<DisposableStore>());
 	private readonly editorStore = this._register(new MutableDisposable<DisposableStore>());
 	private editor: IBaseHalfMediaEditor | undefined;
+	/** Where Card Detail gave the editor room. */
+	private stage: HTMLElement | undefined;
 	private line: IEditLine | undefined;
 	/** The editor edits the file; otherwise it views it. */
 	private editing = false;
@@ -157,12 +159,14 @@ export class BaseHalfMediaEditing extends Disposable {
 			return undefined;
 		}
 		this.editor = editor;
+		this.stage = view.stage;
 		editor.setEditing(this.editing);
 		view.stage.classList.add('basehalf-media-editing');
 		store.add(toDisposable(() => {
 			view.stage.classList.remove('basehalf-media-editing');
 			if (this.editor === editor) {
 				this.editor = undefined;
+				this.stage = undefined;
 				this.line = undefined;
 			}
 		}));
@@ -184,12 +188,20 @@ export class BaseHalfMediaEditing extends Disposable {
 
 	/** Goes to editing, as Edit does, or back to viewing, as Done and Escape do; nothing of the file changes. */
 	setEditing(editing: boolean): void {
-		if (!this.editor || editing === this.editing) {
+		const editor = this.editor;
+		if (!editor || editing === this.editing) {
 			return;
 		}
+		// A control of editing that goes with the editing would drop the keyboard to the window's body,
+		// where Escape and Command+Z reach nothing: it goes to what viewing has instead.
+		const targetDocument = this.stage?.ownerDocument;
+		const keyboardInEditor = !!targetDocument?.activeElement && !!this.stage?.contains(targetDocument.activeElement);
 		this.editing = editing;
-		this.editor.setEditing(editing);
+		editor.setEditing(editing);
 		this.renderLine();
+		if (!editing && keyboardInEditor) {
+			editor.focus();
+		}
 		this.onDidChangeEditingEmitter.fire(editing);
 	}
 

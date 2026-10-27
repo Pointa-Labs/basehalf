@@ -243,6 +243,23 @@
 	will-change: transform;
 }
 
+/* The shade under the controls goes across the zoomed picture, not only across the player's box. */
+.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-bar {
+	background: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-bar::before {
+	content: '';
+	position: absolute;
+	z-index: -1;
+	top: 0;
+	bottom: 0;
+	left: -100vw;
+	right: -100vw;
+	background: linear-gradient(to top, rgb(0 0 0 / 50%), rgb(0 0 0 / 22%) 55%, transparent);
+	pointer-events: none;
+}
+
 /*
  * The frame viewer and the line under the editor keep their place over a
  * zoomed picture, as a browser's toolbar does over its page: a band of the

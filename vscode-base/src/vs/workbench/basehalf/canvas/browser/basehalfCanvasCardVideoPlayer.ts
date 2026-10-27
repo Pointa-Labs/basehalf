@@ -385,8 +385,11 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 					this.rangeJump = undefined;
 					if (this.range && !this.video.paused) {
 						if (this.range.once) {
-							// The file plays to its end and stops there, on its last frame.
-							this.pause();
+							// The file plays to its end and stops there, on its last frame, as a video's end stops it:
+							// its sound went down before the end already, and no frame after the part shows.
+							this.video.pause();
+							this.video.currentTime = this.range.lastFrame + RANGE_START_INSIDE;
+							this.updatePlayButton();
 							return;
 						}
 						this.video.currentTime = this.range.start + RANGE_START_INSIDE;
