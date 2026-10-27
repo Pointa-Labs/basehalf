@@ -37,7 +37,9 @@ import {
 	IBaseHalfPoint,
 	IBaseHalfSize
 } from '../common/basehalfImageCrop.js';
-import { baseHalfClampPicturePan, baseHalfPictureMaxZoom, baseHalfZoomFactor, baseHalfZoomPanAround } from '../common/basehalfMediaZoom.js';
+import { isMacintosh } from '../../../../base/common/platform.js';
+import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
+import { BASEHALF_PAGE_AT_REST, baseHalfClampPageZoom, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 
 /**
@@ -96,8 +98,8 @@ interface IDrag {
 	readonly grabX: number;
 	readonly grabY: number;
 	readonly mapping: IMapping;
-	/** Where the part was on screen, off the middle of the view, when a drag of the zoomed view started. */
-	readonly pan: IBaseHalfPoint;
+	/** The zoom of the view when the drag started, which a drag of the zoomed view moves. */
+	readonly page: IBaseHalfPageZoom;
 }
 
 export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaEditor {
@@ -129,10 +131,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private tall = false;
 	private mapping: IMapping = { center: { x: 0, y: 0 }, scale: 1 };
 	private viewSize: IBaseHalfSize = { width: 0, height: 0 };
-	/** How much larger than at rest the view shows the part, from 1. */
-	private zoom = 1;
-	/** Where the middle of the part is on screen, off the middle of the view, while the view is zoomed. */
-	private pan: IBaseHalfPoint = { x: 0, y: 0 };
+	/** The view zoomed as a browser zooms its page, around a pinch (D96). */
+	private page: IBaseHalfPageZoom = BASEHALF_PAGE_AT_REST;
 	private drag: IDrag | undefined;
 	private glideFrame: number | undefined;
 	private keyRest: ReturnType<typeof setTimeout> | undefined;
@@ -350,41 +350,30 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		return { center: { x: state.crop.x, y: state.crop.y }, scale: Math.min(room.width / state.crop.width, room.height / state.crop.height) };
 	}
 
-	/** The mapping of the view: at rest, or zoomed with the part where it was moved to. */
+	/** The mapping of the view: at rest, or the view at rest zoomed as a page, with what was at a point `p` now at `origin + zoom × p`. */
 	private viewMapping(): IMapping {
 		const rest = this.restMapping();
-		if (this.zoom <= 1) {
+		if (this.page.zoom <= 1) {
 			return rest;
 		}
-		const scale = rest.scale * this.zoom;
-		// The middle of the part stands `pan` off the middle of the view.
-		const back = baseHalfRotate({ x: this.pan.x / scale, y: this.pan.y / scale }, -this.state.straighten);
-		return { center: { x: this.state.crop.x - back.x, y: this.state.crop.y - back.y }, scale };
+		// What shows at the middle of the view stood at rest where the zoom takes it from.
+		const middle = { x: (this.viewSize.width / 2 - this.page.origin.x) / this.page.zoom, y: (this.viewSize.height / 2 - this.page.origin.y) / this.page.zoom };
+		return { center: this.toPicture(middle, rest), scale: rest.scale * this.page.zoom };
 	}
 
-	/** The zoomed part covers the view where it is larger than the view, and stays in its middle where it is not. */
-	private clampPan(pan: IBaseHalfPoint, zoom = this.zoom): IBaseHalfPoint {
-		const scale = this.restMapping().scale * zoom;
-		return baseHalfClampPicturePan(pan, { width: this.state.crop.width * scale, height: this.state.crop.height * scale }, this.viewSize);
-	}
-
-	/** Zooms the view to `zoom` around a point of it, which keeps the point of the picture under it. */
-	private zoomAround(at: IBaseHalfPoint, zoom: number): void {
-		const next = Math.max(1, zoom);
-		const moved = baseHalfZoomPanAround(this.pan, { x: at.x - this.viewSize.width / 2, y: at.y - this.viewSize.height / 2 }, next / this.zoom);
-		this.zoom = next;
-		this.pan = next > 1 ? this.clampPan(moved) : { x: 0, y: 0 };
+	/** Zooms the view by `factor` around a point of it, which keeps the point of the picture under it. */
+	private zoomAround(at: IBaseHalfPoint, factor: number): void {
+		this.page = baseHalfZoomPageAround(this.page, at, factor, this.maxZoom(), this.viewSize);
 		this.stopGlide();
 		this.mapping = this.viewMapping();
 		this.render();
 	}
 
 	private resetZoom(): void {
-		this.zoom = 1;
-		this.pan = { x: 0, y: 0 };
+		this.page = BASEHALF_PAGE_AT_REST;
 	}
 
-	/** The largest zoom: the picture at twice its pixels, or as it fits when that is larger already. */
+	/** The largest zoom: 5 times as the picture fits, or twice its pixels when that is more. */
 	private maxZoom(): number {
 		return baseHalfPictureMaxZoom(this.restMapping().scale);
 	}
@@ -415,7 +404,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.viewSize = { width, height };
 		if (!this.drag) {
 			this.stopGlide();
-			this.pan = this.clampPan(this.pan);
+			this.page = baseHalfClampPageZoom(this.page, this.viewSize);
 			this.mapping = this.viewMapping();
 		}
 		this.render();
@@ -523,7 +512,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const target = event.target as Element | null;
 		let what: DragKind | undefined = forced;
 		let anchor: IBaseHalfPoint | undefined;
-		if (!what && this.zoom > 1) {
+		if (!what && this.page.zoom > 1) {
 			// While the view is zoomed in, a drag moves the view.
 			what = { kind: 'pan' };
 		} else if (!what && !this.editing) {
@@ -551,7 +540,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.stopGlide();
 		const at = this.viewPoint(event);
 		const grab = anchor ? this.toScreen(anchor) : at;
-		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, pan: this.pan };
+		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, page: this.page };
 		const capture = what.kind === 'dial' ? this.dial : this.view;
 		try {
 			capture.setPointerCapture(event.pointerId);
@@ -599,7 +588,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 				break;
 			}
 			case 'pan':
-				this.pan = this.clampPan({ x: drag.pan.x + event.clientX - drag.startX, y: drag.pan.y + event.clientY - drag.startY });
+				this.page = baseHalfMovePage(drag.page, { x: event.clientX - drag.startX, y: event.clientY - drag.startY }, this.viewSize);
 				this.mapping = this.viewMapping();
 				break;
 		}
@@ -631,7 +620,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const drag = this.endDrag();
 		if (drag) {
 			this.state = drag.before;
-			this.pan = drag.pan;
+			this.page = drag.page;
 			this.mapping = this.viewMapping();
 			this.render();
 		}
@@ -656,18 +645,32 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	}
 
 	/**
-	 * The wheel, or a pinch, over the picture zooms the view around the
-	 * pointer, from the picture as it fits to twice its pixels; the edit stays
-	 * as it is.
+	 * A pinch, or the wheel with the zoom key, over the picture zooms the view
+	 * around the pointer as a browser zooms its page; a two-finger swipe and
+	 * the wheel move it while it is zoomed in, as on the canvas (D96). The edit
+	 * stays as it is.
 	 */
 	private onWheel(event: WheelEvent): void {
 		if (this.drag) {
 			return;
 		}
+		if (isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+			event.preventDefault();
+			event.stopPropagation();
+			this.settleKeys();
+			this.zoomAround(this.viewPoint(event), baseHalfNoteZoomFactor(event));
+			return;
+		}
+		if (this.page.zoom <= 1) {
+			// As it fits, there is nothing to move.
+			return;
+		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.settleKeys();
-		this.zoomAround(this.viewPoint(event), Math.min(this.maxZoom(), this.zoom * baseHalfZoomFactor(event)));
+		this.page = baseHalfMovePage(this.page, baseHalfWheelMove(event), this.viewSize);
+		this.stopGlide();
+		this.mapping = this.viewMapping();
+		this.render();
 	}
 
 	/** A double click shows the picture as it fits, or, as it fits, at its own pixels around the pointer. */
@@ -677,7 +680,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		this.settleKeys();
 		const ownPixels = 1 / this.restMapping().scale;
-		this.zoomAround(this.viewPoint(event), this.zoom > 1 ? 1 : Math.min(this.maxZoom(), ownPixels > 1 ? ownPixels : this.maxZoom()));
+		const target = this.page.zoom > 1 ? 1 : Math.min(this.maxZoom(), ownPixels > 1 ? ownPixels : this.maxZoom());
+		this.zoomAround(this.viewPoint(event), target / this.page.zoom);
 	}
 
 	// #endregion
@@ -714,7 +718,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		event.stopPropagation();
 		this.frame.classList.add('keyboard');
 		this.stopGlide();
-		if (this.zoom > 1) {
+		if (this.page.zoom > 1) {
 			this.resetZoom();
 			this.mapping = this.restMapping();
 		}
@@ -874,7 +878,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.dial.setAttribute('aria-valuetext', this.dialValue.textContent);
 		this.dial.classList.toggle('turned', shown !== 0);
 		// While the view is zoomed in, the frame does not show, and a drag moves the view.
-		this.element.classList.toggle('zoomed', this.zoom > 1);
+		this.element.classList.toggle('zoomed', this.page.zoom > 1);
 		// While the part is the whole picture, a drag inside it moves nothing.
 		this.element.classList.toggle('whole', !choices.crop && !straighten);
 	}

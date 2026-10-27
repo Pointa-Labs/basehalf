@@ -578,8 +578,11 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			hoverService: this.hoverService
 		}));
 		if (!sound) {
-			// A pinch or the wheel over the picture zooms it (editing media, "Zooming the picture and the time").
-			store.add(new BaseHalfVideoPictureZoom(player.element, player.video));
+			// A pinch zooms the place under the fingers over the media area, as a browser zooms its page, and a swipe
+			// moves it; over the frame viewer and the line under the editor a gesture is theirs (editing media,
+			// "Zooming the picture and the time").
+			store.add(new BaseHalfVideoPictureZoom(player.element, player.video, this.webviewHost,
+				target => target instanceof Element && !!target.closest('.basehalf-video-frames, .basehalf-media-edit-line')));
 		}
 		if (session) {
 			this.editingStore.value?.show({ stage, player });
