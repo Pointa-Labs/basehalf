@@ -90,6 +90,13 @@ Not in scope, and unchanged:
     a click on it does, and nothing more. On the box itself they open the
     search.
 
+### A drop
+
+11. A folder button takes cards dragged from the canvas. While the pointer is
+    over it with cards, it shows the canvas's intent color around its name,
+    and cards let go there move into its folder. The current place and "…"
+    take nothing ([dropping into a folder](canvas-drop-into-folder.md)).
+
 ## States and failure
 
 - **The search is open.** The box is hidden, and the search is in its

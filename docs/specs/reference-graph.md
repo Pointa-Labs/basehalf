@@ -977,7 +977,8 @@ name it. It does not ask and shows nothing
 ([following moved items](following-moved-items.md#entries-are-always-updated)).
 This holds for a move through the workbench and for a move outside it that
 BaseHalf recognized. A workbench move is any `IWorkingCopyFileService` move:
-Explorer, canvas rename, drag-move, and paste-move. Undo and redo of a move
+Explorer, canvas rename, drag-move, paste-move, and a drop into a folder
+([dropping into a folder](canvas-drop-into-folder.md)). Undo and redo of a move
 are moves and follow the same rules.
 
 - **Planning.**
