@@ -640,8 +640,8 @@ in Card Detail.
   white frame with thick corners and a handle in the middle of each side. It
   shows while the pointer is over the picture or the keyboard is on the
   frame, and fades out otherwise. While a corner, a side, or the picture is
-  dragged, the dimmed rest grows darker and lines divide the part into
-  thirds.
+  dragged, the dimmed rest grows lighter, to show what the drag can take in,
+  and lines divide the part into thirds.
 - While editing, under the picture, a row of tools, from left to right:
   **Turn Left**, **Flip**, **Ratio**, and the **Straighten** dial. Revert to
   Original, in the line under them, sets everything back.
