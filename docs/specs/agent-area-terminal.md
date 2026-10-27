@@ -514,3 +514,17 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
     Agent Area terminal, at three widths of the pane and with the sidebar
     shown and hidden, leaves no pixel of the theme's terminal background
     between its grid and the pane's border, and a shell looks as before.
+
+    Recorded 2026-10-27 at a scale factor of 2, with the agent painting
+    rgb(10, 10, 10), and rgb(255, 255, 255) under a light terminal
+    background: at pane widths of 289, 349, 469, 482, 519, and 769 px, the
+    last with the sidebar hidden, a pixel row from the grid's last column to
+    the pane's border and a pixel column under the grid held only the
+    program's color, with 2 or 7 px left beside the grid and 13 px under it.
+    In a shell, a line colored to its last column reached both edges, the
+    other rows and the space above and under the grid kept the default
+    background, and the scrollbar showed over the last column at the pane's
+    edge. Claude Code kept edges of the default background, and a full-width
+    panel of Codex reached the edges. With every row in a new color at about
+    120 frames a second, the edges took 9 ms of the window's 593 ms of work
+    over 4.6 s, and frames came at a median of 8.3 ms.
