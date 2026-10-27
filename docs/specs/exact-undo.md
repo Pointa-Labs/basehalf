@@ -1,7 +1,8 @@
 # Exact undo
 
-Status: Active (2026-10-25)
-Decision: [D82](../decisions.md#d82--a-delete-on-the-canvas-asks-nothing-and-undo-brings-back-exactly-what-a-step-took-new-2026-10-25)
+Status: Active (2026-10-25; Command+Z in an editor of text, 2026-10-27)
+Decision: [D82](../decisions.md#d82--a-delete-on-the-canvas-asks-nothing-and-undo-brings-back-exactly-what-a-step-took-new-2026-10-25);
+the editors of text, D89
 Related: [canvas Create menu](canvas-create-menu.md) (New Folder and its
 undo), [canvas card placement](canvas-card-placement.md) (rows),
 [generation cards](generation-cards.md#deleting) (drafts),
@@ -14,7 +15,8 @@ deleted item), [workspace state](workspace-state-and-legacy-cleanup.md#what-base
 
 **What BaseHalf changes in the user's files is one step of undo, and undo
 puts back exactly what the step took. A delete on the canvas happens at
-once and asks nothing.**
+once and asks nothing, and so does undo: an editor of text undoes what was
+done in editors, and leaves the steps of other places to them.**
 
 BaseHalf builds on the undo history of VS Code, which the canvas already
 uses. It adds no history of its own. What it adds is a place where a step
@@ -65,6 +67,20 @@ Measured on 2026-10-25 in a development window, with the Trash on:
   first fix, in Files alone, took every move to a place Files does not show
   as a delete; for a change in place it removed the file's row and put it
   back, while the file never left its place.
+- **Command+Z in an editor of text asked about a step of another place**
+  (measured on 2026-10-27). After a rename of a note on the canvas, typing in
+  its editor on the card, and Command+Z twice, a dialog of the system asked
+  "Would you like to undo 'Rename Groceries.md to Shopping.md'?", and the
+  editor waited for the answer: it could not be closed, and the window could
+  not reload. A resize while typing did the same (D89). VS Code asks when the
+  undo of a file in an editor reaches a step that another place made, and the
+  steps that name a file the user edits were in that file's own history:
+  renames and moves on the canvas and in Card Detail, the resizes and moves
+  of cards until D89, and the connections of a file that is no note, which
+  keep the file's list in its card information. The undo of an edit across
+  files that an editor's own command made, such as a rename of a symbol,
+  asked "Would you like to undo 'Rename' across all files?", with the
+  choice of this file only.
 
 ## Goals
 
@@ -93,6 +109,8 @@ In scope:
 - A step that changes the bytes of files in place, for features such as
   trimming.
 - Cmd+Z and Shift+Cmd+Z while Card Detail is open.
+- Cmd+Z and Shift+Cmd+Z in an editor of text: the editor of a note on its
+  card, and the editors of Card Detail.
 - What the rest of the window is told of these steps: Files in the sidebar,
   open editors, and the history of Back and Forward.
 
@@ -101,7 +119,8 @@ Not in scope, and unchanged:
 - The delete and the undo of Files in the sidebar. Its delete asks, as VS
   Code's does, and its undo is VS Code's. It can take the kept versions
   later.
-- The undo of text in a note's editor and in Card Detail's editors.
+- What the undo of text in a note's editor and in Card Detail's editors
+  does with the text.
 - Moves and renames. Their undo is exact already.
 - A generation. It is not undone
   ([generation cards](generation-cards.md#moving-renaming-copying-and-undo)).
@@ -291,6 +310,31 @@ Not in scope, and unchanged:
   changes nothing, as the other steps do: "'shot.mp4' changed meanwhile.
   Undo did not change it." and "'shot.mp4' is not there any more."
 
+### Undo in an editor of text
+
+- Cmd+Z and Shift+Cmd+Z in an editor of text undo and redo what was done in
+  editors, and nothing else. That is the editor of a note on its card, and
+  the editors of Card Detail: the source of a note and the editor of a text
+  or code file.
+- A step made outside the editors is left to the place that made it: a step
+  of the canvas, of Files, of Card Detail's header, or of a service of
+  BaseHalf. Such a place keeps an undo of its own, which VS Code knows as the
+  source of the step. When it is the next step of the editor's file that
+  way, the keys do nothing in the editor, and nothing asks; Cmd+Z on the
+  canvas, and in Card Detail with the keyboard out of its editors, reaches
+  it, as above.
+- A step that an editor's own command made across several files, such as a
+  rename of a symbol, a code action, or the rename of a heading or a link
+  across notes, is the editor's: Cmd+Z and Shift+Cmd+Z in an editor of any
+  of those files undo and redo it in every file it changed, and nothing
+  asks. VS Code asked whether to undo it "across all files" or in this file
+  only.
+- The rich editor of Card Detail keeps its own history of the document,
+  which never held the steps of other places.
+- Until 2026-10-27, VS Code asked "Would you like to undo …?" when the undo
+  of an editor reached a step made outside the editors, and the editor
+  waited for the answer ([Problem](#problem)).
+
 ## Failure
 
 - A move into the kept versions that fails changes nothing that was not
@@ -337,6 +381,14 @@ Not in scope, and unchanged:
     where it is: in no frame is it gone.
 17. The window is told a delete, a creation, or a write for each item of a
     step, and never a move into or out of the kept versions.
+18. After a rename of a note on the canvas, typing in its editor on the
+    card, and Cmd+Z past the typing, nothing asks: the note keeps its new
+    name, the editor goes on, and Escape closes it at once. Shift+Cmd+Z there
+    does not redo a step of the canvas either. The same holds in the source
+    editor of Card Detail.
+19. A rename made with an editor's own command across two files is undone
+    by Cmd+Z in the editor of either file and redone by Shift+Cmd+Z, in both
+    files, and nothing asks.
 
 ## Verification
 
@@ -352,6 +404,20 @@ Not in scope, and unchanged:
   now and keeps its bytes.
 - Unit test of VS Code's undo service: one undo of a source takes back a
   group of steps of that source and asks nothing.
+- Unit tests of VS Code's undo service: an undo or a redo by resource leaves
+  an element of a source and asks nothing; an undo by resource of an element
+  that can be split takes it back in every file and asks nothing.
+- Unit tests of the editors of text, through the Undo and Redo commands of a
+  code editor: a rename of the canvas is left and nothing asks, and the
+  editor's own text is still undone (criterion 18); a rename across files
+  without a source is undone and redone and nothing asks (criterion 19).
+- Smoke, canvas suite: `canvas-note-undo-asks-nothing` renames a note,
+  types in its editor on the card, presses Cmd+Z past the typing, and
+  closes the editor with Escape (criterion 18); with the editor's undo of
+  before, the editor waited for the question and did not close. The source
+  editor of Card Detail was checked in the window on 2026-10-27 after a
+  rename of a code file: one Cmd+Z undid the typing, the next one left the
+  rename, and nothing asked.
 - Smoke, canvas suite: a step that deletes with the menu, the toolbar, and
   the key, a set of a file, a folder, and a draft among them, watches every
   frame for a dialog, and undoes and redoes; the steps that deleted with the

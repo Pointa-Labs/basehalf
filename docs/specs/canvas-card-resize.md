@@ -1,9 +1,10 @@
 # Canvas card resize
 
 Status: Active (2026-10-09; which cards resize, 2026-10-23; PDFs and books,
-2026-10-25)
+2026-10-25; a Note that is being edited, 2026-10-27)
 Related: [roadmap](../roadmap.md) tracks 2 and 9,
-[architecture invariants](../harness/architecture-invariants.md)
+[architecture invariants](../harness/architecture-invariants.md),
+public decisions D66 and D89
 
 ## Problem
 
@@ -20,12 +21,17 @@ own layer took the pointer in the empty corners outside the card's outline,
 because Chromium hit testing ignores a rounded overflow clip for such layers.
 A press on a card that had keyboard focus also ended the resize session at once.
 
+A Note that was being edited on its card had no resize controls at all. To
+make it larger while writing, the user ended the editing, resized the card,
+and double-clicked again, which put the caret at that double click, not
+where the typing had been (reported on 2026-10-27).
+
 ## Scope
 
 In scope: which cards resize; the hit geometry, cursor, and visible
 affordance of the resize controls that the canvas scene renders for a
-selected card; and the sizes and placements those controls use at every
-canvas zoom.
+selected card; the sizes and placements those controls use at every
+canvas zoom; and resizing a Note while it is being edited.
 
 Not in scope, and unchanged:
 - The resize gesture itself: minimum size 140 × 48 flow pixels, the corner
@@ -55,12 +61,15 @@ circles.
 
 ### Which cards resize
 
-- Resize controls exist only when exactly one card is selected, it is not a
-  Note being edited, video input picking is not active, and it is a card
-  that shows text or a folder: the card of a note, of another text or code
-  file, of another file, or of a folder
-  (`baseHalfCanvasSceneShowsResizeControls`). Hovering a card that is not
-  selected shows no resize affordance.
+- Resize controls exist only when exactly one card is selected, video input
+  picking is not active, and it is a card that shows text or a folder: the
+  card of a note, of another text or code file, of another file, or of a
+  folder (`baseHalfCanvasSceneShowsResizeControls`). Hovering a card that is
+  not selected shows no resize affordance.
+- A Note that is being edited on its card keeps its resize controls
+  ([While a Note is edited](#while-a-note-is-edited)). It is the one card
+  that is edited on the canvas: a double click on another text or code card
+  opens it.
 - The card of an image, a video, or a sound has no resize controls, as in
   the canvas products for media work, whose text nodes resize and whose
   image, video, and audio nodes do not (checked on 2026-10-23). An image and
@@ -135,6 +144,44 @@ controls are absent. At most one indicator is visible at a time.
 Indicators fade in and out over at most 120 ms. With
 `prefers-reduced-motion: reduce`, they change without a transition.
 
+### While a Note is edited
+
+A Note that is being edited on its card resizes as it does at rest, from the
+double click that begins the editing to whatever ends it: the same corner and
+side targets, cursors, and indicators. Nothing of them appears or disappears
+when the editing begins or ends; at rest they paint nothing, so no frame
+shows resize chrome over the text.
+
+- A press on a resize target leaves the keyboard in the editor. The editing
+  goes on through the gesture and after it: the caret and the selection stay
+  where they were, an input method's composition stays open, the editor
+  stays scrolled where it was as far as its new size allows, and the
+  editor's own undo history is as it was. The next letter typed goes where
+  the caret was.
+- The text reflows while the edge moves, since the editor is as wide as the
+  card.
+- The size is saved after pointer-up, as at rest: one step of the canvas
+  undo, and no part of the editor's. While the keyboard is in the editor,
+  Command+Z and Shift+Command+Z undo and redo its text, as in every editor
+  of text ([exact undo](exact-undo.md#undo-while-card-detail-is-open)); once
+  the editing has ended, Command+Z on the canvas puts the size back, also
+  when the text typed after the resize stays.
+- The step of a move or a resize belongs to the layout alone, not to the
+  undo of the cards' files. Until 2026-10-27 it was part of the undo of each
+  card's file too, so Command+Z in the editor right after a resize reached it
+  and asked "Would you like to undo 'Move or resize canvas cards'?", and the
+  editor waited for the answer.
+- Text that the editor saves while the edge moves goes to the note, and the
+  size to `canvas.yaml`; neither waits for the other or changes it.
+- Escape during the gesture ends the editing, as it does at any time, and
+  the resize goes on: Escape does not cancel a resize at rest either.
+- The card keeps the look it has while it is edited, and its connection
+  handles stay hidden
+  ([connection handles](canvas-connection-handles.md#scope)). Within the
+  corner band's inner strip, 8 screen pixels inside the rounded edge, the
+  band takes the pointer from the text, as it takes it from the content of a
+  card at rest.
+
 ## Gesture, failure, and recovery
 
 A press on a corner band starts the same resize session as before. A press and
@@ -149,9 +196,11 @@ has keyboard focus, and the press itself moves focus off the card. That
 element blur must not settle the session. Before this specification, it did,
 so a resize that started on a focused card ran without its session state.
 
-When a Note enters editing, its resize controls disappear and stop taking
-pointer events from the same synchronous state change, before the scene's next
-render.
+Beginning or ending the editing of a Note changes nothing of its resize
+controls, and the controls change nothing of the editing: a press on them
+neither ends the editing nor moves the keyboard. Until 2026-10-27 the
+controls of a Note disappeared when its editing began, from the same
+synchronous state change, before the scene's next render.
 
 ## Compatibility
 
@@ -182,8 +231,10 @@ radius, so every kind of card gets the same targets.
    on disk and leaves no resizing state.
 7. Dragging a corner band resizes the card live. The new size persists only
    after pointer-up, and dragging back restores the original size.
-8. A Note in editing, a multi-card selection, and active video input picking
-   show no resize targets or indicators.
+8. A multi-card selection and active video input picking show no resize
+   targets or indicators. A Note in editing has the four corner targets and
+   the four side targets of criteria 1–3 and 10, and shows no indicator at
+   rest.
 9. The target band and the indicator keep their screen-pixel sizes at zoom
    0.2, 0.5, 1, 2, and 4, and stay concentric with the corner arc. The
    indicator covers 20° to 70° of the sector at every zoom.
@@ -191,6 +242,22 @@ radius, so every kind of card gets the same targets.
 11. A selected image, video, sound, PDF, or book card, a generation card
     among them, shows no resize targets or indicators. A selected note,
     other file, or folder card shows them.
+12. While a Note is edited, dragging its bottom-right band, with the caret
+    in the middle of a word, resizes the card live and reflows its text.
+    During the gesture and after pointer-up the editor stays open with the
+    keyboard in it and the caret where it was, and letters typed then go
+    there. The note file holds exactly the text typed.
+13. A resize during an open input-method composition leaves the
+    composition open, and ending the composition after it puts its text at
+    the caret.
+14. After typing and then a resize while editing, Command+Z undoes the
+    typing, asks nothing, and leaves the size. After the editing has ended,
+    Command+Z on the canvas puts the size of `canvas.yaml` and of the card
+    back, also when text typed after the resize stays, and Shift+Command+Z
+    makes it again.
+15. In every frame of entering the editing of a selected Note, and while it
+    lasts, its resize targets stay in place and nothing paints over its
+    text.
 
 ## Verification
 
@@ -202,7 +269,13 @@ radius, so every kind of card gets the same targets.
   side target (criteria 1–5 and 10). The docs-card restore starts with the card
   focused and shrinks it to its minimum size mid-gesture (criterion 5). The
   docs-card flow resizes by pressing on the bottom-right band (criteria 6–7).
-  The existing Note editing frames check criterion 8.
+  The Note editing frames check criteria 8 and 15, and
+  `canvas-note-resize-while-editing` resizes a Note being edited from its
+  bottom-right band, types, undoes, resizes during a composition that it
+  drives over the debugging protocol, and undoes the sizes on the canvas
+  (criteria 12–14). The real window was checked on 2026-10-27 for a canvas
+  undo of the size while the text typed after the resize stays, and for a
+  120 KiB note, which resizes at the display rate.
   `video-picture-cards-keep-their-shape` selects a note, an image, and a video
   draft (criterion 11). The other kinds were checked in the real window on
   2026-10-23 ([canvas card placement](canvas-card-placement.md#verification)).

@@ -219,10 +219,6 @@ export function reverseCanvasStateTransition(transition: IBaseHalfCanvasStateTra
 	};
 }
 
-export function uniqueUris(resources: readonly URI[]): readonly URI[] {
-	return [...new Map(resources.map(resource => [resource.toString(), resource])).values()];
-}
-
 export function roundCanvasPosition(value: number): number {
 	return Number(value.toFixed(2));
 }

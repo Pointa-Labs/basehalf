@@ -540,18 +540,20 @@ suite('BaseHalfCanvasReactScene', () => {
 	});
 
 	test('projects selection separately from single-card resize controls', () => {
+		// A Note being edited shows no selection outline over its text.
 		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(false, false), false);
 		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(false, true), false);
 		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(true, false), true);
 		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(true, true), false);
 
-		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 1), true);
-		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 2), false);
-		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, true, 1), false);
-		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(false, false, 1), false);
-		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 1, true), false);
+		// It keeps its resize controls all the same: they take nothing from the
+		// editing (canvas card resize, "While a Note is edited").
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, 1), true);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, 2), false);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(false, 1), false);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, 1, true), false);
 		// The card of an image, a video, or a sound keeps its shape (canvas card resize, "Which cards resize").
-		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 1, false, true), false);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, 1, false, true), false);
 		assert.deepStrictEqual(baseHalfCanvasSceneVideoInputPickGesturePolicy(true), {
 			nodesDraggable: false,
 			nodesResizable: false,

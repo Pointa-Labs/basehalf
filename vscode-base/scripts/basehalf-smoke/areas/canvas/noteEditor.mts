@@ -42,7 +42,7 @@ import { waitUntil } from '../../lib/steps.mts';
 
 const CANVAS_MALFORMED_EMPHASIS_NEEDLE = '异常茂盛**，';
 
-async function placeCanvasInlineCaretAfter(editable, token) {
+export async function placeCanvasInlineCaretAfter(editable, token) {
 	await editable.evaluate(async (root, expectedToken) => {
 		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 		let node;
@@ -800,11 +800,13 @@ export async function assertCanvasNoteInlineWysiwygEditor(page) {
 	assertCanvasCardPaintEqual(selectedNoteChrome.cardPaint, editingChrome.cardPaint, 'selected-to-editing transition');
 	if (editingChrome.cardSelected
 		|| editingChrome.paintedResizeLines !== 0
-		|| editingChrome.visibleResizeHandles !== 0
-		|| editingChrome.interactiveResizeHandles !== 0
+		|| editingChrome.resizeHandles.some(handle => handle.indicatorVisible)
 		|| editingChrome.liveConnectionHandles !== 0) {
 		throw new Error(`Editing a Note exposed structural selection chrome: ${JSON.stringify(editingChrome)}`);
 	}
+	// It keeps its resize targets, which paint nothing at rest (canvas card
+	// resize, "While a Note is edited").
+	assertCanvasCardHasRoundedCornerResizeTargets(editingChrome, 'active Note editing');
 	const editingCardBox = await note.boundingBox();
 	if (!staticCardBox || !editingCardBox
 		|| Math.abs(staticCardBox.width - editingCardBox.width) > 1
