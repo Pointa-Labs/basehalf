@@ -5,6 +5,7 @@
 
 import { Event } from '../../../../base/common/event.js';
 import { IDisposable } from '../../../../base/common/lifecycle.js';
+import { URI } from '../../../../base/common/uri.js';
 import { BrandedService, IConstructorSignature } from '../../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
@@ -42,6 +43,16 @@ export interface IBaseHalfCanvasMovedCard {
 	readonly path: string;
 	readonly before: IBaseHalfCanvasCard;
 	readonly after: IBaseHalfCanvasCard;
+}
+
+/** What a feature does with what the user lets go on a folder (IBaseHalfCanvasView.takeFolderDrops). */
+export interface IBaseHalfCanvasFolderDrops {
+	/**
+	 * Moves (`move`) or copies (`copy`) these items into `folder` (dropping
+	 * into a folder): a move is one step of the canvas undo, drafts included.
+	 * Throws with a reason in plain words when they cannot go there.
+	 */
+	drop(resources: readonly URI[], folder: URI, operation: 'move' | 'copy'): Promise<void>;
 }
 
 /**
@@ -144,6 +155,14 @@ export interface IBaseHalfCanvasView {
 	 * chosen is again one it chose. Nothing happens when another canvas is shown.
 	 */
 	restoreCardPlaces(sceneKey: string, rows: ReadonlyMap<string, IBaseHalfCanvasCard>, undoLabel: string): Promise<void>;
+
+	/**
+	 * Hands what the user lets go on a folder to `drops` (dropping into a
+	 * folder): cards of the canvas let go on a folder's card or on a folder of
+	 * the path in the title bar, and items from Files or files from outside the
+	 * window let go on a folder's card. Disposing the result stops it.
+	 */
+	takeFolderDrops(drops: IBaseHalfCanvasFolderDrops): IDisposable;
 
 	/** Closes the note that is being edited on its card, as a click elsewhere does. False when it stays open. */
 	closeNoteEditor(): Promise<boolean>;

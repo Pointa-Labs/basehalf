@@ -231,7 +231,10 @@ export class BaseHalfCanvasGeometry {
 					// Over a layout that could not be read in full they could not be saved
 					// before. This write made it readable.
 					await this.view.chosenCanvasPlaces.saveWithUserChange(folder, lease);
-				}
+				},
+				// A change elsewhere, also of another card of this canvas, leaves the
+				// gesture as it was (canvas card interaction continuity).
+				this.view.sceneStampPaths(queuedFolder, requested.map(geometry => geometry.path))
 			);
 		} catch (error) {
 			// The scene returns the cards to their saved positions; say why.
@@ -360,7 +363,8 @@ export class BaseHalfCanvasGeometry {
 					reverted = { cards };
 					await this.view.canvasMirrorService.transitionCanvasState(folder, reverted, lease);
 				}
-			}
+			},
+			this.view.sceneStampPaths(folder, [...previous.keys()])
 		);
 		const transition = reverted;
 		if (transition?.cards) {

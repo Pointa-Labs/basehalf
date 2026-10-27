@@ -1,6 +1,6 @@
 # Canvas card interaction continuity
 
-Status: Active (2026-10-10; 2026-10-24: a change of connections keeps the cards)
+Status: Active (2026-10-10; 2026-10-24: a change of connections keeps the cards; 2026-10-27: a change elsewhere in the workspace keeps the gesture)
 Related: [canvas card resize](canvas-card-resize.md),
 [canvas connection handles](canvas-connection-handles.md)
 
@@ -72,6 +72,33 @@ in place. The card is built anew as before when anything else it shows
 changes, its issue count included, and while its badge face is open, since
 the face lists the connections.
 
+### A change elsewhere in the workspace
+
+Added 2026-10-27 ([D88](../decisions.md#d88--cards-let-go-on-a-folder-go-into-it-new-2026-10-27)).
+Every gesture on the canvas carried the generation of the workspace's
+structure at which its cards were drawn, and the workbench refused a gesture
+whose generation was not the latest. So any move, rename, or delete in the
+workspace through the workbench ended every gesture that began before the
+canvas was drawn again. Measured on 2026-10-27 with renames in Files: a drag
+let go right after one went back to its place (3 of 3), a drag held while
+one happened went back (2 of 2), and the first click on empty canvas after
+one was lost (3 of 3). A drop into a folder
+([dropping into a folder](canvas-drop-into-folder.md)) is such a move, and
+the drag right after it would fail the same way.
+
+A gesture is refused only when a change since its cards were drawn touched
+what it acts on: the shown folder or a folder above it, or a card that it
+moves, resizes, selects, connects, opens, edits, or names. A move, a rename,
+or a delete of anything else leaves it as it was, also of another card of
+the same canvas. A change that is under way and touches what it acts on
+refuses it, as before.
+
+- A selection that the workbench allowed is shown, also when the canvas was
+  drawn again in between. A card that is gone is left out of it.
+- The generation that the canvas keeps for its features follows every
+  drawing of the scene, also a drawing of the layout alone or of the cards'
+  contents.
+
 ## Acceptance criteria
 
 1. While the element a new one replaces is in the document, a listener on the
@@ -88,6 +115,12 @@ the face lists the connections.
 6. A connection drawn or removed between two cards keeps both cards'
    elements, pictures, and video players; their badge toggles say the new
    number of connections. A card whose badge face is open is built anew.
+7. Right after a rename or a move in Files, of an item in another folder or
+   of another card of the same canvas, a drag of a card stays where it is let
+   go, and the first click on empty canvas ends the selection.
+8. A drag that is held while such a change happens stays where it is let go.
+9. A change that touches the card itself, or the shown folder, still refuses
+   the gesture, and the card is drawn at its saved place.
 
 ## Verification
 
@@ -95,3 +128,8 @@ the face lists the connections.
 - The BaseHalf smoke covers criterion 5.
 - A unit test of the canvas renderer's reuse rule and the smoke's Pick on
   Canvas step cover criterion 6.
+- A unit test of the workspace mutation coordinator covers criteria 7–9 for
+  the check: a change elsewhere leaves a gesture's stamp current for its
+  paths, and a change of one of them, of a folder above them, or one under
+  way does not. The smoke's `canvas-drop-into-folder` step covers criteria 7
+  and 8 in the window, with a rename in Files.

@@ -15,6 +15,7 @@ import {
 	assertCanvasNumericFolderNames
 } from './areas/canvas/creation.mts';
 import { assertDocumentCardsShowCovers, assertDocumentCoverHidesAndShows } from './areas/canvas/documents.mts';
+import { assertCanvasDropIntoFolder } from './areas/canvas/dropIntoFolder.mts';
 import { assertCanvasExactUndo, assertFilesFollowCanvasDeletes } from './areas/canvas/exactUndo.mts';
 import { assertCanvasEdgeFollowsCardDragLive, assertCanvasEdgeHalfReconnect, assertCanvasEdgeLetGoOnEmptyCanvas, assertEdgeDeleteRemovesReference, assertEdgeDeleteScopedToCanvas } from './areas/canvas/edges.mts';
 import { assertCanvasCardFollowsOutsideRename, assertCanvasCardsFollowManyOutsideRenames, assertCanvasFollowsRenamedOpenFolder } from './areas/canvas/followRenames.mts';
@@ -187,6 +188,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-selection-and-arrangement', () => assertCanvasSelectionAndArrangement(page));
 	await step('canvas-marquee-selects-connections', () => assertCanvasMarqueeSelectsConnections(page));
+	await step('canvas-drop-into-folder', () => assertCanvasDropIntoFolder(page));
 	await step('agent-sees-selection', () => assertAgentSeesSelection(page));
 	await step('note-that-cannot-hold-a-list', () => assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page));
 	await step('canvas-document-cards-show-covers', () => assertDocumentCardsShowCovers(page));

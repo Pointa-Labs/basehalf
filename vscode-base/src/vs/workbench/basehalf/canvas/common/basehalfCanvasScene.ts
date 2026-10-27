@@ -5,6 +5,7 @@
 
 import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind } from './basehalfCanvasModel.js';
 import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
+import type { BaseHalfCanvasDropFolder } from './basehalfCanvasFolderDrop.js';
 import type { BaseHalfMarkdownFormatCommand, IBaseHalfMarkdownFormatState } from '../../markdown/common/basehalfMarkdownFormatting.js';
 
 export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
@@ -366,6 +367,8 @@ export interface IBaseHalfCanvasSceneDelegate {
 	/** Disconnects every one of `edges` as one step of undo. */
 	removeEdges(sceneKey: string, structuralEpoch: number, edges: readonly IBaseHalfCanvasSceneEdge[]): Promise<void>;
 	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;
+	/** Moves the items of the cards at `paths`, which the user let go on `folder`, into it (dropping into a folder). Rejects with the reason when nothing could be moved. */
+	dropCardsIntoFolder(sceneKey: string, structuralEpoch: number, paths: readonly string[], folder: BaseHalfCanvasDropFolder): Promise<void>;
 	cancelPendingCardOpen(): void;
 	prepareSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean>;
 	/** The selected cards after the selection changed, whatever changed it:

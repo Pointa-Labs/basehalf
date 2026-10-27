@@ -409,7 +409,7 @@ group whose slot is taken.
 | Generate from a generation card that has its file, in the window or with `basehalf --generate` | computed: 40 to the right of the original card, for the new draft ([generation cards](generation-cards.md#generating-again)) |
 | Generate several images at once | computed: the drafts of the further images in a row to the right of the card the generation runs on, each 40 to the right of the one before ([generation cards](generation-cards.md#several-images-from-one-generation)) |
 | Drop, paste, or move files and folders onto the canvas at a point | for the item at position *i* of *n*: slot *i* of a block of cells that starts at the point and has as many columns as the square root of *n*, rounded up, and at most 4 |
-| Anything else: a file that a program or an agent adds, a card that is dragged onto a folder card, a move in the file tree, a move outside BaseHalf | none |
+| Anything else: a file that a program or an agent adds, a card or an item that is dropped on a folder's card or on a folder of the path ([dropping into a folder](canvas-drop-into-folder.md)), a move in the file tree, a move outside BaseHalf | none |
 
 A group that is dropped at a point keeps its block where the block is open.
 The cards whose slots are open take them first. Then the others, in order,
@@ -454,6 +454,10 @@ the view goes to a card that is out of sight all the same.
 
 - A card the user drags or resizes is saved where they left it, also on top
   of another card. Its row becomes the user's. No other row changes.
+- A card let go with the pointer on a folder's card or on a folder of the
+  path goes into that folder, and one let go outside the canvas anywhere
+  else goes back to its place
+  ([dropping into a folder](canvas-drop-into-folder.md)).
 - A gesture that ends where it began changes nothing: a place BaseHalf chose
   stays one BaseHalf chose.
 - Undo of a drag or a resize puts the row back as it was, a chosen row
@@ -709,6 +713,7 @@ A canvas shows at most 300 cards.
 | A file is deleted | Its card goes. No other card moves, and the gap stays. |
 | A file is renamed, in BaseHalf or outside | Its card stays where it is. |
 | A card is dragged | It is where it was dropped, also on another card. No other card moves. |
+| A card is dropped with the pointer on a folder's card | It is in that folder, after the last card of its canvas, with its size. Undo brings it back where it was ([dropping into a folder](canvas-drop-into-folder.md)). |
 | A card is created at a point | It is at that point, also when another card is there, and also when part of it is outside the window. The view stays. |
 | A card is created from a connection line | The line enters it where the line was released, whatever the direction of the line and whatever is beside that point. Near the edge of the window part of the card is outside it. The view stays, and the user moves the canvas. |
 | A card is created with the Create button | It is in the middle of the window, or at the nearest open place when the middle is taken. |

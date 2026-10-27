@@ -218,13 +218,20 @@ Not in scope, and unchanged:
 - Undo moves what the step made into the kept versions, with its card
   information and whatever was typed or put into it since. Redo moves it
   back to its place.
-- A paste, an import, or a drop never replaces an item. A name that is taken
-  gets the next free one, as Duplicate does, also when the setting
-  `explorer.incrementalNaming` is `disabled`: undo could not give a replaced
-  item back.
+- A paste, an import, or a drop never replaces an item: undo could not give
+  a replaced item back. A name that is taken gets the next free one. A copy
+  is named as Duplicate names it, also when the setting
+  `explorer.incrementalNaming` is `disabled`. An item that moves, by a paste
+  of cut items or by a drop into a folder, keeps both names: it takes a
+  number after its name, before the extension, `plan 2.md`, as a desktop
+  file manager names a moved item it keeps beside another
+  ([dropping into a folder](canvas-drop-into-folder.md#letting-go-on-a-folder)).
 - A paste of files that were cut moves them. Its undo moves them back, and it
   is a step of the canvas now, not of Files. The mirror cascade carries the
   cards' information both ways, as for any move.
+- A drop of cards, or of items from Files, on a folder's card or on a folder
+  of the path moves them into that folder as one step, drafts included
+  ([dropping into a folder](canvas-drop-into-folder.md)).
 
 ### Changing files in place
 

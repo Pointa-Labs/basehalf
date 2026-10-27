@@ -174,5 +174,5 @@ export function useBaseHalfCanvasSceneCancellation(environment: IBaseHalfCanvasS
 		};
 	}, [cancelAllInteractions, cancelNodeDrag, cancelPendingConnection]);
 
-	return { cancelPendingConnection };
+	return { cancelPendingConnection, cancelNodeDrag };
 }

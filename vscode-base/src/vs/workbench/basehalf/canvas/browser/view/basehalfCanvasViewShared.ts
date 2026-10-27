@@ -14,6 +14,7 @@ import { IFileService, IFileStat } from '../../../../../platform/files/common/fi
 import { findValidPasteFileTargetForResource, incrementFileName } from '../../../../contrib/files/browser/fileActions.js';
 import { baseHalfGenerationDraftNameRule, BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
+import { baseHalfCanvasKeptName } from '../../common/basehalfCanvasFolderDrop.js';
 import { IBaseHalfBadgeNode } from '../../../references/common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasDamage, IBaseHalfCanvasStateTransition } from '../../common/basehalfCanvasMirror.js';
 import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasNavigationState, IBaseHalfCardDetailState } from '../../../navigation/common/basehalfCanvasNavigation.js';
@@ -323,6 +324,32 @@ export async function baseHalfCanvasFreeTransferTarget(
 			name = incrementFileName(name, isDirectory, naming);
 		} while (await fileService.exists(joinPath(folder, name)));
 		target = joinPath(folder, name);
+	}
+	return target;
+}
+
+/**
+ * The path an item that moves into `folder` takes (dropping into a folder,
+ * "A name the folder holds"): its own name where that is free, and
+ * otherwise the first free name that keeps both, with a number after its
+ * name (`plan 2.md`). A name that `isTaken` reports, such as a draft's or one
+ * that another item of the same move takes, counts as taken.
+ */
+export async function baseHalfCanvasMoveTarget(
+	fileService: IFileService,
+	folder: URI,
+	source: URI,
+	isDirectory: boolean,
+	isTaken: (candidate: URI) => Promise<boolean>
+): Promise<URI> {
+	const name = basename(source);
+	const free = async (candidate: URI) => !await isTaken(candidate) && !await fileService.exists(candidate);
+	let target = joinPath(folder, name);
+	for (let attempt = 0; !await free(target); attempt++) {
+		if (attempt >= 1000) {
+			throw new Error(localize('basehalf.canvas.moveTarget.noFreeName', "Too many items are named like {0} in {1}. Rename some of them and try again.", name, basename(folder)));
+		}
+		target = joinPath(folder, baseHalfCanvasKeptName(name, isDirectory, attempt));
 	}
 	return target;
 }

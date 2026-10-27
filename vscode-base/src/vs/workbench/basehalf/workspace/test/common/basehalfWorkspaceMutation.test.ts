@@ -51,6 +51,79 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 		assert.strictEqual(ran, false);
 	});
 
+	test('a move of other paths leaves a stamp current for its own paths, before, during, and after it', async () => {
+		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
+		const stamp = coordinator.capture(workspaceA);
+		const states = () => ({
+			// Another card of the same canvas, the canvas's folder, and a card elsewhere.
+			sibling: coordinator.isStampCurrent(workspaceA, stamp, ['notes', 'notes/b.md']),
+			moved: coordinator.isStampCurrent(workspaceA, stamp, ['notes', 'notes/a.md']),
+			target: coordinator.isStampCurrent(workspaceA, stamp, ['docs/a.md']),
+			wholeWorkspace: coordinator.isStampCurrent(workspaceA, stamp)
+		});
+		const before = states();
+		const reservation = coordinator.reserveStructural(workspaceA, [
+			{ workspace: workspaceA, relativePath: 'notes/a.md' },
+			{ workspace: workspaceA, relativePath: 'docs/a.md' }
+		]);
+		await reservation.ready;
+		const during = states();
+		await reservation.finish(async () => undefined);
+		assert.deepStrictEqual({ before, during, after: states() }, {
+			before: { sibling: true, moved: true, target: true, wholeWorkspace: true },
+			during: { sibling: true, moved: false, target: false, wholeWorkspace: false },
+			after: { sibling: true, moved: false, target: false, wholeWorkspace: false }
+		});
+	});
+
+	test('a move of a folder above the paths, or a change that names no path, refuses a stamp for them', async () => {
+		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
+		const stamp = coordinator.capture(workspaceA);
+		const folderMove = coordinator.reserveStructural(workspaceA, [
+			{ workspace: workspaceA, relativePath: 'notes' },
+			{ workspace: workspaceA, relativePath: 'archive/notes' }
+		]);
+		await folderMove.finish(async () => undefined);
+		const afterFolderMove = {
+			inside: coordinator.isStampCurrent(workspaceA, stamp, ['notes', 'notes/b.md']),
+			elsewhere: coordinator.isStampCurrent(workspaceA, stamp, ['other', 'other/x.md']),
+			// A change below a folder's card leaves the card as it is.
+			cardOfParent: coordinator.isStampCurrent(workspaceA, stamp, ['', 'archive'])
+		};
+		const later = coordinator.capture(workspaceA);
+		const unscoped = coordinator.reserveStructural(workspaceA);
+		await unscoped.ready;
+		const duringUnscoped = coordinator.isStampCurrent(workspaceA, later, ['other']);
+		await unscoped.finish(async () => undefined);
+		assert.deepStrictEqual({
+			afterFolderMove,
+			duringUnscoped,
+			afterUnscoped: coordinator.isStampCurrent(workspaceA, later, ['other']),
+			takenAfterUnscoped: coordinator.isStampCurrent(workspaceA, coordinator.capture(workspaceA), ['other'])
+		}, {
+			afterFolderMove: { inside: false, elsewhere: true, cardOfParent: true },
+			duringUnscoped: false,
+			afterUnscoped: false,
+			takenAfterUnscoped: true
+		});
+	});
+
+	test('a scene mutation for paths that a pending move leaves alone runs after the move, and one for a moved path is refused', async () => {
+		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
+		const stamp = coordinator.capture(workspaceA);
+		const order: string[] = [];
+		const reservation = coordinator.reserveStructural(workspaceA, [
+			{ workspace: workspaceA, relativePath: 'a.md' },
+			{ workspace: workspaceA, relativePath: 'docs/a.md' }
+		]);
+		await reservation.ready;
+		const sibling = coordinator.runSceneMutation(workspaceA, stamp, async () => { order.push('sibling'); }, ['', 'b.md']);
+		await assert.rejects(coordinator.runSceneMutation(workspaceA, stamp, async () => { order.push('moved'); }, ['', 'a.md']));
+		await reservation.finish(async () => { order.push('move'); });
+		await sibling;
+		assert.deepStrictEqual(order, ['move', 'sibling']);
+	});
+
 	test('lets an already-issued scene mutation finish before a later structural cascade', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const stamp = coordinator.capture(workspaceA);

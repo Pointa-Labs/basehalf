@@ -368,7 +368,12 @@ is selected by a click on its line, as before.
 - The toolbar is hidden while the set moves and returns when it is dropped,
   as the controls of a single card do.
 - Snap to cards acts on the set box as it acts on one card.
-- Near the edge of the scene the canvas moves, as when one card is dragged.
+- Near the edge of the scene, inside it, the canvas moves, as when one card
+  is dragged. While the pointer is outside the scene, it does not move.
+- Let go with the pointer on a folder's card or on a folder of the path, the
+  set goes into that folder, as one step of undo; let go outside the scene
+  anywhere else, every card goes back to its place
+  ([dropping into a folder](canvas-drop-into-folder.md)).
 - Escape during the move puts every card back, as for one card. No card
   is left marked as being dragged: a card that was would have no capture
   circles afterwards.

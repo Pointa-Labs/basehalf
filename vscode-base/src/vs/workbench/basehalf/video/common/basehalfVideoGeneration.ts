@@ -477,7 +477,7 @@ export interface IBaseHalfGenerationCardActions {
 	 * with the reason in plain words, a name that is taken or not of the
 	 * draft's kind. Resolves with `target`.
 	 */
-	moveDraft(draft: URI, target: URI): Promise<URI>;
+	moveDraft(draft: URI, target: URI, undoRedoGroup?: UndoRedoGroup): Promise<URI>;
 
 	/**
 	 * Deletes drafts with all of their card information and their card rows;

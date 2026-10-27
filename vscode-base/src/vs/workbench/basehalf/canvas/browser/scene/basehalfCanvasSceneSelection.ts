@@ -102,7 +102,11 @@ export function useBaseHalfCanvasSceneSelection(environment: IBaseHalfCanvasScen
 		const promise = selectionIntents.current.request(
 			() => delegate.prepareSelectionChange(sceneKey, structuralEpoch, [...selectedCards]),
 			() => {
-				if (sceneKeyRef.current !== sceneKey || structuralEpochRef.current !== structuralEpoch) {
+				// A selection the workbench allowed is shown also when the canvas was
+				// drawn again in between; a card that is gone is left out of it
+				// (canvas card interaction continuity, "A change elsewhere in the
+				// workspace").
+				if (sceneKeyRef.current !== sceneKey) {
 					return false;
 				}
 				setLiveNodes(nodesRef.current.map(node => ({ ...node, selected: selectedCards.has(node.id) })));

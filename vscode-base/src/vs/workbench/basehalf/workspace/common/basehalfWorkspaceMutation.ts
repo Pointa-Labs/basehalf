@@ -105,7 +105,15 @@ export interface IBaseHalfWorkspaceMutationCoordinator {
 	readonly onDidFinishStructuralMutation: Event<IBaseHalfStructuralMutationOutcome>;
 	readonly onDidChangeResourceMutationFence: Event<IBaseHalfStructuralMutationPath>;
 	capture(workspace: URI): IBaseHalfWorkspaceMutationStamp;
-	isStampCurrent(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp): boolean;
+	/**
+	 * Whether no structural change since `stamp` was taken. With
+	 * `relativePaths`, whether none touched these paths: the path itself or a
+	 * folder above it was moved, deleted, or taken by a move, or such a change
+	 * is under way. A change elsewhere in the workspace then leaves the stamp
+	 * current (canvas card interaction continuity, "A change elsewhere in the
+	 * workspace"). A change that names no path touches every path.
+	 */
+	isStampCurrent(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp, relativePaths?: readonly string[]): boolean;
 	captureResource(workspace: URI, relativePath: string): IBaseHalfWorkspaceResourceMutationStamp;
 	isResourceStampCurrent(workspace: URI, stamp: IBaseHalfWorkspaceResourceMutationStamp): boolean;
 	acquireResourceMutationFence(workspace: URI, relativePath: string): IDisposable;
@@ -113,7 +121,8 @@ export interface IBaseHalfWorkspaceMutationCoordinator {
 	acquire(workspaces: URI | readonly URI[]): Promise<IBaseHalfWorkspaceMutationLease>;
 	assertLease(lease: IBaseHalfWorkspaceMutationLease, workspace: URI): void;
 	runExclusive<T>(workspace: URI, task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>): Promise<T>;
-	runSceneMutation<T>(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp, task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>): Promise<T>;
+	/** Runs `task` exclusively when `stamp` is current, for `relativePaths` when they are given (`isStampCurrent`). */
+	runSceneMutation<T>(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp, task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>, relativePaths?: readonly string[]): Promise<T>;
 	runResourceMutation<T>(workspace: URI, stamp: IBaseHalfWorkspaceResourceMutationStamp | readonly IBaseHalfWorkspaceResourceMutationStamp[], task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>): Promise<T>;
 	reserveStructural(workspaces: URI | readonly URI[], affectedPaths?: readonly IBaseHalfStructuralMutationPath[]): IBaseHalfStructuralMutationReservation;
 }
@@ -126,6 +135,9 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 	private readonly pendingStructuralByWorkspace = new Map<string, number>();
 	private readonly structuralEpochByPath = new Map<string, Map<string, number>>();
 	private readonly pendingStructuralPaths = new Map<string, Map<string, number>>();
+	/** The epoch of the last structural change of a workspace that named none of its paths, and the ones under way. */
+	private readonly unscopedStructuralEpochByWorkspace = new Map<string, number>();
+	private readonly pendingUnscopedStructuralByWorkspace = new Map<string, number>();
 	private readonly resourceMutationFences = new Map<string, Map<string, number>>();
 	private structuralOutcomeSequence = 0;
 	private readonly pendingStructuralOutcomes = new Set<IBaseHalfPendingStructuralOutcome>();
@@ -142,11 +154,23 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 		};
 	}
 
-	isStampCurrent(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp): boolean {
+	isStampCurrent(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp, relativePaths?: readonly string[]): boolean {
 		const current = this.capture(workspace);
-		return stamp.workspaceKey === current.workspaceKey
-			&& stamp.structuralEpoch === current.structuralEpoch
-			&& (this.pendingStructuralByWorkspace.get(current.workspaceKey) ?? 0) === 0;
+		if (stamp.workspaceKey !== current.workspaceKey) {
+			return false;
+		}
+		if (!relativePaths) {
+			return stamp.structuralEpoch === current.structuralEpoch
+				&& (this.pendingStructuralByWorkspace.get(current.workspaceKey) ?? 0) === 0;
+		}
+		const workspaceKey = current.workspaceKey;
+		if ((this.unscopedStructuralEpochByWorkspace.get(workspaceKey) ?? 0) > stamp.structuralEpoch
+			|| (this.pendingUnscopedStructuralByWorkspace.get(workspaceKey) ?? 0) > 0) {
+			return false;
+		}
+		return relativePaths.every(relativePath => this.resourceStructuralEpoch(workspaceKey, relativePath) <= stamp.structuralEpoch
+			&& !this.pathIsPending(workspaceKey, relativePath)
+			&& !this.pathIsResourceMutationFenced(workspaceKey, relativePath));
 	}
 
 	captureResource(workspace: URI, relativePath: string): IBaseHalfWorkspaceResourceMutationStamp {
@@ -241,8 +265,8 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 		}
 	}
 
-	runSceneMutation<T>(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp, task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>): Promise<T> {
-		if (!this.isStampCurrent(workspace, stamp)) {
+	runSceneMutation<T>(workspace: URI, stamp: IBaseHalfWorkspaceMutationStamp, task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>, relativePaths?: readonly string[]): Promise<T> {
+		if (!this.isStampCurrent(workspace, stamp, relativePaths)) {
 			return Promise.reject(new Error('The workspace structure changed before this canvas interaction completed.'));
 		}
 
@@ -272,6 +296,12 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 		for (const path of paths) {
 			this.bumpStructuralPath(path.workspace, path.relativePath);
 			this.changePendingStructuralPath(path.workspace, path.relativePath, 1);
+		}
+		// A change that names no path of a workspace touches every path of it.
+		const scoped = new Set(paths.map(path => path.workspace.toString()));
+		const unscoped = unique.filter(workspace => !scoped.has(workspace.toString()));
+		for (const workspace of unscoped) {
+			this.changePendingUnscopedStructural(workspace, 1);
 		}
 		const leasePromise = this.acquire(unique);
 		let settled = false;
@@ -311,6 +341,9 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 				for (const path of paths) {
 					this.bumpStructuralPath(path.workspace, path.relativePath);
 					this.changePendingStructuralPath(path.workspace, path.relativePath, -1);
+				}
+				for (const workspace of unscoped) {
+					this.changePendingUnscopedStructural(workspace, -1);
 				}
 				lease.release();
 				if (publishMode !== 'none') {
@@ -521,6 +554,17 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 		}
 		if (pending.size === 0) {
 			this.pendingStructuralPaths.delete(workspaceKey);
+		}
+	}
+
+	private changePendingUnscopedStructural(workspace: URI, delta: 1 | -1): void {
+		const workspaceKey = workspace.toString();
+		this.unscopedStructuralEpochByWorkspace.set(workspaceKey, this.structuralEpochByWorkspace.get(workspaceKey) ?? 0);
+		const next = (this.pendingUnscopedStructuralByWorkspace.get(workspaceKey) ?? 0) + delta;
+		if (next <= 0) {
+			this.pendingUnscopedStructuralByWorkspace.delete(workspaceKey);
+		} else {
+			this.pendingUnscopedStructuralByWorkspace.set(workspaceKey, next);
 		}
 	}
 

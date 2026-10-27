@@ -21,6 +21,7 @@ the shared state and the other parts through `view`:
 | `geometry` | `basehalfCanvasGeometry.ts` | Places, sizes, and the view: saving moved and resized cards as steps of undo, putting cards back, zoom, fitting, and the viewport each folder keeps. |
 | `selectionActions` | `basehalfCanvasSelectionActions.ts` | What the user does with cards: opening a card, duplicating and deleting a selection, the context menus, Pick on Canvas, and the selection agents can see. |
 | `creation` | `basehalfCanvasCreation.ts` | Making things on the canvas: the inline editors that name a new item or rename one, new notes, drafts of images and videos, and PDF branches, where new cards go, and files imported or dropped onto the canvas. |
+| `folderDrops` | `basehalfCanvasFolderDrops.ts` | Dropping into a folder: the cards let go on a folder's card or on a folder of the path in the title bar, and items from Files or files from outside let go on a folder's card, handed to the feature that moves them (`canvasContrib/folderDrop/`). |
 | `cardDetailHost` | `basehalfCanvasCardDetailHost.ts` | Card Detail inside the canvas: its header, title, and save status, the projections that draw a file, and keeping the open item when it is renamed or moved. |
 
 `basehalfCanvasViewShared.ts` holds the types, constants, and small functions

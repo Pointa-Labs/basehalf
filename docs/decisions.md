@@ -3597,3 +3597,69 @@ goes the same way.
   text: in a Card Detail of 834 pixels the text column is 664 pixels wide
   instead of 712, and the handles, cut off at the edge in a narrower one
   before, show whole.
+
+## D88 — Cards let go on a folder go into it (NEW, 2026-10-27)
+
+**Decision.** Where the pointer is when the button is let go decides. A card,
+or a set, let go with the pointer over a folder's card goes into that
+folder; let go over a folder of the path in the title bar, into that folder.
+While a folder would take them, its card shows the canvas's intent color and
+the dragged cards are half transparent. The whole drop is one step of undo,
+drafts included. A name the folder holds is kept beside it: `plan.md` moves
+in as `plan 2.md`. An item dragged from Files onto a folder's card moves into
+it, and a file from outside the window is copied into it. Let go outside the
+canvas anywhere else, the cards go back, and the canvas no longer moves while
+the pointer is outside it. A gesture on the canvas is refused only when a
+change touched what it acts on, so the drag right after a drop, or after a
+rename anywhere else, works. See
+[dropping into a folder](specs/canvas-drop-into-folder.md) and
+[canvas card interaction continuity](specs/canvas-card-interaction-continuity.md#a-change-elsewhere-in-the-workspace).
+
+**Why.** On 2026-10-27 the user asked that the logic and the look of dragging
+into a folder be designed. Measured that day: a card dragged onto a folder's
+card landed on top of it and nothing moved; moving a card into a folder took
+Cut, opening the folder, and Paste; Files and the path in the title bar took
+no card, and a drag towards them moved the view by 790 screen pixels and left
+the card out of sight. A desktop file manager and a canvas editor both let
+the point under the pointer decide where dragged things go, and the file
+manager draws the dragged icons translucent so that the folder shows under
+them. A drop is a move, and right after any move through the workbench the
+next drag on the canvas went back to its place (3 of 3) and the first click
+on empty canvas was lost (3 of 3): every gesture carried the generation of
+the whole workspace's structure, and any newer one refused it.
+
+**What was set aside.**
+- Letting the dragged card's center decide, as an open-source canvas for
+  media work does for its groups: a folder takes its items out of sight, so
+  only letting go over it should mean it. A card placed beside a folder that
+  covers part of it would vanish.
+- Asking about a taken name, as a desktop file manager does: a delete on the
+  canvas asks nothing ([D82](#d82--a-delete-on-the-canvas-asks-nothing-and-undo-brings-back-exactly-what-a-step-took-new-2026-10-25)),
+  and undo gives the move back. Naming it as a copy, `plan copy.md`: the
+  item was moved, not copied. A paste of cut items, the other move into a
+  folder, now names it the same way as a drop.
+- Opening the folder while the pointer rests on it during a drag, to drop at
+  a point of its canvas: the drag would outlive the canvas it began on. A
+  later step, if it is asked for.
+- Dropping cards onto a folder in Files: Files is VS Code's tree, which takes
+  its own drags. The folder's card and the path cover the way in and out.
+- Keeping the check of every gesture on the whole workspace and drawing the
+  canvas sooner after a move: the moment between the move and the drawing
+  stays, and a drag in it still fails.
+
+**Consequences.**
+- Revises [canvas card placement](specs/canvas-card-placement.md#what-the-user-changes):
+  a card let go on a folder's card is no longer saved on top of it, and a
+  card let go outside the canvas goes back.
+- Revises [canvas selection and arrangement](specs/canvas-selection-and-arrangement.md#moving-a-set):
+  the canvas moves near its edge only while the pointer is inside it, for one
+  card and for a set.
+- The folder buttons of the path in the title bar take dropped cards
+  ([the location in the title bar](specs/title-bar-location.md#a-drop));
+  [D73](#d73--a-click-on-the-title-bars-location-opens-the-search-new-2026-10-24)
+  is otherwise unchanged.
+- [Exact undo](specs/exact-undo.md#what-the-canvas-made): an item that moves
+  keeps both names; a copy is named as before.
+- The rule of the canvas scene that a rename or a delete anywhere in the
+  workspace ends every gesture that began before the canvas was drawn again
+  is gone.
