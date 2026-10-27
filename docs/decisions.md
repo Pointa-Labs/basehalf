@@ -4231,9 +4231,13 @@ backing that blurs the picture behind it, so that the controls read over a
 white picture as over a black one. No shade goes across the picture, and a
 card at rest has nothing over its picture. In Card Detail the controls show
 as a player's do: while the video is paused, while the pointer moves over the
-picture or rests on a control, and while the keyboard is on one of them. While
-it plays, they fade 2.5 s after the pointer last moved, and at once when it
-leaves the picture. In the frame viewer of a video and the waveform of a
+picture or rests on a control, and while a key took the keyboard to one of
+them. While it plays, they fade 2.5 s after the pointer last moved, and at
+once when it leaves the picture; faded, the keyboard still reaches them. Card
+Detail draws its player with the video's shape from the first frame it shows,
+never a box of another shape, and a card that cannot take its video's shape
+shows its own surface around the picture, not black. In the frame viewer of a
+video and the waveform of a
 sound, a drag that comes within 24 px of the strip's edge, not only past it,
 moves a spread-out stretch along, a held handle's spread too, by the rule the
 crop frame of an image follows (D97): the depth from the margin's inner side
@@ -4277,8 +4281,15 @@ The user asked for one rule wherever a handle is dragged towards an edge
 - A strip that also zooms out while it follows a handle: its stretch is a
   window onto the length, which moving along reaches; holding a handle and
   the pinch choose its scale.
-- A placeholder of the video's shape before Card Detail knows its size: none
-  shows, since Card Detail draws the player once it has its first frame.
+- A placeholder before Card Detail knows the video's size: the player takes
+  the shape its card measured, or waits for the video's own size before it
+  is drawn, so no box of the wrong shape shows. In the window measured it
+  never showed, since Card Detail draws the player once it has its first
+  frame; a video Card Detail opens before any card measured it could.
+- A narrower frame around a video that its card cannot hold at its shape
+  (one wider than 3:1, or smaller than a card can be): the frame is the
+  picture fitted into the card, and its surface around the picture is the
+  card's, as an image card's is.
 
 **Consequences.**
 - [Generation cards, "The player"](specs/generation-cards.md#the-player): the

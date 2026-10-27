@@ -1394,7 +1394,9 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   inside the top left corner. Each has its own small translucent backing,
   which blurs the picture behind it, so that its controls read over a white
   picture as over a black one. No shade goes across the picture, and a card
-  at rest has nothing over its picture.
+  at rest has nothing over its picture. Where a card cannot take its video's
+  shape, the card's own surface shows around the picture, as around an
+  image's, not black.
 - **Sound starts off.** The sound button turns it on for that card while the
   card shows its video, also when the canvas draws the card again; the video
   then plays with sound while the pointer is on it.
@@ -1420,8 +1422,11 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   nothing). While the video plays, they fade 2.5 s after the pointer last
   moved or a key was pressed, and at once when the pointer leaves the
   picture; a move or a key in Card Detail brings them back. Faded, they can
-  still be reached by the keyboard, which shows them. The video starts at the frame its card
-  showed; when Card Detail closes, the card shows the frame where it stopped
+  still be reached by the keyboard, which shows them. The player has the
+  video's shape in the first frame it is drawn in, never a box of another
+  shape: the shape its card measured, or, for a video no card measured yet,
+  the video's own, which it waits for before it is drawn (D98). The video
+  starts at the frame its card showed; when Card Detail closes, the card shows the frame where it stopped
   ([opening and closing Card Detail](card-detail-opening.md)), unless an edit
   wrote the file anew meanwhile: the card then shows the new file. A video
   that BaseHalf can edit plays with the frame viewer of its editor under the
