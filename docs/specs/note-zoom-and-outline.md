@@ -119,7 +119,7 @@ Not in scope, and unchanged:
 10. At rest the outline shows nothing.
 11. While the pointer is in the left margin, the ticks fade in, in 200 ms,
     and they fade out in 200 ms when it leaves the margin. A note without
-    headings, and a left margin narrower than 28 pixels, show nothing. The
+    headings, and a left margin narrower than 26 pixels, show nothing. The
     outline is drawn over the editor's handles of a block and its menus,
     which never cover its panel.
 12. **The ticks.** One tick for each heading, top to bottom, in a column
