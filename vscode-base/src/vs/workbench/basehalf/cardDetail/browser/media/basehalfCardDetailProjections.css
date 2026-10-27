@@ -396,6 +396,9 @@
 
 .monaco-workbench .basehalf-card-detail-mode-button {
 	--basehalf-card-detail-mode-yellow: #f5c400;
+	/* Edit and Done stand one over the other: the button is as wide for each. */
+	display: inline-grid;
+	place-items: center;
 	height: 24px;
 	min-width: 48px;
 	padding: 0 10px;
@@ -418,6 +421,15 @@
 
 .monaco-workbench .basehalf-card-detail-mode-button[hidden] {
 	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-label {
+	grid-area: 1 / 1;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button.done .basehalf-card-detail-mode-label.edit,
+.monaco-workbench .basehalf-card-detail-mode-button:not(.done) .basehalf-card-detail-mode-label.done {
+	visibility: hidden;
 }
 
 .monaco-workbench .basehalf-card-detail-mode-button:hover {

@@ -545,6 +545,9 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (!button) {
 			button = this.modeButton = append(slot, $<HTMLButtonElement>('button.basehalf-card-detail-mode-button'));
 			button.type = 'button';
+			// Both words stand in the button, one over the other, so that it is as wide for each: nothing in the header moves when it changes.
+			append(button, $('span.basehalf-card-detail-mode-label.edit')).textContent = localize('basehalf.mediaEdit.edit', "Edit");
+			append(button, $('span.basehalf-card-detail-mode-label.done')).textContent = localize('basehalf.mediaEdit.done', "Done");
 			this._register(addDisposableListener(button, 'click', () => {
 				const current = this.editingStore.value;
 				current?.setEditing(!current.isEditing);
@@ -555,10 +558,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			return;
 		}
 		const active = editing.isEditing;
-		button.textContent = active
-			? localize('basehalf.mediaEdit.done', "Done")
-			: localize('basehalf.mediaEdit.edit', "Edit");
 		button.classList.toggle('done', active);
+		button.setAttribute('aria-label', active
+			? localize('basehalf.mediaEdit.done', "Done")
+			: localize('basehalf.mediaEdit.edit', "Edit"));
 	}
 
 	/**
