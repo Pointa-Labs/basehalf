@@ -326,3 +326,36 @@
 .monaco-workbench .basehalf-image-crop-frame:focus-visible {
 	border-color: var(--vscode-focusBorder);
 }
+
+/*
+ * While viewing (editing media, "Viewing and editing"), the picture shows as
+ * the file holds it: no frame stands on it, and the room of the tools stays
+ * empty, so that nothing moves when Edit shows them.
+ */
+.monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-view {
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-image-crop.viewing.zoomed:not(.panning) .basehalf-image-crop-view {
+	cursor: grab;
+}
+
+.monaco-workbench .basehalf-image-crop.viewing.panning .basehalf-image-crop-view {
+	cursor: grabbing;
+}
+
+.monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-frame {
+	border-color: transparent;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-corner,
+.monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-side,
+.monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-grid,
+.monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-size {
+	opacity: 0;
+}
+
+.monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-tools {
+	visibility: hidden;
+}

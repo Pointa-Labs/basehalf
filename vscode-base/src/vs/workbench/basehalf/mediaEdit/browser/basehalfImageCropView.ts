@@ -49,7 +49,9 @@ import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor
  * Left, Flip, Ratio, and the Straighten dial). While a corner, a side, or the
  * picture is dragged, the rest of the original shows around the frame,
  * dimmed, and when the drag ends both glide until the frame is at rest again.
- * The wheel zooms the view, never the edit.
+ * A pinch zooms the view, never the edit. While viewing ("Viewing and
+ * editing"), it shows the picture as the file holds it, with no frame and no
+ * tools, whose room stays empty.
  */
 
 export interface IBaseHalfImageCropViewOptions {
@@ -116,6 +118,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private readonly dial: HTMLElement;
 	private readonly dialRuler: HTMLElement;
 	private readonly dialValue: HTMLElement;
+	private readonly tools: HTMLElement;
 
 	private readonly onDidChangeEmitter = this._register(new Emitter<BaseHalfMediaChange>());
 	readonly onDidChange = this.onDidChangeEmitter.event;
@@ -135,6 +138,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private keyRest: ReturnType<typeof setTimeout> | undefined;
 	/** What the view held when keys started to move a corner or the picture, for one change. */
 	private keyBefore: IBaseHalfCropState | undefined;
+	/** The view edits the picture; otherwise it views the file as it is. */
+	private editing = false;
 	private disposed = false;
 
 	constructor(
@@ -148,10 +153,11 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.state = baseHalfCropStateOf(this.original, options.choices);
 		this.setRatioOf(options.choices);
 
-		this.element = append(container, $('.basehalf-image-crop'));
+		this.element = append(container, $('.basehalf-image-crop.viewing'));
 		this.element.setAttribute('role', 'group');
-		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.image.label', "Crop"));
 		this.view = append(this.element, $('.basehalf-image-crop-view'));
+		// While viewing, the keyboard is on the picture.
+		this.view.tabIndex = -1;
 		this.picture = append(this.view, $<HTMLImageElement>('img.basehalf-image-crop-picture'));
 		this.picture.alt = '';
 		this.picture.draggable = false;
@@ -185,7 +191,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		this.sizeLabel = append(this.view, $('.basehalf-image-crop-size'));
 
-		const tools = append(this.element, $('.basehalf-image-crop-tools'));
+		const tools = this.tools = append(this.element, $('.basehalf-image-crop-tools'));
 		this.turnButton = this.toolButton(tools, 'turn', localize('basehalf.mediaEdit.image.turnLeft', "Turn Left"), TURN_LEFT_PATH);
 		this.flipButton = this.toolButton(tools, 'flip', localize('basehalf.mediaEdit.image.flip', "Flip"), FLIP_PATH);
 		this.ratioButton = this.toolButton(tools, 'ratio', localize('basehalf.mediaEdit.image.ratio', "Ratio"), RATIO_PATH);
@@ -211,6 +217,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			}
 		}));
 		this.registerListeners();
+		this.showControls();
 		this.layout();
 	}
 
@@ -219,7 +226,40 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	}
 
 	focus(): void {
-		this.frame.focus({ preventScroll: true });
+		(this.editing ? this.frame : this.view).focus({ preventScroll: true });
+	}
+
+	setEditing(editing: boolean): void {
+		if (editing === this.editing) {
+			return;
+		}
+		this.endDrag();
+		this.settleKeys();
+		this.editing = editing;
+		this.showControls();
+		this.render();
+	}
+
+	/** While viewing, the frame, its corners, and the tools take no keyboard and no pointer, and do not show. */
+	private showControls(): void {
+		this.element.classList.toggle('viewing', !this.editing);
+		this.element.setAttribute('aria-label', this.editing
+			? localize('basehalf.mediaEdit.image.label', "Crop")
+			: localize('basehalf.mediaEdit.image.viewLabel', "Picture"));
+		this.frame.tabIndex = this.editing ? 0 : -1;
+		for (const corner of this.corners.values()) {
+			corner.tabIndex = this.editing ? 0 : -1;
+		}
+		if (!this.editing) {
+			this.frame.classList.remove('keyboard');
+		}
+		// The room of the tools stays while viewing, empty: the picture does not move when they come.
+		this.tools.toggleAttribute('inert', !this.editing);
+		if (this.editing) {
+			this.tools.removeAttribute('aria-hidden');
+		} else {
+			this.tools.setAttribute('aria-hidden', 'true');
+		}
 	}
 
 	setChoices(choices: IBaseHalfMediaChoices): void {
@@ -486,6 +526,9 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		if (!what && this.zoom > 1) {
 			// While the view is zoomed in, a drag moves the view.
 			what = { kind: 'pan' };
+		} else if (!what && !this.editing) {
+			// While viewing, a picture as it fits has nothing to drag.
+			return;
 		} else if (!what) {
 			const corner = [...this.corners].find(([, element]) => element.contains(target))?.[0];
 			const side = [...this.sides].find(([, element]) => element.contains(target))?.[0];
@@ -648,7 +691,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		const target = event.target as Element | null;
 		const arrows: Record<string, IBaseHalfPoint> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } };
 		const arrow = arrows[event.key];
-		if (!arrow || this.drag) {
+		if (!arrow || this.drag || !this.editing) {
 			return;
 		}
 		if (target === this.dial) {

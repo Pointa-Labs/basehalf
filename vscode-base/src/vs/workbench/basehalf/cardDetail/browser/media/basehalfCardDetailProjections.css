@@ -331,3 +331,68 @@
 	display: flex;
 	flex-direction: column;
 }
+
+/*
+ * Edit and Done of a video, an image, or a sound, in the header's right group
+ * before Close (editing media, "What Card Detail shows"): Edit while the file
+ * is viewed, Done, in the yellow of the editor, while it is edited.
+ */
+.monaco-workbench .basehalf-card-detail-mode {
+	display: flex;
+	align-items: center;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button {
+	--basehalf-card-detail-mode-yellow: #f5c400;
+	height: 24px;
+	min-width: 48px;
+	padding: 0 10px;
+	box-sizing: border-box;
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+	border: 0;
+	border-radius: 12px;
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 24px;
+	cursor: pointer;
+}
+
+.monaco-workbench.vs-dark .basehalf-card-detail-mode-button,
+.monaco-workbench.hc-black .basehalf-card-detail-mode-button {
+	--basehalf-card-detail-mode-yellow: #ffd60a;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button[hidden] {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button:hover {
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 17%, transparent);
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button.done {
+	color: #1c1c1e;
+	background: var(--basehalf-card-detail-mode-yellow);
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button.done:hover {
+	background: color-mix(in srgb, var(--basehalf-card-detail-mode-yellow) 88%, #fff);
+}
+
+/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
+.monaco-workbench .basehalf-card-detail-mode-button:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-card-detail-mode-button:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-card-detail-mode-button {
+		border: 1px solid ButtonText;
+	}
+}

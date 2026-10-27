@@ -32,6 +32,8 @@ export interface IBaseHalfTimeZoomClock {
 export interface IBaseHalfTimeZoomOptions {
 	/** The strip that shows the time: the wheel over it, and its width. */
 	readonly strip: HTMLElement;
+	/** Whether the strip's time spreads out now: only while it is edited (D96). By default always. */
+	readonly active?: () => boolean;
 	/** The length the strip shows at rest, in seconds. */
 	readonly length: () => number;
 	/** The shortest stretch a pinch spreads the strip out to, in seconds. */
@@ -116,6 +118,16 @@ export class BaseHalfTimeZoom extends Disposable {
 		this.current = baseHalfFitStretch(this.current, this.options.length());
 	}
 
+	/** Shows the whole length again, as Done does; nothing is moving then. */
+	reset(): void {
+		this.rest.clear();
+		this.edge = undefined;
+		this.edgeFrame.clear();
+		this.current = { from: 0, to: this.options.length() };
+		this.barRest.clear();
+		this.bar.classList.remove('visible');
+	}
+
 	/** While the video or the sound plays, the stretch that shows the playhead. */
 	follow(time: number): void {
 		if (!this.spread) {
@@ -179,7 +191,7 @@ export class BaseHalfTimeZoom extends Disposable {
 	private onWheel(event: WheelEvent): void {
 		const length = this.options.length();
 		const width = this.options.strip.clientWidth;
-		if (!(length > 0) || !(width > 0)) {
+		if (!(length > 0) || !(width > 0) || this.options.active?.() === false) {
 			return;
 		}
 		if (isBaseHalfNoteZoomWheel(event, isMacintosh)) {
