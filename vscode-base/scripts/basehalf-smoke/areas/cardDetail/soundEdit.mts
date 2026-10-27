@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { workspacePath } from '../../context.mts';
-import { assertCardDetail } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 
@@ -132,6 +132,15 @@ export async function assertCardDetailSoundEdit(page) {
 		if (atOpen.player || atOpen.buttons.length !== 1 || !/basehalf-sound-waveform-play/.test(atOpen.buttons[0])) {
 			throw new Error(`Card Detail of a sound shows its waveform at once, in place of a player, with Play as its one button: ${JSON.stringify(atOpen)}`);
 		}
+		// It opens to view the sound: no handle, Edit in the header (D96).
+		const viewing = await page.evaluate(selector => ({
+			viewing: document.querySelector(selector).classList.contains('viewing'),
+			handles: Array.from(document.querySelectorAll(`${selector} .basehalf-video-frames-handle`)).map(handle => getComputedStyle(handle).visibility)
+		}), WAVE);
+		if (!viewing.viewing || viewing.handles.some(visibility => visibility !== 'hidden') || await cardDetailModeLabel(page) !== 'Edit') {
+			throw new Error(`Card Detail of a sound opens to view it, with no handle, and Edit in the header: ${JSON.stringify(viewing)}`);
+		}
+		await enterEditing(page);
 
 		// A drag inside the part selects a stretch, with Delete on it; Delete cuts it out, a change written with nothing more pressed.
 		await select(page, 1, 2);
@@ -160,14 +169,16 @@ export async function assertCardDetailSoundEdit(page) {
 		await page.keyboard.press(UNDO);
 		await waitUntil(() => !!read(workspaceFile(SOUND))?.equals(cut) && recordText() === cutRecord, 'undo to put the cut back', 30_000);
 
-		// Escape with a stretch selected drops the selection only; the next Escape closes Card Detail.
+		// Escape with a stretch selected drops the selection only; the next Escape goes back to viewing, the one after closes Card Detail.
 		await select(page, 0.5, 1.5);
 		await deleteButton.waitFor({ state: 'visible', timeout: 5_000 });
 		await page.keyboard.press('Escape');
 		await deleteButton.waitFor({ state: 'hidden', timeout: 5_000 });
-		if (!(await page.locator(DETAIL).isVisible())) {
-			throw new Error('Escape with a stretch selected drops the selection and leaves Card Detail open.');
+		if (!(await page.locator(DETAIL).isVisible()) || await cardDetailModeLabel(page) !== 'Done') {
+			throw new Error('Escape with a stretch selected drops the selection and leaves the editor open.');
 		}
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('viewing'), WAVE, { timeout: 5_000 });
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 
@@ -179,11 +190,14 @@ export async function assertCardDetailSoundEdit(page) {
 		if (Math.abs(again.length - seconds(cut)) > 0.05) {
 			throw new Error(`Card Detail of an edited sound shows its parts joined: ${JSON.stringify(again)} for ${seconds(cut)}`);
 		}
+		await enterEditing(page);
 		await page.locator(`${LINE} .basehalf-media-edit-line-action.revert`).click();
 		await waitUntil(() => !!read(workspaceFile(SOUND))?.equals(original) && !fs.existsSync(path.join(cardInformation, 'edit.yaml')), 'Revert to Original to put the original WAV back', 30_000);
 		await page.locator(`${WAVE} .basehalf-sound-waveform-play`).focus();
 		await page.keyboard.press(UNDO);
 		await waitUntil(() => !!read(workspaceFile(SOUND))?.equals(cut), 'undo to bring the edit back', 30_000);
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('viewing'), WAVE, { timeout: 5_000 });
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 	} finally {

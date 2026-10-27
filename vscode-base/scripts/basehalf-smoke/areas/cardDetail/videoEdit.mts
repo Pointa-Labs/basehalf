@@ -3,12 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// Card Detail's editor of a video (editing media): the frame viewer at once, a trim saved with nothing pressed, its undo and redo, Revert to Original, and Escape.
+// Card Detail's editor of a video (editing media): viewing first, Edit, a trim saved with nothing pressed, its undo and redo, Revert to Original,
+// Escape back to viewing, and viewing that shows the file as the trim made it and plays it once (D96).
 
 import fs from 'fs';
 import path from 'path';
 import { root, workspacePath } from '../../context.mts';
-import { assertCardDetail } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { showExplorer } from '../../lib/workspace.mts';
@@ -104,16 +105,26 @@ export async function assertCardDetailVideoEdit(page) {
 		await quickOpen(page, VIDEO);
 		await assertCardDetail(page, 'shot.mp4');
 
-		// The editor shows at once: nothing in the header edits, and the viewer is the video's timeline.
+		// Card Detail opens to view the video: the viewer is its timeline, with no handle, and the header holds Edit.
 		await waitForViewer(page, undefined);
 		const first = await readPart(page);
 		const atOpen = await page.evaluate(({ detail, surface }) => ({
 			header: Array.from(document.querySelectorAll(`${detail} .basehalf-card-detail-header button`)).filter(button => button.offsetParent).map(button => button.getAttribute('aria-label') ?? button.textContent),
 			slider: getComputedStyle(document.querySelector(`${surface} .basehalf-canvas-video-player-slider`)).visibility,
-			sound: !!document.querySelector(`${surface} .basehalf-video-frames-sound`)
+			sound: !!document.querySelector(`${surface} .basehalf-video-frames-sound`),
+			viewing: !!document.querySelector(`${surface} .basehalf-video-frames.viewing`),
+			handles: Array.from(document.querySelectorAll(`${surface} .basehalf-video-frames-handle`)).map(handle => getComputedStyle(handle).visibility)
 		}), { detail: DETAIL, surface: SURFACE });
-		if (!first.whole || atOpen.header.some(label => /Edit|Done|Cancel|Revert|Save/.test(label ?? '')) || atOpen.slider !== 'hidden' || atOpen.sound || await lineText(page) !== '') {
-			throw new Error(`Card Detail of a video that was never edited shows its frame viewer at once, all of it kept, no control of editing in its header, the player without a bar of its own, and an empty line: ${JSON.stringify({ first, atOpen, line: await lineText(page) })}`);
+		if (!first.whole || await cardDetailModeLabel(page) !== 'Edit' || atOpen.header.some(label => /Done|Cancel|Revert|Save/.test(label ?? '')) || atOpen.slider !== 'hidden' || atOpen.sound
+			|| !atOpen.viewing || atOpen.handles.some(visibility => visibility !== 'hidden') || await lineText(page) !== '') {
+			throw new Error(`Card Detail of a video that was never edited opens to view it: its frame viewer is its timeline, with no handle, Edit in the header and no other control of editing, the player without a bar of its own, and an empty line: ${JSON.stringify({ first, atOpen, line: await lineText(page) })}`);
+		}
+		// Edit shows the handles; the picture stays where it is.
+		const pictureAtOpen = await page.locator(`${SURFACE} .basehalf-canvas-video-player.detail`).boundingBox();
+		await enterEditing(page);
+		const pictureEditing = await page.locator(`${SURFACE} .basehalf-canvas-video-player.detail`).boundingBox();
+		if (JSON.stringify(pictureAtOpen) !== JSON.stringify(pictureEditing) || await page.locator(`${FRAMES}.viewing`).count()) {
+			throw new Error(`Edit shows the editor in place: ${JSON.stringify({ pictureAtOpen, pictureEditing })}`);
 		}
 
 		// Exact undo, criterion 16: from the first write to the last undo and redo, the video's row in Files is there in every frame.
@@ -184,25 +195,50 @@ export async function assertCardDetailVideoEdit(page) {
 			throw new Error(`Writes, Revert to Original, and their undo and redo change the video in place: its row in Files must be there in every frame: ${JSON.stringify(rowWatch)}`);
 		}
 
-		// Escape during a drag puts back what the drag changed and leaves Card Detail open; the next Escape closes it.
+		// Escape during a drag puts back what the drag changed and leaves the editor open; the next Escape goes back to viewing, and the one after closes Card Detail.
 		const beforeDrag = await readPart(page);
 		await dragHandle(page, 'start', 0.1, true);
 		const afterEscape = await readPart(page);
-		if (Math.abs(afterEscape.start - beforeDrag.start) > 0.01 || !(await page.locator(DETAIL).isVisible())) {
-			throw new Error(`Escape during a drag puts the handle back and leaves Card Detail open: ${JSON.stringify({ beforeDrag, afterEscape })}`);
+		if (Math.abs(afterEscape.start - beforeDrag.start) > 0.01 || !(await page.locator(DETAIL).isVisible()) || await cardDetailModeLabel(page) !== 'Done') {
+			throw new Error(`Escape during a drag puts the handle back and leaves the editor open: ${JSON.stringify({ beforeDrag, afterEscape })}`);
+		}
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(selector => !!document.querySelector(`${selector}.viewing`), FRAMES, { timeout: 5_000 });
+		if (!(await page.locator(DETAIL).isVisible()) || await cardDetailModeLabel(page) !== 'Edit') {
+			throw new Error('Escape while editing goes back to viewing and leaves Card Detail open.');
 		}
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 		await waitUntil(() => !fs.existsSync(copies) || fs.readdirSync(copies).length === 0, 'the copy that the editor read to go when Card Detail closed', 10_000);
 
-		// Card Detail opened again shows the whole original in the viewer, with the handles where the trim left them.
+		// Card Detail opened again views the file as the trim made it: the viewer shows the part, the player counts from its start, and Play plays it once.
 		await quickOpen(page, VIDEO);
 		await assertCardDetail(page, 'shot.mp4');
 		await waitForViewer(page, first.duration);
+		const viewed = await page.evaluate(selector => {
+			const strip = document.querySelector(`${selector} .basehalf-video-frames-strip`);
+			return { from: Number(strip.dataset.from), to: Number(strip.dataset.to), length: document.querySelector('.basehalf-card-detail-surface.active .basehalf-canvas-video-player-time.length')?.textContent };
+		}, FRAMES);
+		const partLength = part.end - part.start;
+		if (Math.abs(viewed.from - part.start) > 0.02 || Math.abs(viewed.to - part.end) > 0.02 || !/^\d\.\ds$/.test(viewed.length ?? '') || Math.abs(parseFloat(viewed.length) - partLength) > 0.11 || await lineText(page) !== '') {
+			throw new Error(`Viewing an edited video shows the part it kept, its length on the player, and an empty line: ${JSON.stringify({ part, viewed, line: await lineText(page) })}`);
+		}
+		await page.locator(`${SURFACE} .basehalf-canvas-video-player-bar .basehalf-canvas-video-player-button[aria-label="Play"]`).click();
+		await page.waitForFunction(selector => !document.querySelector(`${selector} video`)?.paused, `${SURFACE} .basehalf-canvas-video-player.detail`, { timeout: 5_000 });
+		await page.waitForFunction(selector => document.querySelector(`${selector} video`)?.paused, `${SURFACE} .basehalf-canvas-video-player.detail`, { timeout: 10_000 });
+		const stoppedAt = await page.evaluate(selector => document.querySelector(`${selector} video`).currentTime, `${SURFACE} .basehalf-canvas-video-player.detail`);
+		if (stoppedAt > part.end + 0.01 || stoppedAt < part.end - 0.2) {
+			throw new Error(`While viewing, Play plays the part once and stops on its last frame: ${JSON.stringify({ stoppedAt, part })}`);
+		}
+		// Edit shows the whole original in the viewer, with the handles where the trim left them.
+		await enterEditing(page);
 		const again = await readPart(page);
 		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || !/ \| Revert to Original$/.test(await lineText(page))) {
-			throw new Error(`Card Detail of an edited video shows its original with the part it kept, and Revert to Original: ${JSON.stringify({ part, again, line: await lineText(page) })}`);
+			throw new Error(`Edit on an edited video shows its original with the part it kept, and Revert to Original: ${JSON.stringify({ part, again, line: await lineText(page) })}`);
 		}
+		// The first Escape goes back to viewing, the second closes Card Detail.
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(selector => !!document.querySelector(`${selector}.viewing`), FRAMES, { timeout: 5_000 });
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 	} finally {
