@@ -23,9 +23,9 @@ suite('BaseHalfEditRecord', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('writes the record of a video and of an image, with the fields at their defaults left out, and reads it back (D84)', () => {
-		const video = serializeBaseHalfEditRecord({ original: 'original.mp4', result: { size: 120_000, hash: HASH }, keep: [{ start: 1.0334, end: 4.5671 }], mute: true });
+		const video = serializeBaseHalfEditRecord({ original: 'original.mp4', result: { size: 120_000, hash: HASH }, keep: [{ start: 1.0334, end: 4.5671 }] });
 		const image = serializeBaseHalfEditRecord({ original: 'original.png', result: { size: 9, hash: HASH }, turn: 1, flip: true, straighten: -2.54, crop: { x: 1024, y: 600.004, width: 1600, height: 900 } });
-		const plain = serializeBaseHalfEditRecord({ original: 'original.wav', result: { size: 9, hash: HASH }, keep: [{ start: 0, end: 1 }, { start: 2, end: 3 }], mute: false, turn: 4 as 1, flip: false, straighten: 0.04 });
+		const plain = serializeBaseHalfEditRecord({ original: 'original.wav', result: { size: 9, hash: HASH }, keep: [{ start: 0, end: 1 }, { start: 2, end: 3 }], turn: 4 as 1, flip: false, straighten: 0.04 });
 		assert.deepStrictEqual({ video, image, plain, readBack: [parseBaseHalfEditRecord(video), parseBaseHalfEditRecord(image)] }, {
 			video: [
 				'original: "original.mp4"',
@@ -35,7 +35,6 @@ suite('BaseHalfEditRecord', () => {
 				'keep:',
 				'  - start: 1.033',
 				'    end: 4.567',
-				'mute: true',
 				''
 			].join('\n'),
 			image: [
@@ -67,7 +66,7 @@ suite('BaseHalfEditRecord', () => {
 				''
 			].join('\n'),
 			readBack: [
-				{ original: 'original.mp4', result: { size: 120_000, hash: HASH }, keep: [{ start: 1.033, end: 4.567 }], mute: true },
+				{ original: 'original.mp4', result: { size: 120_000, hash: HASH }, keep: [{ start: 1.033, end: 4.567 }] },
 				{ original: 'original.png', result: { size: 9, hash: HASH }, turn: 1, flip: true, straighten: -2.5, crop: { x: 1024, y: 600, width: 1600, height: 900 } }
 			]
 		});
@@ -108,7 +107,7 @@ suite('BaseHalfEditRecord', () => {
 			names: [baseHalfEditOriginalName('mp4'), baseHalfIsEditOriginalName('original.webm'), baseHalfIsEditOriginalName('original.mp4.tmp'), baseHalfIsEditOriginalName('original'), baseHalfIsEditOriginalName('shot.mp4')],
 			summaries: [
 				baseHalfEditSummary({ keep: [{ start: 1.049, end: 4.567 }] }),
-				baseHalfEditSummary({ keep: [{ start: 0, end: 1 }, { start: 2, end: 3 }, { start: 4, end: 5 }], mute: true }),
+				baseHalfEditSummary({ keep: [{ start: 0, end: 1 }, { start: 2, end: 3 }, { start: 4, end: 5 }] }),
 				baseHalfEditSummary({ turn: 2, flip: true, straighten: 3.5, crop: { x: 800, y: 450, width: 1600, height: 900 } }),
 				baseHalfEditSummary({})
 			]
@@ -116,7 +115,7 @@ suite('BaseHalfEditRecord', () => {
 			names: ['original.mp4', true, false, false, false],
 			summaries: [
 				'Trimmed to 1.0s–4.5s',
-				'Trimmed to 3 parts · Without sound',
+				'Trimmed to 3 parts',
 				'Turned · Flipped · Straightened by 3.5° · Cropped to 1600 × 900',
 				undefined
 			]
@@ -129,7 +128,7 @@ suite('BaseHalfEditRecord', () => {
 		assert.deepStrictEqual({
 			kinds,
 			refusals: [baseHalfMediaEditFormatRefusal('image', URI.file('/workspace/loop.gif')), baseHalfMediaEditFormatRefusal('video', URI.file('/workspace/clip.mkv'))],
-			noEdit: [baseHalfMediaChoicesAreNoEdit({}), baseHalfMediaChoicesAreNoEdit({ mute: true }), baseHalfMediaChoicesAreNoEdit({ crop: { x: 1, y: 1, width: 2, height: 2 } })]
+			noEdit: [baseHalfMediaChoicesAreNoEdit({}), baseHalfMediaChoicesAreNoEdit({ flip: true }), baseHalfMediaChoicesAreNoEdit({ crop: { x: 1, y: 1, width: 2, height: 2 } })]
 		}, {
 			kinds: ['video', 'video', 'video', 'video', 'image', 'image', 'image', 'image', 'sound', 'sound', 'sound', 'sound', 'sound', '-', '-', '-', '-', '-'],
 			refusals: ['BaseHalf can\'t edit GIF images', 'BaseHalf can\'t edit MKV videos'],

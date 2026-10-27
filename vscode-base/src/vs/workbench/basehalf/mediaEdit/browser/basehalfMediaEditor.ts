@@ -8,29 +8,21 @@ import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 
 /**
- * What every editor of Card Detail's edit mode offers it (editing media,
- * "Edit mode in Card Detail"): the choices it holds, the undo and redo of its
- * own changes, a state in which a save runs, and a line of status.
+ * What every editor of Card Detail offers it (editing media, "Editing in Card
+ * Detail"): the choices it shows, each change as the user makes it, named for
+ * what it did, and the choices that an undo, a redo, or Revert to Original
+ * set in it.
  */
 export interface IBaseHalfMediaEditor extends IDisposable {
-	/** The choices as the editor holds them now, each field at its default left out. */
+	/** The choices as the editor shows them now, each field at its default left out. */
 	readonly choices: IBaseHalfMediaChoices;
-	/** The choices changed. */
-	readonly onDidChange: Event<void>;
-	/** Enter on a control of the editor: Card Detail saves, as Done does. */
-	readonly onDidRequestSave: Event<void>;
-	/** Undoes the editor's last change; false when there is none. */
-	undo(): boolean;
-	redo(): boolean;
-	/** While a save runs, the controls change nothing. */
-	setBusy(busy: boolean): void;
-	/** The line under the editor; it keeps its height while it is empty. */
-	setStatus(status: IBaseHalfMediaEditStatus | undefined): void;
+	/** A change was made and let go: its kind names its step of undo. */
+	readonly onDidChange: Event<BaseHalfMediaChange>;
+	/** Shows other choices, as an undo sets them; it is no change. */
+	setChoices(choices: IBaseHalfMediaChoices): void;
 	/** Takes the keyboard on the editor's first control. */
 	focus(): void;
 }
 
-export interface IBaseHalfMediaEditStatus {
-	readonly text: string;
-	readonly error?: boolean;
-}
+/** What a change did, which names its step: "Trim shot.mp4", "Cut take.wav", "Crop still.png". */
+export type BaseHalfMediaChange = 'trim' | 'cut' | 'crop' | 'turn' | 'flip' | 'straighten';

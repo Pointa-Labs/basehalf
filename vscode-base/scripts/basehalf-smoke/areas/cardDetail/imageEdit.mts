@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// Card Detail's crop view of an image (editing media): Edit, a ratio, a turn and a flip, Done, Revert, and undo.
+// Card Detail's crop view of an image (editing media): the editor at once, a ratio, a turn and a flip saved as they are made, the wheel that zooms only the view, Revert to Original, and undo.
 
 import fs from 'fs';
 import path from 'path';
@@ -16,16 +16,15 @@ import { waitUntil } from '../../lib/steps.mts';
 const FOLDER = 'crop';
 const IMAGE = `${FOLDER}/still.png`;
 const DETAIL = '.basehalf-card-detail.visible';
-const CROP = '.basehalf-card-detail-surface.active .basehalf-image-crop';
-const NOTE = '.basehalf-card-detail-surface.active .basehalf-media-edit-note';
+const SURFACE = '.basehalf-card-detail-surface.active';
+const CROP = `${SURFACE} .basehalf-image-crop`;
+const LINE = `${SURFACE} .basehalf-media-edit-line`;
 const UNDO = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
+/** Changes of one name within 0.6 s are one step: the changes of this test are apart. */
+const APART_MS = 700;
 
 function workspaceFile(relativePath) {
 	return path.join(workspacePath, ...relativePath.split('/'));
-}
-
-function editAction(name) {
-	return `${DETAIL} .basehalf-card-detail-edit-actions [data-edit-action="${name}"]`;
 }
 
 function chunk(type, body) {
@@ -56,15 +55,15 @@ function pngSize(bytes) {
 	return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
 }
 
-async function waitForNote(page, pattern) {
-	await page.waitForFunction(({ selector, source }) => new RegExp(source).test(document.querySelector(selector)?.textContent ?? ''), { selector: NOTE, source: pattern.source }, { timeout: 30_000 });
-}
-
-async function enterEdit(page) {
-	await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-disabled') === 'false', editAction('edit'), { timeout: 15_000 });
-	await page.locator(editAction('edit')).click();
+/** The crop view, once its picture is loaded. */
+async function waitForCrop(page) {
 	await page.locator(CROP).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.waitForFunction(selector => (document.querySelector(selector)?.naturalWidth ?? 0) > 0, `${CROP} .basehalf-image-crop-picture`, { timeout: 15_000 });
+}
+
+/** The parts of the line under the editor that show, without the dots between them. */
+async function lineText(page) {
+	return page.evaluate(selector => Array.from(document.querySelector(selector)?.querySelectorAll('.basehalf-media-edit-line-part:not([hidden])') ?? []).map(part => part.textContent).join(' | '), LINE);
 }
 
 async function chooseRatio(page, label) {
@@ -78,64 +77,84 @@ async function chooseRatio(page, label) {
 
 export async function assertCardDetailImageEdit(page) {
 	fs.mkdirSync(workspaceFile(FOLDER), { recursive: true });
-	const original = patternPng(96, 64);
+	// Large enough that the view can zoom it: it zooms up to twice its pixels.
+	const original = patternPng(1200, 800);
 	fs.writeFileSync(workspaceFile(IMAGE), original);
 	const cardInformation = workspaceFile(`.bh/mirror/${IMAGE}`);
+	const read = file => fs.existsSync(file) ? fs.readFileSync(file) : undefined;
+	const recordText = () => read(path.join(cardInformation, 'edit.yaml'))?.toString() ?? '';
 	try {
-		// An SVG is shown, and Edit says why it is not edited.
+		// An SVG shows in its page, without an editor, and nothing says why.
 		await quickOpen(page, 'concept.svg');
 		await assertCardDetail(page, 'concept.svg');
-		await page.waitForFunction(selector => {
-			const button = document.querySelector(selector);
-			return button?.getAttribute('aria-disabled') === 'true' && /can't edit SVG images/.test(button.getAttribute('data-basehalf-hover') ?? '');
-		}, editAction('edit'), { timeout: 15_000 });
+		await page.locator(`${SURFACE} .basehalf-card-detail-media-webview iframe, ${SURFACE} .basehalf-card-detail-media-webview webview`).first().waitFor({ state: 'attached', timeout: 15_000 });
+		if (await page.locator(CROP).count() || await page.locator(LINE).count()) {
+			throw new Error('Card Detail of an SVG shows its page, without a crop view or a line.');
+		}
 
 		await quickOpen(page, IMAGE);
 		await assertCardDetail(page, 'still.png');
-		await enterEdit(page);
+		await waitForCrop(page);
+		// At rest the frame waits for the pointer: no corner shows while it is elsewhere.
+		await page.mouse.move(2, 2);
+		await page.waitForTimeout(250);
+		const atRest = await page.evaluate(selector => getComputedStyle(document.querySelector(`${selector} .basehalf-image-crop-corner.topLeft`)).opacity, CROP);
+		if (atRest !== '0' || await lineText(page) !== '') {
+			throw new Error(`The crop view of an image that was never edited shows the picture without its frame, and an empty line: ${JSON.stringify({ atRest, line: await lineText(page) })}`);
+		}
+
+		// Square is a change: the file becomes its middle 800 × 800, with nothing pressed.
 		await chooseRatio(page, 'Square');
-		await page.locator(editAction('done')).click();
-		await waitForNote(page, /^Edited\./);
+		await waitUntil(() => /\ncrop:\n {2}x: 600\n {2}y: 400\n {2}width: 800\n {2}height: 800\n/.test(recordText()), 'the square crop to be written', 30_000);
 		const squared = fs.readFileSync(workspaceFile(IMAGE));
-		const record = fs.readFileSync(path.join(cardInformation, 'edit.yaml'), 'utf8');
-		if (JSON.stringify(pngSize(squared)) !== '[64,64]' || !fs.readFileSync(path.join(cardInformation, 'original.png')).equals(original) || !/\ncrop:\n {2}x: 48\n {2}y: 32\n {2}width: 64\n {2}height: 64\n/.test(record) || !squared.includes(Buffer.from('Comment\0a still', 'latin1'))) {
-			throw new Error(`Square on a 96 × 64 PNG keeps its middle 64 × 64, its original, and its text: ${JSON.stringify({ size: pngSize(squared), record })}`);
+		if (JSON.stringify(pngSize(squared)) !== '[800,800]' || !read(path.join(cardInformation, 'original.png'))?.equals(original) || !squared.includes(Buffer.from('Comment\0a still', 'latin1'))) {
+			throw new Error(`Square on a 1200 × 800 PNG keeps its middle 800 × 800, its original, and its text: ${JSON.stringify({ size: pngSize(squared), record: recordText() })}`);
+		}
+		await page.waitForFunction(selector => !!document.querySelector(`${selector} .basehalf-media-edit-line-saving`)?.parentElement?.hidden, LINE, { timeout: 15_000 });
+		if (await lineText(page) !== 'Cropped to 800 × 800 | Revert to Original') {
+			throw new Error(`The line under the crop view says the edit and offers Revert to Original: ${await lineText(page)}`);
 		}
 
-		// Edit again starts from the original, square as it was; a turn and a flip are made of the original.
-		await enterEdit(page);
-		const ratio = await page.locator(`${CROP} .basehalf-image-crop-ratio-label`).textContent();
-		if (ratio !== 'Square' || (await page.locator(editAction('revert')).count()) !== 1) {
-			throw new Error(`Edit on a cropped image goes on with its ratio, and offers Revert: ${ratio}`);
-		}
+		// A turn and a flip are changes of the original, each its own step.
 		await page.locator(`${CROP} .basehalf-image-crop-tool.turn`).click();
+		await page.waitForTimeout(APART_MS);
 		await page.locator(`${CROP} .basehalf-image-crop-tool.flip`).click();
-		await page.locator(editAction('done')).click();
-		await waitForNote(page, /^Edited\./);
+		await waitUntil(() => /\nturn: 1\nflip: true\n/.test(recordText()), 'the turn and the flip to be written', 30_000);
 		const turned = fs.readFileSync(workspaceFile(IMAGE));
-		const turnedRecord = fs.readFileSync(path.join(cardInformation, 'edit.yaml'), 'utf8');
-		if (turned.equals(squared) || JSON.stringify(pngSize(turned)) !== '[64,64]' || !/\nturn: 1\nflip: true\n/.test(turnedRecord)) {
-			throw new Error(`A turn and a flip are saved as one edit of the original: ${turnedRecord}`);
+		const turnedRecord = recordText();
+		if (turned.equals(squared) || JSON.stringify(pngSize(turned)) !== '[800,800]') {
+			throw new Error(`A turn and a flip are written as an edit of the original: ${turnedRecord}`);
 		}
 
-		// Revert puts the original back; undo of the Revert brings the edit back.
-		await enterEdit(page);
-		await page.locator(editAction('revert')).click();
-		await waitForNote(page, /^The original is back\./);
-		if (!fs.readFileSync(workspaceFile(IMAGE)).equals(original) || fs.existsSync(path.join(cardInformation, 'edit.yaml'))) {
-			throw new Error('Revert puts back the original PNG and removes the record.');
+		// The wheel over the picture zooms the view and changes no edit; a double click shows the picture as it fits again.
+		const view = await page.locator(`${CROP} .basehalf-image-crop-view`).boundingBox();
+		await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+		await page.mouse.wheel(0, -400);
+		await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('zoomed'), CROP, { timeout: 5_000 });
+		await page.waitForTimeout(1_500);
+		if (!fs.readFileSync(workspaceFile(IMAGE)).equals(turned) || recordText() !== turnedRecord) {
+			throw new Error('The wheel zooms the view only: the file and its record stay as they were.');
 		}
-		await page.locator(editAction('edit')).focus();
+		await page.mouse.dblclick(view.x + view.width / 2, view.y + view.height / 2);
+		await page.waitForFunction(selector => !document.querySelector(selector)?.classList.contains('zoomed'), CROP, { timeout: 5_000 });
+
+		// Revert to Original puts the original back; undo of it brings the edit back byte for byte.
+		await page.locator(`${LINE} .basehalf-media-edit-line-action.revert`).click();
+		await waitUntil(() => !!read(workspaceFile(IMAGE))?.equals(original) && !fs.existsSync(path.join(cardInformation, 'edit.yaml')), 'Revert to Original to put the original PNG back', 30_000);
+		await page.locator(`${CROP} .basehalf-image-crop-tool.turn`).focus();
 		await page.keyboard.press(UNDO);
-		await waitUntil(() => fs.readFileSync(workspaceFile(IMAGE)).equals(turned), 'undo to bring the edit back', 15_000);
+		await waitUntil(() => !!read(workspaceFile(IMAGE))?.equals(turned) && recordText() === turnedRecord, 'undo to bring the edit back', 30_000);
 
-		// Escape in edit mode cancels and leaves Card Detail open; the next Escape closes it.
-		await enterEdit(page);
-		await page.locator(`${CROP} .basehalf-image-crop-corner.topLeft`).focus();
+		// Escape during a drag of a corner puts the frame back and leaves Card Detail open; the next Escape closes it.
+		const corner = await page.locator(`${CROP} .basehalf-image-crop-corner.topLeft`).boundingBox();
+		await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(corner.x + 30, corner.y + 30, { steps: 5 });
 		await page.keyboard.press('Escape');
-		await page.locator(CROP).waitFor({ state: 'detached', timeout: 10_000 });
-		if (!(await page.locator(DETAIL).isVisible())) {
-			throw new Error('Escape in edit mode cancels the edit and leaves Card Detail open.');
+		await page.mouse.up();
+		await page.waitForTimeout(400);
+		if (!(await page.locator(DETAIL).isVisible()) || !fs.readFileSync(workspaceFile(IMAGE)).equals(turned) || recordText() !== turnedRecord) {
+			throw new Error('Escape during a drag puts the frame back and leaves Card Detail open, with no change.');
 		}
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });

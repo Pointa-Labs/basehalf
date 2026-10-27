@@ -13,22 +13,19 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { BASEHALF_EDIT_MAX_STRAIGHTEN, IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
+import { BASEHALF_EDIT_MAX_STRAIGHTEN, IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import {
 	BASEHALF_CROP_RATIOS,
 	BaseHalfCropCorner,
 	BaseHalfCropRatio,
 	BaseHalfCropSide,
 	baseHalfApplyCropRatio,
-	baseHalfClampCropCenter,
 	baseHalfCropChoices,
-	baseHalfCropIsOriginal,
 	baseHalfCropMinSize,
 	baseHalfCropStateOf,
 	baseHalfDragCropCorner,
 	baseHalfDragCropSide,
 	baseHalfFlipCrop,
-	baseHalfLargestCrop,
 	baseHalfMoveCrop,
 	baseHalfPictureTransform,
 	baseHalfRotate,
@@ -36,26 +33,26 @@ import {
 	baseHalfStraightenCrop,
 	baseHalfTurnCropLeft,
 	baseHalfTurnedSize,
-	baseHalfWholeCrop,
 	IBaseHalfCropState,
 	IBaseHalfPoint,
 	IBaseHalfSize
 } from '../common/basehalfImageCrop.js';
-import { IBaseHalfMediaEditor, IBaseHalfMediaEditStatus } from './basehalfMediaEditor.js';
+import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 
 /**
- * The crop view of an image in Card Detail's edit mode (editing media,
- * "Cropping an image"): the original, turned, flipped, and straightened as
- * the choices say, under the crop frame, with the picture outside it dimmed;
- * a row of tools under it (Turn Left, Flip, Ratio, the Straighten dial, and
- * Reset), and a line of status. At rest the frame is as large as fits, in
- * the middle of the view; while a corner or a side is dragged the picture
- * stays and the frame moves, and when the drag ends both glide until the
- * frame is at rest again.
+ * The crop view of an image in Card Detail (editing media, "Cropping an
+ * image"): the picture as its edit makes it, the original turned, flipped,
+ * and straightened as the choices say and only the part kept, as large as
+ * fits; the crop frame on its edges, which shows while the pointer is over
+ * the picture or the keyboard is on it; and a row of tools under it (Turn
+ * Left, Flip, Ratio, and the Straighten dial). While a corner, a side, or the
+ * picture is dragged, the rest of the original shows around the frame,
+ * dimmed, and when the drag ends both glide until the frame is at rest again.
+ * The wheel zooms the view, never the edit.
  */
 
 export interface IBaseHalfImageCropViewOptions {
-	/** The original of an edited image, or the image. */
+	/** The copy of the original of an edited image, or of the image, that the editor reads. */
 	readonly source: URI;
 	/** Its size, upright as its camera gave it. */
 	readonly size: IBaseHalfSize;
@@ -70,10 +67,12 @@ const GLIDE_MILLISECONDS = 200;
 const DIAL_PIXELS_PER_DEGREE = 6;
 /** Within this of 0°, a turn of the dial rests at 0°. */
 const DIAL_SNAP_DEGREES = 0.4;
-/** How long keys that move a corner or the picture wait before the frame comes to rest. */
+/** How long keys that move a corner or the picture wait before the frame comes to rest: keys within it are one change. */
 const KEY_REST_MILLISECONDS = 600;
 /** The smallest the frame may be on screen while it is dragged. */
 const MIN_FRAME_PIXELS = 48;
+/** The view zooms up to this many screen pixels for each pixel of the picture. */
+const MAX_VIEW_SCALE = 2;
 
 /** Where the picture is on screen: the point of the picture at the middle of the view, and the screen pixels for each pixel of the picture. */
 interface IMapping {
@@ -83,29 +82,28 @@ interface IMapping {
 
 type RatioId = 'free' | 'original' | string;
 
-interface ICropChoice {
-	readonly state: IBaseHalfCropState;
-	readonly ratio: RatioId;
-	readonly tall: boolean;
-}
-
-type DragKind = { readonly kind: 'corner'; readonly corner: BaseHalfCropCorner } | { readonly kind: 'side'; readonly side: BaseHalfCropSide } | { readonly kind: 'move' } | { readonly kind: 'dial' };
+type DragKind = { readonly kind: 'corner'; readonly corner: BaseHalfCropCorner } | { readonly kind: 'side'; readonly side: BaseHalfCropSide } | { readonly kind: 'move' } | { readonly kind: 'dial' } | { readonly kind: 'pan' };
 
 interface IDrag {
 	readonly what: DragKind;
 	readonly pointerId: number;
 	readonly startX: number;
 	readonly startY: number;
-	readonly before: ICropChoice;
+	/** What the view held when the drag started, which Escape puts back. */
+	readonly before: IBaseHalfCropState;
 	/** The screen offset from the pointer to the point it holds: a corner's or a side's place. */
 	readonly grabX: number;
 	readonly grabY: number;
 	readonly mapping: IMapping;
+	/** Where the part was on screen, off the middle of the view, when a drag of the zoomed view started. */
+	readonly pan: IBaseHalfPoint;
 }
 
 export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaEditor {
 
 	readonly element: HTMLElement;
+	/** The picture is loaded, or could not be. */
+	readonly drawn: Promise<void>;
 	private readonly view: HTMLElement;
 	private readonly picture: HTMLImageElement;
 	private readonly frame: HTMLElement;
@@ -119,30 +117,25 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private readonly dial: HTMLElement;
 	private readonly dialRuler: HTMLElement;
 	private readonly dialValue: HTMLElement;
-	private readonly resetButton: HTMLButtonElement;
-	private readonly status: HTMLElement;
 
-	private readonly onDidChangeEmitter = this._register(new Emitter<void>());
+	private readonly onDidChangeEmitter = this._register(new Emitter<BaseHalfMediaChange>());
 	readonly onDidChange = this.onDidChangeEmitter.event;
-	private readonly onDidRequestSaveEmitter = this._register(new Emitter<void>());
-	readonly onDidRequestSave = this.onDidRequestSaveEmitter.event;
 
 	private readonly original: IBaseHalfSize;
 	private state: IBaseHalfCropState;
-	private ratio: RatioId;
-	private tall: boolean;
+	private ratio: RatioId = 'free';
+	private tall = false;
 	private mapping: IMapping = { center: { x: 0, y: 0 }, scale: 1 };
 	private viewSize: IBaseHalfSize = { width: 0, height: 0 };
-	private readonly undoStack: ICropChoice[] = [];
-	private readonly redoStack: ICropChoice[] = [];
+	/** How much larger than at rest the view shows the part, from 1. */
+	private zoom = 1;
+	/** Where the middle of the part is on screen, off the middle of the view, while the view is zoomed. */
+	private pan: IBaseHalfPoint = { x: 0, y: 0 };
 	private drag: IDrag | undefined;
-	private busy = false;
 	private glideFrame: number | undefined;
 	private keyRest: ReturnType<typeof setTimeout> | undefined;
-	/** What the view held when keys started to move a corner or the picture, for one step of its undo. */
-	private keyBefore: ICropChoice | undefined;
-	private wheelRest: ReturnType<typeof setTimeout> | undefined;
-	private wheelBefore: ICropChoice | undefined;
+	/** What the view held when keys started to move a corner or the picture, for one change. */
+	private keyBefore: IBaseHalfCropState | undefined;
 	private disposed = false;
 
 	constructor(
@@ -154,21 +147,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		super();
 		this.original = options.size;
 		this.state = baseHalfCropStateOf(this.original, options.choices);
-		const picture = this.pictureSize();
-		this.tall = picture.height > picture.width;
-		this.ratio = 'free';
-		// An edit that kept the picture's ratio, or one of the menu's, goes on with it; any other starts freeform.
-		const crop = options.choices.crop;
-		if (crop) {
-			const ratio = crop.width / crop.height;
-			const preset = BASEHALF_CROP_RATIOS.find(candidate => baseHalfSameRatio(ratio, candidate.width / candidate.height, crop.width) || baseHalfSameRatio(ratio, candidate.height / candidate.width, crop.width));
-			if (baseHalfSameRatio(ratio, picture.width / picture.height, crop.width)) {
-				this.ratio = 'original';
-			} else if (preset) {
-				this.ratio = preset.id;
-				this.tall = crop.height > crop.width;
-			}
-		}
+		this.setRatioOf(options.choices);
 
 		this.element = append(container, $('.basehalf-image-crop'));
 		this.element.setAttribute('role', 'group');
@@ -177,7 +156,12 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.picture = append(this.view, $<HTMLImageElement>('img.basehalf-image-crop-picture'));
 		this.picture.alt = '';
 		this.picture.draggable = false;
-		this.picture.src = FileAccess.uriToBrowserUri(options.source.with({ query: [options.source.query, `basehalfMediaEdit=${Date.now()}`].filter(Boolean).join('&') })).toString(true);
+		this.drawn = new Promise<void>(resolve => {
+			this._register(addDisposableListener(this.picture, 'load', () => resolve()));
+			this._register(addDisposableListener(this.picture, 'error', () => resolve()));
+			this._register(toDisposable(resolve));
+		});
+		this.picture.src = FileAccess.uriToBrowserUri(options.source).toString(true);
 		this.frame = append(this.view, $('.basehalf-image-crop-frame'));
 		this.frame.tabIndex = 0;
 		this.frame.setAttribute('role', 'application');
@@ -219,20 +203,12 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.dialRuler = append(window, $('.basehalf-image-crop-dial-ruler'));
 		append(window, $('.basehalf-image-crop-dial-mark'));
 		this._register(this.hoverService.setupDelayedHover(this.dial, () => ({ content: localize('basehalf.mediaEdit.image.straightenHover', "Straighten (double-click for 0°)") })));
-		this.resetButton = append(tools, $<HTMLButtonElement>('button.basehalf-image-crop-reset'));
-		this.resetButton.type = 'button';
-		this.resetButton.textContent = localize('basehalf.mediaEdit.image.reset', "Reset");
-		this.status = append(this.element, $('.basehalf-image-crop-status'));
-		this.status.setAttribute('aria-live', 'polite');
 
 		this._register(toDisposable(() => {
 			this.disposed = true;
 			this.stopGlide();
 			if (this.keyRest !== undefined) {
 				clearTimeout(this.keyRest);
-			}
-			if (this.wheelRest !== undefined) {
-				clearTimeout(this.wheelRest);
 			}
 		}));
 		this.registerListeners();
@@ -244,39 +220,21 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	}
 
 	focus(): void {
-		this.corners.get('topLeft')!.focus({ preventScroll: true });
+		this.frame.focus({ preventScroll: true });
 	}
 
-	undo(): boolean {
-		return this.step(this.undoStack, this.redoStack);
-	}
-
-	redo(): boolean {
-		return this.step(this.redoStack, this.undoStack);
-	}
-
-	private step(from: ICropChoice[], to: ICropChoice[]): boolean {
-		if (this.busy || this.drag || !from.length) {
-			return false;
+	setChoices(choices: IBaseHalfMediaChoices): void {
+		if (sameChoices(choices, this.choices)) {
+			return;
 		}
-		this.settlePending();
-		to.push(this.current());
-		this.restore(from.pop()!);
-		this.onDidChangeEmitter.fire();
-		return true;
-	}
-
-	setBusy(busy: boolean): void {
-		this.busy = busy;
-		if (busy) {
-			this.cancelDrag();
-		}
+		this.endDrag();
+		this.dropKeys();
+		this.stopGlide();
+		this.state = baseHalfCropStateOf(this.original, choices);
+		this.setRatioOf(choices);
+		this.resetZoom();
+		this.mapping = this.restMapping();
 		this.render();
-	}
-
-	setStatus(status: IBaseHalfMediaEditStatus | undefined): void {
-		this.status.textContent = status?.text ?? '';
-		this.status.classList.toggle('error', !!status?.error);
 	}
 
 	// #region The state
@@ -285,30 +243,27 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		return baseHalfTurnedSize(this.original, state.turn);
 	}
 
-	private current(): ICropChoice {
-		return { state: this.state, ratio: this.ratio, tall: this.tall };
-	}
-
-	private restore(choice: ICropChoice): void {
-		this.state = choice.state;
-		this.ratio = choice.ratio;
-		this.tall = choice.tall;
-		this.mapping = this.restMapping();
-		this.render();
-	}
-
-	/** Keeps what the view held before a change for its undo. */
-	private remember(before: ICropChoice): void {
-		if (JSON.stringify(before) === JSON.stringify(this.current())) {
+	/** The ratio that the choices kept: the picture's own, or one of the menu's; any other is freeform. */
+	private setRatioOf(choices: IBaseHalfMediaChoices): void {
+		const picture = this.pictureSize();
+		this.tall = picture.height > picture.width;
+		this.ratio = 'free';
+		const crop = choices.crop;
+		if (!crop) {
 			return;
 		}
-		this.undoStack.push(before);
-		this.redoStack.length = 0;
-		this.onDidChangeEmitter.fire();
+		const ratio = crop.width / crop.height;
+		const preset = BASEHALF_CROP_RATIOS.find(candidate => baseHalfSameRatio(ratio, candidate.width / candidate.height, crop.width) || baseHalfSameRatio(ratio, candidate.height / candidate.width, crop.width));
+		if (baseHalfSameRatio(ratio, picture.width / picture.height, crop.width)) {
+			this.ratio = 'original';
+		} else if (preset) {
+			this.ratio = preset.id;
+			this.tall = crop.height > crop.width;
+		}
 	}
 
 	/** The ratio the frame keeps: none when freeform. */
-	private ratioValue(choice: Pick<ICropChoice, 'ratio' | 'tall'> = { ratio: this.ratio, tall: this.tall }): BaseHalfCropRatio {
+	private ratioValue(choice: { readonly ratio: RatioId; readonly tall: boolean } = { ratio: this.ratio, tall: this.tall }): BaseHalfCropRatio {
 		if (choice.ratio === 'free') {
 			return undefined;
 		}
@@ -323,18 +278,27 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		return choice.tall ? preset.height / preset.width : preset.width / preset.height;
 	}
 
-	private change(next: IBaseHalfCropState, glide: boolean, ratio = this.ratio, tall = this.tall): void {
-		const before = this.current();
+	/** A tool's change: the view shows it at rest, and its choices are a change when they differ. */
+	private change(kind: BaseHalfMediaChange, next: IBaseHalfCropState, glide: boolean, ratio = this.ratio, tall = this.tall): void {
+		const before = this.state;
 		this.state = next;
 		this.ratio = ratio;
 		this.tall = tall;
+		this.resetZoom();
 		if (glide) {
 			this.glideToRest();
 		} else {
+			this.stopGlide();
 			this.mapping = this.restMapping();
 			this.render();
 		}
-		this.remember(before);
+		this.changed(kind, before);
+	}
+
+	private changed(kind: BaseHalfMediaChange, before: IBaseHalfCropState): void {
+		if (!sameChoices(baseHalfCropChoices(this.original, before), this.choices)) {
+			this.onDidChangeEmitter.fire(kind);
+		}
 	}
 
 	// #endregion
@@ -345,6 +309,49 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private restMapping(state = this.state): IMapping {
 		const room = { width: Math.max(1, this.viewSize.width - 2 * MARGIN), height: Math.max(1, this.viewSize.height - 2 * MARGIN) };
 		return { center: { x: state.crop.x, y: state.crop.y }, scale: Math.min(room.width / state.crop.width, room.height / state.crop.height) };
+	}
+
+	/** The mapping of the view: at rest, or zoomed with the part where it was moved to. */
+	private viewMapping(): IMapping {
+		const rest = this.restMapping();
+		if (this.zoom <= 1) {
+			return rest;
+		}
+		const scale = rest.scale * this.zoom;
+		// The middle of the part stands `pan` off the middle of the view.
+		const back = baseHalfRotate({ x: this.pan.x / scale, y: this.pan.y / scale }, -this.state.straighten);
+		return { center: { x: this.state.crop.x - back.x, y: this.state.crop.y - back.y }, scale };
+	}
+
+	/** The zoomed part covers the view where it is larger than the view, and stays in its middle where it is not. */
+	private clampPan(pan: IBaseHalfPoint, zoom = this.zoom): IBaseHalfPoint {
+		const scale = this.restMapping().scale * zoom;
+		const roomX = Math.max(0, (this.state.crop.width * scale - this.viewSize.width) / 2);
+		const roomY = Math.max(0, (this.state.crop.height * scale - this.viewSize.height) / 2);
+		return { x: Math.min(roomX, Math.max(-roomX, pan.x)), y: Math.min(roomY, Math.max(-roomY, pan.y)) };
+	}
+
+	/** Zooms the view to `zoom` around a point of it, which keeps the point of the picture under it. */
+	private zoomAround(at: IBaseHalfPoint, zoom: number): void {
+		const next = Math.max(1, zoom);
+		const k = next / this.zoom;
+		const middle = { x: this.viewSize.width / 2 + this.pan.x, y: this.viewSize.height / 2 + this.pan.y };
+		const moved = { x: at.x - (at.x - middle.x) * k, y: at.y - (at.y - middle.y) * k };
+		this.zoom = next;
+		this.pan = next > 1 ? this.clampPan({ x: moved.x - this.viewSize.width / 2, y: moved.y - this.viewSize.height / 2 }) : { x: 0, y: 0 };
+		this.stopGlide();
+		this.mapping = this.viewMapping();
+		this.render();
+	}
+
+	private resetZoom(): void {
+		this.zoom = 1;
+		this.pan = { x: 0, y: 0 };
+	}
+
+	/** The largest zoom: the picture at twice its pixels, or as it fits when that is larger already. */
+	private maxZoom(): number {
+		return Math.max(1, MAX_VIEW_SCALE / this.restMapping().scale);
 	}
 
 	/** Where a point of the picture shows, from the view's top left. */
@@ -373,7 +380,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.viewSize = { width, height };
 		if (!this.drag) {
 			this.stopGlide();
-			this.mapping = this.restMapping();
+			this.pan = this.clampPan(this.pan);
+			this.mapping = this.viewMapping();
 		}
 		this.render();
 	}
@@ -429,14 +437,15 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			}
 		}
 		this._register(addDisposableListener(this.view, 'wheel', event => this.onWheel(event), { passive: false }));
+		this._register(addDisposableListener(this.view, 'dblclick', event => this.onDoubleClick(event)));
 		this._register(addDisposableListener(this.dial, 'dblclick', () => {
-			if (!this.busy) {
-				this.settlePending();
-				this.change(baseHalfStraightenCrop(this.original, this.state, 0), false);
+			if (!this.drag) {
+				this.settleKeys();
+				this.change('straighten', baseHalfStraightenCrop(this.original, this.state, 0), false);
 			}
 		}));
 		this._register(addDisposableListener(getWindow(this.element), 'keydown', event => {
-			// Escape during a drag ends it and puts back what it changed; edit mode stays (editing media, "The keyboard").
+			// Escape during a drag ends it and puts back what it changed; Card Detail stays (editing media, "The keyboard").
 			if (event.key === 'Escape' && this.drag) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -444,15 +453,17 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			}
 		}, true));
 		this._register(addDisposableListener(this.element, 'keydown', event => this.onKeyDown(event)));
-		// A turn to the left turns a set ratio with the frame: a wide one becomes tall.
-		this._register(addDisposableListener(this.turnButton, 'click', () => this.run(() => this.change(baseHalfTurnCropLeft(this.original, this.state), false, this.ratio, !this.tall))));
-		this._register(addDisposableListener(this.flipButton, 'click', () => this.run(() => this.change(baseHalfFlipCrop(this.original, this.state), false))));
-		this._register(addDisposableListener(this.ratioButton, 'click', () => this.run(() => this.showRatioMenu())));
-		this._register(addDisposableListener(this.resetButton, 'click', () => this.run(() => {
-			if (!baseHalfCropIsOriginal(this.original, this.state)) {
-				this.change({ turn: 0, flip: false, straighten: 0, crop: baseHalfWholeCrop(this.original) }, false, 'free', this.original.height > this.original.width);
+		// The frame shows while the keyboard is on it, not after a click on it.
+		this._register(addDisposableListener(this.frame, 'focusin', event => this.frame.classList.toggle('keyboard', (event.target as Element).matches(':focus-visible'))));
+		this._register(addDisposableListener(this.frame, 'focusout', event => {
+			if (!this.frame.contains(event.relatedTarget as Node | null)) {
+				this.frame.classList.remove('keyboard');
 			}
-		})));
+		}));
+		// A turn to the left turns a set ratio with the frame: a wide one becomes tall.
+		this._register(addDisposableListener(this.turnButton, 'click', () => this.run(() => this.change('turn', baseHalfTurnCropLeft(this.original, this.state), false, this.ratio, !this.tall))));
+		this._register(addDisposableListener(this.flipButton, 'click', () => this.run(() => this.change('flip', baseHalfFlipCrop(this.original, this.state), false))));
+		this._register(addDisposableListener(this.ratioButton, 'click', () => this.run(() => this.showRatioMenu())));
 		this._register(addDisposableListener(this.picture, 'load', () => this.render()));
 		const ResizeObserverConstructor = getWindow(this.element).ResizeObserver;
 		if (ResizeObserverConstructor) {
@@ -462,22 +473,25 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 	}
 
-	/** Runs a tool's action unless a save runs. */
+	/** Runs a tool's action unless a drag runs. */
 	private run(action: () => void): void {
-		if (!this.busy && !this.drag) {
-			this.settlePending();
+		if (!this.drag) {
+			this.settleKeys();
 			action();
 		}
 	}
 
 	private onPointerDown(event: PointerEvent, forced?: DragKind): void {
-		if (event.button !== 0 || this.busy) {
+		if (event.button !== 0) {
 			return;
 		}
 		const target = event.target as Element | null;
 		let what: DragKind | undefined = forced;
 		let anchor: IBaseHalfPoint | undefined;
-		if (!what) {
+		if (!what && this.zoom > 1) {
+			// While the view is zoomed in, a drag moves the view.
+			what = { kind: 'pan' };
+		} else if (!what) {
 			const corner = [...this.corners].find(([, element]) => element.contains(target))?.[0];
 			const side = [...this.sides].find(([, element]) => element.contains(target))?.[0];
 			if (corner) {
@@ -495,18 +509,19 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.settlePending();
+		this.settleKeys();
 		this.stopGlide();
 		const at = this.viewPoint(event);
 		const grab = anchor ? this.toScreen(anchor) : at;
-		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.current(), grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping };
+		this.drag = { what, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.state, grabX: grab.x - at.x, grabY: grab.y - at.y, mapping: this.mapping, pan: this.pan };
 		const capture = what.kind === 'dial' ? this.dial : this.view;
 		try {
 			capture.setPointerCapture(event.pointerId);
 		} catch {
 			// A pointer that is no longer active cannot be captured; the press still counts.
 		}
-		this.element.classList.add('adjusting');
+		this.element.classList.toggle('adjusting', what.kind !== 'pan');
+		this.element.classList.toggle('panning', what.kind === 'pan');
 		this.render();
 	}
 
@@ -517,15 +532,15 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		const at = this.viewPoint(event);
 		const held = { x: at.x + drag.grabX, y: at.y + drag.grabY };
-		const before = drag.before.state;
+		const before = drag.before;
 		// While the frame is dragged it is never smaller on screen than its handles need.
 		const minimum = Math.max(baseHalfCropMinSize(this.pictureSize(before)), MIN_FRAME_PIXELS / drag.mapping.scale);
 		switch (drag.what.kind) {
 			case 'corner':
-				this.state = baseHalfDragCropCorner(this.original, before, drag.what.corner, this.toPicture(held, drag.mapping), this.ratioValue(drag.before), minimum);
+				this.state = baseHalfDragCropCorner(this.original, before, drag.what.corner, this.toPicture(held, drag.mapping), this.ratioValue(), minimum);
 				break;
 			case 'side':
-				this.state = baseHalfDragCropSide(this.original, before, drag.what.side, this.toPicture(held, drag.mapping), this.ratioValue(drag.before), minimum);
+				this.state = baseHalfDragCropSide(this.original, before, drag.what.side, this.toPicture(held, drag.mapping), this.ratioValue(), minimum);
 				break;
 			case 'move': {
 				// The frame stays where it is and the picture moves under it.
@@ -545,6 +560,10 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 				this.mapping = this.restMapping();
 				break;
 			}
+			case 'pan':
+				this.pan = this.clampPan({ x: drag.pan.x + event.clientX - drag.startX, y: drag.pan.y + event.clientY - drag.startY });
+				this.mapping = this.viewMapping();
+				break;
 		}
 		this.render();
 	}
@@ -555,81 +574,73 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			return;
 		}
 		this.drag = undefined;
-		this.element.classList.remove('adjusting');
+		this.element.classList.remove('adjusting', 'panning');
+		if (drag.what.kind === 'pan') {
+			this.render();
+			return;
+		}
 		if (drag.what.kind === 'corner' || drag.what.kind === 'side') {
 			this.glideToRest();
 		} else {
 			this.mapping = this.restMapping();
 			this.render();
 		}
-		this.remember(drag.before);
+		this.changed(drag.what.kind === 'dial' ? 'straighten' : 'crop', drag.before);
 	}
 
+	/** Escape during a drag: what it changed goes back. */
 	private cancelDrag(): void {
+		const drag = this.endDrag();
+		if (drag) {
+			this.state = drag.before;
+			this.pan = drag.pan;
+			this.mapping = this.viewMapping();
+			this.render();
+		}
+	}
+
+	/** Ends a drag where it is, as when an undo sets other choices. */
+	private endDrag(): IDrag | undefined {
 		const drag = this.drag;
 		if (!drag) {
-			return;
+			return undefined;
 		}
 		this.drag = undefined;
-		this.element.classList.remove('adjusting');
-		this.restore(drag.before);
+		this.element.classList.remove('adjusting', 'panning');
+		for (const target of [this.view, this.dial]) {
+			try {
+				target.releasePointerCapture(drag.pointerId);
+			} catch {
+				// Released already, or held by the other.
+			}
+		}
+		return drag;
 	}
 
 	/**
-	 * The wheel, or a pinch, over the picture shows the part larger or
-	 * smaller: the frame keeps its place on screen while the part it holds
-	 * gets smaller or larger around the pointer, from 64 pixels on its shorter
-	 * side to the largest part of its shape that the picture holds.
+	 * The wheel, or a pinch, over the picture zooms the view around the
+	 * pointer, from the picture as it fits to twice its pixels; the edit stays
+	 * as it is.
 	 */
 	private onWheel(event: WheelEvent): void {
-		if (this.busy || this.drag) {
+		if (this.drag) {
 			return;
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.stopGlide();
-		if (!this.wheelBefore) {
-			this.wheelBefore = this.current();
-		}
+		this.settleKeys();
 		const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002));
-		const { crop, straighten } = this.state;
-		const picture = this.pictureSize();
-		const ratio = crop.width / crop.height;
-		const largest = baseHalfLargestCrop(picture, ratio, straighten).width;
-		const smallest = baseHalfCropMinSize(picture) * Math.max(1, ratio);
-		const width = Math.min(largest, Math.max(smallest, crop.width / factor));
-		const scale = this.mapping.scale * crop.width / width;
-		// The point of the picture under the pointer stays under it.
-		const at = this.viewPoint(event);
-		const held = this.toPicture(at);
-		const offset = baseHalfRotate({ x: (at.x - this.viewSize.width / 2) / scale, y: (at.y - this.viewSize.height / 2) / scale }, -straighten);
-		const next = baseHalfClampCropCenter(picture, { x: held.x - offset.x, y: held.y - offset.y, width, height: width / ratio }, straighten);
-		this.state = { ...this.state, crop: next };
-		this.mapping = { center: { x: next.x, y: next.y }, scale };
-		this.render();
-		if (this.wheelRest !== undefined) {
-			clearTimeout(this.wheelRest);
-		}
-		this.wheelRest = setTimeout(() => this.settlePending(), KEY_REST_MILLISECONDS);
+		this.zoomAround(this.viewPoint(event), Math.min(this.maxZoom(), this.zoom * factor));
 	}
 
-	/** Ends a sequence of keys or of the wheel: the frame comes to rest, and the change is one step of the view's undo. */
-	private settlePending(): void {
-		if (this.keyRest !== undefined) {
-			clearTimeout(this.keyRest);
-			this.keyRest = undefined;
+	/** A double click shows the picture as it fits, or, as it fits, at its own pixels around the pointer. */
+	private onDoubleClick(event: MouseEvent): void {
+		if (this.drag) {
+			return;
 		}
-		if (this.wheelRest !== undefined) {
-			clearTimeout(this.wheelRest);
-			this.wheelRest = undefined;
-		}
-		const before = this.keyBefore ?? this.wheelBefore;
-		this.keyBefore = undefined;
-		this.wheelBefore = undefined;
-		if (before) {
-			this.glideToRest();
-			this.remember(before);
-		}
+		this.settleKeys();
+		const ownPixels = 1 / this.restMapping().scale;
+		this.zoomAround(this.viewPoint(event), this.zoom > 1 ? 1 : Math.min(this.maxZoom(), ownPixels > 1 ? ownPixels : this.maxZoom()));
 	}
 
 	// #endregion
@@ -641,17 +652,9 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			return;
 		}
 		const target = event.target as Element | null;
-		if (event.key === 'Enter' && target && (target === this.frame || this.frame.contains(target) || target === this.dial)) {
-			// Enter on a control of the editor saves; on a button it presses the button.
-			event.preventDefault();
-			event.stopPropagation();
-			this.settlePending();
-			this.onDidRequestSaveEmitter.fire();
-			return;
-		}
 		const arrows: Record<string, IBaseHalfPoint> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } };
 		const arrow = arrows[event.key];
-		if (!arrow || this.busy || this.drag) {
+		if (!arrow || this.drag) {
 			return;
 		}
 		if (target === this.dial) {
@@ -660,8 +663,9 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			}
 			event.preventDefault();
 			event.stopPropagation();
-			this.settlePending();
-			this.change(baseHalfStraightenCrop(this.original, this.state, this.state.straighten + arrow.x * (event.shiftKey ? 1 : 0.1)), false);
+			this.settleKeys();
+			// Each key is a change; keys that repeat are one step of undo.
+			this.change('straighten', baseHalfStraightenCrop(this.original, this.state, this.state.straighten + arrow.x * (event.shiftKey ? 1 : 0.1)), false);
 			return;
 		}
 		const corner = [...this.corners].find(([, element]) => element === target)?.[0];
@@ -671,9 +675,14 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		// The arrow keys in the crop view move no card.
 		event.preventDefault();
 		event.stopPropagation();
+		this.frame.classList.add('keyboard');
 		this.stopGlide();
+		if (this.zoom > 1) {
+			this.resetZoom();
+			this.mapping = this.restMapping();
+		}
 		if (!this.keyBefore) {
-			this.keyBefore = this.current();
+			this.keyBefore = this.state;
 		}
 		const pixels = event.shiftKey ? 10 : 1;
 		if (corner) {
@@ -690,7 +699,25 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		if (this.keyRest !== undefined) {
 			clearTimeout(this.keyRest);
 		}
-		this.keyRest = setTimeout(() => this.settlePending(), KEY_REST_MILLISECONDS);
+		this.keyRest = setTimeout(() => this.settleKeys(), KEY_REST_MILLISECONDS);
+	}
+
+	/** Ends a sequence of keys: the frame comes to rest, and what they did is one change. */
+	private settleKeys(): void {
+		const before = this.keyBefore;
+		this.dropKeys();
+		if (before) {
+			this.glideToRest();
+			this.changed('crop', before);
+		}
+	}
+
+	private dropKeys(): void {
+		if (this.keyRest !== undefined) {
+			clearTimeout(this.keyRest);
+			this.keyRest = undefined;
+		}
+		this.keyBefore = undefined;
 	}
 
 	// #endregion
@@ -700,8 +727,12 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private showRatioMenu(): void {
 		const choose = (ratio: RatioId, tall = this.tall) => {
 			const value = this.ratioValue({ ratio, tall });
-			this.change(baseHalfApplyCropRatio(this.original, this.state, value), true, ratio, tall);
+			this.change('crop', baseHalfApplyCropRatio(this.original, this.state, value), true, ratio, tall);
 		};
+		// Wide and Tall of a ratio that has no other shape change only what the menu says.
+		const shape = (tall: boolean) => this.ratio === 'free' || this.ratio === 'original' || this.ratio === 'square'
+			? this.change('crop', this.state, false, this.ratio, tall)
+			: choose(this.ratio, tall);
 		const presets = BASEHALF_CROP_RATIOS.map(preset => toAction({
 			id: `basehalf.mediaEdit.ratio.${preset.id}`,
 			label: preset.id === 'square' ? localize('basehalf.mediaEdit.image.square', "Square") : this.tall ? `${preset.height}:${preset.width}` : preset.id,
@@ -711,8 +742,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.contextMenuService.showContextMenu({
 			getAnchor: () => this.ratioButton,
 			getActions: () => [
-				toAction({ id: 'basehalf.mediaEdit.ratio.wide', label: localize('basehalf.mediaEdit.image.wide', "Wide"), checked: !this.tall, run: () => this.ratio === 'free' || this.ratio === 'original' || this.ratio === 'square' ? this.change(this.state, false, this.ratio, false) : choose(this.ratio, false) }),
-				toAction({ id: 'basehalf.mediaEdit.ratio.tall', label: localize('basehalf.mediaEdit.image.tall', "Tall"), checked: this.tall, run: () => this.ratio === 'free' || this.ratio === 'original' || this.ratio === 'square' ? this.change(this.state, false, this.ratio, true) : choose(this.ratio, true) }),
+				toAction({ id: 'basehalf.mediaEdit.ratio.wide', label: localize('basehalf.mediaEdit.image.wide', "Wide"), checked: !this.tall, run: () => shape(false) }),
+				toAction({ id: 'basehalf.mediaEdit.ratio.tall', label: localize('basehalf.mediaEdit.image.tall', "Tall"), checked: this.tall, run: () => shape(true) }),
 				new Separator(),
 				toAction({ id: 'basehalf.mediaEdit.ratio.free', label: localize('basehalf.mediaEdit.image.freeform', "Freeform"), checked: this.ratio === 'free', run: () => choose('free') }),
 				toAction({ id: 'basehalf.mediaEdit.ratio.original', label: localize('basehalf.mediaEdit.image.original', "Original"), checked: this.ratio === 'original', run: () => choose('original') }),
@@ -805,13 +836,10 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.dial.setAttribute('aria-valuenow', String(shown));
 		this.dial.setAttribute('aria-valuetext', this.dialValue.textContent);
 		this.dial.classList.toggle('turned', shown !== 0);
-		const original = baseHalfCropIsOriginal(this.original, this.state) && this.ratio === 'free';
-		this.resetButton.classList.toggle('disabled', original);
-		this.resetButton.setAttribute('aria-disabled', String(original));
-		this.element.classList.toggle('busy', this.busy);
-		for (const control of [this.turnButton, this.flipButton, this.ratioButton, this.dial]) {
-			control.setAttribute('aria-disabled', String(this.busy));
-		}
+		// While the view is zoomed in, the frame does not show, and a drag moves the view.
+		this.element.classList.toggle('zoomed', this.zoom > 1);
+		// While the part is the whole picture, a drag inside it moves nothing.
+		this.element.classList.toggle('whole', !choices.crop && !straighten);
 	}
 
 	// #endregion
@@ -836,4 +864,8 @@ function toolIcon(path: string): SVGElement {
 	shape.setAttribute('stroke-linejoin', 'round');
 	svg.appendChild(shape);
 	return svg;
+}
+
+function sameChoices(a: IBaseHalfMediaChoices, b: IBaseHalfMediaChoices): boolean {
+	return JSON.stringify(normalizeBaseHalfMediaChoices(a)) === JSON.stringify(normalizeBaseHalfMediaChoices(b));
 }

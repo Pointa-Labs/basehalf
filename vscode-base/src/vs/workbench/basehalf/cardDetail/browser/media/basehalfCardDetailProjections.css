@@ -207,13 +207,12 @@
 }
 
 /*
- * A video plays with the line of its last edit under it, and in edit mode
- * with the frame viewer (editing media, "The frame viewer"): the two are
- * centered together, the viewer as wide as the player, and the player leaves
- * their height of the space.
+ * A video that BaseHalf can edit plays with its frame viewer and the line of
+ * its edit under it (editing media, "The frame viewer"): they are centered
+ * together, the viewer as wide as the player, and the player leaves their
+ * height of the space.
  */
 .monaco-workbench .basehalf-card-detail-video-stage {
-	--basehalf-video-edit-space: 30px;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -221,7 +220,7 @@
 }
 
 .monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing {
-	--basehalf-video-edit-space: 84px;
+	--basehalf-video-edit-space: 90px;
 }
 
 /* --- What made the file of a generation card ---------------------------------------------- */
@@ -302,9 +301,8 @@
 }
 
 /*
- * An image in edit mode: its crop view takes the place of its page (editing
- * media, "The crop view"). Out of edit mode the line of its last edit stands
- * under it, and takes no room while it says nothing.
+ * An image that BaseHalf can edit: its crop view takes the place of its page
+ * (editing media, "The crop view"), with the line of its edit under it.
  */
 .monaco-workbench .basehalf-card-detail-media-webview.holds-editor {
 	overflow: hidden;
@@ -313,16 +311,6 @@
 .monaco-workbench .basehalf-card-detail-image-stage {
 	position: absolute;
 	inset: 0;
-}
-
-.monaco-workbench .basehalf-card-detail-image-note {
-	flex: none;
-}
-
-.monaco-workbench .basehalf-card-detail-image-note > .basehalf-media-edit-note {
-	padding: 6px 14px 10px;
-}
-
-.monaco-workbench .basehalf-card-detail-image-note > .basehalf-media-edit-note:empty {
-	display: none;
+	display: flex;
+	flex-direction: column;
 }

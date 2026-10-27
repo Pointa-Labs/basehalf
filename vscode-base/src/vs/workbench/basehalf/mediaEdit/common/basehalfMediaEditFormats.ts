@@ -59,5 +59,5 @@ export function baseHalfMediaEditFormatRefusal(kind: 'image' | 'video' | 'audio'
 
 /** Whether choices leave the original as it is: no part cut, no turn, no crop, and no sound taken away. */
 export function baseHalfMediaChoicesAreNoEdit(choices: IBaseHalfMediaChoices): boolean {
-	return !choices.keep && !choices.mute && !choices.turn && !choices.flip && !choices.straighten && !choices.crop;
+	return !choices.keep && !choices.turn && !choices.flip && !choices.straighten && !choices.crop;
 }

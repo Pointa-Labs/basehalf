@@ -1,0 +1,91 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * The line under an editor of Card Detail (editing media, "What Card Detail
+ * shows"): what the edit is and Revert to Original, "Saving…" while the file
+ * is written, or why a write failed and Try Again. It keeps its height while
+ * it says nothing.
+ */
+.monaco-workbench .basehalf-media-edit-line {
+	display: flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	align-self: stretch;
+	min-width: 0;
+	min-height: 18px;
+	padding: 0 14px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	line-height: 18px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-media-edit-line-part {
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-media-edit-line-part[hidden] {
+	display: none;
+}
+
+/* A dot between the parts that show. */
+.monaco-workbench .basehalf-media-edit-line-part:not([hidden]) ~ .basehalf-media-edit-line-part:not([hidden])::before {
+	content: '·';
+	margin: 0 6px;
+}
+
+.monaco-workbench .basehalf-media-edit-line-summary,
+.monaco-workbench .basehalf-media-edit-line-failure {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.monaco-workbench .basehalf-media-edit-line-failure {
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-workbench .basehalf-media-edit-line-saving {
+	font-variant-numeric: tabular-nums;
+}
+
+.monaco-workbench .basehalf-media-edit-line-action {
+	padding: 0;
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+	border: 0;
+	font: inherit;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-media-edit-line-action:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration: underline;
+}
+
+/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
+.monaco-workbench .basehalf-media-edit-line-action:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-media-edit-line-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+/* Under the crop view, which fills Card Detail, the line stands at its foot. */
+.monaco-workbench .basehalf-card-detail-image-stage > .basehalf-media-edit-line {
+	padding-bottom: 10px;
+}
+
+/* The frame viewer is the video's timeline: the player above it shows no bar of its own for the time. */
+.monaco-workbench .basehalf-media-editing .basehalf-canvas-video-player-slider {
+	visibility: hidden;
+}

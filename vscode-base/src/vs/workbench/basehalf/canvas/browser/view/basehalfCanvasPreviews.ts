@@ -25,6 +25,7 @@ import { IBaseHalfCanvasPreviewHydrationBatch } from '../../common/basehalfCanva
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneCardPresentation, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 import { BASEHALF_CANVAS_DRAFT_PREVIEW, BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
 import { IBaseHalfWorkspaceMutationStamp } from '../../../workspace/common/basehalfWorkspaceMutation.js';
+import { baseHalfCanvasMediaVersionQuery } from '../basehalfCanvasCardMedia.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
 import { BASEHALF_CANVAS_PICTURE_MEASURE_TIMEOUT_MS } from '../basehalfCanvasPictureShapes.js';
 import { CANVAS_MARKDOWN_FULL_EDITOR_LABEL, badgeType, baseHalfBadgeResourceIdentity } from './basehalfCanvasViewShared.js';
@@ -168,7 +169,7 @@ export class BaseHalfCanvasPreviews {
 		if (mediaKind) {
 			// The face of a PDF or a book draws its cover, which is made from the file's version.
 			const resource = mediaKind === 'pdf' || mediaKind === 'book' ? item.stat.resource : item.stat.resource.with({
-				query: `basehalfCanvasVersion=${item.stat.mtime ?? 0}-${item.stat.size ?? 0}`
+				query: baseHalfCanvasMediaVersionQuery(item.stat)
 			});
 			return { kind: 'media', text: MEDIA_LABELS[mediaKind], mediaKind, resource };
 		}

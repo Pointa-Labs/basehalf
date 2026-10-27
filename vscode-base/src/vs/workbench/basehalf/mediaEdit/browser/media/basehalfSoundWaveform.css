@@ -4,10 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 /*
- * The waveform of a sound in Card Detail's edit mode (editing media, "The
- * waveform"): Play and the time, Trim and Delete above the waveform, which
- * has the yellow frame, the handles, the playhead, and the length of the
- * frame viewer of a video, whose rules it shares.
+ * The waveform of a sound in Card Detail (editing media, "The waveform"): the
+ * waveform with the yellow frame, the handles, the playhead, and the length of
+ * the frame viewer of a video, whose rules it shares; a selected stretch, lit,
+ * with Delete standing on it; and Play with the time under it.
  */
 .monaco-workbench .basehalf-video-frames.basehalf-sound-waveform {
 	--basehalf-sound-waveform-color: color-mix(in srgb, var(--vscode-editor-foreground) 78%, transparent);
@@ -17,10 +17,10 @@
 	gap: 12px;
 }
 
-.monaco-workbench .basehalf-sound-waveform-top {
+.monaco-workbench .basehalf-sound-waveform-bottom {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 10px;
 	padding: 0 14px;
 }
 
@@ -67,34 +67,53 @@
 	font-variant-numeric: tabular-nums;
 }
 
-.monaco-workbench .basehalf-sound-waveform-gap {
-	flex: 1 1 auto;
+.monaco-workbench .basehalf-sound-waveform-failure {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.monaco-workbench .basehalf-sound-waveform-action {
-	height: 26px;
+/* Inside the part a drag selects a stretch: it is lit, and Delete stands on it. */
+.monaco-workbench .basehalf-sound-waveform .basehalf-video-frames-strip {
+	cursor: text;
+}
+
+.monaco-workbench .basehalf-sound-waveform-selection {
+	position: absolute;
+	z-index: 1;
+	top: 0;
+	bottom: 0;
+	background: color-mix(in srgb, var(--vscode-editor-selectionBackground, #264f78) 70%, transparent);
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-sound-waveform-selection[hidden],
+.monaco-workbench .basehalf-sound-waveform-delete[hidden] {
+	display: none;
+}
+
+.monaco-workbench .basehalf-sound-waveform-delete {
+	position: absolute;
+	z-index: 4;
+	top: 8px;
+	height: 24px;
 	padding: 0 12px;
-	color: var(--vscode-foreground);
-	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+	color: #fff;
+	background: rgb(0 0 0 / 72%);
 	border: 0;
-	border-radius: 13px;
+	border-radius: 12px;
+	box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
 	font: inherit;
-	font-weight: 500;
+	font-weight: 600;
+	white-space: nowrap;
+	transform: translateX(-50%);
 	cursor: default;
 }
 
-.monaco-workbench .basehalf-sound-waveform-action:hover {
-	background: color-mix(in srgb, var(--vscode-editor-foreground) 18%, transparent);
-}
-
-.monaco-workbench .basehalf-sound-waveform-action.delete {
-	color: var(--vscode-errorForeground);
-}
-
-.monaco-workbench .basehalf-sound-waveform-action.disabled,
-.monaco-workbench .basehalf-sound-waveform-action.disabled:hover {
-	color: var(--vscode-disabledForeground);
-	background: color-mix(in srgb, var(--vscode-editor-foreground) 6%, transparent);
+.monaco-workbench .basehalf-sound-waveform-delete:hover {
+	background: rgb(0 0 0 / 86%);
 }
 
 .monaco-workbench .basehalf-video-frames-strip.basehalf-sound-waveform-strip {
@@ -110,7 +129,7 @@
 }
 
 .monaco-workbench .basehalf-sound-waveform-play:focus-visible,
-.monaco-workbench .basehalf-sound-waveform-action:focus-visible {
+.monaco-workbench .basehalf-sound-waveform-delete:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }

@@ -6,35 +6,29 @@
 import './media/basehalfVideoFrameViewer.css';
 import { $, addDisposableListener, append, clearNode, getWindow } from '../../../../base/browser/dom.js';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
-import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
-import { ThemeIcon } from '../../../../base/common/themables.js';
 import { localize } from '../../../../nls.js';
-import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { baseHalfVideoFrameEdges } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimHandle, BaseHalfVideoTrimTimeline, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../common/basehalfVideoTrimSelection.js';
-import { IBaseHalfMediaEditor, IBaseHalfMediaEditStatus } from './basehalfMediaEditor.js';
+import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfEditVideo } from './basehalfMediaEditService.js';
 import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
 
 /**
- * The frame viewer under the player of a video in Card Detail's edit mode
- * (editing media, "Editing a video"): a strip of the original's frames with
- * the part kept in a yellow frame, its two handles, the playhead, the part's
- * length, the sound button, and a line of status. It plays the part in the
- * player, spreads out around a handle that is held still, and undoes its own
- * changes.
+ * The frame viewer under the player of a video in Card Detail (editing media,
+ * "Editing a video"): the video's timeline, a strip of the original's frames
+ * with the part kept in a yellow frame, its two handles, the playhead, and
+ * the part's length. It plays the part in the player, spreads out around a
+ * handle that is held still, and makes a change of each handle or part let
+ * go.
  */
 
-/** A control of the frame viewer that takes the keyboard. */
-export type BaseHalfVideoFrameViewerControl = 'sound' | 'start' | 'end';
-
 export interface IBaseHalfVideoFrameViewerOptions {
-	/** The original of an edited video, or the video, read. */
+	/** The original of an edited video, or the video, read from the copy that the editor reads. */
 	readonly video: IBaseHalfEditVideo;
 	readonly player: IBaseHalfCanvasCardVideoPlayer;
 	/** The element that holds the player and the viewer: I and O work anywhere in it. */
@@ -64,18 +58,12 @@ interface IDrag {
 	readonly kind: DragKind;
 	readonly pointerId: number;
 	readonly startX: number;
-	/** What the viewer held when the drag started, which Escape puts back. */
-	readonly before: IViewerChoice;
+	/** The part when the drag started, which Escape puts back. */
+	readonly before: IBaseHalfVideoTrimRange;
 	/** The time under the pointer when it was pressed, less the time it holds. */
 	grab: number;
 	moved: boolean;
 	lastX: number;
-}
-
-/** What the viewer's undo goes back through. */
-interface IViewerChoice {
-	readonly range: IBaseHalfVideoTrimRange;
-	readonly mute: boolean;
 }
 
 /** The times the strip shows: the whole video, or a stretch of it around a held handle. */
@@ -87,7 +75,6 @@ interface IStripView {
 export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMediaEditor {
 
 	readonly element: HTMLElement;
-	private readonly soundButton: HTMLButtonElement | undefined;
 	private readonly strip: HTMLElement;
 	private readonly pictures: HTMLElement;
 	private readonly spreadPictures: HTMLElement;
@@ -95,21 +82,14 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	private readonly startHandle: HTMLElement;
 	private readonly endHandle: HTMLElement;
 	private readonly playhead: HTMLElement;
-	private readonly status: HTMLElement;
 
-	private readonly onDidChangeEmitter = this._register(new Emitter<void>());
+	private readonly onDidChangeEmitter = this._register(new Emitter<BaseHalfMediaChange>());
 	readonly onDidChange = this.onDidChangeEmitter.event;
-	private readonly onDidRequestSaveEmitter = this._register(new Emitter<void>());
-	readonly onDidRequestSave = this.onDidRequestSaveEmitter.event;
 
 	private readonly timeline: BaseHalfVideoTrimTimeline;
 	private range: IBaseHalfVideoTrimRange;
-	private mute: boolean;
-	private readonly undoStack: IViewerChoice[] = [];
-	private readonly redoStack: IViewerChoice[] = [];
 	private view: IStripView;
 	private drag: IDrag | undefined;
-	private busy = false;
 	private holdTimer: ReturnType<typeof setTimeout> | undefined;
 	private playheadFrame: number | undefined;
 	private picturesCount = 0;
@@ -119,26 +99,18 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 	constructor(
 		container: HTMLElement,
-		private readonly options: IBaseHalfVideoFrameViewerOptions,
-		@IHoverService private readonly hoverService: IHoverService
+		private readonly options: IBaseHalfVideoFrameViewerOptions
 	) {
 		super();
 		const video = options.video.file.video!;
 		this.timeline = new BaseHalfVideoTrimTimeline(baseHalfVideoFrameEdges(video));
 		this.range = this.timeline.normalize(options.choices.keep?.[0]);
-		const hasSound = !!options.video.file.audio?.samples.length;
-		this.mute = hasSound && !!options.choices.mute;
 		this.view = { from: 0, to: this.timeline.duration };
 
 		this.element = append(container, $('.basehalf-video-frames'));
 		this.element.setAttribute('role', 'group');
 		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.video.label', "Frames"));
 		const row = append(this.element, $('.basehalf-video-frames-row'));
-		if (hasSound) {
-			const button = this.soundButton = append(row, $<HTMLButtonElement>('button.basehalf-video-frames-sound'));
-			button.type = 'button';
-			this._register(this.hoverService.setupDelayedHover(button, () => ({ content: button.getAttribute('aria-label') ?? '' })));
-		}
 		this.strip = append(row, $('.basehalf-video-frames-strip'));
 		this.pictures = append(this.strip, $('.basehalf-video-frames-pictures'));
 		this.spreadPictures = append(this.strip, $('.basehalf-video-frames-pictures.spread'));
@@ -160,8 +132,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			handle.tabIndex = 0;
 			append(handle, chevron(handle === this.startHandle ? 'left' : 'right'));
 		}
-		this.status = append(this.element, $('.basehalf-video-frames-status'));
-		this.status.setAttribute('aria-live', 'polite');
 		this._register(toDisposable(() => {
 			this.disposed = true;
 			this.clearHold();
@@ -177,76 +147,30 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	get choices(): IBaseHalfMediaChoices {
-		return {
-			...(this.timeline.isWhole(this.range) ? {} : { keep: [{ start: this.range.start, end: this.range.end }] }),
-			...(this.mute ? { mute: true } : {})
-		};
-	}
-
-	/** The control of the viewer that holds an element. */
-	controlOf(element: Element): BaseHalfVideoFrameViewerControl | undefined {
-		return this.soundButton?.contains(element) ? 'sound' : this.startHandle.contains(element) ? 'start' : this.endHandle.contains(element) ? 'end' : undefined;
-	}
-
-	focusControl(control: BaseHalfVideoFrameViewerControl): void {
-		const target = control === 'sound' ? this.soundButton ?? this.startHandle : control === 'start' ? this.startHandle : this.endHandle;
-		target.focus({ preventScroll: true });
+		return this.timeline.isWhole(this.range) ? {} : { keep: [{ start: this.range.start, end: this.range.end }] };
 	}
 
 	focus(): void {
-		this.focusControl(this.soundButton ? 'sound' : 'start');
+		this.startHandle.focus({ preventScroll: true });
 	}
 
-	undo(): boolean {
-		return this.step(this.undoStack, this.redoStack);
-	}
-
-	redo(): boolean {
-		return this.step(this.redoStack, this.undoStack);
-	}
-
-	private step(from: IViewerChoice[], to: IViewerChoice[]): boolean {
-		const choice = from.pop();
-		if (!choice || this.busy || this.drag) {
-			if (choice) {
-				from.push(choice);
-			}
-			return false;
-		}
-		to.push(this.current());
-		this.range = choice.range;
-		this.mute = choice.mute;
-		this.options.player.seek(this.range.start + 1e-4);
-		this.applyChoice();
-		this.onDidChangeEmitter.fire();
-		return true;
-	}
-
-	setBusy(busy: boolean): void {
-		this.busy = busy;
-		if (busy) {
-			this.cancelDrag();
-		}
-		this.render();
-	}
-
-	setStatus(status: IBaseHalfMediaEditStatus | undefined): void {
-		this.status.textContent = status?.text ?? '';
-		this.status.classList.toggle('error', !!status?.error);
-	}
-
-	private current(): IViewerChoice {
-		return { range: this.range, mute: this.mute };
-	}
-
-	/** Keeps what the viewer held before a change for its undo. */
-	private remember(before: IViewerChoice): void {
-		if (before.mute === this.mute && before.range.start === this.range.start && before.range.end === this.range.end) {
+	setChoices(choices: IBaseHalfMediaChoices): void {
+		const range = this.timeline.normalize(choices.keep?.[0]);
+		if (range.start === this.range.start && range.end === this.range.end) {
 			return;
 		}
-		this.undoStack.push(before);
-		this.redoStack.length = 0;
-		this.onDidChangeEmitter.fire();
+		this.endDrag();
+		this.range = range;
+		// The player shows where the part starts.
+		this.options.player.seek(this.range.start + 1e-4);
+		this.applyChoice();
+	}
+
+	/** A part that differs from the one before is a change. */
+	private changed(before: IBaseHalfVideoTrimRange): void {
+		if (before.start !== this.range.start || before.end !== this.range.end) {
+			this.onDidChangeEmitter.fire('trim');
+		}
 	}
 
 	/** Reads the pictures of a container for the strip's width and a stretch of the video: as many as fit at its height in the picture's shape. */
@@ -322,7 +246,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			this._register(addDisposableListener(this.strip, type, event => this.onPointerUp(event, type === 'pointerup')));
 		}
 		this._register(addDisposableListener(getWindow(this.element), 'keydown', event => {
-			// Escape during a drag ends it and puts back what it changed; edit mode stays (editing media, "The keyboard").
+			// Escape during a drag ends it and puts back what it changed; Card Detail stays (editing media, "The keyboard").
 			if (event.key === 'Escape' && this.drag) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -331,26 +255,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}, true));
 		for (const [handle, which] of [[this.startHandle, 'start'], [this.endHandle, 'end']] as const) {
 			this._register(addDisposableListener(handle, 'keydown', event => this.onHandleKey(event, which)));
-		}
-		if (this.soundButton) {
-			const button = this.soundButton;
-			this._register(addDisposableListener(button, 'click', () => {
-				if (this.busy) {
-					return;
-				}
-				const before = this.current();
-				this.mute = !this.mute;
-				this.applyChoice();
-				this.remember(before);
-			}));
-			this._register(addDisposableListener(button, 'keydown', event => {
-				if (event.key === 'Enter' && !event.isComposing) {
-					// Enter on a control of the editor saves; Space turns the sound on and off.
-					event.preventDefault();
-					event.stopPropagation();
-					this.onDidRequestSaveEmitter.fire();
-				}
-			}));
 		}
 		this._register(addDisposableListener(this.options.stage, 'keydown', event => this.onStageKey(event)));
 		const ResizeObserverConstructor = getWindow(this.element).ResizeObserver;
@@ -378,9 +282,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		if (this.busy) {
-			return;
-		}
 		const time = this.timeAt(event.clientX);
 		const handle = this.handleAt(event);
 		let kind: DragKind;
@@ -397,7 +298,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			kind = 'scrub';
 			this.options.player.seek(time);
 		}
-		this.drag = { kind, pointerId: event.pointerId, startX: event.clientX, before: this.current(), grab, moved: false, lastX: event.clientX };
+		this.drag = { kind, pointerId: event.pointerId, startX: event.clientX, before: this.range, grab, moved: false, lastX: event.clientX };
 		try {
 			this.strip.setPointerCapture(event.pointerId);
 		} catch {
@@ -446,7 +347,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 				this.setRange(this.timeline.moveHandle(this.range, current.kind, time - current.grab), current.kind);
 				break;
 			case 'move':
-				this.setRange(this.timeline.moveSelection(current.before.range, time - current.grab - current.before.range.start), 'start');
+				this.setRange(this.timeline.moveSelection(current.before, time - current.grab - current.before.start), 'start');
 				break;
 			case 'scrub':
 				this.options.player.seek(time);
@@ -468,13 +369,23 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		this.unspread();
 		this.applyChoice();
-		this.remember(drag.before);
+		this.changed(drag.before);
 	}
 
+	/** Escape during a drag: what it changed goes back. */
 	private cancelDrag(): void {
+		const drag = this.endDrag();
+		if (drag) {
+			this.range = drag.before;
+			this.applyChoice();
+		}
+	}
+
+	/** Ends a drag where it is, as when an undo sets other choices. */
+	private endDrag(): IDrag | undefined {
 		const drag = this.drag;
 		if (!drag) {
-			return;
+			return undefined;
 		}
 		this.drag = undefined;
 		this.clearHold();
@@ -484,9 +395,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		} catch {
 			// Released already.
 		}
-		this.range = drag.before.range;
 		this.unspread();
-		this.applyChoice();
+		return drag;
 	}
 
 	private scheduleHold(): void {
@@ -577,31 +487,23 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 				event.stopPropagation();
 				this.options.player.togglePlay();
 				return;
-			case 'Enter':
-				event.preventDefault();
-				event.stopPropagation();
-				this.onDidRequestSaveEmitter.fire();
-				return;
 		}
 		if (next) {
-			// The arrow keys on the viewer move no card.
+			// The arrow keys on the viewer move no card; a key that repeats is one step of undo.
 			event.preventDefault();
 			event.stopPropagation();
-			if (this.busy) {
-				return;
-			}
-			const before = this.current();
+			const before = this.range;
 			this.options.player.pause();
 			this.setRange(next, handle);
 			this.applyChoice();
-			this.remember(before);
+			this.changed(before);
 		}
 	}
 
 	/** I and O, anywhere in the player or the viewer, put the start and the end at the frame the player shows. */
 	private onStageKey(event: KeyboardEvent): void {
 		const key = event.key.toLowerCase();
-		if (this.busy || (key !== 'i' && key !== 'o') || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+		if ((key !== 'i' && key !== 'o') || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
 			return;
 		}
 		if (getWindow(this.element).document.fullscreenElement) {
@@ -609,13 +511,13 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		const before = this.current();
+		const before = this.range;
 		const shown = this.timeline.edgeAtOrBefore((this.options.player.currentTime ?? 0) + 1e-4);
 		this.range = key === 'i'
 			? this.timeline.setHandle(this.range, 'start', shown)
 			: this.timeline.setHandle(this.range, 'end', this.timeline.stepFrame(shown, 1));
 		this.applyChoice();
-		this.remember(before);
+		this.changed(before);
 	}
 
 	// #endregion
@@ -630,12 +532,11 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.render();
 	}
 
-	/** The part plays in the player, with the sound or without it. */
+	/** The part plays in the player. */
 	private applyChoice(): void {
 		this.options.player.setPlayRange(this.timeline.isWhole(this.range)
 			? undefined
 			: { start: this.range.start, end: this.range.end, lastFrame: this.timeline.stepFrame(this.range.end, -1) });
-		this.options.player.setMuted(this.mute);
 		this.render();
 	}
 
@@ -680,7 +581,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.startHandle.classList.toggle('outside', start < 0);
 		this.endHandle.classList.toggle('outside', end > 1);
 		this.element.classList.toggle('whole', this.timeline.isWhole(this.range));
-		this.element.classList.toggle('busy', this.busy);
 		this.length.textContent = formatBaseHalfVideoTrimLength(this.range.end - this.range.start);
 		// A part narrower than its length shows the length above the strip.
 		const partWidth = (clamp(end) - clamp(start)) * this.strip.clientWidth;
@@ -689,17 +589,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			handle.setAttribute('aria-valuemax', String(Math.round(duration * 100) / 100));
 			handle.setAttribute('aria-valuenow', String(Math.round(time * 100) / 100));
 			handle.setAttribute('aria-valuetext', localize('basehalf.mediaEdit.video.handleValue', "{0} of {1}", formatBaseHalfVideoTrimLength(time), formatBaseHalfVideoTrimLength(duration)));
-			handle.setAttribute('aria-disabled', String(this.busy));
-		}
-		const button = this.soundButton;
-		if (button) {
-			clearNode(button);
-			append(button, $(`span${ThemeIcon.asCSSSelector(this.mute ? Codicon.mute : Codicon.unmute)}`)).setAttribute('aria-hidden', 'true');
-			button.setAttribute('aria-pressed', String(this.mute));
-			button.setAttribute('aria-label', this.mute
-				? localize('basehalf.mediaEdit.video.soundOff', "Sound Off: Done saves the video without its sound")
-				: localize('basehalf.mediaEdit.video.soundOn', "Sound On"));
-			button.setAttribute('aria-disabled', String(this.busy));
 		}
 		this.updatePlayhead();
 	}

@@ -6,6 +6,7 @@
 import '../media/basehalfCanvasCard.css';
 import '../media/basehalfCanvasCardPreview.css';
 import { $, append, clearNode } from '../../../../../base/browser/dom.js';
+import { disposableTimeout } from '../../../../../base/common/async.js';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { basename, dirname, isEqual } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -23,7 +24,7 @@ import { baseHalfGenerationCardToolbarActions, baseHalfGenerationPhase, IBaseHal
 import { BaseHalfCanvasCardPresentation } from '../../common/basehalfCanvasCardPresentation.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../../markdown/common/basehalfMarkdownProjection.js';
 import { renderBaseHalfCanvasNoteInParts } from '../basehalfCanvasNoteParts.js';
-import { whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
+import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, baseHalfCanvasMediaVersionQuery, baseHalfCanvasPictureCover, whenBaseHalfCanvasMediaDrawn } from '../basehalfCanvasCardMedia.js';
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCanvasCardDocumentFace, renderBaseHalfCanvasCardDocument } from '../basehalfCanvasCardDocument.js';
 import { baseHalfDocumentVersion } from '../../../documents/common/basehalfDocuments.js';
@@ -70,6 +71,12 @@ export class BaseHalfCanvasCardRenderer {
 	/** The face of the PDF or the book drawn in each card element, and its cover toggle, which a click changes in place. */
 	private readonly documentFaces = new WeakMap<HTMLElement, IBaseHalfCanvasCardDocumentFace>();
 	private readonly coverToggles = new WeakMap<HTMLElement, () => void>();
+	/** The picture of the card element that each card element replaces, until its own picture can be drawn. */
+	private readonly pictureCovers = new WeakMap<HTMLElement, HTMLCanvasElement>();
+	/** The card element drawn last for each path, which the next one of the path replaces. */
+	private readonly lastCards = new Map<string, WeakRef<HTMLElement>>();
+	/** The image or the video that each card element shows, and the version of its file. */
+	private readonly cardPictures = new WeakMap<HTMLElement, { readonly picture: HTMLImageElement | HTMLVideoElement; readonly version: string }>();
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
@@ -190,9 +197,22 @@ export class BaseHalfCanvasCardRenderer {
 		sceneKey: string
 	): HTMLElement {
 		const card = $('.basehalf-canvas-card');
+		// A card drawn anew, as for a file written anew by an edit in Card
+		// Detail, shows the picture of the card it replaces until it can draw
+		// its own: no frame shows it without a picture.
+		const pictureCover = this.pictureCoverOf(this.lastCards.get(item.path)?.deref(), baseHalfCanvasMediaVersionQuery(item.stat));
+		this.lastCards.set(item.path, new WeakRef(card));
 		// The element this one replaces stays on screen, with its listeners,
 		// until the scene mounts this one.
 		const listeners = this.view.cardListenerStores.replace(item.path, card);
+		if (pictureCover) {
+			this.pictureCovers.set(card, pictureCover);
+			// A card that never draws its picture, as one whose badge is open, lets it go too.
+			listeners.add(disposableTimeout(() => {
+				this.pictureCovers.delete(card);
+				pictureCover.remove();
+			}, BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS));
+		}
 		const presentationListeners = new MutableDisposable<DisposableStore>();
 		listeners.add(presentationListeners);
 		const displayName = cardDisplayName(item);
@@ -305,6 +325,11 @@ export class BaseHalfCanvasCardRenderer {
 			const nextListeners = new DisposableStore();
 			presentationListeners.value = nextListeners;
 			clearNode(content);
+			// The picture of the card this one replaced stands, also in a shell, until this one draws its own.
+			const pending = this.pictureCovers.get(card);
+			if (pending) {
+				content.append(pending);
+			}
 			if (presentationLevel === 'shell') {
 				return;
 			}
@@ -583,6 +608,7 @@ export class BaseHalfCanvasCardRenderer {
 				whenBaseHalfCanvasMediaDrawn(image, listeners, drawn);
 			}
 			image.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
+			this.coverUntilDrawn(card, image, preview.resource.query, listeners);
 			image.addEventListener('error', () => {
 				image.remove();
 				if (unshowable) {
@@ -623,6 +649,7 @@ export class BaseHalfCanvasCardRenderer {
 			});
 			player.setSelected(interactive);
 			listeners.add(player);
+			this.coverUntilDrawn(card, player.video, preview.resource.query, listeners);
 			if (drawn) {
 				whenBaseHalfCanvasMediaDrawn(player.video, listeners, drawn);
 			}
@@ -637,6 +664,47 @@ export class BaseHalfCanvasCardRenderer {
 			return;
 		}
 		this.renderMediaFallback(container, preview.text, preview.mediaKind);
+	}
+
+	/**
+	 * A copy of the picture that a card element shows, for the card of the same
+	 * path that replaces it with another version of the file: its own picture,
+	 * or the one it still shows of the card it replaced. Nothing for a card
+	 * without one, nor for the same version, whose picture the window has.
+	 */
+	private pictureCoverOf(previous: HTMLElement | undefined, version: string): HTMLCanvasElement | undefined {
+		if (!previous) {
+			return undefined;
+		}
+		const held = this.pictureCovers.get(previous);
+		if (!held) {
+			const shown = this.cardPictures.get(previous);
+			return shown && shown.version !== version ? baseHalfCanvasPictureCover(shown.picture) : undefined;
+		}
+		// The element that holds it stays on screen until this one is mounted: this one draws a copy.
+		const copy = held.ownerDocument.createElement('canvas');
+		copy.className = held.className;
+		copy.setAttribute('aria-hidden', 'true');
+		copy.width = held.width;
+		copy.height = held.height;
+		copy.getContext('2d')?.drawImage(held, 0, 0);
+		return copy;
+	}
+
+	/** Shows the picture of the card element that `card` replaced over `picture`, of the file at `version`, until `picture` can be drawn. */
+	private coverUntilDrawn(card: HTMLElement | undefined, picture: HTMLImageElement | HTMLVideoElement, version: string, listeners: DisposableStore): void {
+		if (card) {
+			this.cardPictures.set(card, { picture, version });
+		}
+		const cover = card && this.pictureCovers.get(card);
+		if (!card || !cover) {
+			return;
+		}
+		this.pictureCovers.delete(card);
+		// Over the picture, under the player's controls.
+		picture.after(cover);
+		listeners.add(toDisposable(() => cover.remove()));
+		whenBaseHalfCanvasMediaDrawn(picture, listeners, () => cover.remove());
 	}
 
 	/**

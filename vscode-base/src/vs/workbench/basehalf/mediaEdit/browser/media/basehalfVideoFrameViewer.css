@@ -4,12 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 /*
- * The frame viewer under the player of a video in Card Detail's edit mode
- * (editing media, "The frame viewer"): the sound button, the strip of the
- * original's frames, the part kept in a yellow frame with a handle on each
- * side and the strip dimmed outside it, the playhead, the part's length, and a
- * line of status that keeps its height while it is empty. While the whole
- * video is kept, the frame is white.
+ * The frame viewer under the player of a video in Card Detail (editing media,
+ * "The frame viewer"): the strip of the original's frames, the part kept in a
+ * yellow frame with a handle on each side and the strip dimmed outside it,
+ * the playhead, and the part's length. While the whole video is kept, the
+ * frame is white.
  */
 .monaco-workbench .basehalf-video-frames {
 	--basehalf-video-frames-yellow: #f5c400;
@@ -42,31 +41,6 @@
 	/* Room for a handle that stands outside the strip's ends. */
 	gap: 22px;
 	padding: 0 14px;
-}
-
-.monaco-workbench .basehalf-video-frames-sound {
-	display: grid;
-	width: 32px;
-	height: 32px;
-	flex: none;
-	place-items: center;
-	margin-right: -8px;
-	padding: 0;
-	color: var(--vscode-foreground);
-	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
-	border: 0;
-	border-radius: 50%;
-	font-size: 16px;
-	cursor: default;
-}
-
-.monaco-workbench .basehalf-video-frames-sound:hover {
-	background: color-mix(in srgb, var(--vscode-editor-foreground) 18%, transparent);
-}
-
-.monaco-workbench .basehalf-video-frames-sound[aria-pressed="true"] {
-	color: var(--vscode-editor-background);
-	background: var(--vscode-editor-foreground);
 }
 
 .monaco-workbench .basehalf-video-frames-strip {
@@ -140,7 +114,7 @@
 }
 
 /* A part shorter than the video can be moved with its length. */
-.monaco-workbench .basehalf-video-frames:not(.whole):not(.busy) .basehalf-video-frames-part {
+.monaco-workbench .basehalf-video-frames:not(.whole):not(.basehalf-sound-waveform) .basehalf-video-frames-part {
 	pointer-events: auto;
 	cursor: grab;
 }
@@ -189,15 +163,6 @@
 	pointer-events: none;
 }
 
-.monaco-workbench .basehalf-video-frames.busy .basehalf-video-frames-strip,
-.monaco-workbench .basehalf-video-frames.busy .basehalf-video-frames-sound {
-	opacity: 0.6;
-}
-
-.monaco-workbench .basehalf-video-frames.busy .basehalf-video-frames-handle {
-	cursor: default;
-}
-
 .monaco-workbench .basehalf-video-frames-playhead {
 	position: absolute;
 	z-index: 2;
@@ -242,27 +207,12 @@
 	transform: translate(-50%, -100%);
 }
 
-.monaco-workbench .basehalf-video-frames-status {
-	min-height: 18px;
-	padding: 0 14px;
-	overflow: hidden;
-	color: var(--vscode-descriptionForeground);
-	line-height: 18px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.monaco-workbench .basehalf-video-frames-status.error {
-	color: var(--vscode-errorForeground);
-}
-
 /* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
 .monaco-workbench .basehalf-video-frames :focus:not(:focus-visible) {
 	outline: none;
 }
 
-.monaco-workbench .basehalf-video-frames-handle:focus-visible,
-.monaco-workbench .basehalf-video-frames-sound:focus-visible {
+.monaco-workbench .basehalf-video-frames-handle:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }

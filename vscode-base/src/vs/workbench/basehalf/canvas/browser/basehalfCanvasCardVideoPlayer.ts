@@ -66,6 +66,21 @@ export interface IBaseHalfCanvasCardVideoPlayerOptions {
 	readonly sound?: boolean;
 	/** Where it starts, in seconds, as for a file that was replaced; by default where its card or its last player stood. */
 	readonly start?: number;
+	/**
+	 * The file that the player stands for, when it plays a copy of the file's
+	 * original (editing media, "While it is saved, and after"): the player of
+	 * the file's card gives it its frame, and takes the frame where it
+	 * stopped. By default the source.
+	 */
+	readonly file?: URI;
+	/** The time of the source where the file's time 0 is: the start of the part that an edit of the file keeps. */
+	readonly offset?: number;
+	/**
+	 * The version of the file now, as its size and its time of change
+	 * (`mtime-size`): a card that shows another version of it is drawn anew,
+	 * and is not moved to the frame where this player stopped.
+	 */
+	readonly fileVersion?: () => string | undefined;
 	/** The audio graph the sound plays through, for a test; the window's by default. */
 	readonly soundGraph?: () => BaseHalfVideoSoundGraph | undefined;
 }
@@ -140,6 +155,11 @@ function cardPlayerOf(source: URI): BaseHalfCanvasCardVideoPlayer | undefined {
 /** The canvas asks for a video with its version in the query, Card Detail without: the file is the same. */
 function isSameVideoFile(first: URI, second: URI): boolean {
 	return isEqual(first.with({ query: '' }), second.with({ query: '' }));
+}
+
+/** The version of the file that the canvas asked for, `mtime-size`, from the query of its source. */
+function cardVersionOf(source: URI): string | undefined {
+	return /(?:^|&)basehalfCanvasVersion=([^&]*)/.exec(source.query)?.[1];
 }
 let layoutFrame: number | undefined;
 
@@ -217,8 +237,9 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		}
 		// The frame where the video last stopped stands for it, at first its first frame.
 		// Card Detail starts at the frame its card shows, with the sound on.
-		const last = lastPlayed.get(options.source);
-		const time = options.start ?? (detail ? cardPlayerOf(options.source)?.currentTime ?? last?.time : last?.time);
+		const last = lastPlayed.get(this.file);
+		const fileTime = detail ? cardPlayerOf(this.file)?.currentTime ?? last?.time : last?.time;
+		const time = options.start ?? (fileTime !== undefined ? fileTime + (options.offset ?? 0) : undefined);
 		this.muted = detail || isSound ? false : last?.muted ?? true;
 		this.video.src = `${FileAccess.uriToBrowserUri(options.source).toString(true)}#t=${time !== undefined && time > 0 ? time : 0.001}`;
 		this.sound = this._register(new BaseHalfCanvasVideoSound(this.video, options.soundGraph));
@@ -395,15 +416,23 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		}
 	}
 
+	/** The file the player stands for. */
+	private get file(): URI {
+		return this.options.file ?? this.options.source;
+	}
+
 	private rememberWhereItStands(): void {
-		const time = this.video.currentTime;
+		// A time of the file: the source may be its original, of which the file holds a part.
+		const time = Math.max(0, this.video.currentTime - (this.options.offset ?? 0));
 		// The sound of Card Detail is its own: the card keeps whether it has sound.
-		const muted = this.detail ? lastPlayed.get(this.options.source)?.muted ?? true : this.muted;
-		lastPlayed.delete(this.options.source);
+		const muted = this.detail ? lastPlayed.get(this.file)?.muted ?? true : this.muted;
+		lastPlayed.delete(this.file);
 		if (this.detail && Number.isFinite(time)) {
-			// Closing Card Detail leaves its card at the frame where it stopped.
+			// Closing Card Detail leaves its card at the frame where it stopped, unless the card shows a version before an edit.
+			const version = this.options.fileVersion?.();
 			for (const player of livePlayers) {
-				if (!player.detail && player.video.paused && isSameVideoFile(player.source, this.options.source) && Math.abs(player.video.currentTime - time) > 0.01) {
+				if (!player.detail && player.video.paused && isSameVideoFile(player.source, this.file) && Math.abs(player.video.currentTime - time) > 0.01
+					&& (version === undefined || cardVersionOf(player.source) === undefined || cardVersionOf(player.source) === version)) {
 					player.video.currentTime = time;
 				}
 			}
@@ -411,7 +440,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		if (!(Number.isFinite(time) && time > 0.01) && muted) {
 			return;
 		}
-		lastPlayed.set(this.options.source, { time: Number.isFinite(time) ? time : 0, muted });
+		lastPlayed.set(this.file, { time: Number.isFinite(time) ? time : 0, muted });
 		for (const source of lastPlayed.keys()) {
 			if (lastPlayed.size <= MAX_LAST_PLAYED) {
 				break;

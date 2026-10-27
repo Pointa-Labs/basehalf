@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// Card Detail's edit mode of a video (editing media): Edit, the frame viewer, Done, Save as New, and Revert.
+// Card Detail's editor of a video (editing media): the frame viewer at once, a trim saved with nothing pressed, its undo and redo, Revert to Original, and Escape.
 
 import fs from 'fs';
 import path from 'path';
@@ -16,17 +16,16 @@ import { showExplorer } from '../../lib/workspace.mts';
 const FOLDER = 'edit';
 const VIDEO = `${FOLDER}/shot.mp4`;
 const DETAIL = '.basehalf-card-detail.visible';
-const FRAMES = '.basehalf-card-detail-surface.active .basehalf-video-frames';
-const NOTE = '.basehalf-card-detail-surface.active .basehalf-media-edit-note';
+const SURFACE = '.basehalf-card-detail-surface.active';
+const FRAMES = `${SURFACE} .basehalf-video-frames`;
+const LINE = `${SURFACE} .basehalf-media-edit-line`;
 const UNDO = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
 const REDO = process.platform === 'darwin' ? 'Shift+Meta+Z' : 'Control+Shift+Z';
+/** Changes of one name within 0.6 s are one step: the changes of this test are apart. */
+const APART_MS = 700;
 
 function workspaceFile(relativePath) {
 	return path.join(workspacePath, ...relativePath.split('/'));
-}
-
-function headerButton(page, name) {
-	return page.locator(`${DETAIL} .basehalf-card-detail-edit-actions [data-edit-action="${name}"]`);
 }
 
 /** The part kept, in seconds, from the strip's properties; the length of the video the viewer shows. */
@@ -40,10 +39,8 @@ async function readPart(page) {
 	}, FRAMES);
 }
 
-/** Edit, and the frame viewer of a video of about this length once its pictures show. */
-async function enterEdit(page, duration) {
-	await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-disabled') === 'false', `${DETAIL} .basehalf-card-detail-edit-actions [data-edit-action="edit"]`, { timeout: 15_000 });
-	await headerButton(page, 'edit').click();
+/** The frame viewer of a video of about this length, once its pictures show. */
+async function waitForViewer(page, duration) {
 	await page.waitForFunction(({ selector, duration }) => {
 		const viewer = document.querySelector(selector);
 		const length = Number(viewer?.querySelector('.basehalf-video-frames-handle.end')?.getAttribute('aria-valuemax'));
@@ -52,13 +49,13 @@ async function enterEdit(page, duration) {
 	}, { selector: FRAMES, duration }, { timeout: 15_000 });
 }
 
-/** Waits until Card Detail shows the file out of edit mode, with this line under it. */
-async function waitForNote(page, pattern) {
-	await page.waitForFunction(({ selector, source }) => new RegExp(source).test(document.querySelector(selector)?.textContent ?? ''), { selector: NOTE, source: pattern.source }, { timeout: 30_000 });
+/** The parts of the line under the editor that show, without the dots between them. */
+async function lineText(page) {
+	return page.evaluate(selector => Array.from(document.querySelector(selector)?.querySelectorAll('.basehalf-media-edit-line-part:not([hidden])') ?? []).map(part => part.textContent).join(' | '), LINE);
 }
 
-/** Drags a handle to a time, holding the place where it was pressed. */
-async function dragHandle(page, which, seconds) {
+/** Drags a handle to a time, holding the place where it was pressed; with `escape`, Escape before the release. */
+async function dragHandle(page, which, seconds, escape = false) {
 	const strip = await page.locator(`${FRAMES} .basehalf-video-frames-strip`).boundingBox();
 	const handle = await page.locator(`${FRAMES} .basehalf-video-frames-handle.${which}`).boundingBox();
 	const { duration } = await readPart(page);
@@ -71,6 +68,9 @@ async function dragHandle(page, which, seconds) {
 	for (let index = 1; index <= 10; index++) {
 		await page.mouse.move(fromX + (toX - fromX) * index / 10, y);
 		await page.waitForTimeout(16);
+	}
+	if (escape) {
+		await page.keyboard.press('Escape');
 	}
 	await page.mouse.up();
 }
@@ -97,34 +97,26 @@ export async function assertCardDetailVideoEdit(page) {
 	fs.copyFileSync(path.join(root, 'scripts', 'fixtures', 'basehalf-video-mock.mp4'), workspaceFile(VIDEO));
 	const original = fs.readFileSync(workspaceFile(VIDEO));
 	const cardInformation = workspaceFile(`.bh/mirror/${VIDEO}`);
+	const copies = workspaceFile('.bh/cache/edit/shown');
+	const read = file => fs.existsSync(file) ? fs.readFileSync(file) : undefined;
 	try {
 		await showVideoRowInFiles(page);
 		await quickOpen(page, VIDEO);
 		await assertCardDetail(page, 'shot.mp4');
-		await enterEdit(page, undefined);
+
+		// The editor shows at once: nothing in the header edits, and the viewer is the video's timeline.
+		await waitForViewer(page, undefined);
 		const first = await readPart(page);
-		const atFirst = { done: await headerButton(page, 'done').getAttribute('aria-disabled'), revert: await headerButton(page, 'revert').count(), whole: first.whole };
-		if (atFirst.done !== 'true' || atFirst.revert !== 0 || !atFirst.whole) {
-			throw new Error(`Edit on a video that was never edited keeps all of it, without Revert, and Done waits for an edit: ${JSON.stringify(atFirst)}`);
+		const atOpen = await page.evaluate(({ detail, surface }) => ({
+			header: Array.from(document.querySelectorAll(`${detail} .basehalf-card-detail-header button`)).filter(button => button.offsetParent).map(button => button.getAttribute('aria-label') ?? button.textContent),
+			slider: getComputedStyle(document.querySelector(`${surface} .basehalf-canvas-video-player-slider`)).visibility,
+			sound: !!document.querySelector(`${surface} .basehalf-video-frames-sound`)
+		}), { detail: DETAIL, surface: SURFACE });
+		if (!first.whole || atOpen.header.some(label => /Edit|Done|Cancel|Revert|Save/.test(label ?? '')) || atOpen.slider !== 'hidden' || atOpen.sound || await lineText(page) !== '') {
+			throw new Error(`Card Detail of a video that was never edited shows its frame viewer at once, all of it kept, no control of editing in its header, the player without a bar of its own, and an empty line: ${JSON.stringify({ first, atOpen, line: await lineText(page) })}`);
 		}
 
-		await dragHandle(page, 'start', 0.5);
-		await dragHandle(page, 'end', 1.7);
-		const part = await readPart(page);
-		if (part.end - part.start < 0.999 || part.start < 0.3 || part.end > 1.9) {
-			throw new Error(`The handles must keep about 0.5 s to 1.7 s, at least 1.0 s: ${JSON.stringify(part)}`);
-		}
-		// Command+Z in edit mode undoes the editor's last change, and no step of the canvas.
-		await page.locator(`${FRAMES} .basehalf-video-frames-handle.end`).focus();
-		await page.keyboard.press(UNDO);
-		const undone = await readPart(page);
-		await page.keyboard.press(REDO);
-		const redone = await readPart(page);
-		if (Math.abs(undone.end - first.duration) > 0.05 || Math.abs(undone.start - part.start) > 0.01 || Math.abs(redone.end - part.end) > 0.01 || !fs.readFileSync(workspaceFile(VIDEO)).equals(original)) {
-			throw new Error(`Undo in edit mode puts the end handle back, and redo moves it again: ${JSON.stringify({ part, undone, redone })}`);
-		}
-
-		// Exact undo, criterion 16: from Done to its undo and redo, the video's row in Files is there in every frame.
+		// Exact undo, criterion 16: from the first write to the last undo and redo, the video's row in Files is there in every frame.
 		await page.evaluate(() => {
 			const watch = { running: true, frames: 0, missing: 0 };
 			const tick = () => {
@@ -141,76 +133,75 @@ export async function assertCardDetailVideoEdit(page) {
 			requestAnimationFrame(tick);
 		});
 
-		// Done writes the part into the file, keeps the file as it was as the original, and the record beside it.
-		await headerButton(page, 'done').click();
-		await waitForNote(page, /^Edited\./);
+		// Letting go of the handles is the change: with nothing pressed, the file becomes the part, its original and record beside it.
+		await dragHandle(page, 'start', 0.5);
+		await page.waitForTimeout(APART_MS);
+		await dragHandle(page, 'end', 1.7);
+		const part = await readPart(page);
+		if (part.end - part.start < 0.999 || part.start < 0.3 || part.end > 1.9) {
+			throw new Error(`The handles must keep about 0.5 s to 1.7 s, at least 1.0 s: ${JSON.stringify(part)}`);
+		}
+		await waitUntil(() => !!read(path.join(cardInformation, 'original.mp4'))?.equals(original) && /\n {2}- start: 0\.[3-7]\d*\n {4}end: 1\.[5-9]\d*\n$/.test(read(path.join(cardInformation, 'edit.yaml'))?.toString() ?? ''), 'the trim to be written with nothing pressed', 30_000);
 		const edited = fs.readFileSync(workspaceFile(VIDEO));
 		const record = fs.readFileSync(path.join(cardInformation, 'edit.yaml'), 'utf8');
-		if (edited.equals(original) || !fs.readFileSync(path.join(cardInformation, 'original.mp4')).equals(original) || !/^original: "original\.mp4"\nresult:\n {2}size: \d+\n {2}hash: "[0-9a-f]{64}"\nkeep:\n/.test(record)) {
-			throw new Error(`Done replaces the video, keeps its original, and writes the record: ${JSON.stringify({ same: edited.equals(original), record })}`);
-		}
-		const files = fs.readdirSync(workspaceFile(FOLDER));
-		const leftInCache = fs.existsSync(workspaceFile('.bh/cache/edit')) ? fs.readdirSync(workspaceFile('.bh/cache/edit')) : [];
-		if (files.length !== 1 || leftInCache.length) {
-			throw new Error(`Done makes no other file beside the video and leaves nothing in the cache: ${JSON.stringify({ files, leftInCache })}`);
+		// The line says "Saving…" only while the file is written.
+		await page.waitForFunction(selector => !!document.querySelector(`${selector} .basehalf-media-edit-line-saving`)?.parentElement?.hidden, LINE, { timeout: 15_000 });
+		const line = await lineText(page);
+		if (edited.equals(original) || !/^original: "original\.mp4"\nresult:\n {2}size: \d+\n {2}hash: "[0-9a-f]{64}"\nkeep:\n/.test(record) || !/^Trimmed to \d\.\ds–\d\.\ds \| Revert to Original$/.test(line) || fs.readdirSync(workspaceFile(FOLDER)).length !== 1) {
+			throw new Error(`The trim replaces the video, keeps its original, writes the record, and the line says it: ${JSON.stringify({ same: edited.equals(original), record, line })}`);
 		}
 
-		// Edit again starts from the whole original, with the handles where the edit left them.
-		await enterEdit(page, first.duration);
-		const again = await readPart(page);
-		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || (await headerButton(page, 'revert').count()) !== 1) {
-			throw new Error(`Edit on an edited video shows its original with the part it kept, and Revert: ${JSON.stringify({ part, again })}`);
-		}
-
-		// Save as New writes the part into a copy beside the video, and leaves the video as it was.
-		await dragHandle(page, 'start', 0.2);
-		await headerButton(page, 'more').click();
-		const saveAsNew = page.locator('.context-view.monaco-menu-container .action-label').filter({ hasText: /^Save as New Video$/ }).filter({ visible: true }).last();
-		await saveAsNew.waitFor({ state: 'visible', timeout: 10_000 });
-		// VS Code attaches menu mouse-up listeners after a 100 ms guard against the pointer event that opened the menu.
-		await page.waitForTimeout(150);
-		await saveAsNew.click();
-		await waitForNote(page, /^Saved shot copy\.mp4\./);
-		const copy = workspaceFile(`${FOLDER}/shot copy.mp4`);
-		if (!fs.existsSync(copy) || fs.readFileSync(copy).equals(edited) || !fs.readFileSync(workspaceFile(VIDEO)).equals(edited) || fs.existsSync(workspaceFile(`.bh/mirror/${FOLDER}/shot copy.mp4/edit.yaml`))) {
-			throw new Error('Save as New writes the edit into shot copy.mp4, an ordinary file, and leaves the video as it was.');
-		}
-		// Its undo takes the copy away; the video stays edited.
-		await headerButton(page, 'edit').focus();
+		// Command+Z with the keyboard on a handle undoes the last trim in the viewer at once, and the file follows; redo puts back the very bytes.
+		await page.locator(`${FRAMES} .basehalf-video-frames-handle.end`).focus();
 		await page.keyboard.press(UNDO);
-		await waitUntil(() => !fs.existsSync(copy), 'undo to take the new file away', 15_000);
-
-		// Revert puts the original back, and removes it and the record.
-		await enterEdit(page, first.duration);
-		await headerButton(page, 'revert').click();
-		await waitForNote(page, /^The original is back\./);
-		if (!fs.readFileSync(workspaceFile(VIDEO)).equals(original) || fs.existsSync(path.join(cardInformation, 'original.mp4')) || fs.existsSync(path.join(cardInformation, 'edit.yaml'))) {
-			throw new Error('Revert puts back the original\'s bytes and removes the original and the record.');
-		}
-
-		// Out of edit mode, undo and redo are steps of the canvas: undo of the Revert brings the edit back exactly, redo reverts again.
-		await headerButton(page, 'edit').focus();
-		await page.keyboard.press(UNDO);
-		await waitUntil(() => fs.readFileSync(workspaceFile(VIDEO)).equals(edited) && fs.existsSync(path.join(cardInformation, 'original.mp4')) && fs.readFileSync(path.join(cardInformation, 'edit.yaml'), 'utf8') === record, 'undo to bring the edit back', 15_000);
-		await headerButton(page, 'edit').focus();
+		await page.waitForFunction(({ selector, duration }) => {
+			const handle = document.querySelector(`${selector} .basehalf-video-frames-handle.end`);
+			return Math.abs(Number(handle?.getAttribute('aria-valuenow')) - duration) < 0.05;
+		}, { selector: FRAMES, duration: first.duration }, { timeout: 5_000 });
+		await waitUntil(() => !/\n {4}end: 1\.[5-9]\d*\n$/.test(read(path.join(cardInformation, 'edit.yaml'))?.toString() ?? '') && !!read(path.join(cardInformation, 'edit.yaml')), 'the undo of the end to be written', 30_000);
 		await page.keyboard.press(REDO);
-		await waitUntil(() => fs.readFileSync(workspaceFile(VIDEO)).equals(original) && !fs.existsSync(path.join(cardInformation, 'edit.yaml')), 'redo to revert again', 15_000);
+		await waitUntil(() => !!read(workspaceFile(VIDEO))?.equals(edited) && read(path.join(cardInformation, 'edit.yaml'))?.toString() === record, 'redo to put back the very bytes of the trim', 30_000);
+		const focused = await page.evaluate(selector => !!document.activeElement?.matches(`${selector} .basehalf-video-frames-handle.end`), FRAMES);
+		if (!focused) {
+			throw new Error('Undo and redo keep the editor, and the keyboard on the handle it was on.');
+		}
+
+		// Revert to Original puts the original back, and removes it and the record; its undo brings the edit back byte for byte.
+		await page.locator(`${LINE} .basehalf-media-edit-line-action.revert`).click();
+		await waitUntil(() => !!read(workspaceFile(VIDEO))?.equals(original) && !fs.existsSync(path.join(cardInformation, 'original.mp4')) && !fs.existsSync(path.join(cardInformation, 'edit.yaml')), 'Revert to Original to put the original back', 30_000);
+		if (!(await readPart(page)).whole || await lineText(page) !== '') {
+			throw new Error(`After Revert to Original the viewer keeps all of the video, and the line is empty: ${await lineText(page)}`);
+		}
+		await page.locator(`${FRAMES} .basehalf-video-frames-handle.start`).focus();
+		await page.keyboard.press(UNDO);
+		await waitUntil(() => !!read(workspaceFile(VIDEO))?.equals(edited) && !!read(path.join(cardInformation, 'original.mp4'))?.equals(original) && read(path.join(cardInformation, 'edit.yaml'))?.toString() === record, 'the undo of Revert to Original to bring the edit back', 30_000);
 		const rowWatch = await page.evaluate(() => {
 			const watch = globalThis.basehalfEditRowWatch;
 			watch.running = false;
 			return { frames: watch.frames, missing: watch.missing };
 		});
 		if (rowWatch.frames < 10 || rowWatch.missing !== 0) {
-			throw new Error(`Done, Revert, and their undo and redo change the video in place: its row in Files must be there in every frame: ${JSON.stringify(rowWatch)}`);
+			throw new Error(`Writes, Revert to Original, and their undo and redo change the video in place: its row in Files must be there in every frame: ${JSON.stringify(rowWatch)}`);
 		}
 
-		// Escape in edit mode cancels and leaves Card Detail open; the next Escape closes it.
-		await enterEdit(page, first.duration);
-		await page.locator(`${FRAMES} .basehalf-video-frames-handle.start`).focus();
+		// Escape during a drag puts back what the drag changed and leaves Card Detail open; the next Escape closes it.
+		const beforeDrag = await readPart(page);
+		await dragHandle(page, 'start', 0.1, true);
+		const afterEscape = await readPart(page);
+		if (Math.abs(afterEscape.start - beforeDrag.start) > 0.01 || !(await page.locator(DETAIL).isVisible())) {
+			throw new Error(`Escape during a drag puts the handle back and leaves Card Detail open: ${JSON.stringify({ beforeDrag, afterEscape })}`);
+		}
 		await page.keyboard.press('Escape');
-		await page.locator(FRAMES).waitFor({ state: 'detached', timeout: 10_000 });
-		if (!(await page.locator(DETAIL).isVisible())) {
-			throw new Error('Escape in edit mode cancels the edit and leaves Card Detail open.');
+		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
+		await waitUntil(() => !fs.existsSync(copies) || fs.readdirSync(copies).length === 0, 'the copy that the editor read to go when Card Detail closed', 10_000);
+
+		// Card Detail opened again shows the whole original in the viewer, with the handles where the trim left them.
+		await quickOpen(page, VIDEO);
+		await assertCardDetail(page, 'shot.mp4');
+		await waitForViewer(page, first.duration);
+		const again = await readPart(page);
+		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || !/ \| Revert to Original$/.test(await lineText(page))) {
+			throw new Error(`Card Detail of an edited video shows its original with the part it kept, and Revert to Original: ${JSON.stringify({ part, again, line: await lineText(page) })}`);
 		}
 		await page.keyboard.press('Escape');
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });

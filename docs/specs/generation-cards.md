@@ -1277,8 +1277,10 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   does too, the pointer on it plays nothing, the sound is on, and **Full
   Screen** stands where **Open** is. The video starts at the frame its card
   showed; when Card Detail closes, the card shows the frame where it stopped
-  ([opening and closing Card Detail](card-detail-opening.md)). Card Detail's
-  Edit shows the editor of a video or a sound under its player
+  ([opening and closing Card Detail](card-detail-opening.md)), unless an edit
+  wrote the file anew meanwhile: the card then shows the new file. A video
+  that BaseHalf can edit plays with the frame viewer of its editor under the
+  player, and a sound shows its waveform in place of the player
   ([editing media](media-editing.md)).
 - **A sound plays in the same player.** There is nothing to see, so the card
   of a sound shows the glyph of a sound where a video shows its frame, and

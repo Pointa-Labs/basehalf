@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { BaseHalfSoundTimeline, baseHalfDeleteParts, baseHalfOriginalTime, baseHalfPartEdges, baseHalfPartsAreWhole, baseHalfPartsLength, baseHalfTrimParts } from '../../common/basehalfSoundParts.js';
+import { BaseHalfSoundTimeline, baseHalfDeleteParts, baseHalfOriginalTime, baseHalfPartEdges, baseHalfPartsAreWhole, baseHalfPartsLength, baseHalfSoundKept, baseHalfSoundShown, baseHalfTrimParts } from '../../common/basehalfSoundParts.js';
 import { readBaseHalfWavFile, writeBaseHalfWavParts } from '../../common/basehalfWavFile.js';
 
 /** A WAV of 16-bit stereo samples, the left channel counting up and the right down, with a list of its information and a cue point. */
@@ -70,6 +70,25 @@ suite('BaseHalfSoundParts', () => {
 			// At a joint, the time is the later part's start.
 			original: [1, 1.99, 3, 4.5],
 			whole: [true, false, true]
+		});
+	});
+
+	test('the waveform shows kept parts from the start of the original to its end, the handles on what the file holds, and gives back the same parts (D85)', () => {
+		const cases = [undefined, [{ start: 2, end: 8 }], [{ start: 1, end: 3 }, { start: 4, end: 7 }], [{ start: 0, end: 3 }, { start: 4, end: 10 }], [{ start: 0, end: 2 }, { start: 5, end: 6 }, { start: 8, end: 10 }]];
+		const shown = cases.map(keep => baseHalfSoundShown(keep, 10));
+		assert.deepStrictEqual({
+			shown,
+			back: shown.map(({ parts, range }) => baseHalfSoundKept(parts, range, 10))
+		}, {
+			shown: [
+				{ parts: [{ start: 0, end: 10 }], range: { start: 0, end: 10 } },
+				{ parts: [{ start: 0, end: 10 }], range: { start: 2, end: 8 } },
+				// The gap between the parts is a joint; the trims at the ends are outside the handles.
+				{ parts: [{ start: 0, end: 3 }, { start: 4, end: 10 }], range: { start: 1, end: 6 } },
+				{ parts: [{ start: 0, end: 3 }, { start: 4, end: 10 }], range: { start: 0, end: 9 } },
+				{ parts: [{ start: 0, end: 2 }, { start: 5, end: 6 }, { start: 8, end: 10 }], range: { start: 0, end: 5 } }
+			],
+			back: [undefined, [{ start: 2, end: 8 }], [{ start: 1, end: 3 }, { start: 4, end: 7 }], [{ start: 0, end: 3 }, { start: 4, end: 10 }], [{ start: 0, end: 2 }, { start: 5, end: 6 }, { start: 8, end: 10 }]]
 		});
 	});
 

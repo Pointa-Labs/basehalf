@@ -8,8 +8,8 @@ import { IBaseHalfMediaPart } from './basehalfEditRecord.js';
 /**
  * The parts of a sound that an edit keeps (editing media, "Editing a
  * sound"): parts of the original in order, played one after the other. Times
- * of the edited sound run through the parts joined; Trim keeps a stretch of
- * them and Delete takes one away.
+ * of the edited sound run through the parts joined; the handles keep a
+ * stretch of them and Delete takes one away.
  */
 
 /** The shortest a sound may be after a Delete, in seconds. */
@@ -87,6 +87,31 @@ function merge(parts: readonly IBaseHalfMediaPart[]): IBaseHalfMediaPart[] {
 /** Whether parts are the whole of a sound of a length: no edit. */
 export function baseHalfPartsAreWhole(parts: readonly IBaseHalfMediaPart[], duration: number): boolean {
 	return parts.length === 1 && parts[0].start <= 1e-6 && parts[0].end >= duration - 1e-6;
+}
+
+/**
+ * What the waveform shows of the parts an edit keeps (editing media, "The
+ * waveform"): the parts joined, the first from the start of the original and
+ * the last to its end, and between the handles the stretch of them that the
+ * file holds, so that a trim can be widened again.
+ */
+export function baseHalfSoundShown(keep: readonly IBaseHalfMediaPart[] | undefined, duration: number): { readonly parts: readonly IBaseHalfMediaPart[]; readonly range: IBaseHalfSoundRange } {
+	if (!keep?.length) {
+		return { parts: [{ start: 0, end: duration }], range: { start: 0, end: duration } };
+	}
+	const first = keep[0];
+	const last = keep[keep.length - 1];
+	const parts = merge(keep.length === 1
+		? [{ start: 0, end: duration }]
+		: [{ start: 0, end: first.end }, ...keep.slice(1, -1), { start: last.start, end: duration }]);
+	const length = baseHalfPartsLength(parts);
+	return { parts, range: { start: first.start, end: length - (duration - last.end) } };
+}
+
+/** The parts that the file holds: those between the handles; nothing when that is the whole original. */
+export function baseHalfSoundKept(parts: readonly IBaseHalfMediaPart[], range: IBaseHalfSoundRange, duration: number): readonly IBaseHalfMediaPart[] | undefined {
+	const kept = baseHalfTrimParts(parts, range.start, range.end);
+	return baseHalfPartsAreWhole(kept, duration) ? undefined : kept;
 }
 
 /** A stretch between the waveform's handles, in seconds of the edited sound. */

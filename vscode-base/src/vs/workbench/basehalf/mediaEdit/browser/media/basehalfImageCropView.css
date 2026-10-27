@@ -4,14 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 /*
- * The crop view of an image in Card Detail's edit mode (editing media, "The
- * crop view"): the picture under the crop frame, dimmed outside it, with
- * thick corners and a handle in the middle of each side, lines in thirds
- * while it is adjusted, the size of the part, and the row of tools under it.
+ * The crop view of an image in Card Detail (editing media, "The crop view"):
+ * the part kept, with the rest of the picture hidden; the crop frame on its
+ * edges, with thick corners and a handle in the middle of each side, which
+ * shows while the pointer is over the picture or the keyboard is on it; the
+ * rest of the picture dimmed around the frame, lines in thirds, and the size
+ * of the part while it is adjusted; and the row of tools under it.
  */
 .monaco-workbench .basehalf-image-crop {
-	position: absolute;
-	inset: 0;
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
 	color: var(--vscode-foreground);
@@ -29,7 +32,12 @@
 	cursor: grab;
 }
 
-.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-view {
+.monaco-workbench .basehalf-image-crop.whole .basehalf-image-crop-view {
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-view,
+.monaco-workbench .basehalf-image-crop.panning .basehalf-image-crop-view {
 	cursor: grabbing;
 }
 
@@ -47,10 +55,52 @@
 .monaco-workbench .basehalf-image-crop-frame {
 	position: absolute;
 	box-sizing: border-box;
-	border: 1px solid rgb(255 255 255 / 85%);
-	/* Everything outside the frame is dimmed. */
-	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 55%);
+	border: 1px solid transparent;
+	/* At rest only the part kept shows; while it is adjusted the rest of the picture is dimmed around it. */
+	box-shadow: 0 0 0 100vmax var(--vscode-editor-background);
 	outline: none;
+	transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-frame {
+	box-shadow: 0 0 0 100vmax rgb(0 0 0 / 55%);
+}
+
+/* The frame stands on the part while the pointer is over the picture, the keyboard is on it, or it is adjusted. */
+.monaco-workbench .basehalf-image-crop-view:hover .basehalf-image-crop-frame,
+.monaco-workbench .basehalf-image-crop-frame.keyboard,
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-frame {
+	border-color: rgb(255 255 255 / 85%);
+}
+
+.monaco-workbench .basehalf-image-crop-corner,
+.monaco-workbench .basehalf-image-crop-side {
+	opacity: 0;
+	transition: opacity 150ms ease;
+}
+
+.monaco-workbench .basehalf-image-crop-view:hover .basehalf-image-crop-corner,
+.monaco-workbench .basehalf-image-crop-view:hover .basehalf-image-crop-side,
+.monaco-workbench .basehalf-image-crop-frame.keyboard .basehalf-image-crop-corner,
+.monaco-workbench .basehalf-image-crop-frame.keyboard .basehalf-image-crop-side,
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-corner,
+.monaco-workbench .basehalf-image-crop.adjusting .basehalf-image-crop-side {
+	opacity: 1;
+}
+
+/* While the view is zoomed in, the frame does not show: a drag moves the view. */
+.monaco-workbench .basehalf-image-crop.zoomed .basehalf-image-crop-frame {
+	border-color: transparent;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-image-crop.zoomed .basehalf-image-crop-corner,
+.monaco-workbench .basehalf-image-crop.zoomed .basehalf-image-crop-side {
+	opacity: 0;
+}
+
+.monaco-workbench .basehalf-image-crop.zoomed:not(.panning) .basehalf-image-crop-view {
+	cursor: grab;
 }
 
 .monaco-workbench .basehalf-image-crop-grid {
@@ -261,49 +311,6 @@
 	background: var(--vscode-focusBorder);
 }
 
-.monaco-workbench .basehalf-image-crop-reset {
-	height: 28px;
-	padding: 0 10px;
-	color: var(--vscode-foreground);
-	background: transparent;
-	border: 0;
-	border-radius: 4px;
-	font: inherit;
-	font-weight: 500;
-	cursor: default;
-}
-
-.monaco-workbench .basehalf-image-crop-reset:hover {
-	background-color: var(--vscode-toolbar-hoverBackground);
-}
-
-.monaco-workbench .basehalf-image-crop-reset.disabled,
-.monaco-workbench .basehalf-image-crop-reset.disabled:hover {
-	color: var(--vscode-disabledForeground);
-	background-color: transparent;
-}
-
-.monaco-workbench .basehalf-image-crop.busy .basehalf-image-crop-tools,
-.monaco-workbench .basehalf-image-crop.busy .basehalf-image-crop-frame {
-	opacity: 0.6;
-}
-
-.monaco-workbench .basehalf-image-crop-status {
-	flex: none;
-	min-height: 18px;
-	padding: 0 16px 8px;
-	overflow: hidden;
-	color: var(--vscode-descriptionForeground);
-	line-height: 18px;
-	text-align: center;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.monaco-workbench .basehalf-image-crop-status.error {
-	color: var(--vscode-errorForeground);
-}
-
 /* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
 .monaco-workbench .basehalf-image-crop :focus:not(:focus-visible) {
 	outline: none;
@@ -311,7 +318,6 @@
 
 .monaco-workbench .basehalf-image-crop-corner:focus-visible,
 .monaco-workbench .basehalf-image-crop-tool:focus-visible,
-.monaco-workbench .basehalf-image-crop-reset:focus-visible,
 .monaco-workbench .basehalf-image-crop-dial:focus-visible .basehalf-image-crop-dial-window {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;

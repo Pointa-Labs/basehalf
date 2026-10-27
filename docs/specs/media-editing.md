@@ -205,9 +205,10 @@ crop:
 - **The file follows.** Once the choices have rested for 1 s, BaseHalf writes
   the edit of the original into the file, and the record beside it; at once
   when Card Detail closes or shows another file, and when the window closes,
-  which waits for the writes that are left. Writes of a file run one at a
-  time, in the background: a change made while one runs is written after it,
-  and the choices it wrote are kept.
+  which waits for the writes that are left; and before the file is moved,
+  copied, or deleted in the window, so that a Duplicate right after a change
+  copies the change. Writes of a file run one at a time, in the background: a
+  change made while one runs is written after it.
 - The first change of a file keeps the file as it was as the original. A change
   of an edited file leaves the original as it is and replaces the record.
   Choices that keep the whole original, as the whole video kept or the whole
@@ -257,7 +258,7 @@ crop:
   `shot.mp4`, are of no version of the file that the change makes. They go
   to the Trash when the change is written, as an original whose file is gone
   does in the end ([When the file is gone](#when-the-file-is-gone)), and the
-  undo of the change puts back the record before without them.
+  undo of the change puts back the file as it was, without them.
 - A file that changes outside BaseHalf while Card Detail shows it is shown
   anew, as it is; choices that were not written yet are dropped, and a write
   that finds the change writes nothing.
@@ -477,10 +478,11 @@ crop:
   is as large as fits, at the middle of the view.
 - **The wheel, or a pinch of the trackpad, over the picture** zooms the view,
   never the edit: around the pointer, from the picture as it fits up to twice
-  its pixels. While the view is zoomed in, the crop frame does not show, and a
-  drag moves the view. A double click shows the picture as it fits, or, as it
-  fits, at its own pixels around the pointer. Card Detail opens with the
-  picture as it fits.
+  its pixels; a picture that fits at more than twice its pixels does not zoom.
+  While the view is zoomed in, the crop frame does not show, and a drag moves
+  the view. A double click shows the picture as it fits, or, as it fits, at its
+  own pixels around the pointer. Card Detail opens with the picture as it
+  fits, and a change shows it as it fits again.
 - **The size of the part** stands under the frame while it is dragged, in
   pixels of the original (`1600 × 900`).
 
@@ -534,15 +536,18 @@ crop:
   samples, and for an MP3 those of its frames. As in the frame viewer, the
   handles hold the part kept: letting go of one trims the sound to the part
   between them, a change, "Trim take.wav". The part is at least 0.1 s, or the
-  whole sound when it is shorter.
+  whole sound when it is shorter. The waveform shows the parts kept from the
+  start of the original to its end, so that a trim can be widened again: what
+  a trim left out at either end is outside the handles, dimmed, and a stretch
+  cut out between parts is a joint.
 - Under the waveform, at its left, **Play** with the time and the length.
 - **A drag on the waveform inside the part kept** selects a stretch of it: the
   stretch is lit, and **Delete** stands on it. Delete, or the Delete key,
   cuts the stretch out and joins what is left, a change, "Cut take.wav"; the
-  handles then hold all of it. A press elsewhere, a press on the selected
-  stretch that does not move, and Escape drop the selection. A stretch is at
-  least 0.1 s, and Delete does not show while what would be left is shorter
-  than 0.1 s.
+  handles hold what they held, less the stretch. A press elsewhere, a press on
+  the selected stretch that does not move, and Escape drop the selection. A
+  stretch is at least 0.1 s, and Delete does not show while what would be left
+  is shorter than 0.1 s.
 
 ### Playing
 
@@ -645,8 +650,8 @@ crop:
 - The tags of the original are kept: the ID3 tags of an MP3, the chunks of a
   WAV besides its format and data, the metadata blocks of a FLAC, the iTunes
   tags of an M4A, and the comments of an OGG.
-- Where the window has no AAC encoder, as on Linux, an M4A cannot be edited,
-  and Edit says so.
+- Where the window has no AAC encoder, as on Linux, an M4A cannot be edited:
+  Card Detail shows it in the player, without an editor.
 
 ## While it is saved, and after
 
@@ -663,10 +668,12 @@ crop:
 - The canvas card shows the file as it is written: its picture, its length,
   and its shape. The editor in Card Detail does not show the file anew when
   its own write lands: it already shows the choices.
-- While Card Detail edits a video that was never edited, its player plays a
-  copy of the file in the cache folder, cloned at no cost on a disk that can
-  clone, so that the first write, which replaces the file, does not change
-  what the player reads. The copy goes when Card Detail closes.
+- The editor reads a copy of what it starts from, the file or its original,
+  made in `.bh/cache/edit/shown/` when Card Detail shows the file and cloned at
+  no cost on a disk that can clone: a write replaces the file, and Revert to
+  Original removes the original, and neither changes what the editor reads or
+  the player of a video plays. The copy goes when Card Detail closes or shows
+  another file.
 
 ## Failure
 
@@ -678,11 +685,12 @@ crop:
   a format BaseHalf does not write; an image the window cannot decode; a sound
   this system cannot decode; an M4A where the window has no AAC encoder.
 - **A write that fails**, because the original cannot be read, the window
-  cannot encode it, or its place cannot be written: the file stays as its last
-  write made it, nothing is left in the cache, and the line under the editor
-  says "BaseHalf could not save the edit:" and why, with **Try Again**. The
-  editor keeps the choices. When Card Detail does not show the file, a
-  notification says it, with Try Again.
+  cannot encode it, or its place cannot be written: the file, its original,
+  and its record stay as the last write made them, and the line under the
+  editor says "BaseHalf could not save the edit:" and why, with **Try Again**.
+  The editor keeps the choices. When Card Detail does not show the file, a
+  notification says it, with Try Again. What the write encoded stays in the
+  cache until the window closes, so that Try Again writes it at once.
 - **A file that changes outside BaseHalf while it is shown**, in its size or
   its time of change, or that is moved, renamed, or deleted: nothing is
   written, and Card Detail shows the file anew as it is
@@ -700,9 +708,13 @@ crop:
 - The frame viewer reads the frames of a video once when the editor opens, and
   again where it is spread out; with few key frames, a long video's pictures
   appear one by one.
-- A write encodes a video again from the original: about a second for a clip
-  of 5 s at 480p, longer for a long or a large one, while the line says
-  Saving… with the share done. A change while it runs is written after it.
+- A write encodes a video again from the original, longer for a long or a
+  large one, while the line says Saving… with the share done; a change while
+  it runs is written after it. Measured on 2026-10-27 in a development window,
+  after the rest of 1 s: 0.18 to 0.21 s for a generated clip of 3 s at 480p,
+  0.2 s for a crop of a PNG of 2048 × 2048, and 0.04 s for a cut of a WAV of
+  6 s; an undo or a redo to what was written before puts the bytes back in
+  about 15 ms.
 - VP9 is encoded by the window in software: a WebM takes longer to save than
   an MP4 of the same size.
 - A picture of odd width or height is encoded one pixel narrower or lower when
@@ -757,6 +769,13 @@ crop:
     after them, `shot original.mp4`, byte for byte its original, is in the
     Trash from the file's folder, and its record is gone. A file that is back
     before then keeps its edit, and its note is gone.
+15. From the first frame that Card Detail of a video or an image shows its
+    picture, recorded on every frame, the picture keeps its place and size
+    while the frame viewer or the crop tools stand in the space under it; no
+    frame shows the picture taken away or drawn anew, also when a change, its
+    write, its undo, and Revert to Original land; and closing Card Detail
+    shows no frame without the card's picture (the user, 2026-10-27: the video
+    "jumped up" and "flashed" when Edit was pressed, and Cancel flashed).
 
 ## Verification
 

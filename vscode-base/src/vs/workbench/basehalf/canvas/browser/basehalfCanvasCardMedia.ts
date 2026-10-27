@@ -127,6 +127,54 @@ export function playBaseHalfCanvasMediaOneAtATime(root: HTMLElement): IDisposabl
 export const BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS = 2000;
 /** `HTMLMediaElement.HAVE_CURRENT_DATA`: the frame at the current position is there. */
 const HAVE_CURRENT_DATA = 2;
+/** The longer side of the copy of a card's picture that stands over the card that replaces it, in pixels. */
+const PICTURE_COVER_MAX_SIDE = 1280;
+
+/**
+ * The query by which the card of an image or a video asks for its file: the
+ * version of the file, its time of change and its size, so that a version
+ * written anew is read anew.
+ */
+export function baseHalfCanvasMediaVersionQuery(stat: { readonly mtime?: number; readonly size?: number }): string {
+	return `basehalfCanvasVersion=${stat.mtime ?? 0}-${stat.size ?? 0}`;
+}
+
+/**
+ * The picture of a card, an image or the frame of a video, copied into a
+ * canvas: the card drawn anew for a file written anew, as by an edit in Card
+ * Detail, shows it over its own picture until that can be drawn
+ * (`whenBaseHalfCanvasMediaDrawn`), so that no frame shows the card without a
+ * picture. Nothing while the picture is not drawn.
+ */
+export function baseHalfCanvasPictureCover(picture: HTMLImageElement | HTMLVideoElement): HTMLCanvasElement | undefined {
+	let width = 0;
+	let height = 0;
+	if (picture.tagName === 'VIDEO') {
+		const video = picture as HTMLVideoElement;
+		if (video.readyState >= HAVE_CURRENT_DATA) {
+			width = video.videoWidth;
+			height = video.videoHeight;
+		}
+	} else if ((picture as HTMLImageElement).complete) {
+		width = (picture as HTMLImageElement).naturalWidth;
+		height = (picture as HTMLImageElement).naturalHeight;
+	}
+	if (!width || !height) {
+		return undefined;
+	}
+	const scale = Math.min(1, PICTURE_COVER_MAX_SIDE / Math.max(width, height));
+	const cover = picture.ownerDocument.createElement('canvas');
+	cover.className = 'basehalf-canvas-card-picture-cover';
+	cover.setAttribute('aria-hidden', 'true');
+	cover.width = Math.max(1, Math.round(width * scale));
+	cover.height = Math.max(1, Math.round(height * scale));
+	try {
+		cover.getContext('2d')?.drawImage(picture, 0, 0, cover.width, cover.height);
+	} catch {
+		return undefined;
+	}
+	return cover;
+}
 
 /**
  * Calls `drawn` once, when the picture of `media` can be drawn: the image

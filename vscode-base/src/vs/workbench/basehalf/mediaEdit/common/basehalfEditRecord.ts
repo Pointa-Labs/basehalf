@@ -54,8 +54,6 @@ export interface IBaseHalfImageCrop {
 export interface IBaseHalfMediaChoices {
 	/** The parts of the original that the file holds, in order: one for a video, one or more for a sound. */
 	readonly keep?: readonly IBaseHalfMediaPart[];
-	/** A video saved without its sound. */
-	readonly mute?: boolean;
 	/** Quarter turns to the left. */
 	readonly turn?: 1 | 2 | 3;
 	/** Mirrored left to right, after the turn. */
@@ -98,9 +96,6 @@ export function baseHalfEditSummary(choices: IBaseHalfMediaChoices): string | un
 		parts.push(localize('basehalf.mediaEdit.summary.trimmed', "Trimmed to {0}s–{1}s", tenths(choices.keep[0].start), tenths(choices.keep[0].end)));
 	} else if (choices.keep && choices.keep.length > 1) {
 		parts.push(localize('basehalf.mediaEdit.summary.parts', "Trimmed to {0} parts", choices.keep.length));
-	}
-	if (choices.mute) {
-		parts.push(localize('basehalf.mediaEdit.summary.mute', "Without sound"));
 	}
 	if (choices.turn) {
 		parts.push(localize('basehalf.mediaEdit.summary.turned', "Turned"));
@@ -154,14 +149,12 @@ export function parseBaseHalfEditRecord(text: string): IBaseHalfEditRecord | und
 	const number = (map: YamlMapNode | undefined, key: string) => map ? baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(map, key)) : undefined;
 	const turn = number(root, 'turn');
 	const straighten = number(root, 'straighten');
-	const mute = baseHalfMirrorYamlBoolean(baseHalfMirrorYamlProperty(root, 'mute'));
 	const flip = baseHalfMirrorYamlBoolean(baseHalfMirrorYamlProperty(root, 'flip'));
 	try {
 		return normalizeBaseHalfEditRecord({
 			original: baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(root, 'original')) ?? '',
 			result: { size: number(result, 'size') ?? -1, hash: (result ? baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(result, 'hash')) : undefined) ?? '' },
 			...(keep ? { keep: keep as IBaseHalfMediaPart[] } : {}),
-			...(mute !== undefined ? { mute } : {}),
 			...(turn !== undefined ? { turn: turn as 1 | 2 | 3 } : {}),
 			...(flip !== undefined ? { flip } : {}),
 			...(straighten !== undefined ? { straighten } : {}),
@@ -193,9 +186,6 @@ export function serializeBaseHalfEditRecord(value: IBaseHalfEditRecord): string 
 	];
 	if (record.keep) {
 		lines.push('keep:', ...record.keep.flatMap(part => [`  - start: ${part.start}`, `    end: ${part.end}`]));
-	}
-	if (record.mute) {
-		lines.push('mute: true');
 	}
 	if (record.turn) {
 		lines.push(`turn: ${record.turn}`);
@@ -244,9 +234,6 @@ export function normalizeBaseHalfMediaChoices(value: IBaseHalfMediaChoices): IBa
 			previousEnd = end;
 			return Object.freeze({ start: start / 1000, end: end / 1000 });
 		}));
-	}
-	if (value.mute) {
-		choices.mute = true;
 	}
 	if (value.turn !== undefined) {
 		const turn = ((value.turn % 4) + 4) % 4;

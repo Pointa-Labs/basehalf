@@ -12,34 +12,34 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { IBaseHalfMediaChoices, IBaseHalfMediaPart } from '../common/basehalfEditRecord.js';
+import { IBaseHalfMediaChoices, IBaseHalfMediaPart, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { BASEHALF_SOUND_ENERGY_BLOCK, baseHalfSoundBarHeight, baseHalfSoundEnergy, baseHalfSoundReference } from '../common/basehalfSoundLoudness.js';
 import {
 	BASEHALF_SOUND_MIN_LENGTH,
 	BaseHalfSoundTimeline,
 	baseHalfDeleteParts,
 	baseHalfPartEdges,
-	baseHalfPartsAreWhole,
 	baseHalfPartsLength,
-	baseHalfTrimParts,
+	baseHalfSoundKept,
+	baseHalfSoundShown,
 	IBaseHalfSoundRange
 } from '../common/basehalfSoundParts.js';
 import { formatBaseHalfVideoTrimLength } from '../common/basehalfVideoTrimSelection.js';
-import { IBaseHalfMediaEditor, IBaseHalfMediaEditStatus } from './basehalfMediaEditor.js';
+import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
 
 /**
- * The waveform of a sound in Card Detail's edit mode (editing media,
- * "Editing a sound"): the sound as the choices make it, its kept parts
- * joined, with the yellow frame, the handles, the playhead, and the length of
- * the frame viewer of a video; Play, which plays it as it will be saved, the
- * stretch between the handles over and over while it is shorter than the
- * whole; and Trim and Delete, which keep that stretch or take it away. It
- * undoes its own changes.
+ * The waveform of a sound in Card Detail (editing media, "Editing a sound"):
+ * the sound as the choices make it, its kept parts joined, with the yellow
+ * frame, the handles, the playhead, and the length of the frame viewer of a
+ * video, whose handles trim it when they are let go; a stretch selected by a
+ * drag inside the part, with Delete on it, which cuts it out; and Play under
+ * it, which plays the sound as it is edited, the part between the handles
+ * over and over while it is shorter than the whole.
  */
 
 export interface IBaseHalfSoundWaveformOptions {
-	/** The original of an edited sound, or the sound. */
+	/** The copy of the original of an edited sound, or of the sound, that the editor reads. */
 	readonly source: URI;
 	readonly info: IBaseHalfSoundInfo;
 	readonly choices: IBaseHalfMediaChoices;
@@ -59,18 +59,17 @@ const LARGE_STEP_SECONDS = 1;
 const PLAY_FADE_SECONDS = 0.005;
 
 type Handle = 'start' | 'end';
-type DragKind = Handle | 'move' | 'press' | 'scrub';
-
-interface IChoice {
-	readonly parts: readonly IBaseHalfMediaPart[];
-	readonly range: IBaseHalfSoundRange;
-}
+type DragKind = Handle | 'press' | 'select' | 'scrub';
 
 interface IDrag {
 	readonly kind: DragKind;
 	readonly pointerId: number;
 	readonly startX: number;
-	readonly before: IChoice;
+	/** The stretch between the handles when the drag started, which Escape puts back. */
+	readonly before: IBaseHalfSoundRange;
+	/** The selected stretch when the drag started. */
+	readonly selected: IBaseHalfSoundRange | undefined;
+	/** For a handle, the time under the pointer less the handle's; for a selection, the time where it was pressed. */
 	grab: number;
 	moved: boolean;
 	lastX: number;
@@ -89,31 +88,30 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	readonly element: HTMLElement;
 	private readonly playButton: HTMLButtonElement;
 	private readonly time: HTMLElement;
-	private readonly trimButton: HTMLButtonElement;
-	private readonly deleteButton: HTMLButtonElement;
 	private readonly strip: HTMLElement;
 	private readonly canvas: HTMLCanvasElement;
+	private readonly selection: HTMLElement;
+	private readonly deleteButton: HTMLButtonElement;
 	private readonly length: HTMLElement;
 	private readonly startHandle: HTMLElement;
 	private readonly endHandle: HTMLElement;
 	private readonly playhead: HTMLElement;
-	private readonly status: HTMLElement;
+	private readonly failureLine: HTMLElement;
 
-	private readonly onDidChangeEmitter = this._register(new Emitter<void>());
+	private readonly onDidChangeEmitter = this._register(new Emitter<BaseHalfMediaChange>());
 	readonly onDidChange = this.onDidChangeEmitter.event;
-	private readonly onDidRequestSaveEmitter = this._register(new Emitter<void>());
-	readonly onDidRequestSave = this.onDidRequestSaveEmitter.event;
 
+	/** The parts the waveform shows, joined: those the file holds, and the trims at either end outside the handles. */
 	private parts: readonly IBaseHalfMediaPart[];
+	/** The stretch between the handles, in seconds of the parts joined: what the file holds. */
 	private range: IBaseHalfSoundRange;
+	/** The stretch selected for Delete. */
+	private selected: IBaseHalfSoundRange | undefined;
 	private view: { from: number; to: number };
-	private readonly undoStack: IChoice[] = [];
-	private readonly redoStack: IChoice[] = [];
 	private drag: IDrag | undefined;
-	private busy = false;
 	private holdTimer: ReturnType<typeof setTimeout> | undefined;
 	private frame: number | undefined;
-	/** Where the playhead stands while nothing plays, in seconds of the edited sound. */
+	/** Where the playhead stands while nothing plays, in seconds of the parts joined. */
 	private position = 0;
 	private context: AudioContext | undefined;
 	private buffer: AudioBuffer | undefined;
@@ -122,7 +120,6 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	/** The loudness of the loudest stretch of the original, which the bars are set against. */
 	private reference = 0;
 	private playing: IPlaying | undefined;
-	private failure: string | undefined;
 	private disposed = false;
 
 	constructor(
@@ -131,31 +128,21 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		@IFileService private readonly fileService: IFileService
 	) {
 		super();
-		const duration = options.info.duration;
-		this.parts = options.choices.keep?.length ? options.choices.keep : [{ start: 0, end: duration }];
-		this.range = this.timeline().whole();
+		const shown = baseHalfSoundShown(options.choices.keep, options.info.duration);
+		this.parts = shown.parts;
+		this.range = this.timeline().normalize(shown.range);
 		this.view = { from: 0, to: this.timeline().duration };
 
 		// The look of the frame viewer of a video: its frame, handles, playhead, and length.
 		this.element = append(container, $('.basehalf-video-frames.basehalf-sound-waveform'));
 		this.element.setAttribute('role', 'group');
 		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.sound.label', "Waveform"));
-		const top = append(this.element, $('.basehalf-sound-waveform-top'));
-		this.playButton = append(top, $<HTMLButtonElement>('button.basehalf-sound-waveform-play'));
-		this.playButton.type = 'button';
-		this.time = append(top, $('span.basehalf-sound-waveform-time'));
-		append(top, $('span.basehalf-sound-waveform-gap'));
-		this.trimButton = append(top, $<HTMLButtonElement>('button.basehalf-sound-waveform-action.trim'));
-		this.trimButton.type = 'button';
-		this.trimButton.textContent = localize('basehalf.mediaEdit.sound.trim', "Trim");
-		this.deleteButton = append(top, $<HTMLButtonElement>('button.basehalf-sound-waveform-action.delete'));
-		this.deleteButton.type = 'button';
-		this.deleteButton.textContent = localize('basehalf.mediaEdit.sound.delete', "Delete");
 		const row = append(this.element, $('.basehalf-video-frames-row'));
 		this.strip = append(row, $('.basehalf-video-frames-strip.basehalf-sound-waveform-strip'));
 		this.canvas = append(this.strip, $<HTMLCanvasElement>('canvas.basehalf-sound-waveform-canvas'));
 		append(this.strip, $('.basehalf-video-frames-shade.before'));
 		append(this.strip, $('.basehalf-video-frames-shade.after'));
+		this.selection = append(this.strip, $('.basehalf-sound-waveform-selection'));
 		append(this.strip, $('.basehalf-video-frames-part'));
 		this.length = append(this.strip, $('.basehalf-video-frames-length'));
 		this.playhead = append(this.strip, $('.basehalf-video-frames-playhead'));
@@ -171,8 +158,15 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			handle.tabIndex = 0;
 			append(handle, chevron(handle === this.startHandle ? 'left' : 'right'));
 		}
-		this.status = append(this.element, $('.basehalf-video-frames-status'));
-		this.status.setAttribute('aria-live', 'polite');
+		// Delete stands on the selected stretch, while there is one.
+		this.deleteButton = append(this.strip, $<HTMLButtonElement>('button.basehalf-sound-waveform-delete'));
+		this.deleteButton.type = 'button';
+		this.deleteButton.textContent = localize('basehalf.mediaEdit.sound.delete', "Delete");
+		const bottom = append(this.element, $('.basehalf-sound-waveform-bottom'));
+		this.playButton = append(bottom, $<HTMLButtonElement>('button.basehalf-sound-waveform-play'));
+		this.playButton.type = 'button';
+		this.time = append(bottom, $('span.basehalf-sound-waveform-time'));
+		this.failureLine = append(bottom, $('span.basehalf-sound-waveform-failure'));
 		this._register(toDisposable(() => {
 			this.disposed = true;
 			this.clearHold();
@@ -185,70 +179,32 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	}
 
 	get choices(): IBaseHalfMediaChoices {
-		return baseHalfPartsAreWhole(this.parts, this.options.info.duration) ? {} : { keep: this.parts };
+		const keep = baseHalfSoundKept(this.parts, this.range, this.options.info.duration);
+		return keep ? { keep } : {};
 	}
 
 	focus(): void {
 		this.playButton.focus({ preventScroll: true });
 	}
 
-	undo(): boolean {
-		return this.step(this.undoStack, this.redoStack);
-	}
-
-	redo(): boolean {
-		return this.step(this.redoStack, this.undoStack);
-	}
-
-	private step(from: IChoice[], to: IChoice[]): boolean {
-		if (this.busy || this.drag || !from.length) {
-			return false;
+	setChoices(choices: IBaseHalfMediaChoices): void {
+		if (JSON.stringify(normalizeBaseHalfMediaChoices(choices)) === JSON.stringify(normalizeBaseHalfMediaChoices(this.choices))) {
+			return;
 		}
-		to.push(this.current());
-		this.restore(from.pop()!);
-		this.onDidChangeEmitter.fire();
-		return true;
-	}
-
-	setBusy(busy: boolean): void {
-		this.busy = busy;
-		if (busy) {
-			this.cancelDrag();
-			this.stop();
-		}
-		this.render();
-	}
-
-	setStatus(status: IBaseHalfMediaEditStatus | undefined): void {
-		this.status.textContent = status?.text ?? this.failure ?? '';
-		this.status.classList.toggle('error', !!status?.error || (!status && !!this.failure));
-	}
-
-	private timeline(parts = this.parts): BaseHalfSoundTimeline {
-		return new BaseHalfSoundTimeline(baseHalfPartsLength(parts), this.options.info.step);
-	}
-
-	private current(): IChoice {
-		return { parts: this.parts, range: this.range };
-	}
-
-	private restore(choice: IChoice): void {
+		const shown = baseHalfSoundShown(choices.keep, this.options.info.duration);
+		this.endDrag();
 		this.stop();
-		this.parts = choice.parts;
-		this.range = choice.range;
+		this.parts = shown.parts;
+		this.range = this.timeline().normalize(shown.range);
+		this.selected = undefined;
 		this.position = Math.min(this.position, this.timeline().duration);
 		this.view = { from: 0, to: this.timeline().duration };
 		this.render();
 		this.drawWaveform();
 	}
 
-	private remember(before: IChoice): void {
-		if (JSON.stringify(before) === JSON.stringify(this.current())) {
-			return;
-		}
-		this.undoStack.push(before);
-		this.redoStack.length = 0;
-		this.onDidChangeEmitter.fire();
+	private timeline(parts = this.parts): BaseHalfSoundTimeline {
+		return new BaseHalfSoundTimeline(baseHalfPartsLength(parts), this.options.info.step);
 	}
 
 	// #region The sound
@@ -272,8 +228,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			this.render();
 		} catch {
 			if (!this.disposed) {
-				this.failure = localize('basehalf.mediaEdit.sound.decodePreview', "This system cannot decode the sound to play it here.");
-				this.setStatus(undefined);
+				this.failureLine.textContent = localize('basehalf.mediaEdit.sound.decodePreview', "This system cannot decode the sound to play it here.");
 			}
 		}
 	}
@@ -365,7 +320,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 	}
 
-	/** The parts of the original that a stretch of the edited sound holds. */
+	/** The parts of the original that a stretch of the parts joined holds. */
 	private partsBetween(from: number, to: number): IBaseHalfMediaPart[] {
 		const out: IBaseHalfMediaPart[] = [];
 		let at = 0;
@@ -385,6 +340,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 
 	// #region Playing
 
+	/** Plays the stretch between the handles, from a time in it; over and over while it is shorter than the whole. */
 	private play(from: number): void {
 		const context = this.context;
 		const buffer = this.buffer;
@@ -397,12 +353,10 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		const loop = !timeline.isWhole(this.range);
 		// Outside the stretch, or at its end, playing starts at its start.
 		let start = from;
-		if (loop && (start < this.range.start - 1e-6 || start >= this.range.end - 0.01)) {
+		if (start < this.range.start - 1e-6 || start >= this.range.end - 0.01) {
 			start = this.range.start;
-		} else if (!loop && start >= timeline.duration - 0.01) {
-			start = 0;
 		}
-		const until = loop ? this.range.end : timeline.duration;
+		const until = this.range.end;
 		const gain = context.createGain();
 		gain.connect(context.destination);
 		const startedAt = context.currentTime + 0.03;
@@ -478,7 +432,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.render();
 	}
 
-	/** The time of the edited sound that plays now, or where the playhead stands. */
+	/** The time of the parts joined that plays now, or where the playhead stands. */
 	private playedTime(): number {
 		const playing = this.playing;
 		if (!playing || !this.context) {
@@ -520,6 +474,51 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 
 	// #endregion
 
+	// #region Changes
+
+	/** A stretch between the handles that differs from the one before is a trim. */
+	private trimmed(before: IBaseHalfSoundRange): void {
+		if (before.start !== this.range.start || before.end !== this.range.end) {
+			this.onDidChangeEmitter.fire('trim');
+		}
+	}
+
+	/** Whether what is left after the selected stretch is cut out is long enough to be a sound. */
+	private canCut(): boolean {
+		return !!this.selected && (this.range.end - this.range.start) - (this.selected.end - this.selected.start) >= BASEHALF_SOUND_MIN_LENGTH - 1e-9;
+	}
+
+	/** Delete: the selected stretch goes, what is on either side of it is joined, and the handles keep what they held of the rest. */
+	private cut(): void {
+		const selected = this.selected;
+		if (!selected || !this.canCut()) {
+			return;
+		}
+		// Delete goes with the stretch: the keyboard that was on it goes to Play.
+		if (this.deleteButton.ownerDocument.activeElement === this.deleteButton) {
+			this.playButton.focus({ preventScroll: true });
+		}
+		this.stop();
+		const length = selected.end - selected.start;
+		this.parts = baseHalfDeleteParts(this.parts, selected.start, selected.end);
+		this.range = this.timeline().normalize({ start: this.range.start, end: this.range.end - length });
+		this.selected = undefined;
+		this.view = { from: 0, to: this.timeline().duration };
+		this.position = Math.min(selected.start, this.range.end);
+		this.render();
+		this.drawWaveform();
+		this.onDidChangeEmitter.fire('cut');
+	}
+
+	private dropSelection(): void {
+		if (this.selected) {
+			this.selected = undefined;
+			this.render();
+		}
+	}
+
+	// #endregion
+
 	// #region The pointer and the keyboard
 
 	private registerListeners(): void {
@@ -532,30 +531,32 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			this._register(addDisposableListener(this.strip, type, event => this.onPointerUp(event, type === 'pointerup')));
 		}
 		this._register(addDisposableListener(getWindow(this.element), 'keydown', event => {
-			if (event.key === 'Escape' && this.drag) {
-				event.preventDefault();
-				event.stopPropagation();
+			// Escape ends a drag and puts back what it changed, or drops the selection; Card Detail stays (editing media, "The keyboard").
+			if (event.key !== 'Escape' || event.isComposing || (!this.drag && !this.selected)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			if (this.drag) {
 				this.cancelDrag();
+			} else {
+				this.dropSelection();
 			}
 		}, true));
 		for (const [handle, which] of [[this.startHandle, 'start'], [this.endHandle, 'end']] as const) {
 			this._register(addDisposableListener(handle, 'keydown', event => this.onHandleKey(event, which)));
 		}
-		this._register(addDisposableListener(this.playButton, 'click', () => {
-			if (!this.busy) {
-				this.togglePlay();
-			}
-		}));
-		this._register(addDisposableListener(this.trimButton, 'click', () => this.trim()));
-		this._register(addDisposableListener(this.deleteButton, 'click', () => this.remove()));
 		this._register(addDisposableListener(this.element, 'keydown', event => {
-			if (event.key === 'Enter' && !event.isComposing && (event.target === this.playButton || event.target === this.startHandle || event.target === this.endHandle)) {
-				// Enter on a control of the editor saves; on Trim and Delete it presses them.
+			if ((event.key === 'Delete' || event.key === 'Backspace') && !event.isComposing && this.selected) {
+				// Delete or Backspace cuts the selected stretch out, as Delete does.
 				event.preventDefault();
 				event.stopPropagation();
-				this.onDidRequestSaveEmitter.fire();
+				this.cut();
 			}
 		}));
+		this._register(addDisposableListener(this.playButton, 'click', () => this.togglePlay()));
+		this._register(addDisposableListener(this.deleteButton, 'pointerdown', event => event.stopPropagation()));
+		this._register(addDisposableListener(this.deleteButton, 'click', () => this.cut()));
 		const ResizeObserverConstructor = getWindow(this.element).ResizeObserver;
 		if (ResizeObserverConstructor) {
 			const observer = new ResizeObserverConstructor(() => {
@@ -565,46 +566,6 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			observer.observe(this.strip);
 			this._register(toDisposable(() => observer.disconnect()));
 		}
-	}
-
-	private trimDisabled(): boolean {
-		return this.busy || this.timeline().isWhole(this.range);
-	}
-
-	private deleteDisabled(): boolean {
-		return this.busy || this.timeline().duration - (this.range.end - this.range.start) < BASEHALF_SOUND_MIN_LENGTH - 1e-9;
-	}
-
-	/** Trim: only the stretch between the handles is kept, and the handles hold all of it. */
-	private trim(): void {
-		if (this.trimDisabled()) {
-			return;
-		}
-		const before = this.current();
-		this.stop();
-		this.parts = baseHalfTrimParts(this.parts, this.range.start, this.range.end);
-		this.afterCut(before, 0);
-	}
-
-	/** Delete: the stretch between the handles goes, and what is on either side of it is joined. */
-	private remove(): void {
-		if (this.deleteDisabled()) {
-			return;
-		}
-		const before = this.current();
-		this.stop();
-		const joint = this.range.start;
-		this.parts = baseHalfDeleteParts(this.parts, this.range.start, this.range.end);
-		this.afterCut(before, joint);
-	}
-
-	private afterCut(before: IChoice, position: number): void {
-		this.range = this.timeline().whole();
-		this.view = { from: 0, to: this.range.end };
-		this.position = Math.min(position, this.range.end);
-		this.render();
-		this.drawWaveform();
-		this.remember(before);
 	}
 
 	private timeAt(clientX: number): number {
@@ -630,9 +591,6 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		if (this.busy) {
-			return;
-		}
 		const time = this.timeAt(event.clientX);
 		const handle = this.handleAt(event);
 		let kind: DragKind;
@@ -642,20 +600,22 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			grab = time - (handle === 'start' ? this.range.start : this.range.end);
 			this.stop();
 			this.scheduleHold();
-		} else if (time > this.range.start && time < this.range.end && !this.timeline().isWhole(this.range)) {
+		} else if (time > this.range.start && time < this.range.end) {
+			// Inside the part a press moves the playhead and a drag selects a stretch.
 			kind = 'press';
-			grab = time - this.range.start;
+			grab = this.timeline().snap(time);
 		} else {
 			kind = 'scrub';
+			this.dropSelection();
 			this.seek(time);
 		}
-		this.drag = { kind, pointerId: event.pointerId, startX: event.clientX, before: this.current(), grab, moved: false, lastX: event.clientX };
+		this.drag = { kind, pointerId: event.pointerId, startX: event.clientX, before: this.range, selected: this.selected, grab, moved: false, lastX: event.clientX };
 		try {
 			this.strip.setPointerCapture(event.pointerId);
 		} catch {
 			// A pointer that is no longer active cannot be captured; the press still counts.
 		}
-		this.element.classList.toggle('dragging', kind !== 'scrub' && kind !== 'press');
+		this.element.classList.toggle('dragging', kind === 'start' || kind === 'end');
 	}
 
 	private onPointerMove(event: PointerEvent): void {
@@ -666,9 +626,8 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		if (!drag.moved && Math.abs(event.clientX - drag.startX) >= DRAG_THRESHOLD) {
 			drag.moved = true;
 			if (drag.kind === 'press') {
-				this.drag = { ...drag, kind: 'move' };
+				this.drag = { ...drag, kind: 'select' };
 				this.stop();
-				this.element.classList.add('dragging');
 			}
 		}
 		const current = this.drag!;
@@ -687,10 +646,13 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 				// The playhead shows the handle's time.
 				this.position = current.kind === 'start' ? this.range.start : this.range.end;
 				break;
-			case 'move':
-				this.range = timeline.moveSelection(current.before.range, time - current.grab - current.before.range.start);
-				this.position = this.range.start;
+			case 'select': {
+				// The stretch runs from where it was pressed to the pointer, inside the part.
+				const at = Math.min(Math.max(timeline.snap(time), this.range.start), this.range.end);
+				this.selected = { start: Math.min(current.grab, at), end: Math.max(current.grab, at) };
+				this.position = this.selected.start;
 				break;
+			}
 			case 'scrub':
 				this.seek(time);
 				break;
@@ -707,17 +669,36 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.clearHold();
 		this.element.classList.remove('dragging');
 		if (drag.kind === 'press' && released) {
+			// A press that did not move drops the selection and moves the playhead there.
+			this.selected = undefined;
 			this.seek(this.timeAt(event.clientX));
+		}
+		if (drag.kind === 'select' && this.selected && this.selected.end - this.selected.start < BASEHALF_SOUND_MIN_LENGTH - 1e-9) {
+			// A stretch is at least 0.1 s.
+			this.selected = undefined;
 		}
 		this.unspread();
 		this.render();
-		this.remember(drag.before);
+		if (drag.kind === 'start' || drag.kind === 'end') {
+			this.trimmed(drag.before);
+		}
 	}
 
+	/** Escape during a drag: what it changed goes back. */
 	private cancelDrag(): void {
+		const drag = this.endDrag();
+		if (drag) {
+			this.range = drag.before;
+			this.selected = drag.selected;
+			this.render();
+		}
+	}
+
+	/** Ends a drag where it is, as when an undo sets other choices. */
+	private endDrag(): IDrag | undefined {
 		const drag = this.drag;
 		if (!drag) {
-			return;
+			return undefined;
 		}
 		this.drag = undefined;
 		this.clearHold();
@@ -727,9 +708,8 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		} catch {
 			// Released already.
 		}
-		this.range = drag.before.range;
 		this.unspread();
-		this.render();
+		return drag;
 	}
 
 	private scheduleHold(): void {
@@ -810,26 +790,18 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 				event.stopPropagation();
 				this.togglePlay();
 				return;
-			case 'Delete':
-			case 'Backspace':
-				// Delete on a handle takes the stretch between the handles away, as Delete does.
-				event.preventDefault();
-				event.stopPropagation();
-				this.remove();
-				return;
 		}
 		if (next) {
+			// The arrow keys move no card; a key that repeats is one step of undo.
 			event.preventDefault();
 			event.stopPropagation();
-			if (this.busy) {
-				return;
-			}
-			const before = this.current();
+			const before = this.range;
 			this.stop();
 			this.range = next;
+			this.selected = undefined;
 			this.position = handle === 'start' ? next.start : next.end;
 			this.render();
-			this.remember(before);
+			this.trimmed(before);
 		}
 	}
 
@@ -861,7 +833,6 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.startHandle.classList.toggle('outside', start < 0);
 		this.endHandle.classList.toggle('outside', end > 1);
 		this.element.classList.toggle('whole', timeline.isWhole(this.range));
-		this.element.classList.toggle('busy', this.busy);
 		this.length.textContent = formatBaseHalfVideoTrimLength(this.range.end - this.range.start);
 		const partWidth = (clamp(end) - clamp(start)) * this.strip.clientWidth;
 		this.length.classList.toggle('outside', partWidth < this.length.offsetWidth + 8);
@@ -869,16 +840,23 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 			handle.setAttribute('aria-valuemax', String(Math.round(duration * 100) / 100));
 			handle.setAttribute('aria-valuenow', String(Math.round(time * 100) / 100));
 			handle.setAttribute('aria-valuetext', localize('basehalf.mediaEdit.sound.handleValue', "{0} of {1}", formatBaseHalfVideoTrimLength(time), formatBaseHalfVideoTrimLength(duration)));
-			handle.setAttribute('aria-disabled', String(this.busy));
+		}
+		const selected = this.selected;
+		this.element.classList.toggle('selecting', !!selected);
+		this.selection.hidden = !selected;
+		this.deleteButton.hidden = !selected || !this.canCut() || !!this.drag;
+		if (selected) {
+			const from = clamp(this.fractionOf(selected.start));
+			const to = clamp(this.fractionOf(selected.end));
+			this.selection.style.left = `${(from * 100).toFixed(4)}%`;
+			this.selection.style.width = `${((to - from) * 100).toFixed(4)}%`;
+			this.deleteButton.style.left = `${((from + to) / 2 * 100).toFixed(4)}%`;
+			this.deleteButton.setAttribute('aria-label', localize('basehalf.mediaEdit.sound.deleteLabel', "Delete {0}", formatBaseHalfVideoTrimLength(selected.end - selected.start)));
 		}
 		const playing = !!this.playing;
 		this.playButton.classList.toggle('playing', playing);
 		this.playButton.setAttribute('aria-label', playing ? localize('basehalf.mediaEdit.sound.pause', "Pause") : localize('basehalf.mediaEdit.sound.play', "Play"));
-		this.playButton.setAttribute('aria-disabled', String(this.busy || !this.buffer));
-		for (const [button, disabled] of [[this.trimButton, this.trimDisabled()], [this.deleteButton, this.deleteDisabled()]] as const) {
-			button.classList.toggle('disabled', disabled);
-			button.setAttribute('aria-disabled', String(disabled));
-		}
+		this.playButton.setAttribute('aria-disabled', String(!this.buffer));
 		this.updatePlayhead();
 	}
 

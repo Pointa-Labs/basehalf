@@ -193,7 +193,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-document-cover-hides-and-shows', () => assertDocumentCoverHidesAndShows(page));
 }
 
-/** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the edit mode of a video, an image, and a sound; back and forward from it. */
+/** Card Detail and its projections: the rich Markdown editor, source, media, PDF, and books; the editors of a video, an image, and a sound; back and forward from it. */
 async function runCardDetailSuite(page) {
 	await startOnFreshCanvas(page);
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));

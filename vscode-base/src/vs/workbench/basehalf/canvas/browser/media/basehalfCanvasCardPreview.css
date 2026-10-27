@@ -81,6 +81,16 @@
 	user-select: none;
 }
 
+/* The picture the card showed before its file was written anew, over the new one until that can be drawn. */
+.monaco-workbench .basehalf-canvas-card-picture-cover {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	pointer-events: none;
+}
+
 /* The card has the image's shape: the whole image is drawn, and a picture longer than the card can be is fitted inside it (canvas card placement). */
 .monaco-workbench .basehalf-canvas-card-preview.media-image .basehalf-canvas-card-media-visual {
 	object-fit: contain;

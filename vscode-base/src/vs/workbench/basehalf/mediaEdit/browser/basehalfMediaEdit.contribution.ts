@@ -18,8 +18,36 @@ import { IWorkingCopyFileService, SourceTargetPair } from '../../../services/wor
 import { copyBaseHalfMediaEdits } from './basehalfMediaEditCopy.js';
 import { BaseHalfMediaEditService, IBaseHalfMediaEditService } from './basehalfMediaEditService.js';
 
-// Editing media: the service that saves the edits of Card Detail's edit mode, saves them as new files, and reverts them.
+// Editing media: the service that takes each change of an editor in Card Detail as a step of the canvas undo, and writes the file after it.
 registerSingleton(IBaseHalfMediaEditService, BaseHalfMediaEditService, InstantiationType.Delayed);
+
+/**
+ * A file moved, copied, or deleted through the workbench right after a
+ * change of its edit holds the change first (editing media, "Changes save
+ * themselves"): the write that waits for the choices to rest runs before the
+ * operation, which then moves, copies, or deletes the file as it was edited.
+ */
+export class BaseHalfMediaEditFlushContribution extends Disposable implements IWorkbenchContribution {
+
+	static readonly ID = 'workbench.contrib.basehalf.mediaEditFlush';
+
+	constructor(
+		@IWorkingCopyFileService workingCopyFileService: IWorkingCopyFileService,
+		@IBaseHalfMediaEditService mediaEditService: IBaseHalfMediaEditService
+	) {
+		super();
+		this._register(workingCopyFileService.addFileOperationParticipant({
+			participate: async (files, operation) => {
+				if (operation === FileOperation.MOVE || operation === FileOperation.COPY || operation === FileOperation.DELETE) {
+					// A delete names what it deletes as its target.
+					await mediaEditService.flushBelow(files.map(file => file.source ?? file.target));
+				}
+			}
+		}));
+	}
+}
+
+registerWorkbenchContribution2(BaseHalfMediaEditFlushContribution.ID, BaseHalfMediaEditFlushContribution, WorkbenchPhase.AfterRestored);
 
 /**
  * A copy of an edited file through the workbench, in Files, on the canvas, or

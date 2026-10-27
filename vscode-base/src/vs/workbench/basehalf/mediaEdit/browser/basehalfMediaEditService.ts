@@ -7,26 +7,21 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ResourceMap } from '../../../../base/common/map.js';
-import { basename, dirname, joinPath } from '../../../../base/common/resources.js';
+import { basename, dirname, isEqualOrParent, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/common/basehalfFileClones.js';
+import { IBaseHalfFileTimesService } from '../../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { FileOperation, FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { findValidPasteFileTargetForResource, incrementFileName } from '../../../contrib/files/browser/fileActions.js';
-import { IFilesConfiguration } from '../../../contrib/files/common/files.js';
-import { IBaseHalfCanvasMirrorService } from '../../canvas/common/basehalfCanvasMirror.js';
-import { baseHalfCanvasDefaultCardSize, baseHalfCanvasGenerationCardSize, IBaseHalfCanvasSize } from '../../canvas/common/basehalfCanvasModel.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
+import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
+import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../canvas/common/basehalfCanvasEditing.js';
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
-import { IBaseHalfReferenceEditService } from '../../references/common/basehalfReferenceEdit.js';
-import { baseHalfParentCanvasFolder, placeBaseHalfCardsBeside } from '../../video/browser/basehalfGenerationPlacement.js';
-import { baseHalfPathHoldsDraft } from '../../video/common/basehalfGenerationDraft.js';
-import { IBaseHalfFileReplacement, IBaseHalfKeptVersionsService } from '../../workspace/browser/basehalfKeptVersions.js';
 import { readBaseHalfFileRange } from '../../workspace/common/basehalfFileRange.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../workspace/common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../../workspace/common/basehalfMirrorIgnore.js';
@@ -57,18 +52,17 @@ import { BaseHalfVideoTrimTimeline } from '../common/basehalfVideoTrimSelection.
 import { readBaseHalfWebmFile } from '../common/basehalfWebmReader.js';
 import { BASEHALF_IMAGE_MAX_PIXELS, BASEHALF_IMAGE_MAX_SIDE, BaseHalfImageCropError, encodeBaseHalfImageCrop } from './basehalfImageCropEncoder.js';
 import { BASEHALF_SOUND_MAX_SECONDS, BaseHalfSoundEditError, encodeBaseHalfSoundParts, IBaseHalfSoundInfo, readBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
-import { encodeBaseHalfVideoClip } from './basehalfVideoClipEncoder.js';
+import { BaseHalfVideoClipError, encodeBaseHalfVideoClip } from './basehalfVideoClipEncoder.js';
 
 /**
- * Saves the edits of Card Detail's edit mode (editing media, "The edit
- * model"): reads what Edit starts from, the original of an edited file or the
- * file itself; encodes the edit of it in memory, writes it into the
- * workspace's cache folder, and puts it in the file's place with the edit
- * record, the file as it was becoming the original at its first edit; saves
- * an edit as a new file beside the file instead; and puts the original back.
- * Each is one step of the canvas undo (exact undo, "Changing files in
- * place"). A save goes on when Card Detail closes; its end is a notification
- * when no Card Detail shows the file.
+ * Edits media as the user changes it in Card Detail (editing media, "Changes
+ * save themselves"): reads what an editor starts from, the original of an
+ * edited file or the file itself; takes each change as one step of the canvas
+ * undo, whose undo and redo put back choices; and writes the file after the
+ * choices once they rest, one write of a file at a time, the file as it was
+ * becoming the original at its first change. What it wrote for the last
+ * choices of a file stays in the cache until the window closes, so that undo
+ * and redo put back the very bytes.
  */
 
 export const IBaseHalfMediaEditService = createDecorator<IBaseHalfMediaEditService>('baseHalfMediaEditService');
@@ -86,12 +80,12 @@ export interface IBaseHalfEditImage {
 	readonly height: number;
 }
 
-/** What Edit starts from. */
+/** What an editor starts from. */
 export interface IBaseHalfMediaEditState {
 	readonly kind: BaseHalfMediaKind;
-	/** The version of the file when it was read: a save refuses a file that changed since. */
+	/** The version of the file when it was read: a write refuses a file that changed since. */
 	readonly version: string;
-	/** What the editor shows and a save encodes from: the original of an edited file, or the file. */
+	/** What a write encodes from: the original of an edited file, or the file. */
 	readonly source: URI;
 	/** The edit of an edited file, whose original is there and which the file is still the result of. */
 	readonly record?: IBaseHalfEditRecord;
@@ -101,52 +95,65 @@ export interface IBaseHalfMediaEditState {
 	readonly image?: IBaseHalfEditImage;
 	/** The sound of `source`, read. */
 	readonly sound?: IBaseHalfSoundInfo;
-	/** Why the file cannot be edited, in the words of Edit's hover. */
+	/** Why the file cannot be edited. */
 	readonly unavailable?: string;
 }
 
-export type BaseHalfMediaSaveKind = 'edit' | 'new' | 'revert';
-
-export interface IBaseHalfMediaSaveProgress {
-	readonly file: URI;
-	readonly kind: BaseHalfMediaSaveKind;
-	/** From 0 to 1. */
-	readonly done: number;
+/** A copy of what an editor shows, which no write changes. */
+export interface IBaseHalfMediaSourceCopy extends IDisposable {
+	readonly resource: URI;
 }
 
-export interface IBaseHalfMediaSaved {
-	readonly kind: BaseHalfMediaSaveKind;
-	/** The file the step wrote: the file, or the new file of Save as New. */
-	readonly resource: URI;
-	/** The version of the edited file after the step, which Save as New leaves as it was. */
-	readonly version: string;
-	/** The video's sound could not be decoded or encoded: what was saved has none. */
-	readonly soundDropped: boolean;
+/** Where the writing of a file stands, as the line under its editor says it. */
+export interface IBaseHalfMediaWriting {
+	readonly state: 'writing' | 'failed';
+	/** The share of a write done, from 0 to 1. */
+	readonly done?: number;
+	/** Why the last write failed. */
+	readonly failure?: string;
 }
 
 export interface IBaseHalfMediaEditService {
 	readonly _serviceBrand: undefined;
-	/** A save of a file started, moved on, or ended. */
-	readonly onDidChangeSave: Event<URI>;
-	/** What Edit starts from for the file; never rejects. */
+	/** The choices of a file changed: by a change, an undo, a redo, or Revert to Original, or because they were dropped. */
+	readonly onDidChangeChoices: Event<URI>;
+	/** The writing of a file started, moved on, ended, or failed. */
+	readonly onDidChangeWriting: Event<URI>;
+	/** A write found the file changed outside BaseHalf, and dropped what was not written yet: Card Detail shows the file anew. */
+	readonly onDidDropChoices: Event<URI>;
+	/** What an editor of the file starts from, as the writes of this window leave it; never rejects. */
 	readEditState(file: IBaseHalfWorkspaceResource): Promise<IBaseHalfMediaEditState>;
 	/** Reads a video as an edit reads it; rejects with a `BaseHalfVideoFileError`. */
 	readVideo(resource: URI): Promise<IBaseHalfEditVideo>;
-	/** The save of the file that runs. */
-	runningSave(file: URI): IBaseHalfMediaSaveProgress | undefined;
-	/** Done: writes the edit of the source into the file, with its record, in one step of the canvas undo. */
-	save(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices): Promise<IBaseHalfMediaSaved>;
-	/** Save as New: writes the edit of the source into a new file beside the file, its card connected from the file's. */
-	saveAsNew(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices): Promise<IBaseHalfMediaSaved>;
-	/** Revert: puts the original back in the file's place, and removes it and the record. */
-	revert(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): Promise<IBaseHalfMediaSaved>;
-	/** The step that made this version of the file, while the window is open. */
-	lastSave(file: URI, version: string): IBaseHalfMediaSaved | undefined;
-	/** Card Detail shows the file: the end of its save is shown there, not in a notification. */
+	/**
+	 * A copy of the source of a state in the cache folder, for its editor to
+	 * read until it closes: a write replaces the file, and Revert to Original
+	 * removes the original. Rejects when the file changed since the state.
+	 */
+	copySource(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): Promise<IBaseHalfMediaSourceCopy>;
+	/** The choices that an editor of the file shows: those of this window's last change of it, or of its record. */
+	choicesOf(file: URI, state: IBaseHalfMediaEditState): IBaseHalfMediaChoices;
+	/** A change in an editor: one step of the canvas undo, named `label`, that the file follows once the choices rest. */
+	change(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, label: string): void;
+	/** Revert to Original: one step that puts the original back in the file's place. */
+	revertToOriginal(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): void;
+	/** Where the writing of the file stands; nothing while no write runs or failed. */
+	writing(file: URI): IBaseHalfMediaWriting | undefined;
+	/** Whether the last write of the file left the sound out, as where the window has no encoder for it. */
+	soundDropped(file: URI): boolean;
+	/** Writes what waits for its rest now, and resolves when the file holds its choices or its write failed. */
+	flush(file?: URI): Promise<void>;
+	/** Flushes the files at or under these resources, as before they are moved, copied, or deleted. */
+	flushBelow(resources: readonly URI[]): Promise<void>;
+	/** Writes again after a failure. */
+	retry(file: URI): void;
+	/** Whether this version of the file is one this window wrote, or a write of it runs: Card Detail does not show it anew. */
+	wrote(file: URI, version: string): boolean;
+	/** Card Detail shows the file: a failure of its write is said there, not in a notification. */
 	showFile(file: URI): IDisposable;
 }
 
-/** Why a save ends with the file as it was, in the words of the status line. */
+/** Why a write leaves the file as it was, in the words of the line under the editor. */
 export class BaseHalfMediaEditError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -154,14 +161,25 @@ export class BaseHalfMediaEditError extends Error {
 	}
 }
 
-/** How many files the window keeps the last step for. */
-const MAX_KEPT_FILES = 100;
+/** The file changed outside BaseHalf since the choices were made: they are dropped. */
+class BaseHalfMediaChangedMeanwhile extends Error { }
+
+/** How long the choices of a file rest before the file is written. */
+const REST_MS = 1_000;
+/** Changes of the same name to one file within this time are one step of undo. */
+const MERGE_MS = 600;
+/** How many writes of each file stay in the cache for undo and redo. */
+const KEPT_WRITES = 8;
 /** The first bytes of an image, which hold its size and its information in nearly every file. */
 const IMAGE_HEADER_BYTES = 256 * 1024;
 /** The largest sound file an edit reads: it is read whole. */
 const SOUND_MAX_BYTES = 256 * 1024 * 1024;
-/** A file in the cache folder of edits this old was left by a save that a closed window stopped. */
+/** A file in the cache folder of edits made this long ago is of a write that a closed window stopped, or kept by a window that is gone. */
 const LEFTOVER_AGE_MS = 60 * 60 * 1000;
+/** The copies that editors read, in the cache folder of edits. */
+const COPIES_FOLDER = 'shown';
+/** A copy that an editor reads made this long ago is of a window that is gone. */
+const COPY_LEFTOVER_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** The bytes of a file, read a part at a time from the disk. */
 export function baseHalfMediaFileByteSource(fileService: IFileService, resource: URI, size: number): IBaseHalfVideoByteSource {
@@ -177,7 +195,7 @@ export function baseHalfMediaFileByteSource(fileService: IFileService, resource:
 	};
 }
 
-/** The version of a file that the state of an edit and a step's status belong to. */
+/** The version of a file that the state of an edit belongs to. */
 export function baseHalfMediaVersion(stat: { readonly mtime?: number; readonly size?: number }): string {
 	return `${stat.mtime ?? 0}-${stat.size ?? 0}`;
 }
@@ -194,42 +212,100 @@ export async function baseHalfEditResultOf(bytes: Uint8Array): Promise<IBaseHalf
 	return { size: fingerprint.size, hash: fingerprint.hash };
 }
 
-interface IRenderedEdit {
-	readonly bytes: Uint8Array;
+/** What was written, or is to be written, for a set of choices, kept in the cache folder. */
+interface IWritten {
+	readonly resource: URI;
+	readonly result: IBaseHalfEditResult;
 	readonly soundDropped: boolean;
-	/** The size the card of a new file of it is drawn at. */
-	readonly cardSize: IBaseHalfCanvasSize;
+}
+
+/** The edit of a file that this window changed, and the writes that follow it. */
+interface IEditEntry {
+	readonly file: IBaseHalfWorkspaceResource;
+	/** What the edit is made from, as the last write left it. */
+	state: IBaseHalfMediaEditState;
+	/** The choices that the file holds. */
+	written: IBaseHalfMediaChoices;
+	/** The choices that the editor shows: the file follows them. */
+	desired: IBaseHalfMediaChoices;
+	/** The version of the file as this window last wrote or read it. */
+	version: string;
+	/** The versions of the file that this window read or wrote. */
+	readonly versions: Set<string>;
+	/** The file changed outside BaseHalf: the edit is over, and its steps change nothing. */
+	stale: boolean;
+	timer?: ReturnType<typeof setTimeout>;
+	/** The writes that run, until the file holds the choices; those of an edit before go first. */
+	running?: Promise<void>;
+	done?: number;
+	failure?: string;
+	soundDropped: boolean;
+	/** What was written for the last choices, by the choices, the latest last. */
+	readonly writes: Map<string, IWritten>;
+	/** The last step of undo, which a change of the same name within a moment joins. */
+	last?: { readonly step: BaseHalfMediaEditStep; readonly at: number };
 }
 
 export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMediaEditService {
 	declare readonly _serviceBrand: undefined;
 
-	private readonly onDidChangeSaveEmitter = this._register(new Emitter<URI>());
-	readonly onDidChangeSave = this.onDidChangeSaveEmitter.event;
+	private readonly onDidChangeChoicesEmitter = this._register(new Emitter<URI>());
+	readonly onDidChangeChoices = this.onDidChangeChoicesEmitter.event;
+	private readonly onDidChangeWritingEmitter = this._register(new Emitter<URI>());
+	readonly onDidChangeWriting = this.onDidChangeWritingEmitter.event;
+	private readonly onDidDropChoicesEmitter = this._register(new Emitter<URI>());
+	readonly onDidDropChoices = this.onDidDropChoicesEmitter.event;
 
-	private readonly saves = new ResourceMap<IBaseHalfMediaSaveProgress>();
-	private readonly saved = new ResourceMap<IBaseHalfMediaSaved>();
+	private readonly entries = new ResourceMap<IEditEntry>();
 	private readonly shown = new ResourceMap<number>();
+	private readonly copies = new Set<string>();
+	/** How long choices rest, and within what time changes of one name are one step: the tests shorten them. */
+	private timings = { rest: REST_MS, merge: MERGE_MS };
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
-		@IBaseHalfKeptVersionsService private readonly keptVersionsService: IBaseHalfKeptVersionsService,
 		@IBaseHalfFileClonesService private readonly fileClonesService: IBaseHalfFileClonesService,
-		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
-		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
+		@IBaseHalfFileTimesService private readonly fileTimesService: IBaseHalfFileTimesService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
+		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IDialogService private readonly dialogService: IDialogService,
 		@INotificationService private readonly notificationService: INotificationService,
+		@ILifecycleService lifecycleService: ILifecycleService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
+		// A window that closes or reloads waits for its writes; what it kept for undo goes with it.
+		this._register(lifecycleService.onWillShutdown(event => event.join(this.flush().then(() => this.clearCache()), {
+			id: 'basehalf.mediaEdit',
+			label: localize('basehalf.mediaEdit.shutdown', "Saving edits")
+		})));
+	}
+
+	/** For tests: how long choices rest before a write, and the time within which changes of one name are one step. */
+	setTimingsForTest(timings: { readonly rest: number; readonly merge: number }): void {
+		this.timings = timings;
 	}
 
 	// #region Reading
 
 	async readEditState(file: IBaseHalfWorkspaceResource): Promise<IBaseHalfMediaEditState> {
+		const entry = this.entries.get(file.resource);
+		if (entry) {
+			// While this window's writes are what the file holds, an editor starts where they leave it.
+			if (entry.running) {
+				return entry.state;
+			}
+			const stat = await this.fileService.stat(file.resource).catch(() => undefined);
+			if (stat && !entry.stale && (entry.running || baseHalfMediaVersion(stat) === entry.version)) {
+				// A write may have started meanwhile.
+				return entry.state;
+			}
+		}
+		return this.readFromDisk(file);
+	}
+
+	private async readFromDisk(file: IBaseHalfWorkspaceResource): Promise<IBaseHalfMediaEditState> {
 		const kind = baseHalfMediaEditKind(file.resource);
 		const stat = await this.fileService.stat(file.resource).catch(() => undefined);
 		const version = stat ? baseHalfMediaVersion(stat) : '';
@@ -253,7 +329,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** The sound that Edit shows, or why it cannot. */
+	/** The sound that the editor shows, or why it cannot. */
 	private async soundState(source: URI): Promise<Pick<IBaseHalfMediaEditState, 'sound' | 'unavailable'>> {
 		const refusal = (reason: string) => ({ unavailable: localize('basehalf.mediaEdit.unavailable.sound', "BaseHalf can't edit this sound: {0}", reason) });
 		try {
@@ -274,7 +350,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** The image that Edit shows, or why it cannot. */
+	/** The image that the editor shows, or why it cannot. */
 	private async imageState(source: URI): Promise<Pick<IBaseHalfMediaEditState, 'image' | 'unavailable'>> {
 		const refusal = (reason: string) => ({ unavailable: localize('basehalf.mediaEdit.unavailable.image', "BaseHalf can't edit this image: {0}", reason) });
 		let info: IBaseHalfImageInfo | undefined;
@@ -296,7 +372,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		return { image: { info, width, height } };
 	}
 
-	/** The video that Edit shows, or why it cannot. */
+	/** The video that the editor shows, or why it cannot. */
 	private async videoState(source: URI): Promise<Pick<IBaseHalfMediaEditState, 'video' | 'unavailable'>> {
 		const refusal = (reason: string) => ({ unavailable: localize('basehalf.mediaEdit.unavailable.video', "BaseHalf can't edit this video: {0}", reason) });
 		try {
@@ -378,17 +454,196 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		return fingerprint?.hash === record.result.hash ? record : undefined;
 	}
 
-	// #endregion
-
-	// #region Saving
-
-	runningSave(file: URI): IBaseHalfMediaSaveProgress | undefined {
-		return this.saves.get(file);
+	async copySource(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): Promise<IBaseHalfMediaSourceCopy> {
+		const folder = joinPath(await this.cacheFolder(file), COPIES_FOLDER);
+		await this.fileService.createFolder(folder);
+		const resource = joinPath(folder, `${generateUuid()}.${baseHalfMediaEditExtension(file.resource)}`);
+		// Under the lease of writes, from where the source is then: the same bytes, wherever a write moved them.
+		await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, async () => {
+			const entry = this.entryOf(file.resource, state);
+			const stat = await this.fileService.stat(file.resource).catch(() => undefined);
+			if (!stat || baseHalfMediaVersion(stat) !== (entry?.version ?? state.version)) {
+				throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.copy.changed', "the file changed meanwhile."));
+			}
+			await this.fileClonesService.clone(entry?.state.source ?? state.source, resource);
+		});
+		this.copies.add(resource.toString());
+		let disposed = false;
+		return {
+			resource,
+			dispose: () => {
+				if (!disposed) {
+					disposed = true;
+					this.copies.delete(resource.toString());
+					void this.fileService.del(resource).catch(() => undefined);
+				}
+			}
+		};
 	}
 
-	lastSave(file: URI, version: string): IBaseHalfMediaSaved | undefined {
-		const saved = this.saved.get(file);
-		return saved?.version === version ? saved : undefined;
+	// #endregion
+
+	// #region Changes and their steps
+
+	/** The edit of a file that this window changed, while the state is of a version of the file that it read or wrote. */
+	private entryOf(file: URI, state: IBaseHalfMediaEditState): IEditEntry | undefined {
+		const entry = this.entries.get(file);
+		return entry && !entry.stale && entry.versions.has(state.version) ? entry : undefined;
+	}
+
+	choicesOf(file: URI, state: IBaseHalfMediaEditState): IBaseHalfMediaChoices {
+		return this.entryOf(file, state)?.desired ?? (state.record ? normalizeBaseHalfMediaChoices(state.record) : {});
+	}
+
+	change(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, label: string): void {
+		if (state.unavailable) {
+			return;
+		}
+		const entry = this.entryFor(file, state);
+		const next = normalizeBaseHalfMediaChoices(choices);
+		if (sameChoices(next, entry.desired)) {
+			return;
+		}
+		const now = Date.now();
+		const last = entry.last;
+		if (last && last.step.label === label && last.step.isDone && now - last.at < this.timings.merge) {
+			// A key that repeats, or a tool used again at once, is one step.
+			last.step.after = next;
+			entry.last = { step: last.step, at: now };
+		} else {
+			const step = new BaseHalfMediaEditStep(label, entry, entry.desired, next, this);
+			this.undoRedoService.pushElement(step, UndoRedoGroup.None, BASEHALF_CANVAS_UNDO_REDO_SOURCE);
+			entry.last = { step, at: now };
+		}
+		this.setDesired(entry, next);
+	}
+
+	revertToOriginal(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): void {
+		this.change(file, state, {}, localize('basehalf.mediaEdit.step.revert', "Revert {0} to Original", basename(file.resource)));
+	}
+
+	/** The undo or the redo of a step: the choices it puts back, or why it cannot, which it says. */
+	async applyStep(entry: IEditEntry, choices: IBaseHalfMediaChoices): Promise<boolean> {
+		const name = basename(entry.file.resource);
+		const stat = await this.fileService.stat(entry.file.resource).catch(() => undefined);
+		if (!stat) {
+			this.notificationService.info(localize('basehalf.mediaEdit.step.gone', "'{0}' is not there any more.", name));
+			return false;
+		}
+		if (entry.stale || this.entries.get(entry.file.resource) !== entry || (!entry.running && baseHalfMediaVersion(stat) !== entry.version)) {
+			this.notificationService.info(localize('basehalf.mediaEdit.step.changed', "'{0}' changed meanwhile. Undo did not change it.", name));
+			return false;
+		}
+		entry.last = undefined;
+		this.setDesired(entry, choices);
+		return true;
+	}
+
+	/** The edit of a file that this window changes: a new one when the file changed outside BaseHalf since. */
+	private entryFor(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): IEditEntry {
+		const known = this.entries.get(file.resource);
+		if (known && !known.stale && known.versions.has(state.version)) {
+			return known;
+		}
+		const before = known?.running;
+		if (known) {
+			// What this window did not write of the file before is dropped, and its steps change nothing.
+			this.endEntry(known, false);
+		}
+		const written = state.record ? normalizeBaseHalfMediaChoices(state.record) : {};
+		const entry: IEditEntry = {
+			file, state, written, desired: written, version: state.version, versions: new Set([state.version]),
+			stale: false, soundDropped: false, writes: new Map()
+		};
+		if (before) {
+			// A file is written once at a time: a write of the edit before that runs goes first.
+			entry.running = before.then(() => {
+				if (entry.running) {
+					entry.running = undefined;
+					this.schedule(entry, 0);
+				}
+			});
+		}
+		this.entries.set(file.resource, entry);
+		return entry;
+	}
+
+	private setDesired(entry: IEditEntry, choices: IBaseHalfMediaChoices): void {
+		entry.desired = normalizeBaseHalfMediaChoices(choices);
+		entry.failure = undefined;
+		this.onDidChangeChoicesEmitter.fire(entry.file.resource);
+		this.schedule(entry, this.timings.rest);
+	}
+
+	/** The file changed outside BaseHalf: what this window did not write of it is dropped, which a write that finds it tells. */
+	private endEntry(entry: IEditEntry, tell: boolean): void {
+		entry.stale = true;
+		clearTimeout(entry.timer);
+		entry.timer = undefined;
+		if (this.entries.get(entry.file.resource) === entry) {
+			this.entries.delete(entry.file.resource);
+		}
+		// What was written for it goes once no write of it runs: one that runs may read it.
+		const writes = [...entry.writes.values()];
+		entry.writes.clear();
+		void Promise.resolve(entry.running).then(() => Promise.all(writes.map(written => this.fileService.del(written.resource).catch(() => undefined))));
+		this.onDidChangeWritingEmitter.fire(entry.file.resource);
+		if (tell) {
+			this.onDidDropChoicesEmitter.fire(entry.file.resource);
+		}
+	}
+
+	// #endregion
+
+	// #region Writing
+
+	writing(file: URI): IBaseHalfMediaWriting | undefined {
+		const entry = this.entries.get(file);
+		if (entry?.failure) {
+			return { state: 'failed', failure: entry.failure };
+		}
+		return entry?.done !== undefined ? { state: 'writing', done: entry.done } : undefined;
+	}
+
+	soundDropped(file: URI): boolean {
+		return !!this.entries.get(file)?.soundDropped;
+	}
+
+	wrote(file: URI, version: string): boolean {
+		const entry = this.entries.get(file);
+		return !!entry && !entry.stale && (!!entry.running || entry.versions.has(version));
+	}
+
+	retry(file: URI): void {
+		const entry = this.entries.get(file);
+		if (entry?.failure) {
+			entry.failure = undefined;
+			this.schedule(entry, 0);
+		}
+	}
+
+	async flush(file?: URI): Promise<void> {
+		const entries = file ? [this.entries.get(file)].filter((entry): entry is IEditEntry => !!entry) : [...this.entries.values()];
+		await Promise.all(entries.map(async entry => {
+			// A write of the edit before goes first, and the writes of this one after it.
+			for (; ;) {
+				if (entry.timer !== undefined) {
+					clearTimeout(entry.timer);
+					entry.timer = undefined;
+					this.start(entry);
+				}
+				if (!entry.running) {
+					return;
+				}
+				await entry.running;
+			}
+		}));
+	}
+
+	async flushBelow(resources: readonly URI[]): Promise<void> {
+		await Promise.all([...this.entries.keys()]
+			.filter(file => resources.some(resource => isEqualOrParent(file, resource)))
+			.map(file => this.flush(file)));
 	}
 
 	showFile(file: URI): IDisposable {
@@ -403,233 +658,284 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		});
 	}
 
-	save(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices): Promise<IBaseHalfMediaSaved> {
-		if (baseHalfMediaChoicesAreNoEdit(normalizeBaseHalfMediaChoices(choices))) {
-			// Choices that leave the original as it was are no edit: an edited file is reverted.
-			return state.record
-				? this.revert(file, state)
-				: Promise.resolve({ kind: 'edit', resource: file.resource, version: state.version, soundDropped: false });
+	/** Writes the file after the choices once they rested this long, unless writes run: they go on with them. */
+	private schedule(entry: IEditEntry, delay: number): void {
+		clearTimeout(entry.timer);
+		entry.timer = undefined;
+		if (!entry.running && !entry.stale && !entry.failure && !sameChoices(entry.desired, entry.written)) {
+			entry.timer = setTimeout(() => {
+				entry.timer = undefined;
+				this.start(entry);
+			}, delay);
 		}
-		return this.run(file, 'edit', () => this.doSave(file, state, choices));
+		this.onDidChangeWritingEmitter.fire(entry.file.resource);
 	}
 
-	saveAsNew(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices): Promise<IBaseHalfMediaSaved> {
-		if (baseHalfMediaChoicesAreNoEdit(normalizeBaseHalfMediaChoices(choices))) {
-			return Promise.reject(new BaseHalfMediaEditError(localize('basehalf.mediaEdit.saveAsNew.noEdit', "make an edit first.")));
+	/** Writes the file until it holds the choices the editor shows; a change during a write is written after it. */
+	private start(entry: IEditEntry): void {
+		if (entry.running || entry.stale) {
+			return;
 		}
-		return this.run(file, 'new', () => this.doSaveAsNew(file, state, choices));
+		let running: Promise<void> | undefined = undefined;
+		running = (async () => {
+			// The writes begin once they are the entry's: the end below then knows them.
+			await Promise.resolve();
+			try {
+				while (!entry.stale && !entry.failure && !sameChoices(entry.desired, entry.written)) {
+					const target = entry.desired;
+					try {
+						await this.writeOnce(entry, target);
+					} catch (error) {
+						if (error instanceof BaseHalfMediaChangedMeanwhile) {
+							this.logService.info(`[BaseHalf] ${entry.file.relativePath} changed outside BaseHalf; its edit that was not written yet is dropped`);
+							this.endEntry(entry, true);
+						} else {
+							this.fail(entry, error);
+						}
+					}
+				}
+			} finally {
+				entry.done = undefined;
+				if (entry.running === running) {
+					entry.running = undefined;
+				}
+				this.onDidChangeWritingEmitter.fire(entry.file.resource);
+			}
+		})();
+		entry.running = running;
+		this.onDidChangeWritingEmitter.fire(entry.file.resource);
 	}
 
-	revert(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): Promise<IBaseHalfMediaSaved> {
-		if (!state.record) {
-			return Promise.reject(new BaseHalfMediaEditError(localize('basehalf.mediaEdit.revert.notEdited', "the file has no original to go back to.")));
+	private fail(entry: IEditEntry, error: unknown): void {
+		if (entry.stale) {
+			// The file changed outside BaseHalf: what this write did is dropped, not a failure to tell.
+			return;
 		}
-		return this.run(file, 'revert', () => this.doRevert(file, state));
+		const message = error instanceof Error ? error.message : String(error);
+		if (!(error instanceof BaseHalfMediaEditError)) {
+			this.logService.warn(`[BaseHalf] could not save the edit of ${entry.file.relativePath}`, error);
+		}
+		entry.failure = message;
+		if (!this.shown.has(entry.file.resource)) {
+			this.notificationService.prompt(Severity.Error, localize('basehalf.mediaEdit.save.failedNotification', "BaseHalf could not save the edit of {0}: {1}", basename(entry.file.resource), message), [{
+				label: localize('basehalf.mediaEdit.save.tryAgain', "Try Again"),
+				run: () => this.retry(entry.file.resource)
+			}]);
+		}
 	}
 
-	/** Runs one save of a file at a time, with its progress, and its end as a notification when Card Detail does not show the file. */
-	private async run(file: IBaseHalfWorkspaceResource, kind: BaseHalfMediaSaveKind, task: () => Promise<IBaseHalfMediaSaved>): Promise<IBaseHalfMediaSaved> {
-		if (this.saves.has(file.resource)) {
-			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.running', "the file is being saved."));
+	private progress(entry: IEditEntry, done: number): void {
+		entry.done = done;
+		this.onDidChangeWritingEmitter.fire(entry.file.resource);
+	}
+
+	/**
+	 * One write of the file after `target`: the original's own bytes for
+	 * choices that are no edit, or the edit of the original, from what was
+	 * written for these choices when the cache keeps it. The first change
+	 * keeps the file as it is as the original. A write that fails leaves the
+	 * file, its original, and its record as they were.
+	 */
+	private async writeOnce(entry: IEditEntry, target: IBaseHalfMediaChoices): Promise<void> {
+		const { file } = entry;
+		const noEdit = baseHalfMediaChoicesAreNoEdit(target);
+		if (noEdit && !entry.state.record) {
+			// The file is its original already.
+			entry.written = target;
+			return;
 		}
-		this.setProgress(file.resource, kind, 0);
+		this.progress(entry, 0);
+		// A file that was never edited is its own source: one that changed is not encoded.
+		await this.assertUnchanged(entry);
+		let encoded: IWritten | undefined;
 		try {
-			const saved = await task();
-			this.keep(file.resource, saved);
-			this.endSave(file.resource);
-			if (!this.shown.has(file.resource)) {
-				this.notificationService.info(savedNotification(saved, basename(file.resource)));
-			}
-			return saved;
+			encoded = noEdit ? undefined : await this.encoded(entry, target);
 		} catch (error) {
-			this.endSave(file.resource);
-			const message = error instanceof Error ? error.message : String(error);
-			if (!(error instanceof BaseHalfMediaEditError)) {
-				this.logService.warn(`[BaseHalf] could not save the edit of ${file.relativePath}`, error);
+			// What the encoder could not read may be what another program wrote meanwhile.
+			await this.assertUnchanged(entry);
+			throw error;
+		}
+		await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, async () => {
+			await this.assertUnchanged(entry);
+			const folder = this.cardInformation(file);
+			const record = joinPath(folder, BASEHALF_EDIT_RECORD_FILE);
+			const original = joinPath(folder, baseHalfEditOriginalName(baseHalfMediaEditExtension(file.resource)));
+			// The file as it is stays in the cache, as what was written for its choices: undo to them puts it back, and so does a write that fails.
+			const before = await this.keepWritten(entry);
+			if (!encoded) {
+				await this.replaceFile(file, original);
+				await this.fileService.del(original).catch(error => this.logService.warn(`[BaseHalf] could not remove the original of ${file.relativePath}`, error));
+				await this.fileService.del(record).catch(error => this.logService.warn(`[BaseHalf] could not remove the edit record of ${file.relativePath}`, error));
+				entry.state = withSource(this.fileService, entry.state, file.resource, undefined);
+			} else {
+				const first = !entry.state.record;
+				if (first) {
+					// The first change keeps the file as it is as the original.
+					await this.letGoOfOldEdit(file, folder);
+					await this.fileService.createFolder(folder);
+					const copy = await this.cloneTemporary(file, file.resource);
+					await this.fileService.move(copy, original, false, FileOperation.CREATE).catch(async error => {
+						await this.fileService.del(copy).catch(() => undefined);
+						throw error;
+					});
+				}
+				const written: IBaseHalfEditRecord = { original: basename(original), result: encoded.result, ...target };
+				try {
+					await this.replaceFile(file, encoded.resource);
+					try {
+						await this.fileService.writeFile(record, VSBuffer.fromString(serializeBaseHalfEditRecord(written)));
+					} catch (error) {
+						// The file goes back as it was: without its record, the edit could not be reverted.
+						await this.replaceFile(file, before?.resource ?? original);
+						throw error;
+					}
+				} catch (error) {
+					if (first) {
+						await this.fileService.del(original).catch(() => undefined);
+					}
+					throw error;
+				}
+				entry.state = withSource(this.fileService, entry.state, original, written);
 			}
-			if (!this.shown.has(file.resource)) {
-				this.notificationService.error(localize('basehalf.mediaEdit.save.failedNotification', "BaseHalf could not save the edit of {0}: {1}", basename(file.resource), message));
-			}
-			throw error instanceof BaseHalfMediaEditError ? error : new BaseHalfMediaEditError(message);
+			entry.soundDropped = !!encoded?.soundDropped;
+			entry.version = baseHalfMediaVersion(await this.fileService.stat(file.resource));
+			entry.versions.add(entry.version);
+			entry.state = { ...entry.state, version: entry.version };
+		});
+		entry.written = target;
+	}
+
+	/** The file is the version that this window last wrote or read, or it changed outside BaseHalf. */
+	private async assertUnchanged(entry: IEditEntry): Promise<void> {
+		const stat = await this.fileService.stat(entry.file.resource).catch(() => undefined);
+		if (!stat?.isFile || baseHalfMediaVersion(stat) !== entry.version) {
+			throw new BaseHalfMediaChangedMeanwhile();
 		}
 	}
 
-	private keep(file: URI, saved: IBaseHalfMediaSaved): void {
-		this.saved.delete(file);
-		this.saved.set(file, saved);
-		for (const key of this.saved.keys()) {
-			if (this.saved.size <= MAX_KEPT_FILES) {
+	/**
+	 * Puts a copy of `source` in the file's place: the window is told one write
+	 * of the file, and nothing of the moves that carry it out. The file as it
+	 * was goes aside first, as kept versions do: a move over it would delete it
+	 * first, which Files shows. The file takes the time of now, so that the
+	 * watcher of macOS tells the change.
+	 */
+	private async replaceFile(file: IBaseHalfWorkspaceResource, source: URI): Promise<void> {
+		const copy = await this.cloneTemporary(file, source);
+		const aside = joinPath(await this.cacheFolder(file), `${generateUuid()}.${baseHalfMediaEditExtension(file.resource)}`);
+		try {
+			await this.fileService.move(file.resource, aside, false, 'nothing');
+		} catch (error) {
+			await this.fileService.del(copy).catch(() => undefined);
+			throw error;
+		}
+		try {
+			await this.fileService.move(copy, file.resource, false, FileOperation.WRITE);
+		} catch (error) {
+			await this.fileService.move(aside, file.resource, false, 'nothing').catch(rollbackError => this.logService.error(`[BaseHalf] could not put ${file.relativePath} back as it was`, rollbackError));
+			await this.fileService.del(copy).catch(() => undefined);
+			throw error;
+		}
+		await this.fileService.del(aside).catch(() => undefined);
+		await this.fileTimesService.touch([file.resource]).catch(error => this.logService.warn(`[BaseHalf] could not give ${file.relativePath} the time of now`, error));
+	}
+
+	/**
+	 * What was written for the choices the file holds, kept: the file as it is
+	 * is cloned into the cache when the cache does not keep it, as after an
+	 * edit of an earlier window. Nothing while the file is its original.
+	 */
+	private async keepWritten(entry: IEditEntry): Promise<IWritten | undefined> {
+		const record = entry.state.record;
+		if (!record) {
+			return undefined;
+		}
+		const key = choicesKey(entry.written);
+		const kept = entry.writes.get(key);
+		if (kept && await this.fileService.exists(kept.resource)) {
+			return kept;
+		}
+		const written: IWritten = { resource: await this.cloneTemporary(entry.file, entry.file.resource), result: record.result, soundDropped: entry.soundDropped };
+		this.keep(entry, key, written);
+		return written;
+	}
+
+	/** What is written for the choices: kept from a write before, or encoded from the original and kept. */
+	private async encoded(entry: IEditEntry, choices: IBaseHalfMediaChoices): Promise<IWritten> {
+		const key = choicesKey(choices);
+		const kept = entry.writes.get(key);
+		if (kept && await this.fileService.exists(kept.resource)) {
+			this.keep(entry, key, kept);
+			return kept;
+		}
+		const { bytes, soundDropped } = await this.encode(entry, choices);
+		const resource = joinPath(await this.cacheFolder(entry.file), `${generateUuid()}.${baseHalfMediaEditExtension(entry.file.resource)}`);
+		await this.fileService.createFile(resource, VSBuffer.wrap(bytes), { overwrite: false });
+		const written: IWritten = { resource, result: await baseHalfEditResultOf(bytes), soundDropped };
+		this.keep(entry, key, written);
+		return written;
+	}
+
+	/** Keeps what was written for choices as the latest, and lets go of the oldest beyond the last few. */
+	private keep(entry: IEditEntry, key: string, written: IWritten): void {
+		entry.writes.delete(key);
+		entry.writes.set(key, written);
+		for (const [oldest, kept] of entry.writes) {
+			if (entry.writes.size <= KEPT_WRITES) {
 				break;
 			}
-			this.saved.delete(key);
+			entry.writes.delete(oldest);
+			void this.fileService.del(kept.resource).catch(() => undefined);
 		}
 	}
 
-	private setProgress(file: URI, kind: BaseHalfMediaSaveKind, done: number): void {
-		this.saves.set(file, { file, kind, done });
-		this.onDidChangeSaveEmitter.fire(file);
-	}
-
-	private endSave(file: URI): void {
-		this.saves.delete(file);
-		this.onDidChangeSaveEmitter.fire(file);
-	}
-
-	private async doSave(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices): Promise<IBaseHalfMediaSaved> {
-		const rendered = await this.render(file, state, choices, 'edit');
-		await this.assertUnchanged(file, state);
-		const folder = this.cardInformation(file);
-		const originalName = baseHalfEditOriginalName(baseHalfMediaEditExtension(file.resource));
-		const record: IBaseHalfEditRecord = { original: originalName, result: await baseHalfEditResultOf(rendered.bytes), ...choices };
-		const temporaries: URI[] = [];
-		try {
-			const edited = await this.writeTemporary(file, rendered.bytes);
-			temporaries.push(edited);
-			const changes: IBaseHalfFileReplacement[] = [
-				{ resource: file.resource, contents: edited },
-				{ resource: joinPath(folder, BASEHALF_EDIT_RECORD_FILE), contents: VSBuffer.fromString(serializeBaseHalfEditRecord(record)) }
-			];
-			if (!state.record) {
-				// The first edit keeps the file as it is as the original.
-				const original = await this.cloneTemporary(file, file.resource);
-				temporaries.push(original);
-				await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, () => this.letGoOfOldEdit(file, folder));
-				changes.push({ resource: joinPath(folder, originalName), contents: original });
-			}
-			// What the step keeps is deleted when the window closes: the original is in the card information.
-			await this.keptVersionsService.replaceFiles(changes, { label: localize('basehalf.mediaEdit.save.step', "Edit {0}", basename(file.resource)), whenClosed: 'delete' });
-			temporaries.length = 0;
-		} finally {
-			await this.deleteTemporaries(temporaries);
-		}
-		return { kind: 'edit', resource: file.resource, version: await this.versionOf(file.resource), soundDropped: rendered.soundDropped };
-	}
-
-	private async doRevert(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): Promise<IBaseHalfMediaSaved> {
-		await this.assertUnchanged(file, state);
-		const folder = this.cardInformation(file);
-		const original = joinPath(folder, state.record!.original);
-		const temporaries: URI[] = [];
-		try {
-			// The original is copied into the cache: a file of the workspace never moves from one path of a step to another.
-			const copy = await this.cloneTemporary(file, original);
-			temporaries.push(copy);
-			this.setProgress(file.resource, 'revert', 0.5);
-			await this.keptVersionsService.replaceFiles([
-				{ resource: file.resource, contents: copy },
-				{ resource: original, contents: null },
-				{ resource: joinPath(folder, BASEHALF_EDIT_RECORD_FILE), contents: null }
-			], { label: localize('basehalf.mediaEdit.revert.step', "Revert {0}", basename(file.resource)), whenClosed: 'delete' });
-			temporaries.length = 0;
-		} finally {
-			await this.deleteTemporaries(temporaries);
-		}
-		return { kind: 'revert', resource: file.resource, version: await this.versionOf(file.resource), soundDropped: false };
-	}
-
-	private async doSaveAsNew(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices): Promise<IBaseHalfMediaSaved> {
-		const rendered = await this.render(file, state, choices, 'new');
-		await this.assertUnchanged(file, state);
-		const temporaries: URI[] = [];
-		let target: URI | undefined;
-		try {
-			const edited = await this.writeTemporary(file, rendered.bytes);
-			temporaries.push(edited);
-			const canvasFolder = baseHalfParentCanvasFolder(file);
-			target = await this.workspaceMutationCoordinator.runExclusive(file.workspaceFolder, async lease => {
-				const free = await this.newFileTarget(file);
-				// The window is told the new file's creation, and nothing of the move from the cache.
-				await this.fileService.move(edited, free, false, FileOperation.CREATE);
-				temporaries.length = 0;
-				// Its card is 40 to the right of the file's, at the nearest open place (canvas card placement, "Pointing").
-				await placeBaseHalfCardsBeside(
-					{ fileService: this.fileService, canvasMirrorService: this.canvasMirrorService, logService: this.logService },
-					canvasFolder, file.relativePath, [{ path: siblingPath(file, basename(free)), size: rendered.cardSize }], { lease });
-				return free;
-			});
-		} finally {
-			await this.deleteTemporaries(temporaries);
-		}
-		const name = basename(target);
-		const relativePath = siblingPath(file, name);
-		try {
-			// The new file is made from the file: its connection comes from it, kept with the file by the step's undo.
-			await this.referenceEditService.add({ resource: target, workspaceFolder: file.workspaceFolder, relativePath }, file.relativePath, {
-				label: localize('basehalf.mediaEdit.saveAsNew.connect', "Save {0}", name)
-			});
-		} catch (error) {
-			this.logService.warn(`[BaseHalf] ${relativePath} was not connected from ${file.relativePath}`, error);
-		}
-		// One step of the canvas undo: undo keeps the new file with its card information, and redo brings it back (exact undo, "What the canvas made").
-		this.keptVersionsService.recordMade([target], { label: localize('basehalf.mediaEdit.saveAsNew.step', "Save {0}", name) });
-		// The file itself is as it was.
-		return { kind: 'new', resource: target, version: state.version, soundDropped: rendered.soundDropped };
-	}
-
-	/** The name of the new file of Save as New, as Duplicate names a copy, never one that a draft has. */
-	private async newFileTarget(file: IBaseHalfWorkspaceResource): Promise<URI> {
-		const configured = this.configurationService.getValue<IFilesConfiguration>().explorer?.incrementalNaming ?? 'simple';
-		// A copy never replaces an item: undo could not give it back (exact undo, "What the canvas made").
-		const naming = configured === 'disabled' ? 'smart' : configured;
-		const folder = dirname(file.resource);
-		let target = await findValidPasteFileTargetForResource(this.fileService, this.dialogService, folder, { resource: file.resource, isDirectory: false, allowOverwrite: false }, naming);
-		for (let attempt = 0; target && attempt < 1000; attempt++) {
-			if (!await this.fileService.exists(target) && !await baseHalfPathHoldsDraft(this.fileService, file.workspaceFolder, siblingPath(file, basename(target))).catch(() => false)) {
-				return target;
-			}
-			target = joinPath(folder, incrementFileName(basename(target), false, naming));
-		}
-		throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.saveAsNew.noName', "no free name is left beside the file."));
-	}
-
-	/** Encodes the edit of the state's source, with the progress of the save. */
-	private async render(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, kind: BaseHalfMediaSaveKind): Promise<IRenderedEdit> {
-		if (state.unavailable) {
-			throw new BaseHalfMediaEditError(state.unavailable);
-		}
+	/** Encodes the edit of the state's source. */
+	private encode(entry: IEditEntry, choices: IBaseHalfMediaChoices): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
+		const state = entry.state;
+		const progress = (done: number) => this.progress(entry, done);
 		switch (state.kind) {
-			case 'video': return this.renderVideo(file, state, choices, kind);
-			case 'image': return this.renderImage(file, state, choices, kind);
-			case 'sound': return this.renderSound(file, state, choices, kind);
+			case 'video': return this.encodeVideo(state, choices, progress);
+			case 'image': return this.encodeImage(state, choices, progress);
+			case 'sound': return this.encodeSound(state, choices, progress);
 		}
 	}
 
 	/** Keeps the parts of a sound, joined, in its format. */
-	private async renderSound(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, kind: BaseHalfMediaSaveKind): Promise<IRenderedEdit> {
+	private async encodeSound(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
 		const info = state.sound;
 		if (!info) {
 			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.noSound', "the sound could not be read."));
 		}
 		const bytes = (await this.fileService.readFile(state.source)).value.buffer;
-		this.setProgress(file.resource, kind, 0.3);
+		progress(0.3);
 		try {
 			const encoded = await encodeBaseHalfSoundParts(bytes, info, choices.keep ?? [{ start: 0, end: info.duration }]);
-			this.setProgress(file.resource, kind, 0.9);
-			return { bytes: encoded, soundDropped: false, cardSize: baseHalfCanvasGenerationCardSize('audio') };
+			progress(0.9);
+			return { bytes: encoded, soundDropped: false };
 		} catch (error) {
 			throw error instanceof BaseHalfSoundEditError ? new BaseHalfMediaEditError(error.message) : error;
 		}
 	}
 
 	/** Crops, turns, flips, and straightens an image, in its format, with its information. */
-	private async renderImage(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, kind: BaseHalfMediaSaveKind): Promise<IRenderedEdit> {
+	private async encodeImage(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
 		const bytes = (await this.fileService.readFile(state.source)).value.buffer;
 		const info = readBaseHalfImageInfo(bytes);
 		if (!info) {
 			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.formatImage', "the image could not be read as PNG, JPEG, or WebP."));
 		}
-		this.setProgress(file.resource, kind, 0.3);
+		progress(0.3);
 		try {
 			const encoding = await encodeBaseHalfImageCrop(bytes, info, choices);
-			this.setProgress(file.resource, kind, 0.9);
-			return { bytes: encoding.bytes, soundDropped: false, cardSize: baseHalfCanvasGenerationCardSize('image', encoding.width / encoding.height) };
+			progress(0.9);
+			return { bytes: encoding.bytes, soundDropped: false };
 		} catch (error) {
 			throw error instanceof BaseHalfImageCropError ? new BaseHalfMediaEditError(error.message) : error;
 		}
 	}
 
-	/** Trims a video, and takes its sound away when it is muted. */
-	private async renderVideo(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, kind: BaseHalfMediaSaveKind): Promise<IRenderedEdit> {
+	/** Trims a video. */
+	private async encodeVideo(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
 		const video = state.video ?? await this.readVideo(state.source);
 		const picture = video.file.video;
 		if (!picture) {
@@ -638,45 +944,34 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		// The parts of a record are to the millisecond: the frames kept are those between the frame edges nearest to them.
 		const timeline = new BaseHalfVideoTrimTimeline(baseHalfVideoFrameEdges(picture));
 		const range = timeline.normalize(choices.keep?.[0]);
-		const plan = planBaseHalfVideoClip(video.file, baseHalfMediaEditExtension(state.source), range, { mute: !!choices.mute });
+		const plan = planBaseHalfVideoClip(video.file, baseHalfMediaEditExtension(state.source), range);
 		let lastReport = 0;
-		const encoding = await encodeBaseHalfVideoClip({
-			source: video.source,
-			file: video.file,
-			plan,
-			onProgress: done => {
-				// A few steps a second are enough for the status line.
-				const now = Date.now();
-				if (now - lastReport > 100 || done >= 1) {
-					lastReport = now;
-					this.setProgress(file.resource, kind, done * 0.95);
+		try {
+			const encoding = await encodeBaseHalfVideoClip({
+				source: video.source,
+				file: video.file,
+				plan,
+				onProgress: done => {
+					// A few steps a second are enough for the line under the editor.
+					const now = Date.now();
+					if (now - lastReport > 100 || done >= 1) {
+						lastReport = now;
+						progress(done * 0.95);
+					}
 				}
-			}
-		});
-		const turned = picture.rotation === 90 || picture.rotation === 270;
-		const ratio = turned ? picture.displayHeight / picture.displayWidth : picture.displayWidth / picture.displayHeight;
-		return {
-			bytes: encoding.bytes,
-			soundDropped: encoding.soundDropped,
-			cardSize: Number.isFinite(ratio) && ratio > 0 ? baseHalfCanvasGenerationCardSize('video', ratio) : baseHalfCanvasDefaultCardSize('file')
-		};
-	}
-
-	/** Refuses a file that changed, moved, or went away since its state was read. */
-	private async assertUnchanged(file: IBaseHalfWorkspaceResource, state: IBaseHalfMediaEditState): Promise<void> {
-		const stat = await this.fileService.stat(file.resource).catch(() => undefined);
-		if (!stat || baseHalfMediaVersion(stat) !== state.version || (state.record && !await this.fileService.exists(state.source))) {
-			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.changed', "the file changed meanwhile."));
+			});
+			return { bytes: encoding.bytes, soundDropped: encoding.soundDropped };
+		} catch (error) {
+			throw error instanceof BaseHalfVideoClipError ? new BaseHalfMediaEditError(error.message) : error;
 		}
 	}
 
 	/**
-	 * Before a first edit, what the card information holds of an edit is of no
-	 * version of the file that the step changes (editing media, "A file that
+	 * Before a first change, what the card information holds of an edit is of
+	 * no version of the file that the change makes (editing media, "A file that
 	 * changed outside BaseHalf"): an original, also one of another extension
 	 * that a renamed file left, goes to the Trash beside the file, and a record
-	 * that cannot be read is kept as a recovery copy, since what the step keeps
-	 * is deleted when the window closes.
+	 * that cannot be read is kept as a recovery copy.
 	 */
 	private async letGoOfOldEdit(file: IBaseHalfWorkspaceResource, folder: URI): Promise<void> {
 		const listing = await this.fileService.resolve(folder).catch(() => undefined);
@@ -697,62 +992,101 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** The cache folder of edits, made ready, with what saves that a closed window stopped left in it deleted. */
+	/** The cache folder of edits, made ready, with what writes that a closed window stopped left in it deleted. */
 	private async cacheFolder(file: IBaseHalfWorkspaceResource): Promise<URI> {
 		await baseHalfEnsureMirrorIgnoreFile(this.fileService, file.workspaceFolder);
 		const folder = joinPath(file.workspaceFolder, '.bh', 'cache', 'edit');
 		const listing = await this.fileService.resolve(folder, { resolveMetadata: true }).catch(() => undefined);
 		const now = Date.now();
+		const kept = new Set([...this.entries.values()].flatMap(entry => [...entry.writes.values()].map(written => written.resource.toString())));
 		for (const child of listing?.children ?? []) {
-			// Nothing that runs is this old.
-			if (child.isFile && now - child.mtime > LEFTOVER_AGE_MS) {
+			// A write that runs made its files a moment ago; `ctime` is when a file was made, also a clone.
+			if (child.isFile && now - child.ctime > LEFTOVER_AGE_MS && !kept.has(child.resource.toString())) {
 				await this.fileService.del(child.resource).catch(error => this.logService.warn(`[BaseHalf] could not delete what an edit left: ${child.resource.toString()}`, error));
+			}
+		}
+		const copies = await this.fileService.resolve(joinPath(folder, COPIES_FOLDER), { resolveMetadata: true }).catch(() => undefined);
+		for (const child of copies?.children ?? []) {
+			if (child.isFile && now - child.ctime > COPY_LEFTOVER_AGE_MS && !this.copies.has(child.resource.toString())) {
+				await this.fileService.del(child.resource).catch(() => undefined);
 			}
 		}
 		await this.fileService.createFolder(folder);
 		return folder;
 	}
 
-	/** Writes the bytes of an edit whole into the cache folder, to be moved into place. */
-	private async writeTemporary(file: IBaseHalfWorkspaceResource, bytes: Uint8Array): Promise<URI> {
-		const temporary = joinPath(await this.cacheFolder(file), `${generateUuid()}.${baseHalfMediaEditExtension(file.resource)}`);
-		await this.fileService.createFile(temporary, VSBuffer.wrap(bytes), { overwrite: false });
-		return temporary;
-	}
-
-	/** Clones a file of the workspace into the cache folder: a clone takes no room on a disk that can make one. */
+	/** Clones a file into the cache folder: a clone takes no room on a disk that can make one. */
 	private async cloneTemporary(file: IBaseHalfWorkspaceResource, source: URI): Promise<URI> {
 		const temporary = joinPath(await this.cacheFolder(file), `${generateUuid()}.${baseHalfMediaEditExtension(file.resource)}`);
 		await this.fileClonesService.clone(source, temporary);
 		return temporary;
 	}
 
-	private async deleteTemporaries(temporaries: readonly URI[]): Promise<void> {
-		for (const temporary of temporaries) {
-			await this.fileService.del(temporary).catch(() => undefined);
+	/** What this window kept for undo, and the copies its editors read, go with it. */
+	private async clearCache(): Promise<void> {
+		const resources = [...this.entries.values()].flatMap(entry => [...entry.writes.values()].map(written => written.resource));
+		for (const entry of this.entries.values()) {
+			entry.writes.clear();
 		}
-	}
-
-	private async versionOf(resource: URI): Promise<string> {
-		const stat = await this.fileService.stat(resource).catch(() => undefined);
-		return stat ? baseHalfMediaVersion(stat) : '';
+		resources.push(...[...this.copies].map(copy => URI.parse(copy)));
+		this.copies.clear();
+		await Promise.all(resources.map(resource => this.fileService.del(resource).catch(() => undefined)));
 	}
 
 	// #endregion
 }
 
-/** The workspace path of a file beside the file. */
-function siblingPath(file: IBaseHalfWorkspaceResource, name: string): string {
-	const slash = file.relativePath.lastIndexOf('/');
-	return slash < 0 ? name : `${file.relativePath.slice(0, slash)}/${name}`;
+/** One change of an edit, a step of the canvas undo: undo puts back the choices before it, and redo those after it. */
+class BaseHalfMediaEditStep implements IWorkspaceUndoRedoElement {
+	readonly type = UndoRedoElementType.Workspace;
+	readonly code = 'basehalf.mediaEdit';
+	/** A resource of the step's own: the step stands in the canvas undo, by its source. */
+	readonly resources: readonly URI[] = [URI.from({ scheme: 'basehalf-media-edit', path: `/${generateUuid()}` })];
+	private state: 'done' | 'undone' | 'over' = 'done';
+
+	constructor(
+		readonly label: string,
+		private readonly entry: IEditEntry,
+		private readonly before: IBaseHalfMediaChoices,
+		/** A change of the same name a moment later joins this step. */
+		public after: IBaseHalfMediaChoices,
+		private readonly service: BaseHalfMediaEditService
+	) { }
+
+	get isDone(): boolean {
+		return this.state === 'done';
+	}
+
+	async undo(): Promise<void> {
+		if (this.state === 'done') {
+			this.state = await this.service.applyStep(this.entry, this.before) ? 'undone' : 'over';
+		}
+	}
+
+	async redo(): Promise<void> {
+		if (this.state === 'undone') {
+			this.state = await this.service.applyStep(this.entry, this.after) ? 'done' : 'over';
+		}
+	}
 }
 
-function savedNotification(saved: IBaseHalfMediaSaved, name: string): string {
-	switch (saved.kind) {
-		case 'edit': return saved.soundDropped
-			? localize('basehalf.mediaEdit.save.editedNoSound', "Edited {0}, without sound: BaseHalf can't read or write its sound here.", name)
-			: localize('basehalf.mediaEdit.save.edited', "Edited {0}.", name);
-		case 'new': return localize('basehalf.mediaEdit.save.savedAsNew', "Saved {0}.", basename(saved.resource));
-		case 'revert': return localize('basehalf.mediaEdit.save.reverted', "Reverted {0} to its original.", name);
-	}
+/** The state of an edit with another source: the original, or the file. */
+function withSource(fileService: IFileService, state: IBaseHalfMediaEditState, source: URI, record: IBaseHalfEditRecord | undefined): IBaseHalfMediaEditState {
+	const { record: _record, ...rest } = state;
+	return {
+		...rest,
+		source,
+		...(record ? { record } : {}),
+		// The index of the video is that of the same bytes; they are read from where they are now.
+		...(state.video ? { video: { file: state.video.file, source: baseHalfMediaFileByteSource(fileService, source, state.video.source.size) } } : {})
+	};
+}
+
+/** The choices as a record holds them, as text, by which what was written for them is kept. */
+function choicesKey(choices: IBaseHalfMediaChoices): string {
+	return JSON.stringify(normalizeBaseHalfMediaChoices(choices));
+}
+
+function sameChoices(a: IBaseHalfMediaChoices, b: IBaseHalfMediaChoices): boolean {
+	return choicesKey(a) === choicesKey(b);
 }

@@ -77,6 +77,13 @@ another.
   show what was written in Card Detail.
 - The card of a video shows the frame where Card Detail's video stopped
   ([generation cards, "The player"](generation-cards.md#the-player)).
+- A card whose file was written anew while Card Detail covered it, as by an
+  edit ([editing media](media-editing.md)), is drawn anew when Card Detail
+  closes: until its new picture can be drawn, it shows the picture it showed
+  before, so that no frame shows it without one. Measured on 2026-10-27, per
+  frame: a trimmed video's card and a cropped image's card had a picture on
+  every frame of the close; before this, the video's card showed none for two
+  samples, 18 ms, 36 ms into the fade.
 
 ### The keyboard
 
