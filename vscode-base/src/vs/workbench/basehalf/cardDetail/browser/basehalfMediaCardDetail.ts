@@ -11,7 +11,7 @@ import { safeIntl } from '../../../../base/common/date.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
-import { language } from '../../../../base/common/platform.js';
+import { isMacintosh, language } from '../../../../base/common/platform.js';
 import { basename, dirname, isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -33,6 +33,8 @@ import { BaseHalfMediaEditing, IBaseHalfMediaEditingSession } from '../../mediaE
 import { baseHalfMediaVersion, IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
 import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
+import { BASEHALF_PAGE_PINCH_MESSAGE } from '../common/basehalfNoteZoom.js';
+import { BaseHalfVideoPictureZoom } from './basehalfVideoPictureZoom.js';
 import { IBaseHalfAgentSelectionDocumentText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocumentBranch.js';
 import { baseHalfDocumentVersion } from '../../documents/common/basehalfDocuments.js';
@@ -519,6 +521,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			onError: () => this.renderNotice('The media file could not be decoded by this system.'),
 			hoverService: this.hoverService
 		}));
+		if (!sound) {
+			// A pinch or the wheel over the picture zooms it (editing media, "Zooming the picture and the time").
+			store.add(new BaseHalfVideoPictureZoom(player.element, player.video));
+		}
 		if (session) {
 			this.editingStore.value?.show({ stage, player });
 		}
@@ -851,7 +857,51 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 			apply();
 		});
 		image.addEventListener('load', apply);
-		apply();`;
+		apply();
+		// A pinch, which the window hands on to the page, and the wheel with the zoom key zoom the picture as − and + do,
+		// around the pointer: e^(−Δy / 100) for each event, a notch at most 10%, as a PDF's page zooms (editing media, "Zooming the picture and the time").
+		const factorOf = (deltaY, deltaMode) => {
+			const pixels = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 100 : deltaY;
+			return Number.isFinite(pixels) ? Math.exp(-Math.max(-10, Math.min(10, pixels)) / 100) : 1;
+		};
+		let pending;
+		const zoomAround = (factor, x, y) => {
+			if (!pending) {
+				pending = { factor: 1, x, y };
+				requestAnimationFrame(() => {
+					const next = pending;
+					pending = undefined;
+					const before = image.getBoundingClientRect();
+					if (!image.naturalWidth || !before.width || !before.height) { return; }
+					const shown = fitted ? before.width / image.naturalWidth : scale;
+					const zoom = Math.min(8, Math.max(0.1, shown * next.factor));
+					if (Math.abs(zoom - shown) < 1e-6) { return; }
+					// The point of the picture under the pointer stays under it, as far as the view scrolls.
+					const placeX = (next.x - before.left) / before.width;
+					const placeY = (next.y - before.top) / before.height;
+					fitted = false;
+					scale = zoom;
+					apply();
+					const after = image.getBoundingClientRect();
+					stage.scrollLeft += after.left + placeX * after.width - next.x;
+					stage.scrollTop += after.top + placeY * after.height - next.y;
+				});
+			}
+			pending.factor *= factor;
+			pending.x = x;
+			pending.y = y;
+		};
+		window.addEventListener('message', event => {
+			const message = event.data;
+			if (message && message.type === '${BASEHALF_PAGE_PINCH_MESSAGE}' && Number.isFinite(message.deltaY) && Number.isFinite(message.x) && Number.isFinite(message.y)) {
+				zoomAround(factorOf(message.deltaY, message.deltaMode), message.x, message.y);
+			}
+		});
+		stage.addEventListener('wheel', event => {
+			if (event.altKey || event.shiftKey || !(event.ctrlKey || (${isMacintosh} && event.metaKey))) { return; }
+			event.preventDefault();
+			zoomAround(factorOf(event.deltaY, event.deltaMode), event.clientX, event.clientY);
+		}, { passive: false });`;
 	const script = `<script nonce="${nonce}">
 		const media = document.getElementById('media');
 		const error = document.getElementById('error');
@@ -887,6 +937,8 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfWebviewContentKind, resou
 		body { display: flex; align-items: center; justify-content: center; font-family: var(--vscode-font-family); }
 		.image-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: auto; }
 		.image-stage.scaled { align-items: flex-start; justify-content: flex-start; padding: 48px; }
+		/* A picture smaller than the view stays in its middle; a larger one scrolls from its edges. */
+		.image-stage.scaled img { flex: none; margin: auto; }
 		.image-stage img { display: block; max-width: none; max-height: none; image-rendering: auto; }
 		.image-stage img.fit { max-width: calc(100% - 48px); max-height: calc(100% - 48px); }
 		.toolbar { position: fixed; right: 18px; bottom: 18px; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; background: var(--vscode-editorWidget-background); box-shadow: 0 4px 14px rgb(0 0 0 / 25%); }

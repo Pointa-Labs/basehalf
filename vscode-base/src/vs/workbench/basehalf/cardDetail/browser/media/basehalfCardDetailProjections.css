@@ -226,6 +226,20 @@
 	--basehalf-video-edit-space: 90px;
 }
 
+/*
+ * A pinch or the wheel zooms the picture of the player, which keeps its place
+ * and size; while it is zoomed in, a drag moves the picture (editing media,
+ * "Zooming the picture and the time").
+ */
+.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-zoomed .basehalf-canvas-video-player-video {
+	cursor: grab;
+	will-change: transform;
+}
+
+.monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-panning .basehalf-canvas-video-player-video {
+	cursor: grabbing;
+}
+
 /* --- What made the file of a generation card ---------------------------------------------- */
 
 .monaco-workbench .basehalf-card-detail-media.has-generation-provenance {

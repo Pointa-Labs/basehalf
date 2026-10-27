@@ -37,6 +37,7 @@ import {
 	IBaseHalfPoint,
 	IBaseHalfSize
 } from '../common/basehalfImageCrop.js';
+import { baseHalfClampPicturePan, baseHalfPictureMaxZoom, baseHalfZoomFactor, baseHalfZoomPanAround } from '../common/basehalfMediaZoom.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 
 /**
@@ -71,8 +72,6 @@ const DIAL_SNAP_DEGREES = 0.4;
 const KEY_REST_MILLISECONDS = 600;
 /** The smallest the frame may be on screen while it is dragged. */
 const MIN_FRAME_PIXELS = 48;
-/** The view zooms up to this many screen pixels for each pixel of the picture. */
-const MAX_VIEW_SCALE = 2;
 
 /** Where the picture is on screen: the point of the picture at the middle of the view, and the screen pixels for each pixel of the picture. */
 interface IMapping {
@@ -326,19 +325,15 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	/** The zoomed part covers the view where it is larger than the view, and stays in its middle where it is not. */
 	private clampPan(pan: IBaseHalfPoint, zoom = this.zoom): IBaseHalfPoint {
 		const scale = this.restMapping().scale * zoom;
-		const roomX = Math.max(0, (this.state.crop.width * scale - this.viewSize.width) / 2);
-		const roomY = Math.max(0, (this.state.crop.height * scale - this.viewSize.height) / 2);
-		return { x: Math.min(roomX, Math.max(-roomX, pan.x)), y: Math.min(roomY, Math.max(-roomY, pan.y)) };
+		return baseHalfClampPicturePan(pan, { width: this.state.crop.width * scale, height: this.state.crop.height * scale }, this.viewSize);
 	}
 
 	/** Zooms the view to `zoom` around a point of it, which keeps the point of the picture under it. */
 	private zoomAround(at: IBaseHalfPoint, zoom: number): void {
 		const next = Math.max(1, zoom);
-		const k = next / this.zoom;
-		const middle = { x: this.viewSize.width / 2 + this.pan.x, y: this.viewSize.height / 2 + this.pan.y };
-		const moved = { x: at.x - (at.x - middle.x) * k, y: at.y - (at.y - middle.y) * k };
+		const moved = baseHalfZoomPanAround(this.pan, { x: at.x - this.viewSize.width / 2, y: at.y - this.viewSize.height / 2 }, next / this.zoom);
 		this.zoom = next;
-		this.pan = next > 1 ? this.clampPan({ x: moved.x - this.viewSize.width / 2, y: moved.y - this.viewSize.height / 2 }) : { x: 0, y: 0 };
+		this.pan = next > 1 ? this.clampPan(moved) : { x: 0, y: 0 };
 		this.stopGlide();
 		this.mapping = this.viewMapping();
 		this.render();
@@ -351,7 +346,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 
 	/** The largest zoom: the picture at twice its pixels, or as it fits when that is larger already. */
 	private maxZoom(): number {
-		return Math.max(1, MAX_VIEW_SCALE / this.restMapping().scale);
+		return baseHalfPictureMaxZoom(this.restMapping().scale);
 	}
 
 	/** Where a point of the picture shows, from the view's top left. */
@@ -629,8 +624,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		event.preventDefault();
 		event.stopPropagation();
 		this.settleKeys();
-		const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002));
-		this.zoomAround(this.viewPoint(event), Math.min(this.maxZoom(), this.zoom * factor));
+		this.zoomAround(this.viewPoint(event), Math.min(this.maxZoom(), this.zoom * baseHalfZoomFactor(event)));
 	}
 
 	/** A double click shows the picture as it fits, or, as it fits, at its own pixels around the pointer. */
