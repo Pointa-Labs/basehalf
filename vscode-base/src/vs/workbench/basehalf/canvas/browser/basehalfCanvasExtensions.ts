@@ -97,6 +97,16 @@ export interface IBaseHalfCanvasView {
 	getCardPreview(path: string): BaseHalfCanvasCardPreview | undefined;
 	/** Draws the canvas again from its folder, soon. */
 	requestRender(): void;
+	/**
+	 * Draws the lines into the card at `path` for its upstream list
+	 * `upstream`, workspace-relative paths, at once and between the cards
+	 * that are shown, as a line drawn on the canvas shows: a panel that draws
+	 * the card's inputs anew draws its lines with them (generation cards, "The
+	 * line on the canvas changes with the tile"). The drawing from the folder
+	 * that follows draws the same lines. Nothing changes while another canvas
+	 * is shown, before the connections are known, or during a gesture.
+	 */
+	showUpstreamLines(sceneKey: string, path: string, upstream: readonly string[]): void;
 
 	/** The user changed which cards are selected, and the canvas took the change. */
 	readonly onDidChangeSelection: Event<IBaseHalfCanvasViewSelection>;

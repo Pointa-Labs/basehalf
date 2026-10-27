@@ -858,7 +858,18 @@ From top to bottom:
      panel makes or removes, by Pick on Canvas, the reference menu, Import
      File…, or a tile's cross, and its undo and redo, draws the canvas at
      once, as a line drawn on the canvas does, and does not wait for the
-     canvas to learn of it from the file.
+     canvas to learn of it from the file. Whenever the panel draws the
+     card's inputs anew, the canvas draws the lines into the card from the
+     same list in that moment, between the cards it shows, and does not wait
+     to read the folder again, which takes longer while the computer is busy:
+     the drawing from the folder that follows keeps the same lines. The
+     canvas takes the panel's list only while it is the list the reference
+     graph holds for the card, so a read of the panel that came late never
+     takes the lines back to an older list, and it places a new line's ends
+     by where the cards are now, also a card moved since the last drawing,
+     as the drawing from the folder places them. Without the panel, as for
+     an undo after the card was left, the canvas draws the change when it
+     reads the folder.
    - The tiles scroll sideways when they do not fit; the two buttons stay at
      the right.
 2. **Prompt**: a text field that grows to five lines and then scrolls.
@@ -2180,8 +2191,10 @@ Pick on Canvas (D69)
     and the model button begin at one left edge, within half a pixel, and
     the reason's action and the Generate button end at one right edge; a
     chip's text and the prompt's text share a baseline.
-64. A connection made or removed in the panel, and its undo, shows on the
-    canvas's line within two frames of the tile at 60 Hz, 34 ms.
+64. A connection made or removed in the panel, and its undo and redo while
+    the panel is shown, changes the canvas's line in the frame that changes
+    the tile or the next one, also while the computer is busy: frames are
+    counted, at whatever rate the screen draws.
 
 Ranges, lengths, and Generate (D70)
 

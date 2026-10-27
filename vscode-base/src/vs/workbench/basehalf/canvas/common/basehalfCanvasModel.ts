@@ -525,6 +525,26 @@ function deriveCanvasEdges(
 	return edges;
 }
 
+/**
+ * The edges of a folder model's cards once the card at `path` has the
+ * upstream list `upstream`, spelled as the cards' paths, derived as the model
+ * derives them: a panel that draws a card's inputs anew draws the card's
+ * lines from the same list before the folder is read again (generation
+ * cards, "The line on the canvas changes with the tile"). `styled` is the
+ * layout's anchor memory.
+ */
+export function baseHalfCanvasEdgesWithUpstream(
+	items: readonly IBaseHalfCanvasItem[],
+	styled: readonly IBaseHalfCanvasEdge[],
+	path: string,
+	upstream: readonly string[]
+): IBaseHalfCanvasEdge[] {
+	return deriveCanvasEdges(items.map(item => item.path !== path ? item : {
+		...item,
+		relationships: { downstream: [], issueCount: 0, ...item.relationships, upstream }
+	}), styled);
+}
+
 function baseHalfCanvasDefaultEdge(from: string, to: string, fromBounds: IBaseHalfCanvasBounds, toBounds: IBaseHalfCanvasBounds): IBaseHalfCanvasEdge {
 	const deltaX = toBounds.x + toBounds.width / 2 - (fromBounds.x + fromBounds.width / 2);
 	const deltaY = toBounds.y + toBounds.height / 2 - (fromBounds.y + fromBounds.height / 2);

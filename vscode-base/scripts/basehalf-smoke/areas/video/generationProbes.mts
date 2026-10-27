@@ -1127,10 +1127,12 @@ export async function sampleCardLooks(page, cardPath, run) {
 /**
  * Samples every frame while `run` runs: whether the panel shows the tile of
  * `from` and whether the canvas shows the line from `from` to `to`. Returns
- * when each first showed, in milliseconds from the first sample, or -1
- * (D69, criterion 64).
+ * the frame in which each first showed, or with `shown` false was first gone,
+ * counted from the first sample, or -1, and when, in milliseconds from the
+ * first sample (D69, criterion 64). Frames are counted, as milliseconds grow
+ * with a busy computer and a slower screen.
  */
-export async function sampleTileAndLine(page, from, to, run) {
+export async function sampleTileAndLine(page, from, to, run, shown = true) {
 	await page.evaluate(([fromPath, toPath]) => {
 		const token = window.__basehalfTileLine = (window.__basehalfTileLine ?? 0) + 1;
 		window.__basehalfTileLineFrames = [];
@@ -1156,11 +1158,10 @@ export async function sampleTileAndLine(page, from, to, run) {
 			return window.__basehalfTileLineFrames;
 		});
 	}
-	const first = index => {
-		const frame = frames.find(entry => entry[index]);
-		return frame ? Math.round(frame[2]) : -1;
-	};
-	return { tile: first(0), line: first(1), frames: frames.length };
+	const tile = frames.findIndex(entry => entry[0] === shown);
+	const line = frames.findIndex(entry => entry[1] === shown);
+	const at = index => index < 0 ? -1 : Math.round(frames[index][2]);
+	return { tile, line, tileMs: at(tile), lineMs: at(line), frames: frames.length };
 }
 
 /**

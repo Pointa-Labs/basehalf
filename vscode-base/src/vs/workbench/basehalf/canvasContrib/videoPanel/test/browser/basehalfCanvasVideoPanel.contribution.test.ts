@@ -262,9 +262,12 @@ suite('BaseHalfCanvasVideoPanel', () => {
 
 		host.focusCard();
 		assert.strictEqual(canvas.calls.at(-1), `focusCard ${CLIP}`);
-		// A change of connections in the panel draws the canvas's lines at once.
+		// A change of connections in the panel draws the canvas again at once.
 		host.didChangeConnections!();
 		assert.strictEqual(canvas.calls.at(-1), 'requestRender');
+		// The panel's tiles draw the card's lines in the same moment.
+		host.didShowInputs!(['folder/a.png', 'notes/scene.md']);
+		assert.strictEqual(canvas.calls.at(-1), `showUpstreamLines folder ${CLIP}: folder/a.png, notes/scene.md`);
 
 		const again = host.startPick(pick);
 		canvas.changeSelection([]);

@@ -1080,26 +1080,25 @@ async function assertPickOnCanvas(page) {
 
 	// Two clicks in a row: the image is connected at the end, and start.png is removed with its name.
 	// Criterion 62: each card keeps its element and its picture, and its look changes once.
-	// Criterion 64: the line on the canvas comes with the tile, within two frames of 60 Hz.
-	let tileAndLine;
+	// Criterion 64: the line on the canvas changes with the tile, in its frame or the next.
+	const lines = {};
 	const connecting = await sampleCardLooks(page, still, async () => {
-		tileAndLine = await sampleTileAndLine(page, still, VIDEO, async () => {
+		lines.connected = await sampleTileAndLine(page, still, VIDEO, async () => {
 			await clickCanvasCardOnTop(page, still);
 			await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]), `a click to connect ${still} at the end of the list`, 10_000);
 			await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[still] === 'remove', `picking to stay on and show ${still} as connected`);
 			await page.waitForTimeout(300);
 		});
 	});
-	if (tileAndLine.tile < 0 || tileAndLine.line < 0 || Math.abs(tileAndLine.line - tileAndLine.tile) > 34) {
-		throw new Error(`The line of a connection that Pick on Canvas made must show within two frames of its tile: ${JSON.stringify(tileAndLine)}`);
-	}
 	// The end frame is the input the prompt mentions: a click that removes it takes its mention out too (D74).
 	await showCardOnCanvas(page, END_IMAGE);
 	const removing = await sampleCardLooks(page, END_IMAGE, async () => {
-		await clickCanvasCardOnTop(page, END_IMAGE);
-		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([START_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT, `a click on the connected ${END_IMAGE} to remove it and take its mention out of the prompt`, 10_000);
-		await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[END_IMAGE] === 'connect', `picking to stay on and show ${END_IMAGE} as one a click connects`);
-		await page.waitForTimeout(300);
+		lines.removed = await sampleTileAndLine(page, END_IMAGE, VIDEO, async () => {
+			await clickCanvasCardOnTop(page, END_IMAGE);
+			await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([START_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT, `a click on the connected ${END_IMAGE} to remove it and take its mention out of the prompt`, 10_000);
+			await waitForReading(() => readCanvasPick(page), seen => seen?.title !== null && seen?.cards[END_IMAGE] === 'connect', `picking to stay on and show ${END_IMAGE} as one a click connects`);
+			await page.waitForTimeout(300);
+		}, false);
 	});
 	for (const looks of [connecting, removing]) {
 		const elements = new Set(looks.map(look => look.split(' ').slice(0, 4).join(' ')));
@@ -1116,6 +1115,23 @@ async function assertPickOnCanvas(page) {
 		throw new Error('The input row must stop saying that the draft picks once Escape ended it');
 	}
 	await waitForCanvasCardSelection(page, VIDEO);
+
+	// Criterion 64 with the panel shown: an undo and a redo of the removal change the line with the tile too.
+	await clickCanvasCardOnTop(page, VIDEO);
+	lines.undone = await sampleTileAndLine(page, END_IMAGE, VIDEO, async () => {
+		await page.keyboard.press(UNDO);
+		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([...connected, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT_WITH_MENTION, `an undo to bring back ${END_IMAGE} and its mention`, 10_000);
+		await page.waitForTimeout(300);
+	});
+	lines.redone = await sampleTileAndLine(page, END_IMAGE, VIDEO, async () => {
+		await page.keyboard.press(REDO);
+		await waitUntil(() => JSON.stringify(readUpstreamSidecar(VIDEO)) === JSON.stringify([START_IMAGE, SCENE_NOTE, still]) && readGenerationInfo(VIDEO)?.prompt === VIDEO_PROMPT, `a redo to take ${END_IMAGE} and its mention out again`, 10_000);
+		await page.waitForTimeout(300);
+	}, false);
+	const late = Object.entries(lines).filter(([, sample]) => sample.tile < 0 || sample.line < 0 || Math.abs(sample.line - sample.tile) > 1);
+	if (late.length > 0) {
+		throw new Error(`The line of a connection that the panel made or removed, and of its undo and redo, must change in the frame of its tile or the next: ${JSON.stringify(Object.fromEntries(late))}`);
+	}
 
 	// Each click was one step of undo.
 	await clickBlankCanvas(page);

@@ -1290,6 +1290,31 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('tells the canvas the card\'s list in the moment it draws its tiles, once for each list, so that a line changes with its tile', async () => {
+		const told: string[] = [];
+		host.didShowInputs = upstream => {
+			// The tiles of the list are drawn when the canvas is told, in the order the model's roles give them.
+			const tiles = [...mainWindow.document.querySelectorAll('.bh-video-panel .bh-input-tile')].map(tile => tile.getAttribute('data-path')).sort();
+			told.push(`${upstream.join(', ')} | tiles ${tiles.join(', ')}`);
+		};
+		const panel = await createPanel();
+		const first = [...told];
+		// Pick on Canvas connects a card: the list the panel reads next has it.
+		store.upstream = [...store.upstream, 'refs/c.png'];
+		startPick(panel).pick('refs/c.png');
+		await settle();
+		// An undo that leaves the list as it is tells nothing again.
+		lastUndo?.onDidRun?.('redo', 'applied');
+		await settle();
+		assert.deepStrictEqual({ first, told }, {
+			first: ['frames/a.png, notes/scene.md, frames/b.png | tiles frames/a.png, frames/b.png, notes/scene.md'],
+			told: [
+				'frames/a.png, notes/scene.md, frames/b.png | tiles frames/a.png, frames/b.png, notes/scene.md',
+				'frames/a.png, notes/scene.md, frames/b.png, refs/c.png | tiles frames/a.png, frames/b.png, notes/scene.md, refs/c.png'
+			]
+		});
+	});
+
 	test('Escape closes the open menu first, and then returns the focus to the card', async () => {
 		const panel = await createPanel();
 		const model = find(panel, '.bh-video-panel-model');
