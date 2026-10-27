@@ -43,10 +43,12 @@ suite('BaseHalfNoteOutlineLayout', () => {
 		assert.strictEqual(baseHalfNoteOutlineColumn(500, 800, -1).first, 0);
 	});
 
-	test('the current heading is the last above the top third, the first in view before that, and the last in view at the end', () => {
+	test('the current heading is the last above the line 64 pixels below the top, the first in view before that, and the last in view at the end', () => {
 		const height = 900;
-		// Scrolled into the second part: 0 and 1 are above the line at 300.
-		assert.strictEqual(baseHalfNoteOutlineCurrent([-500, 120, 640], height, false), 1);
+		// Scrolled into the second part: 0 and 1 are above the line at 64.
+		assert.strictEqual(baseHalfNoteOutlineCurrent([-500, 40, 640], height, false), 1);
+		// A heading that a click put 24 pixels below the top is current, though the next one is close below.
+		assert.strictEqual(baseHalfNoteOutlineCurrent([-300, 24, 130], height, false), 1);
 		// At the start of the note, the first heading lower in view.
 		assert.strictEqual(baseHalfNoteOutlineCurrent([520, 1400], height, false), 0);
 		// No heading above the line, none in view yet.

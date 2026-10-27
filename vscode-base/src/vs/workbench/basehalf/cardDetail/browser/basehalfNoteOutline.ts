@@ -86,7 +86,10 @@ export class BaseHalfNoteOutline {
 	private open = false;
 	private pendingFrame: number | undefined;
 	private observedText: HTMLElement | undefined;
+	/** The headings are read again in the next frame: the page changed. */
+	private headingsChanged = true;
 	private readonly resizeObserver: ResizeObserver;
+	private readonly mutationObserver: MutationObserver;
 	private readonly listeners: (() => void)[] = [];
 	private readonly window: Window;
 
@@ -139,13 +142,23 @@ export class BaseHalfNoteOutline {
 				this.reveal(index);
 			}
 		});
-		this.resizeObserver = new (this.window as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver(() => this.schedule());
+		const pageWindow = this.window as unknown as { ResizeObserver: typeof ResizeObserver; MutationObserver: typeof MutationObserver };
+		this.resizeObserver = new pageWindow.ResizeObserver(() => this.schedule());
 		this.resizeObserver.observe(view);
-		this.refresh();
+		// Whatever changes the text, typing, a change from outside, or the
+		// editor drawing the note at first, the outline follows it (rule 18).
+		this.mutationObserver = new pageWindow.MutationObserver(() => this.refresh());
+		this.schedule();
 	}
 
-	/** Reads the headings of the page again: after the page changed (rule 18). */
+	/** Reads the headings of the page again in the next frame: after the page changed (rule 18). */
 	refresh(): void {
+		this.headingsChanged = true;
+		this.schedule();
+	}
+
+	private readHeadings(): void {
+		this.headingsChanged = false;
 		const headings = this.options.headings();
 		if (!sameHeadings(headings, this.headings)) {
 			this.headings = headings;
@@ -153,7 +166,6 @@ export class BaseHalfNoteOutline {
 		} else {
 			this.headings = headings;
 		}
-		this.schedule();
 	}
 
 	dispose(): void {
@@ -162,6 +174,7 @@ export class BaseHalfNoteOutline {
 			this.pendingFrame = undefined;
 		}
 		this.resizeObserver.disconnect();
+		this.mutationObserver.disconnect();
 		for (const remove of this.listeners.splice(0)) {
 			remove();
 		}
@@ -244,6 +257,12 @@ export class BaseHalfNoteOutline {
 			}
 			this.observedText = text;
 			this.resizeObserver.observe(text);
+			this.mutationObserver.disconnect();
+			this.mutationObserver.observe(text, { childList: true, subtree: true, characterData: true });
+			this.headingsChanged = true;
+		}
+		if (this.headingsChanged) {
+			this.readHeadings();
 		}
 		const viewBox = view.getBoundingClientRect();
 		const viewTop = viewBox.top + view.clientTop;

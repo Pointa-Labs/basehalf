@@ -76,11 +76,14 @@ export function baseHalfNoteOutlineColumn(count: number, height: number, current
 	return { pitch: TICK_MIN_PITCH, top: middle(shown, TICK_MIN_PITCH), first, last: first + shown - 1 };
 }
 
+/** The line a heading passes to become the current one: where a click on its name puts it, and a line more (rule 16). */
+const CURRENT_LINE = BASEHALF_NOTE_OUTLINE_SCROLL_GAP + 40;
+
 /**
  * The current heading, from the tops of the headings measured from the top of
- * a view of `height`: the last one above the top third of the view; before
- * the first one reaches it, the first one if it is in view; and at the end of
- * the note the last one in view (rule 16). -1 for none.
+ * a view of `height`: the last one above the line 64 pixels below the top of
+ * the view; before the first one reaches it, the first one if it is in view;
+ * and at the end of the note the last one in view (rule 16). -1 for none.
  */
 export function baseHalfNoteOutlineCurrent(tops: readonly number[], height: number, atEnd: boolean): number {
 	if (tops.length === 0) {
@@ -97,7 +100,7 @@ export function baseHalfNoteOutlineCurrent(tops: readonly number[], height: numb
 			return last;
 		}
 	}
-	const line = height / 3;
+	const line = Math.min(CURRENT_LINE, height / 3);
 	let current = -1;
 	for (let index = 0; index < tops.length && tops[index] <= line; index++) {
 		current = index;

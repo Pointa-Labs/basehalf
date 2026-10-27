@@ -1731,9 +1731,6 @@ function MarkdownRichEditor(): JSX.Element {
 		return () => window.removeEventListener('wheel', onWheel, { capture: true });
 	}, []);
 
-	// The outline follows every change of the note (rule 18).
-	useEffect(() => editor.onChange(() => readingAids.current?.outline.refresh()), [editor]);
-
 	const handleIncomingInit = useCallback(async (payload: IIncomingInit): Promise<void> => {
 		// A payload that a newer arrival superseded — whether parked during
 		// composition and replayed late, or overtaken at an await point — must
