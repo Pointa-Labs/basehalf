@@ -1296,6 +1296,16 @@ side it was on. A menu or popover of the panel opens upward when there is no
 room below, stays inside the canvas, and scrolls inside itself; a menu of the
 footer that opens below opens below the panel.
 
+**A panel shows in the shape it keeps** (D91). The panel of a draft and the
+panel of a card with its file show once they have read the card and its
+inputs, so that their first frame already has the input row and the tiles the
+card has, and the height that goes with them; nothing grows or moves in. Until
+then the panel the canvas showed stays where it was, and the new one takes its
+place in the same drawing, so that no frame is without a panel when another
+card is selected. A panel that is still reading after 300 ms shows as it is,
+so that a slow disk never keeps it away; a panel still reading when yet
+another card is selected is never shown.
+
 ## The card
 
 What a generation card shows follows its phase (`baseHalfGenerationPhase`):
@@ -2429,6 +2439,12 @@ Each kind's panel (D91)
     highlighted with the accent and tells assistive technology what a click
     does, the bar over the canvas shows, and a second click on the button,
     Done, or Escape ends picking.
+98. Selecting an image draft with an input shows its panel with the row and
+    its tile, 188 px tall, from its first frame, and one without an input at
+    132 px; switching between the two shows a panel in every frame, each in
+    its own shape from the first frame it is drawn in. While a draft of any
+    kind generates, no button that adds an input can be reached by the
+    pointer, the keyboard, or assistive technology.
 
 ## Verification
 
@@ -2527,9 +2543,13 @@ Each kind's panel (D91)
 - Unit tests for D91: the parts of each kind's panel and their order, an
   image card's row that comes with its first input and goes with its last,
   its two buttons in the footer, also while it picks and while it
-  generates, the video and audio panels as they were, and the kind's panel
-  that the panel host creates (`basehalfVideoNodePanel.test.ts`,
-  `basehalfCanvasVideoPanel.contribution.test.ts`); the buttons the input
+  generates, the video and audio panels as they were, the controls no one
+  reaches while a draft of each kind generates, a panel that is ready in the
+  shape it keeps, and the kind's panel that the panel host creates
+  (`basehalfVideoNodePanel.test.ts`); the panel shown once it has read its
+  card, the panel before it kept until then, one still reading that is never
+  shown, and the 300 ms after which a panel shows as it is
+  (`basehalfCanvasVideoPanel.contribution.test.ts`); the buttons the input
   row holds (`basehalfGenerationInputRow.test.ts`);
   the count's buttons from 1 to as far as the model makes, in rows, and the
   model menu's line (`basehalfGenerationKindParts.test.ts`).
