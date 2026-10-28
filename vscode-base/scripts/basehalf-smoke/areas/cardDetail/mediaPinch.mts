@@ -137,40 +137,55 @@ function decodePng(png) {
 }
 
 /**
- * Under the player of a zoomed video, down to the frame viewer, the window shows only Card Detail's background:
- * the band of the viewer meets the player's bottom edge, and no sliver of the picture shows between them (editing
- * media, "Zooming the picture and the time"). The rows checked stop 6 pixels above the strip, where its playhead
- * and its frame reach.
+ * Editing media, criterion 33 (D101): a zoomed video shows under the frame viewer as a phone's photos show under its
+ * bars. The picture reaches below the player's box, under the viewer, which stands on its translucent backing, and the
+ * rows between the player and the strip are mostly the picture's: no band of Card Detail's background hides it.
  */
-async function assertNothingUnderPlayer(page, when) {
+async function assertPictureUnderViewer(page, when) {
 	const geometry = await page.evaluate(({ player, frames }) => {
 		const box = document.querySelector(player).getBoundingClientRect();
+		const picture = document.querySelector(`${player} video`).getBoundingClientRect();
 		const area = document.querySelector('.basehalf-card-detail-surface.active .basehalf-card-detail-media-webview').getBoundingClientRect();
 		const strip = document.querySelector(`${frames} .basehalf-video-frames-strip`).getBoundingClientRect();
-		const background = getComputedStyle(document.querySelector('.basehalf-card-detail.visible')).backgroundColor;
-		return { bottom: box.bottom, stripTop: strip.top, left: area.left, right: area.right, background };
+		return {
+			bottom: box.bottom, pictureBottom: picture.bottom, stripTop: strip.top, stripBottom: strip.bottom,
+			left: Math.max(area.left, picture.left), right: Math.min(area.right, picture.right),
+			background: getComputedStyle(document.querySelector('.basehalf-card-detail.visible')).backgroundColor,
+			backing: getComputedStyle(document.querySelector(frames), '::before').opacity
+		};
 	}, { player: PLAYER, frames: FRAMES });
 	const top = Math.ceil(geometry.bottom);
 	const height = Math.floor(geometry.stripTop) - 6 - top;
 	const left = Math.ceil(geometry.left) + 1;
 	const width = Math.floor(geometry.right) - 1 - left;
-	if (height < 1 || width < 1) {
-		throw new Error(`The frame viewer stands under the player, with room between them: ${JSON.stringify(geometry)}`);
+	if (height < 1 || width < 1 || geometry.pictureBottom <= geometry.stripBottom || geometry.backing !== '1') {
+		throw new Error(`${when}: the zoomed picture reaches under the frame viewer, which stands on its backing: ${JSON.stringify(geometry)}`);
 	}
 	const shot = decodePng(await page.screenshot({ clip: { x: left, y: top, width, height } }));
 	const background = (geometry.background.match(/\d+/g) ?? []).slice(0, 3).map(Number);
-	let different = 0;
-	let first;
+	let same = 0;
 	for (let index = 0; index < shot.width * shot.height; index++) {
 		const pixel = Array.from(shot.pixels.subarray(index * shot.channels, index * shot.channels + 3));
-		if (pixel.some((value, channel) => Math.abs(value - background[channel]) > 6)) {
-			different++;
-			first ??= { x: index % shot.width, y: Math.floor(index / shot.width), pixel };
+		if (pixel.every((value, channel) => Math.abs(value - background[channel]) <= 6)) {
+			same++;
 		}
 	}
-	if (different) {
-		throw new Error(`${when}: under the player, down to the frame viewer, no picture shows, only Card Detail's background: ${different} of ${shot.width * shot.height} pixels are not ${geometry.background}, first ${JSON.stringify(first)}, rows ${top} to ${top + height}`);
+	if (same > shot.width * shot.height / 2) {
+		throw new Error(`${when}: under the player, down to the frame viewer, the picture shows, not a band of Card Detail's background: ${same} of ${shot.width * shot.height} pixels are ${geometry.background}, rows ${top} to ${top + height}`);
 	}
+}
+
+/** Where the zoomed picture and the media area stand, and whether each edge of the picture keeps outside the area or stands on it (D101). */
+async function readEdges(page) {
+	return page.evaluate(player => {
+		const picture = document.querySelector(`${player} video`).getBoundingClientRect();
+		const area = document.querySelector('.basehalf-card-detail-surface.active .basehalf-card-detail-media-webview').getBoundingClientRect();
+		const round = value => Math.round(value * 10) / 10;
+		return {
+			picture: { left: round(picture.left), top: round(picture.top), right: round(picture.right), bottom: round(picture.bottom) },
+			area: { left: round(area.left), top: round(area.top), right: round(area.right), bottom: round(area.bottom) }
+		};
+	}, PLAYER);
 }
 
 async function readPlayer(page) {
@@ -208,21 +223,40 @@ async function assertVideoPinch(page) {
 	const zoomed = await readPlayer(page);
 	const zoom = zoomed.rect.width / zoomed.box.width;
 	const under = { x: zoomed.rect.x + zoomed.rect.width / 2 + fromMiddle.x * zoom, y: zoomed.rect.y + zoomed.rect.height / 2 + fromMiddle.y * zoom };
-	if (Math.abs(zoom - 1.6) > 0.01 || Math.hypot(under.x - at.x, under.y - at.y) > 2
+	// The point stays under the pointer along each side where no edge of the picture stands on the media area's (D101).
+	const edges = await readEdges(page);
+	const held = (point, pointer, near, far, areaNear, areaFar) => Math.abs(point - pointer) <= 2 || Math.abs(near - areaNear) <= 1 || Math.abs(far - areaFar) <= 1;
+	if (Math.abs(zoom - 1.6) > 0.01 || !held(under.x, at.x, edges.picture.left, edges.picture.right, edges.area.left, edges.area.right)
+		|| !held(under.y, at.y, edges.picture.top, edges.picture.bottom, edges.area.top, edges.area.bottom)
 		|| JSON.stringify(zoomed.box) !== JSON.stringify(before.box) || JSON.stringify(zoomed.bar) !== JSON.stringify(before.bar)
 		|| !(zoomed.rect.x < zoomed.box.x - 1 && zoomed.rect.y < zoomed.box.y - 1 && zoomed.rect.x + zoomed.rect.width > zoomed.box.x + zoomed.box.width + 1)) {
-		throw new Error(`A pinch by 1.6 over the picture of a video draws it 1.6 times larger, past its player's box, the point under the pointer staying under it, the player and its controls at their size: ${JSON.stringify({ before, zoomed, zoom, under, at })}`);
+		throw new Error(`A pinch by 1.6 over the picture of a video draws it 1.6 times larger, past its player's box, the point under the pointer staying under it as far as the picture's edges allow, the player and its controls at their size: ${JSON.stringify({ before, zoomed, zoom, under, at, edges })}`);
 	}
-	await assertNothingUnderPlayer(page, 'Zoomed in by a pinch');
-	// Criterion 20: a two-finger swipe moves the zoomed picture with the fingers, and zooms nothing.
+	await assertPictureUnderViewer(page, 'Zoomed in by a pinch');
+	// Criterion 20: a two-finger swipe moves the zoomed picture with the fingers, and zooms nothing. Up and to the right,
+	// the picture moves down and to the left, away from the area's bottom edge, which its own bottom edge is near.
 	await page.mouse.move(at.x, at.y);
-	await page.mouse.wheel(50, 30);
+	await page.mouse.wheel(50, -30);
 	await page.waitForTimeout(250);
 	const swiped = await readPlayer(page);
-	if (Math.abs(swiped.rect.width - zoomed.rect.width) > 0.5 || Math.abs(swiped.rect.x - (zoomed.rect.x - 50)) > 1 || Math.abs(swiped.rect.y - (zoomed.rect.y - 30)) > 1) {
+	if (Math.abs(swiped.rect.width - zoomed.rect.width) > 0.5 || Math.abs(swiped.rect.x - (zoomed.rect.x - 50)) > 1 || Math.abs(swiped.rect.y - (zoomed.rect.y + 30)) > 1) {
 		throw new Error(`A swipe moves the zoomed picture with the fingers and zooms nothing: ${JSON.stringify({ zoomed: zoomed.rect, swiped: swiped.rect })}`);
 	}
-	await assertNothingUnderPlayer(page, 'Moved by a swipe');
+	await assertPictureUnderViewer(page, 'Moved by a swipe');
+	// Criterion 33: a swipe far toward the top left takes the picture only as far as its own edges: its top left corner
+	// stops on the media area's, and no room around it shows; a swipe far the other way stops its bottom right corner so.
+	await page.mouse.wheel(-6000, -6000);
+	await page.waitForTimeout(250);
+	const topLeft = await readEdges(page);
+	await page.mouse.wheel(6000, 6000);
+	await page.waitForTimeout(250);
+	const bottomRight = await readEdges(page);
+	await page.mouse.wheel(-6000, -6000);
+	await page.waitForTimeout(250);
+	if (Math.abs(topLeft.picture.left - topLeft.area.left) > 1 || Math.abs(topLeft.picture.top - topLeft.area.top) > 1
+		|| Math.abs(bottomRight.picture.right - bottomRight.area.right) > 1 || Math.abs(bottomRight.picture.bottom - bottomRight.area.bottom) > 1) {
+		throw new Error(`A zoomed picture moves only as far as its own edges, which stop on the media area's: ${JSON.stringify({ topLeft, bottomRight })}`);
+	}
 
 	// A drag moves the zoomed picture and plays nothing; a click plays it.
 	const middle = { x: before.box.x + before.box.width / 2, y: before.box.y + before.box.height / 2 };

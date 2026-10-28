@@ -141,7 +141,9 @@
 	container-type: inline-size;
 }
 
-.monaco-workbench .basehalf-canvas-video-player {
+/* The backing of the player's controls, and of Card Detail's controls over a zoomed picture (D98, D101). */
+.monaco-workbench .basehalf-canvas-video-player,
+.monaco-workbench .basehalf-card-detail-media-webview {
 	--basehalf-video-control-backing: rgb(24 24 26 / 62%);
 	--basehalf-video-control-blur: blur(12px) saturate(140%);
 	--basehalf-video-control-edge: inset 0 0 0 0.5px rgb(255 255 255 / 14%), 0 1px 3px rgb(0 0 0 / 18%);

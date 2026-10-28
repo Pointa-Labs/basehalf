@@ -216,7 +216,7 @@
  * height of the space.
  */
 .monaco-workbench .basehalf-card-detail-video-stage {
-	/* The room between the player and the frame viewer, which the viewer's band covers from the player's bottom edge. */
+	/* The room between the player and the frame viewer. */
 	--basehalf-video-stage-gap: 12px;
 	display: flex;
 	flex-direction: column;
@@ -261,31 +261,49 @@
 
 /*
  * The frame viewer and the line under the editor keep their place over a
- * zoomed picture, as a browser's toolbar does over its page: a band of the
- * background, as wide as the media area, stands behind them from the
- * player's bottom edge down, and hides the picture there, so that no sliver
- * of it shows between the player and the viewer. At rest it covers nothing.
+ * zoomed picture, which shows under them as a phone's photos show under its
+ * bars (editing media, "Zooming the picture and the time", D101): while the
+ * picture is zoomed in, they stand on a translucent backing that blurs it,
+ * the player's controls' (D98), 6 px around them; at rest they stand on Card
+ * Detail's background, and the backing is not there.
  */
-.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames {
+.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames,
+.monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line {
 	position: relative;
 	z-index: 1;
 }
 
-.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before {
+.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before,
+.monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line::before {
 	content: '';
 	position: absolute;
 	z-index: -1;
-	top: calc(-1 * var(--basehalf-video-stage-gap));
-	left: -100vw;
-	right: -100vw;
-	height: 100vh;
-	background: var(--vscode-editor-background);
+	inset: -6px -20px;
+	border-radius: 10px;
+	background: var(--basehalf-video-control-backing);
+	-webkit-backdrop-filter: var(--basehalf-video-control-blur);
+	backdrop-filter: var(--basehalf-video-control-blur);
+	box-shadow: var(--basehalf-video-control-edge);
+	opacity: 0;
+	transition: opacity 150ms ease-out;
 	pointer-events: none;
 }
 
-.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-media-edit-line {
-	position: relative;
-	z-index: 1;
+.monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line::before {
+	inset: -4px -10px;
+	border-radius: 8px;
+}
+
+.monaco-workbench .basehalf-card-detail-media-webview.basehalf-picture-zoomed-area .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before,
+.monaco-workbench .basehalf-card-detail-media-webview.basehalf-picture-zoomed-area .basehalf-media-edit-line:has(.basehalf-media-edit-line-part:not([hidden]))::before {
+	opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before,
+	.monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line::before {
+		transition: none;
+	}
 }
 
 .monaco-workbench .basehalf-canvas-video-player.detail.basehalf-picture-panning .basehalf-canvas-video-player-video {

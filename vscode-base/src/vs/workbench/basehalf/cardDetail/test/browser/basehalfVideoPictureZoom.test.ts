@@ -59,6 +59,11 @@ suite('BaseHalfVideoPictureZoom', () => {
 		return { area, player, video, control, zoom, clicks, observer: TestResizeObserver.last! };
 	}
 
+	/** A pinch settles within the picture's edges 150 ms after it rests, in a glide of 200 ms (D101): the test waits for it. */
+	function settled(): Promise<void> {
+		return new Promise(resolve => setTimeout(resolve, 420));
+	}
+
 	function pinch(target: HTMLElement, x: number, y: number, scale: number, steps = 25): void {
 		for (let index = 0; index < steps; index++) {
 			target.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 * Math.log(scale) / steps, ctrlKey: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
@@ -80,77 +85,101 @@ suite('BaseHalfVideoPictureZoom', () => {
 		return { left: round(rect.left), top: round(rect.top), width: round(rect.width), height: round(rect.height) };
 	}
 
-	test('a pinch zooms the place under the pointer past the player\'s box, as a browser zooms its page, up to 5 times as it fits', () => {
+	test('a pinch zooms the place under the pointer past the player\'s box over the area, up to 5 times as it fits, and settles within the picture\'s edges (D96, D101)', async () => {
 		const { video, player, zoom } = setUp();
-		const at = { x: 500, y: 300 };
-		// Where the pointer is on the picture at rest, from its left and its top.
-		const before = { x: (at.x - 200) / 1000, y: (at.y - 100) / 562 };
-		pinch(video, at.x, at.y, 1.6);
+		pinch(video, 700, 450, 2);
 		const level = round(zoom.state.zoom);
-		const rect = video.getBoundingClientRect();
-		const under = { x: round((at.x - rect.left) / rect.width), y: round((at.y - rect.top) / rect.height) };
-		const grown = rectOf(video);
+		await settled();
+		const grown = video.getBoundingClientRect();
+		// Larger than the area both ways, a pinch keeps what is under the pointer under it.
+		const at = { x: 800, y: 500 };
+		const under = () => {
+			const rect = video.getBoundingClientRect();
+			return { x: round((at.x - rect.left) / rect.width), y: round((at.y - rect.top) / rect.height) };
+		};
+		const before = under();
+		pinch(video, at.x, at.y, 1.5);
+		const after = under();
 		pinch(video, at.x, at.y, 10);
 		assert.deepStrictEqual({
 			level,
-			under,
-			grown,
+			size: { width: round(grown.width), height: round(grown.height) },
+			// It covers the area: none of its edges stands inside it.
+			covers: grown.left <= 0 && grown.top <= 0 && grown.right >= 1400 && grown.bottom >= 900,
+			stays: after.x === before.x && after.y === before.y,
 			player: rectOf(player),
 			largest: round(zoom.state.zoom)
 		}, {
-			level: 1.6,
-			under: { x: round(before.x), y: round(before.y) },
-			// Past the player's box on every side.
-			grown: { left: 20, top: -20, width: 1600, height: 899.2 },
+			level: 2,
+			size: { width: 2000, height: 1124 },
+			covers: true,
+			stays: true,
 			player: { left: 200, top: 100, width: 1000, height: 562 },
 			// The video of 854 pixels fits at 1,000: 5 times that is more than twice its pixels.
 			largest: 5
 		});
 	});
 
-	test('a two-finger swipe moves the zoomed picture and zooms nothing; as it fits it moves nothing', () => {
+	test('a two-finger swipe moves the zoomed picture and zooms nothing; as it fits it moves nothing', async () => {
 		const { video, zoom } = setUp();
 		const atRest = swipe(video, 0, 120);
 		const rest = { prevented: atRest.defaultPrevented, state: zoom.state, transform: video.style.transform };
 		pinch(video, 700, 400, 2);
+		await settled();
 		const zoomed = zoom.state;
-		const moving = swipe(video, 50, 30);
+		const moving = swipe(video, 50, -20);
 		assert.deepStrictEqual({
 			rest,
 			moved: { prevented: moving.defaultPrevented, zoom: round(zoom.state.zoom), by: { x: round(zoom.state.origin.x - zoomed.origin.x), y: round(zoom.state.origin.y - zoomed.origin.y) } }
 		}, {
 			rest: { prevented: false, state: { zoom: 1, origin: { x: 0, y: 0 } }, transform: '' },
-			// The picture follows the fingers: a swipe to the right and down moves it to the left and up.
-			moved: { prevented: true, zoom: 2, by: { x: -50, y: -30 } }
+			// The picture follows the fingers: a swipe to the right and up moves it to the left and down.
+			moved: { prevented: true, zoom: 2, by: { x: -50, y: 20 } }
 		});
 	});
 
-	test('a pinch over the room around the picture zooms it too; one over a control of Card Detail is the control\'s', () => {
-		const { area, control, zoom } = setUp();
+	test('a pinch over the room around the picture zooms it too; one over a control of Card Detail is the control\'s', async () => {
+		const { area, video, control, zoom } = setUp();
 		pinch(control, 600, 720, 2);
 		const overControl = round(zoom.state.zoom);
 		pinch(area, 100, 50, 2);
-		const origin = { x: round(zoom.state.origin.x), y: round(zoom.state.origin.y) };
-		assert.deepStrictEqual({ overControl, overRoom: round(zoom.state.zoom), origin }, { overControl: 1, overRoom: 2, origin: { x: -100, y: -50 } });
+		await settled();
+		const rect = video.getBoundingClientRect();
+		// Near the area's top left, the picture's top left corner stops at it, and no room around it shows (D101).
+		assert.deepStrictEqual({ overControl, overRoom: round(zoom.state.zoom), covers: rect.left <= 0 && rect.top <= 0 && rect.right >= 1400 && rect.bottom >= 900 }, { overControl: 1, overRoom: 2, covers: true });
 	});
 
-	test('the zoomed area is never moved off itself', () => {
-		const { video, zoom } = setUp();
+	test('a zoomed picture moves only as far as its own edges, so that no room around it shows (D101)', () => {
+		const { video } = setUp();
 		pinch(video, 700, 450, 2);
 		for (let index = 0; index < 20; index++) {
 			swipe(video, -200, -200);
 		}
-		const topLeft = zoom.state.origin;
+		const topLeft = video.getBoundingClientRect();
 		for (let index = 0; index < 40; index++) {
 			swipe(video, 200, 200);
 		}
-		const bottomRight = { x: round(zoom.state.origin.x), y: round(zoom.state.origin.y) };
-		assert.deepStrictEqual({ topLeft, bottomRight }, { topLeft: { x: 0, y: 0 }, bottomRight: { x: -1400, y: -900 } });
+		const bottomRight = video.getBoundingClientRect();
+		assert.deepStrictEqual({
+			topLeft: { left: round(topLeft.left), top: round(topLeft.top) },
+			bottomRight: { right: round(bottomRight.right), bottom: round(bottomRight.bottom) }
+		}, { topLeft: { left: 0, top: 0 }, bottomRight: { right: 1400, bottom: 900 } });
 	});
 
-	test('a drag moves the zoomed picture, and its click reaches no control', () => {
+	test('Edit glides a zoomed picture back to as it fits (D97, D101)', async () => {
+		const { video, zoom, area } = setUp();
+		pinch(video, 700, 450, 3);
+		zoom.fit();
+		await new Promise(resolve => setTimeout(resolve, 320));
+		assert.deepStrictEqual({ state: zoom.state, transform: video.style.transform, zoomedArea: area.classList.contains('basehalf-picture-zoomed-area') }, {
+			state: { zoom: 1, origin: { x: 0, y: 0 } }, transform: '', zoomedArea: false
+		});
+	});
+
+	test('a drag moves the zoomed picture, and its click reaches no control', async () => {
 		const { video, zoom, clicks } = setUp();
 		pinch(video, 700, 381, 1.6);
+		await settled();
 		const before = zoom.state.origin;
 		pointer(video, 'pointerdown', 700, 381);
 		pointer(video, 'pointermove', 750, 400);
@@ -163,12 +192,14 @@ suite('BaseHalfVideoPictureZoom', () => {
 		pointer(video, 'pointermove', 701, 382);
 		pointer(video, 'pointerup', 701, 382);
 		video.dispatchEvent(new MouseEvent('click', { clientX: 701, clientY: 382, bubbles: true, cancelable: true }));
-		assert.deepStrictEqual({ dragged, clicks: clicks.length }, { dragged: { by: { x: 100, y: 39 }, clicks: 0 }, clicks: 1 });
+		// 1.6 times as large, it is wider than the area and as high as it: it moves sideways only (D101).
+		assert.deepStrictEqual({ dragged, clicks: clicks.length }, { dragged: { by: { x: 100, y: 0 }, clicks: 0 }, clicks: 1 });
 	});
 
-	test('Escape during a drag puts the picture back where it was', () => {
+	test('Escape during a drag puts the picture back where it was', async () => {
 		const { video, zoom } = setUp();
 		pinch(video, 700, 381, 1.6);
+		await settled();
 		const before = zoom.state;
 		pointer(video, 'pointerdown', 700, 381);
 		pointer(video, 'pointermove', 600, 350);
@@ -187,14 +218,15 @@ suite('BaseHalfVideoPictureZoom', () => {
 		area.style.height = '450px';
 		observer.fire();
 		const after = zoom.state;
+		const rect = video.getBoundingClientRect();
 		zoom.dispose();
 		const small = setUp(320, 180);
 		pinch(small.video, 500, 281, 20);
 		assert.deepStrictEqual({
 			level: [round(before.zoom), round(after.zoom)],
-			// The area's top left moves half as far in an area half as wide.
-			origin: round(after.origin.x / before.origin.x),
+			// The picture still covers the smaller area, its edges outside it (D101).
+			covers: rect.left <= 0 && rect.top <= 0 && rect.right >= 700 && rect.bottom >= 450,
 			small: round(small.zoom.state.zoom)
-		}, { level: [1.5, 1.5], origin: 0.5, small: 5 });
+		}, { level: [1.5, 1.5], covers: true, small: 5 });
 	});
 });

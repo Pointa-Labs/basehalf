@@ -223,6 +223,8 @@ async function pressCardDetailMode(page, from, to) {
 	await waitForViewTransitions(page);
 	await page.locator(MODE_BUTTON).click();
 	await page.waitForFunction(({ selector, to }) => document.querySelector(selector)?.getAttribute('aria-label') === to, { selector: MODE_BUTTON, to }, { timeout: 5_000 });
+	// Edit and Done glide the frame viewer's stretch for 250 ms (D101): a user sees the strip at rest after it.
+	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible .basehalf-video-frames.gliding'), undefined, { timeout: 5_000 });
 }
 
 /** Edit, in the header of Card Detail, shows the editor of the video, the image, or the sound that it views. */

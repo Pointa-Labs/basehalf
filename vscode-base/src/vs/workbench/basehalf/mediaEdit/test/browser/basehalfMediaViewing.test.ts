@@ -91,6 +91,11 @@ suite('BaseHalfMediaViewing', () => {
 		return { disposables, container };
 	}
 
+	/** Edit and Done glide the frame viewer's stretch for 250 ms (D101): the test waits for it to end. */
+	function glided(): Promise<void> {
+		return new Promise(resolve => setTimeout(resolve, 340));
+	}
+
 	function press(target: Element, x: number): void {
 		target.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, clientX: x, clientY: 20, bubbles: true, cancelable: true }));
 	}
@@ -140,18 +145,38 @@ suite('BaseHalfMediaViewing', () => {
 			release(strip, bounds.left + bounds.width / 2);
 		});
 
-		test('Edit shows the whole original with the handles and the part over and over; Done shows the file again', () => {
+		test('Edit shows the whole original with the handles and the part over and over; Done shows the file again, each in a glide of 250 ms (D101)', async () => {
 			const { viewer, element, strip, handles, player } = setUp();
 			viewer.setEditing(true);
+			await glided();
 			assert.ok(!element.classList.contains('viewing'));
 			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['0.000', '5.000']);
 			assert.deepStrictEqual(handles.map(handle => [handle.tabIndex, handle.getAttribute('aria-hidden')]), [[0, null], [0, null]]);
 			assert.strictEqual(player.range?.once, undefined);
 			assert.deepStrictEqual([player.range?.start, player.range?.end], [1, 4.5]);
 			viewer.setEditing(false);
+			await glided();
 			assert.ok(element.classList.contains('viewing'));
 			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['1.000', '4.500']);
 			assert.strictEqual(player.range?.once, true);
+		});
+
+		test('the pictures of the part kept stay while Edit shows the whole original, and show again at once with Done (D101)', async () => {
+			const { viewer, element } = setUp();
+			const sets = () => Array.from(element.querySelectorAll('.basehalf-video-frames-pictures.zoom .basehalf-video-frames-set'));
+			await glided();
+			const before = sets();
+			viewer.setEditing(true);
+			await glided();
+			const whileEditing = sets();
+			viewer.setEditing(false);
+			await glided();
+			const after = sets();
+			assert.deepStrictEqual({
+				before: before.map(set => set.classList.contains('pending')),
+				kept: whileEditing.length === 1 && whileEditing[0] === before[0],
+				again: after.length === 1 && after[0] === before[0]
+			}, { before: [false], kept: true, again: true });
 		});
 
 		test('a handle\'s keys and I and O change the part only while editing', () => {
@@ -198,7 +223,7 @@ suite('BaseHalfMediaViewing', () => {
 			assert.deepStrictEqual({ keyboard, toggles: player.toggles }, { keyboard: [true, true], toggles: 1 });
 		});
 
-		test('a pinch over the strip spreads its time only while editing', () => {
+		test('a pinch over the strip spreads its time only while editing', async () => {
 			const { viewer, strip } = setUp({});
 			const viewing = pinch(strip, 300);
 			assert.strictEqual(viewing.defaultPrevented, false);
@@ -209,6 +234,7 @@ suite('BaseHalfMediaViewing', () => {
 			assert.notStrictEqual(strip.dataset.to, '5.000');
 			// Done shows the file's length again.
 			viewer.setEditing(false);
+			await glided();
 			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['0.000', '5.000']);
 		});
 	});

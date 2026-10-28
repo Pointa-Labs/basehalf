@@ -7,11 +7,15 @@ import { addDisposableListener, getWindow } from '../../../../base/browser/dom.j
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { IBaseHalfSize } from '../../mediaEdit/common/basehalfImageCrop.js';
-import { BASEHALF_PAGE_AT_REST, baseHalfClampPageZoom, baseHalfContainedSize, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../../mediaEdit/common/basehalfMediaZoom.js';
+import { BaseHalfPageZoomGlide } from '../../mediaEdit/browser/basehalfPageZoomGlide.js';
+import { baseHalfStripClock } from '../../mediaEdit/browser/basehalfTimeZoom.js';
+import { BASEHALF_PAGE_AT_REST, baseHalfClampPageZoom, baseHalfContainedSize, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageFollowing, IBaseHalfPageZoom, IBaseHalfPictureBox } from '../../mediaEdit/common/basehalfMediaZoom.js';
 import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../common/basehalfNoteZoom.js';
 
 /** A press that moves less than this, in pixels, is a click, which plays and pauses the video. */
 const DRAG_THRESHOLD = 3;
+/** The media area of Card Detail while its picture is zoomed in: its controls float there on their backings (D101). */
+const ZOOMED_AREA_CLASS = 'basehalf-picture-zoomed-area';
 
 interface IPan {
 	readonly pointerId: number;
@@ -30,9 +34,10 @@ interface IPan {
  * over the area, from as it fits to 5 times that or twice its pixels; a
  * two-finger swipe and the wheel move it while it is zoomed in, as on the
  * canvas, and so does a drag on the picture, whose click neither plays nor
- * pauses the video. The player keeps its place and size, and its controls
- * their size; Card Detail's controls in the area keep theirs over the
- * picture, and a gesture over them is theirs.
+ * pauses the video. It moves within its own edges, as a phone's photos do
+ * (D101). The player keeps its place and size, and its controls their size;
+ * Card Detail's controls in the area float over the picture, and a gesture
+ * over them is theirs.
  */
 export class BaseHalfVideoPictureZoom extends Disposable {
 
@@ -42,6 +47,8 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 	/** A drag of the picture ended: the click that follows it is the drag's. */
 	private dragEnded = false;
 	private areaSize: IBaseHalfSize;
+	/** A pinch settles within the picture's edges once it rests, and Edit glides the picture back to as it fits (D101). */
+	private readonly glide: BaseHalfPageZoomGlide;
 
 	constructor(
 		private readonly player: HTMLElement,
@@ -54,6 +61,10 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 	) {
 		super();
 		this.areaSize = this.size();
+		this.glide = this._register(new BaseHalfPageZoomGlide(baseHalfStripClock(getWindow(player)), () => this.page, page => {
+			this.page = page;
+			this.apply();
+		}));
 		this._register(addDisposableListener(area, 'wheel', event => this.onWheel(event), { passive: false }));
 		if (area !== player && !area.contains(player)) {
 			this._register(addDisposableListener(player, 'wheel', event => this.onWheel(event), { passive: false }));
@@ -92,12 +103,28 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 			this.video.style.transform = '';
 			this.video.style.transformOrigin = '';
 			this.player.classList.remove('basehalf-picture-zoomed', 'basehalf-picture-panning');
+			this.area.classList.remove(ZOOMED_AREA_CLASS);
 		}));
 	}
 
 	/** How much larger than as it fits the picture shows, and where the zoomed area's top left stands, in pixels of the area. */
 	get state(): IBaseHalfPageZoom {
 		return this.page;
+	}
+
+	/** Glides a zoomed picture back to as it fits, as Edit shows it (D97, D101); as it fits, nothing happens. */
+	fit(): void {
+		if (this.drag) {
+			this.page = this.drag.before;
+			this.endDrag();
+		}
+		this.glide.glide(BASEHALF_PAGE_AT_REST);
+	}
+
+	/** Where a pinch's zoom settles once it rests: within the picture's edges, and where it rests as it fits (D101). */
+	private settled(): IBaseHalfPageZoom {
+		this.areaSize = this.size();
+		return baseHalfClampPageZoom(this.page, this.areaSize, this.pictureBox());
 	}
 
 	/** Where the zoomed picture may show: the media area, or the player while it fills the screen. */
@@ -108,6 +135,13 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 	private size(): IBaseHalfSize {
 		const area = this.currentArea();
 		return { width: area.clientWidth, height: area.clientHeight };
+	}
+
+	/** Where the picture stands in the area at rest: the player's box, which the video fills and whose transform is none. */
+	private pictureBox(): IBaseHalfPictureBox {
+		const area = this.currentArea().getBoundingClientRect();
+		const rest = this.player.getBoundingClientRect();
+		return { x: rest.left - area.left, y: rest.top - area.top, width: rest.width, height: rest.height };
 	}
 
 	private maxZoom(): number {
@@ -125,9 +159,11 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 			// A pinch, or the wheel with the zoom key: the place under the pointer grows, as a page does.
 			event.preventDefault();
 			event.stopPropagation();
+			// It follows the fingers, past the picture's edges if they go there, and settles within them once the pinch rests.
 			const bounds = this.currentArea().getBoundingClientRect();
-			this.page = baseHalfZoomPageAround(this.page, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, baseHalfNoteZoomFactor(event), this.maxZoom(), this.areaSize);
+			this.page = baseHalfZoomPageFollowing(this.page, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, baseHalfNoteZoomFactor(event), this.maxZoom());
 			this.apply();
+			this.glide.pinched(() => this.settled());
 			return;
 		}
 		if (this.page.zoom <= 1) {
@@ -136,7 +172,8 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.page = baseHalfMovePage(this.page, baseHalfWheelMove(event), this.areaSize);
+		this.glide.stop();
+		this.page = baseHalfMovePage(this.page, baseHalfWheelMove(event), this.areaSize, this.pictureBox());
 		this.apply();
 	}
 
@@ -145,6 +182,10 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 		if (event.button !== 0 || this.page.zoom <= 1) {
 			return;
 		}
+		// A pinch that has not settled yet does at once.
+		this.glide.stop();
+		this.page = this.settled();
+		this.apply();
 		this.drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, before: this.page, moved: false };
 		try {
 			this.video.setPointerCapture(event.pointerId);
@@ -164,7 +205,7 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 			return;
 		}
 		drag.moved = true;
-		this.page = baseHalfMovePage(drag.before, { x: dx, y: dy }, this.areaSize);
+		this.page = baseHalfMovePage(drag.before, { x: dx, y: dy }, this.areaSize, this.pictureBox());
 		this.apply();
 	}
 
@@ -193,6 +234,7 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 
 	/** An area of another size, as Full Screen or a narrower Card Detail makes it: the zoom stays as far as the size allows. */
 	private layout(): void {
+		this.glide.stop();
 		const before = this.areaSize;
 		this.areaSize = this.size();
 		if (this.page.zoom <= 1 || before.width <= 0) {
@@ -200,7 +242,7 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 			return;
 		}
 		const ratio = this.areaSize.width / before.width;
-		this.page = baseHalfClampPageZoom({ zoom: Math.min(this.page.zoom, this.maxZoom()), origin: { x: this.page.origin.x * ratio, y: this.page.origin.y * ratio } }, this.areaSize);
+		this.page = baseHalfClampPageZoom({ zoom: Math.min(this.page.zoom, this.maxZoom()), origin: { x: this.page.origin.x * ratio, y: this.page.origin.y * ratio } }, this.areaSize, this.pictureBox());
 		this.apply();
 	}
 
@@ -225,5 +267,6 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 		}
 		this.player.classList.toggle('basehalf-picture-zoomed', zoomed);
 		this.player.classList.toggle('basehalf-picture-panning', !!this.drag?.moved);
+		this.area.classList.toggle(ZOOMED_AREA_CLASS, zoomed);
 	}
 }

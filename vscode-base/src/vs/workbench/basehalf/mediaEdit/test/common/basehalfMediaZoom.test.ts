@@ -15,12 +15,14 @@ import {
 	baseHalfMovePage,
 	baseHalfMoveStretch,
 	baseHalfPagePoint,
+	baseHalfPageZoomToward,
 	baseHalfPictureMaxZoom,
 	baseHalfSpreadStretch,
 	baseHalfStretchShowing,
 	baseHalfStretchWheelSeconds,
 	baseHalfWheelMove,
 	baseHalfZoomPageAround,
+	baseHalfZoomPageFollowing,
 	IBaseHalfTimeStretch
 } from '../../common/basehalfMediaZoom.js';
 
@@ -36,25 +38,73 @@ suite('BaseHalfMediaZoom', () => {
 
 	test('a media area zooms around a point as a browser zooms its page: what is under the point stays under it', () => {
 		const area = { width: 1400, height: 900 };
+		const picture = { x: 100, y: 50, width: 1200, height: 675 };
 		const at = { x: 500, y: 300 };
-		const once = baseHalfZoomPageAround(BASEHALF_PAGE_AT_REST, at, 1.6, 5, area);
-		const twice = baseHalfZoomPageAround(once, at, 2, 5, area);
+		const once = baseHalfZoomPageAround(BASEHALF_PAGE_AT_REST, at, 1.6, 5, area, picture);
+		const twice = baseHalfZoomPageAround(once, at, 2, 5, area, picture);
 		// The point of the area at rest that is under the pointer: (at − origin) / zoom.
 		const under = (page: typeof once) => ({ x: round((at.x - page.origin.x) / page.zoom), y: round((at.y - page.origin.y) / page.zoom) });
-		assert.deepStrictEqual({ once: under(once), twice: under(twice), zoom: [round(once.zoom), round(twice.zoom)], capped: baseHalfZoomPageAround(twice, at, 4, 5, area).zoom }, {
+		assert.deepStrictEqual({ once: under(once), twice: under(twice), zoom: [round(once.zoom), round(twice.zoom)], capped: baseHalfZoomPageAround(twice, at, 4, 5, area, picture).zoom }, {
 			once: { x: 500, y: 300 }, twice: { x: 500, y: 300 }, zoom: [1.6, 3.2], capped: 5
 		});
 	});
 
-	test('the zoomed area is never moved off itself, and as it fits it does not move at all', () => {
+	test('a zoomed picture moves within its own edges, not along a side where it is no larger than the area, and as it fits not at all (D101)', () => {
 		const area = { width: 1000, height: 600 };
+		// A 16:9 picture with room around it, and a portrait one as tall as the area.
+		const wide = { x: 100, y: 50, width: 800, height: 450 };
+		const tall = { x: 300, y: 0, width: 400, height: 600 };
 		const zoomed = { zoom: 2, origin: { x: -500, y: -300 } };
-		assert.deepStrictEqual([
-			baseHalfMovePage(zoomed, { x: 800, y: 50 }, area).origin,
-			baseHalfMovePage(zoomed, { x: -800, y: -400 }, area).origin,
-			baseHalfClampPageZoom({ zoom: 1, origin: { x: 40, y: -40 } }, area),
-			baseHalfClampPageZoom({ zoom: 0.5, origin: { x: 0, y: 0 } }, area).zoom
-		], [{ x: 0, y: -250 }, { x: -1000, y: -600 }, { zoom: 1, origin: { x: 0, y: 0 } }, 1]);
+		const origin = (page: { readonly origin: { readonly x: number; readonly y: number } }) => ({ x: round(page.origin.x), y: round(page.origin.y) });
+		assert.deepStrictEqual({
+			// Its left edge stops at the area's left edge, its right edge at the right one.
+			towardBottomRight: origin(baseHalfMovePage(zoomed, { x: 800, y: 50 }, area, wide)),
+			towardTopLeft: origin(baseHalfMovePage(zoomed, { x: -800, y: -400 }, area, wide)),
+			// No larger than the area: a drag moves it neither way.
+			smaller: origin(baseHalfMovePage({ zoom: 1.1, origin: { x: 0, y: 0 } }, { x: 300, y: 300 }, area, wide)),
+			// As wide as half the area, it does not move sideways; as tall as twice the area, it moves up and down.
+			portrait: origin(baseHalfMovePage(zoomed, { x: 500, y: -100 }, area, tall)),
+			atRest: baseHalfClampPageZoom({ zoom: 1, origin: { x: 40, y: -40 } }, area, wide),
+			below: baseHalfClampPageZoom({ zoom: 0.5, origin: { x: 0, y: 0 } }, area, wide).zoom
+		}, {
+			towardBottomRight: { x: -200, y: -250 },
+			towardTopLeft: { x: -800, y: -400 },
+			smaller: { x: 0, y: 0 },
+			portrait: { x: -500, y: -400 },
+			atRest: { zoom: 1, origin: { x: 0, y: 0 } },
+			below: 1
+		});
+	});
+
+	test('a pinch follows the fingers past the picture\'s edges and settles within them; a zoom at once keeps within them; as it fits the picture rests (D96, D101)', () => {
+		const area = { width: 1000, height: 600 };
+		const wide = { x: 100, y: 50, width: 800, height: 450 };
+		const corner = { x: 900, y: 100 };
+		const origin = (page: { readonly origin: { readonly x: number; readonly y: number } }) => ({ x: round(page.origin.x), y: round(page.origin.y) });
+		const following = baseHalfZoomPageFollowing(BASEHALF_PAGE_AT_REST, corner, 1.2, 5);
+		const atOnce = baseHalfZoomPageAround(BASEHALF_PAGE_AT_REST, corner, 1.2, 5, area, wide);
+		assert.deepStrictEqual({
+			// What is under the fingers stays under them, though the picture's left edge goes past the area's.
+			following: origin(following),
+			settled: origin(baseHalfClampPageZoom(following, area, wide)),
+			atOnce: origin(atOnce),
+			fits: baseHalfZoomPageAround(atOnce, corner, 1 / 1.2, 5, area, wide)
+		}, {
+			following: { x: -180, y: -20 },
+			settled: { x: -120, y: -20 },
+			atOnce: { x: -120, y: -20 },
+			fits: BASEHALF_PAGE_AT_REST
+		});
+	});
+
+	test('Edit glides a zoom back to as it fits, every step between the two', () => {
+		const from = { zoom: 3, origin: { x: -600, y: -200 } };
+		assert.deepStrictEqual([0, 0.5, 1, 2].map(progress => baseHalfPageZoomToward(from, BASEHALF_PAGE_AT_REST, progress)), [
+			from,
+			{ zoom: 2, origin: { x: -300, y: -100 } },
+			{ zoom: 1, origin: { x: 0, y: 0 } },
+			{ zoom: 1, origin: { x: 0, y: 0 } }
+		]);
 	});
 
 	test('a swipe moves what is zoomed with the fingers, in pixels, lines, or pages', () => {

@@ -40,8 +40,9 @@ import {
 } from '../common/basehalfImageCrop.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
-import { BASEHALF_EDGE_FOLLOW_MARGIN, BASEHALF_PAGE_AT_REST, BASEHALF_TIME_ZOOM_REST_MS, baseHalfClampPageZoom, baseHalfEdgeFollowRate, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
+import { BASEHALF_EDGE_FOLLOW_MARGIN, BASEHALF_PAGE_AT_REST, BASEHALF_TIME_ZOOM_REST_MS, baseHalfClampPageZoom, baseHalfEdgeFollowRate, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, baseHalfZoomPageFollowing, IBaseHalfPageZoom, IBaseHalfPictureBox } from '../common/basehalfMediaZoom.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
+import { BaseHalfPageZoomGlide } from './basehalfPageZoomGlide.js';
 
 /**
  * The crop view of an image in Card Detail (editing media, "Cropping an
@@ -171,6 +172,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	private viewSize: IBaseHalfSize = { width: 0, height: 0 };
 	/** The view zoomed as a browser zooms its page, around a pinch (D96). */
 	private page: IBaseHalfPageZoom = BASEHALF_PAGE_AT_REST;
+	/** A pinch while viewing settles within the picture's edges once it rests (D101). */
+	private readonly pageGlide: BaseHalfPageZoomGlide;
 	private drag: IDrag | undefined;
 	private readonly clock: IBaseHalfImageCropClock;
 	private readonly glideFrame = this._register(new MutableDisposable());
@@ -207,6 +210,11 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			},
 			now: () => targetWindow.performance.now()
 		};
+		this.pageGlide = this._register(new BaseHalfPageZoomGlide(this.clock, () => this.page, page => {
+			this.page = page;
+			this.mapping = this.viewMapping();
+			this.render();
+		}));
 		this.original = options.size;
 		this.state = baseHalfCropStateOf(this.original, options.choices);
 		this.setRatioOf(options.choices);
@@ -431,15 +439,51 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		return { center: this.toPicture(middle, rest), scale: rest.scale * this.page.zoom };
 	}
 
-	/** Zooms the view by `factor` around a point of it, which keeps the point of the picture under it. */
+	/** Zooms the view by `factor` around a point of it at once, as a double click does, which keeps the point of the picture under it as far as its edges allow. */
 	private zoomAround(at: IBaseHalfPoint, factor: number): void {
-		this.page = baseHalfZoomPageAround(this.page, at, factor, this.maxZoom(), this.viewSize);
+		this.pageGlide.stop();
+		this.page = baseHalfZoomPageAround(this.page, at, factor, this.maxZoom(), this.zoomArea(), this.pictureBox());
 		this.stopGlide();
 		this.mapping = this.viewMapping();
 		this.render();
 	}
 
+	/** A pinch while viewing: the view follows the fingers, past the picture's edges if they go there, and settles within them once the pinch rests (D101). */
+	private pinchAround(at: IBaseHalfPoint, factor: number): void {
+		this.stopGlide();
+		this.page = baseHalfZoomPageFollowing(this.page, at, factor, this.maxZoom());
+		this.mapping = this.viewMapping();
+		this.render();
+		this.pageGlide.pinched(() => this.settledPage());
+	}
+
+	/** The zoom of the view within the picture's edges, where a pinch settles. */
+	private settledPage(): IBaseHalfPageZoom {
+		return baseHalfClampPageZoom(this.page, this.zoomArea(), this.pictureBox());
+	}
+
+	/**
+	 * Where a picture zoomed while viewing may show, from the view's top left:
+	 * the view, and the room of the tools and the line under the editor under
+	 * it, which are empty while viewing, down to the bottom of Card Detail's
+	 * media area (D101).
+	 */
+	private zoomArea(): IBaseHalfSize {
+		const stage = this.element.parentElement;
+		const bottom = stage ? stage.getBoundingClientRect().bottom - this.view.getBoundingClientRect().top : this.viewSize.height;
+		return { width: this.viewSize.width, height: Math.max(this.viewSize.height, bottom) };
+	}
+
+	/** Where the part kept stands at rest: as large as fits with its margin, in the middle of the view. */
+	private pictureBox(): IBaseHalfPictureBox {
+		const rest = this.restMapping();
+		const width = this.state.crop.width * rest.scale;
+		const height = this.state.crop.height * rest.scale;
+		return { x: (this.viewSize.width - width) / 2, y: (this.viewSize.height - height) / 2, width, height };
+	}
+
 	private resetZoom(): void {
+		this.pageGlide.stop();
 		this.page = BASEHALF_PAGE_AT_REST;
 	}
 
@@ -474,7 +518,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.viewSize = { width, height };
 		if (!this.drag) {
 			this.stopGlide();
-			this.page = baseHalfClampPageZoom(this.page, this.viewSize);
+			this.pageGlide.stop();
+			this.page = this.settledPage();
 			this.mapping = this.viewMapping();
 		}
 		this.render();
@@ -631,8 +676,11 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		let grabbed: IBaseHalfPoint | undefined;
 		let anchor: IBaseHalfPoint | undefined;
 		if (!what && this.page.zoom > 1) {
-			// While the view is zoomed in, a drag moves the view.
+			// While the view is zoomed in, a drag moves the view; a pinch that has not settled yet does at once.
 			what = { kind: 'pan' };
+			this.pageGlide.stop();
+			this.page = this.settledPage();
+			this.mapping = this.viewMapping();
 		} else if (!what && !this.editing) {
 			// While viewing, a picture as it fits has nothing to drag.
 			return;
@@ -710,7 +758,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 				break;
 			}
 			case 'pan':
-				this.page = baseHalfMovePage(drag.page, { x: event.clientX - drag.startX, y: event.clientY - drag.startY }, this.viewSize);
+				this.page = baseHalfMovePage(drag.page, { x: event.clientX - drag.startX, y: event.clientY - drag.startY }, this.zoomArea(), this.pictureBox());
 				this.mapping = this.viewMapping();
 				break;
 		}
@@ -970,7 +1018,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			event.preventDefault();
 			event.stopPropagation();
 			this.settleKeys();
-			this.zoomAround(this.viewPoint(event), baseHalfNoteZoomFactor(event));
+			this.pinchAround(this.viewPoint(event), baseHalfNoteZoomFactor(event));
 			return;
 		}
 		if (this.page.zoom <= 1) {
@@ -979,7 +1027,8 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.page = baseHalfMovePage(this.page, baseHalfWheelMove(event), this.viewSize);
+		this.pageGlide.stop();
+		this.page = baseHalfMovePage(this.page, baseHalfWheelMove(event), this.zoomArea(), this.pictureBox());
 		this.stopGlide();
 		this.mapping = this.viewMapping();
 		this.render();

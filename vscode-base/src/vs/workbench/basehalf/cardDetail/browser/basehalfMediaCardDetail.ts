@@ -680,8 +680,17 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			// A pinch zooms the place under the fingers over the media area, as a browser zooms its page, and a swipe
 			// moves it; over the frame viewer and the line under the editor a gesture is theirs (editing media,
 			// "Zooming the picture and the time").
-			store.add(new BaseHalfVideoPictureZoom(player.element, player.video, this.webviewHost,
+			const zoom = store.add(new BaseHalfVideoPictureZoom(player.element, player.video, this.webviewHost,
 				target => target instanceof Element && !!target.closest('.basehalf-video-frames, .basehalf-media-edit-line')));
+			// Edit shows the whole picture, as a phone's editor does: a zoomed one glides back to as it fits (D97, D101).
+			const editing = this.editingStore.value;
+			if (editing) {
+				store.add(editing.onDidChangeEditing(isEditing => {
+					if (isEditing) {
+						zoom.fit();
+					}
+				}));
+			}
 		}
 		if (session) {
 			this.editingStore.value?.show({ stage, player });

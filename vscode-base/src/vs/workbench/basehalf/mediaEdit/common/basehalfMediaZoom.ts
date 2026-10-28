@@ -68,9 +68,10 @@ export function baseHalfPictureMaxZoom(scale: number): number {
 }
 
 /**
- * A media area zoomed as a browser zooms its page (D96): `zoom` times as
- * large as at rest, from 1, with its top left at `origin`, in pixels of the
- * area. What was at a point `p` of the area at rest shows at `origin + zoom × p`.
+ * A media area zoomed around a point as a browser zooms its page (D96):
+ * `zoom` times as large as at rest, from 1, with its top left at `origin`,
+ * in pixels of the area. What was at a point `p` of the area at rest shows at
+ * `origin + zoom × p`. The picture in it moves within its own edges (D101).
  */
 export interface IBaseHalfPageZoom {
 	readonly zoom: number;
@@ -80,27 +81,66 @@ export interface IBaseHalfPageZoom {
 /** The media area at rest: as it fits. */
 export const BASEHALF_PAGE_AT_REST: IBaseHalfPageZoom = Object.freeze({ zoom: 1, origin: Object.freeze({ x: 0, y: 0 }) });
 
-/** The zoomed area covers the area, as a browser's page covers its view: it is never moved off itself. */
-export function baseHalfClampPageZoom(page: IBaseHalfPageZoom, area: IBaseHalfSize): IBaseHalfPageZoom {
+/** Where the picture stands in the media area at rest, in pixels of the area. */
+export interface IBaseHalfPictureBox {
+	readonly x: number;
+	readonly y: number;
+	readonly width: number;
+	readonly height: number;
+}
+
+/**
+ * The zoomed picture within its own edges, as a phone's photos keep it
+ * (D101): along a side where it is larger than the area, its edges stop at
+ * the area's edges, so that no room around it shows beside it; along a side
+ * where it is not, it stays wholly inside the area. As it fits, it stands
+ * where it rests.
+ */
+export function baseHalfClampPageZoom(page: IBaseHalfPageZoom, area: IBaseHalfSize, picture: IBaseHalfPictureBox): IBaseHalfPageZoom {
 	const zoom = Number.isFinite(page.zoom) ? Math.max(1, page.zoom) : 1;
-	const clamp = (value: number, length: number) => Number.isFinite(value) ? Math.min(0, Math.max(length * (1 - zoom), value)) : 0;
-	return { zoom, origin: { x: clamp(page.origin.x, area.width), y: clamp(page.origin.y, area.height) } };
+	if (zoom <= 1) {
+		return BASEHALF_PAGE_AT_REST;
+	}
+	const clamp = (origin: number, start: number, length: number, room: number) => {
+		// The origins at which the picture's near edge stands on the area's near edge, and its far edge on the far one.
+		const near = -zoom * start;
+		const far = room - zoom * (start + length);
+		return Math.min(Math.max(Number.isFinite(origin) ? origin : 0, Math.min(near, far)), Math.max(near, far));
+	};
+	return { zoom, origin: { x: clamp(page.origin.x, picture.x, picture.width, area.width), y: clamp(page.origin.y, picture.y, picture.height, area.height) } };
 }
 
 /**
  * The area zoomed by `factor` around `at`, a point of the area, from 1 to
- * `max`: what is under the point stays under it, as far as the area's edges
- * allow.
+ * `max`, following the fingers of a pinch: what is under the point stays
+ * under it, past the picture's edges if they go there (D96). Once the pinch
+ * rests, the zoom settles within them (D101).
  */
-export function baseHalfZoomPageAround(page: IBaseHalfPageZoom, at: IBaseHalfPoint, factor: number, max: number, area: IBaseHalfSize): IBaseHalfPageZoom {
+export function baseHalfZoomPageFollowing(page: IBaseHalfPageZoom, at: IBaseHalfPoint, factor: number, max: number): IBaseHalfPageZoom {
 	const zoom = Math.min(Math.max(1, max), Math.max(1, page.zoom * (Number.isFinite(factor) && factor > 0 ? factor : 1)));
 	const ratio = zoom / page.zoom;
-	return baseHalfClampPageZoom({ zoom, origin: { x: at.x - (at.x - page.origin.x) * ratio, y: at.y - (at.y - page.origin.y) * ratio } }, area);
+	return { zoom, origin: { x: at.x - (at.x - page.origin.x) * ratio, y: at.y - (at.y - page.origin.y) * ratio } };
 }
 
-/** The zoomed area moved by a swipe, the wheel, or a drag, as far as its edges go. */
-export function baseHalfMovePage(page: IBaseHalfPageZoom, by: IBaseHalfPoint, area: IBaseHalfSize): IBaseHalfPageZoom {
-	return baseHalfClampPageZoom({ zoom: page.zoom, origin: { x: page.origin.x + by.x, y: page.origin.y + by.y } }, area);
+/** The area zoomed by `factor` around `at` at once, as a double click zooms it: what is under the point stays under it, as far as the picture's edges allow (D101). */
+export function baseHalfZoomPageAround(page: IBaseHalfPageZoom, at: IBaseHalfPoint, factor: number, max: number, area: IBaseHalfSize, picture: IBaseHalfPictureBox): IBaseHalfPageZoom {
+	return baseHalfClampPageZoom(baseHalfZoomPageFollowing(page, at, factor, max), area, picture);
+}
+
+/** The zoomed picture moved by a swipe, the wheel, or a drag, as far as its edges go; along a side where it is no larger than the area, it does not move (D101). */
+export function baseHalfMovePage(page: IBaseHalfPageZoom, by: IBaseHalfPoint, area: IBaseHalfSize, picture: IBaseHalfPictureBox): IBaseHalfPageZoom {
+	const moves = (length: number, room: number) => page.zoom * length > room;
+	return baseHalfClampPageZoom({
+		zoom: page.zoom,
+		origin: { x: page.origin.x + (moves(picture.width, area.width) ? by.x : 0), y: page.origin.y + (moves(picture.height, area.height) ? by.y : 0) }
+	}, area, picture);
+}
+
+/** A zoom `progress` of the way from one to another, from 0 to 1, as Edit glides a zoomed picture back to as it fits (D97, D101). */
+export function baseHalfPageZoomToward(from: IBaseHalfPageZoom, to: IBaseHalfPageZoom, progress: number): IBaseHalfPageZoom {
+	const t = Math.min(Math.max(progress, 0), 1);
+	const between = (a: number, b: number) => a + (b - a) * t;
+	return { zoom: between(from.zoom, to.zoom), origin: { x: between(from.origin.x, to.origin.x), y: between(from.origin.y, to.origin.y) } };
 }
 
 /** Where a point of the area at rest shows in the zoomed area. */

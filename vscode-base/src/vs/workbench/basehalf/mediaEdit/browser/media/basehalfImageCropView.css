@@ -357,6 +357,21 @@
 	cursor: grabbing;
 }
 
+/*
+ * A picture zoomed while viewing shows over the room of the tools and the
+ * line under the editor too, which are empty then, down to the bottom of Card
+ * Detail's media area, as a phone's photos show under its bars (D101); the
+ * media area cuts it there. The line, when it says something, floats on its
+ * backing over it.
+ */
+.monaco-workbench .basehalf-image-crop.viewing.zoomed .basehalf-image-crop-view {
+	overflow: visible;
+}
+
+.monaco-workbench .basehalf-image-crop.viewing.zoomed ~ .basehalf-media-edit-line:has(.basehalf-media-edit-line-part:not([hidden]))::before {
+	opacity: 1;
+}
+
 .monaco-workbench .basehalf-image-crop.viewing .basehalf-image-crop-frame {
 	border-color: transparent;
 	pointer-events: none;

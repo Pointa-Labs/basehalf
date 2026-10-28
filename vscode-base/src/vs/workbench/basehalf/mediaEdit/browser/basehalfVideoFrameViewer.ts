@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfVideoFrameViewer.css';
-import { $, addDisposableListener, append, clearNode, getWindow } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, getWindow, isHTMLElement } from '../../../../base/browser/dom.js';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -48,6 +48,12 @@ const STRIP_HEIGHT = 48;
 const DRAG_THRESHOLD = 3;
 /** How long after the viewer appears its pictures start to be read: Card Detail draws the player first. */
 const PICTURES_DELAY_MILLISECONDS = 120;
+/** A set of pictures fades in over what the strip showed this long, in milliseconds (D101). */
+const PICTURES_FADE_MILLISECONDS = 120;
+/** A set of pictures that takes longer than this to read shows what is read then, in milliseconds (D101). */
+const PICTURES_WAIT_MILLISECONDS = 1000;
+/** Edit and Done glide the strip's stretch this long, in milliseconds (D101). */
+const STRIP_GLIDE_MILLISECONDS = 250;
 /** How long a handle is held still before the viewer spreads out around it. */
 const HOLD_MILLISECONDS = 400;
 /** What the viewer shows around a held handle: a tenth of the video, or this, whichever is longer. */
@@ -102,8 +108,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	private view: IStripView;
 	/** The stretch whose pictures the pictures of the zoom show. */
 	private zoomDrawn: IStripView | undefined;
-	/** The stretch whose pictures the pictures of a held handle's spread show. */
-	private spreadDrawn: IStripView | undefined;
 	/** A drag held at an edge of a held handle's spread carries the spread along (D98). */
 	private readonly spreadFollow: BaseHalfStripEdgeFollow;
 	private readonly spreadRest = this._register(new MutableDisposable());
@@ -117,6 +121,12 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	private readonly picturesLoad = this._register(new MutableDisposable());
 	private readonly zoomLoad = this._register(new MutableDisposable());
 	private readonly spreadLoad = this._register(new MutableDisposable());
+	/** The stretch of each set of pictures, read together and shown together (D101): a set is placed by its own times. */
+	private readonly setStretches = new WeakMap<HTMLElement, IStripView>();
+	/** The frame of a glide of the strip's stretch, as Edit and Done make, while one runs (D101). */
+	private glideFrame: number | undefined;
+	/** A glide ends on time even in a window that draws no frames. */
+	private glideTimer: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
 		container: HTMLElement,
@@ -161,6 +171,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			this.disposed = true;
 			this.clearHold();
 			this.stopPlayhead();
+			this.stopGlide();
 			this.options.player.setPlayRange(undefined);
 		}));
 		// The time under the pointer of a pinch stays under it, down to as many frames as the strip has pictures.
@@ -204,6 +215,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			return;
 		}
 		this.endDrag();
+		this.finishGlide();
 		this.range = range;
 		// The player shows where the part starts.
 		this.options.player.seek(this.range.start + 1e-4);
@@ -219,6 +231,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			return;
 		}
 		this.endDrag();
+		this.finishGlide();
 		this.editing = editing;
 		this.element.classList.toggle('viewing', !editing);
 		if (!editing) {
@@ -227,7 +240,61 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		this.showHandles();
 		this.applyChoice();
-		this.showStretch();
+		this.glideTo(this.restingView());
+	}
+
+	/**
+	 * Glides the strip's stretch to `target` over 250 ms, as Edit and Done
+	 * make it go from the part kept to the whole original and back (D101): each
+	 * set of pictures moves and scales with the times it shows, and the
+	 * pictures of the target are read once it is there.
+	 */
+	private glideTo(target: IStripView): void {
+		this.stopGlide();
+		const from = this.view;
+		if (from.from === target.from && from.to === target.to) {
+			this.showStretch();
+			return;
+		}
+		const window = getWindow(this.element);
+		const start = window.performance.now();
+		const step = () => {
+			const progress = Math.min(1, (window.performance.now() - start) / STRIP_GLIDE_MILLISECONDS);
+			if (progress >= 1) {
+				this.finishGlide();
+				return;
+			}
+			// Fast at first and slow at the end, as a glide settles.
+			const eased = 1 - Math.pow(1 - progress, 3);
+			this.view = { from: from.from + (target.from - from.from) * eased, to: from.to + (target.to - from.to) * eased };
+			this.element.classList.toggle('zoomed', !this.showsWhole());
+			this.placePictures();
+			this.render();
+			this.glideFrame = window.requestAnimationFrame(step);
+		};
+		this.glideFrame = window.requestAnimationFrame(step);
+		this.glideTimer = setTimeout(() => this.finishGlide(), STRIP_GLIDE_MILLISECONDS + 50);
+		this.element.classList.add('gliding');
+	}
+
+	private stopGlide(): void {
+		if (this.glideFrame !== undefined) {
+			getWindow(this.element).cancelAnimationFrame(this.glideFrame);
+			this.glideFrame = undefined;
+		}
+		if (this.glideTimer !== undefined) {
+			clearTimeout(this.glideTimer);
+			this.glideTimer = undefined;
+		}
+		this.element.classList.remove('gliding');
+	}
+
+	/** A glide that ends, or that a press, a gesture, or a change meets, ends where it was going. */
+	private finishGlide(): void {
+		if (this.glideFrame !== undefined || this.glideTimer !== undefined) {
+			this.stopGlide();
+			this.showStretch();
+		}
 	}
 
 	movePlayhead(move: BaseHalfPlayheadMove): void {
@@ -316,24 +383,57 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		return Math.max(1, Math.ceil(width / (STRIP_HEIGHT * aspect)));
 	}
 
+	/**
+	 * Reads a set of pictures of a stretch into a container (D101). The set
+	 * waits unseen over what the container shows until all of it is read, or
+	 * a second has passed, and then fades in over it; the sets it covers go
+	 * once it has. A set that a newer one replaces before it shows goes unseen.
+	 */
 	private readPictures(container: HTMLElement, load: MutableDisposable<{ dispose(): void }>, view: IStripView, count: number, width: number): void {
-		clearNode(container);
-		const scale = getWindow(this.element).devicePixelRatio || 1;
+		const window = getWindow(this.element);
+		const scale = window.devicePixelRatio || 1;
+		const set = append(container, $('.basehalf-video-frames-set.pending'));
+		this.setStretches.set(set, view);
 		const cells: HTMLCanvasElement[] = [];
 		for (let index = 0; index < count; index++) {
-			const cell = append(container, $<HTMLCanvasElement>('canvas.basehalf-video-frames-picture'));
+			const cell = append(set, $<HTMLCanvasElement>('canvas.basehalf-video-frames-picture'));
 			cell.width = Math.max(1, Math.round(width / count * scale));
 			cell.height = Math.round(STRIP_HEIGHT * scale);
 			cells.push(cell);
 		}
-		// Each picture is the frame at the middle of its place.
-		const times = cells.map((_, index) => view.from + (index + 0.5) * (view.to - view.from) / count);
+		this.placePictures();
+		// Each picture is the frame at the middle of its place, or a key frame within half a place of it.
+		const span = (view.to - view.from) / count;
+		const times = cells.map((_, index) => view.from + (index + 0.5) * span);
 		const cancellation = new CancellationTokenSource();
-		load.value = toDisposable(() => cancellation.dispose(true));
+		let shown = false;
+		const show = () => {
+			if (shown || cancellation.token.isCancellationRequested || this.disposed) {
+				return;
+			}
+			shown = true;
+			set.classList.remove('pending');
+			window.setTimeout(() => {
+				for (const other of Array.from(container.children)) {
+					if (other !== set && !other.classList.contains('pending') && set.isConnected) {
+						other.remove();
+					}
+				}
+			}, PICTURES_FADE_MILLISECONDS);
+		};
+		const wait = window.setTimeout(show, PICTURES_WAIT_MILLISECONDS);
+		load.value = toDisposable(() => {
+			cancellation.dispose(true);
+			window.clearTimeout(wait);
+			if (!shown) {
+				set.remove();
+			}
+		});
 		void readBaseHalfVideoTrimPictures({
 			source: this.options.video.source,
 			video: this.options.video.file.video!,
 			times,
+			tolerance: span / 2,
 			height: STRIP_HEIGHT * scale,
 			token: cancellation.token,
 			onPicture: (index, picture) => {
@@ -348,6 +448,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 				}
 				picture.close();
 			}
+		}).then(() => {
+			window.clearTimeout(wait);
+			show();
 		});
 	}
 
@@ -412,6 +515,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 		event.preventDefault();
 		event.stopPropagation();
+		this.finishGlide();
 		const time = this.timeAt(event.clientX);
 		const handle = this.editing ? this.handleAt(event) : undefined;
 		let kind: DragKind;
@@ -506,7 +610,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		if (!this.element.classList.contains('spread') || width <= 0) {
 			return;
 		}
-		this.spreadDrawn = this.view;
 		this.readPictures(this.spreadPictures, this.spreadLoad, this.view, this.pictureCount(width), width);
 		this.placePictures();
 	}
@@ -623,7 +726,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		drag.grab = this.timeAt(drag.lastX) - time;
 		this.element.classList.add('spread');
 		const width = this.strip.clientWidth;
-		this.spreadDrawn = this.view;
 		this.readPictures(this.spreadPictures, this.spreadLoad, this.view, this.pictureCount(width), width);
 		this.render();
 	}
@@ -637,7 +739,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.element.classList.remove('spread');
 		this.spreadFollow.at(undefined);
 		this.spreadRest.clear();
-		this.spreadDrawn = undefined;
 		this.spreadLoad.clear();
 		clearNode(this.spreadPictures);
 		if (this.zoomDrawn?.from !== this.view.from || this.zoomDrawn?.to !== this.view.to) {
@@ -657,6 +758,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		if (!this.editing) {
 			return;
 		}
+		this.finishGlide();
 		this.element.classList.toggle('zoomed', this.zoom.spread);
 		if (this.element.classList.contains('spread')) {
 			return;
@@ -669,12 +771,15 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.render();
 	}
 
-	/** Reads the pictures of the stretch shown, over the whole video's stretched under them until they come. */
+	/**
+	 * Reads the pictures of the stretch shown, over the whole video's stretched
+	 * under them until they come. The whole video's own pictures show while
+	 * the strip shows it; the stretch's set is kept unseen, so that Done shows
+	 * the part kept again at once (D101).
+	 */
 	private readZoomPictures(): void {
 		if (this.showsWhole()) {
 			this.zoomLoad.clear();
-			clearNode(this.zoomPictures);
-			this.zoomDrawn = undefined;
 			return;
 		}
 		const width = this.strip.clientWidth;
@@ -685,20 +790,23 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.readPictures(this.zoomPictures, this.zoomLoad, this.view, this.pictureCount(width), width);
 	}
 
-	/** Draws the pictures of the whole video and of the zoom at the times the strip shows. */
+	/** Draws each set of pictures, of the whole video, of the zoom, and of a held handle's spread, at the times the strip shows. */
 	private placePictures(): void {
 		const span = this.view.to - this.view.from;
-		const place = (container: HTMLElement, drawn: IStripView | undefined) => {
-			if (!drawn || span <= 0 || (drawn.from === this.view.from && drawn.to === this.view.to)) {
-				container.style.transform = '';
-				return;
+		for (const container of [this.pictures, this.zoomPictures, this.spreadPictures]) {
+			for (const set of Array.from(container.children)) {
+				const drawn = isHTMLElement(set) ? this.setStretches.get(set) : undefined;
+				if (!drawn || !isHTMLElement(set)) {
+					continue;
+				}
+				if (span <= 0 || (drawn.from === this.view.from && drawn.to === this.view.to)) {
+					set.style.transform = '';
+					continue;
+				}
+				const offset = (drawn.from - this.view.from) / span * 100;
+				set.style.transform = `translateX(${offset.toFixed(4)}%) scaleX(${((drawn.to - drawn.from) / span).toFixed(5)})`;
 			}
-			const offset = (drawn.from - this.view.from) / span * 100;
-			container.style.transform = `translateX(${offset.toFixed(4)}%) scaleX(${((drawn.to - drawn.from) / span).toFixed(5)})`;
-		};
-		place(this.pictures, { from: 0, to: this.timeline.duration });
-		place(this.zoomPictures, this.zoomDrawn);
-		place(this.spreadPictures, this.spreadDrawn);
+		}
 	}
 
 	// #endregion

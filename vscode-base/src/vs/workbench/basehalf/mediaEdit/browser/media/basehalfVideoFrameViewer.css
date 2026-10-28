@@ -81,20 +81,41 @@
 .monaco-workbench .basehalf-video-frames-pictures {
 	position: absolute;
 	inset: 0;
-	display: flex;
 	overflow: hidden;
 	border-radius: 6px;
-	transform-origin: 0 0;
 }
 
-/* The pictures of the stretch a pinch spread out stand over the whole video's, which show through until they come. */
+/*
+ * A set of pictures, read together, placed by the times it shows: it waits
+ * unseen until it is read, then fades in over the sets before it (editing
+ * media, "The frame viewer", D101).
+ */
+.monaco-workbench .basehalf-video-frames-set {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	transform-origin: 0 0;
+	transition: opacity 120ms ease-out;
+}
+
+.monaco-workbench .basehalf-video-frames-set.pending {
+	opacity: 0;
+}
+
+/*
+ * The pictures of the stretch shown, the part kept while viewing or the
+ * stretch a pinch spread out, stand over the whole video's, which show
+ * through until they come; while the strip shows the whole video they fade
+ * out, kept for the stretch to show again (D101).
+ */
 .monaco-workbench .basehalf-video-frames-pictures.zoom {
-	visibility: hidden;
+	opacity: 0;
 	border-radius: 0;
+	transition: opacity 120ms ease-out;
 }
 
 .monaco-workbench .basehalf-video-frames.zoomed .basehalf-video-frames-pictures.zoom {
-	visibility: visible;
+	opacity: 1;
 }
 
 /*
@@ -285,11 +306,32 @@
 /*
  * While viewing (editing media, "Viewing and editing"), the strip is the
  * timeline of the file as it is: no yellow frame, handle, shade, or length.
- * The waveform of a sound shares these rules.
+ * They fade in and out as Edit and Done glide the strip (D101). The waveform
+ * of a sound shares these rules.
  */
+.monaco-workbench .basehalf-video-frames .basehalf-video-frames-part,
+.monaco-workbench .basehalf-video-frames .basehalf-video-frames-handle,
+.monaco-workbench .basehalf-video-frames .basehalf-video-frames-shade,
+.monaco-workbench .basehalf-video-frames .basehalf-video-frames-length {
+	transition: opacity 150ms ease-out, visibility 0s;
+}
+
 .monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-part,
 .monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-handle,
 .monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-shade,
 .monaco-workbench .basehalf-video-frames.viewing .basehalf-video-frames-length {
 	visibility: hidden;
+	opacity: 0;
+	transition: opacity 150ms ease-out, visibility 0s linear 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-video-frames-set,
+	.monaco-workbench .basehalf-video-frames-pictures.zoom,
+	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-part,
+	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-handle,
+	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-shade,
+	.monaco-workbench .basehalf-video-frames .basehalf-video-frames-length {
+		transition: none;
+	}
 }
