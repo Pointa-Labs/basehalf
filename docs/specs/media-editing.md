@@ -15,10 +15,13 @@ for cropping as a phone's photo editor does;
 for saving a trim by copying the video's frames, and the frame viewer under
 the picture;
 [D100](../decisions.md#d100--in-card-detail-the-keyboard-is-the-medias-and-a-press-of-a-button-leaves-it-there-new-2026-10-28)
-for the keyboard, which stays on the media; and
+for the keyboard, which stays on the media;
 [D101](../decisions.md#d101--a-zoomed-picture-moves-within-its-own-edges-under-floating-controls-and-the-frame-viewer-shows-its-pictures-together-new-2026-10-28)
 for a zoomed picture that stays within its edges under floating controls,
-and the frame viewer's pictures and glide
+and the frame viewer's pictures; and
+[D102](../decisions.md#d102--a-video-in-card-detail-is-viewed-and-edited-as-a-desktop-photo-app-does-it-new-2026-10-28)
+for viewing a video as large as fits with its player's controls, and the
+edit bar that Edit makes room for
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -176,8 +179,9 @@ development workspace and in a phone's photo editor and voice recorder:
   ([The edit record](#the-edit-record)).
 - **Edited file**: a media file that has an edit record and its original.
 - **Editor**: what Card Detail shows of a media file that BaseHalf can edit,
-  in place of a plain view: the frame viewer of a video under its player, the
-  waveform of a sound, and the crop view of an image.
+  in place of a plain view: the edit bar of a video under its player, Play
+  and the frame viewer, the waveform of a sound, and the crop view of an
+  image.
 - **Viewing** and **editing**: the two ways the editor shows the file
   (D96). Viewing shows the file as it is, to look at and play; editing shows
   the controls that change it, from the original. Card Detail opens to
@@ -402,29 +406,37 @@ crop:
 
 - **Card Detail opens to view the file** (D96), as a phone's photo library
   shows a photo: the picture of an image as the file holds it, the player of
-  a video with the frame viewer under it as its timeline, and the waveform of
-  a sound with Play under it, each as the file is, with nothing of editing on
-  it ([Viewing and editing](#viewing-and-editing)).
+  a video as large as fits with its own controls over the picture, the
+  position slider among them (D102), and the waveform of a sound with Play
+  under it, each as the file is, with nothing of editing on it
+  ([Viewing and editing](#viewing-and-editing)).
 - **Edit** stands in the header's right group, before Close
   ([layout controls](layout-controls.md#card-detail)), for a file that
   BaseHalf can edit. It shows the editor in place, with the original of an
   edited file and the choices of its edit: the crop frame and the tools of an
-  image, the yellow frame and the handles of the frame viewer over the whole
-  original, the handles, the trims, and the selection of the waveform, and
-  the line under the editor. Edit becomes **Done**, drawn in the yellow of the
-  editor, which goes back to viewing; Escape does too
-  ([The keyboard](#the-keyboard)). Card Detail that closes, or shows another
-  file, ends the editing: it opens to viewing again.
+  image, the edit bar under the picture of a video, Play and the frame
+  viewer of the whole original with its handles, the handles, the trims, and
+  the selection of the waveform, and the line under the editor. Edit becomes
+  **Done**, drawn in the yellow of the editor, which goes back to viewing;
+  Escape does too ([The keyboard](#the-keyboard)). Card Detail that closes,
+  or shows another file, ends the editing: it opens to viewing again.
 - Edit and Done change nothing of the file, and nothing waits for Done:
   changes save themselves ([Changes save themselves](#changes-save-themselves)).
-- **Nothing moves when the editor comes and goes.** The picture keeps its
-  place and its size, and is drawn in every frame, when Edit and Done are
-  pressed: the room of the tools under it is kept while viewing, empty under
-  an image, and holding the timeline under a video and Play under a sound. A
-  zoom of the picture, of an image or of a video, glides back to as it fits
-  in 200 ms when Edit is pressed, as a phone's photo editor shows the whole
-  picture to edit it (D97, D101); a pinch while cropping zooms the picture
-  under the frame. The picture is drawn in every frame.
+- **A video makes room for its editor as a desktop photo app does** (D102).
+  Edit fades the player's controls, and over 200 ms the picture grows
+  smaller and moves up into the space above the edit bar, which fades in
+  under it; Done gives the room back the same way, and the controls come
+  back as the player shows them. The picture is drawn in every frame of the
+  glide: it never jumps, flashes, or goes.
+- **An image and a sound keep their place when the editor comes and goes.**
+  The picture of an image keeps its place and its size, and is drawn in
+  every frame, when Edit and Done are pressed: the room of its tools under it
+  is kept while viewing, empty. The waveform of a sound keeps its place, with
+  Play under it.
+- A zoom of the picture, of an image or of a video, glides back to as it
+  fits in 200 ms when Edit is pressed, as a phone's photo editor shows the
+  whole picture to edit it (D97, D101); a pinch while cropping zooms the
+  picture under the frame.
 - A file that BaseHalf cannot edit shows as a plain view, an image in its
   page and a video or a sound in the player, without Edit, and nothing says
   why: there is no control to explain ([Failure](#failure)). So does every
@@ -435,14 +447,18 @@ crop:
   While viewing and editing, "Saving…" with the share done once a write has
   taken more than 1 s and while it goes on, after the line of an edited file
   (D99): a write that ends sooner shows nothing. And the failure of a write,
-  with **Try Again**; nothing else. It keeps its height while it is empty.
+  with **Try Again**; nothing else. It keeps its height while it is empty,
+  under an image and a sound. Under a video it stands in the room the
+  editor takes while editing; while viewing, it floats at the foot of the
+  media area, over the picture on its backing, only while it says
+  something (D102).
 
 ### Viewing and editing
 
 | | Viewing | Editing |
 | --- | --- | --- |
 | An image | the picture as the file holds it; the room of the tools empty | the rest of the original dimmed around the part kept, the crop frame on it while the pointer is over the picture or the keyboard is on it, and the tools under it ([Cropping an image](#cropping-an-image)) |
-| A video | the frame viewer shows the file: the frames of the part kept, from its start to its end, with the playhead; a press moves the playhead; Play plays the file through once | the frame viewer shows the whole original, the part kept in its yellow frame, with its handles and length; the part plays over and over ([Editing a video](#editing-a-video)) |
+| A video | the player as large as fits, its controls over the picture: the position slider and the times count the file, the part kept from its start to its end, and a press on the slider moves the playhead; Play plays the file through once; no frame viewer | the edit bar under the picture: Play, and the frame viewer of the whole original, the part kept in its yellow frame once trimmed, with its handles; the part plays over and over ([Editing a video](#editing-a-video)) |
 | A sound | the waveform shows the sound as the file holds it, from the first handle to the second, with the playhead; a press moves the playhead; Play plays it through once | the waveform shows the trims at its ends outside the handles, the handles, and a selected stretch with Delete; the part between the handles plays over and over ([Editing a sound](#editing-a-sound)) |
 
 - While viewing, the time that the player of a video and Play of a sound show
@@ -485,8 +501,9 @@ crop:
   keys work with the keyboard anywhere in Card Detail: on the media, on a
   button, in the player at full screen, or nowhere, on the window's own body.
   A control that takes them itself takes them first: a handle while editing,
-  the position slider of a video that BaseHalf cannot edit, and a field of
-  text. They change nothing of the file and move no card.
+  the position slider of a video while viewing, which moves within the part
+  kept, and a field of text. They change nothing of the file and move no
+  card.
 - **Command+Z** (Control+Z on Windows and Linux) undoes the last step of the
   canvas, a change of an edit among them, and **Shift+Command+Z** redoes it,
   with the keyboard anywhere in Card Detail outside an editor of text
@@ -516,15 +533,16 @@ in Card Detail.
   the picture grows past its own box, over the whole media area of Card
   Detail, as the page under a browser's toolbar does. Card Detail's controls
   keep their place and their size over it: the header, the player's
-  controls, Edit or Done, the frame viewer, Play, the tools, and the line
-  under the editor. **The zoomed picture shows under them**, as a phone's
-  photos show under its bars (D101): nothing of Card Detail's background
-  hides it in a band, and the frame viewer and the line under the editor
-  stand on a translucent backing that blurs the picture behind them, as the
-  player's controls do (D98), with 6 px of it around them and rounded
-  corners. The backing fades in over 150 ms once the picture grows past its
-  box and out when it fits again; at rest they stand on Card Detail's
-  background as before. The media area zooms from
+  controls, Edit or Done, the edit bar of a video, Play, the tools, and the
+  line under the editor. **The zoomed picture shows under them**, as a
+  phone's photos show under its bars (D101): nothing of Card Detail's
+  background hides it in a band. While viewing a video only the player's
+  controls stand over it (D102); while editing, the edit bar and the line
+  under the editor stand on a translucent backing that blurs the picture
+  behind them, as the player's controls do (D98), with 6 px of it around
+  them and rounded corners. The backing fades in over 150 ms once the
+  picture grows past its box and out when it fits again; at rest they stand
+  on Card Detail's background as before. The media area zooms from
   as it fits up to 5 times that, as a browser zooms a page, or up to twice
   the picture's own pixels when that is more. A pinch follows the fingers, by
   e^(−Δy / 100) for each of its events, the measure the browser gives a
@@ -550,8 +568,8 @@ in Card Detail.
   at rest; over an image, a double click shows it as it fits, or, as it
   fits, at its own pixels around the pointer. Escape during the drag puts the
   picture back where the drag took it from and leaves Card Detail open.
-  Done, the frame viewer, a change and its undo, Full Screen, and a change
-  of the size of Card Detail keep the zoom, as far as the new size allows;
+  Done, the edit bar, a change and its undo, Full Screen, and a change of
+  the size of Card Detail keep the zoom, as far as the new size allows;
   Edit shows the picture as it fits, in a glide of 200 ms (D97, D101). Card
   Detail opens with the picture as it fits, and so does a file
   shown anew. As it fits, a swipe and the wheel over the picture move
@@ -595,7 +613,7 @@ in Card Detail.
     the stretch. The stretch only moves; its length stays. A held handle's
     spread moves along so too. Holding a handle still spreads the
     viewer further around it when the hold's stretch is the shorter one, and
-    letting go of the handle shows the stretch the pinch chose again.
+    letting go of the handle glides back to the stretch the pinch chose.
   - While the video or the sound plays, the stretch follows the playhead:
     when the playhead leaves it, the stretch of the same length that begins
     at the playhead shows.
@@ -605,8 +623,8 @@ in Card Detail.
   - A trim, a cut, their undo and redo, and a change of the size of Card
     Detail keep the stretch, as far as the length then allows. Card Detail
     opens with the whole length, and Done shows the file's length again.
-  - While viewing, the frame viewer and the waveform show the length of the
-    file, and a pinch over them does nothing.
+  - While viewing, a video shows no frame viewer (D102), and the waveform
+    shows the length of the file; a pinch over it does nothing.
 - **A pinch elsewhere in Card Detail of a video or a sound**, over the player
   of a sound that BaseHalf cannot edit, Play, the line under the editor, the
   tools, and what made a generated file, does nothing. A pinch in Card Detail
@@ -616,42 +634,40 @@ in Card Detail.
 
 ### The frame viewer
 
-- Under the player, 12 px below it and as wide as it (at least 280 px where
-  the space allows), the **frame viewer**: a strip 48 px high of the
-  original's frames across its whole length, as many pictures as fit at its
-  height in the picture's shape, each the frame at the middle of its place.
-  The player and the viewer are centered together in the space the player
-  had.
-- **The strip lines up with the picture** (D99): its ends stand under the
-  picture's left and right edges, within 1 px, while viewing and while
-  editing, and Edit and Done move the strip itself nowhere. The handles stand
-  outside the strip's ends, so that while editing a part that reaches the
-  video's start or end has its handle outside the picture's edge.
-- **The viewer is the video's timeline**: the player above it shows Play, the
-  time, its sound button, and Full Screen, and no bar of its own for the time.
-  The player's sound button mutes only the playing; it changes nothing in the
-  file.
-- **The part kept** has a yellow frame around it, 3 px above and below, with
-  a handle 14 px wide outside each of its ends that carries a dark chevron;
-  the strip outside it is dimmed. While the whole video is kept, the frame is
-  white.
+- **The edit bar** stands under the player while editing, 12 px below the
+  picture and as wide as the picture is while editing, its ends within 1 px of
+  the picture's edges (D99, D102): **Play** at its left, and the **frame
+  viewer**, a strip 48 px high of the original's frames across its whole
+  length, as many pictures as fit at its height in the picture's shape, each
+  the frame at the middle of its place, with a handle 14 px wide at each
+  end. Where the picture is narrower than 360 px, the bar is 360 px wide,
+  centered under it, as far as the space allows. Under the bar stands the line
+  under the editor. The picture, the bar, and the line are centered together
+  in the media area.
+- **While viewing, there is no edit bar** (D102): the player fits the whole
+  media area and shows its own controls over the picture, Play, the time,
+  the position slider, the length, its sound button, and Full Screen; the
+  slider and the times count the file, the part kept. Edit fades those
+  controls and makes room for the bar, the picture gliding smaller in 200 ms
+  ([What Card Detail shows](#what-card-detail-shows)); while editing, the
+  player shows no controls of its own, and its sound button is not there.
+  The sound button mutes only the playing; it changes nothing in the file.
+- **The part kept**, once it is shorter than the video, has a yellow frame
+  around it, 3 px above and below, and the handles at its ends are yellow
+  with a dark chevron; the strip outside it is dimmed. While the whole video
+  is kept, no frame stands on the strip, and the handles are grey with a
+  light chevron, as a desktop photo app shows them (D102). A drag that makes
+  the part shorter turns them yellow at once.
 - **The playhead** is a white line at the time the player shows, and follows
-  it while it plays.
-- **The length of the part** is in its middle, or above the viewer over its
-  middle when the part is narrower than the label, in tenths of a second under
-  a minute and in minutes and seconds from a minute on, never more than it is,
-  as the player shows times (`3.5s` for 3.57 s).
-- **While viewing** (D96), the viewer is the timeline of the file as it is: the
-  frames of the part kept, from its start to its end, across the strip, with
-  the playhead, and no yellow frame, handles, shade, or length. A press
-  anywhere on it moves the playhead there, and a drag from there moves it
-  along. Edit shows the whole original under the same strip, with the part
-  kept in its frame where it lies; Done shows the file again. **The strip
-  glides between them** (D101): over 250 ms its stretch goes from the part to
-  the whole original, or back, its pictures moving and scaling with the
-  times they show, while the yellow frame, the handles, and the shade fade
-  in or out; the pictures of the new stretch then fade in over the moved
-  ones.
+  it while it plays. It hides while a handle is pressed and dragged, and then
+  stands at the handle.
+- **The time at a handle** shows in a bubble above it while the handle is
+  pressed and dragged, as a desktop photo app shows it: minutes, seconds,
+  and hundredths (`00:26.40`), with hours before them from an hour on
+  (`1:02:03.40`); the start handle's time is its first frame's, the end
+  handle's the end of its last frame. The bubble goes once the handle is let
+  go. The length of the part shows in no label on the strip; the line under
+  the editor says what is kept.
 - **The pictures come together**, as a phone's filmstrip shows them (D101).
   Each is the frame at the middle of its place, or, when the video has a key
   frame within half a place of that middle, the key frame nearest it, which
@@ -660,8 +676,8 @@ in Card Detail.
   once all of it is read, fading in over 120 ms over what the strip showed;
   a set that takes longer than 1 s shows what is read then and fades in the
   rest as it comes. Until the first set is read, the strip is its empty
-  shade. The pictures of the whole original and of the part kept are kept
-  while Card Detail shows the file, so that Edit and Done read them once.
+  shade. The pictures of the whole original are read while viewing, at the
+  width the bar has while editing, so that Edit shows them at once (D102).
 
 ### The pointer
 
@@ -669,11 +685,13 @@ in Card Detail.
   edge. It pauses the player, and while it moves, the player shows the frame
   at the handle: the first frame of the part at the start handle, the last at
   the end handle. Letting go of it is a change, "Trim shot.mp4".
-- **A handle held still for 0.4 s** spreads the viewer out around it: the
-  viewer then shows a tenth of the video, or 2 s, whichever is longer, around
-  the handle's time, with its frames read anew, so that the handle moves a
-  frame at a time across a wider stretch of the screen; releasing it shows the
-  whole video again, or the stretch that a pinch spread out
+- **A handle held still for 0.8 s** spreads the viewer out around it, as a
+  desktop video player's trim does (D102): the viewer glides in 250 ms to a
+  tenth of the video, or 2 s, whichever is longer, around the handle's time,
+  the handle keeping its place on the screen, and its frames are read anew,
+  so that the handle moves a frame at a time across a wider stretch of the
+  screen. Letting go glides it back in 250 ms to the whole video, or to the
+  stretch that a pinch spread out
   ([Zooming the picture and the time](#zooming-the-picture-and-the-time)).
 - **The part is at least 1.0 s long**, or the whole video when it is
   shorter. A handle moved closer than that to the other one pushes the other
@@ -704,13 +722,18 @@ in Card Detail.
 - While viewing, the player plays the file through once, as a card's player
   plays a video: the part kept, from the playhead to the part's end, where it
   stops, and from the part's start when Play is pressed there. Its time
-  counts from the part's start, to the part's length.
+  counts from the part's start, to the part's length, and its position
+  slider spans the part: a press on it moves the playhead to that place of
+  the part, its end to the part's last frame, and its keys move within the
+  part (D102).
+- While editing, Play in the edit bar plays and pauses, as Space does, and
+  shows Pause while the video plays.
 
 ### The keyboard of the frame viewer
 
-- The viewer's controls take the keyboard after the player's: the start
-  handle, then the end handle. Each handle is a slider that says its time and
-  the video's length.
+- While editing, the edit bar's controls take the keyboard after the
+  header's: Play, the start handle, then the end handle. Each handle is a
+  slider that says its time and the video's length.
 - **On a handle**: Left and Right move it by 0.1 s, with Shift by one frame,
   with Command (Control on Windows and Linux) by 1 s; Home and End move it as
   far as it goes; Up and Down do what Right and Left do. Every step moves the
@@ -1054,9 +1077,9 @@ in Card Detail.
   the same way. A video whose frames are copied has no such limit.
 - Only the picture and the first sound of a video are used; other tracks are
   not in the edited video.
-- The frame viewer reads the frames of a video once when the editor opens, and
-  again where it is spread out; with few key frames, a long video's pictures
-  appear one by one.
+- The frame viewer reads the frames of a video once when the editor opens,
+  while viewing, and again where it is spread out; a window resized while
+  viewing reads them again for the new width.
 - A write of a video copies its bytes, as long as the disk takes to copy
   them, while the line says Saving… with the share done once it has taken
   1 s; a change while it runs is written after it. Measured on 2026-10-28 in
@@ -1087,8 +1110,8 @@ in Card Detail.
    becomes Done, and Done goes back; a GIF shows its page, without Edit or an
    editor, and nothing that says why.
 2. After Edit, in the frame viewer, dragging the start handle shows the frame at the
-   handle, moves the yellow frame, and changes the length; holding a handle
-   still for 0.4 s spreads the viewer around it; moving a handle within 1.0 s
+   handle, moves the yellow frame, and changes the part kept; holding a handle
+   still for 0.8 s spreads the viewer around it; moving a handle within 1.0 s
    of the other pushes it.
 3. Letting go of the start handle of a 5 s video at 1.0 s, and of the end
    handle at 4.5 s, with nothing pressed after: within 3 s the video is 3.5 s
@@ -1135,20 +1158,23 @@ in Card Detail.
     before then keeps its edit, and its note is gone.
 15. From the first frame that Card Detail of a video, an image, or a sound
     shows its picture or its waveform, recorded on every frame, the picture
-    keeps its place and size while the frame viewer, the crop tools, or Play
-    stand in the space under it, and when Edit and Done are pressed, both
-    ways, also with a video's picture zoomed in (an image's glides to as it
-    fits, criterion 26); no frame shows the picture taken
-    away or drawn anew, also when a change, its write, its undo, and Revert
-    to Original land; and closing Card Detail shows no frame without the
-    card's picture (the user, 2026-10-27: the video "jumped up" and "flashed"
-    when Edit was pressed, and Cancel flashed).
+    of an image and the waveform of a sound keep their place and size while
+    the crop tools or Play stand in the space under them, and when Edit and
+    Done are pressed, both ways (an image's zoom glides to as it fits,
+    criterion 26); the picture of a video glides between its place while
+    viewing and its place while editing, its size and its edges changing in
+    every frame the same way, never back, also with it zoomed in (criterion
+    36); no frame shows the picture taken away or drawn anew, also when a
+    change, its write, its undo, and Revert to Original land; and closing
+    Card Detail shows no frame without the card's picture (the user,
+    2026-10-27: the video "jumped up" and "flashed" when Edit was pressed,
+    and Cancel flashed).
 16. A pinch made through the browser's protocol, by 1.6, over the picture of
     a video of 1280 × 720 in Card Detail draws it 1.6 times larger, with the
     point that was under the pointer within 2 pixels of it along each side
     where no edge of the picture stands on the media area's (D101), past the
     box of its player, which keeps its place and size, and the controls at
-    their size; between the player and the frame viewer the picture shows,
+    their size; under the player the picture shows to the media area's edge,
     also after a swipe (criterion 33). A drag then moves the picture
     and does not play it; a click plays it; a pinch by 0.5 shows it as it
     fits. A video of 854 × 480 that fits at 1,280 pixels zooms to 5 times
@@ -1166,17 +1192,18 @@ in Card Detail.
     within a second of the last movement its pictures are frames of the new
     stretch.
 19. A pinch over Play, the line under the editor, the player of a sound
-    that BaseHalf cannot edit, and, while viewing, the frame viewer and the
-    waveform changes nothing, and no pinch in Card Detail changes the zoom of
-    the window or of the canvas.
+    that BaseHalf cannot edit, and, while viewing, the waveform changes
+    nothing, and no pinch in Card Detail changes the zoom of the window or of
+    the canvas.
 20. Over a picture zoomed in by a pinch, a two-finger swipe and the wheel
     move it with the fingers and zoom nothing; over a picture as it fits they
     change nothing (the user, 2026-10-27: a two-finger swipe zoomed and only
     a three-finger drag moved, the opposite of the canvas).
-21. While viewing a video trimmed to 1.0 s–4.5 s of 5 s, the frame viewer
-    shows 3.5 s of frames and no handle, the player says `0.0s` and `3.5s`, and
-    Play plays to the end of the part and stops there; while editing it plays
-    the part over and over.
+21. While viewing a video trimmed to 1.0 s–4.5 s of 5 s, no frame viewer
+    shows, the player says `0.0s` and `3.5s`, a press at the middle of its
+    position slider shows the original's frame at 2.75 s, End on the slider
+    its last frame of the part, and Play plays to the end of the part and
+    stops there; while editing it plays the part over and over.
 22. Edit, then Done, with nothing changed between, leaves the file, its
     record, and the undo as they were; a change after Edit is saved with
     nothing more pressed; Card Detail closed while editing opens to viewing
@@ -1228,10 +1255,10 @@ in Card Detail.
     byte for byte one of the original's; and the window's player, the
     system's video reader, and ffprobe show its first frame as the original's
     at the start and its length as the part's, within a frame.
-29. Card Detail of a 16:9 video in a window 3440 px wide, viewing and then
-    editing: the strip's left and right ends stand within 1 px of the
-    picture's edges, Edit and Done move none of its pictures, and while the
-    whole video is kept the handles stand outside the picture's edges.
+29. Card Detail of a 16:9 video in a window 3440 px wide, editing: the edit
+    bar's left edge, Play's, and its right edge, the end handle's, stand
+    within 1 px of the picture's edges; while viewing, no part of the bar
+    shows.
 30. A WebM in VP8 or VP9 with Opus, trimmed from a time that is not a key
     frame: its first frame shown is the original's at the start, its frames
     from the next key frame on are byte for byte the original's, only those
@@ -1241,7 +1268,7 @@ in Card Detail.
     click, the keyboard on Play: Right three times moves the playhead from
     the start to 3 s, Left once to 2 s, Shift+Right one frame on, End to the
     file's last frame, and Home to its start, while no card under Card
-    Detail moves; the same after a press on the frame viewer, with the
+    Detail moves; the same after a press on the position slider, with the
     keyboard on Edit or Done, and with it on the window's body. While
     viewing a part from 2 s to 8 s, Home and End stop at the part's ends;
     while editing, End goes to the original's last frame, and on a handle
@@ -1258,25 +1285,41 @@ in Card Detail.
     shows its ring. The same holds for a sound, with its waveform, and for
     an image, with its picture, which shows no ring after a key (D100; the
     user, 2026-10-28: a blue frame on Play at Left and Right).
-33. Card Detail of a 16:9 video, zoomed in 2.5 times by a pinch and dragged
-    400 px toward the bottom right: the picture's top and left edges stop at
-    the media area's top and left edges, and no room around it shows; under
-    the frame viewer the picture shows, blurred, through a backing 6 px
-    around the strip, and no band of the background hides it anywhere. The
-    same for an image while viewing. As it fits, the viewer stands on the
-    background with no backing (D101; the user, 2026-10-28: a thick black
+33. Card Detail of a 16:9 video, zoomed in 2.5 times by a pinch while
+    viewing and dragged 400 px toward the bottom right: the picture's top and
+    left edges stop at the media area's top and left edges, no room around
+    it shows, and the picture reaches the media area's bottom edge, with no
+    band of the background anywhere. While editing, the same zoom shows the
+    picture under the edit bar, blurred, through a backing 6 px around it; as
+    it fits, the bar stands on the background with no backing. The same for
+    an image while viewing (D101, D102; the user, 2026-10-28: a thick black
     edge under a zoomed video dragged toward the bottom right).
 34. Card Detail of a 75-minute 1080p lecture with a key frame every 10 s,
     recorded on every frame from the double click: the frame viewer's
-    pictures show together, within 1 s, each from a key frame, fading in over
-    120 ms; no frame shows some of them and not others (D101; the user: the
-    strip "不丝滑").
+    pictures are read while viewing, within 1 s, each from a key frame, and
+    Edit shows all of them in the first frame the bar shows; no frame shows
+    some of them and not others (D101, D102; the user: the strip "不丝滑").
 35. The same lecture with its first 5 minutes trimmed off, recorded on every
-    frame: Done glides the strip from the whole original to the part kept in
-    250 ms and Edit back, every frame showing pictures over the whole strip,
-    none of them empty or torn; the pictures of the new stretch fade in once,
-    together; Edit glides a zoomed picture back to as it fits in 200 ms (D101;
-    the user: Edit and Done changed the strip "很奇怪").
+    frame: Edit and Done change none of the strip's pictures, the strip shows
+    the whole original with the part kept in its yellow frame, and no frame
+    shows the part's pictures alone; Edit glides a zoomed picture back to as
+    it fits in 200 ms (D101, D102; the user: Edit and Done changed the strip
+    "很奇怪").
+36. Card Detail of a 16:9 video BaseHalf can edit, in a window of 1600 ×
+    1000: while viewing, its player has the size of the player of a video
+    BaseHalf cannot edit, within 1 px, its controls show the position slider
+    and both times, and nothing stands under it. Recorded on every frame,
+    Edit fades the controls and glides the picture to its place above the
+    edit bar in 200 ms, the picture's width going down in every frame and
+    its height and width keeping the video's shape; the bar fades in under
+    it; Done glides back and the controls show again (D102; the user,
+    2026-10-28: "全面学习一下电脑上的视频编辑界面是怎样的逻辑").
+37. While the whole video is kept, the strip has no yellow frame and grey
+    handles. A press on the start handle shows a bubble above it that says
+    `00:00.00` and hides the playhead; a drag to 26.4 s says `00:26.40`,
+    shows that frame, and turns the frame and the handles yellow, the strip
+    before the handle dimmed; let go, the bubble goes, and the playhead
+    stands at the handle (D102).
 
 ## Verification
 
@@ -1315,9 +1358,11 @@ in Card Detail.
 - Tests in the window of the unit tests of viewing and editing
   (`basehalfMediaViewing.test.ts`): each editor opens to viewing with none of
   its controls of editing reachable, Edit and Done show and hide them without
-  moving the picture, a press while viewing moves the playhead, the keys of
-  the playhead within the file while viewing and the original while editing,
-  Play while viewing plays once, and Escape goes back to viewing.
+  moving the picture of an image, the keys of the playhead within the file
+  while viewing and the original while editing, Play while viewing plays
+  once, and Escape goes back to viewing; and of the player
+  (`basehalfCanvasCardVideoPlayer.test.ts`): its position slider spans the
+  part kept while viewing.
 - Unit tests of the crop's gestures (D97): the part kept when the picture
   zooms under a fixed frame, with turns, angles, ratios, the smallest part,
   and the largest that the picture holds (`basehalfImageCrop.test.ts`); and,
@@ -1352,7 +1397,11 @@ in Card Detail.
   pinches and swipes made through the browser's protocol). Unit tests of
   the key frames the frame viewer's pictures are read from
   (`basehalfVideoTrimPictures.test.ts`), and, in the window of the unit
-  tests, of the strip's glide and its sets of pictures shown together.
+  tests, of the strip's sets of pictures shown together, its grey and
+  yellow handles, the bubble of a pressed handle, and the glide of a held
+  handle's spread. The `card-detail-video-edit` step also checks criteria
+  29, 36, and 37: the edit bar under the picture, the glide of Edit and
+  Done recorded on every frame, and the bubble.
 - In a development window: each kind and format with the media of the
   development workspace, the time each write takes, the quality of the edited
   file against its original frame by frame, and the canvas card and Card Detail

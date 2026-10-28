@@ -4153,6 +4153,11 @@ thinking flowing on the canvas, a broad use.
 > its picture under the crop frame, which changes the part kept, and a
 > two-finger swipe moves the picture under it; Edit takes a zoom of the view
 > back to as it fits, in a glide. The rest of D96 stands.
+>
+> **Revised by D102 (2026-10-28).** A video is viewed as large as fits, with
+> its player's own position slider and no frame viewer, and Edit and Done
+> glide its picture to make room for the edit bar and to give it back.
+> Images and sounds keep their place.
 
 **Decision.** Card Detail of a video, an image, or a sound opens to look at
 the file, as a phone's photo library and voice recorder show what they hold:
@@ -4408,6 +4413,10 @@ The user asked for one rule wherever a handle is dragged towards an edge
 
 ## D99 — A trim of a video is saved by copying its frames, at once, and the frame viewer lines up with the picture (NEW, 2026-10-28)
 
+> **Revised by D102 (2026-10-28).** The strip no longer stands under the
+> picture while viewing; while editing, the edit bar, Play and the strip,
+> lines up with the picture. The trim by copying stands.
+
 **Decision.** A trim of an MP4, M4V, or MOV encodes nothing again. The
 edited file holds the original's compressed frames and sound packets as they
 are, from the key frame that the first frame of the part needs through the
@@ -4573,6 +4582,11 @@ the first key. Measured in a development window on `6d3548f51`:
 
 ## D101 — A zoomed picture moves within its own edges under floating controls, and the frame viewer shows its pictures together (NEW, 2026-10-28)
 
+> **Revised by D102 (2026-10-28).** Edit and Done no longer glide the strip
+> between the part kept and the whole original: viewing has no strip, and
+> the strip shows the whole original. A zoomed picture and its edges, and
+> pictures that come together, stand.
+
 **Decision.** In Card Detail, a picture and its frame viewer behave as a
 phone's photos do:
 - **A zoomed picture moves within its own edges.** A drag, a swipe, or the
@@ -4648,3 +4662,97 @@ thumbnails, and shows them together. Its editor shows the whole picture.
   hiding it; Edit shows a zoomed video as it fits.
 - Revises D99 only in that Edit and Done now glide the strip's pictures; the
   strip itself stays where D99 put it.
+
+## D102 — A video in Card Detail is viewed and edited as a desktop photo app does it (NEW, 2026-10-28)
+
+**Decision.** Card Detail views and edits a video BaseHalf can edit as a
+desktop photo app does, which was tried by hand for it:
+- **Viewing shows the video as large as fits, with its player's own
+  controls.** No frame viewer and no room for one stand under the picture:
+  the player fits the whole media area, as a video BaseHalf cannot edit does,
+  and its controls float over the picture with the position slider and both
+  times (D98). The slider and the times count the file: the part an edit
+  kept, from its start to its end.
+- **Edit makes room for the editor.** The player's controls fade, and over
+  200 ms the picture grows smaller and moves up into the space above the edit
+  bar, drawn in every frame; Done gives the room back the same way. The edit
+  bar stands under the picture, 12 px below it and as wide as it: Play at
+  its left, then the frame viewer of the whole original.
+- **The frame viewer shows the whole original only.** Its pictures are read
+  while viewing, so that Edit shows them at once. Viewing has no strip, so
+  nothing glides between the part kept and the whole original.
+- **The handles say what is kept.** While the whole video is kept, no frame
+  stands on the strip and the handles are grey with light chevrons. A trim
+  gives the part kept its yellow frame and yellow handles and dims the strip
+  outside it. A pressed handle shows its time in a bubble above it, in
+  minutes, seconds, and hundredths (`00:26.40`), the picture shows its
+  frame, and the playhead hides until the handle is let go, when it stands
+  there. The length in the middle of the part goes; the line under the
+  editor says what is kept.
+- **A handle held still for 0.8 s spreads the viewer around it**, gliding in
+  250 ms, and letting go glides it back, as a desktop video player's trim
+  does; a pinch still spreads the time while editing (D93).
+
+See [editing media, "What Card Detail shows"](specs/media-editing.md#what-card-detail-shows)
+and [the frame viewer](specs/media-editing.md#the-frame-viewer).
+
+**Why.** On 2026-10-28, after D101, the user found it still wrong:
+"感觉还是不对，我觉得你首先应该全面学习一下电脑上的视频编辑界面是怎样的逻辑", and then
+"(不是播放器的，是相册里的逻辑)". A desktop photo app, tried by hand in a library
+of its own with a 60 s video:
+- Viewing: the picture as large as fits the window, edge to edge. Floating
+  controls over its lower part: sound, Play, and a screen button; the time
+  played, a thin slider, and the time left. No strip of frames.
+- Edit: the controls fade, the library's sidebar goes, the adjustments come
+  in at the right, and the picture glides in about 200 ms from 984 to 932
+  points wide, into its new place. A bar under it holds a sound button, Play,
+  and the strip of the whole original between two handles.
+- Nothing trimmed, the handles are grey and no yellow shows. A trim turns
+  the part's frame and handles yellow and dims the rest. A pressed handle
+  shows a bubble with its time, and the picture its frame; the playhead
+  hides while the handle is dragged and stands at it after. Holding a handle
+  still spreads nothing there; a desktop video player's trim spreads after
+  about 0.8 s, in an animation.
+- After a trim, viewing counts the part kept (`00:00` to `−00:25`), and Edit
+  shows the whole original again, the handles where the trim left them.
+
+BaseHalf did otherwise. A video it could edit kept a band of room under its
+picture while viewing, for a strip that showed the part kept as the
+timeline, and Edit and Done glided that strip between the part and the whole
+original (D96, D101). The band read as a black edge, and the strip changed
+what it meant under the user's eyes.
+
+**What was set aside.**
+- The photo app's question at Done, to save the video or a new clip, and its
+  Cancel: changes save themselves (D85), as the user asked, and undo and
+  Revert to Original are the ways back.
+- Its sidebar of adjustments and its sound button, which mutes the video as
+  an edit: BaseHalf edits no colors, and its edit has no mute (D85).
+- The bar at the window's foot, as the photo app has it: Card Detail keeps
+  the bar under the picture, centered with it, as D99 lined it up.
+- The bar over the picture's lower part, as a desktop video player trims:
+  the user named the photo app, whose bar has room of its own.
+- Keeping the picture still at Edit (D96): the room for the editor is then
+  empty while viewing, which was the band. The picture glides instead, drawn
+  in every frame; it neither jumps nor flashes, which was the complaint about
+  D84.
+- No spread on a held handle, as the photo app has none: the spread was
+  asked for as the phone's (D98), and a desktop video player has it too; it
+  now waits 0.8 s and glides, so that a press that rests before a drag does
+  not change the strip.
+
+**Consequences.**
+- [Editing media](specs/media-editing.md): "What Card Detail shows",
+  "Viewing and editing", "Zooming the picture and the time", "The frame
+  viewer", "The pointer", "Playing", criteria 2, 15, 16, 19, 21, 29, 31, 33
+  to 35, and the new 36 and 37.
+- [Generation cards, "The player"](specs/generation-cards.md#the-player):
+  the player of a video BaseHalf can edit shows its position slider while
+  viewing, counting the part kept, and hides its controls while editing.
+- Revises D96: Edit and Done glide the picture of a video; viewing shows no
+  frame viewer. Images and sounds keep their place.
+- Revises D99: while editing, the edit bar lines up with the picture; the
+  strip no longer stands under the picture while viewing.
+- Revises D101: no glide of the strip between the part and the whole; while
+  viewing a zoomed picture shows under the player's controls only, and while
+  editing under the edit bar's backing.

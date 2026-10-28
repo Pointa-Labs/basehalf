@@ -1388,9 +1388,7 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
 - **The controls float over the picture and darken nothing else** (D98), as
   a photo app's player has them. The bar lies 8 px inside the picture's
   bottom, left, and right edges, 30 px high with rounded corners, and is at
-  most 480 px wide, in the middle; under a frame viewer, which is the
-  video's timeline, it has no position slider and is as wide as its
-  controls. The sound button is a round button 8 px
+  most 480 px wide, in the middle. The sound button is a round button 8 px
   inside the top left corner. Each has its own small translucent backing,
   which blurs the picture behind it, so that its controls read over a white
   picture as over a black one. No shade goes across the picture, and a card
@@ -1429,8 +1427,10 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   starts at the frame its card showed; when Card Detail closes, the card shows the frame where it stopped
   ([opening and closing Card Detail](card-detail-opening.md)), unless an edit
   wrote the file anew meanwhile: the card then shows the new file. A video
-  that BaseHalf can edit plays with the frame viewer of its editor under the
-  player, and a sound shows its waveform in place of the player
+  that BaseHalf can edit shows the same controls while viewing, its position
+  slider and times counting the part its edit kept, and Edit fades them and
+  makes room under the player for the edit bar of its editor (D102); a sound
+  shows its waveform in place of the player
   ([editing media](media-editing.md)), which Card Detail opens to view and
   Edit edits (D96). A pinch over the picture zooms the place under the
   fingers, past the player's box, and a two-finger swipe, the wheel, or a
@@ -1448,7 +1448,7 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   second with Left and Right, and goes to the start and the end with Home
   and End. The arrow keys on a control move no card. In Card Detail the same
   keys move the video or the sound with the keyboard anywhere in it, also
-  where the frame viewer or the waveform stands in place of the slider
+  while the edit bar or the waveform stands in place of the slider
   ([editing media, "The keyboard"](media-editing.md#the-keyboard)). There the
   keyboard is on the player itself, which shows no ring, not on its
   buttons: a press of a button with the pointer leaves it there, and only
