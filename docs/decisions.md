@@ -4507,3 +4507,66 @@ picture above it.
   `trimStart` and `trimEnd` stay.
 - Images, WAV, MP3, FLAC, Ogg, and an M4A whose edit joins parts are written
   as before.
+
+## D100 — In Card Detail the keyboard is the media's, and a press of a button leaves it there (NEW, 2026-10-28)
+
+**Decision.** In Card Detail of a video, an image, or a sound, the keyboard's
+place is the media itself: the player of a video, the waveform of a sound,
+and the picture of an image. Card Detail opens with the keyboard there, a
+click on the picture puts it there, and so does going back to viewing. It
+shows no ring there, as a page shows none around its text. The media takes
+a player's keys: Space plays and pauses a video or a sound, Left and Right
+move its playhead, a frame with Shift, and Home and End go to its ends;
+Escape and Command+Z do what they did. A press of a control with the
+pointer leaves the keyboard where it was, as the system's own buttons do: Play, the
+sound button, Full Screen, the position slider, Edit and Done, a handle,
+the crop frame and its corners, a tool, the dial, Revert to Original, Try
+Again, and Delete. Only the keyboard moves it to a control, with Tab, and
+only then does the control show its ring. See
+[editing media, "The keyboard"](specs/media-editing.md#the-keyboard).
+
+**Why.** On 2026-10-28, right after Left and Right were made to move the
+playhead, the user asked why Play showed a blue frame when they were
+pressed: "这太不合理了，看看有没有什么更本质的问题，而不是仅仅修个 UI".
+The keyboard stood on a button. Card Detail opened with it on Play, a click
+on the picture put it back there, and a click on any button took it to that
+button, as Chromium does and the system's own buttons do not. Whether a control
+shows its ring was left to Chromium's guess, `:focus-visible`, which turns
+on as soon as any key is pressed while a control has the keyboard, however
+it got there. So the button that the keyboard had been parked on lit up at
+the first key. Measured in a development window on `6d3548f51`:
+- Right on a video put a ring on Play, on a sound a ring on its Play, and
+  on an image a ring around the picture.
+- While a video played, its controls faded 2.5 s after the pointer rested.
+  After one Right they stayed, with a ring on Pause: the player took the
+  lit button for the keyboard having moved into its controls (D98).
+- After a click on Edit the keyboard was on Done, and Space pressed Done:
+  the editing ended instead of the video playing.
+- A button that goes once it is used (Revert to Original, Try Again, Delete)
+  dropped the keyboard to the window's body, which D85 and D96 worked
+  around one case at a time.
+
+**What was set aside.**
+- Hiding the ring of Play and of the picture: the keyboard would still be on
+  a button, Space after Edit would still end the editing, and the controls
+  would still stay after a key.
+- Taking the keyboard off a button after each click: it would go to the
+  window's body, nowhere, and a key would reach no media.
+- The same for every button of BaseHalf at once, on the canvas and in its
+  panels: on the canvas the keyboard's place is the canvas and its cards,
+  whose keys move cards, and a press of a card's Play that left it there
+  would let Left and Right move another selected card. That is a change of
+  its own.
+
+**Consequences.**
+- [Editing media, "The keyboard"](specs/media-editing.md#the-keyboard):
+  where the keyboard opens and stays, Space, and criterion 32.
+  [Opening and closing Card Detail](specs/card-detail-opening.md#the-keyboard):
+  a video or a sound has the keyboard on its media, not on Play.
+  [Generation cards, "The player"](specs/generation-cards.md#the-player):
+  Card Detail's player and criterion 40.
+- [Architecture invariants](harness/architecture-invariants.md#product-shell):
+  in Card Detail's media a press with the pointer moves no keyboard.
+- The keyboard that the specifications put on Play when Card Detail opens,
+  and on the editor's first control after a change, is on the media
+  instead.

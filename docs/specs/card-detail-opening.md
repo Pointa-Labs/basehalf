@@ -90,9 +90,10 @@ another.
 - Once Card Detail is drawn and its transition is over, it takes the
   keyboard: the editor of a note has the caret at the end of the note, so
   that what is typed goes on from there; the editor of another text has it
-  at its start, or where it was opened, as from a result of Search; the
-  player of a video or a sound has it on Play; an image has it on its
-  picture, and a PDF and a book in their page. It does not when it was opened to keep the keyboard where it
+  at its start, or where it was opened, as from a result of Search; a video
+  has it on its player, a sound on its waveform or its player, and an image
+  on its picture, none of them with a ring (D100); a PDF and a book have it
+  in their page. It does not when it was opened to keep the keyboard where it
   was, as a click in Files does, or when the keyboard went out of the canvas
   meanwhile.
 - Escape closes Card Detail, wherever in it the keyboard is: in its header,

@@ -70,7 +70,11 @@ See [code organization](code-organization.md) and public decision D60.
   on the canvas surface, its own buttons, and the toolbars, menus, and Video
   panel over its cards, and in BaseHalf's player and the editors of media in
   Card Detail, a control shows a ring only when the keyboard moved
-  the focus there. A text field shows its focus by its caret, and a field
+  the focus there. In Card Detail's media the keyboard stays on the media,
+  and a press of a control with the pointer leaves it there, as the system's own
+  buttons do, so that a control has the keyboard only when the keyboard
+  took it there: Chromium's `:focus-visible` alone turns on at any key
+  pressed on a control that a click or the program focused (D100). A text field shows its focus by its caret, and a field
   with a border by its border alone. A menu that BaseHalf draws on the
   canvas starts at its checked item. Without one, it has no current item
   when a click opened it, until an arrow key chooses one, as the

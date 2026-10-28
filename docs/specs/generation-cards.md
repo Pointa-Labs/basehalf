@@ -1418,8 +1418,8 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   on, and **Full Screen** stands where **Open** is. The controls show while
   the video is paused, while the pointer moves over the picture or rests on
   a control, and while the keyboard is on one of them after a key took it
-  there (Card Detail that opens puts it on Play by itself, which keeps
-  nothing). While the video plays, they fade 2.5 s after the pointer last
+  there (Card Detail keeps the keyboard on the player itself, D100). While
+  the video plays, they fade 2.5 s after the pointer last
   moved or a key was pressed, and at once when the pointer leaves the
   picture; a move or a key in Card Detail brings them back. Faded, they can
   still be reached by the keyboard, which shows them. The player has the
@@ -1449,7 +1449,10 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   and End. The arrow keys on a control move no card. In Card Detail the same
   keys move the video or the sound with the keyboard anywhere in it, also
   where the frame viewer or the waveform stands in place of the slider
-  ([editing media, "The keyboard"](media-editing.md#the-keyboard)).
+  ([editing media, "The keyboard"](media-editing.md#the-keyboard)). There the
+  keyboard is on the player itself, which shows no ring, not on its
+  buttons: a press of a button with the pointer leaves it there, and only
+  Tab takes it to a button, which then shows its ring (D100).
 
 ### The toolbar
 
@@ -2222,7 +2225,8 @@ The player
     is paused, the sound on, and Full Screen; a click on the picture plays
     and pauses it. While it plays, its controls fade 2.5 s after the
     pointer rests over the picture and when the pointer leaves it, come back
-    with a move, and stay while the keyboard is on Play.
+    with a move, and stay while Tab has taken the keyboard to one of them;
+    a key pressed on the player keeps them only for its 2.5 s (D100).
     It starts at the frame the card showed, and the card shows the frame
     where Card Detail stopped.
 41. The card of a WAV file shows the glyph of a sound and no system control;

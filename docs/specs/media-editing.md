@@ -13,7 +13,9 @@ for viewing before editing, and the gestures of the canvas;
 for cropping as a phone's photo editor does;
 [D99](../decisions.md#d99--a-trim-of-a-video-is-saved-by-copying-its-frames-at-once-and-the-frame-viewer-lines-up-with-the-picture-new-2026-10-28)
 for saving a trim by copying the video's frames, and the frame viewer under
-the picture
+the picture;
+[D100](../decisions.md#d100--in-card-detail-the-keyboard-is-the-medias-and-a-press-of-a-button-leaves-it-there-new-2026-10-28)
+for the keyboard, which stays on the media
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -447,20 +449,29 @@ crop:
 
 ### The keyboard
 
-- Card Detail opens with the keyboard on the player's Play for a video, on
-  Play for a sound, and on the picture for an image. Edit and Done are
-  buttons of the header, and the keyboard stays on the button they become.
-  While editing, the controls of the editor follow in the order of their
-  places, after the header's.
+- **The keyboard is the media's** (D100): the player of a video, the
+  waveform of a sound, and the picture of an image. Card Detail opens with
+  the keyboard there, a click on the picture puts it there, and so does
+  going back to viewing; it shows no ring there, as a page shows none around
+  its text. **A press with the pointer leaves the keyboard where it was**, as
+  the system's own buttons do: on Play, the sound button, Full Screen, the position
+  slider, Edit and Done, a handle, the crop frame and its corners, a tool,
+  the dial, Revert to Original, Try Again, and Delete. Only the keyboard
+  moves it to a control, with Tab, and the control then shows its ring.
+  Edit and Done are buttons of the header; pressed with the keyboard, the
+  keyboard stays on the button they become. While editing, the controls of
+  the editor follow in the order of their places, after the header's.
+- **Space** plays and pauses a video or a sound with the keyboard on its
+  media, or nowhere; on a button that Tab took the keyboard to, it presses
+  the button, and on a handle it plays and pauses.
 - **Escape**, during a drag in an editor, only ends the drag and puts back
   what the drag changed; with a part of a sound selected, it only drops the
   selection; while editing, it goes back to viewing, wherever in Card Detail
   the keyboard is; otherwise it closes Card Detail
   ([opening and closing Card Detail](card-detail-opening.md#the-keyboard)).
   One press does it after any control was used: going back to viewing takes
-  the keyboard from a control of editing to what viewing has, the picture or
-  Play, and Escape with the keyboard nowhere, on the window's own body, is
-  Card Detail's.
+  the keyboard from a control of editing to the media, and Escape with the
+  keyboard nowhere, on the window's own body, is Card Detail's.
 - **Left** and **Right** move the playhead of a video or a sound a second
   back or on, and **Home** and **End** move it to the start and the end of
   what its timeline shows: the file while viewing, the original while
@@ -468,8 +479,8 @@ crop:
   and pauses it first, where BaseHalf knows its frames: in a video it can
   edit. A sound, and a video it cannot edit, move a second with Shift too. A
   video or a sound that plays goes on playing from where the key put it. The
-  keys work with the keyboard anywhere in Card Detail: on Play, on Edit or
-  Done, in the player at full screen, or nowhere, on the window's own body.
+  keys work with the keyboard anywhere in Card Detail: on the media, on a
+  button, in the player at full screen, or nowhere, on the window's own body.
   A control that takes them itself takes them first: a handle while editing,
   the position slider of a video that BaseHalf cannot edit, and a field of
   text. They change nothing of the file and move no card.
@@ -481,7 +492,8 @@ crop:
   the editor stays, and the keyboard stays on the control it was on.
 - A control shows a focus ring only when the keyboard moved the focus there,
   as in the player
-  ([architecture invariants](../harness/architecture-invariants.md#product-shell)).
+  ([architecture invariants](../harness/architecture-invariants.md#product-shell)):
+  a key pressed on the media lights up no control.
 
 ### Zooming the picture and the time
 
@@ -1205,6 +1217,16 @@ in Card Detail.
     Right still moves the handle, a trim. The playhead of a sound moves a
     second with Right likewise (the user, 2026-10-28: the left and right
     arrows did nothing).
+32. Card Detail of a video opened by a double click: the keyboard is on its
+    player, and no element shows a ring, also after Right, Left, Home, End,
+    and Space. While it plays with the pointer resting on the picture, its
+    controls fade 2.5 s after a Right. A press on Play, Full Screen, Edit, or
+    a handle with the pointer leaves the keyboard on the player; after a
+    click on Edit, Space plays and pauses the video and the editing stays.
+    Tab from the player takes the keyboard to the sound button, which then
+    shows its ring. The same holds for a sound, with its waveform, and for
+    an image, with its picture, which shows no ring after a key (D100; the
+    user, 2026-10-28: a blue frame on Play at Left and Right).
 
 ## Verification
 
@@ -1261,8 +1283,10 @@ in Card Detail.
   (`card-detail-video-edit`: viewing first, Edit, the handles, the file
   written with nothing pressed, the editor again from the original, undo and
   redo with the keyboard, Revert to Original and its undo, Escape back to
-  viewing, viewing that plays the part once, and criterion 31, the keys of
-  the playhead with the keyboard on Play, on Done, and nowhere), cropping an image
+  viewing, viewing that plays the part once, criterion 31, the keys of the
+  playhead with the keyboard on the player and nowhere, and criterion 32,
+  the keyboard that stays on the player through presses of Play, Edit, and
+  a handle, with no ring), cropping an image
   (`card-detail-image-edit`: an SVG shows no editor and no Edit; viewing
   first, a pinch that zooms only the view, Edit, Square, a turn and a flip, a
   wheel that zooms nothing, Revert to Original, Done, and undo; and
