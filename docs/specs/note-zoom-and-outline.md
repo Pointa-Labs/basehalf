@@ -1,6 +1,6 @@
 # Zoom and outline of a note in Card Detail
 
-Status: Draft (2026-10-27)
+Status: Draft (2026-10-27, revised 2026-10-28)
 Decision: [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27)
 Related: [note rendering](note-rendering.md) (what a note shows),
 [PDFs and books](documents-and-books.md#the-pdf-reader) (the zoom of a PDF
@@ -11,7 +11,8 @@ and the text size of a book), [opening and closing Card Detail](card-detail-open
 This specification owns two reading aids of a Markdown note in Card Detail,
 in its Rich and its Preview projection: zooming the note with a pinch of the
 trackpad or with the wheel, and the outline of its headings in the empty
-margin to the left of its text.
+margin to the left of its text. It also owns where the editor's handles of
+a block stand in Rich while the page is zoomed or moves under the pointer.
 
 ## Problem
 
@@ -35,6 +36,16 @@ Measured on 2026-10-27 in a development window of 1440 × 900 points:
   the zoom, and for a column of short ticks in that margin, one for each
   heading, the heading in view brighter, "平常是隐藏的，鼠标放上去有导航":
   hidden at rest, navigation under the pointer.
+- **The handles of a block stayed behind** (measured on 2026-10-28 in the
+  same window). With the pointer resting on the first line of a paragraph,
+  the editor's handles of a block, add and drag, stood 8 pixels left of the
+  text. A pinch to 180% moved the left edge of the text from 209 to 85
+  pixels over 29 frames, and in every one of them the handles stayed at 153
+  to 201 pixels, over the paragraph's first word; a move of the pointer
+  inside the paragraph left them there. A two-finger scroll of 240 pixels
+  left them where they were, beside another paragraph. The editor measured
+  a block once, when the pointer reached it, and placed its handles by that
+  measure until the pointer reached another block.
 
 ## Scope
 
@@ -42,7 +53,8 @@ In scope: in the Rich and the Preview projection of a Markdown note in Card
 Detail, what a pinch, a wheel with the zoom key, and a wheel with Ctrl held
 do; the zoom level, its range, and where it is kept; the outline in the left
 margin: which headings it lists, when it shows, how it looks, and what a
-click on it does.
+click on it does; in Rich, where the handles of a block stand at every
+level, and when the page moves under a pointer that stays still.
 
 Not in scope, and unchanged:
 
@@ -68,6 +80,8 @@ Not in scope, and unchanged:
   as rule 16 decides.
 - **Tick**: the short line that stands for one heading in the outline.
 - **Outline panel**: the list of the headings' names that the ticks open.
+- **Handles of a block**: the add and the drag buttons that the Rich
+  projection's editor shows left of the block under the pointer.
 
 ## Required behavior
 
@@ -101,7 +115,9 @@ Not in scope, and unchanged:
 7. A zoom changes nothing else of the note: the caret, the selection, what
    agents can see of it, the editor's undo, and an open menu of the editor
    stay as they were. A click, a drag, and typing work in a zoomed page as at
-   100%. The editor's toolbars and menus keep their size.
+   100%. The editor's toolbars and menus keep their size, and in every frame
+   of a gesture they stand at the text they belong to, as the handles of a
+   block do (rule 23).
 8. The level is one for every note, kept on this computer for the user's
    profile (`basehalf.noteZoom`), as the text size of the book reader is. A
    note opens at that level from its first frame, in Rich and in Preview,
@@ -180,6 +196,29 @@ Not in scope, and unchanged:
     narrower than 760 pixels the handles, which were partly cut off at the
     edge, show whole.
 
+### The handles of a block in Rich
+
+22. The handles of a block keep their size at every level. They stand left
+    of the text column with 8 pixels between them and it, and their middle
+    is the middle of the block's first line as the page draws it: they are
+    as high as that line is at 100%, and at another level they stand lower
+    by half of what the line has grown, or higher by half of what it has
+    shrunk.
+23. Every frame in which the page moves shows the handles where rule 22 puts
+    them in that frame: each frame of a zoom, whether it lays the page out or
+    only draws it (rule 6), each frame of a scroll, and a frame in which the
+    page is laid out anew, as when Card Detail changes its width or a
+    picture above the block finishes loading.
+24. The handles are those of the block under the pointer. When the page
+    moves under a pointer that stays still, in a zoom, a scroll, or a change
+    of the width of Card Detail, they pass in that frame to the block that is
+    then under the pointer, as if it had moved, and go while no block is
+    under it. A zoom keeps the line under the pointer (rule 4), so they stay
+    with their block as far as the note can scroll. Handles that a key has
+    hidden, as typing does, come back with the next move of the pointer, not
+    with a move of the page. While a button is held, the menu of the drag
+    handle is open, or a block is being dragged, they stay with their block.
+
 ## Limits
 
 - L1. A long note is laid out in more than 16 ms. Measured on 2026-10-27,
@@ -207,6 +246,9 @@ Not in scope, and unchanged:
   picture under the crop frame
   ([editing media, "Zooming the picture and the time"](media-editing.md#zooming-the-picture-and-the-time),
   D93, D96, D97).
+- L6. The handles of a table's rows and columns go as soon as the page moves
+  under them, in a zoom as in a scroll, and come back with the next move of
+  the pointer: the editor draws them so.
 
 ## Failure and recovery
 
@@ -248,6 +290,21 @@ its scroll position. Nothing of this is written into the workspace.
     passes from the ticks to a block's handles within 150 ms opens no panel,
     and the handles show and work; resting on the ticks again opens the
     panel after 150 ms.
+13. With the pointer resting on the first line of a paragraph and its
+    handles shown, a pinch from 100% to 180%, sampled on every frame, shows
+    the handles 8 pixels left of the text and their middle within 1 pixel of
+    the middle of the paragraph's first line, at their size, and so does a
+    pinch back to 100%. Once the fingers rest, a small move of the pointer
+    inside the paragraph leaves them there. Command, held for the wheel,
+    hides them as any key does, and the next move of the pointer after the
+    zoom shows them at that place.
+14. A two-finger scroll over the note shows, in every frame, the handles
+    beside the block under the pointer. A pinch over a short note, which
+    cannot keep the line under the pointer, ends with the handles beside the
+    block then under it. Typing that scrolls the note leaves the handles
+    hidden.
+15. With the drag handle's menu open, a pinch leaves the menu open, and the
+    handles stand beside their block in every frame.
 
 ## Verification
 
@@ -257,10 +314,18 @@ its scroll position. Nothing of this is written into the workspace.
   where the panel stands (`basehalfNoteOutline.test.ts`); the zoom of a page
   frame by frame with a slow layout and a fast one, and the line under the
   pointer (`basehalfNoteZoomGesture.test.ts`); the messages of the Rich
-  projection's page (`basehalfMarkdownRichWebviewProtocol.test.ts`).
+  projection's page (`basehalfMarkdownRichWebviewProtocol.test.ts`); the box
+  the handles of a block stand by on a drawn page, how far they move down at
+  a level, and the pointer they pass with when the page moves under it
+  (`basehalfBlockHandles.test.ts`).
+- The `cardDetail` suite of the smoke pinches a short note to 160% and
+  back with the handles of a block shown, and checks where they stand: 8
+  pixels left of the text, at the middle of the block's first line.
 - In the window, recorded on every frame by the page itself: a pinch made
   through the browser's protocol over Rich and over Preview, on a short note
   and on the 151 KB note; the height of the line under the pointer, the
   level, and the layout of each frame; a click, typing, and undo at 150%;
   the outline at rest, with the pointer in the margin, over the ticks, after
-  a click on a name, after typing a heading, and at 200%.
+  a click on a name, after typing a heading, and at 200%; the box of the
+  handles of a block against the edge of the text and the block's first
+  line on every frame of a pinch, a wheel with Command, and a scroll.
