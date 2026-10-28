@@ -236,7 +236,10 @@ Not in scope, and unchanged:
 - New Note, New Folder, a note made from a connection, a note made from a
   PDF, Duplicate, and the copies that Paste, Import Files..., and a drop of
   files from outside make are each one step
-  ([canvas Create menu](canvas-create-menu.md#undo) for New Folder).
+  ([canvas Create menu](canvas-create-menu.md#undo) for New Folder). So is
+  the file that a pasted or dropped picture or text becomes on the canvas,
+  together with what else the same paste copied
+  ([copy, paste, and drop](copy-paste-and-drop.md#the-canvas)).
 - Undo moves what the step made into the kept versions, with its card
   information and whatever was typed or put into it since. Redo moves it
   back to its place.

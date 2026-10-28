@@ -4822,3 +4822,77 @@ the frame's nearer end to it.
 - Revises D84 and D96: no move of the part by a drag inside it.
 - The waveform of a sound keeps its selection by a drag, its Delete, and its
   playing over and over.
+
+## D104 — Copy, paste, and a drop hand over one transfer, and the place that has the keyboard takes it (NEW, 2026-10-29)
+
+**Decision.** BaseHalf has one clipboard mechanism:
+- **One transfer.** What a copy, a cut, or a drag holds is read as one
+  transfer: items (files, folders, and drafts, and whether they were cut), a
+  picture with no file, or text, the first that is there in that order.
+- **One write.** A copy of items writes the system clipboard once with three
+  forms: the files as a file manager writes them, their paths as text, and
+  BaseHalf's own record, which names drafts and says whether they were cut.
+  The window's own clipboard call writes one form at a time, so the
+  shared process writes the three through the system's pasteboard in one go,
+  in about 0.1 s.
+- **The keys of every app.** Command-C, Command-X, and Command-V act in
+  the place that has the keyboard: the canvas copies its selected cards and
+  pastes, the input row of a draft connects, the prompt connects and
+  mentions, Files pastes items, the terminal types paths.
+- **A drop is a paste at a point.** The same reading turns what is dragged
+  into a transfer, and the place under the pointer takes it as it takes a
+  paste.
+- **What has no file becomes one where it lands**: a picture as
+  `untitled.png`, text on the canvas or in an input row as `untitled.md`, so
+  that every place takes items, as a card is a file (D63).
+
+See [copy, paste, and drop](specs/copy-paste-and-drop.md).
+
+**Why.** On 2026-10-29 the user found that something copied could not be
+pasted into the references of a draft, and that a copied card could not be
+pasted with Command-V, and asked for one mechanism in place of patches. In
+the code, each place wrote and read the clipboard its own way: Copy wrote
+VS Code's private `code/file-list` only, Paste read only that, the canvas took
+no key, the panel took no paste and no drop, and whether a paste moved was a
+variable of the window apart from what was copied. Measured in BaseHalf's
+Electron 42 that day: a paste event gives files copied in a file manager with their
+paths, and a picture as a file without one; a write through the window's
+clipboard replaces what was there, so files, text, and a record of its own
+cannot be written together that way; the system's pasteboard writes all
+three as one item list in about 75 ms from a separate process.
+
+**What was set aside.**
+- Keeping the private form and adding readers for other apps' forms: a copy
+  in BaseHalf would still reach no other app, and each place would still
+  read on its own.
+- The window's DOM copy event, which writes text and a type of its own in one
+  go but no files: file managers and chat apps would get nothing.
+- A native module for the pasteboard: a dependency to build and sign for one
+  call a system tool already makes.
+- Pasting into the selected folder's card, as Files does: file managers and canvas
+  apps paste into the place shown; a drop on a folder's card still goes into
+  it (D88).
+- Asking where a pasted picture or text should go, or what it is called: it
+  goes where the keyboard is, named as New Note names a note, and the name
+  is changed on its card.
+- Copying a picture's data along with its file: apps that take files take
+  it, and the copy stays one write.
+
+**Consequences.**
+- New specification [copy, paste, and drop](specs/copy-paste-and-drop.md).
+- [Generation cards, "The panel"](specs/generation-cards.md#the-panel): a
+  paste or a drop in the input row or the prompt adds inputs; Import File…
+  is no longer the one way to add a file from outside.
+- [Canvas Create menu](specs/canvas-create-menu.md): Paste takes pictures and
+  text too.
+- [Canvas card placement, "Pointing"](specs/canvas-card-placement.md#pointing):
+  Command-V places its block as a keyboard command places a card.
+- [Exact undo, "What the canvas made"](specs/exact-undo.md#what-the-canvas-made):
+  a pasted or dropped picture or text is a step as a pasted file is.
+- VS Code's clipboard of files (`writeResources`, `readResources`) goes
+  through the same write and read, so that Files, the canvas, the editors,
+  and the terminal share them. Files takes whether its paste moves from the
+  record, and the terminal pastes files on the clipboard as their paths, as
+  a drop of them does.
+- Command-C in Card Detail of a video, a sound, or an image BaseHalf can
+  edit copies its file.

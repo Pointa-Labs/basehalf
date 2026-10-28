@@ -424,6 +424,7 @@ group whose slot is taken.
 | Generate from a generation card that has its file, in the window or with `basehalf --generate` | computed: 40 to the right of the original card, for the new draft ([generation cards](generation-cards.md#generating-again)) |
 | Generate several images at once | computed: the drafts of the further images in a row to the right of the card the generation runs on, each 40 to the right of the one before ([generation cards](generation-cards.md#several-images-from-one-generation)) |
 | Drop, paste, or move files and folders onto the canvas at a point | for the item at position *i* of *n*: slot *i* of a block of cells that starts at the point and has as many columns as the square root of *n*, rounded up, and at most 4 |
+| Paste with Command-V or the Edit menu, without a point: files, folders, a picture, or text ([copy, paste, and drop](copy-paste-and-drop.md#the-canvas)) | computed: the block of the cards, as for a drop, centered on the middle of the visible part of the canvas; a card whose slot is taken goes to the nearest open place, and the view goes to a card out of sight |
 | Anything else: a file that a program or an agent adds, a card or an item that is dropped on a folder's card or on a folder of the path ([dropping into a folder](canvas-drop-into-folder.md)), a move in the file tree, a move outside BaseHalf | none |
 
 A group that is dropped at a point keeps its block where the block is open.

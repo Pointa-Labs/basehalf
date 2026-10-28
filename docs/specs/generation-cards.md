@@ -15,7 +15,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
 [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
 [D90](../decisions.md#d90--an-image-cards-panel-shows-what-image-models-take-new-2026-10-27),
-[D91](../decisions.md#d91--each-kind-of-generation-card-has-a-panel-of-its-own-new-2026-10-27)
+[D91](../decisions.md#d91--each-kind-of-generation-card-has-a-panel-of-its-own-new-2026-10-27),
+[D104](../decisions.md#d104--copy-paste-and-a-drop-hand-over-one-transfer-and-the-place-that-has-the-keyboard-takes-it-new-2026-10-29)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -877,8 +878,13 @@ a panel shows them:
      folder and connects it. Each is an icon whose name is its tooltip and
      its accessible name: an arrow in a frame for Pick on Canvas, and a
      paperclip for Import File…, as an attachment has, since nothing is
-     uploaded anywhere. Import File… is the one way to add a file from the
-     panel or the card. Its dialog offers the files of the kinds the
+     uploaded anywhere. Import File… asks for a file; a paste or a drop
+     gives one: Command-V in the input row, or anywhere on the panel but its
+     prompt, connects what the clipboard holds, and in the prompt also
+     mentions it at the caret. A card of the canvas is connected where it
+     is; a file from elsewhere is copied into the card's folder, as Import
+     File… copies it; a picture or text becomes a file there first (D104,
+     [copy, paste, and drop](copy-paste-and-drop.md#the-input-row-of-a-draft)). Its dialog offers the files of the kinds the
      reference menu lists for the card, images and notes on an image card
      (D90). A card or a file that the model cannot use is
      refused with the reason, as a connection on the canvas is, and Import
@@ -1456,8 +1462,8 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
 
 ### The toolbar
 
-A selected draft has no toolbar: what it takes is added from its panel,
-whose Import File… is its one way to add a file (D71). Above a generation
+A selected draft has no toolbar: what it takes is added from its panel, by
+Pick on Canvas, Import File…, a paste, or a drop (D71, D104). Above a generation
 card with its file the toolbar shows **Reveal in Finder** (Explorer on
 Windows, the file manager elsewhere) and **Open**, and on a video **Capture
 Frame**, with First Frame, Current Frame, and Last Frame.

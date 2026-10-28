@@ -27,6 +27,7 @@ per feature:
 | `agentArea/` | The Agent Area, its terminal, the agent skill, the selection agents can see, and the registry of the capabilities agents read | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | Generation cards of images, videos, and sounds: their drafts and generation information, the task records, the model catalog as the window receives it, the providers' settings, and the Providers page | [Generation cards](../specs/generation-cards.md), [providers and the model catalog](../specs/providers.md) |
 | `sequence/` | Video Sequence: the Sequence document, its view in Card Detail, its commands and its capability for agents, and the starter template | [Video Sequence](../specs/video-sequence.md) |
+| `clipboard/` | Copy, paste, and drop: the transfer that a copy, a cut, and a drag hand over, BaseHalf's clipboard that writes the files, their paths, and its record in one write and reads a paste as one transfer, the reading of a drop, and the files a picture or text becomes | [Copy, paste, and drop](../specs/copy-paste-and-drop.md) |
 | `mediaEdit/` | Editing a video, an image, or a sound in Card Detail: its editors, the edit record and the kept original, reading and writing the media files, copying a trimmed video's frames and encoding the rest with the window's encoders, and the service that applies each change, writes the file after it, and keeps the steps of its undo | [Editing media](../specs/media-editing.md) |
 
 Inside a feature folder, files are in VS Code's layer folders: `common/`,
@@ -71,7 +72,9 @@ history still finds its file.
   service that the shared process runs in `electron-utility/`, and the
   window's connection to it in `electron-browser/` (D75). The setting of
   file times, which the undo of a change in place needs and a window cannot
-  do, is `platform/basehalfFiles/` (D82).
+  do, is `platform/basehalfFiles/` (D82). The write of the clipboard in
+  several forms at once, which a window cannot make, is
+  `platform/basehalfClipboard/` (D104).
 
 ## What may import what
 
