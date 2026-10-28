@@ -374,7 +374,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this.editorContainer.classList.add('basehalf-canvas-host');
 		this.root = DOM.$('.basehalf-canvas-workbench');
 		this.root.setAttribute('aria-label', 'BaseHalf canvas');
-		this.root.setAttribute('data-file-drop-label', localize('basehalf.canvas.dropFiles', "Drop files to import"));
+		this.root.setAttribute('data-file-drop-label', localize('basehalf.canvas.dropOnCanvas', "Drop to add to the canvas"));
 		// Focusable (not tabbable) for canvas keyboard shortcuts. Edge deletion is
 		// scoped more narrowly to the React Flow scene host.
 		this.root.tabIndex = -1;

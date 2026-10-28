@@ -2274,9 +2274,17 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			this.reportReferenceError(error);
 			return;
 		}
-		if (transfer) {
-			await this.takeTransfer(transfer, mention);
+		if (!transfer || this.disposed) {
+			return;
 		}
+		// Text pasted into the prompt is typed, not made a note.
+		if (mention && transfer.kind === 'text') {
+			if (!this.isLocked()) {
+				this.editor.insert(transfer.text);
+			}
+			return;
+		}
+		await this.takeTransfer(transfer, mention);
 	}
 
 	/** A drop on the panel, as a paste there; on the prompt, at the caret where it was let go. */

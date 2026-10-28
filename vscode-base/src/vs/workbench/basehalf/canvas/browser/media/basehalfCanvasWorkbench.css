@@ -404,8 +404,11 @@
 
 /* Files held over a folder's card go into that folder: the card's own look
  * says so, and the layer that says they go onto the canvas is not drawn
- * (dropping into a folder). */
+ * (dropping into a folder). Over the panel of a draft they become its
+ * inputs, and the layer is not drawn either (copy, paste, and drop). */
 .monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging.basehalf-canvas-file-into-folder::before,
-.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging.basehalf-canvas-file-into-folder::after {
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging.basehalf-canvas-file-into-folder::after,
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging.basehalf-canvas-file-into-panel::before,
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging.basehalf-canvas-file-into-panel::after {
 	display: none;
 }

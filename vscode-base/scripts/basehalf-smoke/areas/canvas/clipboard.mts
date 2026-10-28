@@ -10,12 +10,13 @@ import path from 'path';
 import process from 'process';
 import { app, workspacePath } from '../../context.mts';
 import { waitForCanvasCardSelection } from '../../lib/canvas.mts';
-import { waitUntil } from '../../lib/steps.mts';
+import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 /**
  * Criteria 1, 3, 6, and 14 of copy, paste, and drop: Command-C on a selected
- * card writes its file, its path as text, and BaseHalf's record in one write;
- * Command-V on the canvas makes a copy, and one undo takes it away; text
+ * card, a folder's here, writes it as a file, its path as text, and
+ * BaseHalf's record in one write; Command-V on the canvas makes a copy, and
+ * one undo takes it away; text
  * pasted on the canvas becomes a note; Command-C in a field copies text, not
  * the card. The step writes the system clipboard, so it runs only while the
  * clipboard holds text alone, which it puts back, or where the clipboard is
@@ -33,6 +34,8 @@ export async function assertCanvasCopyPasteKeys(page) {
 	}
 	const undo = 'Meta+Z';
 	const exists = (name: string) => fs.existsSync(path.join(workspacePath, name));
+	// A click on a note's card can start editing its text, where Command-C copies text: a folder's card is clicked.
+	const folder = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 	const readClipboard = () => app.evaluate(({ clipboard }) => ({
 		record: clipboard.readBuffer('com.pointalabs.basehalf.items').toString(),
 		file: clipboard.read('public.file-url'),
@@ -41,24 +44,23 @@ export async function assertCanvasCopyPasteKeys(page) {
 	try {
 		const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 		await page.keyboard.press('Escape');
-		await readme.click();
-		await waitForCanvasCardSelection(page, 'README.md');
+		await folder.click();
+		await waitForCanvasCardSelection(page, 'src');
 		await page.keyboard.press('Meta+C');
-		let copied = await readClipboard();
-		await waitUntil(async () => (copied = await readClipboard()).record.includes('README.md'), 'Command-C on the README card to write the clipboard', 10_000);
-		if (!copied.file.endsWith('/README.md') || copied.text !== 'README.md') {
-			throw new Error(`Command-C must write the card's file and its path as text with BaseHalf's record: ${JSON.stringify(copied)}`);
+		const copied = await waitForReading(readClipboard, read => read.record.includes('/src'), 'Command-C on the card of src to write the clipboard', 10_000);
+		if (!/\/src\/?$/.test(copied.file) || copied.text !== 'src') {
+			throw new Error(`Command-C must write the card's folder and its path as text with BaseHalf's record: ${JSON.stringify(copied)}`);
 		}
 
 		await page.keyboard.press('Meta+V');
-		await waitUntil(() => exists('README copy.md'), 'Command-V on the canvas to copy README.md', 15_000);
-		await waitForCanvasCardSelection(page, 'README copy.md');
+		await waitUntil(() => exists('src copy'), 'Command-V on the canvas to copy src', 15_000);
+		await waitForCanvasCardSelection(page, 'src copy');
 		await page.keyboard.press(undo);
-		await waitUntil(() => !exists('README copy.md'), 'one undo to take the pasted copy away', 15_000);
+		await waitUntil(() => !exists('src copy'), 'one undo to take the pasted copy away', 15_000);
 
 		const words = `Pasted by the smoke ${Date.now()}`;
 		await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), words);
-		await readme.click();
+		await folder.click();
 		await page.keyboard.press('Meta+V');
 		await waitUntil(() => exists('untitled.md') && fs.readFileSync(path.join(workspacePath, 'untitled.md'), 'utf8') === words, 'text pasted on the canvas to become untitled.md', 15_000);
 		await waitForCanvasCardSelection(page, 'untitled.md');
@@ -72,8 +74,8 @@ export async function assertCanvasCopyPasteKeys(page) {
 		await field.waitFor({ state: 'visible', timeout: 10_000 });
 		await page.keyboard.press('Meta+A');
 		await page.keyboard.press('Meta+C');
-		await waitUntil(async () => (await readClipboard()).text === 'README', 'Command-C in the rename editor to copy its text', 10_000);
-		if ((await readClipboard()).record) {
+		const fromField = await waitForReading(readClipboard, read => read.text === 'README', 'Command-C in the rename editor to copy its text', 10_000);
+		if (fromField.record) {
 			throw new Error('Command-C in a field must copy its text, not the card');
 		}
 		await page.keyboard.press('Escape');
