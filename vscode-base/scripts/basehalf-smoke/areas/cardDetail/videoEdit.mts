@@ -268,6 +268,57 @@ export async function assertCardDetailVideoEdit(page) {
 			throw new Error(`The trim replaces the video, keeps its original, writes the record, and the line says it: ${JSON.stringify({ same: edited.equals(original), record, line })}`);
 		}
 
+		// Criterion 38 (D103): only the handles change the yellow frame. A press inside it puts the playhead there at once, with
+		// its time over it, a drag moves it along and stops on the part's last frame, and presses on the dimmed strip put it at
+		// the frame's nearer end; the file and its record stay as they were.
+		const framed = await readPart(page);
+		const stripBox = await page.locator(`${FRAMES} .basehalf-video-frames-strip`).boundingBox();
+		const xOf = seconds => stripBox.x + stripBox.width * seconds / framed.duration;
+		const stripY = stripBox.y + stripBox.height / 2;
+		const playheadNow = () => page.evaluate(({ frames, player }) => {
+			const bubble = document.querySelector(`${frames} .basehalf-video-frames-time`);
+			return {
+				at: Math.round(document.querySelector(`${player} video`).currentTime * 1000) / 1000,
+				bubble: getComputedStyle(bubble).visibility === 'visible' ? bubble.textContent : null
+			};
+		}, { frames: FRAMES, player });
+		const inside = (framed.start + framed.end) / 2;
+		await page.mouse.move(xOf(inside), stripY);
+		await page.mouse.down();
+		const pressedInside = await playheadNow();
+		for (let index = 1; index <= 8; index++) {
+			await page.mouse.move(xOf(inside) + (xOf(framed.duration) - xOf(inside)) * index / 8, stripY);
+			await page.waitForTimeout(16);
+		}
+		const pastEnd = await playheadNow();
+		await page.mouse.up();
+		const letGo = await playheadNow();
+		const frameAfter = await readPart(page);
+		await page.mouse.click(xOf(framed.start / 2), stripY);
+		const beforeFrame = await playheadNow();
+		await page.mouse.click(xOf((framed.end + framed.duration) / 2), stripY);
+		const afterFrame = await playheadNow();
+		// Play from inside the frame stops on its last frame, while editing as while viewing.
+		await page.mouse.click(xOf(framed.start + 0.2), stripY);
+		await page.locator(`${FRAMES} .basehalf-video-frames-play`).click();
+		await page.waitForFunction(selector => !document.querySelector(`${selector} video`)?.paused, player, { timeout: 5_000 });
+		await page.waitForFunction(selector => document.querySelector(`${selector} video`)?.paused, player, { timeout: 10_000 });
+		const played = await playheadNow();
+		// Longer than the rest before a write: a change would be written by now.
+		await page.waitForTimeout(700);
+		const atLastFrame = at => at <= framed.end && at >= framed.end - 0.15;
+		// The bubble shows minutes, seconds, and hundredths: `00:01.63`.
+		const bubbleOff = ({ at, bubble }) => {
+			const [minutes, seconds] = (bubble ?? '').split(':');
+			return !bubble || Math.abs(Number(minutes) * 60 + Number(seconds) - at) > 0.011;
+		};
+		if (Math.abs(pressedInside.at - inside) > 0.08 || bubbleOff(pressedInside) || !atLastFrame(pastEnd.at) || bubbleOff(pastEnd) || letGo.bubble !== null
+			|| Math.abs(frameAfter.start - framed.start) > 0.01 || Math.abs(frameAfter.end - framed.end) > 0.01
+			|| Math.abs(beforeFrame.at - framed.start) > 0.01 || !atLastFrame(afterFrame.at) || !atLastFrame(played.at)
+			|| !read(workspaceFile(VIDEO))?.equals(edited) || read(path.join(cardInformation, 'edit.yaml'))?.toString() !== record) {
+			throw new Error(`Only the handles change the yellow frame, and the playhead stays inside it: ${JSON.stringify({ framed, pressedInside, pastEnd, letGo, frameAfter, beforeFrame, afterFrame, played })}`);
+		}
+
 		// Command+Z with the keyboard on a handle undoes the last trim in the viewer at once, and the file follows; redo puts back the very bytes.
 		await page.locator(`${FRAMES} .basehalf-video-frames-handle.end`).focus();
 		await page.keyboard.press(UNDO);
@@ -378,9 +429,10 @@ export async function assertCardDetailVideoEdit(page) {
 		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || !/ \| Revert to Original$/.test(await lineText(page))) {
 			throw new Error(`Edit on an edited video shows its original with the part it kept, and Revert to Original: ${JSON.stringify({ part, again, line: await lineText(page) })}`);
 		}
-		// While editing, the keyboard is still the player's: End goes to the original's last frame, Shift+Right one frame on,
-		// paused, and Space plays and pauses while the editing stays. Tab takes the keyboard to a control, which then shows its
-		// ring; with the keyboard nowhere, Right still moves the playhead a second.
+		// While editing, the keyboard is still the player's: End goes to the last frame of the part in the yellow frame and Home
+		// to its start (D103), Shift+Right one frame on, paused, and Space plays and pauses while the editing stays. Tab takes the
+		// keyboard to a control, which then shows its ring; with the keyboard nowhere, Right still moves the playhead a second, as
+		// far as the part's last frame.
 		const editing = {};
 		for (const [name, key] of [['end', 'End'], ['home', 'Home'], ['frame', 'Shift+ArrowRight'], ['spacePlays', 'Space'], ['spacePauses', 'Space']]) {
 			await page.keyboard.press(key);
@@ -399,10 +451,10 @@ export async function assertCardDetailVideoEdit(page) {
 		editing.nowhere = await playhead();
 		const frame = editing.frame.at - editing.home.at;
 		const editingLit = ['end', 'home', 'frame', 'spacePlays', 'spacePauses'].filter(name => editing[name].keyboard !== 'player' || editing[name].ring || editing[name].mode !== 'Done');
-		if (editingLit.length || editing.end.at < part.end + 0.2 || editing.home.at > 0.01 || frame < 0.02 || frame > 0.15 || !editing.frame.paused
-			|| editing.spacePlays.paused || !editing.spacePauses.paused || editing.tab.keyboard === 'player' || !editing.tab.ring
-			|| Math.abs(editing.nowhere.at - editing.spacePauses.at - 1) > 0.1) {
-			throw new Error(`While editing, after a click on Edit, the keyboard stays on the player: End, Home, Shift+Right, and Space work there with no ring and the editing stays; Tab shows a ring on a control; Right works with the keyboard nowhere: ${JSON.stringify({ part, editingLit, editing })}`);
+		if (editingLit.length || editing.end.at > again.end || editing.end.at < again.end - 0.15 || Math.abs(editing.home.at - again.start) > 0.01 || frame < 0.02
+			|| frame > 0.15 || !editing.frame.paused || editing.spacePlays.paused || !editing.spacePauses.paused || editing.tab.keyboard === 'player' || !editing.tab.ring
+			|| Math.abs(editing.nowhere.at - Math.min(editing.spacePauses.at + 1, editing.end.at)) > 0.1) {
+			throw new Error(`While editing, after a click on Edit, the keyboard stays on the player: End, Home, Shift+Right, and Space work there with no ring and the editing stays; Tab shows a ring on a control; Right works with the keyboard nowhere: ${JSON.stringify({ part, again, editingLit, editing })}`);
 		}
 		// The first Escape goes back to viewing, the second closes Card Detail.
 		await page.keyboard.press('Escape');

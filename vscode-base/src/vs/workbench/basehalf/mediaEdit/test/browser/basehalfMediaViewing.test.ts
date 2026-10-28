@@ -137,8 +137,8 @@ suite('BaseHalfMediaViewing', () => {
 				stretch: [strip.dataset.from, strip.dataset.to],
 				handles: handles.map(handle => [handle.tabIndex, handle.getAttribute('aria-hidden')]),
 				playFocused: mainWindow.document.activeElement === play,
-				once: player.range?.once
-			}, { viewing: true, shown: 'hidden', stretch: ['0.000', '5.000'], handles: [[-1, 'true'], [-1, 'true']], playFocused: false, once: true });
+				part: [player.range?.start, player.range?.end]
+			}, { viewing: true, shown: 'hidden', stretch: ['0.000', '5.000'], handles: [[-1, 'true'], [-1, 'true']], playFocused: false, part: [1, 4.5] });
 		});
 
 		test('while viewing, a press on the strip moves nothing and starts no drag (D102)', () => {
@@ -149,20 +149,20 @@ suite('BaseHalfMediaViewing', () => {
 			release(strip, bounds.left + bounds.width / 2);
 		});
 
-		test('Edit shows the bar with the whole original, the handles, and the part over and over; Done hides it, the strip still the whole original (D102)', () => {
+		test('Edit shows the bar with the whole original, the handles, and the part that plays once; Done hides it, the strip still the whole original (D102, D103)', () => {
 			const { viewer, element, strip, handles, player } = setUp();
 			viewer.setEditing(true);
 			const editing = {
 				viewing: element.classList.contains('viewing'),
 				stretch: [strip.dataset.from, strip.dataset.to],
 				handles: handles.map(handle => [handle.tabIndex, handle.getAttribute('aria-hidden')]),
-				range: [player.range?.start, player.range?.end, player.range?.once]
+				range: [player.range?.start, player.range?.end, player.range?.lastFrame]
 			};
 			viewer.setEditing(false);
-			const viewing = { viewing: element.classList.contains('viewing'), stretch: [strip.dataset.from, strip.dataset.to], once: player.range?.once };
+			const viewing = { viewing: element.classList.contains('viewing'), stretch: [strip.dataset.from, strip.dataset.to], range: [player.range?.start, player.range?.end] };
 			assert.deepStrictEqual({ editing, viewing }, {
-				editing: { viewing: false, stretch: ['0.000', '5.000'], handles: [[0, null], [0, null]], range: [1, 4.5, undefined] },
-				viewing: { viewing: true, stretch: ['0.000', '5.000'], once: true }
+				editing: { viewing: false, stretch: ['0.000', '5.000'], handles: [[0, null], [0, null]], range: [1, 4.5, 4.4] },
+				viewing: { viewing: true, stretch: ['0.000', '5.000'], range: [1, 4.5] }
 			});
 		});
 
@@ -249,7 +249,7 @@ suite('BaseHalfMediaViewing', () => {
 			assert.deepStrictEqual(changes, ['trim']);
 		});
 
-		test('the keys of the playhead move it a second or a frame, within the file while viewing and the original while editing; a frame pauses', () => {
+		test('the keys of the playhead move it a second or a frame, within the part kept while viewing and while editing; a frame pauses (D103)', () => {
 			const { viewer, player } = setUp();
 			const at: number[] = [];
 			const move = (...moves: Parameters<BaseHalfVideoFrameViewer['movePlayhead']>[0][]) => {
@@ -265,8 +265,66 @@ suite('BaseHalfMediaViewing', () => {
 			const pausedByFrame = player.pauses - pausedBefore;
 			viewer.setEditing(true);
 			move({ kind: 'jump', to: 'end' }, { kind: 'jump', to: 'start' }, { kind: 'step', by: 'frame', direction: -1 }, { kind: 'step', by: 'second', direction: 1 });
-			// The part kept is 1 s to 4.5 s of a video of 5 s at 10 frames a second.
-			assert.deepStrictEqual({ at, pausedByFrame }, { at: [2, 4.4, 4.4, 1, 1, 1.1, 4.9, 0, 0, 1], pausedByFrame: 1 });
+			// The part kept is 1 s to 4.5 s of a video of 5 s at 10 frames a second: its last frame starts at 4.4 s.
+			assert.deepStrictEqual({ at, pausedByFrame }, { at: [2, 4.4, 4.4, 1, 1, 1.1, 4.4, 1, 1, 2], pausedByFrame: 1 });
+		});
+
+		/** Where a time stands on the strip, which shows the whole video while editing. */
+		function xAt(strip: HTMLElement, seconds: number): number {
+			const bounds = strip.getBoundingClientRect();
+			return bounds.left + bounds.width * seconds / 5;
+		}
+
+		test('a press inside the yellow frame puts the playhead there at once with its time over it, a drag moves it within the frame, and the frame stays (D103)', () => {
+			const { viewer, element, strip, player } = setUp();
+			viewer.setEditing(true);
+			const changes: string[] = [];
+			store.add(viewer.onDidChange(change => changes.push(change)));
+			const bubble = element.querySelector('.basehalf-video-frames-time') as HTMLElement;
+			const states: unknown[] = [];
+			const state = () => states.push({
+				at: Math.round(player.currentTime * 100) / 100,
+				bubble: mainWindow.getComputedStyle(bubble).visibility === 'visible' ? bubble.textContent : undefined,
+				scrubbing: element.classList.contains('scrubbing'),
+				part: [player.range?.start, player.range?.end]
+			});
+			press(strip, xAt(strip, 3));
+			state();
+			strip.dispatchEvent(new PointerEvent('pointermove', { button: 0, pointerId: 1, clientX: xAt(strip, 4.8), clientY: 20, bubbles: true, cancelable: true }));
+			state();
+			release(strip, xAt(strip, 4.8));
+			state();
+			assert.deepStrictEqual({ states, changes }, {
+				states: [
+					{ at: 3, bubble: '00:03.00', scrubbing: true, part: [1, 4.5] },
+					{ at: 4.4, bubble: '00:04.40', scrubbing: true, part: [1, 4.5] },
+					{ at: 4.4, bubble: undefined, scrubbing: false, part: [1, 4.5] }
+				],
+				changes: []
+			});
+		});
+
+		test('a press on the dimmed strip puts the playhead at the frame\'s nearer end, and the frame stays (D103)', () => {
+			const { viewer, strip, player } = setUp();
+			viewer.setEditing(true);
+			const at: number[] = [];
+			for (const seconds of [0.3, 4.8]) {
+				press(strip, xAt(strip, seconds));
+				release(strip, xAt(strip, seconds));
+				at.push(Math.round(player.currentTime * 100) / 100);
+			}
+			assert.deepStrictEqual({ at, part: [player.range?.start, player.range?.end] }, { at: [1, 4.4], part: [1, 4.5] });
+		});
+
+		test('a press on the playhead of a video that plays pauses it, and it plays on from where the playhead is let go (D103)', () => {
+			const { viewer, strip, player } = setUp();
+			viewer.setEditing(true);
+			// The video plays when its playhead is pressed.
+			Object.defineProperty(player.video, 'paused', { configurable: true, get: () => false });
+			press(strip, xAt(strip, 2));
+			const pausedAtPress = player.pauses;
+			release(strip, xAt(strip, 2.5));
+			assert.deepStrictEqual({ pausedAtPress, toggles: player.toggles }, { pausedAtPress: 1, toggles: 1 });
 		});
 
 		test('the keyboard is the player\'s, while viewing and while editing, and Space\'s play and pause are the player\'s (D100)', () => {

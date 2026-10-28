@@ -22,15 +22,17 @@ import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
 
 /**
  * The edit bar under the player of a video in Card Detail while it is edited
- * (editing media, "Editing a video", D102): Play, and the frame viewer, a
- * strip of the whole original's frames with a handle at each end, grey while
- * the whole video is kept and yellow with the part kept in a yellow frame
- * once trimmed, the playhead, and the time of a pressed handle in a bubble
- * over it. It plays the part over and over in the player, spreads out around
- * a handle that is held still and where a pinch spreads it ("Zooming the
- * picture and the time"), and makes a change of each handle or part let go.
- * While viewing ("Viewing and editing") the bar does not show, and the part
- * plays once, as the file does; its pictures are read meanwhile, so that Edit
+ * (editing media, "Editing a video", D102, D103): Play, and the frame viewer,
+ * a strip of the whole original's frames with a handle at each end, grey
+ * while the whole video is kept and yellow with the part kept in a yellow
+ * frame once trimmed, the playhead, which stays inside the frame, and the
+ * time of a pressed handle or playhead in a bubble over it. Only the handles
+ * change the frame; a press anywhere else moves the playhead. It plays the
+ * part in the player from the playhead to its end, spreads out around a
+ * handle that is held still and where a pinch spreads it ("Zooming the
+ * picture and the time"), and makes a change of each handle let go. While
+ * viewing ("Viewing and editing") the bar does not show, and the part plays
+ * once, as the file does; its pictures are read meanwhile, so that Edit
  * shows them at once.
  */
 
@@ -46,8 +48,6 @@ export interface IBaseHalfVideoFrameViewerOptions {
 
 /** The height of the strip, in pixels; its pictures are this high. */
 const STRIP_HEIGHT = 48;
-/** A press that moves less than this, in pixels, is a press, not a drag. */
-const DRAG_THRESHOLD = 3;
 /** How long after the viewer appears its pictures start to be read: Card Detail draws the player first. */
 const PICTURES_DELAY_MILLISECONDS = 120;
 /** A set of pictures fades in over what the strip showed this long, in milliseconds (D101). */
@@ -67,18 +67,19 @@ const SPREAD_FRACTION = 0.1;
 const STEP_SECONDS = 0.1;
 const LARGE_STEP_SECONDS = 1;
 
-type DragKind = BaseHalfVideoTrimHandle | 'move' | 'press' | 'scrub';
+/** What a press on the strip holds: a handle, or anywhere else the playhead (D103). */
+type DragKind = BaseHalfVideoTrimHandle | 'scrub';
 
 interface IDrag {
 	readonly kind: DragKind;
 	readonly pointerId: number;
-	readonly startX: number;
 	/** The part when the drag started, which Escape puts back. */
 	readonly before: IBaseHalfVideoTrimRange;
 	/** The time under the pointer when it was pressed, less the time it holds. */
 	grab: number;
-	moved: boolean;
 	lastX: number;
+	/** The video played when the playhead was pressed: it plays on from where it is let go. */
+	readonly resume: boolean;
 }
 
 /** The times the strip shows: the whole video, the stretch a pinch spread out, or a stretch around a held handle. */
@@ -316,9 +317,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			return;
 		}
 		const player = this.options.player;
-		// Viewing shows the file, from the part's start to its last frame; editing the whole original.
-		const first = this.editing ? 0 : this.range.start;
-		const last = this.timeline.stepFrame(this.editing ? this.timeline.duration : this.range.end, -1);
+		// The playhead stays inside the part kept, from its start to its last frame: the file while viewing, the yellow frame while editing (D103).
+		const first = this.range.start;
+		const last = this.timeline.stepFrame(this.range.end, -1);
 		const shown = this.timeline.edgeAtOrBefore((player.currentTime ?? first) + 1e-4);
 		let edge: number;
 		if (move.kind === 'jump') {
@@ -544,31 +545,36 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.finishGlide();
 		const time = this.timeAt(event.clientX);
 		const handle = this.handleAt(event);
-		let kind: DragKind;
-		let grab = 0;
+		const playing = !this.options.player.video.paused;
+		// Only the handles change the yellow frame; anywhere else a press is the playhead's (D103).
+		const kind: DragKind = handle ?? 'scrub';
+		const grab = handle ? time - (handle === 'start' ? this.range.start : this.range.end) : 0;
+		this.options.player.pause();
 		if (handle) {
-			kind = handle;
-			grab = time - (handle === 'start' ? this.range.start : this.range.end);
-			this.options.player.pause();
 			this.scheduleHold();
-		} else if (time > this.range.start && time < this.range.end && !this.timeline.isWhole(this.range)) {
-			kind = 'press';
-			grab = time - this.range.start;
-		} else {
-			kind = 'scrub';
-			this.options.player.seek(time);
 		}
-		this.drag = { kind, pointerId: event.pointerId, startX: event.clientX, before: this.range, grab, moved: false, lastX: event.clientX };
+		this.drag = { kind, pointerId: event.pointerId, before: this.range, grab, lastX: event.clientX, resume: !handle && playing };
 		try {
 			this.strip.setPointerCapture(event.pointerId);
 		} catch {
 			// A pointer that is no longer active cannot be captured; the press still counts.
 		}
-		this.element.classList.toggle('dragging', kind !== 'scrub' && kind !== 'press');
-		// A pressed handle shows its time over it at once, and the picture its frame.
+		this.element.classList.toggle('dragging', !!handle);
+		// A pressed handle or playhead shows its time over it at once, and the picture its frame.
 		if (handle) {
 			this.setRange(this.range, handle);
+		} else {
+			this.seekWithin(time);
+			this.render();
 		}
+	}
+
+	/** Puts the playhead at `time`, inside the yellow frame: before the frame at its first frame, after it at its last (D103). */
+	private seekWithin(time: number): void {
+		const first = this.range.start;
+		const last = this.timeline.stepFrame(this.range.end, -1);
+		// The frame that starts at an edge is shown a hair past it, as the frame at a handle is.
+		this.options.player.seek(time <= first ? first + 1e-4 : time >= last ? last + 1e-4 : time);
 	}
 
 	/** The handle under a press: where the two meet, the one on the press's side of the meeting point. */
@@ -588,24 +594,15 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		if (!drag || drag.pointerId !== event.pointerId) {
 			return;
 		}
-		if (!drag.moved && Math.abs(event.clientX - drag.startX) >= DRAG_THRESHOLD) {
-			drag.moved = true;
-			if (drag.kind === 'press') {
-				this.drag = { ...drag, kind: 'move' };
-				this.options.player.pause();
-				this.element.classList.add('dragging');
-			}
-		}
-		const current = this.drag!;
-		if (event.clientX !== current.lastX) {
-			current.lastX = event.clientX;
+		if (event.clientX !== drag.lastX) {
+			drag.lastX = event.clientX;
 			// A handle that moves is not held still: the time to spread the viewer starts again.
-			if (current.kind === 'start' || current.kind === 'end') {
+			if (drag.kind === 'start' || drag.kind === 'end') {
 				this.scheduleHold();
 			}
 		}
 		// Held at an edge of the stretch a pinch spread out, or of a held handle's spread, the drag carries it along (D98).
-		const carries = this.editing && current.kind !== 'press';
+		const carries = this.editing;
 		const spread = this.element.classList.contains('spread');
 		this.zoom.dragAt(carries && !spread ? event.clientX : undefined);
 		this.spreadFollow.at(carries && spread ? event.clientX : undefined);
@@ -654,11 +651,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			case 'end':
 				this.setRange(this.timeline.moveHandle(this.range, current.kind, time - current.grab), current.kind);
 				break;
-			case 'move':
-				this.setRange(this.timeline.moveSelection(current.before, time - current.grab - current.before.start), 'start');
-				break;
 			case 'scrub':
-				this.options.player.seek(time);
+				this.seekWithin(time);
+				this.render();
 				break;
 		}
 	}
@@ -673,13 +668,13 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.zoom.dragAt(undefined);
 		this.spreadFollow.at(undefined);
 		this.element.classList.remove('dragging');
-		if (drag.kind === 'press' && released) {
-			// A press inside the part that did not move moves the playhead there.
-			this.options.player.seek(this.timeAt(event.clientX));
-		}
 		this.unspread();
 		this.applyChoice();
 		this.changed(drag.before);
+		// A video that played when its playhead was pressed plays on from where it was let go.
+		if (drag.resume && released) {
+			this.options.player.togglePlay();
+		}
 	}
 
 	/** Escape during a drag: what it changed goes back. */
@@ -915,11 +910,11 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.render();
 	}
 
-	/** The part plays in the player: over and over while editing, once while viewing, as the file plays. */
+	/** The part plays in the player once, from the playhead to its end, while viewing as while editing (D103). */
 	private applyChoice(): void {
 		this.options.player.setPlayRange(this.timeline.isWhole(this.range)
 			? undefined
-			: { start: this.range.start, end: this.range.end, lastFrame: this.timeline.stepFrame(this.range.end, -1), ...(this.editing ? {} : { once: true }) });
+			: { start: this.range.start, end: this.range.end, lastFrame: this.timeline.stepFrame(this.range.end, -1) });
 		this.render();
 	}
 
@@ -985,14 +980,18 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.strip.dataset.to = this.view.to.toFixed(3);
 		// While the whole video is kept, the handles are grey and no frame stands on the strip (D102).
 		this.element.classList.toggle('whole', this.timeline.isWhole(this.range));
-		// A pressed handle shows its time over it, and the playhead hides until it is let go (D102).
-		const pressed = this.drag?.kind === 'start' || this.drag?.kind === 'end' ? this.drag.kind : undefined;
-		this.element.classList.toggle('trimming', !!pressed);
+		// A pressed handle shows its time over it, and the playhead hides until it is let go (D102); a pressed playhead
+		// shows its own time over it (D103).
+		const pressed = this.drag?.kind;
+		this.element.classList.toggle('trimming', pressed === 'start' || pressed === 'end');
+		this.element.classList.toggle('scrubbing', pressed === 'scrub');
 		if (pressed) {
-			const time = pressed === 'start' ? this.range.start : this.range.end;
+			const playhead = this.options.player.currentTime ?? this.range.start;
+			const time = pressed === 'start' ? this.range.start : pressed === 'end' ? this.range.end : playhead;
 			this.bubble.textContent = formatBaseHalfVideoHandleTime(time);
 			this.bubble.classList.toggle('start', pressed === 'start');
-			this.strip.style.setProperty('--basehalf-video-frames-bubble', `${(clamp(pressed === 'start' ? start : end) * 100).toFixed(4)}%`);
+			this.bubble.classList.toggle('end', pressed === 'end');
+			this.strip.style.setProperty('--basehalf-video-frames-bubble', `${(clamp(pressed === 'start' ? start : pressed === 'end' ? end : this.fractionOf(time)) * 100).toFixed(4)}%`);
 		}
 		for (const [handle, time] of [[this.startHandle, this.range.start], [this.endHandle, this.range.end]] as const) {
 			handle.setAttribute('aria-valuemax', String(Math.round(duration * 100) / 100));

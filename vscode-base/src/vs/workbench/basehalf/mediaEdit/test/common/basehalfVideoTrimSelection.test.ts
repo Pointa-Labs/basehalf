@@ -49,16 +49,6 @@ suite('BaseHalfVideoTrimSelection', () => {
 		], [[1, 4.5], [4, 5], [4, 5], [0.5, 1.5], [0, 1], [0, 4.5], [1, 5]]);
 	});
 
-	test('moves the whole selection with its length as far as the ends, and not a selection that is the whole picture', () => {
-		const selected = { start: 1, end: 2 };
-		assert.deepStrictEqual([
-			rounded(timeline.moveSelection(selected, 0.51)),
-			rounded(timeline.moveSelection(selected, -5)),
-			rounded(timeline.moveSelection(selected, 10)),
-			rounded(timeline.moveSelection(whole, 1))
-		], [[1.5, 2.5], [0, 1], [4, 5], [0, 5]]);
-	});
-
 	test('steps a handle by the keyboard by a time or by one frame, at least one frame each step', () => {
 		const selected = { start: 1, end: 4 };
 		const sparse = new BaseHalfVideoTrimTimeline([0, 0.5, 1, 1.5, 2, 2.5, 3]);

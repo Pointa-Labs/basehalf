@@ -244,12 +244,6 @@
 	pointer-events: none;
 }
 
-/* A part shorter than the video can be moved with its length. */
-.monaco-workbench .basehalf-video-frames:not(.whole):not(.basehalf-sound-waveform) .basehalf-video-frames-part {
-	pointer-events: auto;
-	cursor: grab;
-}
-
 .monaco-workbench .basehalf-video-frames.dragging .basehalf-video-frames-part,
 .monaco-workbench .basehalf-video-frames.dragging .basehalf-video-frames-strip {
 	cursor: grabbing;
@@ -317,6 +311,29 @@
 }
 
 /*
+ * The playhead of a video is a white bar as tall as the strip, inside the
+ * yellow frame's edges, which it never leaves, as a desktop photo app draws
+ * it (D103); a dark edge keeps it apart from white pictures.
+ */
+.monaco-workbench .basehalf-video-frames:not(.basehalf-sound-waveform) .basehalf-video-frames-playhead {
+	top: 0;
+	bottom: 0;
+	width: 4px;
+	margin-left: -2px;
+	border-radius: 2px;
+	box-shadow: 0 0 0 0.5px rgb(0 0 0 / 45%), 0 0 3px rgb(0 0 0 / 35%);
+}
+
+/*
+ * Only the handles change the yellow frame (D103): a press anywhere else on a
+ * video's strip moves the playhead, so the pointer is the arrow there, and
+ * the sideways arrow while a handle is dragged.
+ */
+.monaco-workbench .basehalf-video-frames.dragging:not(.basehalf-sound-waveform) .basehalf-video-frames-strip {
+	cursor: ew-resize;
+}
+
+/*
  * While the whole video is kept, no frame stands on the strip and the handles
  * are grey with a light chevron, as a desktop photo app shows them; a trim
  * turns them yellow (D102).
@@ -330,12 +347,12 @@
 	border-color: transparent;
 }
 
-/* The time of a pressed handle, in a bubble over it that points at it, as a desktop photo app shows it (D102). */
+/* The time of a pressed handle or playhead, in a bubble over it that points at it, as a desktop photo app shows it (D102, D103). */
 .monaco-workbench .basehalf-video-frames-time {
 	position: absolute;
 	z-index: 4;
 	bottom: calc(100% + 10px);
-	left: calc(var(--basehalf-video-frames-bubble, 100%) + 7px);
+	left: var(--basehalf-video-frames-bubble, 0%);
 	padding: 3px 9px;
 	border-radius: 8px;
 	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
@@ -350,8 +367,13 @@
 	pointer-events: none;
 }
 
+/* Over a handle, the bubble points at the handle's middle, outside the frame's end. */
 .monaco-workbench .basehalf-video-frames-time.start {
 	left: calc(var(--basehalf-video-frames-bubble, 0%) - 7px);
+}
+
+.monaco-workbench .basehalf-video-frames-time.end {
+	left: calc(var(--basehalf-video-frames-bubble, 100%) + 7px);
 }
 
 .monaco-workbench .basehalf-video-frames-time::after {
@@ -364,7 +386,8 @@
 	transform: translateX(-50%);
 }
 
-.monaco-workbench .basehalf-video-frames.trimming .basehalf-video-frames-time {
+.monaco-workbench .basehalf-video-frames.trimming .basehalf-video-frames-time,
+.monaco-workbench .basehalf-video-frames.scrubbing .basehalf-video-frames-time {
 	visibility: visible;
 }
 

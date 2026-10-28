@@ -225,7 +225,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		const { player, time, slider } = createPlayer();
 		player.setSelected(true);
 		// A part from 2 s to 6 s that plays once, as Card Detail views an edited video; its last frame starts at 5.9 s.
-		player.setPlayRange({ start: 2, end: 6, lastFrame: 5.9, once: true });
+		player.setPlayRange({ start: 2, end: 6, lastFrame: 5.9 });
 		const bounds = slider().getBoundingClientRect();
 		const at = (fraction: number) => bounds.left + bounds.width * fraction;
 		const seen: number[] = [];

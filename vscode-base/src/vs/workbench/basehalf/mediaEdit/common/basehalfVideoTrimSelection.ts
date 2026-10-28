@@ -175,29 +175,6 @@ export class BaseHalfVideoTrimTimeline {
 	}
 
 	/**
-	 * Moves the whole selection by a time, keeping its length, as far as the
-	 * start or the end of the video. A selection that is the whole video does
-	 * not move.
-	 */
-	moveSelection(range: IBaseHalfVideoTrimRange, delta: number): IBaseHalfVideoTrimRange {
-		const length = range.end - range.start;
-		const duration = this.duration;
-		if (length >= duration - EPSILON) {
-			return range;
-		}
-		let start = this.snap(Math.min(Math.max(range.start + delta, 0), duration - length));
-		let end = this.snap(start + length);
-		if (end - start < this.minLength - EPSILON) {
-			end = this.edgeAtOrAfter(start + this.minLength);
-		}
-		if (end > duration) {
-			end = duration;
-			start = this.edgeAtOrBefore(duration - length);
-		}
-		return { start, end };
-	}
-
-	/**
 	 * Moves a handle by the keyboard: by a time, or by one frame. The handle
 	 * goes at least to the next frame edge in that direction, so that a step
 	 * shorter than a frame still moves it.
