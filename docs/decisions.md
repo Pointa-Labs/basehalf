@@ -4402,3 +4402,93 @@ The user asked for one rule wherever a handle is dragged towards an edge
 - The zoomed picture of D96 gets no shade across it either.
 - The cards' shapes, the player's behaviour on a card (D62), and the
   frame viewer's other gestures are unchanged.
+
+## D99 — A trim of a video is saved by copying its frames, at once, and the frame viewer lines up with the picture (NEW, 2026-10-28)
+
+**Decision.** A trim of an MP4, M4V, or MOV encodes nothing again. The
+edited file holds the original's compressed frames and sound packets as they
+are, from the key frame that the first frame of the part needs through the
+last frame that its frames need. A new index lists them, and the edit list
+of each track shows it from the start of the part to its end exactly. The
+shared process copies the bytes from the original into the new file, so
+that they never pass through the window. A save then takes about as long as
+copying the file, whatever its length. The picture and the sound are the
+original's, bit for bit, in its codecs and at its bitrate, with its color
+and its HDR information. The same holds for an M4A whose edit keeps one
+part. A WebM has no edit list that players read: its frames are copied from
+the first key frame at or after the start. Only the frames before that key
+frame are encoded again, in the video's own codec, and its Opus sound is
+copied and cut by the file's codec delay and discard padding. The line under
+the editor says "Saving…" only once a save has taken more than 1 s. Under
+the player, the strip of the frame viewer is as wide as the picture, its
+ends under the picture's edges, while viewing and while editing. The handles
+of the part stand outside the strip. See
+[editing media](specs/media-editing.md#what-the-edited-file-holds) and
+[the frame viewer](specs/media-editing.md#the-frame-viewer).
+
+**Why.** On 2026-10-28 the user trimmed 4 min 50 s off the start of a
+75-minute lecture, 1080p in H.264 and 340 MB. The line said "Saving… 9%"
+long after letting go, the save took about 4 minutes, and the file came out
+at 619 MB: "这里太慢了，说明我们有一些根本决策没做好，这里的编辑应该对标电脑/手机，他们是秒剪辑好的，而且这个剪辑条也应该对齐".
+Measured in a development window on a generated 75-minute 1080p video of
+354 MB with a key frame every 10 s: 364 s to save a trim of its first 289 s.
+
+The cause was D79's. A trim decoded every frame it kept and encoded it again
+with the window's encoders, at a bitrate of at least 0.07 bits for each
+pixel of each frame. That is more than a lecture's, so the file grew. D79
+measured that a generated video has one key frame, and concluded that a cut
+that copies compressed frames cannot start where the part does. It can. An
+MP4 or a MOV says in the edit list of each track where it starts to be shown
+and for how long. A copy keeps the frames from the key frame on, and the edit
+list hides those before the start. A phone's photo editor saves a trim this
+way, as fast as its storage copies the file. The window's player reads such
+a list. An MP4 cut from 3.0 s of a test pattern that prints its own time,
+copied from its key frame at 0, showed "3.00" at 0 s in Card Detail's
+player and "3.03" one frame later, and its pictures in the frame viewer were
+of the part too. The system's video reader and ffprobe read the same.
+
+The strip of the frame viewer stood 14 px inside the picture's edges on both
+sides, with no handle there while viewing. That room was kept for the
+handles, which while editing filled it. The strip did not line up with the
+picture above it.
+
+**What was set aside.**
+- Encoding again only from the start to the next key frame of an MP4, and
+  copying the rest. The window's encoder writes other parameter sets than the
+  original's, so the track would need two sample descriptions, which players
+  read unevenly. A generated video with one key frame would also still be
+  encoded whole.
+- A copy that keeps every byte of the original and only changes the index.
+  It would be instant even for a file of many gigabytes, but the whole part
+  cut away would stay in the file, hidden. A trim made to take something out
+  should take it out. The copy keeps at most what decoding needs.
+- Encoding a WebM again whole, as before: it stays only for a WebM whose
+  picture or sound the window cannot encode in the video's own codec.
+- Showing "Saving…" from the start of each save: a save shorter than 1 s
+  then only flickers.
+- A strip as wide as the picture plus the handles' room while viewing, and
+  narrower while editing: the frames would move when Edit is pressed, which
+  D96 rules out.
+
+**Costs.**
+- The frames from the key frame before the start stay in the file, hidden,
+  and a few after the end that the frames before it need. That is at most the
+  time between two key frames, but the whole part before the start of a
+  generated video with one key frame. A program that does not read edit
+  lists shows them.
+- The sound is cut without the 5 ms fades of D79, since its packets are the
+  original's.
+- The bytes are copied by the shared process, which the window asks through
+  a new method of its file clones service.
+- While editing, the handles of a part that reaches the start or the end
+  stand 14 px outside the picture's edges.
+
+**Consequences.**
+- [Editing media](specs/media-editing.md): "What the edited file holds" for a
+  video, an M4A, and a WebM; the line under the editor; the frame viewer; the
+  limits; criteria 3, 4, 28, 29, and 30.
+- [D79](#d79--card-detail-trims-a-video-in-place-and-undo-puts-it-back-new-2026-10-25)'s
+  encoding again is revised. Its trim in place, its undo, and `made.yaml`'s
+  `trimStart` and `trimEnd` stay.
+- Images, WAV, MP3, FLAC, Ogg, and an M4A whose edit joins parts are written
+  as before.

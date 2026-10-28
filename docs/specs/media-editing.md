@@ -10,7 +10,10 @@ for zooming the picture and the time;
 [D96](../decisions.md#d96--media-in-card-detail-opens-to-view-it-edit-edits-it-and-its-gestures-are-the-canvass-new-2026-10-27)
 for viewing before editing, and the gestures of the canvas;
 [D97](../decisions.md#d97--a-crop-is-taken-back-by-pushing-its-frame-to-the-edge-and-a-pinch-while-cropping-zooms-the-picture-under-the-frame-new-2026-10-28)
-for cropping as a phone's photo editor does
+for cropping as a phone's photo editor does;
+[D99](../decisions.md#d99--a-trim-of-a-video-is-saved-by-copying-its-frames-at-once-and-the-frame-viewer-lines-up-with-the-picture-new-2026-10-28)
+for saving a trim by copying the video's frames, and the frame viewer under
+the picture
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -51,11 +54,12 @@ development workspace and in a phone's photo editor and voice recorder:
   shape the model gives, as a square of 2048 × 2048 when the scene needs 16:9,
   and a generated song runs on after the part a video needs; another program
   had to cut them, and the file came back as a new file.
-- What D79 measured of videos still holds: a generated video has one key
-  frame, a cut that copies compressed frames cannot start where a clip needs
-  it to, and encoding again with the window's encoders is fast and close to
+- D79 measured that a generated video has one key frame, and that encoding
+  again with the window's encoders is fast for a short clip and close to
   lossless (46.4 dB PSNR on a 480p clip at its own bitrate, 53.2 dB on a WebM
-  recording).
+  recording). It concluded that a cut that copies compressed frames cannot
+  start where a clip needs it to, which an MP4's edit list makes possible
+  (D99).
 - **Editing asked for steps a change does not need** (D85, counted on the
   first build, D84): Edit, the change, then Done, or its menu for Save as New,
   with Cancel and Close beside them. A trim took 3 actions, cutting a part out
@@ -80,6 +84,20 @@ development workspace and in a phone's photo editor and voice recorder:
   back to the edge. A pinch while editing zoomed the view and hid the frame,
   and a pinch out did nothing, where a phone's crop tool zooms the picture
   under the frame.
+- **A trim took minutes, and the file grew** (D99, 2026-10-28, after D98).
+  The user trimmed 4 min 50 s off the start of a 75-minute lecture, 1080p in
+  H.264 and 340 MB: the line under the editor said "Saving… 9%" long after
+  letting go, the save took about 4 minutes, and the file came out at 619 MB.
+  Measured in a development window on a generated 75-minute 1080p video of
+  354 MB with a key frame every 10 s: 364 s to save a trim of its first
+  289 s. Every frame kept was decoded and encoded again, at a bitrate of at
+  least 0.07 bits for each pixel of each frame, more than a lecture's. A
+  phone's photo editor saves the same trim as fast as it copies the file: its
+  compressed frames are copied, and the file's edit list says where the
+  video starts and ends.
+- **The strip of frames did not line up with the picture** (D99). Under the
+  player it stood 14 px inside the picture's edges on both sides, the room
+  of the handles, which viewing does not show.
 
 ## Goals
 
@@ -89,6 +107,10 @@ development workspace and in a phone's photo editor and voice recorder:
   Nothing of the picture moves when the editor comes and goes.
 - **A change is the result** (D85): in the editor a change is saved as it is
   made. There is nothing to press to save it, and Done saves nothing.
+- **A trim is saved at once** (D99): a trim of a video copies its frames and
+  sound, as a phone's photo editor saves one, so that a save takes about as
+  long as copying the file, whatever its length. Nothing of an MP4 or a MOV
+  is encoded again.
 - **The gestures are the canvas's** (D96): a two-finger swipe moves, a pinch
   zooms, and a pinch zooms the place under the fingers as a browser zooms its
   page.
@@ -111,9 +133,10 @@ development workspace and in a phone's photo editor and voice recorder:
 - **Revert to Original** puts the original back at any time.
 - **Each change is one step of the canvas undo**, and undo puts back exactly
   what the step changed, with the one undo of the window.
-- **An edited file looks and sounds like its original did**: the same
-  picture and frame times, the same sample rate, no lower a bitrate, and no
-  click where a cut joins sound.
+- **An edited file looks and sounds like its original did**: a video's
+  frames and sound are the original's, bit for bit; an image's pixels and a
+  sound's samples keep their scale and rate, and no cut that joins sound
+  clicks.
 
 ## Non-goals
 
@@ -263,7 +286,7 @@ crop:
   the file, and the file follows as after a change. What BaseHalf wrote for
   the last 8 sets of choices of a file stays in `.bh/cache/edit/` until the
   window closes, so that undo and redo put back the very bytes, at once; for
-  older ones the edit is encoded again from the original, and the original's
+  older ones the edit is made again from the original, and the original's
   own bytes come back as they are.
 - Editing keeps nothing in the kept versions of exact undo: undo puts back
   choices, and the original holds what the Trash would hold. So editing puts
@@ -401,9 +424,10 @@ crop:
   card information ([spec-driven development](spec-driven-development.md)).
 - **The line under the editor**: while editing, for an edited file, what the
   edit is and **Revert to Original** ([Revert to Original](#revert-to-original)).
-  While viewing and editing, "Saving…" with the share done while the file is
-  written, after the line of an edited file, and the failure of a write, with
-  **Try Again**; nothing else. It keeps its height while it is empty.
+  While viewing and editing, "Saving…" with the share done once a write has
+  taken more than 1 s and while it goes on, after the line of an edited file
+  (D99): a write that ends sooner shows nothing. And the failure of a write,
+  with **Try Again**; nothing else. It keeps its height while it is empty.
 
 ### Viewing and editing
 
@@ -556,13 +580,19 @@ in Card Detail.
   height in the picture's shape, each the frame at the middle of its place.
   The player and the viewer are centered together in the space the player
   had.
+- **The strip lines up with the picture** (D99): its ends stand under the
+  picture's left and right edges, within 1 px, while viewing and while
+  editing, and Edit and Done move none of its frames. The handles stand
+  outside the strip's ends, so that while editing a part that reaches the
+  video's start or end has its handle outside the picture's edge.
 - **The viewer is the video's timeline**: the player above it shows Play, the
   time, its sound button, and Full Screen, and no bar of its own for the time.
   The player's sound button mutes only the playing; it changes nothing in the
   file.
 - **The part kept** has a yellow frame around it, 3 px above and below, with
-  a handle 14 px wide on each side that carries a dark chevron; the strip
-  outside it is dimmed. While the whole video is kept, the frame is white.
+  a handle 14 px wide outside each of its ends that carries a dark chevron;
+  the strip outside it is dimmed. While the whole video is kept, the frame is
+  white.
 - **The playhead** is a white line at the time the player shows, and follows
   it while it plays.
 - **The length of the part** is in its middle, or above the viewer over its
@@ -805,40 +835,56 @@ in Card Detail.
 
 ### A video
 
-- **The picture**: the frames of the original from the one at the start of the
-  part to the last one shown before its end, each at its own time, counted from
-  0; no frame is added, dropped, or moved. A video with a variable frame rate
-  keeps its frame times. It keeps its coded size and the matrix of its track.
-  The first frame is a key frame, and then about every 2 s. Colors are as the
-  window shows them.
-- **The sound**: the original's sound from the start of the part to its end
-  exactly, with its sample rate and number of channels where the system's
-  encoder takes them, coming up over the first 5 ms and going down over the
-  last 5 ms where the part cuts into it; in sync with the picture within a
-  millisecond, the encoder's delay and padding hidden by the edit list, or by
-  the codec delay and discard padding of a WebM. A video without sound has no
-  sound track.
-- **The file's information**: the boxes at the level of the file of an MP4 or
-  MOV, such as its title, its creation date, and the label that marks generated
-  content (GB 45438-2025), unchanged.
-- **Its format** is the original's container:
-
-  | Video | Edited video |
-  | --- | --- |
-  | `.mp4`, `.m4v`, `.mov` | the picture in H.264, or in HEVC when the original's picture is HEVC and the window can encode HEVC; the sound in AAC |
-  | `.webm` | the picture in VP9, the sound in Opus |
-
-- The picture's bitrate is at least the original's: its average bitrate
-  times 1.25 when the codec stays, times 1.6 from HEVC or VP9 to H.264, and
-  times 2 from AV1 to H.264 or VP9; at least 0.07 bits for each pixel of each
-  frame in H.264 and VP9, 0.05 in HEVC; between 1 and 100 Mbit/s. Measured on
-  2026-10-25 on a 1440p clip at 60 frames per second and 6.9 Mbit/s: 41.1 dB
-  PSNR on average at 1.25 times its bitrate and about 44 dB at the floor.
-- The sound's bitrate is the original's, snapped to 96, 128, 160, or 192
-  kbit/s; its sample rate is the original's at 44.1 or 48 kHz and 48 kHz
-  otherwise; Opus is always 48 kHz. Where the window has no AAC encoder, as on
-  Linux, an MP4 or MOV is saved without sound, and the line under the editor
-  says so.
+- **Nothing is encoded again** (D99). An MP4, M4V, or MOV holds the
+  original's compressed frames and sound packets as they are. Its picture
+  keeps the frames from the key frame that the first frame of the part needs
+  through the last frame that the part's frames need, in the order they are
+  decoded. Its sound keeps the packets from the ones that the first packet
+  shown needs, two of AAC or 80 ms of Opus, to one after the one at the end.
+  A new index lists them, and the edit list of
+  each track shows the track from the start of the part to its end:
+  - the picture from the frame at the start, each frame at its own time,
+    counted from 0, to the end of the last frame shown before the end; no
+    frame is added, dropped, or moved, and a variable frame rate keeps its
+    times;
+  - the sound from the start to the end, to the sample, in sync with the
+    picture as in the original. A sound that starts after the part does, or
+    ends before it, keeps that delay and that end. A video without sound has
+    no sound track.
+- **What is not shown stays in the file, hidden**: the frames from the key
+  frame before the start, at most the time between two key frames, but the
+  whole part before the start of a generated video that has one key frame;
+  the frames after the end that the frames before it need; and the packets
+  of sound around the start and the end. The window's player, the system's
+  video reader, and ffprobe read the edit list and show none of them; a
+  program that does not read edit lists shows them too.
+- **The sound is cut without fades**: its packets are the original's.
+- **Its format** is the original's: its container and brands, its codecs,
+  their bitrates, and its sample descriptions as they are, with the shape of
+  its pixels, its colors, and its HDR information; the coded size and the
+  matrix of its track; and the boxes at the level of the file, such as its
+  title, its creation date, and the label that marks generated content
+  (GB 45438-2025), unchanged. The index goes before the frames, so that the
+  file plays while it is still being read. Its size is the original's for the
+  part kept, with what stays hidden.
+- **A WebM** has no edit list that players read:
+  - its frames are copied from the first key frame at or after the start of
+    the part, through the last one shown before its end. The frames before
+    that key frame, from the frame at the start on, are encoded again by the
+    window in the video's codec, VP8 or VP9, from the key frame before them,
+    the first of them a key frame; none is when the start is a key frame;
+  - its Opus sound is copied from 80 ms before the start, and cut at the
+    start by the file's codec delay and at the end by the discard padding of
+    its last block; a Vorbis sound is encoded again in Opus, whole;
+  - a WebM whose picture the window cannot encode in its codec, as AV1 or VP9
+    of more than 8 bits, is encoded again whole: the picture in VP9 and the
+    sound in Opus. The picture's bitrate is then at least the original's: its
+    average bitrate times 1.25 when the codec stays and times 2 from AV1; at
+    least 0.07 bits for each pixel of each frame; between 1 and 100 Mbit/s.
+    The first frame is a key frame, and then about every 2 s. The sound comes
+    up over its first 5 ms and goes down over its last 5 ms where the part
+    cuts into it, at the original's bitrate snapped to 96, 128, 160, or 192
+    kbit/s, at 48 kHz.
 
 ### An image
 
@@ -870,11 +916,12 @@ in Card Detail.
 | `.wav` | the same format and chunks, its samples cut exactly, in whole numbers or floating point |
 | `.mp3` | its frames as they are, cut at frame edges, without encoding again, with a new Info frame |
 | `.flac` | FLAC without loss, decoded and encoded again by BaseHalf |
-| `.m4a` | AAC encoded again by the window, at the original's bitrate snapped as for a video |
+| `.m4a` | for an edit that keeps one part, its packets as they are, the part shown by the edit list, as a video's sound is (D99); for one that joins parts, AAC encoded again by the window, at the original's bitrate snapped to 96, 128, 160, or 192 kbit/s |
 | `.ogg` | Opus encoded again by the window, also from Vorbis, in an Ogg of its own |
 
 - Where a cut starts or ends the sound, and on both sides of a joint, the
-  sound fades over 5 ms, so that no cut clicks. An MP3 fades by the gain of its
+  sound fades over 5 ms, so that no cut clicks; not at the ends of an M4A
+  whose packets are copied. An MP3 fades by the gain of its
   frames over two granules instead (−30 dB, then −12 dB), since its frames are
   not encoded again; the reserve of bits that its frames share is laid out
   again from an empty reserve, so that every frame decodes after a cut, each
@@ -893,9 +940,13 @@ in Card Detail.
 
 ## While it is saved, and after
 
-- The edited file is made in memory from the original, written into the
-  workspace's cache folder (`.bh/cache/edit/`), and put in its place with its
-  record, so that no part of a file ever shows in its place.
+- The edited file is written into the workspace's cache folder
+  (`.bh/cache/edit/`), and put in its place with its record, so that no part
+  of a file ever shows in its place. An MP4, M4V, MOV, or M4A whose packets
+  are copied is written by the shared process, from its new index, made in
+  the window, and the ranges of the original that it copies (D99); the bytes
+  of its frames never pass through the window. Every other edited file is made
+  in memory from the original.
 - A write goes on when Card Detail closes or shows another file. Card Detail
   of the file, opened again while one runs, shows the choices being written
   and "Saving…". A window that closes or reloads waits for its writes, with
@@ -936,27 +987,31 @@ in Card Detail.
 
 ## Limits
 
-- An edited file is built in memory before it is written: a video whose size,
+- An edited file that is built in memory is limited by it: a WebM whose size,
   estimated from its bitrate and length, would pass 2 GB is refused before the
   save starts; an image over 16,384 pixels on a side, or 256 million pixels,
   and a sound longer than 30 minutes, or whose file passes 256 MB, are refused
-  the same way.
+  the same way. A video whose frames are copied has no such limit.
 - Only the picture and the first sound of a video are used; other tracks are
   not in the edited video.
 - The frame viewer reads the frames of a video once when the editor opens, and
   again where it is spread out; with few key frames, a long video's pictures
   appear one by one.
-- A write encodes a video again from the original, longer for a long or a
-  large one, while the line says Saving… with the share done; a change while
-  it runs is written after it. Measured on 2026-10-27 in a development window,
-  after the rest of 1 s: 0.18 to 0.21 s for a generated clip of 3 s at 480p,
-  0.2 s for a crop of a PNG of 2048 × 2048, and 0.04 s for a cut of a WAV of
-  6 s; an undo or a redo to what was written before puts the bytes back in
-  about 15 ms.
-- VP9 is encoded by the window in software: a WebM takes longer to save than
-  an MP4 of the same size.
-- A picture of odd width or height is encoded one pixel narrower or lower when
-  the window's encoder refuses its size.
+- A write of a video copies its bytes, as long as the disk takes to copy
+  them, while the line says Saving… with the share done once it has taken
+  1 s; a change while it runs is written after it. A trim of the first 289 s
+  of a 75-minute 1080p video of 354 MB took 364 s when it was encoded again
+  (2026-10-28). Measured on 2026-10-27 in a development window, after the
+  rest of 1 s: 0.2 s for a crop of a PNG of 2048 × 2048, and 0.04 s for a cut
+  of a WAV of 6 s; an undo or a redo to what was written before puts the
+  bytes back in about 15 ms.
+- A WebM takes longer to save than an MP4 of the same size by the frames that
+  it encodes again: VP8 and VP9 are encoded by the window in software. Its
+  frames are read into the window, and it is built in memory.
+- A picture of odd width or height that a WebM encodes again whole is encoded
+  one pixel narrower or lower when the window's encoder refuses its size.
+- What `.bh/cache/edit/` keeps of the last 8 writes of a video takes room on
+  the disk as large as each write, until the window closes.
 - An MP3 is cut at frame edges, about 26 ms apart at 44.1 kHz.
 - A copy of an edited file on a disk that cannot clone files takes as much
   room again for its original.
@@ -974,12 +1029,13 @@ in Card Detail.
    of the other pushes it.
 3. Letting go of the start handle of a 5 s video at 1.0 s, and of the end
    handle at 4.5 s, with nothing pressed after: within 3 s the video is 3.5 s
-   of it, as D79's criterion 6 measures, `.bh/mirror/<path>/original.mp4` is
-   byte for byte the video before, and `edit.yaml` holds the part kept. The
-   Edit menu's Undo names "Trim shot.mp4".
+   of it, its first frame shown the original's at 1.0 s, and every sample it
+   holds byte for byte one of the original's (D99);
+   `.bh/mirror/<path>/original.mp4` is byte for byte the video before, and
+   `edit.yaml` holds the part kept. The Edit menu's Undo names "Trim shot.mp4".
 4. Card Detail of that video, opened again, shows the whole 5 s original in the
    viewer with the handles at 1.0 s and 4.5 s; widening the part to 0.5 s gives
-   4.0 s of the original, encoded from the original.
+   4.0 s of the original, made from the original.
 5. Revert to Original on it puts back the original's bytes and removes
    `original.mp4` and `edit.yaml`; undo of it brings the edit back byte for
    byte; redo reverts again.
@@ -1099,6 +1155,24 @@ in Card Detail.
     to 40 px inside the edge, the stretch and the handle stop; the stretch's
     length is the same throughout (D98). The waveform of a sound does the
     same.
+28. A 75-minute 1080p MP4 of 354 MB with a key frame every 10 s, its start
+    handle let go at about 289 s: the file holds the trim within 3 s of
+    letting go, the rest of 1 s with it, and the line under the editor shows
+    no "Saving…" for a write that ends within 1 s (the user, 2026-10-28: a
+    trim of a 75-minute lecture took about 4 minutes, D99). The edited file is
+    smaller than the original by about the part cut; every sample it holds is
+    byte for byte one of the original's; and the window's player, the
+    system's video reader, and ffprobe show its first frame as the original's
+    at the start and its length as the part's, within a frame.
+29. Card Detail of a 16:9 video in a window 3440 px wide, viewing and then
+    editing: the strip's left and right ends stand within 1 px of the
+    picture's edges, Edit and Done move none of its pictures, and while the
+    whole video is kept the handles stand outside the picture's edges.
+30. A WebM in VP8 or VP9 with Opus, trimmed from a time that is not a key
+    frame: its first frame shown is the original's at the start, its frames
+    from the next key frame on are byte for byte the original's, only those
+    before it are encoded again, and its Opus packets are the original's,
+    its sound starting at the start within a millisecond.
 
 ## Verification
 
@@ -1114,6 +1188,13 @@ in Card Detail.
   one write at a time, the steps of undo and their names, undo and redo byte
   for byte from what was written, a first change, Revert to Original, a file
   changed meanwhile, and a write that fails.
+- Unit tests of the copy of a trim (D99): the samples kept with a key frame
+  before the start, frames shown out of order, a sound that starts late or
+  ends early, and the edit lists, sample tables, and places of the new index,
+  read back by BaseHalf's own reader; tests in the window of the unit tests
+  that the window's player shows the frame at the start of a copied clip and
+  plays it for its length; and a test of the shared process that writes a
+  file from bytes and ranges of other files.
 - Unit tests of zooming (`basehalfMediaZoom.test.ts`): the factor of a pinch
   and of the wheel with the zoom key, the largest zoom of a picture, the zoom
   of a media area around a point and its edges, a move by a swipe, and a
@@ -1167,8 +1248,9 @@ in Card Detail.
 
 `src/vs/workbench/basehalf/mediaEdit/` ([code organization](../harness/code-organization.md)):
 the edit record, the choices of each editor, the readers and writers of each
-format, what a zoom of a picture or of the time computes, and the notes of
-originals whose file is gone in `common/`, which the
+format, the plan of a trim's copy and its index, what a zoom of a picture or
+of the time computes, and the notes of originals whose file is gone in
+`common/`, which the
 mirror cascade runs at open after its sweep of orphaned badges
 ([mirror file resilience](mirror-file-resilience.md)); the editing of Card
 Detail, the editors, the encoding with the window's encoders, and the service
@@ -1180,4 +1262,6 @@ host gives it, and zooms the picture of the player of every video
 (`src/vs/workbench/basehalf/cardDetail/browser/`); the
 player of a video gives the frame viewer its time, a jump to a time, and the
 playing of a range; the waveform of a sound plays the edit itself, with the
-window's audio.
+window's audio. The shared process's file clones service
+(`src/vs/platform/basehalfFiles/`) writes a file from bytes and ranges of
+other files, which a trim's copy asks of it (D99).
