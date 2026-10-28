@@ -169,8 +169,12 @@ export class BaseHalfMediaEditError extends Error {
 /** The file changed outside BaseHalf since the choices were made: they are dropped. */
 class BaseHalfMediaChangedMeanwhile extends Error { }
 
-/** How long the choices of a file rest before the file is written. */
-const REST_MS = 1_000;
+/**
+ * How long the choices of a file rest before the file is written: the file
+ * follows a change at once, as a write now copies more than it encodes (D99),
+ * and a burst of keys is written once.
+ */
+const REST_MS = 300;
 /** Changes of the same name to one file within this time are one step of undo. */
 const MERGE_MS = 600;
 /** How many writes of each file stay in the cache for undo and redo. */

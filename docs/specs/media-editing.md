@@ -264,13 +264,15 @@ crop:
 - **The editor shows a change at once**, drawn from the original: the player
   plays the part kept, the waveform joins the parts kept, and the crop view
   shows the part kept. Nothing waits for the file.
-- **The file follows.** Once the choices have rested for 1 s, BaseHalf writes
+- **The file follows.** Once the choices have rested for 0.3 s, BaseHalf writes
   the edit of the original into the file, and the record beside it; at once
   when Card Detail closes or shows another file, and when the window closes,
   which waits for the writes that are left; and before the file is moved,
   copied, or deleted in the window, so that a Duplicate right after a change
   copies the change. Writes of a file run one at a time, in the background: a
-  change made while one runs is written after it.
+  change made while one runs is written after it. The rest takes a burst of
+  keys as one write; since a trim copies instead of encoding, a longer one
+  would only keep the file behind the editor (D99).
 - The first change of a file keeps the file as it was as the original. A change
   of an edited file leaves the original as it is and replaces the record.
   Choices that keep the whole original, as the whole video kept or the whole
@@ -1001,12 +1003,15 @@ in Card Detail.
   appear one by one.
 - A write of a video copies its bytes, as long as the disk takes to copy
   them, while the line says Saving… with the share done once it has taken
-  1 s; a change while it runs is written after it. A trim of the first 289 s
-  of a 75-minute 1080p video of 354 MB took 364 s when it was encoded again
-  (2026-10-28). Measured on 2026-10-27 in a development window, after the
-  rest of 1 s: 0.2 s for a crop of a PNG of 2048 × 2048, and 0.04 s for a cut
-  of a WAV of 6 s; an undo or a redo to what was written before puts the
-  bytes back in about 15 ms.
+  1 s; a change while it runs is written after it. Measured on 2026-10-28 in
+  a development window from letting go, the rest of 0.3 s with it, on a busy
+  machine (load 21 to 31): 0.9 to 1.1 s for a trim of the first 289 s of a
+  75-minute 1080p video of 354 MB, which took 364 s when it was encoded
+  again; 0.4 s for a trim of a 1-minute 1080p clip; 0.6 s for a trim of a
+  3-minute 720p WebM, from a key frame or between two. Measured on
+  2026-10-27, after the rest of 1 s: 0.2 s for a crop of a PNG of
+  2048 × 2048, and 0.04 s for a cut of a WAV of 6 s; an undo or a redo to
+  what was written before puts the bytes back in about 15 ms.
 - A WebM takes longer to save than an MP4 of the same size by the frames that
   it encodes again: VP8 and VP9 are encoded by the window in software. Its
   frames are read into the window, and it is built in memory.
@@ -1158,8 +1163,8 @@ in Card Detail.
     length is the same throughout (D98). The waveform of a sound does the
     same.
 28. A 75-minute 1080p MP4 of 354 MB with a key frame every 10 s, its start
-    handle let go at about 289 s: the file holds the trim within 3 s of
-    letting go, the rest of 1 s with it, and the line under the editor shows
+    handle let go at about 289 s: the file holds the trim within 1.5 s of
+    letting go, the rest of 0.3 s with it, and the line under the editor shows
     no "Saving…" for a write that ends within 1 s (the user, 2026-10-28: a
     trim of a 75-minute lecture took about 4 minutes, D99). The edited file is
     smaller than the original by about the part cut; every sample it holds is

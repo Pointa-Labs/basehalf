@@ -3435,6 +3435,9 @@ built without asking back, after research.
 > **Edit** in its header shows the editor, which **Done** leaves. A change
 > is still saved as it is made, and Done saves nothing. The rest of D85
 > stands.
+>
+> **Revised by D99 (2026-10-28).** The file follows once the choices have
+> rested for 0.3 s, not a second, since a trim copies instead of encoding.
 
 **Decision.** Card Detail of a video, an image, or a sound shows its editor at
 once: the player of a video with the frame viewer under it, the waveform of a
@@ -4418,8 +4421,10 @@ and its HDR information. The same holds for an M4A whose edit keeps one
 part. A WebM has no edit list that players read: its frames are copied from
 the first key frame at or after the start. Only the frames before that key
 frame are encoded again, in the video's own codec, and its Opus sound is
-copied and cut by the file's codec delay and discard padding. The line under
-the editor says "Saving…" only once a save has taken more than 1 s. Under
+copied and cut by the file's codec delay and discard padding. The file
+follows a change 0.3 s after the choices rest, not a second: the rest only
+takes a burst of keys as one write. The line under the editor says "Saving…"
+only once a save has taken more than 1 s. Under
 the player, the strip of the frame viewer is as wide as the picture, its
 ends under the picture's edges, while viewing and while editing. The handles
 of the part stand outside the strip. See
@@ -4446,6 +4451,16 @@ a list. An MP4 cut from 3.0 s of a test pattern that prints its own time,
 copied from its key frame at 0, showed "3.00" at 0 s in Card Detail's
 player and "3.03" one frame later, and its pictures in the frame viewer were
 of the part too. The system's video reader and ffprobe read the same.
+
+Asked afterwards whether the second after letting go was too long
+("停止拖动这一秒，是不是太长了？"): it was. D85 chose it while each write
+encoded the video again, so that adjusting did not start one encode after
+another. A copy takes 0.1 s for a 1-minute clip and well under a second for
+the 75-minute video, and writes of a file run one at a time with the latest
+choices, so a longer rest only kept the file, its canvas card, and what
+agents read behind the editor. Measured from letting go with the rest of
+0.3 s, on a busy machine: 0.9 to 1.1 s for the 75-minute trim, 0.4 s for a
+1-minute 1080p clip, and 0.6 s for a 3-minute 720p WebM.
 
 The strip of the frame viewer stood 14 px inside the picture's edges on both
 sides, with no handle there while viewing. That room was kept for the
