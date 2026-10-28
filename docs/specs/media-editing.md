@@ -18,10 +18,13 @@ the picture;
 for the keyboard, which stays on the media;
 [D101](../decisions.md#d101--a-zoomed-picture-moves-within-its-own-edges-under-floating-controls-and-the-frame-viewer-shows-its-pictures-together-new-2026-10-28)
 for a zoomed picture that stays within its edges under floating controls,
-and the frame viewer's pictures; and
+and the frame viewer's pictures;
 [D102](../decisions.md#d102--a-video-in-card-detail-is-viewed-and-edited-as-a-desktop-photo-app-does-it-new-2026-10-28)
 for viewing a video as large as fits with its player's controls, and the
-edit bar that Edit makes room for
+edit bar that Edit makes room for; and
+[D103](../decisions.md#d103--in-the-edit-bar-of-a-video-the-yellow-frame-is-changed-only-by-its-handles-and-the-playhead-stays-inside-it-new-2026-10-29)
+for the yellow frame, which only its handles change, and the playhead,
+which stays inside it.
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -458,7 +461,7 @@ crop:
 | | Viewing | Editing |
 | --- | --- | --- |
 | An image | the picture as the file holds it; the room of the tools empty | the rest of the original dimmed around the part kept, the crop frame on it while the pointer is over the picture or the keyboard is on it, and the tools under it ([Cropping an image](#cropping-an-image)) |
-| A video | the player as large as fits, its controls over the picture: the position slider and the times count the file, the part kept from its start to its end, and a press on the slider moves the playhead; Play plays the file through once; no frame viewer | the edit bar under the picture: Play, and the frame viewer of the whole original, the part kept in its yellow frame once trimmed, with its handles; the part plays over and over ([Editing a video](#editing-a-video)) |
+| A video | the player as large as fits, its controls over the picture: the position slider and the times count the file, the part kept from its start to its end, and a press on the slider moves the playhead; Play plays the file through once; no frame viewer | the edit bar under the picture: Play, and the frame viewer of the whole original, the part kept in its yellow frame once trimmed, with its handles, and the playhead inside the frame; Play plays from the playhead to the part's end ([Editing a video](#editing-a-video)) |
 | A sound | the waveform shows the sound as the file holds it, from the first handle to the second, with the playhead; a press moves the playhead; Play plays it through once | the waveform shows the trims at its ends outside the handles, the handles, and a selected stretch with Delete; the part between the handles plays over and over ([Editing a sound](#editing-a-sound)) |
 
 - While viewing, the time that the player of a video and Play of a sound show
@@ -493,8 +496,9 @@ crop:
   keyboard nowhere, on the window's own body, is Card Detail's.
 - **Left** and **Right** move the playhead of a video or a sound a second
   back or on, and **Home** and **End** move it to the start and the end of
-  what its timeline shows: the file while viewing, the original while
-  editing. **Shift** with Left or Right moves a video one frame back or on,
+  what its timeline shows: the file while viewing, the original of a sound
+  while editing, and the part kept of a video while editing, inside whose
+  yellow frame its playhead stays (D103). **Shift** with Left or Right moves a video one frame back or on,
   and pauses it first, where BaseHalf knows its frames: in a video it can
   edit. A sound, and a video it cannot edit, move a second with Shift too. A
   video or a sound that plays goes on playing from where the key put it. The
@@ -596,9 +600,9 @@ in Card Detail.
     the stretch changes, a thin bar over the bottom of the strip shows where
     it lies in the whole length, and goes 1 s after the last change, as
     BaseHalf's scrollbars float and hide.
-  - A press, a drag of a handle or of the part, a selection, and Delete work
-    there as on the whole length, at the times under the pointer. A drag of
-    a handle, of the part, of the playhead, or of a selection that comes
+  - A press, a drag of a handle or of the playhead, a selection, and Delete
+    work there as on the whole length, at the times under the pointer. A
+    drag of a handle, of the playhead, or of a selection that comes
     within 24 px of an edge of the strip, or goes past it, moves the stretch
     along (D98), as a phone's trim follows a handle held against its edge,
     by the rule the crop frame of an image follows too
@@ -658,16 +662,19 @@ in Card Detail.
   is kept, no frame stands on the strip, and the handles are grey with a
   light chevron, as a desktop photo app shows them (D102). A drag that makes
   the part shorter turns them yellow at once.
-- **The playhead** is a white line at the time the player shows, and follows
-  it while it plays. It hides while a handle is pressed and dragged, and then
-  stands at the handle.
+- **The playhead** is a white bar at the time the player shows, as tall as
+  the strip, and follows it while it plays. **It stays inside the yellow
+  frame** (D103): from the part's first frame to its last, whatever presses
+  it, a key, Play, or a handle moved past it. It hides while a handle is
+  pressed and dragged, and then stands at the handle.
 - **The time at a handle** shows in a bubble above it while the handle is
   pressed and dragged, as a desktop photo app shows it: minutes, seconds,
   and hundredths (`00:26.40`), with hours before them from an hour on
   (`1:02:03.40`); the start handle's time is its first frame's, the end
-  handle's the end of its last frame. The bubble goes once the handle is let
-  go. The length of the part shows in no label on the strip; the line under
-  the editor says what is kept.
+  handle's the end of its last frame. While the playhead is pressed and
+  dragged, the bubble stands over it with its time. The bubble goes once the
+  press is let go. The length of the part shows in no label on the strip;
+  the line under the editor says what is kept.
 - **The pictures come together**, as a phone's filmstrip shows them (D101).
   Each is the frame at the middle of its place, or, when the video has a key
   frame within half a place of that middle, the key frame nearest it, which
@@ -698,27 +705,30 @@ in Card Detail.
   along, until it reaches the start or the end of the video, where both stop.
   Where the two handles meet, a press takes the one on whose side of the
   meeting point it is.
-- **A drag inside the part, while it is shorter than the video**, moves the
-  part with its length, to the nearest frame edges. It pauses the player, and
-  while it moves, the player shows the frame at the part's start. Letting go
-  of it is a change, as for a handle.
-- **A press anywhere else on the viewer**, or a press inside the part that
-  does not move, moves the playhead there; a drag from there moves it along.
-- The pointer is a sideways arrow over a handle, a grab hand over a part that
-  can move, and the arrow everywhere else. A press on the viewer never reaches
-  the player or the canvas under Card Detail.
+- **Only the handles change the yellow frame** (D103). A press or a drag
+  anywhere else on the strip, inside the frame or outside it, moves the
+  playhead and changes nothing of the file.
+- **A press anywhere else on the strip** puts the playhead under the pointer
+  at once, as far as the frame goes: inside the frame at the time under the
+  pointer, on the dimmed strip before the frame at its first frame, and after
+  it at its last. The picture shows that frame, and the bubble over the
+  playhead its time. A drag from there moves the playhead along, within the
+  frame, and the picture and the bubble with it; let go, the bubble goes and
+  the playhead stays. A video that plays stops while its playhead is held,
+  and plays on from where it is let go.
+- The pointer is a sideways arrow over a handle, and the arrow everywhere
+  else. A press on the viewer never reaches the player or the canvas under
+  Card Detail.
 
 ### Playing
 
-- While the part is shorter than the video, the player plays the part: Play
-  starts at the part's start when the playhead is outside the part or on its
-  last frame, plays to its end, and goes on from its start again, until it is
-  paused. No frame after the part is shown: the player looks at every frame it
-  shows. Before each jump back, the sound goes down over the last 100 ms of
-  the part, and it comes up after the jump
-  ([generation cards, "The player"](generation-cards.md#the-player)).
-- While the whole video is kept, the player plays the whole video, as a card's
-  player does.
+- While editing, Play plays from the playhead to the end of the part kept and
+  stops there, on its last frame, as a desktop photo app does (D103); Play
+  pressed there starts again from the part's start. No frame after the part
+  is shown: the player looks at every frame it shows, and the sound goes down
+  over the last 100 ms of the part
+  ([generation cards, "The player"](generation-cards.md#the-player)). While
+  the whole video is kept, it plays the whole video so.
 - While viewing, the player plays the file through once, as a card's player
   plays a video: the part kept, from the playhead to the part's end, where it
   stops, and from the part's start when Play is pressed there. Its time
@@ -904,8 +914,8 @@ in Card Detail.
 - Play plays the sound as the choices make it, its kept parts one after the
   other, each coming up over 5 ms and going down over 5 ms at its ends, so
   that no joint clicks; while the part between the handles is shorter than
-  the whole, it plays over and over, as the part of a video does. A press on
-  the waveform that does not move moves the playhead there.
+  the whole, it plays over and over. A press on the waveform that does not
+  move moves the playhead there.
 
 ### The keyboard of the waveform
 
@@ -1203,7 +1213,7 @@ in Card Detail.
     shows, the player says `0.0s` and `3.5s`, a press at the middle of its
     position slider shows the original's frame at 2.75 s, End on the slider
     its last frame of the part, and Play plays to the end of the part and
-    stops there; while editing it plays the part over and over.
+    stops there; while editing it does the same (D103).
 22. Edit, then Done, with nothing changed between, leaves the file, its
     record, and the undo as they were; a change after Edit is saved with
     nothing more pressed; Card Detail closed while editing opens to viewing
@@ -1270,9 +1280,9 @@ in Card Detail.
     file's last frame, and Home to its start, while no card under Card
     Detail moves; the same after a press on the position slider, with the
     keyboard on Edit or Done, and with it on the window's body. While
-    viewing a part from 2 s to 8 s, Home and End stop at the part's ends;
-    while editing, End goes to the original's last frame, and on a handle
-    Right still moves the handle, a trim. The playhead of a sound moves a
+    viewing a part from 2 s to 8 s, Home and End stop at the part's ends,
+    and while editing too (D103); on a handle Right still moves the handle,
+    a trim. The playhead of a sound moves a
     second with Right likewise (the user, 2026-10-28: the left and right
     arrows did nothing).
 32. Card Detail of a video opened by a double click: the keyboard is on its
@@ -1320,6 +1330,17 @@ in Card Detail.
     shows that frame, and turns the frame and the handles yellow, the strip
     before the handle dimmed; let go, the bubble goes, and the playhead
     stands at the handle (D102).
+38. While editing a 12 s video trimmed to 2 s–8 s, its playhead at 3 s: a
+    press inside the yellow frame at 5 s puts the playhead there at once, the
+    picture showing the frame at 5 s and the bubble over the playhead
+    `00:05.00`; a drag to 7 s moves the playhead and the bubble along and the
+    frame stays at 2 s–8 s; a drag past the frame's end stops the playhead on
+    the part's last frame; let go, the bubble goes, and the file, its record,
+    and the undo are as they were. A press on the dimmed strip before the
+    frame puts the playhead at 2 s, and one after it at the part's last
+    frame. End and Home stop at the part's ends, and Play from 7 s stops on
+    the part's last frame (D103; the user, 2026-10-29: when dragging, the
+    yellow frame and the white line in it were unclear).
 
 ## Verification
 
@@ -1359,8 +1380,10 @@ in Card Detail.
   (`basehalfMediaViewing.test.ts`): each editor opens to viewing with none of
   its controls of editing reachable, Edit and Done show and hide them without
   moving the picture of an image, the keys of the playhead within the file
-  while viewing and the original while editing, Play while viewing plays
-  once, and Escape goes back to viewing; and of the player
+  while viewing and the part kept of a video while editing, the playhead of
+  a video that a press inside or outside the yellow frame moves and keeps
+  inside it, no move of the frame by a drag inside it, Play that plays once
+  while viewing and editing, and Escape goes back to viewing; and of the player
   (`basehalfCanvasCardVideoPlayer.test.ts`): its position slider spans the
   part kept while viewing.
 - Unit tests of the crop's gestures (D97): the part kept when the picture
@@ -1400,8 +1423,9 @@ in Card Detail.
   tests, of the strip's sets of pictures shown together, its grey and
   yellow handles, the bubble of a pressed handle, and the glide of a held
   handle's spread. The `card-detail-video-edit` step also checks criteria
-  29, 36, and 37: the edit bar under the picture, the glide of Edit and
-  Done recorded on every frame, and the bubble.
+  29, 36, 37, and 38: the edit bar under the picture, the glide of Edit and
+  Done recorded on every frame, the bubble, and the playhead that presses
+  and drags move inside the yellow frame, which they leave as it was.
 - In a development window: each kind and format with the media of the
   development workspace, the time each write takes, the quality of the edited
   file against its original frame by frame, and the canvas card and Card Detail

@@ -4756,3 +4756,69 @@ what it meant under the user's eyes.
 - Revises D101: no glide of the strip between the part and the whole; while
   viewing a zoomed picture shows under the player's controls only, and while
   editing under the edit bar's backing.
+
+## D103 — In the edit bar of a video, the yellow frame is changed only by its handles, and the playhead stays inside it (NEW, 2026-10-29)
+
+**Decision.** In the edit bar of a video, the yellow frame and the white
+line each have one job, as in a desktop photo app:
+- **The yellow frame is the part kept, and only its two handles change
+  it.** A press or a drag anywhere else on the strip never moves it.
+- **The white line is the playhead, and it stays inside the frame.** A
+  press anywhere on the strip but a handle puts the playhead under the
+  pointer at once, the picture showing that frame and the bubble over the
+  playhead its time, and a drag moves it along; let go, the bubble goes, and
+  a video that was playing plays on from there. A press on the dimmed strip
+  outside the frame puts it at the frame's nearer end. The keys move it
+  within the frame too, Home to the part's first frame and End to its last.
+- **A handle takes the playhead with it.** While a handle is dragged the
+  playhead hides and the picture shows the handle's frame; let go, the
+  playhead stands at that handle.
+- **Play plays to the end of the frame and stops there**, while editing as
+  while viewing; at the end, Play starts again from the frame's start.
+
+See [editing media, "The pointer"](specs/media-editing.md#the-pointer) and
+["Playing"](specs/media-editing.md#playing).
+
+**Why.** On 2026-10-29, after D102, the user found the yellow frame and the
+white line in it unclear: "一个黄色长条方框中间的一条竖着的白线，这个相关的逻辑需要注意，有很多交互是错的（比如拖动的时候，黄框和竖白线的逻辑不清晰）".
+In BaseHalf a drag inside a trimmed frame moved the whole frame, with its
+length, so a drag that started on the white line moved the yellow frame
+instead, and a press that moved 3 px became a trim of the file. A press
+inside the frame moved the playhead only once it was let go; a press on the
+dimmed strip, a drag past the frame, and End took the playhead outside the
+frame, onto frames the file no longer holds; and the part played over and
+over.
+
+A desktop photo app, tried by hand on a 10-minute video trimmed to
+2:16–7:28:
+- A click inside the frame moved the playhead there, and the picture with it.
+- A press inside the frame moved the playhead at once and showed its time in
+  a bubble over it (`04:12.58`); a drag moved the playhead and the bubble
+  along, the frame staying where it was; let go, the bubble went.
+- A click on the dimmed strip before the frame put the playhead at the
+  frame's start, and one after it at the frame's end. The frame did not
+  change.
+- Played from 7:17, the video stopped at the frame's end, 7:27.9.
+
+A desktop video player's trim agrees, but a click on its dimmed strip moves
+the frame's nearer end to it.
+
+**What was set aside.**
+- Moving the part with its length by a drag inside it (D84, D96): neither
+  reference has it, and it made one drag mean two things. Two drags of the
+  handles do the same.
+- A click on the dimmed strip that moves the frame's end to it, as the
+  desktop video player does: the photo app, the user's reference, only
+  moves the playhead.
+- A playhead that may stand outside the frame while editing, on the frames
+  a trim leaves out: the picture then showed frames the file does not hold.
+- Playing the part over and over: neither reference does, and the frame's
+  end is where a trim is judged.
+
+**Consequences.**
+- [Editing media](specs/media-editing.md): "Viewing and editing", "The
+  keyboard", "Zooming the picture and the time", "The frame viewer", "The
+  pointer", "Playing", criteria 21 and 31, and the new 38.
+- Revises D84 and D96: no move of the part by a drag inside it.
+- The waveform of a sound keeps its selection by a drag, its Delete, and its
+  playing over and over.
