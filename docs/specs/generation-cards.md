@@ -1446,7 +1446,10 @@ sounds ([architecture invariants](../harness/architecture-invariants.md#product-
   sound plays in the system's controls.
 - **The keyboard.** The buttons are buttons; the position slider moves a
   second with Left and Right, and goes to the start and the end with Home
-  and End. The arrow keys on a control move no card.
+  and End. The arrow keys on a control move no card. In Card Detail the same
+  keys move the video or the sound with the keyboard anywhere in it, also
+  where the frame viewer or the waveform stands in place of the slider
+  ([editing media, "The keyboard"](media-editing.md#the-keyboard)).
 
 ### The toolbar
 

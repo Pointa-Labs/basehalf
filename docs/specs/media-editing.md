@@ -461,6 +461,18 @@ crop:
   the keyboard from a control of editing to what viewing has, the picture or
   Play, and Escape with the keyboard nowhere, on the window's own body, is
   Card Detail's.
+- **Left** and **Right** move the playhead of a video or a sound a second
+  back or on, and **Home** and **End** move it to the start and the end of
+  what its timeline shows: the file while viewing, the original while
+  editing. **Shift** with Left or Right moves a video one frame back or on,
+  and pauses it first, where BaseHalf knows its frames: in a video it can
+  edit. A sound, and a video it cannot edit, move a second with Shift too. A
+  video or a sound that plays goes on playing from where the key put it. The
+  keys work with the keyboard anywhere in Card Detail: on Play, on Edit or
+  Done, in the player at full screen, or nowhere, on the window's own body.
+  A control that takes them itself takes them first: a handle while editing,
+  the position slider of a video that BaseHalf cannot edit, and a field of
+  text. They change nothing of the file and move no card.
 - **Command+Z** (Control+Z on Windows and Linux) undoes the last step of the
   canvas, a change of an edit among them, and **Shift+Command+Z** redoes it,
   with the keyboard anywhere in Card Detail outside an editor of text
@@ -667,6 +679,8 @@ in Card Detail.
   start at the start of the frame the player shows, and the end at the end of
   that frame: each is a change.
 - **Space** on a handle plays and pauses. The arrow keys move no card.
+- With the keyboard anywhere else in Card Detail, Left, Right, Home, and End
+  move the playhead ([The keyboard](#the-keyboard)).
 
 ## Cropping an image
 
@@ -1180,6 +1194,17 @@ in Card Detail.
     from the next key frame on are byte for byte the original's, only those
     before it are encoded again, and its Opus packets are the original's,
     its sound starting at the start within a millisecond.
+31. Card Detail of a 12 s video that BaseHalf can edit, opened by a double
+    click, the keyboard on Play: Right three times moves the playhead from
+    the start to 3 s, Left once to 2 s, Shift+Right one frame on, End to the
+    file's last frame, and Home to its start, while no card under Card
+    Detail moves; the same after a press on the frame viewer, with the
+    keyboard on Edit or Done, and with it on the window's body. While
+    viewing a part from 2 s to 8 s, Home and End stop at the part's ends;
+    while editing, End goes to the original's last frame, and on a handle
+    Right still moves the handle, a trim. The playhead of a sound moves a
+    second with Right likewise (the user, 2026-10-28: the left and right
+    arrows did nothing).
 
 ## Verification
 
@@ -1216,8 +1241,9 @@ in Card Detail.
 - Tests in the window of the unit tests of viewing and editing
   (`basehalfMediaViewing.test.ts`): each editor opens to viewing with none of
   its controls of editing reachable, Edit and Done show and hide them without
-  moving the picture, a press while viewing moves the playhead, Play while
-  viewing plays once, and Escape goes back to viewing.
+  moving the picture, a press while viewing moves the playhead, the keys of
+  the playhead within the file while viewing and the original while editing,
+  Play while viewing plays once, and Escape goes back to viewing.
 - Unit tests of the crop's gestures (D97): the part kept when the picture
   zooms under a fixed frame, with turns, angles, ratios, the smallest part,
   and the largest that the picture holds (`basehalfImageCrop.test.ts`); and,
@@ -1235,15 +1261,17 @@ in Card Detail.
   (`card-detail-video-edit`: viewing first, Edit, the handles, the file
   written with nothing pressed, the editor again from the original, undo and
   redo with the keyboard, Revert to Original and its undo, Escape back to
-  viewing, and viewing that plays the part once), cropping an image
+  viewing, viewing that plays the part once, and criterion 31, the keys of
+  the playhead with the keyboard on Play, on Done, and nowhere), cropping an image
   (`card-detail-image-edit`: an SVG shows no editor and no Edit; viewing
   first, a pinch that zooms only the view, Edit, Square, a turn and a flip, a
   wheel that zooms nothing, Revert to Original, Done, and undo; and
   `card-detail-image-crop-back`: criteria 23 to 26, a crop taken back to the
   original by a corner held in the margin, recorded on every frame, a pinch
   and a swipe while editing, and Edit from a zoomed view), and
-  cutting a sound (`card-detail-sound-edit`: viewing first, Edit, a stretch
-  selected and cut, a trim, the editor again, undo, and Revert to Original),
+  cutting a sound (`card-detail-sound-edit`: viewing first, the keys of the
+  playhead, Edit, a stretch selected and cut, a trim, the editor again, undo,
+  and Revert to Original),
   and pinching (`card-detail-media-pinch`: criteria 16 to 20, with pinches
   and swipes made through the browser's protocol).
 - In a development window: each kind and format with the media of the
