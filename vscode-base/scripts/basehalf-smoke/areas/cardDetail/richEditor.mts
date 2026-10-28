@@ -11,10 +11,10 @@ import process from 'process';
 import { assertPdfCardDetail } from './cardDetail.mts';
 import { app, root, workspacePath } from '../../context.mts';
 import { createMinimalPdfFixture } from '../../fixture.mts';
-import { assertCardDetail, clickCommandCenterNavigationButton, closeCardDetailIfOpen } from '../../lib/cardDetail.mts';
+import { assertCardDetail, clickCommandCenterNavigationButton, closeCardDetailIfOpen, pinch } from '../../lib/cardDetail.mts';
 import { activeMarkdownRichFrame, dispatchMarkdownRichComposition } from '../../lib/markdownRich.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
-import { waitUntil } from '../../lib/steps.mts';
+import { waitForReading, waitUntil } from '../../lib/steps.mts';
 
 export async function assertMarkdownRichSaveStatusHidden(page) {
 	const toolbarCount = await page.locator('.basehalf-card-detail-markdown-rich-toolbar').count();
@@ -110,6 +110,51 @@ export async function assertMarkdownRichBlockMenuPortal(page) {
 	}
 	if (geometry.menu.right > geometry.rootGroup.left - guideGap + tolerance) {
 		throw new Error(`Markdown rich nested block menu should leave a gap before the root indent guide: ${JSON.stringify(geometry)}`);
+	}
+}
+
+/**
+ * The handles of a block stand beside the first line of the block under the pointer through a pinch (zoom and
+ * outline of a note, rules 22 to 24, criteria 13 and 14): 8 pixels left of the text and in the middle of the line as
+ * the page draws it, at 160% and again at 100% after a pinch back, with the pointer resting where it was. The note is
+ * short, so the line under the pointer changes on the way.
+ */
+export async function assertMarkdownRichHandlesFollowZoom(page) {
+	const frame = await activeMarkdownRichFrame(page);
+	const text = 'needle-basehalf-routing';
+	const content = frame.locator('.bn-block-content', { hasText: text }).first();
+	await content.waitFor({ state: 'visible', timeout: 20_000 });
+	await content.hover({ position: { x: 8, y: 8 } });
+	await frame.locator('.basehalf-markdown-rich-portal .bn-side-menu').first().waitFor({ state: 'visible', timeout: 10_000 });
+	const box = await content.boundingBox();
+	const pointer = await content.evaluate(element => ({ x: element.getBoundingClientRect().left + 8, y: element.getBoundingClientRect().top + 8 }));
+	const read = () => frame.evaluate(({ y }) => {
+		const menu = document.querySelector('.basehalf-markdown-rich-portal .bn-side-menu');
+		const column = document.querySelector('.bn-editor > .bn-block-group');
+		const notePage = document.querySelector('.basehalf-markdown-rich-page');
+		const block = Array.from(document.querySelectorAll('[data-node-type="blockContainer"]')).filter(element => {
+			const blockBox = element.getBoundingClientRect();
+			return blockBox.top <= y && y <= blockBox.bottom;
+		}).pop();
+		if (!menu || !column || !notePage || !block) {
+			return { menu: !!menu, column: !!column, page: !!notePage, block: !!block };
+		}
+		const menuBox = menu.getBoundingClientRect();
+		const scale = notePage.getBoundingClientRect().width / notePage.offsetWidth;
+		return {
+			scale,
+			block: block.textContent?.slice(0, 40),
+			gap: column.getBoundingClientRect().left - menuBox.right,
+			fromMiddleOfLine: (menuBox.top + menuBox.bottom) / 2 - (block.getBoundingClientRect().top + menuBox.height * scale / 2),
+		};
+	}, pointer);
+	const besideFirstLine = (reading, scale) => Math.abs(reading.scale - scale) < 0.02 && Math.abs(reading.gap - 8) <= 1 && Math.abs(reading.fromMiddleOfLine) <= 1;
+	await pinch(page, box.x + 8, box.y + 8, 1.6);
+	await waitForReading(read, reading => besideFirstLine(reading, 1.6), 'the handles 8 pixels left of the text, in the middle of the first line of the block under the pointer, at 160%');
+	await pinch(page, box.x + 8, box.y + 8, 1 / 1.6);
+	const back = await waitForReading(read, reading => besideFirstLine(reading, 1), 'the handles beside the first line of the block under the pointer again at 100%');
+	if (!back.block?.includes(text)) {
+		throw new Error(`The handles should be those of the block under the pointer again at 100%: ${JSON.stringify(back)}`);
 	}
 }
 

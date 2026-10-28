@@ -60,6 +60,7 @@ import {
 	assertMarkdownRichExternalMergePreservesCursor,
 	assertMarkdownRichFileAttachment,
 	assertMarkdownRichFileLinkAutocomplete,
+	assertMarkdownRichHandlesFollowZoom,
 	assertMarkdownRichMenuUndoRoutesToEditor,
 	assertMarkdownRichPassthroughEditInSource,
 	assertMarkdownRichReadingModeDisabled,
@@ -217,6 +218,7 @@ async function runCardDetailSuite(page) {
 	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
 	await step('readme-rich-passthrough-edit-in-source', () => assertMarkdownRichPassthroughEditInSource(page));
 	await step('readme-rich-block-menu-portal', () => assertMarkdownRichBlockMenuPortal(page));
+	await step('readme-rich-handles-follow-zoom', () => assertMarkdownRichHandlesFollowZoom(page));
 	await step('readme-rich-slash-menu-themed-portal', () => assertMarkdownRichSlashMenuThemedPortal(page));
 	await step('readme-rich-reading-mode-off', () => assertMarkdownRichReadingModeDisabled(page));
 	await step('readme-rich-reading-mode-on', () => assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page));

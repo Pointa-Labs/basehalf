@@ -11,9 +11,8 @@
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
-import { waitForViewTransitions } from '../../app.mts';
 import { root, workspacePath } from '../../context.mts';
-import { assertCardDetail, cardDetailModeLabel, enterEditing } from '../../lib/cardDetail.mts';
+import { assertCardDetail, cardDetailModeLabel, enterEditing, pinch } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { patternPng } from './imageEdit.mts';
 
@@ -57,21 +56,6 @@ function phrasesWav() {
 	header.write('data', 36);
 	header.writeUInt32LE(data.length, 40);
 	return Buffer.concat([header, data]);
-}
-
-/**
- * A pinch of the trackpad made through the browser's protocol: its wheel events with Ctrl held, as the system's.
- * Like the smoke's own pointer input, it waits for Card Detail's transition to end: while one runs, every point of
- * the window hits its root.
- */
-async function pinch(page, x, y, scaleFactor) {
-	await waitForViewTransitions(page);
-	const cdp = await page.context().newCDPSession(page);
-	try {
-		await cdp.send('Input.synthesizePinchGesture', { x, y, scaleFactor, relativeSpeed: 600, gestureSourceType: 'mouse' });
-	} finally {
-		await cdp.detach().catch(() => undefined);
-	}
 }
 
 /** What a pinch must never change: the zoom of the window and of the canvas under Card Detail. */

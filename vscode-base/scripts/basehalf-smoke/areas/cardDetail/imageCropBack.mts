@@ -9,9 +9,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import { waitForViewTransitions } from '../../app.mts';
 import { workspacePath } from '../../context.mts';
-import { assertCardDetail, enterEditing, leaveEditing } from '../../lib/cardDetail.mts';
+import { assertCardDetail, enterEditing, leaveEditing, pinch } from '../../lib/cardDetail.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { waitUntil } from '../../lib/steps.mts';
 import { patternPng, waitForCrop } from './imageEdit.mts';
@@ -24,16 +23,6 @@ const CROP = `${SURFACE} .basehalf-image-crop`;
 
 function workspaceFile(relativePath) {
 	return path.join(workspacePath, ...relativePath.split('/'));
-}
-
-async function pinch(page, x, y, scaleFactor) {
-	await waitForViewTransitions(page);
-	const cdp = await page.context().newCDPSession(page);
-	try {
-		await cdp.send('Input.synthesizePinchGesture', { x, y, scaleFactor, relativeSpeed: 600, gestureSourceType: 'mouse' });
-	} finally {
-		await cdp.detach().catch(() => undefined);
-	}
 }
 
 /** Records every frame of the screen: the picture's scale, where it is, and whether it is drawn, the frame's place in the view, and the pointer. */

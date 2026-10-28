@@ -234,3 +234,18 @@ export async function enterEditing(page) {
 export async function leaveEditing(page) {
 	await pressCardDetailMode(page, 'Done', 'Edit');
 }
+
+/**
+ * A pinch of the trackpad made through the browser's protocol: its wheel events with Ctrl held, as the system's.
+ * Like the smoke's own pointer input, it waits for Card Detail's transition to end: while one runs, every point of
+ * the window hits its root.
+ */
+export async function pinch(page, x, y, scaleFactor) {
+	await waitForViewTransitions(page);
+	const cdp = await page.context().newCDPSession(page);
+	try {
+		await cdp.send('Input.synthesizePinchGesture', { x, y, scaleFactor, relativeSpeed: 600, gestureSourceType: 'mouse' });
+	} finally {
+		await cdp.detach().catch(() => undefined);
+	}
+}

@@ -25,6 +25,7 @@ import {
 	useBlockNoteEditor,
 	useCreateBlockNote,
 	useExtensionState,
+	type FloatingUIOptions,
 	type GenericPopoverReference,
 } from '@blocknote/react';
 import { applyUpdate, Doc as YDoc, UndoManager, type XmlFragment } from 'yjs';
@@ -80,6 +81,13 @@ import { BaseHalfNoteZoomGesture } from '../../../src/vs/workbench/basehalf/card
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
 import { BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteOutlineLayout.js';
 import {
+	BASEHALF_BLOCK_HANDLES_GAP,
+	baseHalfBlockHandlesDrop,
+	baseHalfBlockHandlesPointer,
+	measureBaseHalfBlockHandles,
+	type IBaseHalfBlockHandlesAnchor,
+} from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfBlockHandles.js';
+import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
 } from './adhdDecorations.js';
@@ -115,7 +123,6 @@ const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 // src/vs/workbench/basehalf/shell/common/basehalfWorkbenchProfile.ts — the webview
 // bundle cannot import workbench code. Keep the two in sync.
 const AUTOSAVE_MS = 250;
-const SIDE_MENU_GUTTER_GAP = 8;
 
 function baseHalfBlockNoteDictionary(): Dictionary {
 	const locale = document.documentElement.lang.toLowerCase();
@@ -377,10 +384,6 @@ function findBlockElement(editorElement: HTMLElement | undefined, id: string): H
 	return editorElement?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`) ?? null;
 }
 
-function shiftedRect(rect: DOMRect, x: number): DOMRect {
-	return new DOMRect(rect.x + x, rect.y, rect.width, rect.height);
-}
-
 function baseHalfFormatBlockType(block: { readonly type: string; readonly props: Record<string, unknown> }): BaseHalfMarkdownFormatBlockType {
 	switch (block.type) {
 		case 'paragraph':
@@ -572,29 +575,98 @@ function hasOpenEscapeOwner(): boolean {
 	return false;
 }
 
-// BlockNote's default React side menu anchors to the hovered block DOM node;
-// for nested continuation blocks that places the handle over the indent guide.
-// Use BlockNote core's root-gutter reference and leave a small gap so the drag
-// handle does not visually merge with list/blockquote guide lines.
+/** A middleware of the floating-ui that places BlockNote's popovers. */
+type FloatingMiddleware = NonNullable<NonNullable<FloatingUIOptions['useFloatingOptions']>['middleware']>[number];
+
+// The handles of a block, add and drag, stand left of the root column of
+// blocks, so that those of a nested block keep off the indent guide of its
+// list or quote, beside the first line of the block under the pointer as the
+// page is drawn in this frame (zoom and outline of a note, rules 22 to 24).
+// BlockNote's own reference is the block's box when the pointer reached it,
+// which a zoom, a scroll, or a new layout leaves behind; the handles measure
+// the block each time floating-ui places them instead.
 function BaseHalfSideMenuController({ portalElement }: { readonly portalElement: HTMLElement | null }): JSX.Element {
 	const editor = useBlockNoteEditor();
 	const state = useExtensionState(SideMenuExtension, {
 		editor,
 		selector: state => state !== undefined ? {
 			show: state.show,
-			referencePos: state.referencePos,
 			blockId: state.block.id,
 		} : undefined,
 	});
+	const anchor = useRef<IBaseHalfBlockHandlesAnchor | undefined>(undefined);
+	// When the page moves under a pointer that stays still, the handles pass to
+	// the block that is then under it, as if it had moved: the editor finds
+	// that block by a move of the pointer. A key or a held button, and a
+	// pointer that has left the page, leave the handles to the next real move.
+	useEffect(() => {
+		let pointer: { readonly x: number; readonly y: number } | undefined;
+		const onMouse = (event: MouseEvent): void => {
+			if (event.isTrusted) {
+				pointer = baseHalfBlockHandlesPointer(event);
+			}
+		};
+		const forget = (): void => {
+			pointer = undefined;
+		};
+		const onMouseOut = (event: MouseEvent): void => {
+			if (!event.relatedTarget) {
+				forget();
+			}
+		};
+		const onPageMove = (): void => {
+			if (pointer && !editor.prosemirrorView.dragging) {
+				document.elementFromPoint(pointer.x, pointer.y)?.dispatchEvent(new MouseEvent('mousemove', { clientX: pointer.x, clientY: pointer.y, bubbles: true }));
+			}
+		};
+		const options = { capture: true, passive: true };
+		document.addEventListener('mousemove', onMouse, options);
+		document.addEventListener('mousedown', onMouse, options);
+		document.addEventListener('mouseup', onMouse, options);
+		document.addEventListener('mouseout', onMouseOut, options);
+		document.addEventListener('keydown', forget, options);
+		// Scroll events do not bubble; a zoom sends one for each frame it draws.
+		document.addEventListener('scroll', onPageMove, options);
+		window.addEventListener('resize', onPageMove);
+		return () => {
+			document.removeEventListener('mousemove', onMouse, options);
+			document.removeEventListener('mousedown', onMouse, options);
+			document.removeEventListener('mouseup', onMouse, options);
+			document.removeEventListener('mouseout', onMouseOut, options);
+			document.removeEventListener('keydown', forget, options);
+			document.removeEventListener('scroll', onPageMove, options);
+			window.removeEventListener('resize', onPageMove);
+		};
+	}, [editor]);
 	const reference = useMemo<GenericPopoverReference | undefined>(() => {
-		if (!state?.show) {
+		const blockId = state?.blockId;
+		if (!state?.show || blockId === undefined) {
 			return undefined;
 		}
+		const editorElement = editor.prosemirrorView.dom;
 		return {
-			element: undefined,
-			getBoundingClientRect: () => shiftedRect(state.referencePos, -SIDE_MENU_GUTTER_GAP),
+			// Floating-ui places the handles again when the view the editor is
+			// in scrolls, which a zoom also announces for each frame it draws,
+			// and when the editor moves or changes its size.
+			element: editorElement,
+			cacheMountedBoundingClientRect: false,
+			getBoundingClientRect: () => {
+				const column = editorElement.firstElementChild;
+				const block = findBlockElement(editorElement, blockId);
+				if (column instanceof HTMLElement && block) {
+					anchor.current = measureBaseHalfBlockHandles(column, block);
+				}
+				return anchor.current?.box ?? new DOMRect();
+			},
 		};
-	}, [state?.referencePos, state?.show]);
+	}, [editor, state?.blockId, state?.show]);
+	const middleware = useMemo<FloatingMiddleware[]>(() => [{
+		name: 'basehalfBlockHandles',
+		fn: ({ x, y, rects }) => ({
+			x: x - BASEHALF_BLOCK_HANDLES_GAP,
+			y: y + baseHalfBlockHandlesDrop(rects.floating.height, anchor.current?.scale ?? 1),
+		}),
+	}], []);
 
 	return (
 		<GenericPopover
@@ -603,6 +675,7 @@ function BaseHalfSideMenuController({ portalElement }: { readonly portalElement:
 			useFloatingOptions={{
 				open: state?.show,
 				placement: 'left-start',
+				middleware,
 			}}
 			useDismissProps={{ enabled: false }}
 			focusManagerProps={{ disabled: true }}
@@ -1690,7 +1763,15 @@ function MarkdownRichEditor(): JSX.Element {
 			view: scroll,
 			page,
 			text,
-			onDidDraw: () => outline?.refresh(),
+			onDidDraw: () => {
+				outline?.refresh();
+				// The page moved in its view as in a scroll. The editor's handles,
+				// toolbars, and menus follow the view's scroll events, which a page
+				// drawn at another level does not send, and which a new scroll
+				// position sends only in the next frame: they follow the page in
+				// this one (zoom and outline of a note, rules 7 and 23).
+				scroll.dispatchEvent(new Event('scroll'));
+			},
 		}, level, settled => {
 			const key = session.current.key;
 			if (key) {
