@@ -17,7 +17,7 @@ import { IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCan
 import { IBaseHalfWorkspaceResource } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { baseHalfEditSummary, IBaseHalfMediaChoices, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { BaseHalfImageCropView } from './basehalfImageCropView.js';
-import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
+import { BaseHalfMediaChange, BaseHalfPlayheadMove, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { baseHalfMediaFileByteSource, IBaseHalfEditVideo, IBaseHalfMediaEditService, IBaseHalfMediaEditState } from './basehalfMediaEditService.js';
 import { BaseHalfSoundWaveform } from './basehalfSoundWaveform.js';
 import { BaseHalfVideoFrameViewer } from './basehalfVideoFrameViewer.js';
@@ -209,6 +209,16 @@ export class BaseHalfMediaEditing extends Disposable {
 			editor.focus();
 		}
 		this.onDidChangeEditingEmitter.fire(editing);
+	}
+
+	/** Moves the playhead of the editor's video or sound by the keyboard; says whether there is one (editing media, "The keyboard"). */
+	movePlayhead(move: BaseHalfPlayheadMove): boolean {
+		const editor = this.editor;
+		if (!editor?.movePlayhead) {
+			return false;
+		}
+		editor.movePlayhead(move);
+		return true;
 	}
 
 	/** Takes the keyboard on the editor's first control. */

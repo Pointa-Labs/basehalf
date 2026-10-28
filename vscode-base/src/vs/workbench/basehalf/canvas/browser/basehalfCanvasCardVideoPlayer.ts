@@ -21,8 +21,8 @@ export const BASEHALF_CANVAS_VIDEO_CONTROLS_MIN_WIDTH = 160;
 /** In Card Detail, the controls of a video that plays fade this long after the pointer last moved (generation cards, "The player", D98). */
 export const BASEHALF_CANVAS_VIDEO_CONTROLS_FADE_MS = 2500;
 
-/** How far Left and Right move the position slider, in seconds. */
-const SLIDER_STEP_SECONDS = 1;
+/** How far Left and Right move a video or a sound, in seconds: on the position slider, and in Card Detail (generation cards, "The player"). */
+export const BASEHALF_PLAYHEAD_STEP_SECONDS = 1;
 
 /** Two times of a part that plays closer than this are the same, in seconds. */
 const RANGE_EPSILON = 0.0005;
@@ -120,6 +120,13 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
 	setMuted(muted: boolean): void;
 	/** Puts the keyboard on the play button, as Card Detail does when it opens. */
 	focus(): void;
+	/**
+	 * Moves the video as a key of the position slider does: Left and Down a
+	 * second back, Right and Up a second on, Home and End to the start and the
+	 * end. Says whether it did: another key, or a video of no known length yet,
+	 * moves nothing.
+	 */
+	moveByKey(key: string): boolean;
 }
 
 /**
@@ -661,35 +668,41 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 			}));
 		}
 		this._register(addDisposableListener(this.slider, 'keydown', event => {
-			const duration = this.duration();
-			if (duration === undefined) {
-				return;
+			if (this.moveByKey(event.key)) {
+				event.preventDefault();
+				event.stopPropagation();
 			}
-			let time: number | undefined;
-			switch (event.key) {
-				case 'ArrowLeft':
-				case 'ArrowDown':
-					time = video.currentTime - SLIDER_STEP_SECONDS;
-					break;
-				case 'ArrowRight':
-				case 'ArrowUp':
-					time = video.currentTime + SLIDER_STEP_SECONDS;
-					break;
-				case 'Home':
-					time = 0;
-					break;
-				case 'End':
-					time = duration;
-					break;
-			}
-			if (time === undefined) {
-				return;
-			}
-			event.preventDefault();
-			event.stopPropagation();
-			video.currentTime = Math.min(Math.max(time, 0), duration);
-			this.updateTime();
 		}));
+	}
+
+	moveByKey(key: string): boolean {
+		const duration = this.duration();
+		if (duration === undefined) {
+			return false;
+		}
+		let time: number | undefined;
+		switch (key) {
+			case 'ArrowLeft':
+			case 'ArrowDown':
+				time = this.video.currentTime - BASEHALF_PLAYHEAD_STEP_SECONDS;
+				break;
+			case 'ArrowRight':
+			case 'ArrowUp':
+				time = this.video.currentTime + BASEHALF_PLAYHEAD_STEP_SECONDS;
+				break;
+			case 'Home':
+				time = 0;
+				break;
+			case 'End':
+				time = duration;
+				break;
+		}
+		if (time === undefined) {
+			return false;
+		}
+		this.video.currentTime = Math.min(Math.max(time, 0), duration);
+		this.updateTime();
+		return true;
 	}
 
 	private play(): void {

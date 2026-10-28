@@ -28,7 +28,18 @@ export interface IBaseHalfMediaEditor extends IDisposable {
 	 * no keyboard and no pointer. An editor starts by viewing.
 	 */
 	setEditing(editing: boolean): void;
+	/**
+	 * Moves the playhead of a video or a sound by the keyboard, within the
+	 * file while viewing and the original while editing (editing media, "The
+	 * keyboard"). An image has none.
+	 */
+	movePlayhead?(move: BaseHalfPlayheadMove): void;
 }
 
 /** What a change did, which names its step: "Trim shot.mp4", "Cut take.wav", "Crop still.png". */
 export type BaseHalfMediaChange = 'trim' | 'cut' | 'crop' | 'turn' | 'flip' | 'straighten';
+
+/** A second or a frame back or on, as Left and Right move the playhead, with Shift for a frame; or to the start or the end, as Home and End do. */
+export type BaseHalfPlayheadMove =
+	| { readonly kind: 'step'; readonly by: 'second' | 'frame'; readonly direction: 1 | -1 }
+	| { readonly kind: 'jump'; readonly to: 'start' | 'end' };

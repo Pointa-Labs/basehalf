@@ -275,11 +275,41 @@ export async function assertCardDetailVideoEdit(page) {
 		if (stoppedAt > part.end + 0.01 || stoppedAt < part.end - 0.2) {
 			throw new Error(`While viewing, Play plays the part once and stops on its last frame: ${JSON.stringify({ stoppedAt, part })}`);
 		}
+		// Editing media, criterion 31: with the keyboard on Play, Home and End go to the ends of the part that the file keeps,
+		// and Right and Left a second on and back, within it. The clip's frames last about 0.07 s.
+		const playhead = () => page.evaluate(selector => {
+			const video = document.querySelector(`${selector} video`);
+			return { at: Math.round(video.currentTime * 1000) / 1000, paused: video.paused, keyboard: document.activeElement?.className ?? '' };
+		}, player);
+		await page.locator(`${SURFACE} .basehalf-canvas-video-player-button.play`).focus();
+		const keys = {};
+		for (const [name, key] of [['home', 'Home'], ['right', 'ArrowRight'], ['rightAgain', 'ArrowRight'], ['end', 'End'], ['left', 'ArrowLeft']]) {
+			await page.keyboard.press(key);
+			keys[name] = await playhead();
+		}
+		if (Math.abs(keys.home.at - part.start) > 0.02 || Math.abs(keys.right.at - part.start - 1) > 0.1 || keys.rightAgain.at > part.end || keys.rightAgain.at < part.end - 0.15
+			|| keys.end.at !== keys.rightAgain.at || Math.abs(keys.left.at - (keys.end.at - 1)) > 0.1 || !/\bplay\b/.test(keys.left.keyboard)) {
+			throw new Error(`While viewing, Left, Right, Home, and End move the playhead within the part kept, with the keyboard on Play: ${JSON.stringify({ part, keys })}`);
+		}
 		// Edit shows the whole original in the viewer, with the handles where the trim left them.
 		await enterEditing(page);
 		const again = await readPart(page);
 		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || !/ \| Revert to Original$/.test(await lineText(page))) {
 			throw new Error(`Edit on an edited video shows its original with the part it kept, and Revert to Original: ${JSON.stringify({ part, again, line: await lineText(page) })}`);
+		}
+		// While editing, with the keyboard on Done, End goes to the original's last frame, and Shift+Right one frame on, paused;
+		// with the keyboard nowhere, Right still moves the playhead a second.
+		for (const [name, key] of [['editingEnd', 'End'], ['editingHome', 'Home'], ['frame', 'Shift+ArrowRight']]) {
+			await page.keyboard.press(key);
+			keys[name] = await playhead();
+		}
+		await page.evaluate(() => document.activeElement?.blur());
+		await page.keyboard.press('ArrowRight');
+		keys.nowhere = await playhead();
+		const frame = keys.frame.at - keys.editingHome.at;
+		if (keys.editingEnd.at < part.end + 0.2 || keys.editingHome.at > 0.01 || frame < 0.02 || frame > 0.15 || !keys.frame.paused
+			|| !/mode-button/.test(keys.frame.keyboard) || Math.abs(keys.nowhere.at - keys.frame.at - 1) > 0.1) {
+			throw new Error(`While editing, End, Home, and Shift+Right move the playhead over the whole original with the keyboard on Done, and Right with it nowhere: ${JSON.stringify({ part, keys })}`);
 		}
 		// The first Escape goes back to viewing, the second closes Card Detail.
 		await page.keyboard.press('Escape');

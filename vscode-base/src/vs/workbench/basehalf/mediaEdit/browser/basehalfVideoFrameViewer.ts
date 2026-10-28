@@ -10,12 +10,12 @@ import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
-import { IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { BASEHALF_PLAYHEAD_STEP_SECONDS, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { BASEHALF_TIME_ZOOM_REST_MS, BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
 import { baseHalfVideoFrameEdges } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimHandle, BaseHalfVideoTrimTimeline, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../common/basehalfVideoTrimSelection.js';
-import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
+import { BaseHalfMediaChange, BaseHalfPlayheadMove, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfEditVideo } from './basehalfMediaEditService.js';
 import { BaseHalfStripEdgeFollow, baseHalfStripClock, BaseHalfTimeZoom } from './basehalfTimeZoom.js';
 import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
@@ -228,6 +228,34 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.showHandles();
 		this.applyChoice();
 		this.showStretch();
+	}
+
+	movePlayhead(move: BaseHalfPlayheadMove): void {
+		if (this.drag) {
+			return;
+		}
+		const player = this.options.player;
+		// Viewing shows the file, from the part's start to its last frame; editing the whole original.
+		const first = this.editing ? 0 : this.range.start;
+		const last = this.timeline.stepFrame(this.editing ? this.timeline.duration : this.range.end, -1);
+		const shown = this.timeline.edgeAtOrBefore((player.currentTime ?? first) + 1e-4);
+		let edge: number;
+		if (move.kind === 'jump') {
+			edge = move.to === 'start' ? first : last;
+		} else if (move.by === 'frame') {
+			// A frame is seen still: the video stops on it.
+			player.pause();
+			edge = this.timeline.stepFrame(shown, move.direction);
+		} else {
+			edge = this.timeline.edgeAtOrBefore(shown + move.direction * BASEHALF_PLAYHEAD_STEP_SECONDS + 1e-4);
+		}
+		edge = Math.min(Math.max(edge, first), last);
+		// The frame that starts at an edge is shown a hair past it, as the frame at a handle is.
+		player.seek(edge + 1e-4);
+		if (this.editing) {
+			this.zoom.follow(edge);
+		}
+		this.updatePlayhead();
 	}
 
 	/** The handles take the keyboard while editing, and are not there while viewing. */

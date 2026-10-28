@@ -140,6 +140,17 @@ export async function assertCardDetailSoundEdit(page) {
 		if (!viewing.viewing || viewing.handles.some(visibility => visibility !== 'hidden') || await cardDetailModeLabel(page) !== 'Edit') {
 			throw new Error(`Card Detail of a sound opens to view it, with no handle, and Edit in the header: ${JSON.stringify(viewing)}`);
 		}
+		// Editing media, criterion 31: with the keyboard on Play, Right moves the playhead a second, and End and Home to the ends.
+		const soundTime = () => page.evaluate(selector => document.querySelector(`${selector} .basehalf-sound-waveform-time`)?.textContent, WAVE);
+		await page.locator(`${WAVE} .basehalf-sound-waveform-play`).focus();
+		const soundKeys = [];
+		for (const key of ['ArrowRight', 'End', 'Home']) {
+			await page.keyboard.press(key);
+			soundKeys.push(await soundTime());
+		}
+		if (JSON.stringify(soundKeys) !== JSON.stringify(['1.0s / 4.0s', '4.0s / 4.0s', '0.0s / 4.0s'])) {
+			throw new Error(`Right, End, and Home move the playhead of a sound with the keyboard on Play: ${JSON.stringify(soundKeys)}`);
+		}
 		await enterEditing(page);
 
 		// A drag inside the part selects a stretch, with Delete on it; Delete cuts it out, a change written with nothing more pressed.

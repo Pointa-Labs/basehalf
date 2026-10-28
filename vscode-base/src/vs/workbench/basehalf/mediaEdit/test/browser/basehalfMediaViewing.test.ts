@@ -44,6 +44,7 @@ class TestPlayer {
 	readonly ranges: (IBaseHalfCanvasVideoPlayRange | undefined)[] = [];
 	readonly seeks: number[] = [];
 	currentTime = 0;
+	pauses = 0;
 
 	constructor(container: HTMLElement) {
 		this.element = mainWindow.document.createElement('div');
@@ -57,7 +58,7 @@ class TestPlayer {
 	}
 
 	setSelected(): void { }
-	pause(): void { }
+	pause(): void { this.pauses++; }
 	togglePlay(): void { }
 	setMuted(): void { }
 	focus(): void { }
@@ -163,6 +164,26 @@ suite('BaseHalfMediaViewing', () => {
 			assert.deepStrictEqual(changes, ['trim']);
 		});
 
+		test('the keys of the playhead move it a second or a frame, within the file while viewing and the original while editing; a frame pauses', () => {
+			const { viewer, player } = setUp();
+			const at: number[] = [];
+			const move = (...moves: Parameters<BaseHalfVideoFrameViewer['movePlayhead']>[0][]) => {
+				for (const each of moves) {
+					viewer.movePlayhead(each);
+					at.push(Math.round(player.currentTime * 1000) / 1000);
+				}
+			};
+			player.currentTime = 1;
+			move({ kind: 'step', by: 'second', direction: 1 }, { kind: 'jump', to: 'end' }, { kind: 'step', by: 'second', direction: 1 }, { kind: 'jump', to: 'start' }, { kind: 'step', by: 'second', direction: -1 });
+			const pausedBefore = player.pauses;
+			move({ kind: 'step', by: 'frame', direction: 1 });
+			const pausedByFrame = player.pauses - pausedBefore;
+			viewer.setEditing(true);
+			move({ kind: 'jump', to: 'end' }, { kind: 'jump', to: 'start' }, { kind: 'step', by: 'frame', direction: -1 }, { kind: 'step', by: 'second', direction: 1 });
+			// The part kept is 1 s to 4.5 s of a video of 5 s at 10 frames a second.
+			assert.deepStrictEqual({ at, pausedByFrame }, { at: [2, 4.4, 4.4, 1, 1, 1.1, 4.9, 0, 0, 1], pausedByFrame: 1 });
+		});
+
 		test('a pinch over the strip spreads its time only while editing', () => {
 			const { viewer, strip } = setUp({});
 			const viewing = pinch(strip, 300);
@@ -223,6 +244,22 @@ suite('BaseHalfMediaViewing', () => {
 			waveform.setEditing(false);
 			assert.strictEqual(selection.hidden, true);
 			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['1.000', '4.000']);
+		});
+
+		test('the keys of the playhead move it a second, within the file while viewing and the whole sound while editing', () => {
+			const { waveform, time } = setUp();
+			const shown: (string | null)[] = [];
+			for (const move of [{ kind: 'step', by: 'second', direction: 1 }, { kind: 'step', by: 'frame', direction: 1 }, { kind: 'jump', to: 'end' }, { kind: 'step', by: 'second', direction: 1 }, { kind: 'jump', to: 'start' }] as const) {
+				waveform.movePlayhead(move);
+				shown.push(time.textContent);
+			}
+			waveform.setEditing(true);
+			for (const move of [{ kind: 'jump', to: 'end' }, { kind: 'step', by: 'second', direction: -1 }, { kind: 'jump', to: 'start' }] as const) {
+				waveform.movePlayhead(move);
+				shown.push(time.textContent);
+			}
+			// A sound has no frames: Shift moves it a second too. Viewing counts from the first handle, editing from the sound's start.
+			assert.deepStrictEqual(shown, ['1.0s / 3.0s', '2.0s / 3.0s', '3.0s / 3.0s', '3.0s / 3.0s', '0.0s / 3.0s', '5.0s / 5.0s', '4.0s / 5.0s', '0.0s / 5.0s']);
 		});
 	});
 

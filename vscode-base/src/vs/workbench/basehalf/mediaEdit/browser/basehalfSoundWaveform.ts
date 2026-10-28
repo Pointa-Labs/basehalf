@@ -12,6 +12,7 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { BASEHALF_PLAYHEAD_STEP_SECONDS } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfMediaChoices, IBaseHalfMediaPart, normalizeBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { BASEHALF_SOUND_ENERGY_BLOCK, baseHalfSoundBarHeight, baseHalfSoundEnergy, baseHalfSoundReference } from '../common/basehalfSoundLoudness.js';
 import {
@@ -26,7 +27,7 @@ import {
 } from '../common/basehalfSoundParts.js';
 import { BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
 import { formatBaseHalfVideoTrimLength } from '../common/basehalfVideoTrimSelection.js';
-import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
+import { BaseHalfMediaChange, BaseHalfPlayheadMove, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
 import { BaseHalfStripEdgeFollow, baseHalfStripClock, BaseHalfTimeZoom } from './basehalfTimeZoom.js';
 
@@ -249,6 +250,23 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.view = this.restingView();
 		this.render();
 		this.drawWaveform();
+	}
+
+	movePlayhead(move: BaseHalfPlayheadMove): void {
+		if (this.drag) {
+			return;
+		}
+		// Viewing shows the sound as the file holds it, between the handles; editing the whole of it.
+		// A sound has no frames: a step of a frame is a second too.
+		const [first, last] = this.editing ? [0, this.timeline().duration] : [this.range.start, this.range.end];
+		const time = move.kind === 'jump'
+			? move.to === 'start' ? first : last
+			: this.playedTime() + move.direction * BASEHALF_PLAYHEAD_STEP_SECONDS;
+		const shown = Math.min(Math.max(time, first), last);
+		this.seek(shown);
+		if (this.editing) {
+			this.zoom.follow(shown);
+		}
 	}
 
 	/** The handles take the keyboard while editing, and are not there while viewing. */

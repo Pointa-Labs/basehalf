@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfCardDetailProjections.css';
-import { $, addDisposableListener, append, clearNode, getActiveElement, getWindow } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, getActiveElement, getWindow, isHTMLElement } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { disposableTimeout, raceTimeout, RunOnceScheduler } from '../../../../base/common/async.js';
 import { safeIntl } from '../../../../base/common/date.js';
@@ -30,6 +30,7 @@ import { BASEHALF_CANVAS_MEDIA_DRAWN_TIMEOUT_MS, whenBaseHalfCanvasMediaDrawn } 
 import { createBaseHalfCanvasCardVideoPlayer, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfCardDetailState } from '../../navigation/common/basehalfCanvasNavigation.js';
 import { BaseHalfMediaEditing, IBaseHalfMediaEditingSession } from '../../mediaEdit/browser/basehalfMediaEditing.js';
+import { BaseHalfPlayheadMove } from '../../mediaEdit/browser/basehalfMediaEditor.js';
 import { baseHalfMediaVersion, IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
 import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
@@ -84,6 +85,14 @@ type BaseHalfWebviewContentKind = Exclude<BaseHalfRenderableContentKind, 'video'
 
 /** What BaseHalf can edit in Card Detail: a video, an image, and a sound (editing media). */
 type BaseHalfEditableContentKind = 'video' | 'image' | 'audio';
+
+/** What takes the arrow keys, Home, and End itself: a field of text, a slider such as a handle of the frame viewer, a menu, a list, or tabs. */
+const OWN_ARROW_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="spinbutton"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="tree"], [role="grid"]';
+
+/** Whether the keyboard is on something that takes the keys of the playhead itself (editing media, "The keyboard"). */
+function takesPlayheadKeys(target: EventTarget | null): boolean {
+	return isHTMLElement(target) && !!target.closest(OWN_ARROW_KEYS);
+}
 
 export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind | undefined {
 	return baseHalfRenderableContentKind(resource);
@@ -226,6 +235,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private provenanceVersion = 0;
 	private readonly provenanceListener = this._register(new MutableDisposable());
 	private disposed = false;
+	/** Whether Card Detail shows this projection, rather than another one of the same file. */
+	private visible = true;
 	private renderVersion = 0;
 	private pdfViewState: IBaseHalfPdfViewState | undefined;
 	private bookViewState: IBaseHalfBookViewState | undefined;
@@ -292,6 +303,40 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				this.onEscape();
 			}
 		}));
+		// Left, Right, Home, and End move the playhead of a video or a sound wherever in Card Detail the keyboard is,
+		// before the player's controls keep the arrow keys from the canvas, and with the keyboard nowhere.
+		this._register(addDisposableListener(detail, 'keydown', event => this.onPlayheadKey(event), true));
+		this._register(addDisposableListener(getWindow(container), 'keydown', event => {
+			const targetDocument = detail.ownerDocument;
+			if ((event.target === targetDocument.body || event.target === targetDocument.documentElement) && detail.isConnected) {
+				this.onPlayheadKey(event);
+			}
+		}));
+	}
+
+	/**
+	 * Left and Right move the playhead of a video or a sound a second, with
+	 * Shift a frame of a video that BaseHalf can edit, and Home and End to the
+	 * start and the end, with the keyboard anywhere in Card Detail but on a
+	 * control or a field that takes them itself (editing media, "The keyboard").
+	 */
+	private onPlayheadKey(event: KeyboardEvent): void {
+		if (!this.visible || (this.kind !== 'video' && this.kind !== 'audio')
+			|| event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) {
+			return;
+		}
+		const key = event.key;
+		const move: BaseHalfPlayheadMove | undefined = key === 'ArrowLeft' || key === 'ArrowRight'
+			? { kind: 'step', by: event.shiftKey ? 'frame' : 'second', direction: key === 'ArrowLeft' ? -1 : 1 }
+			: (key === 'Home' || key === 'End') && !event.shiftKey ? { kind: 'jump', to: key === 'Home' ? 'start' : 'end' } : undefined;
+		if (!move || takesPlayheadKeys(event.target)) {
+			return;
+		}
+		// The editor knows the part kept and the frames; a video or a sound that BaseHalf cannot edit moves as its slider does.
+		if (this.editingStore.value?.movePlayhead(move) || this.player?.moveByKey(key)) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
 	}
 
 	/** An image, a video, or a sound is drawn when `open` resolves; the reader of a PDF or a book draws itself later. */
@@ -388,8 +433,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	applySelection(): void { }
 
 	/** The isolated webview retains its own context while hidden; nothing to
-	 *  suspend or resume. */
-	setVisible(_visible: boolean): void { }
+	 *  suspend or resume. The keys of the playhead are only the shown one's. */
+	setVisible(visible: boolean): void {
+		this.visible = visible;
+	}
 
 	/** The keyboard goes to the player's Play, to the editor's first control where no player stands, or into the page. */
 	focus(): void {
