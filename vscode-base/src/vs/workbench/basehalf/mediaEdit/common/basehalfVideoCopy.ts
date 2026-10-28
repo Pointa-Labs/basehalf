@@ -5,7 +5,7 @@
 
 import { IBaseHalfMp4CopyInput, IBaseHalfMp4CopyTrackInput } from './basehalfIsoBmffWriter.js';
 import { baseHalfSoundPreroll, baseHalfSoundShown, baseHalfVideoPartFrames } from './basehalfVideoClipPlan.js';
-import { IBaseHalfVideoFile, IBaseHalfVideoTrack } from './basehalfVideoFile.js';
+import { IBaseHalfVideoFile, IBaseHalfVideoSample, IBaseHalfVideoTrack } from './basehalfVideoFile.js';
 import { IBaseHalfVideoTrimRange } from './basehalfVideoTrimSelection.js';
 
 /**
@@ -101,5 +101,101 @@ function copySound(audio: IBaseHalfVideoTrack, start: number, end: number): IBas
 		delay: from - start,
 		from,
 		length: to - from
+	};
+}
+
+/**
+ * What a trim of a WebM keeps (editing media, "What the edited file holds",
+ * D99): a WebM has no edit list that players read, so its picture is copied
+ * from the first key frame at or after the part's start, and the frames before
+ * that key frame are encoded again in the video's codec; its Opus sound is
+ * copied from 80 ms before the start to the packet at the end, and the file's
+ * codec delay and discard padding cut it to the part.
+ */
+export interface IBaseHalfWebmCopyPlan {
+	readonly start: number;
+	readonly end: number;
+	/** The picture's codec, which the frames encoded again are in too. */
+	readonly codec: 'vp8' | 'vp9';
+	/**
+	 * The frames from the one at the start to the first key frame after it,
+	 * encoded again, the samples that decode them, and the time the first copied
+	 * frame is shown at, in seconds; nothing when the frame at the start is a
+	 * key frame.
+	 */
+	readonly head: { readonly kept: readonly IBaseHalfVideoSample[]; readonly decode: readonly IBaseHalfVideoSample[]; readonly end: number } | undefined;
+	/** The frames copied as they are, from the first key frame at or after the start to the last one shown before the end. */
+	readonly copied: readonly IBaseHalfVideoSample[];
+	/**
+	 * The packets of an Opus sound copied as they are, with how much of their
+	 * sound comes before the start and how long it is kept, in samples at
+	 * 48 kHz, and when it starts, in seconds of the original; nothing when the
+	 * sound is encoded again or the part holds none.
+	 */
+	readonly sound: { readonly packets: readonly IBaseHalfVideoSample[]; readonly delay: number; readonly length: number; readonly from: number } | undefined;
+}
+
+/** Opus always decodes at 48 kHz (RFC 7845, section 4). */
+const OPUS_RATE = 48_000;
+
+/** Whether a trim of a WebM can copy its frames: VP8, or VP9 of 8 bits in 4:2:0, whose frames the window encodes. */
+export function baseHalfCanCopyWebm(file: IBaseHalfVideoFile): boolean {
+	const codec = file.video?.codec;
+	return file.format === 'webm' && (codec === 'vp8' || !!codec?.startsWith('vp09.00.'));
+}
+
+/** The copy of `range` of a WebM, in seconds; its times are frame edges. */
+export function planBaseHalfWebmCopy(file: IBaseHalfVideoFile, range: IBaseHalfVideoTrimRange): IBaseHalfWebmCopyPlan {
+	const video = file.video;
+	if (!video || !baseHalfCanCopyWebm(file)) {
+		throw new Error('Only a WebM in VP8 or in VP9 of 8 bits is copied.');
+	}
+	const { start, end } = range;
+	const { kept, decode } = baseHalfVideoPartFrames(video, start, end);
+	// VP8 and VP9 show their frames in the order they are decoded.
+	const key = kept.findIndex(frame => frame.key);
+	const encoded = key < 0 ? kept.length : key;
+	const head = encoded > 0 ? {
+		kept: kept.slice(0, encoded),
+		decode: decode.slice(0, decode.indexOf(kept[encoded - 1]) + 1),
+		end: key < 0 ? end : kept[key].time / video.timescale
+	} : undefined;
+	return {
+		start,
+		end,
+		codec: video.codec === 'vp8' ? 'vp8' : 'vp9',
+		head,
+		copied: kept.slice(encoded),
+		sound: file.audio && copyOpus(file.audio, start, end)
+	};
+}
+
+/** The Opus packets that a part keeps, in mono or stereo, which the WebM writer heads as it does its own; nothing for any other sound. */
+function copyOpus(audio: IBaseHalfVideoTrack, start: number, end: number): IBaseHalfWebmCopyPlan['sound'] {
+	if (audio.codec !== 'opus' || audio.channels > 2 || !audio.samples.length) {
+		return undefined;
+	}
+	const shown = baseHalfSoundShown(audio);
+	const from = Math.max(start, shown.start);
+	const to = Math.min(end, shown.end);
+	if (to <= from) {
+		return undefined;
+	}
+	const samples = audio.samples;
+	const firstUnits = (from - baseHalfSoundPreroll(audio)) * audio.timescale;
+	let first = 0;
+	while (first < samples.length - 1 && samples[first].time + samples[first].duration <= firstUnits) {
+		first++;
+	}
+	// The packet at the end is the last: a WebM drops the padding of its last packet only, and Opus needs none after it.
+	let last = samples.length - 1;
+	while (last > first && samples[last].time >= to * audio.timescale) {
+		last--;
+	}
+	return {
+		packets: samples.slice(first, last + 1),
+		delay: Math.max(0, Math.round((from - samples[first].time / audio.timescale) * OPUS_RATE)),
+		length: Math.round((to - from) * OPUS_RATE),
+		from
 	};
 }

@@ -5,10 +5,13 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { encodeBaseHalfVideoClip } from '../../browser/basehalfVideoClipEncoder.js';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { encodeBaseHalfVideoClip, encodeBaseHalfWebmCopy } from '../../browser/basehalfVideoClipEncoder.js';
 import { readBaseHalfIsoBmffFile } from '../../common/basehalfIsoBmffReader.js';
 import { BaseHalfByteWriter } from '../../common/basehalfVideoBytes.js';
 import { planBaseHalfVideoClip } from '../../common/basehalfVideoClipPlan.js';
+import { planBaseHalfWebmCopy } from '../../common/basehalfVideoCopy.js';
+import { IBaseHalfVideoSample } from '../../common/basehalfVideoFile.js';
 import { readBaseHalfWebmFile } from '../../common/basehalfWebmReader.js';
 import { baseHalfTestByteSource, baseHalfTestClickTime, baseHalfTestFrameShade, baseHalfTestShades, makeBaseHalfTestClickVideo, makeBaseHalfTestVideo, makeBaseHalfTestWebm } from './basehalfVideoTrimFixtures.js';
 
@@ -115,6 +118,57 @@ suite('BaseHalfVideoClipEncoder', () => {
 			soundDropped: false,
 			codec: 'vp9'
 		});
+	});
+
+	test('a WebM is trimmed by copying its frames from the first key frame after the start and its Opus packets, and encoding only the frames before that key frame, in its own codec (D99)', async function () {
+		this.timeout(60_000);
+		const results: Record<string, unknown> = {};
+		for (const codec of ['vp9', 'vp8'] as const) {
+			// Two seconds with a key frame each second, as a recording has them.
+			const bytes = await makeBaseHalfTestWebm({ frames: 60, fps: 30, keyEvery: 30, codec });
+			if (!bytes) {
+				this.skip();
+			}
+			const source = baseHalfTestByteSource(bytes);
+			const file = await readBaseHalfWebmFile(source);
+			const encoding = await encodeBaseHalfWebmCopy({ source, file, plan: planBaseHalfWebmCopy(file, { start: 0.5, end: 1.5 }) });
+			const clip = await readBaseHalfWebmFile(baseHalfTestByteSource(encoding.bytes));
+			const video = clip.video!;
+			const audio = clip.audio!;
+			const dataOf = (from: Uint8Array, sample: IBaseHalfVideoSample) => VSBuffer.wrap(from.subarray(sample.offset, sample.offset + sample.size));
+			const isOriginal = (sample: IBaseHalfVideoSample, samples: readonly IBaseHalfVideoSample[]) => samples.some(original => dataOf(bytes, original).equals(dataOf(encoding.bytes, sample)));
+			const shades = await baseHalfTestShades(video.codec!, video.description, video.samples.map(sample => ({ data: dataOf(encoding.bytes, sample).buffer, time: sample.time, key: sample.key })));
+			const lastFrame = video.samples[video.samples.length - 1];
+			// The packet that held 0.5 s of the original is shown 0.5 s earlier in the clip, as its first.
+			const firstShown = audio.samples.find(sample => sample.time + sample.duration > 0)!;
+			const held = file.audio!.samples.find(sample => sample.time <= 500_000 && sample.time + sample.duration > 500_000)!;
+			results[codec] = {
+				format: video.format,
+				frames: video.samples.length,
+				// From the original's key frame 30 on, each frame is the original's, byte for byte.
+				copied: video.samples.slice(15).every((sample, index) => dataOf(encoding.bytes, sample).equals(dataOf(bytes, file.video!.samples[30 + index]))),
+				keys: video.samples.flatMap((sample, index) => sample.key ? [index] : []),
+				shownFrames: [frameOfShade(shades[0], 60), frameOfShade(shades[15], 60), frameOfShade(shades[shades.length - 1], 60)],
+				pictureLength: (lastFrame.time + lastFrame.duration) / 1_000_000,
+				packets: audio.samples.every(sample => isOriginal(sample, file.audio!.samples)),
+				soundStart: [dataOf(encoding.bytes, firstShown).equals(dataOf(bytes, held)), Math.abs(firstShown.time - (held.time - 500_000)) <= 1000],
+				soundLength: Math.round((audio.end ?? 0) / 1000) / 1000,
+				soundDropped: encoding.soundDropped
+			};
+		}
+		const expected = (format: string) => ({
+			format,
+			frames: 30,
+			copied: true,
+			keys: [0, 15],
+			shownFrames: [15, 30, 44],
+			pictureLength: 1,
+			packets: true,
+			soundStart: [true, true],
+			soundLength: 1,
+			soundDropped: false
+		});
+		assert.deepStrictEqual(results, { vp9: expected('V_VP9'), vp8: expected('V_VP8') });
 	});
 
 	test('a trimmed video\'s sound plays with its picture: a click at a white frame stays at it, in an MP4 and in a WebM', async function () {

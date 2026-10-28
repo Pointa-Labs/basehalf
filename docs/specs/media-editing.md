@@ -874,9 +874,10 @@ in Card Detail.
     that key frame, from the frame at the start on, are encoded again by the
     window in the video's codec, VP8 or VP9, from the key frame before them,
     the first of them a key frame; none is when the start is a key frame;
-  - its Opus sound is copied from 80 ms before the start, and cut at the
-    start by the file's codec delay and at the end by the discard padding of
-    its last block; a Vorbis sound is encoded again in Opus, whole;
+  - its Opus sound in mono or stereo is copied from 80 ms before the start to
+    the packet at the end, and cut at the start by the file's codec delay and
+    at the end by the discard padding of its last block, which can drop only
+    from that packet; another sound is encoded again in Opus, whole;
   - a WebM whose picture the window cannot encode in its codec, as AV1 or VP9
     of more than 8 bits, is encoded again whole: the picture in VP9 and the
     sound in Opus. The picture's bitrate is then at least the original's: its

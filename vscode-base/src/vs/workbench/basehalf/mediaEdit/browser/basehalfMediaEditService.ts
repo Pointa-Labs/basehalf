@@ -49,13 +49,13 @@ import { readBaseHalfIsoBmffFile } from '../common/basehalfIsoBmffReader.js';
 import { IBaseHalfMp4CopyLayout, writeBaseHalfMp4Copy } from '../common/basehalfIsoBmffWriter.js';
 import { baseHalfMediaChoicesAreNoEdit, baseHalfMediaEditExtension, baseHalfMediaEditKind, baseHalfMediaEditRefusal } from '../common/basehalfMediaEditFormats.js';
 import { baseHalfSoundShown, planBaseHalfVideoClip } from '../common/basehalfVideoClipPlan.js';
-import { baseHalfCanCopyVideo, planBaseHalfMp4Copy } from '../common/basehalfVideoCopy.js';
+import { baseHalfCanCopyVideo, baseHalfCanCopyWebm, planBaseHalfMp4Copy, planBaseHalfWebmCopy } from '../common/basehalfVideoCopy.js';
 import { baseHalfVideoFrameEdges, BaseHalfVideoFileError, IBaseHalfVideoByteSource, IBaseHalfVideoFile } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimTimeline } from '../common/basehalfVideoTrimSelection.js';
 import { readBaseHalfWebmFile } from '../common/basehalfWebmReader.js';
 import { BASEHALF_IMAGE_MAX_PIXELS, BASEHALF_IMAGE_MAX_SIDE, BaseHalfImageCropError, encodeBaseHalfImageCrop } from './basehalfImageCropEncoder.js';
 import { BASEHALF_SOUND_MAX_SECONDS, BaseHalfSoundEditError, encodeBaseHalfSoundParts, IBaseHalfSoundInfo, readBaseHalfSoundInfo } from './basehalfSoundEncoder.js';
-import { BaseHalfVideoClipError, encodeBaseHalfVideoClip } from './basehalfVideoClipEncoder.js';
+import { BaseHalfVideoClipError, encodeBaseHalfVideoClip, encodeBaseHalfWebmCopy } from './basehalfVideoClipEncoder.js';
 
 /**
  * Edits media as the user changes it in Card Detail (editing media, "Changes
@@ -1041,7 +1041,12 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** Trims a video: an MP4 or a MOV by copying its frames (D99), a WebM by encoding it. */
+	/**
+	 * Trims a video (D99): an MP4 or a MOV by copying its frames; a WebM by
+	 * copying its frames from the first key frame at or after the start and
+	 * encoding those before it; a WebM that the window cannot encode in its own
+	 * codec by encoding it whole.
+	 */
 	private async encodeVideo(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<BaseHalfMediaMade> {
 		const video = state.video ?? await this.readVideo(state.source);
 		const picture = video.file.video;
@@ -1054,22 +1059,19 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		if (baseHalfCanCopyVideo(video.file)) {
 			return { kind: 'copy', copy: { source: state.source, layout: writeBaseHalfMp4Copy(planBaseHalfMp4Copy(video.file, range)) } };
 		}
-		const plan = planBaseHalfVideoClip(video.file, baseHalfMediaEditExtension(state.source), range);
 		let lastReport = 0;
+		const onProgress = (done: number) => {
+			// A few steps a second are enough for the line under the editor.
+			const now = Date.now();
+			if (now - lastReport > 100 || done >= 1) {
+				lastReport = now;
+				progress(done * 0.95);
+			}
+		};
 		try {
-			const encoding = await encodeBaseHalfVideoClip({
-				source: video.source,
-				file: video.file,
-				plan,
-				onProgress: done => {
-					// A few steps a second are enough for the line under the editor.
-					const now = Date.now();
-					if (now - lastReport > 100 || done >= 1) {
-						lastReport = now;
-						progress(done * 0.95);
-					}
-				}
-			});
+			const encoding = baseHalfCanCopyWebm(video.file)
+				? await encodeBaseHalfWebmCopy({ source: video.source, file: video.file, plan: planBaseHalfWebmCopy(video.file, range), onProgress })
+				: await encodeBaseHalfVideoClip({ source: video.source, file: video.file, plan: planBaseHalfVideoClip(video.file, baseHalfMediaEditExtension(state.source), range), onProgress });
 			return { kind: 'bytes', bytes: encoding.bytes, soundDropped: encoding.soundDropped };
 		} catch (error) {
 			throw error instanceof BaseHalfVideoClipError ? new BaseHalfMediaEditError(error.message) : error;

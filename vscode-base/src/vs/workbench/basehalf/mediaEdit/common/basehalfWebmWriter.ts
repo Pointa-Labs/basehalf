@@ -27,7 +27,8 @@ export interface IBaseHalfWebmFrameInput {
 
 export interface IBaseHalfWebmVideoTrackInput {
 	readonly kind: 'video';
-	readonly codec: 'vp9';
+	/** VP9, or VP8 for the copy of a trim of a VP8 video, whose frames encoded again are in its own codec (D99). */
+	readonly codec: 'vp8' | 'vp9';
 	readonly timescale: number;
 	readonly frames: readonly IBaseHalfWebmFrameInput[];
 	readonly width: number;
@@ -46,6 +47,8 @@ export interface IBaseHalfWebmAudioTrackInput {
 	readonly delay: number;
 	/** How long the sound is, in samples at 48 kHz after the delay. */
 	readonly length: number;
+	/** When the sound starts, in milliseconds of the file: a sound that starts after the picture does. */
+	readonly start?: number;
 }
 
 export type BaseHalfWebmTrackInput = IBaseHalfWebmVideoTrackInput | IBaseHalfWebmAudioTrackInput;
@@ -155,16 +158,17 @@ export function writeBaseHalfWebmFile(input: { readonly tracks: readonly BaseHal
 	}
 	if (audio) {
 		// A block's time is its first sample's with the codec delay: the delay is taken off where it is read.
+		const start = audio.start ?? 0;
 		let samples = 0;
 		audio.packets.forEach((packet, index) => {
-			blocks.push({ track: AUDIO_TRACK, time: Math.round(samples * 1000 / OPUS_RATE), data: packet, key: true });
+			blocks.push({ track: AUDIO_TRACK, time: start + Math.round(samples * 1000 / OPUS_RATE), data: packet, key: true });
 			samples += Math.round((baseHalfOpusPacketDuration(packet) ?? 20_000) * OPUS_RATE / 1_000_000);
 			const padding = samples - audio.delay - audio.length;
 			if (index === audio.packets.length - 1 && padding > 0) {
 				blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], discard: Math.round(padding * 1_000_000_000 / OPUS_RATE) };
 			}
 		});
-		end = Math.max(end, Math.round(audio.length * 1000 / OPUS_RATE));
+		end = Math.max(end, start + Math.round(audio.length * 1000 / OPUS_RATE));
 	}
 	// In the order of their times; at the same time, the picture's frame first, so that a cluster starts with it.
 	const ordered = blocks.map((block, index) => ({ block, index })).sort((a, b) => a.block.time - b.block.time || a.block.track - b.block.track || a.index - b.index).map(entry => entry.block);
@@ -203,7 +207,7 @@ export function writeBaseHalfWebmFile(input: { readonly tracks: readonly BaseHal
 			uintElement(TRACK_UID, VIDEO_TRACK),
 			uintElement(TRACK_TYPE, 1),
 			uintElement(FLAG_LACING, 0),
-			stringElement(CODEC_ID, 'V_VP9'),
+			stringElement(CODEC_ID, video.codec === 'vp8' ? 'V_VP8' : 'V_VP9'),
 			element(VIDEO, [uintElement(PIXEL_WIDTH, video.width), uintElement(PIXEL_HEIGHT, video.height)])
 		]));
 	}

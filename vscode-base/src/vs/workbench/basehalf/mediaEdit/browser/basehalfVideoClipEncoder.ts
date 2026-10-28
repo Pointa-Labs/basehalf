@@ -5,11 +5,12 @@
 
 import { localize } from '../../../../nls.js';
 import { baseHalfAvcLevels, baseHalfHevcLevels, baseHalfVp9Levels } from '../common/basehalfVideoCodecs.js';
-import { baseHalfVideoClipBitrate, BaseHalfVideoClipCodec, IBaseHalfVideoClipPlan } from '../common/basehalfVideoClipPlan.js';
+import { baseHalfVideoClipBitrate, BaseHalfVideoClipCodec, baseHalfVideoCodecFamily, baseHalfVideoTrackBitrate, IBaseHalfVideoClipPlan, planBaseHalfSoundPart } from '../common/basehalfVideoClipPlan.js';
+import { IBaseHalfWebmCopyPlan } from '../common/basehalfVideoCopy.js';
 import { IBaseHalfVideoByteSource, IBaseHalfVideoFile, IBaseHalfVideoSample, IBaseHalfVideoTrack } from '../common/basehalfVideoFile.js';
 import { IBaseHalfMp4AudioTrackInput, IBaseHalfMp4SampleInput, writeBaseHalfMp4File } from '../common/basehalfIsoBmffWriter.js';
 import { baseHalfOpusPacketDuration } from '../common/basehalfWebmReader.js';
-import { IBaseHalfWebmAudioTrackInput, writeBaseHalfWebmFile } from '../common/basehalfWebmWriter.js';
+import { IBaseHalfWebmAudioTrackInput, IBaseHalfWebmFrameInput, writeBaseHalfWebmFile } from '../common/basehalfWebmWriter.js';
 
 /**
  * Encodes the clip that a trim makes of a video with the window's own
@@ -128,6 +129,120 @@ export async function encodeBaseHalfVideoClip(request: IBaseHalfVideoClipEncodeR
 	return { bytes, soundDropped, codec: picture.codec };
 }
 
+export interface IBaseHalfWebmCopyRequest {
+	readonly source: IBaseHalfVideoByteSource;
+	readonly file: IBaseHalfVideoFile;
+	readonly plan: IBaseHalfWebmCopyPlan;
+	readonly onProgress?: (fraction: number) => void;
+}
+
+/**
+ * Trims a WebM as its plan says (editing media, "What the edited file holds",
+ * D99): the frames from the part's start to the first key frame after it
+ * encoded again in the video's codec, the first of them a key frame; the
+ * frames from that key frame on, and the packets of an Opus sound, copied as
+ * they are; and a sound of another codec encoded again in Opus. Only the frames
+ * of the head take an encoder's time.
+ */
+export async function encodeBaseHalfWebmCopy(request: IBaseHalfWebmCopyRequest): Promise<IBaseHalfVideoClipEncoding> {
+	const { plan, file, source } = request;
+	const video = file.video!;
+	// The file is built in memory, as an encoded clip is: what it copies tells its size before anything is read.
+	let copiedBytes = 0;
+	for (const sample of [...plan.copied, ...plan.sound?.packets ?? []]) {
+		copiedBytes += sample.size;
+	}
+	if (copiedBytes > BASEHALF_VIDEO_CLIP_MAX_BYTES) {
+		throw new BaseHalfVideoClipError('tooLarge');
+	}
+	const milliseconds = (seconds: number) => Math.round(seconds * 1000);
+	const frames: IBaseHalfWebmFrameInput[] = [];
+	let width = video.width;
+	let height = video.height;
+	if (plan.head) {
+		const sourceBitrate = baseHalfVideoTrackBitrate(video);
+		const frameRate = plan.head.end > plan.start ? plan.head.kept.length / (plan.head.end - plan.start) : 30;
+		const pixelsPerSecond = video.width * video.height * frameRate;
+		const headPlan: IBaseHalfVideoClipPlan = {
+			start: plan.start,
+			end: plan.head.end,
+			container: 'webm',
+			picture: {
+				decode: plan.head.decode,
+				kept: plan.head.kept,
+				codec: plan.codec,
+				sourceFamily: baseHalfVideoCodecFamily(video.format),
+				sourceBitrate,
+				pixelsPerSecond,
+				bitrate: baseHalfVideoClipBitrate(sourceBitrate, baseHalfVideoCodecFamily(video.format), plan.codec, pixelsPerSecond),
+				frameRate
+			},
+			sound: undefined,
+			estimatedBytes: 0
+		};
+		// The head's share of the work: the frames it encodes, against all that are read.
+		const share = plan.head.decode.length / (plan.head.decode.length + plan.copied.length / 20);
+		const picture = await encodePicture({ source, file, plan: headPlan, onProgress: done => request.onProgress?.(done * share) }, video);
+		width = picture.width;
+		height = picture.height;
+		for (const sample of picture.samples) {
+			frames.push({ data: sample.data, time: sample.time, duration: sample.duration, key: sample.key });
+		}
+	}
+	const endMilliseconds = milliseconds(plan.end - plan.start);
+	for await (const { sample, data } of readSamples(source, plan.copied)) {
+		const time = milliseconds(sample.time / video.timescale - plan.start);
+		const until = Math.min(endMilliseconds, milliseconds((sample.time + sample.duration) / video.timescale - plan.start));
+		frames.push({ data: data.slice(), time, duration: Math.max(1, until - time), key: sample.key });
+	}
+	request.onProgress?.(0.9);
+
+	let soundDropped = false;
+	let sound: IBaseHalfWebmAudioTrackInput | undefined;
+	const audio = file.audio;
+	if (plan.sound && audio) {
+		const packets: Uint8Array[] = [];
+		for await (const { data } of readSamples(source, plan.sound.packets)) {
+			packets.push(data.slice());
+		}
+		const head = audio.description;
+		const inputSampleRate = head && head.length >= 16 ? new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(12, true) : audio.sampleRate;
+		sound = {
+			kind: 'audio',
+			codec: 'opus',
+			packets,
+			channels: audio.channels,
+			inputSampleRate: inputSampleRate || OPUS_RATE,
+			delay: plan.sound.delay,
+			length: plan.sound.length,
+			start: milliseconds(plan.sound.from - plan.start)
+		};
+	} else if (audio) {
+		const part = planBaseHalfSoundPart(audio, plan.start, plan.end);
+		if (part) {
+			try {
+				const encoded = await encodeSound(source, audio, part, 'opus');
+				sound = encoded.kind === 'opus' ? { ...encoded.track, start: milliseconds(part.from - plan.start) } : undefined;
+			} catch {
+				// A sound the window cannot decode or encode leaves the clip without sound, which the line under the editor says.
+				soundDropped = true;
+			}
+		}
+	}
+	request.onProgress?.(0.97);
+	const bytes = writeBaseHalfWebmFile({
+		tracks: [
+			{ kind: 'video', codec: plan.codec, timescale: 1000, width, height, frames },
+			...(sound ? [sound] : [])
+		]
+	});
+	if (bytes.length > BASEHALF_VIDEO_CLIP_MAX_BYTES) {
+		throw new BaseHalfVideoClipError('tooLarge');
+	}
+	request.onProgress?.(1);
+	return { bytes, soundDropped, codec: plan.codec };
+}
+
 /** A copy of what a decoder's configuration gives as bytes. */
 function copyBytes(source: AllowSharedBufferSource): Uint8Array {
 	const view = ArrayBuffer.isView(source) ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength) : new Uint8Array(source);
@@ -197,7 +312,7 @@ function microseconds(track: Pick<IBaseHalfVideoTrack, 'timescale'>, units: numb
 /** The clip's picture: its frames in the order they are decoded, with their times in `timescale`. */
 interface IEncodedPicture {
 	readonly codec: BaseHalfVideoClipCodec;
-	/** `avcC` or `hvcC` for H.264 and HEVC; VP9 has none. */
+	/** `avcC` or `hvcC` for H.264 and HEVC; VP8 and VP9 have none. */
 	readonly description: Uint8Array | undefined;
 	readonly timescale: number;
 	readonly samples: readonly IBaseHalfMp4SampleInput[];
@@ -223,6 +338,7 @@ function encoderCodec(codec: BaseHalfVideoClipCodec, level: number): string {
 	switch (codec) {
 		case 'hevc': return `hvc1.1.6.L${level}.B0`;
 		case 'vp9': return `vp09.00.${level}.08`;
+		case 'vp8': return 'vp8';
 		case 'avc': return `avc1.6400${level.toString(16).padStart(2, '0')}`;
 	}
 }
@@ -239,11 +355,14 @@ async function chooseEncoder(plan: IBaseHalfVideoClipPlan, width: number, height
 	for (const codec of codecs) {
 		const bitrate = baseHalfVideoClipBitrate(plan.picture.sourceBitrate, plan.picture.sourceFamily, codec, plan.picture.pixelsPerSecond);
 		for (const size of sizes) {
+			// VP8 has no levels.
 			const levels = codec === 'hevc'
 				? baseHalfHevcLevels(size.width, size.height, plan.picture.frameRate, bitrate)
 				: codec === 'vp9'
 					? baseHalfVp9Levels(size.width, size.height, plan.picture.frameRate, bitrate)
-					: baseHalfAvcLevels(size.width, size.height, plan.picture.frameRate, bitrate);
+					: codec === 'vp8'
+						? [0]
+						: baseHalfAvcLevels(size.width, size.height, plan.picture.frameRate, bitrate);
 			for (const level of levels) {
 				const config: IBaseHalfVideoEncoderConfig = {
 					codec: encoderCodec(codec, level),
@@ -435,7 +554,7 @@ async function encodePicture(request: IBaseHalfVideoClipEncodeRequest, video: IB
 	if (failure) {
 		throw failure instanceof BaseHalfVideoClipError ? failure : new BaseHalfVideoClipError('encode', failure.message);
 	}
-	if (!setup || (setup.codec !== 'vp9' && !description) || !encoded.length) {
+	if (!setup || (setup.codec !== 'vp9' && setup.codec !== 'vp8' && !description) || !encoded.length) {
 		throw new BaseHalfVideoClipError('encode');
 	}
 

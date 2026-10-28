@@ -102,10 +102,10 @@ export async function makeBaseHalfTestVideo(options: { readonly frames: number; 
  * steady tone in Opus. Resolves with nothing when the window cannot encode
  * VP9 or Opus.
  */
-export async function makeBaseHalfTestWebm(options: { readonly frames: number; readonly fps: number }): Promise<Uint8Array | undefined> {
+export async function makeBaseHalfTestWebm(options: { readonly frames: number; readonly fps: number; readonly keyEvery?: number; readonly codec?: 'vp8' | 'vp9' }): Promise<Uint8Array | undefined> {
 	const width = 160;
 	const height = 96;
-	const config: VideoEncoderConfig = { codec: 'vp09.00.10.08', width, height, bitrate: 1_000_000, framerate: options.fps };
+	const config: VideoEncoderConfig = { codec: options.codec === 'vp8' ? 'vp8' : 'vp09.00.10.08', width, height, bitrate: 1_000_000, framerate: options.fps };
 	const soundConfig: AudioEncoderConfig = { codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 96000 };
 	if (typeof VideoEncoder === 'undefined' || !(await VideoEncoder.isConfigSupported(config)).supported
 		|| typeof AudioEncoder === 'undefined' || !(await AudioEncoder.isConfigSupported(soundConfig)).supported) {
@@ -129,7 +129,7 @@ export async function makeBaseHalfTestWebm(options: { readonly frames: number; r
 		context.fillRect(0, 0, width, height);
 		// A recording counts in milliseconds.
 		const frame = new VideoFrame(canvas, { timestamp: Math.round(index * 1000 / options.fps) * 1000, duration: Math.round(1_000_000 / options.fps) });
-		encoder.encode(frame, { keyFrame: index === 0 });
+		encoder.encode(frame, { keyFrame: index % (options.keyEvery ?? Infinity) === 0 });
 		frame.close();
 	}
 	await encoder.flush();
@@ -157,7 +157,7 @@ export async function makeBaseHalfTestWebm(options: { readonly frames: number; r
 	soundEncoder.close();
 	return writeBaseHalfWebmFile({
 		tracks: [
-			{ kind: 'video', codec: 'vp9', timescale: 1_000_000, frames, width, height },
+			{ kind: 'video', codec: options.codec ?? 'vp9', timescale: 1_000_000, frames, width, height },
 			{ kind: 'audio', codec: 'opus', packets, channels: 1, inputSampleRate: 48000, delay: 312, length }
 		]
 	});

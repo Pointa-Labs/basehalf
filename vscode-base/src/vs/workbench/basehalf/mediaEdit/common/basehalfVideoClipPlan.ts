@@ -15,7 +15,7 @@ import { IBaseHalfVideoTrimRange } from './basehalfVideoTrimSelection.js';
  * with.
  */
 
-export type BaseHalfVideoClipCodec = 'avc' | 'hevc' | 'vp9';
+export type BaseHalfVideoClipCodec = 'avc' | 'hevc' | 'vp9' | 'vp8';
 export type BaseHalfVideoClipContainer = 'mp4' | 'mov' | 'webm';
 
 /** The family of a picture's codec, which decides how much bitrate H.264 needs to keep it. */
@@ -26,7 +26,7 @@ export interface IBaseHalfVideoClipPicturePlan {
 	readonly decode: readonly IBaseHalfVideoSample[];
 	/** The frames to keep, in the order they are shown. */
 	readonly kept: readonly IBaseHalfVideoSample[];
-	/** The clip's codec: VP9 in WebM, HEVC for an HEVC video, H.264 otherwise. */
+	/** The clip's codec: VP9 in WebM, or VP8 for the frames of a VP8 WebM encoded again (D99), HEVC for an HEVC video, H.264 otherwise. */
 	readonly codec: BaseHalfVideoClipCodec;
 	readonly sourceFamily: BaseHalfVideoCodecFamily;
 	/** The video's average bitrate, in bits per second. */
@@ -110,7 +110,7 @@ export function baseHalfVideoCodecFamily(format: string): BaseHalfVideoCodecFami
 }
 
 /** The fewest bits for each pixel of each frame, by the clip's codec: the window's encoders need more than the encoders of most generated videos. */
-const MIN_BITS_PER_PIXEL: Readonly<Record<BaseHalfVideoClipCodec, number>> = { avc: 0.07, hevc: 0.05, vp9: 0.07 };
+const MIN_BITS_PER_PIXEL: Readonly<Record<BaseHalfVideoClipCodec, number>> = { avc: 0.07, hevc: 0.05, vp9: 0.07, vp8: 0.07 };
 
 /**
  * The bitrate of a clip's picture (trimming a video, "Its format"): at least
