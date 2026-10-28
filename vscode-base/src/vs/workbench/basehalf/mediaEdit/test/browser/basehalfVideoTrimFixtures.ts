@@ -3,6 +3,10 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { IBaseHalfFileClonesService } from '../../../../../platform/basehalfFiles/common/basehalfFileClones.js';
+import { IFileService } from '../../../../../platform/files/common/files.js';
+import { readBaseHalfFileRange } from '../../../workspace/common/basehalfFileRange.js';
 import { aacEncoderDelay, opusEncoderDelay } from '../../browser/basehalfVideoClipEncoder.js';
 import { IBaseHalfMp4SampleInput, writeBaseHalfMp4File } from '../../common/basehalfIsoBmffWriter.js';
 import { IBaseHalfVideoByteSource } from '../../common/basehalfVideoFile.js';
@@ -273,6 +277,22 @@ export function baseHalfTestFrameShade(index: number): number {
 
 export function baseHalfTestByteSource(bytes: Uint8Array): IBaseHalfVideoByteSource {
 	return { size: bytes.length, read: async (offset, length) => bytes.subarray(offset, offset + length) };
+}
+
+/** `assemble` of the file clones service over a file service, as the shared process does it with files on disk. */
+export function baseHalfTestAssemble(fileService: IFileService): IBaseHalfFileClonesService['assemble'] {
+	return async (target, parts, append = false) => {
+		const pieces: VSBuffer[] = [];
+		if (append) {
+			pieces.push((await fileService.readFile(target)).value);
+		} else if (await fileService.exists(target)) {
+			throw new Error(`${target.toString()} is there`);
+		}
+		for (const part of parts) {
+			pieces.push(part instanceof VSBuffer ? part : await readBaseHalfFileRange(fileService, part.source, part.offset, part.length));
+		}
+		await fileService.writeFile(target, VSBuffer.concat(pieces));
+	};
 }
 
 /** The gray at the middle of each frame of a picture, decoded with the window's decoder, by the order the frames are shown. */

@@ -107,6 +107,8 @@ suite('BaseHalfEditRecord', () => {
 			names: [baseHalfEditOriginalName('mp4'), baseHalfIsEditOriginalName('original.webm'), baseHalfIsEditOriginalName('original.mp4.tmp'), baseHalfIsEditOriginalName('original'), baseHalfIsEditOriginalName('shot.mp4')],
 			summaries: [
 				baseHalfEditSummary({ keep: [{ start: 1.049, end: 4.567 }] }),
+				// A long video's times are in minutes and seconds, as its player shows them (D99).
+				baseHalfEditSummary({ keep: [{ start: 289.08, end: 4517 }] }),
 				baseHalfEditSummary({ keep: [{ start: 0, end: 1 }, { start: 2, end: 3 }, { start: 4, end: 5 }] }),
 				baseHalfEditSummary({ turn: 2, flip: true, straighten: 3.5, crop: { x: 800, y: 450, width: 1600, height: 900 } }),
 				baseHalfEditSummary({})
@@ -115,6 +117,7 @@ suite('BaseHalfEditRecord', () => {
 			names: ['original.mp4', true, false, false, false],
 			summaries: [
 				'Trimmed to 1.0s–4.5s',
+				'Trimmed to 4:49–75:17',
 				'Trimmed to 3 parts',
 				'Turned · Flipped · Straightened by 3.5° · Cropped to 1600 × 900',
 				undefined

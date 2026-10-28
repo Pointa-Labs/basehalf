@@ -43,6 +43,16 @@
 	padding: 0 14px;
 }
 
+/*
+ * The strip of a video lines up with the picture above it, while viewing and
+ * while editing: its ends stand under the picture's edges, and its handles
+ * outside them, in the room Card Detail leaves around the player (editing
+ * media, "The frame viewer", D99).
+ */
+.monaco-workbench .basehalf-video-frames:not(.basehalf-sound-waveform) .basehalf-video-frames-row {
+	padding: 0;
+}
+
 .monaco-workbench .basehalf-video-frames-strip {
 	position: relative;
 	flex: 1 1 auto;

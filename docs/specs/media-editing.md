@@ -298,8 +298,9 @@ crop:
 ### Revert to Original
 
 - Under the editor of an edited file, its line says what the edit is and
-  offers **Revert to Original**: "Trimmed to 1.0s–4.5s · Revert to Original".
-  It is one step, "Revert shot.mp4 to Original": the original's bytes go back
+  offers **Revert to Original**: "Trimmed to 1.0s–4.5s · Revert to Original",
+  its times as the player shows them, "Trimmed to 4:49–75:17" from a minute
+  on (D99). It is one step, "Revert shot.mp4 to Original": the original's bytes go back
   in the file's place, and the original and the record go. It asks nothing:
   undo takes it back.
 - A copy to change apart from the file is made on the canvas, with Duplicate,

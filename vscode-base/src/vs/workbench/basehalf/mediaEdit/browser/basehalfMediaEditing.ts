@@ -5,6 +5,7 @@
 
 import './media/basehalfMediaEditing.css';
 import { $, addDisposableListener, append } from '../../../../base/browser/dom.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { basename, isEqual } from '../../../../base/common/resources.js';
@@ -52,6 +53,9 @@ export interface IBaseHalfMediaEditingView {
 /** How often the copy is made anew when the file changed while it was made. */
 const COPY_ATTEMPTS = 2;
 
+/** How long a write runs before the line under the editor says "Saving…" (editing media, "What Card Detail shows"). */
+const SAVING_TOLD_AFTER_MS = 1000;
+
 export class BaseHalfMediaEditing extends Disposable {
 
 	private session: IBaseHalfMediaEditingSession | undefined;
@@ -61,6 +65,8 @@ export class BaseHalfMediaEditing extends Disposable {
 	/** Where Card Detail gave the editor room. */
 	private stage: HTMLElement | undefined;
 	private line: IEditLine | undefined;
+	/** Shows "Saving…" once a write has run long enough to be told. */
+	private readonly savingTimer = this._register(new MutableDisposable());
 	/** The editor edits the file; otherwise it views it. */
 	private editing = false;
 	private disposed = false;
@@ -297,9 +303,13 @@ export class BaseHalfMediaEditing extends Disposable {
 		line.summary.textContent = !failed ? summary ?? '' : '';
 		show(line.summary, !failed && !!summary);
 		show(line.revert, !failed && !!summary);
-		show(line.saving, writing?.state === 'writing');
-		line.saving.textContent = writing?.state === 'writing'
-			? localize('basehalf.mediaEdit.line.saving', "Saving… {0}%", Math.round((writing.done ?? 0) * 100))
+		// A write that ends within a second shows nothing: most do (D99).
+		const running = writing?.state === 'writing' ? Date.now() - (writing.since ?? 0) : undefined;
+		const saving = running !== undefined && running >= SAVING_TOLD_AFTER_MS;
+		this.savingTimer.value = running !== undefined && !saving ? disposableTimeout(() => this.renderLine(), SAVING_TOLD_AFTER_MS - running) : undefined;
+		show(line.saving, saving);
+		line.saving.textContent = saving
+			? localize('basehalf.mediaEdit.line.saving', "Saving… {0}%", Math.round((writing?.done ?? 0) * 100))
 			: '';
 		show(line.failure, failed);
 		line.failure.textContent = failed ? localize('basehalf.mediaEdit.line.failed', "BaseHalf could not save the edit: {0}", writing.failure ?? '') : '';

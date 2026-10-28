@@ -10,7 +10,7 @@ import { Schemas } from '../../../../../base/common/network.js';
 import { joinPath, relativePath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { IBaseHalfFileClonesService } from '../../../../../platform/basehalfFiles/common/basehalfFileClones.js';
+import { BaseHalfFilePart, IBaseHalfFileClonesService } from '../../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IBaseHalfFileTimesService } from '../../../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { TestDialogService } from '../../../../../platform/dialogs/test/common/testDialogService.js';
@@ -30,7 +30,7 @@ import { BaseHalfWorkspaceMutationCoordinator } from '../../../workspace/common/
 import { BaseHalfMediaEditService } from '../../browser/basehalfMediaEditService.js';
 import { parseBaseHalfEditRecord } from '../../common/basehalfEditRecord.js';
 import { readBaseHalfIsoBmffFile } from '../../common/basehalfIsoBmffReader.js';
-import { baseHalfTestByteSource, makeBaseHalfTestVideo } from './basehalfVideoTrimFixtures.js';
+import { baseHalfTestAssemble, baseHalfTestByteSource, makeBaseHalfTestVideo } from './basehalfVideoTrimFixtures.js';
 
 const WORKSPACE = URI.file('/workspace');
 const VIDEO = joinPath(WORKSPACE, 'shots', 'shot.mp4');
@@ -101,7 +101,8 @@ suite('BaseHalfMediaEditService', () => {
 		const fileService = disposables.add(new FileService(new NullLogService()));
 		const provider = disposables.add(new TrashingFileSystemProvider());
 		disposables.add(fileService.registerProvider(Schemas.file, provider));
-		// A clone fails while `failing` says why, and waits while `held` holds it.
+		// A clone fails while `failing` says why, and a clone or a copy waits while `held` holds it.
+		const assemble = baseHalfTestAssemble(fileService);
 		const clones = {
 			failing: undefined as string | undefined,
 			held: undefined as Promise<void> | undefined,
@@ -113,6 +114,10 @@ suite('BaseHalfMediaEditService', () => {
 						throw new Error(clones.failing);
 					}
 					await fileService.copy(source, target, false);
+				},
+				assemble: async (target: URI, parts: readonly BaseHalfFilePart[], append?: boolean) => {
+					await clones.held;
+					await assemble(target, parts, append);
 				}
 			} satisfies IBaseHalfFileClonesService
 		};
@@ -159,9 +164,10 @@ suite('BaseHalfMediaEditService', () => {
 		return { fileService, service, clones, notifications, prompts, trashed: provider.trashed, deletes, undoRedoService, lifecycleService, bytesOf, same, recordOf, cacheNames, undo, redo };
 	}
 
+	/** The frames that a video shows, after its edit list: a trim's copy holds hidden ones from the key frame before its start (D99). */
 	async function framesOf(fileService: FileService, resource: URI): Promise<number> {
-		const file = await readBaseHalfIsoBmffFile(baseHalfTestByteSource((await fileService.readFile(resource)).value.buffer), 'mp4');
-		return file.video!.samples.length;
+		const video = (await readBaseHalfIsoBmffFile(baseHalfTestByteSource((await fileService.readFile(resource)).value.buffer), 'mp4')).video!;
+		return video.samples.filter(sample => sample.time >= 0 && (video.end === undefined || sample.time < video.end)).length;
 	}
 
 	test('a change is one step of the canvas undo that the file follows once the choices rest: the first keeps the file as the original, and undo and redo put back the very bytes (D85)', async function () {
@@ -170,23 +176,27 @@ suite('BaseHalfMediaEditService', () => {
 		if (!bytes) {
 			this.skip();
 		}
-		const { fileService, service, undoRedoService, notifications, trashed, bytesOf, same, recordOf, undo, redo, lifecycleService, cacheNames } = setUp();
+		const { fileService, service, clones, undoRedoService, notifications, trashed, bytesOf, same, recordOf, undo, redo, lifecycleService, cacheNames } = setUp();
 		await fileService.writeFile(VIDEO, VSBuffer.wrap(bytes));
 		service.setTimingsForTest({ rest: 20, merge: 0 });
 		const state = await service.readEditState(VIDEO_FILE);
 
+		// The copy of the frames is held, so that the write is seen while it runs.
+		let release!: () => void;
+		clones.held = new Promise(resolve => release = resolve);
 		service.change(VIDEO_FILE, state, { keep: [{ start: 0.5, end: 1.5 }] }, 'Trim shot.mp4');
 		// The editor shows the change at once; the file waits for the choices to rest.
 		const resting = { choices: service.choicesOf(VIDEO, state), writing: service.writing(VIDEO), file: same(await bytesOf(VIDEO), bytes) };
 		await timeout(60);
 		const writing = service.writing(VIDEO)?.state;
+		release();
 		await service.flush(VIDEO);
 		const first = await bytesOf(VIDEO);
 		const firstFrames = await framesOf(fileService, VIDEO);
 		const firstRecord = await recordOf(VIDEO_INFORMATION);
 		const original = same(await bytesOf(joinPath(VIDEO_INFORMATION, 'original.mp4')), bytes);
 
-		// The next change is encoded from the original.
+		// The next change is made from the original.
 		service.change(VIDEO_FILE, state, { keep: [{ start: 0.2, end: 1.9 }] }, 'Trim shot.mp4');
 		await service.flush(VIDEO);
 		const second = await bytesOf(VIDEO);

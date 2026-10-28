@@ -11,7 +11,7 @@ import { basename, dirname, isEqualOrParent, joinPath } from '../../../../base/c
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
-import { IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/common/basehalfFileClones.js';
+import { BaseHalfFilePart, IBaseHalfFileClonesService } from '../../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { IBaseHalfFileTimesService } from '../../../../platform/basehalfFiles/common/basehalfFileTimes.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { FileOperation, FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
@@ -38,6 +38,7 @@ import {
 	IBaseHalfEditRecord,
 	IBaseHalfEditResult,
 	IBaseHalfMediaChoices,
+	IBaseHalfMediaPart,
 	normalizeBaseHalfMediaChoices,
 	parseBaseHalfEditRecord,
 	serializeBaseHalfEditRecord
@@ -45,8 +46,10 @@ import {
 import { baseHalfReleaseEditOriginal } from '../common/basehalfGoneOriginals.js';
 import { baseHalfOrientedSize, IBaseHalfImageInfo, readBaseHalfImageInfo } from '../common/basehalfImageFile.js';
 import { readBaseHalfIsoBmffFile } from '../common/basehalfIsoBmffReader.js';
+import { IBaseHalfMp4CopyLayout, writeBaseHalfMp4Copy } from '../common/basehalfIsoBmffWriter.js';
 import { baseHalfMediaChoicesAreNoEdit, baseHalfMediaEditExtension, baseHalfMediaEditKind, baseHalfMediaEditRefusal } from '../common/basehalfMediaEditFormats.js';
-import { planBaseHalfVideoClip } from '../common/basehalfVideoClipPlan.js';
+import { baseHalfSoundShown, planBaseHalfVideoClip } from '../common/basehalfVideoClipPlan.js';
+import { baseHalfCanCopyVideo, planBaseHalfMp4Copy } from '../common/basehalfVideoCopy.js';
 import { baseHalfVideoFrameEdges, BaseHalfVideoFileError, IBaseHalfVideoByteSource, IBaseHalfVideoFile } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimTimeline } from '../common/basehalfVideoTrimSelection.js';
 import { readBaseHalfWebmFile } from '../common/basehalfWebmReader.js';
@@ -109,6 +112,8 @@ export interface IBaseHalfMediaWriting {
 	readonly state: 'writing' | 'failed';
 	/** The share of a write done, from 0 to 1. */
 	readonly done?: number;
+	/** When the writes that run began, by `Date.now()`: the line says "Saving…" once they have run 1 s (D99). */
+	readonly since?: number;
 	/** Why the last write failed. */
 	readonly failure?: string;
 }
@@ -212,6 +217,20 @@ export async function baseHalfEditResultOf(bytes: Uint8Array): Promise<IBaseHalf
 	return { size: fingerprint.size, hash: fingerprint.hash };
 }
 
+/** How many bytes of a copy the shared process copies in one go, between two reports of the share done. */
+const COPY_BATCH_BYTES = 128 * 1024 * 1024;
+
+/** A copy of a trim (D99): the ranges of its source after its index, as the shared process writes them. */
+interface IBaseHalfMediaCopy {
+	readonly source: URI;
+	readonly layout: IBaseHalfMp4CopyLayout;
+}
+
+/** What an edit makes: the bytes of the edited file, or the copy that the shared process writes. */
+type BaseHalfMediaMade =
+	| { readonly kind: 'bytes'; readonly bytes: Uint8Array; readonly soundDropped: boolean }
+	| { readonly kind: 'copy'; readonly copy: IBaseHalfMediaCopy };
+
 /** What was written, or is to be written, for a set of choices, kept in the cache folder. */
 interface IWritten {
 	readonly resource: URI;
@@ -238,6 +257,8 @@ interface IEditEntry {
 	/** The writes that run, until the file holds the choices; those of an edit before go first. */
 	running?: Promise<void>;
 	done?: number;
+	/** When the writes that run began, by `Date.now()`. */
+	since?: number;
 	failure?: string;
 	soundDropped: boolean;
 	/** What was written for the last choices, by the choices, the latest last. */
@@ -602,7 +623,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		if (entry?.failure) {
 			return { state: 'failed', failure: entry.failure };
 		}
-		return entry?.done !== undefined ? { state: 'writing', done: entry.done } : undefined;
+		return entry?.done !== undefined ? { state: 'writing', done: entry.done, since: entry.since } : undefined;
 	}
 
 	soundDropped(file: URI): boolean {
@@ -696,6 +717,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 				}
 			} finally {
 				entry.done = undefined;
+				entry.since = undefined;
 				if (entry.running === running) {
 					entry.running = undefined;
 				}
@@ -725,6 +747,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 	}
 
 	private progress(entry: IEditEntry, done: number): void {
+		entry.since ??= Date.now();
 		entry.done = done;
 		this.onDidChangeWritingEmitter.fire(entry.file.resource);
 	}
@@ -868,12 +891,73 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 			this.keep(entry, key, kept);
 			return kept;
 		}
-		const { bytes, soundDropped } = await this.encode(entry, choices);
+		const made = await this.encode(entry, choices);
 		const resource = joinPath(await this.cacheFolder(entry.file), `${generateUuid()}.${baseHalfMediaEditExtension(entry.file.resource)}`);
-		await this.fileService.createFile(resource, VSBuffer.wrap(bytes), { overwrite: false });
-		const written: IWritten = { resource, result: await baseHalfEditResultOf(bytes), soundDropped };
+		let written: IWritten;
+		if (made.kind === 'copy') {
+			written = { resource, result: await this.writeCopy(entry, resource, made.copy), soundDropped: false };
+		} else {
+			await this.fileService.createFile(resource, VSBuffer.wrap(made.bytes), { overwrite: false });
+			written = { resource, result: await baseHalfEditResultOf(made.bytes), soundDropped: made.soundDropped };
+		}
 		this.keep(entry, key, written);
 		return written;
+	}
+
+	/**
+	 * Writes a copy into the cache (editing media, "While it is saved, and
+	 * after", D99): its index, then the ranges of its source, which the shared
+	 * process copies a batch at a time, so that the line under the editor can
+	 * say the share done; then its fingerprint, read back.
+	 */
+	private async writeCopy(entry: IEditEntry, resource: URI, copy: IBaseHalfMediaCopy): Promise<IBaseHalfEditResult> {
+		const { layout, source } = copy;
+		let parts: BaseHalfFilePart[] = [VSBuffer.wrap(layout.head)];
+		let batch = layout.head.length;
+		let written = 0;
+		let append = false;
+		const send = async () => {
+			await this.fileClonesService.assemble(resource, parts, append);
+			append = true;
+			written += batch;
+			parts = [];
+			batch = 0;
+			this.progress(entry, written / layout.size);
+		};
+		try {
+			for (const range of layout.ranges) {
+				let offset = range.offset;
+				let left = range.length;
+				while (left > 0) {
+					const length = Math.min(left, COPY_BATCH_BYTES - batch);
+					parts.push({ source, offset, length });
+					batch += length;
+					offset += length;
+					left -= length;
+					if (batch >= COPY_BATCH_BYTES) {
+						await send();
+					}
+				}
+			}
+			if (parts.length) {
+				await send();
+			}
+			const size = (await this.fileService.stat(resource)).size;
+			if (size !== layout.size) {
+				throw new Error(`The copy of ${source.toString()} holds ${size} bytes, not ${layout.size}.`);
+			}
+		} catch (error) {
+			await this.fileService.del(resource).catch(() => undefined);
+			throw error;
+		}
+		const fingerprint = await baseHalfComputeFileFingerprint({
+			size: layout.size,
+			read: (position, length) => readBaseHalfFileRange(this.fileService, resource, position, length)
+		}, false);
+		if (!fingerprint) {
+			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.empty', "the edited file would be empty."));
+		}
+		return { size: fingerprint.size, hash: fingerprint.hash };
 	}
 
 	/** Keeps what was written for choices as the latest, and lets go of the oldest beyond the last few. */
@@ -889,8 +973,8 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** Encodes the edit of the state's source. */
-	private encode(entry: IEditEntry, choices: IBaseHalfMediaChoices): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
+	/** Makes the edit of the state's source: its bytes, or the copy that the shared process writes. */
+	private encode(entry: IEditEntry, choices: IBaseHalfMediaChoices): Promise<BaseHalfMediaMade> {
 		const state = entry.state;
 		const progress = (done: number) => this.progress(entry, done);
 		switch (state.kind) {
@@ -900,25 +984,48 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** Keeps the parts of a sound, joined, in its format. */
-	private async encodeSound(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
+	/** Keeps the parts of a sound, joined, in its format: one part of an M4A is copied (D99). */
+	private async encodeSound(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<BaseHalfMediaMade> {
 		const info = state.sound;
 		if (!info) {
 			throw new BaseHalfMediaEditError(localize('basehalf.mediaEdit.save.noSound', "the sound could not be read."));
 		}
+		const parts = choices.keep ?? [{ start: 0, end: info.duration }];
+		if (info.format === 'm4a' && parts.length === 1) {
+			const copy = await this.copyOfSound(state.source, parts[0]);
+			if (copy) {
+				return { kind: 'copy', copy };
+			}
+		}
 		const bytes = (await this.fileService.readFile(state.source)).value.buffer;
 		progress(0.3);
 		try {
-			const encoded = await encodeBaseHalfSoundParts(bytes, info, choices.keep ?? [{ start: 0, end: info.duration }]);
+			const encoded = await encodeBaseHalfSoundParts(bytes, info, parts);
 			progress(0.9);
-			return { bytes: encoded, soundDropped: false };
+			return { kind: 'bytes', bytes: encoded, soundDropped: false };
 		} catch (error) {
 			throw error instanceof BaseHalfSoundEditError ? new BaseHalfMediaEditError(error.message) : error;
 		}
 	}
 
+	/**
+	 * The copy of one part of an M4A's sound; nothing for one whose packets
+	 * cannot be copied, which is encoded again. The editor's times count from
+	 * where the sound is first shown.
+	 */
+	private async copyOfSound(source: URI, part: IBaseHalfMediaPart): Promise<IBaseHalfMediaCopy | undefined> {
+		const size = (await this.fileService.stat(source)).size;
+		const file = await readBaseHalfIsoBmffFile(baseHalfMediaFileByteSource(this.fileService, source, size), 'mp4', { soundOnly: true });
+		if (file.video || !file.audio || !baseHalfCanCopyVideo(file)) {
+			return undefined;
+		}
+		const soundStart = baseHalfSoundShown(file.audio).start;
+		const plan = planBaseHalfMp4Copy(file, { start: soundStart + part.start, end: soundStart + part.end });
+		return { source, layout: writeBaseHalfMp4Copy(plan) };
+	}
+
 	/** Crops, turns, flips, and straightens an image, in its format, with its information. */
-	private async encodeImage(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
+	private async encodeImage(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<BaseHalfMediaMade> {
 		const bytes = (await this.fileService.readFile(state.source)).value.buffer;
 		const info = readBaseHalfImageInfo(bytes);
 		if (!info) {
@@ -928,14 +1035,14 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		try {
 			const encoding = await encodeBaseHalfImageCrop(bytes, info, choices);
 			progress(0.9);
-			return { bytes: encoding.bytes, soundDropped: false };
+			return { kind: 'bytes', bytes: encoding.bytes, soundDropped: false };
 		} catch (error) {
 			throw error instanceof BaseHalfImageCropError ? new BaseHalfMediaEditError(error.message) : error;
 		}
 	}
 
-	/** Trims a video. */
-	private async encodeVideo(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<{ readonly bytes: Uint8Array; readonly soundDropped: boolean }> {
+	/** Trims a video: an MP4 or a MOV by copying its frames (D99), a WebM by encoding it. */
+	private async encodeVideo(state: IBaseHalfMediaEditState, choices: IBaseHalfMediaChoices, progress: (done: number) => void): Promise<BaseHalfMediaMade> {
 		const video = state.video ?? await this.readVideo(state.source);
 		const picture = video.file.video;
 		if (!picture) {
@@ -944,6 +1051,9 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 		// The parts of a record are to the millisecond: the frames kept are those between the frame edges nearest to them.
 		const timeline = new BaseHalfVideoTrimTimeline(baseHalfVideoFrameEdges(picture));
 		const range = timeline.normalize(choices.keep?.[0]);
+		if (baseHalfCanCopyVideo(video.file)) {
+			return { kind: 'copy', copy: { source: state.source, layout: writeBaseHalfMp4Copy(planBaseHalfMp4Copy(video.file, range)) } };
+		}
 		const plan = planBaseHalfVideoClip(video.file, baseHalfMediaEditExtension(state.source), range);
 		let lastReport = 0;
 		try {
@@ -960,7 +1070,7 @@ export class BaseHalfMediaEditService extends Disposable implements IBaseHalfMed
 					}
 				}
 			});
-			return { bytes: encoding.bytes, soundDropped: encoding.soundDropped };
+			return { kind: 'bytes', bytes: encoding.bytes, soundDropped: encoding.soundDropped };
 		} catch (error) {
 			throw error instanceof BaseHalfVideoClipError ? new BaseHalfMediaEditError(error.message) : error;
 		}

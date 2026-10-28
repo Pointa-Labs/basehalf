@@ -18,6 +18,7 @@ import { UriIdentityService } from '../../../../../platform/uriIdentity/common/u
 import { testWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
 import { TestContextService } from '../../../../test/common/workbenchTestServices.js';
 import { copyBaseHalfMediaEdits } from '../../browser/basehalfMediaEditCopy.js';
+import { baseHalfTestAssemble } from './basehalfVideoTrimFixtures.js';
 
 const WORKSPACE = URI.file('/workspace');
 const RECORD = 'original: "original.mp4"\nresult:\n  size: 9\n  hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"\nkeep:\n  - start: 1\n    end: 2\n';
@@ -38,7 +39,8 @@ suite('BaseHalfMediaEditCopy', () => {
 			clone: async (source, target) => {
 				cloned.push(target.path.slice(WORKSPACE.path.length + 1));
 				await fileService.copy(source, target, false);
-			}
+			},
+			assemble: baseHalfTestAssemble(fileService)
 		};
 		const services = {
 			fileService,

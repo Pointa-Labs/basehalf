@@ -19,6 +19,10 @@ import { BaseHalfVideoFileError, IBaseHalfVideoByteSource, IBaseHalfVideoFile, I
 /** More than this in the movie's index, or in its fragments' indexes, is not read. */
 const MAX_INDEX_BYTES = 64 * 1024 * 1024;
 const MAX_TOP_LEVEL_BOXES = 200_000;
+/** A file type box larger than this is not kept: it lists only brands. */
+const MAX_FILE_TYPE_BYTES = 4096;
+/** `und`, packed in three letters of five bits. */
+const UNDETERMINED_LANGUAGE = 0x55C4;
 
 interface IBox {
 	readonly type: string;
@@ -62,6 +66,8 @@ interface ITrackParts {
 	readonly edits: readonly IEdit[];
 	readonly entry: IBox | undefined;
 	readonly samples: IRawSample[];
+	/** Packed as the `mdhd` box has it. */
+	readonly language: number;
 }
 
 function* boxesIn(bytes: Uint8Array, start: number, end: number): Generator<IBox> {
@@ -165,7 +171,7 @@ export async function readBaseHalfIsoBmffFile(source: IBaseHalfVideoByteSource, 
 	if (!mvhd) {
 		throw new BaseHalfVideoFileError('format');
 	}
-	const movieTimescale = readMvhdTimescale(moovBytes, mvhd);
+	const { timescale: movieTimescale, created, modified } = readMvhd(moovBytes, mvhd);
 
 	const defaults = new Map<number, ITrackDefaults>();
 	const mvex = childOf(moovBytes, moov, 'mvex');
@@ -206,20 +212,27 @@ export async function readBaseHalfIsoBmffFile(source: IBaseHalfVideoByteSource, 
 	const metadata = [...boxesIn(moovBytes, moov.body, moov.end)]
 		.filter(box => box.type === 'udta' || box.type === 'meta')
 		.map(box => moovBytes.slice(box.start, box.end));
+	const fileTypeBox = top.find(box => box.type === 'ftyp');
+	const fileType = fileTypeBox && fileTypeBox.end - fileTypeBox.start <= MAX_FILE_TYPE_BYTES
+		? await source.read(fileTypeBox.start, fileTypeBox.end - fileTypeBox.start)
+		: undefined;
 	return {
 		format,
 		video: video ? toTrack(moovBytes, video, movieTimescale, 'video') : undefined,
 		audio: audio ? toTrack(moovBytes, audio, movieTimescale, 'audio') : undefined,
-		metadata
+		metadata,
+		...(fileType ? { fileType } : {}),
+		movieTimes: { created, modified }
 	};
 }
 
-function readMvhdTimescale(bytes: Uint8Array, mvhd: IBox): number {
+function readMvhd(bytes: Uint8Array, mvhd: IBox): { readonly timescale: number; readonly created: number; readonly modified: number } {
 	const reader = new BaseHalfByteReader(bytes, mvhd.body, mvhd.end);
 	const version = reader.u8();
 	reader.skip(3);
-	reader.skip(version === 1 ? 16 : 8);
-	return reader.u32() || 1000;
+	const created = version === 1 ? reader.u64() : reader.u32();
+	const modified = version === 1 ? reader.u64() : reader.u32();
+	return { timescale: reader.u32() || 1000, created, modified };
 }
 
 function readTrack(bytes: Uint8Array, trak: IBox): ITrackParts {
@@ -248,12 +261,17 @@ function readTrack(bytes: Uint8Array, trak: IBox): ITrackParts {
 	}
 	const mdhd = childOf(bytes, trak, 'mdia', 'mdhd');
 	let timescale = 1;
+	let language = UNDETERMINED_LANGUAGE;
 	if (mdhd) {
 		const reader = new BaseHalfByteReader(bytes, mdhd.body, mdhd.end);
 		const version = reader.u8();
 		reader.skip(3);
 		reader.skip(version === 1 ? 16 : 8);
 		timescale = reader.u32() || 1;
+		reader.skip(version === 1 ? 8 : 4);
+		if (reader.remaining >= 2) {
+			language = reader.u16();
+		}
 	}
 	const hdlr = childOf(bytes, trak, 'mdia', 'hdlr');
 	let handler = '';
@@ -289,7 +307,8 @@ function readTrack(bytes: Uint8Array, trak: IBox): ITrackParts {
 		matrix,
 		edits,
 		entry,
-		samples: stbl ? readSampleTables(bytes, stbl) : []
+		samples: stbl ? readSampleTables(bytes, stbl) : [],
+		language
 	};
 }
 
@@ -544,7 +563,9 @@ function toTrack(bytes: Uint8Array, parts: ITrackParts, movieTimescale: number, 
 		rotation,
 		sampleRate: description.sampleRate,
 		channels: description.channels,
-		end: shown !== undefined ? Math.round(delayInTrack + shown) : undefined
+		end: shown !== undefined ? Math.round(delayInTrack + shown) : undefined,
+		...(entry ? { sampleEntry: bytes.slice(entry.start, entry.end) } : {}),
+		language: parts.language
 	});
 }
 

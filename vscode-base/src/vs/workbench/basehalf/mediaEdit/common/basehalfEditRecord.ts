@@ -5,6 +5,7 @@
 
 import { YamlMapNode, YamlNode } from '../../../../base/common/yaml.js';
 import { localize } from '../../../../nls.js';
+import { formatBaseHalfVideoTrimLength } from './basehalfVideoTrimSelection.js';
 import {
 	baseHalfMirrorYamlBoolean,
 	baseHalfMirrorYamlItems,
@@ -84,16 +85,16 @@ export class BaseHalfEditRecordError extends Error {
 
 /**
  * What an edit did, as the panel of a generated card and Card Detail say it
- * (editing media, "Generation cards"): `Trimmed to 1.0s–4.5s`, `Trimmed to 3
- * parts`, `Cropped to 1600 × 900`, and the rest of what it did after; nothing
- * for choices that are no edit. Times are in tenths, never above the time, as
- * the player shows them.
+ * (editing media, "Generation cards"): `Trimmed to 1.0s–4.5s`, `Trimmed to
+ * 4:49–75:17`, `Trimmed to 3 parts`, `Cropped to 1600 × 900`, and the rest of
+ * what it did after; nothing for choices that are no edit. Times are as the
+ * player shows them: in tenths under a minute, in minutes and seconds from a
+ * minute on, never above the time.
  */
 export function baseHalfEditSummary(choices: IBaseHalfMediaChoices): string | undefined {
-	const tenths = (seconds: number) => (Math.floor(seconds * 10 + 1e-5) / 10).toFixed(1);
 	const parts: string[] = [];
 	if (choices.keep?.length === 1) {
-		parts.push(localize('basehalf.mediaEdit.summary.trimmed', "Trimmed to {0}s–{1}s", tenths(choices.keep[0].start), tenths(choices.keep[0].end)));
+		parts.push(localize('basehalf.mediaEdit.summary.trimmedTo', "Trimmed to {0}–{1}", formatBaseHalfVideoTrimLength(choices.keep[0].start), formatBaseHalfVideoTrimLength(choices.keep[0].end)));
 	} else if (choices.keep && choices.keep.length > 1) {
 		parts.push(localize('basehalf.mediaEdit.summary.parts', "Trimmed to {0} parts", choices.keep.length));
 	}

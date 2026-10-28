@@ -161,6 +161,37 @@ export function planBaseHalfVideoClip(file: IBaseHalfVideoFile, extension: strin
 		throw new Error('A video without a picture has no clip.');
 	}
 	const { start, end } = range;
+	const { kept, decode } = baseHalfVideoPartFrames(video, start, end);
+
+	const container = baseHalfVideoClipContainer(extension);
+	const sourceFamily = baseHalfVideoCodecFamily(video.format);
+	const codec: BaseHalfVideoClipCodec = container === 'webm' ? 'vp9' : sourceFamily === 'hevc' ? 'hevc' : 'avc';
+	const sourceBitrate = baseHalfVideoTrackBitrate(video);
+	const frameRate = end > start ? kept.length / (end - start) : 30;
+	const pixelsPerSecond = video.width * video.height * frameRate;
+	const bitrate = baseHalfVideoClipBitrate(sourceBitrate, sourceFamily, codec, pixelsPerSecond);
+
+	const sound = planBaseHalfSoundPart(file.audio, start, end);
+	// The estimate takes the bitrate of H.264, which is the higher one when HEVC cannot be encoded.
+	const largest = Math.max(bitrate, codec === 'hevc' ? baseHalfVideoClipBitrate(sourceBitrate, sourceFamily, 'avc', pixelsPerSecond) : 0);
+	const estimatedBytes = Math.round((largest + (sound?.bitrate ?? 0)) / 8 * (end - start)) + kept.length * 64;
+	return {
+		start,
+		end,
+		container,
+		picture: { decode, kept, codec, sourceFamily, sourceBitrate, pixelsPerSecond, bitrate, frameRate },
+		sound,
+		estimatedBytes
+	};
+}
+
+/**
+ * The frames of a picture that a part from `start` to `end`, in seconds,
+ * keeps, in the order they are shown, and the samples to decode for them, in
+ * the order they are decoded: from the key frame they need to the last one
+ * they need, which may be shown after the end.
+ */
+export function baseHalfVideoPartFrames(video: IBaseHalfVideoTrack, start: number, end: number): { readonly kept: readonly IBaseHalfVideoSample[]; readonly decode: readonly IBaseHalfVideoSample[] } {
 	const shown = baseHalfVideoFramesInShownOrder(video);
 	const startUnits = start * video.timescale;
 	const endUnits = end * video.timescale;
@@ -199,28 +230,7 @@ export function planBaseHalfVideoClip(file: IBaseHalfVideoFile, extension: strin
 			key--;
 		}
 	}
-	const decode = video.samples.slice(key, last + 1);
-
-	const container = baseHalfVideoClipContainer(extension);
-	const sourceFamily = baseHalfVideoCodecFamily(video.format);
-	const codec: BaseHalfVideoClipCodec = container === 'webm' ? 'vp9' : sourceFamily === 'hevc' ? 'hevc' : 'avc';
-	const sourceBitrate = baseHalfVideoTrackBitrate(video);
-	const frameRate = end > start ? kept.length / (end - start) : 30;
-	const pixelsPerSecond = video.width * video.height * frameRate;
-	const bitrate = baseHalfVideoClipBitrate(sourceBitrate, sourceFamily, codec, pixelsPerSecond);
-
-	const sound = planBaseHalfSoundPart(file.audio, start, end);
-	// The estimate takes the bitrate of H.264, which is the higher one when HEVC cannot be encoded.
-	const largest = Math.max(bitrate, codec === 'hevc' ? baseHalfVideoClipBitrate(sourceBitrate, sourceFamily, 'avc', pixelsPerSecond) : 0);
-	const estimatedBytes = Math.round((largest + (sound?.bitrate ?? 0)) / 8 * (end - start)) + kept.length * 64;
-	return {
-		start,
-		end,
-		container,
-		picture: { decode, kept, codec, sourceFamily, sourceBitrate, pixelsPerSecond, bitrate, frameRate },
-		sound,
-		estimatedBytes
-	};
+	return { kept, decode: video.samples.slice(key, last + 1) };
 }
 
 /**
@@ -233,19 +243,13 @@ export function planBaseHalfSoundPart(audio: IBaseHalfVideoTrack | undefined, st
 		return undefined;
 	}
 	const seconds = (units: number) => units / audio.timescale;
-	const lastSample = audio.samples[audio.samples.length - 1];
-	const soundStart = Math.max(0, seconds(audio.samples[0].time));
-	const soundEnd = Math.min(
-		seconds(lastSample.time + lastSample.duration),
-		audio.end !== undefined ? seconds(audio.end) : Infinity
-	);
+	const { start: soundStart, end: soundEnd } = baseHalfSoundShown(audio);
 	const from = Math.max(start, soundStart);
 	const to = Math.min(end, soundEnd);
 	if (to <= from) {
 		return undefined;
 	}
-	const packet = seconds(audio.samples[0].duration) || 0.02;
-	const preroll = Math.max(SOUND_PREROLL_PACKETS * packet, audio.codec === 'opus' ? SOUND_PREROLL_SECONDS : 0);
+	const preroll = baseHalfSoundPreroll(audio);
 	const decode = audio.samples.filter(sample => seconds(sample.time + sample.duration) > from - preroll && seconds(sample.time) < to);
 	const bitrate = baseHalfVideoClipSoundBitrate(baseHalfVideoTrackBitrate(audio));
 	return {
@@ -257,4 +261,20 @@ export function planBaseHalfSoundPart(audio: IBaseHalfVideoTrack | undefined, st
 		fadeOut: to < soundEnd - 1e-6,
 		bitrate
 	};
+}
+
+/** Where a sound is shown, in seconds of its video: from its first packet, or 0, to its last packet's end, or where its edit list ends it. */
+export function baseHalfSoundShown(audio: IBaseHalfVideoTrack): { readonly start: number; readonly end: number } {
+	const seconds = (units: number) => units / audio.timescale;
+	const lastSample = audio.samples[audio.samples.length - 1];
+	return {
+		start: Math.max(0, seconds(audio.samples[0].time)),
+		end: Math.min(seconds(lastSample.time + lastSample.duration), audio.end !== undefined ? seconds(audio.end) : Infinity)
+	};
+}
+
+/** How long before the first sound shown its decoder starts, in seconds: the packets that the first one needs, and 80 ms of Opus (RFC 7845, section 4.6). */
+export function baseHalfSoundPreroll(audio: IBaseHalfVideoTrack): number {
+	const packet = audio.samples.length ? audio.samples[0].duration / audio.timescale || 0.02 : 0.02;
+	return Math.max(SOUND_PREROLL_PACKETS * packet, audio.codec === 'opus' ? SOUND_PREROLL_SECONDS : 0);
 }

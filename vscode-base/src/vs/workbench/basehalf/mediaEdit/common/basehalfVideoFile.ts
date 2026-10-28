@@ -68,6 +68,10 @@ export interface IBaseHalfVideoTrack {
 	 * edit list ends it before its last sample does; nothing otherwise.
 	 */
 	readonly end: number | undefined;
+	/** The sample entry of an MP4's or a MOV's track, whole and as the file has it, which a copy of a trim keeps; nothing for a WebM. */
+	readonly sampleEntry?: Uint8Array;
+	/** The language of an MP4's or a MOV's track, packed as its `mdhd` box has it; nothing for a WebM. */
+	readonly language?: number;
 }
 
 export type BaseHalfVideoFileFormat = 'mp4' | 'mov' | 'webm';
@@ -82,6 +86,10 @@ export interface IBaseHalfVideoFile {
 	 * are in the file. A WebM has none that BaseHalf copies.
 	 */
 	readonly metadata: readonly Uint8Array[];
+	/** The `ftyp` box of an MP4 or a MOV, whole, which a copy of a trim keeps; nothing for a WebM, or for a MOV that has none. */
+	readonly fileType?: Uint8Array;
+	/** When an MP4's or a MOV's movie was made and last changed, in seconds since 1904 as its `mvhd` box has them, which a copy of a trim keeps. */
+	readonly movieTimes?: { readonly created: number; readonly modified: number };
 }
 
 export type BaseHalfVideoFileErrorReason = 'format' | 'noPicture' | 'unsupportedEditList' | 'tooLarge' | 'read';
