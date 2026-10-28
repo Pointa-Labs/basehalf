@@ -4570,3 +4570,81 @@ the first key. Measured in a development window on `6d3548f51`:
 - The keyboard that the specifications put on Play when Card Detail opens,
   and on the editor's first control after a change, is on the media
   instead.
+
+## D101 — A zoomed picture moves within its own edges under floating controls, and the frame viewer shows its pictures together (NEW, 2026-10-28)
+
+**Decision.** In Card Detail, a picture and its frame viewer behave as a
+phone's photos do:
+- **A zoomed picture moves within its own edges.** A drag, a swipe, or the
+  wheel moves it only until an edge of it reaches the edge of the media
+  area, so that no room around the picture shows beside it. Along a side
+  where the zoomed picture is no larger than the area, a drag does not move
+  it, and it stays wholly inside. A pinch still keeps the place under the
+  fingers under them (D96), past the edges if they go there, and once it
+  rests the picture glides to where its edges allow, as a phone's photos
+  settle. This holds for a video and for an image.
+- **The controls float over it.** The zoomed picture shows under the frame
+  viewer and the line under the editor, which stand on a translucent backing
+  that blurs it, as the player's controls do (D98). No band of Card Detail's
+  background hides the picture. At rest nothing of this shows.
+- **Edit shows the picture as it fits**, a video as an image (D97), in a
+  glide of 200 ms, as a phone's editor shows the whole picture to edit it.
+- **The frame viewer's pictures come together.** Each is read, as a phone's
+  filmstrip reads it, from the key frame nearest the middle of its place
+  when one lies within half a place of it, and otherwise as the very frame
+  there. A set shows once it is all read, fading in over 120 ms, and the
+  sets of the whole original and of the part kept are kept while Card Detail
+  shows the file.
+- **Edit and Done glide the strip.** Its stretch goes from the part kept to
+  the whole original, or back, over 250 ms, its pictures moving and scaling
+  with their times, and the pictures of the new stretch fade in once read.
+
+See [editing media, "Zooming the picture and the time"](specs/media-editing.md#zooming-the-picture-and-the-time)
+and [the frame viewer](specs/media-editing.md#the-frame-viewer).
+
+**Why.** On 2026-10-28 the user zoomed a lecture video in Card Detail,
+dragged it toward the bottom right, and found a thick black edge under it:
+"正常来说剪辑的时候好像不应该有这个黑边吧？这个黑边上面有一个条，条上面显示的内容也不丝滑，并且我按 Edit 和 Done，这个条的变化会很奇怪。你应该全面对标电脑或者手机".
+Measured in a development window on `35b5f31d2` with a 75-minute 1080p
+lecture with a key frame every 10 s:
+- The black edge was the band of D96: a band of Card Detail's background
+  stood behind the frame viewer from the player's bottom edge down, to keep
+  the viewer readable over the picture, and cut the zoomed picture off
+  there. A drag could also bring the picture's top left corner into the
+  middle of the area, since D96 zoomed the media area as a page, its room
+  around the picture included.
+- The strip stayed empty for about 0.6 s after Card Detail opened, then
+  its pictures came one by one from the left over another 0.6 s. Each was
+  decoded from the key frame before it up to its exact frame, up to 250
+  frames for each picture of the lecture, a group at a time.
+- Done stretched the whole original's pictures over the part kept at once,
+  then drew the part's pictures one by one over about 1 s, over cells that
+  were empty and showed the stretched ones through them, so the strip
+  tore along its length.
+
+A phone's photos show a zoomed photo or video under translucent bars, and a
+zoomed picture never leaves its own edges. Its filmstrip is made from the
+nearest decodable frames, which the system's image generator allows for
+thumbnails, and shows them together. Its editor shows the whole picture.
+
+**What was set aside.**
+- A band that starts lower, or a darker one: the picture is still cut along
+  a line under the player, with nothing under that line.
+- Cutting the zoomed picture at the player's box, as before D96: the user
+  asked for the place under the fingers to grow over Card Detail.
+- A picture that springs back after a drag past its edge: it stops at the
+  edge instead, which needs no animation over a video.
+- Exact frames for every picture, read faster: a picture 5 minutes wide
+  does not show its exact frame anyway, and a key frame is read without the
+  250 frames before it.
+- Showing each picture as it comes, fading: the strip then fills from the
+  left, which is what read as not smooth.
+
+**Consequences.**
+- [Editing media](specs/media-editing.md): "What Card Detail shows",
+  "Zooming the picture and the time", "The frame viewer", criteria 33 to 35.
+- Revises D96: a zoomed picture moves within its own edges, not within the
+  zoomed media area, and the frame viewer floats over it instead of a band
+  hiding it; Edit shows a zoomed video as it fits.
+- Revises D99 only in that Edit and Done now glide the strip's pictures; the
+  strip itself stays where D99 put it.

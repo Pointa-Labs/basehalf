@@ -15,7 +15,10 @@ for cropping as a phone's photo editor does;
 for saving a trim by copying the video's frames, and the frame viewer under
 the picture;
 [D100](../decisions.md#d100--in-card-detail-the-keyboard-is-the-medias-and-a-press-of-a-button-leaves-it-there-new-2026-10-28)
-for the keyboard, which stays on the media
+for the keyboard, which stays on the media; and
+[D101](../decisions.md#d101--a-zoomed-picture-moves-within-its-own-edges-under-floating-controls-and-the-frame-viewer-shows-its-pictures-together-new-2026-10-28)
+for a zoomed picture that stays within its edges under floating controls,
+and the frame viewer's pictures and glide
 Related: [exact undo](exact-undo.md) (the steps of an edit and their undo),
 [generation cards](generation-cards.md) ("The player", "The file", and
 "`made.yaml`"), [opening and closing Card Detail](card-detail-opening.md),
@@ -418,10 +421,10 @@ crop:
   place and its size, and is drawn in every frame, when Edit and Done are
   pressed: the room of the tools under it is kept while viewing, empty under
   an image, and holding the timeline under a video and Play under a sound. A
-  zoom of a video's picture stays as it is. A zoom of an image's picture
-  glides back to as it fits in 200 ms when Edit is pressed, as a phone's photo
-  editor shows the whole picture to crop it, since a pinch while cropping
-  zooms the picture under the frame (D97); it is drawn in every frame.
+  zoom of the picture, of an image or of a video, glides back to as it fits
+  in 200 ms when Edit is pressed, as a phone's photo editor shows the whole
+  picture to edit it (D97, D101); a pinch while cropping zooms the picture
+  under the frame. The picture is drawn in every frame.
 - A file that BaseHalf cannot edit shows as a plain view, an image in its
   page and a video or a sound in the player, without Edit, and nothing says
   why: there is no control to explain ([Failure](#failure)). So does every
@@ -514,9 +517,14 @@ in Card Detail.
   Detail, as the page under a browser's toolbar does. Card Detail's controls
   keep their place and their size over it: the header, the player's
   controls, Edit or Done, the frame viewer, Play, the tools, and the line
-  under the editor, which hide what is under them. The background behind the
-  frame viewer reaches up to the player's bottom edge, so that no sliver of
-  the picture shows between the player and the viewer. The media area zooms from
+  under the editor. **The zoomed picture shows under them**, as a phone's
+  photos show under its bars (D101): nothing of Card Detail's background
+  hides it in a band, and the frame viewer and the line under the editor
+  stand on a translucent backing that blurs the picture behind them, as the
+  player's controls do (D98), with 6 px of it around them and rounded
+  corners. The backing fades in over 150 ms once the picture grows past its
+  box and out when it fits again; at rest they stand on Card Detail's
+  background as before. The media area zooms from
   as it fits up to 5 times that, as a browser zooms a page, or up to twice
   the picture's own pixels when that is more. A pinch follows the fingers, by
   e^(−Δy / 100) for each of its events, the measure the browser gives a
@@ -527,18 +535,25 @@ in Card Detail.
   are the crop's instead, as in a phone's crop tool: they zoom and move the
   picture under the crop frame (D97, [The crop frame](#the-crop-frame)).
 - **A picture zoomed in** moves with a two-finger swipe and the wheel, and
-  with a drag on it, as far as the edges of the zoomed media area go: the
-  media area is never moved off itself, so a zoomed picture can show the
-  room around it, zoomed, as a page shows its margins. The pointer over it is
+  with a drag on it, **as far as its own edges go**, as a phone's photos do
+  (D101): an edge of the zoomed picture stops at the edge of the media area,
+  so that no room around the picture shows beside it, and along a side where
+  the zoomed picture is no larger than the media area a drag, a swipe, and
+  the wheel do not move it, and it stays wholly inside the area. A pinch
+  follows the fingers, the place under them staying under them past these
+  edges if they go there, and 150 ms after its last movement the picture
+  glides in 200 ms to where its edges allow, as a phone's photos settle; as
+  it fits, that is where it rests. A drag or a swipe that starts before it
+  has settled settles it at once. The pointer over it is
   a grab hand. Over a video, a drag neither plays nor pauses it, a click that
   does not move plays and pauses it, and a double click fills the screen, as
   at rest; over an image, a double click shows it as it fits, or, as it
   fits, at its own pixels around the pointer. Escape during the drag puts the
   picture back where the drag took it from and leaves Card Detail open.
-  Edit, Done, the frame viewer, a change and its undo, Full Screen, and a
-  change of the size of Card Detail keep the zoom, as far as the new size
-  allows, except that Edit shows an image as it fits, in a glide of 200 ms
-  (D97). Card Detail opens with the picture as it fits, and so does a file
+  Done, the frame viewer, a change and its undo, Full Screen, and a change
+  of the size of Card Detail keep the zoom, as far as the new size allows;
+  Edit shows the picture as it fits, in a glide of 200 ms (D97, D101). Card
+  Detail opens with the picture as it fits, and so does a file
   shown anew. As it fits, a swipe and the wheel over the picture move
   nothing.
 - **An image that BaseHalf cannot edit**, a GIF, an AVIF, a BMP, or an SVG,
@@ -609,7 +624,7 @@ in Card Detail.
   had.
 - **The strip lines up with the picture** (D99): its ends stand under the
   picture's left and right edges, within 1 px, while viewing and while
-  editing, and Edit and Done move none of its frames. The handles stand
+  editing, and Edit and Done move the strip itself nowhere. The handles stand
   outside the strip's ends, so that while editing a part that reaches the
   video's start or end has its handle outside the picture's edge.
 - **The viewer is the video's timeline**: the player above it shows Play, the
@@ -631,7 +646,22 @@ in Card Detail.
   the playhead, and no yellow frame, handles, shade, or length. A press
   anywhere on it moves the playhead there, and a drag from there moves it
   along. Edit shows the whole original under the same strip, with the part
-  kept in its frame where it lies; Done shows the file again.
+  kept in its frame where it lies; Done shows the file again. **The strip
+  glides between them** (D101): over 250 ms its stretch goes from the part to
+  the whole original, or back, its pictures moving and scaling with the
+  times they show, while the yellow frame, the handles, and the shade fade
+  in or out; the pictures of the new stretch then fade in over the moved
+  ones.
+- **The pictures come together**, as a phone's filmstrip shows them (D101).
+  Each is the frame at the middle of its place, or, when the video has a key
+  frame within half a place of that middle, the key frame nearest it, which
+  is read without the frames before it, as a phone's thumbnails are; the
+  pictures of a held handle's spread are so too. A set of pictures shows
+  once all of it is read, fading in over 120 ms over what the strip showed;
+  a set that takes longer than 1 s shows what is read then and fades in the
+  rest as it comes. Until the first set is read, the strip is its empty
+  shade. The pictures of the whole original and of the part kept are kept
+  while Card Detail shows the file, so that Edit and Done read them once.
 
 ### The pointer
 
@@ -1115,10 +1145,11 @@ in Card Detail.
     when Edit was pressed, and Cancel flashed).
 16. A pinch made through the browser's protocol, by 1.6, over the picture of
     a video of 1280 × 720 in Card Detail draws it 1.6 times larger, with the
-    point that was under the pointer within 2 pixels of it, past the box of
-    its player, which keeps its place and size, and the controls at their
-    size; between the player and the frame viewer the window shows only Card
-    Detail's background, also after a swipe. A drag then moves the picture
+    point that was under the pointer within 2 pixels of it along each side
+    where no edge of the picture stands on the media area's (D101), past the
+    box of its player, which keeps its place and size, and the controls at
+    their size; between the player and the frame viewer the picture shows,
+    also after a swipe (criterion 33). A drag then moves the picture
     and does not play it; a click plays it; a pinch by 0.5 shows it as it
     fits. A video of 854 × 480 that fits at 1,280 pixels zooms to 5 times
     that.
@@ -1227,6 +1258,25 @@ in Card Detail.
     shows its ring. The same holds for a sound, with its waveform, and for
     an image, with its picture, which shows no ring after a key (D100; the
     user, 2026-10-28: a blue frame on Play at Left and Right).
+33. Card Detail of a 16:9 video, zoomed in 2.5 times by a pinch and dragged
+    400 px toward the bottom right: the picture's top and left edges stop at
+    the media area's top and left edges, and no room around it shows; under
+    the frame viewer the picture shows, blurred, through a backing 6 px
+    around the strip, and no band of the background hides it anywhere. The
+    same for an image while viewing. As it fits, the viewer stands on the
+    background with no backing (D101; the user, 2026-10-28: a thick black
+    edge under a zoomed video dragged toward the bottom right).
+34. Card Detail of a 75-minute 1080p lecture with a key frame every 10 s,
+    recorded on every frame from the double click: the frame viewer's
+    pictures show together, within 1 s, each from a key frame, fading in over
+    120 ms; no frame shows some of them and not others (D101; the user: the
+    strip "不丝滑").
+35. The same lecture with its first 5 minutes trimmed off, recorded on every
+    frame: Done glides the strip from the whole original to the part kept in
+    250 ms and Edit back, every frame showing pictures over the whole strip,
+    none of them empty or torn; the pictures of the new stretch fade in once,
+    together; Edit glides a zoomed picture back to as it fits in 200 ms (D101;
+    the user: Edit and Done changed the strip "很奇怪").
 
 ## Verification
 
@@ -1251,7 +1301,9 @@ in Card Detail.
   file from bytes and ranges of other files.
 - Unit tests of zooming (`basehalfMediaZoom.test.ts`): the factor of a pinch
   and of the wheel with the zoom key, the largest zoom of a picture, the zoom
-  of a media area around a point and its edges, a move by a swipe, and a
+  of a media area around a point and its edges, a picture that stops at its
+  own edges and does not move along a side where it is no larger than the
+  area (D101), a move by a swipe, and a
   stretch of time spread out, moved along, kept inside the length, and
   following the playhead. Tests in the window of the unit tests of the zoom
   of a video's picture (`basehalfVideoPictureZoom.test.ts`: a pinch past the
@@ -1296,8 +1348,11 @@ in Card Detail.
   cutting a sound (`card-detail-sound-edit`: viewing first, the keys of the
   playhead, Edit, a stretch selected and cut, a trim, the editor again, undo,
   and Revert to Original),
-  and pinching (`card-detail-media-pinch`: criteria 16 to 20, with pinches
-  and swipes made through the browser's protocol).
+  and pinching (`card-detail-media-pinch`: criteria 16 to 20 and 33, with
+  pinches and swipes made through the browser's protocol). Unit tests of
+  the key frames the frame viewer's pictures are read from
+  (`basehalfVideoTrimPictures.test.ts`), and, in the window of the unit
+  tests, of the strip's glide and its sets of pictures shown together.
 - In a development window: each kind and format with the media of the
   development workspace, the time each write takes, the quality of the edited
   file against its original frame by frame, and the canvas card and Card Detail
