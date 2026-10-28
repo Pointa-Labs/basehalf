@@ -6,6 +6,7 @@
 import { AGENT_CREATED_CARD_PATH, assertAgentCreatesCard, assertAgentSeesSelection, assertAgentUpstreamEditDrawsEdge } from './areas/canvas/agents.mts';
 import { assertBadgeEditorUpstreamDownstream, assertCanvasCardBadgePreviewAndConnectors, assertCanvasUnreadableBadgeRecovers } from './areas/canvas/badges.mts';
 import { assertCanvasConnectIntoNote, assertCanvasConnectionHandleCapture, assertCanvasCreateFromConnection, assertCanvasUndoAfterClosingNote } from './areas/canvas/connections.mts';
+import { assertCanvasCopyPasteKeys } from './areas/canvas/clipboard.mts';
 import {
 	assertCanvasCreateMenuMakesDrafts,
 	assertCanvasCreateNote,
@@ -164,6 +165,7 @@ async function runCanvasSuite(page) {
 	await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 	await step('canvas-create-menu-makes-drafts', () => assertCanvasCreateMenuMakesDrafts(page));
 	await step('canvas-new-folder', () => assertCanvasNewFolder(page));
+	await step('canvas-copy-paste-keys', () => assertCanvasCopyPasteKeys(page));
 	await step('canvas-exact-undo', () => assertCanvasExactUndo(page));
 	await step('canvas-files-follow-deletes', () => assertFilesFollowCanvasDeletes(page));
 	await step('canvas-create-note', () => assertCanvasCreateNote(page));

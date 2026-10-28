@@ -63,6 +63,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { getPathForFile } from '../../../../platform/dnd/browser/dnd.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/navigation/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasEditingService } from '../../../basehalf/canvas/common/basehalfCanvasEditing.js';
+import { IBaseHalfClipboardService } from '../../../basehalf/clipboard/common/basehalfClipboard.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, shouldRouteSingleResourceThroughBaseHalf, tryOpenBaseHalfResource } from '../../../basehalf/navigation/common/basehalfOpenRouting.js';
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../../basehalf/navigation/common/basehalfEditorFlush.js';
 
@@ -1185,12 +1186,16 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 	const uriIdentityService = accessor.get(IUriIdentityService);
 	const dialogService = accessor.get(IDialogService);
 	const hostService = accessor.get(IHostService);
+	const baseHalfClipboardService = accessor.get(IBaseHalfClipboardService);
 
 	const context = explorerService.getContext(false);
 	const hasNativeFilesToPaste = fileList !== undefined && fileList.length > 0;
 	const confirmPasteNative = hasNativeFilesToPaste && configurationService.getValue<boolean>('explorer.confirmPasteNative');
 
 	const toPaste = await getFilesToPaste(fileList, clipboardService, hostService);
+	// BaseHalf: whether the paste moves is what the clipboard's record says, so
+	// that another app's copy after a cut is copied, never moved (D104).
+	const move = toPaste.type === 'paths' && !hasNativeFilesToPaste && (await baseHalfClipboardService.readItems())?.cut === true;
 
 	if (confirmPasteNative && toPaste.files.length >= 1) {
 		const message = toPaste.files.length > 1 ?
@@ -1237,9 +1242,8 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 		return;
 	}
 
+	let targets: URI[] = [];
 	try {
-		let targets: URI[] = [];
-
 		if (toPaste.type === 'paths') { // Pasting from files on disk
 
 			// Check if target is ancestor of pasted folder
@@ -1262,7 +1266,7 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 					fileService,
 					dialogService,
 					target,
-					{ resource: fileToPaste, isDirectory: fileToPasteStat.isDirectory, allowOverwrite: pasteShouldMove || incrementalNaming === 'disabled' },
+					{ resource: fileToPaste, isDirectory: fileToPasteStat.isDirectory, allowOverwrite: move || incrementalNaming === 'disabled' },
 					incrementalNaming
 				);
 
@@ -1275,7 +1279,7 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 
 			if (sourceTargetPairs.length >= 1) {
 				// Move/Copy File
-				if (pasteShouldMove) {
+				if (move) {
 					const resourceFileEdits = sourceTargetPairs.map(pair => new ResourceFileEdit(pair.source, pair.target, { overwrite: incrementalNaming === 'disabled' }));
 					const options = {
 						confirmBeforeUndo: configurationService.getValue<IFilesConfiguration>().explorer.confirmUndo === UndoConfirmLevel.Verbose,
@@ -1302,7 +1306,7 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 					fileService,
 					dialogService,
 					target,
-					{ resource: file.name, isDirectory: false, allowOverwrite: pasteShouldMove || incrementalNaming === 'disabled' },
+					{ resource: file.name, isDirectory: false, allowOverwrite: move || incrementalNaming === 'disabled' },
 					incrementalNaming
 				);
 				if (!targetFile) {
@@ -1341,9 +1345,11 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 	} catch (e) {
 		notificationService.error(toErrorMessage(new Error(nls.localize('fileDeleted', "The file(s) to paste have been deleted or moved since you copied them. {0}", getErrorMessage(e))), false));
 	} finally {
-		if (pasteShouldMove) {
+		if (move) {
 			// Cut is done. Make sure to clear cut state.
-			await explorerService.setToCopy([], false);
+			// BaseHalf: the clipboard then holds what moved at its new place, not
+			// cut, so that a second paste copies it, as on the canvas (D104).
+			await explorerService.setResourcesToCopy(targets, false);
 			pasteShouldMove = false;
 		}
 	}

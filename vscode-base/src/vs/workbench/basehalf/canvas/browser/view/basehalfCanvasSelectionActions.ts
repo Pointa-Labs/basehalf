@@ -13,6 +13,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
 import { IFilesConfiguration } from '../../../../contrib/files/common/files.js';
+import { setExplorerFileClipboard } from '../../../../contrib/files/browser/fileActions.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { baseHalfCanvasChildPath, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
@@ -655,6 +656,31 @@ export class BaseHalfCanvasSelectionActions {
 			}
 		}, true));
 		return toDisposable(() => session.end(false));
+	}
+
+	/**
+	 * Copy and Cut on the canvas (copy, paste, and drop, "Copy and Cut"): the
+	 * selected cards, drafts and folders too, or, from the menu of a card that
+	 * is not one of them, that card. Resolves with whether anything was put on
+	 * the clipboard.
+	 */
+	async copyCanvasCards(context: IBaseHalfCanvasActionContext | undefined, cut: boolean): Promise<boolean> {
+		const folder = this.view.getCurrentFolder();
+		const selection = folder && this.view.agentSelectionCards.sceneKey === this.view.sceneKey(folder) ? this.view.agentSelectionCards.paths : [];
+		let resources: URI[];
+		if (context && !selection.includes(context.relativePath)) {
+			await this.view.canvasActionContextService.assertCurrent(context);
+			resources = [context.resource];
+		} else {
+			resources = selection
+				.map(path => this.view.renderedItemsByPath.get(path)?.stat.resource)
+				.filter((resource): resource is URI => !!resource);
+		}
+		if (resources.length === 0) {
+			return false;
+		}
+		await setExplorerFileClipboard(this.view.explorerService, resources, cut);
+		return true;
 	}
 
 	/** Ends Pick on Canvas, when it is on, without telling its pick. */

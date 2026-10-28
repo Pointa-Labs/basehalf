@@ -12,7 +12,8 @@ import { URI } from '../../../../base/common/uri.js';
 import { FileOperationEvent, FileOperation, IFileService, FileChangesEvent, FileChangeType, IResolveFileOptions } from '../../../../platform/files/common/files.js';
 import { dirname, basename } from '../../../../base/common/resources.js';
 import { IConfigurationService, IConfigurationChangeEvent } from '../../../../platform/configuration/common/configuration.js';
-import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+// BaseHalf: Files writes the clipboard as the canvas does, cut or not, in one write (D104).
+import { IBaseHalfClipboardService } from '../../../basehalf/clipboard/common/basehalfClipboard.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IEditableData } from '../../../common/views.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
@@ -48,7 +49,7 @@ export class ExplorerService implements IExplorerService {
 		@IFileService private fileService: IFileService,
 		@IConfigurationService private configurationService: IConfigurationService,
 		@IWorkspaceContextService private contextService: IWorkspaceContextService,
-		@IClipboardService private clipboardService: IClipboardService,
+		@IBaseHalfClipboardService private readonly baseHalfClipboardService: IBaseHalfClipboardService,
 		@IEditorService private editorService: IEditorService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IBulkEditService private readonly bulkEditService: IBulkEditService,
@@ -265,7 +266,8 @@ export class ExplorerService implements IExplorerService {
 			.map(resource => this.findClosest(resource))
 			.filter((item): item is ExplorerItem => !!item);
 		this.cutResources = cut ? [...resources] : undefined;
-		await this.clipboardService.writeResources([...resources]);
+		// BaseHalf: the record says whether a paste moves, not a variable of the window (D104).
+		await this.baseHalfClipboardService.writeItems(resources, cut);
 		const items = resources
 			.map(resource => this.findClosest(resource))
 			.filter((item): item is ExplorerItem => !!item);

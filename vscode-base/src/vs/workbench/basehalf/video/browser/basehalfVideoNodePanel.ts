@@ -92,6 +92,9 @@ import { BaseHalfGenerationReferenceMenu } from './basehalfGenerationReferenceMe
 import { BaseHalfGenerationVoiceMenu, IBaseHalfVoiceMenuTarget } from './basehalfGenerationVoiceMenu.js';
 import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
 import { baseHalfCanvasMediaUrlAt, baseHalfCanvasMediaVersion } from '../../canvas/browser/basehalfCanvasCardMedia.js';
+import { BaseHalfTransfer, IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
+import { baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../clipboard/browser/basehalfTransfer.js';
+import { BaseHalfTransferPart, baseHalfTransferParts } from '../../clipboard/browser/basehalfTransferFiles.js';
 import {
 	BASEHALF_VIDEO_PANEL_MAX_HEIGHT,
 	BASEHALF_VIDEO_PANEL_MIN_HEIGHT,
@@ -117,6 +120,14 @@ export interface IBaseHalfVideoNodePanelHost {
 	 */
 	/** `kinds` are the kinds of input its dialog offers: those some model of the card's kind takes (D90). */
 	importFile(accept: (path: string) => Promise<boolean>, kinds: readonly BaseHalfTakenInputKind[]): Promise<string | undefined>;
+	/**
+	 * The input that one thing of a paste or a drop gives (copy, paste, and
+	 * drop, "The input row of a draft"), as a workspace-relative path: an item
+	 * of the card's workspace folder where it is, a file from elsewhere copied
+	 * into the card's folder, a picture or text made a file there. `accept` is
+	 * asked first with the path, and nothing is copied or made when it refuses.
+	 */
+	takeInput(part: BaseHalfTransferPart, accept: (path: string) => Promise<boolean>): Promise<string | undefined>;
 	/** Moves the focus to the card: Escape with no menu open. */
 	focusCard(): void;
 	/**
@@ -365,7 +376,8 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		@IHoverService private readonly hoverService: IHoverService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IBaseHalfClipboardService private readonly clipboardService: IBaseHalfClipboardService
 	) {
 		super();
 		this.saveDelay = options?.saveDelay ?? BASEHALF_VIDEO_PANEL_PROMPT_SAVE_DELAY;
@@ -377,6 +389,31 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		this.element = $('.bh-video-panel');
 		this.element.setAttribute('role', 'group');
 		this.element.dataset.state = 'loading';
+		// A press on the panel where it has no control gives it the keyboard,
+		// so that a paste there goes into its inputs, not onto the canvas.
+		this.element.tabIndex = -1;
+		// A paste in the input row, and a drop anywhere on the panel but its
+		// prompt, adds inputs (copy, paste, and drop, "The input row of a draft").
+		this._register(addDisposableListener(this.element, 'paste', event => {
+			if (event.defaultPrevented || this.editor.element.contains(event.target as Node) || isHTMLInputElement(event.target)) {
+				return;
+			}
+			event.preventDefault();
+			void this.pasteTransfer(false);
+		}));
+		this._register(addDisposableListener(this.element, 'dragover', event => {
+			if (baseHalfDragHoldsTransfer(event.dataTransfer)) {
+				event.preventDefault();
+				event.dataTransfer!.dropEffect = 'copy';
+			}
+		}));
+		this._register(addDisposableListener(this.element, 'drop', event => {
+			if (event.defaultPrevented || !event.dataTransfer || !baseHalfDragHoldsTransfer(event.dataTransfer)) {
+				return;
+			}
+			event.preventDefault();
+			void this.dropTransfer(event.dataTransfer, false);
+		}));
 
 		// Menus and the look at an input lie over everything else of the panel; the layer is added last.
 		this.layer = $('.bh-video-panel-layer');
@@ -424,7 +461,10 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			ariaLabel: localize('basehalf.video.panel.prompt', "Prompt"),
 			placeholder: baseHalfVideoPanelPlaceholder(options?.snapshot?.kind ?? 'video'),
 			maxLength: BASEHALF_GENERATION_PROMPT_MAX_LENGTH,
-			chipOf: mention => this.chipOf(mention)
+			chipOf: mention => this.chipOf(mention),
+			// Files and pictures pasted or dropped into the prompt become inputs and are mentioned (copy, paste, and drop).
+			pasteFiles: () => { void this.pasteTransfer(true); },
+			dropTransfer: dataTransfer => { void this.dropTransfer(dataTransfer, true); }
 		}));
 		// The field grows with its text from three lines to five, and scrolls beyond.
 		Object.assign(this.editor.element.style, {
@@ -2219,6 +2259,81 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		const start = selection?.start ?? end;
 		this.editor.focus(start);
 		this.editor.replace(start, selection?.end ?? end, `${baseHalfPromptMention(path)} `);
+	}
+
+	//#endregion
+
+	//#region Paste and drop
+
+	/** A paste in the panel: what the clipboard holds becomes inputs, and from the prompt is mentioned. */
+	private async pasteTransfer(mention: boolean): Promise<void> {
+		let transfer: BaseHalfTransfer | undefined;
+		try {
+			transfer = await this.clipboardService.read();
+		} catch (error) {
+			this.reportReferenceError(error);
+			return;
+		}
+		if (transfer) {
+			await this.takeTransfer(transfer, mention);
+		}
+	}
+
+	/** A drop on the panel, as a paste there; on the prompt, at the caret where it was let go. */
+	private async dropTransfer(dataTransfer: DataTransfer, mention: boolean): Promise<void> {
+		let transfer: BaseHalfTransfer | undefined;
+		try {
+			transfer = await baseHalfTransferFromDrop(dataTransfer);
+		} catch (error) {
+			this.reportReferenceError(error);
+			return;
+		}
+		if (!transfer || this.disposed) {
+			return;
+		}
+		if (mention && transfer.kind === 'text') {
+			if (!this.isLocked()) {
+				this.editor.insert(transfer.text);
+			}
+			return;
+		}
+		await this.takeTransfer(transfer, mention);
+	}
+
+	/**
+	 * Each thing a paste or a drop hands over becomes an input, one after the
+	 * other, as Pick on Canvas connects a card: what the model cannot use is
+	 * refused with the reason, and an input that is connected already stays
+	 * where it is. From the prompt, each is then mentioned at the caret (D74).
+	 */
+	private async takeTransfer(transfer: BaseHalfTransfer, mention: boolean): Promise<void> {
+		if (this.isLocked()) {
+			return;
+		}
+		const taken: string[] = [];
+		for (const part of baseHalfTransferParts(transfer)) {
+			let path: string | undefined;
+			try {
+				path = await this.host.takeInput(part, async candidate => this.snapshot?.upstream.includes(candidate) || await this.acceptInput(candidate));
+			} catch (error) {
+				this.reportReferenceError(error);
+				continue;
+			}
+			if (this.disposed) {
+				return;
+			}
+			if (!path || (!this.snapshot?.upstream.includes(path) && !await this.connect(path))) {
+				continue;
+			}
+			// The next one is asked about with this one among the inputs, and its chip is drawn.
+			await this.refresh();
+			taken.push(path);
+		}
+		if (mention && !this.disposed) {
+			for (const path of taken) {
+				this.insertMention(path);
+			}
+		}
 	}
 
 	//#endregion

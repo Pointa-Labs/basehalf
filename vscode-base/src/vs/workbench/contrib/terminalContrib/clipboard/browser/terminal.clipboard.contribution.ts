@@ -26,7 +26,7 @@ import { TerminalContextKeys } from '../../../terminal/common/terminalContextKey
 import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { terminalStrings } from '../../../terminal/common/terminalStrings.js';
-import { isString } from '../../../../../base/common/types.js';
+import { hasKey, isString } from '../../../../../base/common/types.js';
 
 // #region Terminal Contributions
 
@@ -82,6 +82,16 @@ export class TerminalClipboardContribution extends Disposable implements ITermin
 	 * Focuses and pastes the contents of the clipboard into the terminal instance.
 	 */
 	async paste(): Promise<void> {
+		// BaseHalf: files on the clipboard, copied in BaseHalf or in another app,
+		// are typed as their paths, quoted as a drop of them is (D104).
+		const files = (await this._clipboardService.readResources()).filter(resource => resource.scheme === Schemas.file);
+		if (files.length > 0) {
+			const instance = this._ctx.instance;
+			const paths = await Promise.all(files.map(file => hasKey(instance, { preparePathForShell: true }) ? instance.preparePathForShell(file.fsPath) : file.fsPath));
+			await this._paste(paths.join(' '));
+			return;
+		}
+
 		let text = await this._clipboardService.readText();
 
 		if (!text) {

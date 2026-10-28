@@ -7,7 +7,7 @@ import { mainWindow } from '../../../../../base/browser/window.js';
 import { RunOnceScheduler } from '../../../../../base/common/async.js';
 import { Event } from '../../../../../base/common/event.js';
 import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
-import { basename, dirname, joinPath } from '../../../../../base/common/resources.js';
+import { basename, dirname, extname, joinPath } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { IFileDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
@@ -18,7 +18,9 @@ import { IUriIdentityService } from '../../../../../platform/uriIdentity/common/
 import { ILifecycleService } from '../../../../services/lifecycle/common/lifecycle.js';
 import { IBaseHalfCanvasContribution, IBaseHalfCanvasContributionContext, IBaseHalfCanvasView, IBaseHalfCanvasViewSceneChange, registerBaseHalfCanvasContribution } from '../../../canvas/browser/basehalfCanvasExtensions.js';
 import { baseHalfCanvasChildPath } from '../../../canvas/common/basehalfCanvasModel.js';
-import { IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { baseHalfTransferFileNames } from '../../../clipboard/common/basehalfClipboard.js';
+import { BaseHalfTransferPart, baseHalfCreateTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfGenerationKind } from '../../../video/common/basehalfGenerationInfo.js';
 import { BASEHALF_VIDEO_INPUT_EXTENSIONS, BaseHalfTakenInputKind } from '../../../video/common/basehalfVideoCatalog.js';
@@ -310,6 +312,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			didChangeConnections: () => this.canvas.requestRender(),
 			didShowInputs: upstream => this.canvas.showUpstreamLines(sceneKey, path, upstream),
 			importFile: (accept, kinds) => this.importFile(path, accept, kinds),
+			takeInput: (part, accept) => this.takeInput(path, part, accept),
 			focusCard: () => this.canvas.focusCard(path),
 			didGenerateInNode: resource => this.selectCardWhenDrawn(sceneKey, resource),
 			// The draft a model of another format renamed keeps the selection and its panel at its new name.
@@ -382,11 +385,50 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			const path = baseHalfCanvasChildPath(folder.relativePath, name);
 			return await accept(path) ? path : undefined;
 		}
-		const dot = name.lastIndexOf('.');
-		const stem = dot > 0 ? name.slice(0, dot) : name;
-		const extension = dot > 0 ? name.slice(dot) : '';
-		for (let number = 1; number < 1000; number++) {
-			const candidate = number === 1 ? name : `${stem} ${number}${extension}`;
+		return this.makeInCardFolder(folder, cardFolder, baseHalfTransferFileNames(extname(source).slice(1), name), accept, target => this.fileService.copy(source, target, false));
+	}
+
+	/**
+	 * A paste or a drop in the panel's input row or prompt (copy, paste, and
+	 * drop, "The input row of a draft"): an item of the card's workspace folder
+	 * is the input where it is; a file from elsewhere is copied into the
+	 * card's folder, as Import File… copies it; a picture or text is made a
+	 * file there. Resolves with the input's workspace-relative path. `accept`
+	 * is asked first, and nothing is copied or made when it refuses.
+	 */
+	private async takeInput(targetPath: string, part: BaseHalfTransferPart, accept: (path: string) => Promise<boolean>): Promise<string | undefined> {
+		const item = this.canvas.getItem(targetPath);
+		const folder = this.canvas.getFolder();
+		if (!item || !folder) {
+			return undefined;
+		}
+		const cardFolder = dirname(item.stat.resource);
+		if (part.kind !== 'item') {
+			const names = part.kind === 'picture' ? baseHalfTransferFileNames(part.extension, part.name) : baseHalfTransferFileNames('md');
+			return this.makeInCardFolder(folder, cardFolder, names, accept, target => baseHalfCreateTransferFile(this.fileService, target, part));
+		}
+		const resource = part.item.resource;
+		const extUri = this.uriIdentityService.extUri;
+		if (extUri.isEqualOrParent(resource, folder.workspaceFolder)) {
+			const path = extUri.relativePath(folder.workspaceFolder, resource);
+			return path && await accept(path) ? path : undefined;
+		}
+		return this.makeInCardFolder(folder, cardFolder, baseHalfTransferFileNames(extname(resource).slice(1), basename(resource)), accept, target => this.fileService.copy(resource, target, false));
+	}
+
+	/**
+	 * Makes a file in the card's folder under the first of `names` that no
+	 * file, folder, or draft has, once `accept` takes the path it would have,
+	 * and resolves with that path.
+	 */
+	private async makeInCardFolder(
+		folder: IBaseHalfCanvasFolderState,
+		cardFolder: URI,
+		names: Iterable<string>,
+		accept: (path: string) => Promise<boolean>,
+		make: (target: URI) => Promise<unknown>
+	): Promise<string | undefined> {
+		for (const candidate of names) {
 			const target = joinPath(cardFolder, candidate);
 			const path = baseHalfCanvasChildPath(folder.relativePath, candidate);
 			// A draft's path is taken, as for every name the canvas chooses.
@@ -396,7 +438,7 @@ export class BaseHalfCanvasVideoPanel extends Disposable implements IBaseHalfCan
 			if (!await accept(path)) {
 				return undefined;
 			}
-			await this.fileService.copy(source, target, false);
+			await make(target);
 			return path;
 		}
 		return undefined;

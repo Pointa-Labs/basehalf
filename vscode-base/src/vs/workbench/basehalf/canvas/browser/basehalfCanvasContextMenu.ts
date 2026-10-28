@@ -51,8 +51,6 @@ import { IBaseHalfReferenceEditService } from '../../references/common/basehalfR
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../../workspace/common/basehalfWorkspaceMutation.js';
 import { IBaseHalfKeptVersionsService } from '../../workspace/browser/basehalfKeptVersions.js';
 import { COPY_PATH_COMMAND_ID, COPY_RELATIVE_PATH_COMMAND_ID, REVEAL_IN_EXPLORER_COMMAND_ID } from '../../../contrib/files/browser/fileConstants.js';
-import { IExplorerService } from '../../../contrib/files/browser/files.js';
-import { setExplorerFileClipboard } from '../../../contrib/files/browser/fileActions.js';
 import { IFilesConfiguration, UndoConfirmLevel } from '../../../contrib/files/common/files.js';
 
 export const BASEHALF_CANVAS_CARD_CONTEXT_MENU = MenuId.for('BaseHalfCanvasCardContext');
@@ -637,10 +635,8 @@ registerAction2(class BaseHalfCanvasCutResourceAction extends Action2 {
 		if (!isBaseHalfCanvasActionContext(argument)) {
 			return;
 		}
-		const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
-		const explorerService = accessor.get(IExplorerService);
-		await actionContextService.assertCurrent(argument);
-		await setExplorerFileClipboard(explorerService, [argument.resource], true);
+		// The selected cards, when this card is one of them, as in a file manager (copy, paste, and drop).
+		await accessor.get(IBaseHalfCanvasEditingService).requestCopy(argument, true);
 	}
 });
 
@@ -657,10 +653,8 @@ registerAction2(class BaseHalfCanvasCopyResourceAction extends Action2 {
 		if (!isBaseHalfCanvasActionContext(argument)) {
 			return;
 		}
-		const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
-		const explorerService = accessor.get(IExplorerService);
-		await actionContextService.assertCurrent(argument);
-		await setExplorerFileClipboard(explorerService, [argument.resource], false);
+		// The selected cards, when this card is one of them, as in a file manager (copy, paste, and drop).
+		await accessor.get(IBaseHalfCanvasEditingService).requestCopy(argument, false);
 	}
 });
 

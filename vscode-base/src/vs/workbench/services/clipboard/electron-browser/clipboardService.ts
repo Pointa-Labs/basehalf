@@ -8,18 +8,18 @@ import { URI } from '../../../../base/common/uri.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { INativeHostService } from '../../../../platform/native/common/native.js';
-import { VSBuffer } from '../../../../base/common/buffer.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+// BaseHalf: files on the clipboard are written and read as BaseHalf's clipboard writes and reads them (D104).
+import { IBaseHalfClipboardService } from '../../../basehalf/clipboard/common/basehalfClipboard.js';
 
 export class NativeClipboardService implements IClipboardService {
-
-	private static readonly FILE_FORMAT = 'code/file-list'; // Clipboard format for files
 
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
 		@INativeHostService private readonly nativeHostService: INativeHostService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IBaseHalfClipboardService private readonly baseHalfClipboardService: IBaseHalfClipboardService
 	) { }
 
 	async triggerPaste(targetWindowId: number): Promise<void> {
@@ -55,39 +55,20 @@ export class NativeClipboardService implements IClipboardService {
 		}
 	}
 
+	// BaseHalf: the files, their paths as text, and BaseHalf's record in one
+	// write, and the files of BaseHalf's record or of another app's copy read
+	// back; a draft has no file and is left out (D104).
 	async writeResources(resources: URI[]): Promise<void> {
-		if (resources.length) {
-			return this.nativeHostService.writeClipboardBuffer(NativeClipboardService.FILE_FORMAT, this.resourcesToBuffer(resources));
-		}
+		return this.baseHalfClipboardService.writeItems(resources, false);
 	}
 
 	async readResources(): Promise<URI[]> {
-		return this.bufferToResources(await this.nativeHostService.readClipboardBuffer(NativeClipboardService.FILE_FORMAT));
+		const transfer = await this.baseHalfClipboardService.readItems();
+		return transfer?.items.filter(item => !item.draft).map(item => item.resource) ?? [];
 	}
 
 	async hasResources(): Promise<boolean> {
-		return this.nativeHostService.hasClipboard(NativeClipboardService.FILE_FORMAT);
-	}
-
-	private resourcesToBuffer(resources: URI[]): VSBuffer {
-		return VSBuffer.fromString(resources.map(r => r.toString()).join('\n'));
-	}
-
-	private bufferToResources(buffer: VSBuffer): URI[] {
-		if (!buffer) {
-			return [];
-		}
-
-		const bufferValue = buffer.toString();
-		if (!bufferValue) {
-			return [];
-		}
-
-		try {
-			return bufferValue.split('\n').map(f => URI.parse(f));
-		} catch (error) {
-			return []; // do not trust clipboard data
-		}
+		return (await this.readResources()).length > 0;
 	}
 }
 

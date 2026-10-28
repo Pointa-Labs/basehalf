@@ -144,16 +144,17 @@ suite('TerminalClipboard', function () {
 
 		test('Clipboard text', async () => {
 			await clipboardService.writeText('hello');
-			await clipboardService.writeResources([URI.file('/should/not/be/used')]);
 
 			await contribution.paste();
 			strictEqual(pasted, 'hello');
 		});
-		test('Clipboard resource fallback when text is empty', async () => {
+		// BaseHalf: files on the clipboard are typed as their paths, also when it holds text (D104).
+		test('Clipboard files are pasted as their paths, before text', async () => {
+			await clipboardService.writeText('hello');
 			await clipboardService.writeResources([URI.file('/foo/bar.png'), URI.file('/foo/baz.png')]);
 
 			await contribution.paste();
-			strictEqual(pasted, URI.file('/foo/bar.png').fsPath);
+			strictEqual(pasted, `${URI.file('/foo/bar.png').fsPath} ${URI.file('/foo/baz.png').fsPath}`);
 		});
 		test('Clipboard resource fallback ignores non-file URIs', async () => {
 			await clipboardService.writeResources([URI.parse('https://example.com/foo/bar')]);

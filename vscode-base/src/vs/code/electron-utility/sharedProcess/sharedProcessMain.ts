@@ -158,6 +158,9 @@ import { BaseHalfFileLinksService } from '../../../platform/basehalfFiles/node/b
 // BaseHalf: the clones of files, which keep the original of an edited file and a window cannot make (D84).
 import { BASEHALF_FILE_CLONES_CHANNEL } from '../../../platform/basehalfFiles/common/basehalfFileClones.js';
 import { BaseHalfFileClonesService } from '../../../platform/basehalfFiles/node/basehalfFileClonesService.js';
+// BaseHalf: the write of the clipboard in several forms at once, which a window cannot make (D104).
+import { BASEHALF_PASTEBOARD_CHANNEL } from '../../../platform/basehalfClipboard/common/basehalfPasteboard.js';
+import { BaseHalfPasteboardService } from '../../../platform/basehalfClipboard/node/basehalfPasteboardService.js';
 
 class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
@@ -533,6 +536,9 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 
 		// BaseHalf: the clones of files that keep the original of an edited file (D84)
 		this.server.registerChannel(BASEHALF_FILE_CLONES_CHANNEL, ProxyChannel.fromService(new BaseHalfFileClonesService(), this._store));
+
+		// BaseHalf: the write of the clipboard in several forms at once (D104)
+		this.server.registerChannel(BASEHALF_PASTEBOARD_CHANNEL, ProxyChannel.fromService(new BaseHalfPasteboardService(), this._store));
 
 		// SSH Remote Agent Host
 		const sshRemoteAgentHostChannel = ProxyChannel.fromService(accessor.get(ISSHRemoteAgentHostMainService), this._store);

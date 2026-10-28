@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { $, append } from '../../../../../base/browser/dom.js';
+import { $, append, isHTMLElement, isSVGElement } from '../../../../../base/browser/dom.js';
 import { DeferredPromise } from '../../../../../base/common/async.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { basename, joinPath } from '../../../../../base/common/resources.js';
@@ -266,6 +266,15 @@ export function baseHalfBadgeResourceIdentity(stat: Pick<IFileStat, 'ctime' | 'i
 
 export function badgeType(label: string, isFolder: boolean): BaseHalfItemKindIcon {
 	return baseHalfItemIcon(label, isFolder);
+}
+
+/**
+ * Whether what a paste or a drop lands on takes it itself, not the canvas
+ * (copy, paste, and drop, "The canvas"): a field, and the panel under a
+ * generation card, which takes a transfer in its input row and its prompt.
+ */
+export function baseHalfCanvasTargetTakesOwnTransfer(target: EventTarget | null): boolean {
+	return (isHTMLElement(target) || isSVGElement(target)) && target.closest('input, textarea, .bh-video-panel') !== null;
 }
 
 /**

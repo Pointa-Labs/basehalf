@@ -17,13 +17,13 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../../../editor/browser/services/bulkEditService.js';
 import { localize } from '../../../../../nls.js';
 import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
-import { CodeDataTransfers, containsDragType, getPathForFile } from '../../../../../platform/dnd/browser/dnd.js';
 import { defaultInputBoxStyles } from '../../../../../platform/theme/browser/defaultStyles.js';
-import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove } from '../../../../contrib/files/browser/fileActions.js';
+import { setExplorerFileClipboard } from '../../../../contrib/files/browser/fileActions.js';
 import { IFilesConfiguration, UndoConfirmLevel } from '../../../../contrib/files/common/files.js';
 import { mainWindow } from '../../../../../base/browser/window.js';
 import {
 	baseHalfCanvasCenteredPlace,
+	baseHalfCanvasCenteredTransferOrigin,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasOpenPosition,
 	BASEHALF_CANVAS_GRID_COLUMN_GAP,
@@ -40,6 +40,9 @@ import {
 	IBaseHalfCanvasItem
 } from '../../common/basehalfCanvasModel.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../../../workspace/common/basehalfLegacyCleanup.js';
+import { BaseHalfTransfer } from '../../../clipboard/common/basehalfClipboard.js';
+import { baseHalfDragHoldsFilesItems, baseHalfDragHoldsTransfer, baseHalfTransferFromDrop } from '../../../clipboard/browser/basehalfTransfer.js';
+import { BaseHalfTransferContent, baseHalfWriteTransferFile } from '../../../clipboard/browser/basehalfTransferFiles.js';
 import { baseHalfPathHoldsDraft } from '../../../video/common/basehalfGenerationDraft.js';
 import { BaseHalfGenerationKind, baseHalfGenerationKindOfPath, baseHalfGenerationNameOrdinal, baseHalfGenerationNameParts } from '../../../video/common/basehalfGenerationInfo.js';
 import { planBaseHalfMarkdownUpstreamEdit } from '../../../references/common/basehalfReferenceStore.js';
@@ -51,7 +54,7 @@ import { baseHalfDocumentBranchBaseName, baseHalfDocumentBranchMarkdown, IBaseHa
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID } from '../../../navigation/common/basehalfEditorFlush.js';
 import { BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP, BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT } from '../../common/basehalfCanvasScene.js';
 import type { BaseHalfCanvasWorkbenchContribution } from '../basehalfCanvasWorkbench.contribution.js';
-import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget, baseHalfCanvasMoveTarget } from './basehalfCanvasViewShared.js';
+import { BaseHalfCanvasInlineEdit, IBaseHalfCanvasPostCreateOwner, baseHalfCanvasDraftNameProblem, baseHalfCanvasTargetTakesOwnTransfer, baseHalfCanvasFreeTransferTarget, baseHalfCanvasGenerationCopyTarget, baseHalfCanvasMoveTarget } from './basehalfCanvasViewShared.js';
 
 /**
  * Making things on the canvas: the inline editors that name a new item or
@@ -65,14 +68,18 @@ export class BaseHalfCanvasCreation {
 
 	constructor(private readonly view: BaseHalfCanvasWorkbenchContribution) { }
 
-	/** What a drag holds that the canvas takes: items dragged from Files, or files from outside the window. */
-	private canvasDragSource(event: DragEvent): 'files' | 'outside' | undefined {
-		// The window gives the types of a drag in lower case.
-		return containsDragType(event, CodeDataTransfers.FILES) ? 'files' : containsDragType(event, 'Files') ? 'outside' : undefined;
+	/**
+	 * Whether the canvas takes what is dragged (copy, paste, and drop, "Drop"):
+	 * items from Files, files or a picture from another app, or text. A field,
+	 * a note that is edited on its card, and the panel of a draft take their
+	 * own drops.
+	 */
+	private canvasTakesDrag(event: DragEvent): boolean {
+		return baseHalfDragHoldsTransfer(event.dataTransfer) && !baseHalfCanvasTargetTakesOwnTransfer(event.target);
 	}
 
 	onCanvasFileDragEnter(event: DragEvent): void {
-		if (!this.canvasDragSource(event) || this.view.canvasNavigationService.state.cardDetail) {
+		if (!this.canvasTakesDrag(event) || this.view.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		event.preventDefault();
@@ -81,82 +88,138 @@ export class BaseHalfCanvasCreation {
 	}
 
 	onCanvasFileDragOver(event: DragEvent): void {
-		const source = this.canvasDragSource(event);
-		if (!source || this.view.canvasNavigationService.state.cardDetail) {
+		if (!this.canvasTakesDrag(event) || this.view.canvasNavigationService.state.cardDetail) {
+			// Over the panel of a draft, the panel says where it goes, not the canvas.
+			this.view.root.classList.toggle('basehalf-canvas-file-into-panel', baseHalfCanvasTargetTakesOwnTransfer(event.target));
 			return;
 		}
 		event.preventDefault();
+		this.view.root.classList.remove('basehalf-canvas-file-into-panel');
 		// A folder's card under the pointer takes them (dropping into a folder).
 		this.view.folderDrops.showDropTargetAt(event.clientX, event.clientY);
 		if (event.dataTransfer) {
-			event.dataTransfer.dropEffect = source === 'files' ? 'move' : 'copy';
+			event.dataTransfer.dropEffect = baseHalfDragHoldsFilesItems(event.dataTransfer) ? 'move' : 'copy';
 		}
 	}
 
 	onCanvasFileDragLeave(event: DragEvent): void {
-		if (!this.canvasDragSource(event)) {
+		if (!baseHalfDragHoldsTransfer(event.dataTransfer)) {
 			return;
 		}
 		this.view.fileDragDepth = Math.max(0, this.view.fileDragDepth - 1);
 		if (this.view.fileDragDepth === 0) {
-			this.view.root.classList.remove('basehalf-canvas-file-dragging');
-			this.view.folderDrops.showDropTargetAt();
+			this.endCanvasFileDrag();
 		}
 	}
 
+	private endCanvasFileDrag(): void {
+		this.view.fileDragDepth = 0;
+		this.view.root.classList.remove('basehalf-canvas-file-dragging', 'basehalf-canvas-file-into-panel');
+		this.view.folderDrops.showDropTargetAt();
+	}
+
+	/** A drop on the canvas is a paste at the point it was let go (copy, paste, and drop, "Drop"). */
 	async onCanvasFileDrop(event: DragEvent): Promise<void> {
-		const source = this.canvasDragSource(event);
-		if (!source || !event.dataTransfer || this.view.canvasNavigationService.state.cardDetail) {
+		if (event.defaultPrevented || !this.canvasTakesDrag(event) || !event.dataTransfer || this.view.canvasNavigationService.state.cardDetail) {
+			this.endCanvasFileDrag();
 			return;
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		this.view.fileDragDepth = 0;
-		this.view.root.classList.remove('basehalf-canvas-file-dragging');
 		const folderCard = this.view.folderDrops.showDropTargetAt(event.clientX, event.clientY);
-		this.view.folderDrops.showDropTargetAt();
-		// Files names every item it drags, folders too, by its path on disk.
-		let paths: unknown[] = [];
-		if (source === 'files') {
-			try {
-				const parsed: unknown = JSON.parse(event.dataTransfer.getData(CodeDataTransfers.FILES));
-				paths = Array.isArray(parsed) ? parsed : [];
-			} catch {
-				paths = [];
-			}
-		} else {
-			paths = [...event.dataTransfer.files].map(file => getPathForFile(file));
-		}
-		const resources = paths
-			.filter((path): path is string => typeof path === 'string' && path.length > 0)
-			.map(path => URI.file(path));
-		if (resources.length === 0) {
-			return;
-		}
+		this.endCanvasFileDrag();
+		const canvasPosition = this.view.canvasScene.screenToCanvasPosition(event.clientX, event.clientY);
 		this.view.markCanvasUserInteraction();
 		const postCreateOwner = this.view.captureCanvasPostCreateOwner();
-		const folder = this.view.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		// Items of this workspace folder move, as in Files; others are copied.
-		const operation = source === 'files' && resources.every(resource => this.view.uriIdentityService.extUri.isEqualOrParent(resource, folder.workspaceFolder)) ? 'move' : 'copy';
 		try {
+			const transfer = await baseHalfTransferFromDrop(event.dataTransfer);
+			const folder = this.view.getCurrentFolder();
+			if (!transfer || !folder) {
+				return;
+			}
 			if (folderCard) {
-				await this.view.folderDrops.dropOnFolderCard(folder, resources, folderCard, operation);
+				await this.takeFolderCardTransfer(folder, folderCard, transfer);
 				return;
 			}
 			const context = await this.view.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
-			const canvasPosition = this.view.canvasScene.screenToCanvasPosition(event.clientX, event.clientY);
-			await this.importCanvasResources(folder, context, resources, canvasPosition, operation, postCreateOwner);
+			await this.takeCanvasTransfer(folder, context, transfer, { canvasPosition, pointed: true }, postCreateOwner, false);
 		} catch (error) {
 			this.view.reportCanvasMutationError(error);
 		}
 	}
 
+	/**
+	 * Command-V and Paste of the Edit menu on the canvas: what the clipboard
+	 * holds goes onto the canvas as a card made with a keyboard command, its
+	 * block centered on the middle of the visible part (copy, paste, and drop,
+	 * "The canvas").
+	 */
+	async pasteOnCanvas(): Promise<void> {
+		const folder = this.view.getCurrentFolder();
+		if (!folder || this.view.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+		try {
+			const context = await this.view.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
+			await this.view.canvasEditingService.requestPaste(context);
+		} catch (error) {
+			this.view.reportCanvasMutationError(error);
+		}
+	}
+
+	/**
+	 * Takes a transfer onto the canvas of `folder` (copy, paste, and drop, "The
+	 * canvas"): items are copied, or moved when they were cut within this
+	 * workspace folder; a picture or text becomes a new file. Their cards are
+	 * placed as cards that are pasted, in one step of undo. A paste that moved
+	 * cut items leaves them on the clipboard at their new places, not cut.
+	 */
+	private async takeCanvasTransfer(
+		folder: IBaseHalfCanvasFolderState,
+		context: IBaseHalfCanvasActionContext,
+		transfer: BaseHalfTransfer,
+		placement: { readonly canvasPosition: { readonly x: number; readonly y: number }; readonly pointed: boolean },
+		postCreateOwner: IBaseHalfCanvasPostCreateOwner,
+		fromClipboard: boolean
+	): Promise<void> {
+		if (transfer.kind !== 'items') {
+			await this.importCanvasResources(folder, context, [], placement, 'copy', postCreateOwner, transfer);
+			return;
+		}
+		const resources = transfer.items.map(item => item.resource);
+		const operation = this.transferOperation(folder, transfer);
+		const placed = await this.importCanvasResources(folder, context, resources, placement, operation, postCreateOwner);
+		if (fromClipboard && operation === 'move' && placed.length > 0) {
+			await setExplorerFileClipboard(this.view.explorerService, placed, false);
+		}
+	}
+
+	/** Cut items of this workspace folder move, as in Files; every other item is copied. */
+	private transferOperation(folder: IBaseHalfCanvasFolderState, transfer: Extract<BaseHalfTransfer, { readonly kind: 'items' }>): 'move' | 'copy' {
+		return transfer.cut && transfer.items.every(item => this.view.uriIdentityService.extUri.isEqualOrParent(item.resource, folder.workspaceFolder)) ? 'move' : 'copy';
+	}
+
+	/** A drop on a folder's card goes into that folder (dropping into a folder); a picture or text becomes a new file there. */
+	private async takeFolderCardTransfer(folder: IBaseHalfCanvasFolderState, path: string, transfer: BaseHalfTransfer): Promise<void> {
+		if (transfer.kind === 'items') {
+			await this.view.folderDrops.dropOnFolderCard(folder, transfer.items.map(item => item.resource), path, this.transferOperation(folder, transfer));
+			return;
+		}
+		const target = this.view.renderedItemsByPath.get(path);
+		if (!target?.stat.isDirectory) {
+			return;
+		}
+		const made = await baseHalfWriteTransferFile(this.view.fileService, target.stat.resource, transfer, candidate => this.isDraftPath(candidate));
+		this.view.keptVersions.recordMade([made], { label: localize('basehalf.canvas.paste.madeUndo', "Paste {0}", basename(made)), undoRedoGroup: new UndoRedoGroup() });
+	}
+
 	async beginCanvasInlineEdit(request: BaseHalfCanvasEditingRequest): Promise<void> {
 		if (request.kind === 'select') {
 			this.view.selectionActions.selectCanvasResources(request.folder, request.resources);
+			return;
+		}
+		if (request.kind === 'copy') {
+			await this.view.selectionActions.copyCanvasCards(request.context, request.cut);
 			return;
 		}
 		this.view.markCanvasUserInteraction();
@@ -237,13 +300,11 @@ export class BaseHalfCanvasCreation {
 			? this.computedCanvasCreatePlacement(initialPlacement, request.createKind)
 			: initialPlacement;
 		if (request.kind === 'paste') {
-			const resources = await this.view.clipboardService.readResources();
-			if (resources.length === 0) {
-				this.view.queueCanvasWarning(localize('basehalf.canvas.paste.empty', "The clipboard does not contain files."));
-				this.view.requestRender();
-				return;
+			// A clipboard that holds nothing the canvas takes pastes nothing and says nothing.
+			const transfer = await this.view.baseHalfClipboardService.read();
+			if (transfer) {
+				await this.takeCanvasTransfer(folder, context, transfer, initialPlacement, requestOwner, true);
 			}
-			await this.importCanvasResources(folder, context, resources, placement.canvasPosition, explorerFileClipboardShouldMove() ? 'move' : 'copy', requestOwner);
 			return;
 		}
 		if (request.kind === 'import') {
@@ -258,7 +319,7 @@ export class BaseHalfCanvasCreation {
 			if (resources?.length) {
 				this.view.markCanvasUserInteraction();
 				const importOwner = this.view.captureCanvasPostCreateOwner();
-				await this.importCanvasResources(folder, context, resources, placement.canvasPosition, 'copy', importOwner);
+				await this.importCanvasResources(folder, context, resources, initialPlacement, 'copy', importOwner);
 			}
 			return;
 		}
@@ -1104,20 +1165,28 @@ export class BaseHalfCanvasCreation {
 		}
 	}
 
+	/**
+	 * Copies or moves items into the canvas's folder, makes `content` a new
+	 * file there, and places their cards as cards that are pasted: at a point
+	 * the user named, or, without one, in a block centered on the middle of the
+	 * visible part of the canvas. All of it is one step of undo. Returns where
+	 * the items and the new file are now.
+	 */
 	private async importCanvasResources(
 		folder: IBaseHalfCanvasFolderState,
 		context: IBaseHalfCanvasActionContext,
 		resources: readonly URI[],
-		canvasPosition: { readonly x: number; readonly y: number },
+		placement: { readonly canvasPosition: { readonly x: number; readonly y: number }; readonly pointed: boolean },
 		operation: 'copy' | 'move',
-		postCreateOwner: IBaseHalfCanvasPostCreateOwner
-	): Promise<void> {
+		postCreateOwner: IBaseHalfCanvasPostCreateOwner,
+		content?: BaseHalfTransferContent
+	): Promise<readonly URI[]> {
 		if (this.view.canvasNavigationService.state.cardDetail) {
-			return;
+			return [];
 		}
 		await this.view.canvasActionContextService.assertCurrent(context);
 		if (!this.view.uriIdentityService.extUri.isEqual(this.view.getCurrentFolder()?.resource, folder.resource)) {
-			return;
+			return [];
 		}
 		// An item that is there is never replaced: undo could not give it back
 		// (exact undo, "What the canvas made"). A name that is taken gets the next
@@ -1162,21 +1231,21 @@ export class BaseHalfCanvasCreation {
 				transfers.push({ source, target, kind: stat.isDirectory ? 'folder' : 'file' });
 			}
 		}
-		if (transfers.length === 0 && drafts.length === 0) {
-			if (operation === 'move') {
-				await clearExplorerFileClipboardCut(this.view.explorerService);
-			}
-			return;
+		if (transfers.length === 0 && drafts.length === 0 && !content) {
+			return [];
 		}
-		// One undo takes back the files and the drafts of the paste together.
+		// One undo takes back the files, the drafts, and the new file of the paste together.
 		const undoRedoGroup = new UndoRedoGroup();
 		await this.transferResources(transfers, operation, undoRedoGroup);
 		const placed: { readonly target: URI; readonly kind: 'file' | 'folder' }[] = [...transfers];
 		for (const draft of drafts) {
 			placed.push({ target: await this.transferDraft(folder, draft, operation, undoRedoGroup), kind: 'file' });
 		}
-		if (operation === 'move') {
-			await clearExplorerFileClipboardCut(this.view.explorerService);
+		if (content) {
+			const made = await baseHalfWriteTransferFile(this.view.fileService, folder.resource, content,
+				async candidate => reserved.has(this.view.uriIdentityService.extUri.getComparisonKey(candidate)) || await this.isDraftPath(candidate));
+			this.view.keptVersions.recordMade([made], { label: localize('basehalf.canvas.paste.madeUndo', "Paste {0}", basename(made)), undoRedoGroup });
+			placed.push({ target: made, kind: 'file' });
 		}
 
 		// The user pointed at a place: the group keeps its block there, and a card
@@ -1198,11 +1267,15 @@ export class BaseHalfCanvasCreation {
 			if (transfer.kind === 'folder') {
 				return { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT };
 			}
-			// The drafts come after the files and folders.
-			const draftKind = index >= transfers.length ? baseHalfGenerationKindOfPath(transfer.target.path) : undefined;
+			// The drafts come after the files and folders, and the new file after them.
+			const draftKind = index >= transfers.length && index < transfers.length + drafts.length ? baseHalfGenerationKindOfPath(transfer.target.path) : undefined;
 			return draftKind ? baseHalfCanvasGenerationCardSize(draftKind) : await this.view.previews.sizeOfNewFileCard(transfer.target);
 		}));
-		const places = baseHalfCanvasTransferPlaces(canvasPosition, sizes, this.takenCanvasPlaces(new Set(paths)));
+		// Without a point the block is centered on the middle of the visible
+		// part, as a card made with a keyboard command is, and the view goes to
+		// a card out of sight (canvas card placement, "Pointing").
+		const origin = placement.pointed ? placement.canvasPosition : baseHalfCanvasCenteredTransferOrigin(placement.canvasPosition, sizes);
+		const places = baseHalfCanvasTransferPlaces(origin, sizes, this.takenCanvasPlaces(new Set(paths)));
 		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
 		for (let index = 0; index < placed.length; index++) {
 			const transfer = placed[index];
@@ -1221,7 +1294,11 @@ export class BaseHalfCanvasCreation {
 		}
 		await this.view.renderer.saveWaitingCanvasPlacesWithUserChange(folder);
 		this.view.selectionActions.queueCanvasSelection(this.view.sceneKey(folder), paths, postCreateOwner);
+		if (!placement.pointed) {
+			this.revealCreatedCards(folder, paths, postCreateOwner);
+		}
 		this.view.requestRender();
+		return placed.map(transfer => transfer.target);
 	}
 
 	/**

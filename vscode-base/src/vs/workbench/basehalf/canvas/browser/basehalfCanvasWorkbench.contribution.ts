@@ -16,6 +16,7 @@ import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExten
 import { localize } from '../../../../nls.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { IBaseHalfClipboardService } from '../../clipboard/common/basehalfClipboard.js';
 import { IDialogService, IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -29,6 +30,7 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { IExplorerService } from '../../../contrib/files/browser/files.js';
+import { setExplorerFileClipboard } from '../../../contrib/files/browser/fileActions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { EditorsOrder, SideBySideEditor } from '../../../common/editor.js';
@@ -95,7 +97,7 @@ import { BaseHalfCanvasSelectionActions } from './view/basehalfCanvasSelectionAc
 import { BaseHalfCanvasCreation } from './view/basehalfCanvasCreation.js';
 import { BaseHalfCanvasFolderDrops } from './view/basehalfCanvasFolderDrops.js';
 import { BaseHalfCanvasCardDetailHost } from './view/basehalfCanvasCardDetailHost.js';
-import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, BaseHalfCanvasInlineEdit, IBaseHalfActiveCanvasNoteEditor, IBaseHalfBadgeDescriptionPending, IBaseHalfCanvasCardRenderCacheEntry, IBaseHalfCanvasMutationGuard, IBaseHalfCanvasNotePreviewMount, IBaseHalfCanvasPostCreateOwner, IBaseHalfPendingCanvasNoteFocus, IBaseHalfPendingCanvasNoteFormatCommand, IBaseHalfPendingCanvasNoteNavigationGuard, baseHalfBadgeResourceIdentity, baseHalfCanvasPostCreateOwnerIsCurrent } from './view/basehalfCanvasViewShared.js';
+import { BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY, BaseHalfCanvasInlineEdit, IBaseHalfActiveCanvasNoteEditor, IBaseHalfBadgeDescriptionPending, IBaseHalfCanvasCardRenderCacheEntry, IBaseHalfCanvasMutationGuard, IBaseHalfCanvasNotePreviewMount, IBaseHalfCanvasPostCreateOwner, IBaseHalfPendingCanvasNoteFocus, IBaseHalfPendingCanvasNoteFormatCommand, IBaseHalfPendingCanvasNoteNavigationGuard, baseHalfBadgeResourceIdentity, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasTargetTakesOwnTransfer } from './view/basehalfCanvasViewShared.js';
 
 interface IBaseHalfPendingCanvasSelection {
 	readonly sceneKey: string;
@@ -313,6 +315,7 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		@IContextViewService public readonly contextViewService: IContextViewService,
 		@IDialogService public readonly dialogService: IDialogService,
 		@IClipboardService public readonly clipboardService: IClipboardService,
+		@IBaseHalfClipboardService public readonly baseHalfClipboardService: IBaseHalfClipboardService,
 		@IFileDialogService public readonly fileDialogService: IFileDialogService,
 		@IExplorerService public readonly explorerService: IExplorerService,
 		@IPathService public readonly pathService: IPathService,
@@ -450,6 +453,24 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_OVER, event => this.creation.onCanvasFileDragOver(event)));
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DRAG_LEAVE, event => this.creation.onCanvasFileDragLeave(event)));
 		this._register(this.addDisposableListener(this.surface, DOM.EventType.DROP, event => void this.creation.onCanvasFileDrop(event)));
+
+		// Command-C, Command-X, and Command-V reach the canvas as the window's
+		// copy, cut, and paste, as the Edit menu's items do (copy, paste, and
+		// drop). Without selected text the window sends a copy to the page's
+		// body, so the document hears them, and the focus says whose they are.
+		const ownerDocument = this.root.ownerDocument;
+		for (const kind of ['copy', 'cut', 'paste'] as const) {
+			this._register(DOM.addDisposableListener(ownerDocument, kind, (event: ClipboardEvent) => this.onClipboardEvent(event, kind)));
+		}
+		// The window copies and cuts only where text is selected, unless the
+		// place says beforehand that it has something to copy.
+		for (const kind of ['copy', 'cut'] as const) {
+			this._register(DOM.addDisposableListener(ownerDocument, `before${kind}`, (event: Event) => {
+				if (this.clipboardTaker(event, kind)) {
+					event.preventDefault();
+				}
+			}));
+		}
 
 		this.detail = DOM.append(this.root, DOM.$('.basehalf-card-detail'));
 		const detailHeader = append(this.detail, $('.basehalf-card-detail-header'));
@@ -667,6 +688,63 @@ export class BaseHalfCanvasWorkbenchContribution extends Disposable implements I
 	 * contributions. One that fails is left out and logged; the canvas and the
 	 * other features work on.
 	 */
+	/**
+	 * Copy, cut, and paste on the canvas or in Card Detail (copy, paste, and
+	 * drop): the canvas copies its selected cards and takes a paste, and Card
+	 * Detail of a file that is not edited as text copies that file.
+	 */
+	private onClipboardEvent(event: ClipboardEvent, kind: 'copy' | 'cut' | 'paste'): void {
+		const taker = this.clipboardTaker(event, kind);
+		if (!taker) {
+			return;
+		}
+		event.preventDefault();
+		this.markCanvasUserInteraction();
+		if (taker === 'detail') {
+			const cardDetail = this.canvasNavigationService.state.cardDetail;
+			if (cardDetail) {
+				void setExplorerFileClipboard(this.explorerService, [cardDetail.resource], false).catch(error => this.reportCanvasMutationError(error));
+			}
+		} else if (kind === 'paste') {
+			void this.creation.pasteOnCanvas();
+		} else {
+			void this.selectionActions.copyCanvasCards(undefined, kind === 'cut').catch(error => this.reportCanvasMutationError(error));
+		}
+	}
+
+	/**
+	 * What takes a copy, a cut, or a paste whose event is `event`: the canvas,
+	 * Card Detail, or nothing of BaseHalf's. A field, a note that is edited,
+	 * the panel of a draft, and text that is selected keep the window's own
+	 * copy and paste; the canvas copies only while cards are selected, and
+	 * Card Detail only copies.
+	 */
+	private clipboardTaker(event: Event, kind: 'copy' | 'cut' | 'paste'): 'canvas' | 'detail' | undefined {
+		const ownerDocument = this.root.ownerDocument;
+		const target = event.target === ownerDocument.body || event.target === ownerDocument.documentElement ? ownerDocument.activeElement : event.target;
+		if (event.defaultPrevented || (!isHTMLElement(target) && !isSVGElement(target)) || !this.root.contains(target)
+			|| baseHalfCanvasTargetTakesOwnTransfer(target)
+			|| target.closest('[contenteditable]:not([contenteditable="false"]), .monaco-editor, iframe') !== null) {
+			return undefined;
+		}
+		const selected = target.ownerDocument.getSelection();
+		if (kind !== 'paste' && selected && !selected.isCollapsed && selected.toString().length > 0) {
+			return undefined;
+		}
+		const cardDetail = this.canvasNavigationService.state.cardDetail;
+		if (this.detail.contains(target)) {
+			return kind === 'copy' && cardDetail ? 'detail' : undefined;
+		}
+		if (cardDetail || (!this.surface.contains(target) && target !== this.root)) {
+			return undefined;
+		}
+		if (kind === 'paste') {
+			return 'canvas';
+		}
+		const folder = this.getCurrentFolder();
+		return folder && this.agentSelectionCards.sceneKey === this.sceneKey(folder) && this.agentSelectionCards.paths.length > 0 ? 'canvas' : undefined;
+	}
+
 	private createContributions(): void {
 		const view = this.createCanvasView();
 		for (const description of BaseHalfCanvasExtensionsRegistry.getCanvasContributions()) {

@@ -31,6 +31,7 @@ export type BaseHalfCanvasEditingRequest =
 	| { readonly kind: 'rename'; readonly context: IBaseHalfCanvasActionContext }
 	| { readonly kind: 'create'; readonly context: IBaseHalfCanvasActionContext | undefined; readonly createKind: BaseHalfCanvasCreateKind }
 	| { readonly kind: 'paste'; readonly context: IBaseHalfCanvasActionContext }
+	| { readonly kind: 'copy'; readonly context: IBaseHalfCanvasActionContext | undefined; readonly cut: boolean }
 	| { readonly kind: 'import'; readonly context: IBaseHalfCanvasActionContext }
 	| { readonly kind: 'select'; readonly folder: URI; readonly resources: readonly URI[] };
 
@@ -57,6 +58,8 @@ export interface IBaseHalfCanvasEditingService {
 	requestRename(context: IBaseHalfCanvasActionContext): Promise<void>;
 	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: BaseHalfCanvasCreateKind): Promise<void>;
 	requestPaste(context: IBaseHalfCanvasActionContext): Promise<void>;
+	/** Copy or Cut on the canvas: the selected cards, or the card of `context` when it is not one of them (copy, paste, and drop). */
+	requestCopy(context: IBaseHalfCanvasActionContext | undefined, cut: boolean): Promise<void>;
 	requestImport(context: IBaseHalfCanvasActionContext): Promise<void>;
 	beginPostCreateIntent(): IBaseHalfCanvasPostCreateIntent;
 	invalidatePostCreateIntents(): void;
@@ -93,6 +96,10 @@ export class BaseHalfCanvasEditingService implements IBaseHalfCanvasEditingServi
 
 	requestPaste(context: IBaseHalfCanvasActionContext): Promise<void> {
 		return this.dispatch({ kind: 'paste', context });
+	}
+
+	requestCopy(context: IBaseHalfCanvasActionContext | undefined, cut: boolean): Promise<void> {
+		return this.dispatch({ kind: 'copy', context, cut });
 	}
 
 	requestImport(context: IBaseHalfCanvasActionContext): Promise<void> {

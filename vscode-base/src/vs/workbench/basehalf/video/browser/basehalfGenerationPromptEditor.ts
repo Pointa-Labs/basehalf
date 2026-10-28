@@ -37,6 +37,14 @@ export interface IBaseHalfPromptEditorOptions {
 	readonly undoRunTime?: number;
 	/** The time now, for joining typing into steps of undo. */
 	readonly now?: () => number;
+	/**
+	 * A paste that holds files or a picture, which the prompt does not type:
+	 * the panel adds them as inputs and mentions them (copy, paste, and drop).
+	 * Without it, such a paste types nothing.
+	 */
+	readonly pasteFiles?: () => void;
+	/** A drop on the prompt, once the caret stands where it was let go. Without it, the prompt takes no drop. */
+	readonly dropTransfer?: (dataTransfer: DataTransfer) => void;
 }
 
 /** A place in the prompt's text: the start and the end of the selection, equal for a caret. */
@@ -126,13 +134,26 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		}));
 		this._register(addDisposableListener(this.element, 'paste', event => {
 			event.preventDefault();
-			if (!this.readOnlyNow) {
-				this.replaceSelection(normalizeText(event.clipboardData?.getData('text/plain') ?? ''), 'other');
+			if (this.readOnlyNow) {
+				return;
 			}
+			// Files copied anywhere and a picture come as files, without text to type.
+			if (this.options.pasteFiles && event.clipboardData?.types.includes('Files')) {
+				this.options.pasteFiles();
+				return;
+			}
+			this.replaceSelection(normalizeText(event.clipboardData?.getData('text/plain') ?? ''), 'other');
 		}));
 		this._register(addDisposableListener(this.element, 'copy', event => this.copySelection(event, false)));
 		this._register(addDisposableListener(this.element, 'cut', event => this.copySelection(event, !this.readOnlyNow)));
-		this._register(addDisposableListener(this.element, 'drop', event => event.preventDefault()));
+		this._register(addDisposableListener(this.element, 'drop', event => {
+			event.preventDefault();
+			if (this.readOnlyNow || !this.options.dropTransfer || !event.dataTransfer) {
+				return;
+			}
+			this.focusAt(event.clientX, event.clientY);
+			this.options.dropTransfer(event.dataTransfer);
+		}));
 		this._register(addDisposableListener(this.element, 'dragover', event => event.preventDefault()));
 
 		this._register(UndoCommand.addImplementation(COMMAND_PRIORITY, 'basehalfPromptEditor', () => {
@@ -212,6 +233,12 @@ export class BaseHalfGenerationPromptEditor extends Disposable {
 		this.element.focus({ preventScroll: true });
 		const at = Math.max(0, Math.min(offset ?? this.text.length, this.text.length));
 		this.setSelection({ start: at, end: at });
+	}
+
+	/** Moves the keyboard into the prompt, with the caret at the point of the window nearest to it. */
+	private focusAt(clientX: number, clientY: number): void {
+		const range = getWindow(this.element).document.caretRangeFromPoint(clientX, clientY);
+		this.focus(range && this.element.contains(range.startContainer) ? this.offsetOf(range.startContainer, range.startOffset) : undefined);
 	}
 
 	/** The selection in the text, when the prompt has it. */

@@ -678,6 +678,22 @@ export function baseHalfCanvasTransferPosition(origin: IBaseHalfCanvasPosition, 
 }
 
 /**
+ * The point a group pasted without a point starts at: its block of cells is
+ * centered on `center`, the middle of the visible part of the canvas, as a
+ * card made with a keyboard command is (canvas card placement, "Pointing").
+ */
+export function baseHalfCanvasCenteredTransferOrigin(center: IBaseHalfCanvasPosition, sizes: readonly IBaseHalfCanvasSize[]): IBaseHalfCanvasPosition {
+	let right = 0;
+	let bottom = 0;
+	sizes.forEach((size, index) => {
+		const slot = baseHalfCanvasTransferPosition({ x: 0, y: 0 }, index, sizes.length);
+		right = Math.max(right, slot.x + size.width);
+		bottom = Math.max(bottom, slot.y + size.height);
+	});
+	return { x: roundCanvasNumber(center.x - right / 2), y: roundCanvasNumber(center.y - bottom / 2) };
+}
+
+/**
  * The places of a group that the user dropped at one point. The group keeps
  * its block where the block is open: the cards whose slots are open take them
  * first, then the others take, in order, the nearest open place to their slot.

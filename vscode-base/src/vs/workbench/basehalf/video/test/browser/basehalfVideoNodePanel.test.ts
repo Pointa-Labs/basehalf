@@ -20,6 +20,8 @@ import { ILogService, NullLogService } from '../../../../../platform/log/common/
 import { INotification, INotificationHandle, INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { IWorkspaceContextService, toWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
+import { BaseHalfTransfer, IBaseHalfClipboardService } from '../../../clipboard/common/basehalfClipboard.js';
 import { createBaseHalfDraftPanel } from '../../browser/basehalfDraftPanels.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost, IBaseHalfVideoNodePanelOptions } from '../../browser/basehalfVideoNodePanel.js';
 import { IBaseHalfCanvasCardPick } from '../../../canvas/common/basehalfCanvasCardPick.js';
@@ -394,6 +396,8 @@ suite('BaseHalfVideoNodePanel', () => {
 	let refusal: (path: string) => string | undefined;
 	/** The files of the card's folder, by name, as the reference menu reads them. */
 	let folderFiles: string[];
+	/** What the clipboard holds for a paste in the panel. */
+	let clipboard: BaseHalfTransfer | undefined;
 
 	setup(() => {
 		instantiationService = disposables.add(new TestInstantiationService());
@@ -424,8 +428,15 @@ suite('BaseHalfVideoNodePanel', () => {
 				});
 			},
 			importFile: async () => undefined,
+			// An item of the workspace is the input where it is; a picture or text is made a file in the card's folder.
+			takeInput: async (part, accept) => {
+				const path = part.kind === 'item' ? part.item.resource.path.slice(WORKSPACE.path.length + 1) : `shots/untitled.${part.kind === 'picture' ? part.extension : 'md'}`;
+				return await accept(path) ? path : undefined;
+			},
 			focusCard: () => { host.cardFocused++; }
 		};
+		clipboard = undefined;
+		instantiationService.stub(IBaseHalfClipboardService, { read: async () => clipboard });
 		const result: IBaseHalfReferenceEditResult = { stores: [], changed: true };
 		instantiationService.set(IBaseHalfGenerationCardStore, store);
 		instantiationService.set(IBaseHalfDraftOperations, drafts);
@@ -863,6 +874,33 @@ suite('BaseHalfVideoNodePanel', () => {
 			connected: ['shots/c.png'],
 			after: ['shots/c.png'],
 			said: ['Acme Motion 2 takes at most 2 images in Frames.']
+		});
+	});
+
+	test('a paste in the input row connects what the clipboard holds, says why for what the model cannot use, and keeps an input that is connected; a picture pasted into the prompt is connected and mentioned at the caret (D104)', async () => {
+		clipboard = {
+			kind: 'items',
+			items: [URI.joinPath(WORKSPACE, 'shots', 'c.png'), URI.joinPath(WORKSPACE, 'shots', 'clip.mp4'), URI.joinPath(WORKSPACE, 'frames', 'a.png')].map(resource => ({ resource })),
+			cut: true
+		};
+		refusal = path => path.endsWith('.mp4') ? 'Acme Motion 2 takes no videos in Frames.' : undefined;
+		const panel = await createPanel();
+		find(panel, '.bh-input-row').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true }));
+		await settle();
+		const fromRow = [...connections.added];
+		clipboard = { kind: 'picture', data: VSBuffer.fromString('picture'), extension: 'png' };
+		const prompt = promptOf(panel);
+		prompt.focus();
+		type(prompt, 'Use ');
+		const data = new DataTransfer();
+		data.items.add(new File(['picture'], 'image.png', { type: 'image/png' }));
+		prompt.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+		await settle();
+		assert.deepStrictEqual({ fromRow, fromPrompt: connections.added.slice(fromRow.length), value: valueOf(prompt), said: notifications.shown }, {
+			fromRow: ['shots/c.png'],
+			fromPrompt: ['shots/untitled.png'],
+			value: 'Use @[shots/untitled.png] ',
+			said: ['Acme Motion 2 takes no videos in Frames.']
 		});
 	});
 
