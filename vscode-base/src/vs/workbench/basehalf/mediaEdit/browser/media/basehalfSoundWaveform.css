@@ -133,3 +133,8 @@
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }
+
+/* The keyboard is the waveform's own (D100): like a page around its text, it shows no ring. */
+.monaco-workbench .basehalf-video-frames.basehalf-sound-waveform:focus {
+	outline: none;
+}

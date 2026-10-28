@@ -58,10 +58,12 @@
 
 /*
  * A focus ring is for the keyboard, in Card Detail as on a card (architecture
- * invariants, "Product shell"): Card Detail that opened puts the keyboard on
- * Play, and a click on its picture does too.
+ * invariants, "Product shell"). In Card Detail the keyboard is the player's
+ * own (D100): Card Detail that opened puts it there, a click on the picture
+ * does too, and like a page around its text it shows no ring.
  */
-.monaco-workbench .basehalf-canvas-video-player :focus:not(:focus-visible) {
+.monaco-workbench .basehalf-canvas-video-player :focus:not(:focus-visible),
+.monaco-workbench .basehalf-canvas-video-player.detail:focus {
 	outline: none;
 }
 

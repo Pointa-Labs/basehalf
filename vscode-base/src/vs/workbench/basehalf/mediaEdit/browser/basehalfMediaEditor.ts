@@ -20,7 +20,7 @@ export interface IBaseHalfMediaEditor extends IDisposable {
 	readonly onDidChange: Event<BaseHalfMediaChange>;
 	/** Shows other choices, as an undo sets them; it is no change. */
 	setChoices(choices: IBaseHalfMediaChoices): void;
-	/** Takes the keyboard on the editor's first control. */
+	/** Puts the keyboard on the media, the player, the waveform, or the picture, which shows no ring there (D100). */
 	focus(): void;
 	/**
 	 * Views the file as it is, or edits it (editing media, "Viewing and
@@ -34,6 +34,8 @@ export interface IBaseHalfMediaEditor extends IDisposable {
 	 * keyboard"). An image has none.
 	 */
 	movePlayhead?(move: BaseHalfPlayheadMove): void;
+	/** Plays or pauses a video or a sound, as Space does with the keyboard on its media. An image has nothing to play. */
+	togglePlay?(): void;
 }
 
 /** What a change did, which names its step: "Trim shot.mp4", "Cut take.wav", "Crop still.png". */

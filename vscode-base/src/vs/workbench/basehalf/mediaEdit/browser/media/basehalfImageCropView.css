@@ -319,8 +319,13 @@
 	background: var(--vscode-focusBorder);
 }
 
-/* A focus ring is for the keyboard, as in the player (architecture invariants, "Product shell"). */
-.monaco-workbench .basehalf-image-crop :focus:not(:focus-visible) {
+/*
+ * A focus ring is for the keyboard, as in the player (architecture invariants,
+ * "Product shell"). The picture is where the keyboard stays (D100): like a page
+ * around its text, it shows no ring.
+ */
+.monaco-workbench .basehalf-image-crop :focus:not(:focus-visible),
+.monaco-workbench .basehalf-image-crop .basehalf-image-crop-view:focus {
 	outline: none;
 }
 

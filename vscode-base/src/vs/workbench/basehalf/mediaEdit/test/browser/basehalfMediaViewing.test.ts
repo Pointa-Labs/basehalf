@@ -45,9 +45,11 @@ class TestPlayer {
 	readonly seeks: number[] = [];
 	currentTime = 0;
 	pauses = 0;
+	toggles = 0;
 
 	constructor(container: HTMLElement) {
 		this.element = mainWindow.document.createElement('div');
+		this.element.tabIndex = -1;
 		this.video = mainWindow.document.createElement('video');
 		this.element.append(this.video);
 		container.append(this.element);
@@ -59,9 +61,9 @@ class TestPlayer {
 
 	setSelected(): void { }
 	pause(): void { this.pauses++; }
-	togglePlay(): void { }
+	togglePlay(): void { this.toggles++; }
 	setMuted(): void { }
-	focus(): void { }
+	focus(): void { this.element.focus(); }
 	dispose(): void { this.element.remove(); }
 	seek(time: number): void {
 		this.seeks.push(time);
@@ -184,6 +186,18 @@ suite('BaseHalfMediaViewing', () => {
 			assert.deepStrictEqual({ at, pausedByFrame }, { at: [2, 4.4, 4.4, 1, 1, 1.1, 4.9, 0, 0, 1], pausedByFrame: 1 });
 		});
 
+		test('the keyboard is the player\'s, while viewing and while editing, and Space\'s play and pause are the player\'s (D100)', () => {
+			const { viewer, player } = setUp();
+			const keyboard: boolean[] = [];
+			viewer.focus();
+			keyboard.push(mainWindow.document.activeElement === player.element);
+			viewer.setEditing(true);
+			viewer.focus();
+			keyboard.push(mainWindow.document.activeElement === player.element);
+			viewer.togglePlay();
+			assert.deepStrictEqual({ keyboard, toggles: player.toggles }, { keyboard: [true, true], toggles: 1 });
+		});
+
 		test('a pinch over the strip spreads its time only while editing', () => {
 			const { viewer, strip } = setUp({});
 			const viewing = pinch(strip, 300);
@@ -261,6 +275,17 @@ suite('BaseHalfMediaViewing', () => {
 			// A sound has no frames: Shift moves it a second too. Viewing counts from the first handle, editing from the sound's start.
 			assert.deepStrictEqual(shown, ['1.0s / 3.0s', '2.0s / 3.0s', '3.0s / 3.0s', '3.0s / 3.0s', '0.0s / 3.0s', '5.0s / 5.0s', '4.0s / 5.0s', '0.0s / 5.0s']);
 		});
+
+		test('the keyboard is the waveform\'s own, while viewing and while editing, not Play\'s (D100)', () => {
+			const { waveform, element } = setUp();
+			const keyboard: boolean[] = [];
+			waveform.focus();
+			keyboard.push(mainWindow.document.activeElement === element);
+			waveform.setEditing(true);
+			waveform.focus();
+			keyboard.push(mainWindow.document.activeElement === element);
+			assert.deepStrictEqual({ keyboard, tabIndex: element.tabIndex }, { keyboard: [true, true], tabIndex: -1 });
+		});
 	});
 
 	suite('the crop view of an image', () => {
@@ -309,6 +334,17 @@ suite('BaseHalfMediaViewing', () => {
 			crop.setEditing(false);
 			assert.strictEqual(picture.style.transform, before);
 			assert.ok(tools.hasAttribute('inert'));
+		});
+
+		test('the keyboard is on the picture, while viewing and while editing; Tab takes it on to the frame (D100)', () => {
+			const { crop, view, frame } = setUp();
+			const keyboard: boolean[] = [];
+			crop.focus();
+			keyboard.push(mainWindow.document.activeElement === view);
+			crop.setEditing(true);
+			crop.focus();
+			keyboard.push(mainWindow.document.activeElement === view);
+			assert.deepStrictEqual({ keyboard, frameInView: view.contains(frame), frameTabIndex: frame.tabIndex }, { keyboard: [true, true], frameInView: true, frameTabIndex: 0 });
 		});
 	});
 });

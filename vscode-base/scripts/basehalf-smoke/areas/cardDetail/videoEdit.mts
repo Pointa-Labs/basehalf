@@ -275,21 +275,37 @@ export async function assertCardDetailVideoEdit(page) {
 		if (stoppedAt > part.end + 0.01 || stoppedAt < part.end - 0.2) {
 			throw new Error(`While viewing, Play plays the part once and stops on its last frame: ${JSON.stringify({ stoppedAt, part })}`);
 		}
-		// Editing media, criterion 31: with the keyboard on Play, Home and End go to the ends of the part that the file keeps,
+		// Editing media, criteria 31 and 32 (D100): the keyboard is the player's. A press of Play with the pointer leaves it
+		// there, and a key pressed there lights up no control. Home and End go to the ends of the part that the file keeps,
 		// and Right and Left a second on and back, within it. The clip's frames last about 0.07 s.
 		const playhead = () => page.evaluate(selector => {
 			const video = document.querySelector(`${selector} video`);
-			return { at: Math.round(video.currentTime * 1000) / 1000, paused: video.paused, keyboard: document.activeElement?.className ?? '' };
+			const active = document.activeElement;
+			const style = active ? getComputedStyle(active) : undefined;
+			return {
+				at: Math.round(video.currentTime * 1000) / 1000,
+				paused: video.paused,
+				keyboard: active === document.querySelector(selector) ? 'player' : String(active?.className ?? ''),
+				ring: !!style && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0
+			};
 		}, player);
-		await page.locator(`${SURFACE} .basehalf-canvas-video-player-button.play`).focus();
-		const keys = {};
+		// Playing starts at once, and a pause comes once the sound has gone down over 60 ms: each press waits for it.
+		const until = paused => page.waitForFunction(({ selector, paused }) => document.querySelector(`${selector} video`)?.paused === paused, { selector: player, paused }, { timeout: 5_000 }).catch(() => undefined);
+		await page.locator(player).focus();
+		const playButton = page.locator(`${SURFACE} .basehalf-canvas-video-player-button.play`);
+		await playButton.click();
+		await until(false);
+		await playButton.click();
+		await until(true);
+		const keys = { pressedPlay: await playhead() };
 		for (const [name, key] of [['home', 'Home'], ['right', 'ArrowRight'], ['rightAgain', 'ArrowRight'], ['end', 'End'], ['left', 'ArrowLeft']]) {
 			await page.keyboard.press(key);
 			keys[name] = await playhead();
 		}
-		if (Math.abs(keys.home.at - part.start) > 0.02 || Math.abs(keys.right.at - part.start - 1) > 0.1 || keys.rightAgain.at > part.end || keys.rightAgain.at < part.end - 0.15
-			|| keys.end.at !== keys.rightAgain.at || Math.abs(keys.left.at - (keys.end.at - 1)) > 0.1 || !/\bplay\b/.test(keys.left.keyboard)) {
-			throw new Error(`While viewing, Left, Right, Home, and End move the playhead within the part kept, with the keyboard on Play: ${JSON.stringify({ part, keys })}`);
+		const lit = Object.entries(keys).filter(([, value]) => value.keyboard !== 'player' || value.ring).map(([name]) => name);
+		if (lit.length || Math.abs(keys.home.at - part.start) > 0.02 || Math.abs(keys.right.at - part.start - 1) > 0.1 || keys.rightAgain.at > part.end
+			|| keys.rightAgain.at < part.end - 0.15 || keys.end.at !== keys.rightAgain.at || Math.abs(keys.left.at - (keys.end.at - 1)) > 0.1) {
+			throw new Error(`While viewing, the keyboard stays on the player through a press of Play, with no ring, and Left, Right, Home, and End move the playhead within the part kept: ${JSON.stringify({ part, lit, keys })}`);
 		}
 		// Edit shows the whole original in the viewer, with the handles where the trim left them.
 		await enterEditing(page);
@@ -297,19 +313,31 @@ export async function assertCardDetailVideoEdit(page) {
 		if (Math.abs(again.start - part.start) > 0.02 || Math.abs(again.end - part.end) > 0.02 || !/ \| Revert to Original$/.test(await lineText(page))) {
 			throw new Error(`Edit on an edited video shows its original with the part it kept, and Revert to Original: ${JSON.stringify({ part, again, line: await lineText(page) })}`);
 		}
-		// While editing, with the keyboard on Done, End goes to the original's last frame, and Shift+Right one frame on, paused;
-		// with the keyboard nowhere, Right still moves the playhead a second.
-		for (const [name, key] of [['editingEnd', 'End'], ['editingHome', 'Home'], ['frame', 'Shift+ArrowRight']]) {
+		// While editing, the keyboard is still the player's: End goes to the original's last frame, Shift+Right one frame on,
+		// paused, and Space plays and pauses while the editing stays. Tab takes the keyboard to a control, which then shows its
+		// ring; with the keyboard nowhere, Right still moves the playhead a second.
+		const editing = {};
+		for (const [name, key] of [['end', 'End'], ['home', 'Home'], ['frame', 'Shift+ArrowRight'], ['spacePlays', 'Space'], ['spacePauses', 'Space']]) {
 			await page.keyboard.press(key);
-			keys[name] = await playhead();
+			if (name === 'spacePlays') {
+				await until(false);
+				await page.waitForTimeout(300);
+			} else if (name === 'spacePauses') {
+				await until(true);
+			}
+			editing[name] = { ...await playhead(), mode: await cardDetailModeLabel(page) };
 		}
+		await page.keyboard.press('Tab');
+		editing.tab = await playhead();
 		await page.evaluate(() => document.activeElement?.blur());
 		await page.keyboard.press('ArrowRight');
-		keys.nowhere = await playhead();
-		const frame = keys.frame.at - keys.editingHome.at;
-		if (keys.editingEnd.at < part.end + 0.2 || keys.editingHome.at > 0.01 || frame < 0.02 || frame > 0.15 || !keys.frame.paused
-			|| !/mode-button/.test(keys.frame.keyboard) || Math.abs(keys.nowhere.at - keys.frame.at - 1) > 0.1) {
-			throw new Error(`While editing, End, Home, and Shift+Right move the playhead over the whole original with the keyboard on Done, and Right with it nowhere: ${JSON.stringify({ part, keys })}`);
+		editing.nowhere = await playhead();
+		const frame = editing.frame.at - editing.home.at;
+		const editingLit = ['end', 'home', 'frame', 'spacePlays', 'spacePauses'].filter(name => editing[name].keyboard !== 'player' || editing[name].ring || editing[name].mode !== 'Done');
+		if (editingLit.length || editing.end.at < part.end + 0.2 || editing.home.at > 0.01 || frame < 0.02 || frame > 0.15 || !editing.frame.paused
+			|| editing.spacePlays.paused || !editing.spacePauses.paused || editing.tab.keyboard === 'player' || !editing.tab.ring
+			|| Math.abs(editing.nowhere.at - editing.spacePauses.at - 1) > 0.1) {
+			throw new Error(`While editing, after a click on Edit, the keyboard stays on the player: End, Home, Shift+Right, and Space work there with no ring and the editing stays; Tab shows a ring on a control; Right works with the keyboard nowhere: ${JSON.stringify({ part, editingLit, editing })}`);
 		}
 		// The first Escape goes back to viewing, the second closes Card Detail.
 		await page.keyboard.press('Escape');

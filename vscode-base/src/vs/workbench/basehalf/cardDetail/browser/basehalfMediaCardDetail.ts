@@ -86,12 +86,19 @@ type BaseHalfWebviewContentKind = Exclude<BaseHalfRenderableContentKind, 'video'
 /** What BaseHalf can edit in Card Detail: a video, an image, and a sound (editing media). */
 type BaseHalfEditableContentKind = 'video' | 'image' | 'audio';
 
+/** A field of text, which takes every key and the pointer's press itself. */
+const TEXT_FIELDS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 /** What takes the arrow keys, Home, and End itself: a field of text, a slider such as a handle of the frame viewer, a menu, a list, or tabs. */
-const OWN_ARROW_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="spinbutton"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="tree"], [role="grid"]';
+const OWN_ARROW_KEYS = `${TEXT_FIELDS}, [role="slider"], [role="spinbutton"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="tree"], [role="grid"]`;
+/** What takes Space itself: a button that Tab took the keyboard to presses itself, and a handle plays and pauses. */
+const OWN_SPACE = `${OWN_ARROW_KEYS}, button, [role="button"], [role="checkbox"], [role="switch"], [role="menuitem"], [role="option"], [role="tab"]`;
+/** The controls of the media that a press with the pointer gives no keyboard to: buttons, sliders such as the handles, and the crop frame (D100). */
+const PRESSED_CONTROLS = 'button, [role="button"], [role="slider"], [role="application"]';
 
-/** Whether the keyboard is on something that takes the keys of the playhead itself (editing media, "The keyboard"). */
-function takesPlayheadKeys(target: EventTarget | null): boolean {
-	return isHTMLElement(target) && !!target.closest(OWN_ARROW_KEYS);
+/** The nearest element around `target`, up to `within`, that `selector` matches: an element around Card Detail does not count. */
+function closestWithin(target: EventTarget | null, selector: string, within: Element): Element | undefined {
+	const found = isHTMLElement(target) ? target.closest(selector) : null;
+	return found && within.contains(found) ? found : undefined;
 }
 
 export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind | undefined {
@@ -303,33 +310,56 @@ export class BaseHalfMediaCardDetail extends Disposable {
 				this.onEscape();
 			}
 		}));
-		// Left, Right, Home, and End move the playhead of a video or a sound wherever in Card Detail the keyboard is,
-		// before the player's controls keep the arrow keys from the canvas, and with the keyboard nowhere.
-		this._register(addDisposableListener(detail, 'keydown', event => this.onPlayheadKey(event), true));
+		// The keys of a player work wherever in Card Detail the keyboard is, before the player's controls keep the
+		// arrow keys from the canvas, and with the keyboard nowhere (editing media, "The keyboard").
+		this._register(addDisposableListener(detail, 'keydown', event => this.onMediaKey(event, detail), true));
 		this._register(addDisposableListener(getWindow(container), 'keydown', event => {
 			const targetDocument = detail.ownerDocument;
 			if ((event.target === targetDocument.body || event.target === targetDocument.documentElement) && detail.isConnected) {
-				this.onPlayheadKey(event);
+				this.onMediaKey(event, detail);
 			}
 		}));
+		// A press of a control with the pointer leaves the keyboard where it was, on the media, as the system's own buttons do:
+		// only Tab takes it to a control, which then shows its ring (D100).
+		this._register(addDisposableListener(this.root, 'mousedown', event => {
+			if (closestWithin(event.target, PRESSED_CONTROLS, this.root) && !closestWithin(event.target, TEXT_FIELDS, this.root)) {
+				event.preventDefault();
+			}
+		}, true));
 	}
 
 	/**
-	 * Left and Right move the playhead of a video or a sound a second, with
-	 * Shift a frame of a video that BaseHalf can edit, and Home and End to the
-	 * start and the end, with the keyboard anywhere in Card Detail but on a
-	 * control or a field that takes them itself (editing media, "The keyboard").
+	 * The keys of a video's or a sound's player, with the keyboard anywhere in
+	 * Card Detail but on a control or a field that takes them itself (editing
+	 * media, "The keyboard"): Space plays and pauses; Left and Right move the
+	 * playhead a second, with Shift a frame of a video that BaseHalf can edit;
+	 * Home and End move it to the start and the end.
 	 */
-	private onPlayheadKey(event: KeyboardEvent): void {
+	private onMediaKey(event: KeyboardEvent, detail: Element): void {
 		if (!this.visible || (this.kind !== 'video' && this.kind !== 'audio')
 			|| event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) {
 			return;
 		}
 		const key = event.key;
+		if (key === ' ') {
+			if (event.shiftKey || event.repeat || closestWithin(event.target, OWN_SPACE, detail)) {
+				return;
+			}
+			// The editor plays the part it keeps; a video or a sound that BaseHalf cannot edit plays in its player.
+			if (!this.editingStore.value?.togglePlay()) {
+				if (!this.player) {
+					return;
+				}
+				this.player.togglePlay();
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
 		const move: BaseHalfPlayheadMove | undefined = key === 'ArrowLeft' || key === 'ArrowRight'
 			? { kind: 'step', by: event.shiftKey ? 'frame' : 'second', direction: key === 'ArrowLeft' ? -1 : 1 }
 			: (key === 'Home' || key === 'End') && !event.shiftKey ? { kind: 'jump', to: key === 'Home' ? 'start' : 'end' } : undefined;
-		if (!move || takesPlayheadKeys(event.target)) {
+		if (!move || closestWithin(event.target, OWN_ARROW_KEYS, detail)) {
 			return;
 		}
 		// The editor knows the part kept and the frames; a video or a sound that BaseHalf cannot edit moves as its slider does.
@@ -438,7 +468,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		this.visible = visible;
 	}
 
-	/** The keyboard goes to the player's Play, to the editor's first control where no player stands, or into the page. */
+	/** The keyboard goes to the media (D100): the player, the waveform or the picture where no player stands, or into the page. */
 	focus(): void {
 		if (this.player) {
 			this.player.focus();
@@ -595,6 +625,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			// Both words stand in the button, one over the other, so that it is as wide for each: nothing in the header moves when it changes.
 			append(button, $('span.basehalf-card-detail-mode-label.edit')).textContent = localize('basehalf.mediaEdit.edit', "Edit");
 			append(button, $('span.basehalf-card-detail-mode-label.done')).textContent = localize('basehalf.mediaEdit.done', "Done");
+			// Pressed with the pointer, it leaves the keyboard on the media, where Space and the arrow keys play and move it (D100).
+			this._register(addDisposableListener(button, 'mousedown', event => event.preventDefault()));
 			this._register(addDisposableListener(button, 'click', () => {
 				const current = this.editingStore.value;
 				current?.setEditing(!current.isEditing);

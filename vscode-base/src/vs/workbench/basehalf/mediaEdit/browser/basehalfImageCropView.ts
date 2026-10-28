@@ -214,7 +214,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		this.element = append(container, $('.basehalf-image-crop.viewing'));
 		this.element.setAttribute('role', 'group');
 		this.view = append(this.element, $('.basehalf-image-crop-view'));
-		// While viewing, the keyboard is on the picture.
+		// The keyboard is on the picture, while viewing and while editing; Tab takes it on to the frame and the tools (D100).
 		this.view.tabIndex = -1;
 		this.picture = append(this.view, $<HTMLImageElement>('img.basehalf-image-crop-picture'));
 		this.picture.alt = '';
@@ -284,7 +284,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 	}
 
 	focus(): void {
-		(this.editing ? this.frame : this.view).focus({ preventScroll: true });
+		this.view.focus({ preventScroll: true });
 	}
 
 	setEditing(editing: boolean): void {

@@ -118,7 +118,7 @@ export interface IBaseHalfCanvasCardVideoPlayer extends IDisposable {
 	setPlayRange(range: IBaseHalfCanvasVideoPlayRange | undefined): void;
 	/** Turns the sound off or on, as its sound button does: for an edit that saves a video without its sound (editing media). */
 	setMuted(muted: boolean): void;
-	/** Puts the keyboard on the play button, as Card Detail does when it opens. */
+	/** Puts the keyboard on the player, as Card Detail does when it opens: in Card Detail on the player itself, which shows no ring (D100); on a card on Play. */
 	focus(): void;
 	/**
 	 * Moves the video as a key of the position slider does: Left and Down a
@@ -245,12 +245,22 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		this.video.preload = 'metadata';
 		this.video.playsInline = true;
 		this.video.muted = true;
-		this.video.tabIndex = -1;
 		this.video.setAttribute('aria-hidden', 'true');
 		const detail = options.detail === true;
 		const isSound = options.sound === true;
 		this.element.classList.toggle('detail', detail);
 		this.element.classList.toggle('sound', isSound);
+		if (detail) {
+			// In Card Detail the keyboard is the player's own, not its buttons' (D100): Card Detail opens with it here,
+			// a press on the picture puts it here, and it shows no ring here.
+			this.element.tabIndex = -1;
+			this.element.setAttribute('role', 'group');
+			this.element.setAttribute('aria-label', isSound
+				? localize('basehalf.canvas.videoPlayer.soundLabel', "Sound")
+				: localize('basehalf.canvas.videoPlayer.videoLabel', "Video"));
+		} else {
+			this.video.tabIndex = -1;
+		}
 		// On a card the picture is the card's: a press on it selects, moves, and opens the card.
 		if (!detail) {
 			this.video.style.pointerEvents = 'none';
@@ -385,7 +395,7 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 	}
 
 	focus(): void {
-		this.playButton.focus({ preventScroll: true });
+		(this.detail ? this.element : this.playButton).focus({ preventScroll: true });
 	}
 
 	/**

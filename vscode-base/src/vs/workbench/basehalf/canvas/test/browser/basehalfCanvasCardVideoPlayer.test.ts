@@ -277,8 +277,12 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		player.dispose();
 		assert.deepStrictEqual({ inCard: container.contains(player.element), source: player.video.getAttribute('src') }, { inCard: false, source: null });
 	});
-	test('in Card Detail the picture is the player\'s: the controls show while it is paused, a click plays and pauses the video with its sound, the pointer plays nothing, and Full Screen stands where Open is', () => {
+	test('in Card Detail the picture is the player\'s: the controls show while it is paused, a click plays and pauses the video with its sound and puts the keyboard on the player itself, not on Play (D100), the pointer plays nothing, and Full Screen stands where Open is', () => {
 		const { player, media, control } = createPlayer(640, undefined, true);
+		// Card Detail draws its player once it knows the video's shape (D98), and the keyboard can be on it from then on.
+		Object.defineProperty(player.video, 'videoWidth', { configurable: true, get: () => 1280 });
+		Object.defineProperty(player.video, 'videoHeight', { configurable: true, get: () => 720 });
+		player.video.dispatchEvent(new Event('loadedmetadata'));
 		const seen = {
 			controls: player.element.dataset.controls,
 			picturePointer: player.video.style.pointerEvents,
@@ -290,11 +294,12 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		const playing = control('play').getAttribute('aria-label');
 		player.video.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		point(player.element, 'pointerleave');
-		assert.deepStrictEqual({ seen, playing, media, focused: mainWindow.document.activeElement === control('play') }, {
+		assert.deepStrictEqual({ seen, playing, media, keyboardOnPlayer: mainWindow.document.activeElement === player.element, player: [player.element.tabIndex, player.element.getAttribute('role'), player.element.getAttribute('aria-label')] }, {
 			seen: { controls: 'shown', picturePointer: '', open: 'Full Screen', sound: 'Mute' },
 			playing: 'Pause',
 			media: ['play', 'pause'],
-			focused: true
+			keyboardOnPlayer: true,
+			player: [-1, 'group', 'Video']
 		});
 	});
 
@@ -388,7 +393,7 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		});
 	});
 
-	test('in Card Detail a sound has no Full Screen, and a click on its glyph plays and pauses it', () => {
+	test('in Card Detail a sound has no Full Screen, and a click on its glyph plays and pauses it and puts the keyboard on the player (D100)', () => {
 		const { player, media, control } = createPlayer(640, '/workspace/voice.mp3', true, true);
 		const picture = player.element.querySelector<HTMLElement>('.basehalf-canvas-video-player-picture')!;
 		picture.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -398,8 +403,9 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 			controls: player.element.dataset.controls,
 			tabbable: [control('sound'), control('play'), control('open')].map(button => button.tabIndex),
 			media,
-			focused: mainWindow.document.activeElement === control('play')
-		}, { fullScreen: true, controls: 'shown', tabbable: [-1, 0, -1], media: ['play', 'pause'], focused: true });
+			keyboardOnPlayer: mainWindow.document.activeElement === player.element,
+			label: player.element.getAttribute('aria-label')
+		}, { fullScreen: true, controls: 'shown', tabbable: [-1, 0, -1], media: ['play', 'pause'], keyboardOnPlayer: true, label: 'Sound' });
 	});
 
 	test('Card Detail starts at the frame its card shows, also when the canvas asks for the file with its version, and leaves the card at the frame where it stopped', () => {

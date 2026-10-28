@@ -140,16 +140,28 @@ export async function assertCardDetailSoundEdit(page) {
 		if (!viewing.viewing || viewing.handles.some(visibility => visibility !== 'hidden') || await cardDetailModeLabel(page) !== 'Edit') {
 			throw new Error(`Card Detail of a sound opens to view it, with no handle, and Edit in the header: ${JSON.stringify(viewing)}`);
 		}
-		// Editing media, criterion 31: with the keyboard on Play, Right moves the playhead a second, and End and Home to the ends.
-		const soundTime = () => page.evaluate(selector => document.querySelector(`${selector} .basehalf-sound-waveform-time`)?.textContent, WAVE);
-		await page.locator(`${WAVE} .basehalf-sound-waveform-play`).focus();
+		// Editing media, criteria 31 and 32 (D100): the keyboard is the waveform's, and a press of Play with the pointer leaves it
+		// there; Right moves the playhead a second, and End and Home to the ends, with no ring on anything.
+		const soundTime = () => page.evaluate(selector => {
+			const active = document.activeElement;
+			const style = active ? getComputedStyle(active) : undefined;
+			const ring = !!style && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
+			return `${document.querySelector(`${selector} .basehalf-sound-waveform-time`)?.textContent}${active === document.querySelector(selector) ? '' : ' (keyboard elsewhere)'}${ring ? ' (ring)' : ''}`;
+		}, WAVE);
+		await page.locator(WAVE).focus();
+		const soundPlay = page.locator(`${WAVE} .basehalf-sound-waveform-play`);
+		const soundUntil = label => page.waitForFunction(({ selector, label }) => document.querySelector(`${selector} .basehalf-sound-waveform-play`)?.getAttribute('aria-label') === label, { selector: WAVE, label }, { timeout: 5_000 }).catch(() => undefined);
+		await soundPlay.click();
+		await soundUntil('Pause');
+		await soundPlay.click();
+		await soundUntil('Play');
 		const soundKeys = [];
-		for (const key of ['ArrowRight', 'End', 'Home']) {
+		for (const key of ['Home', 'ArrowRight', 'End', 'Home']) {
 			await page.keyboard.press(key);
 			soundKeys.push(await soundTime());
 		}
-		if (JSON.stringify(soundKeys) !== JSON.stringify(['1.0s / 4.0s', '4.0s / 4.0s', '0.0s / 4.0s'])) {
-			throw new Error(`Right, End, and Home move the playhead of a sound with the keyboard on Play: ${JSON.stringify(soundKeys)}`);
+		if (JSON.stringify(soundKeys) !== JSON.stringify(['0.0s / 4.0s', '1.0s / 4.0s', '4.0s / 4.0s', '0.0s / 4.0s'])) {
+			throw new Error(`Right, End, and Home move the playhead of a sound with the keyboard on the waveform, which a press of Play leaves there, and no ring shows: ${JSON.stringify(soundKeys)}`);
 		}
 		await enterEditing(page);
 

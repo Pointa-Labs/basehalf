@@ -154,6 +154,8 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.element = append(container, $('.basehalf-video-frames.basehalf-sound-waveform.viewing'));
 		this.element.setAttribute('role', 'group');
 		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.sound.label', "Waveform"));
+		// The keyboard is the waveform's own, not its buttons' (D100).
+		this.element.tabIndex = -1;
 		const row = append(this.element, $('.basehalf-video-frames-row'));
 		this.strip = append(row, $('.basehalf-video-frames-strip.basehalf-sound-waveform-strip'));
 		this.canvas = append(this.strip, $<HTMLCanvasElement>('canvas.basehalf-sound-waveform-canvas'));
@@ -213,7 +215,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 	}
 
 	focus(): void {
-		this.playButton.focus({ preventScroll: true });
+		this.element.focus({ preventScroll: true });
 	}
 
 	setChoices(choices: IBaseHalfMediaChoices): void {
@@ -548,7 +550,7 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		this.render();
 	}
 
-	private togglePlay(): void {
+	togglePlay(): void {
 		if (this.playing) {
 			this.stop();
 		} else {
@@ -578,9 +580,9 @@ export class BaseHalfSoundWaveform extends Disposable implements IBaseHalfMediaE
 		if (!selected || !this.canCut()) {
 			return;
 		}
-		// Delete goes with the stretch: the keyboard that was on it goes to Play.
+		// Delete goes with the stretch: the keyboard that Tab took to it goes back to the waveform.
 		if (this.deleteButton.ownerDocument.activeElement === this.deleteButton) {
-			this.playButton.focus({ preventScroll: true });
+			this.focus();
 		}
 		this.stop();
 		const length = selected.end - selected.start;

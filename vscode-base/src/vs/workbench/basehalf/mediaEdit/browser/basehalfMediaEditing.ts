@@ -221,7 +221,17 @@ export class BaseHalfMediaEditing extends Disposable {
 		return true;
 	}
 
-	/** Takes the keyboard on the editor's first control. */
+	/** Plays or pauses the editor's video or sound, as Space does; says whether there is one (editing media, "The keyboard"). */
+	togglePlay(): boolean {
+		const editor = this.editor;
+		if (!editor?.togglePlay) {
+			return false;
+		}
+		editor.togglePlay();
+		return true;
+	}
+
+	/** Puts the keyboard on the media (D100). */
 	focus(): void {
 		this.editor?.focus();
 	}
