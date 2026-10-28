@@ -43,6 +43,21 @@ export function formatBaseHalfVideoTrimLength(seconds: number): string {
 	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
+/**
+ * The time of a handle as the bubble over it shows it while it is pressed
+ * (editing media, "The frame viewer", D102): minutes, seconds, and
+ * hundredths (`00:26.40`), with hours before them from an hour on
+ * (`1:02:03.40`), never more than it is.
+ */
+export function formatBaseHalfVideoHandleTime(seconds: number): string {
+	const value = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+	const hundredths = Math.floor((value + EPSILON) * 100);
+	const whole = Math.floor(hundredths / 100);
+	const minutes = Math.floor(whole / 60);
+	const time = `${String(minutes % 60).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}.${String(hundredths % 100).padStart(2, '0')}`;
+	return minutes >= 60 ? `${Math.floor(minutes / 60)}:${time}` : time;
+}
+
 /** The frame edges of a video and the selections they allow. */
 export class BaseHalfVideoTrimTimeline {
 

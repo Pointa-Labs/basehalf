@@ -10,26 +10,28 @@ import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
-import { BASEHALF_PLAYHEAD_STEP_SECONDS, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
+import { BASEHALF_PLAYHEAD_STEP_SECONDS, baseHalfVideoPlayIcon, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
 import { BASEHALF_TIME_ZOOM_REST_MS, BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
 import { baseHalfVideoFrameEdges } from '../common/basehalfVideoFile.js';
-import { BaseHalfVideoTrimHandle, BaseHalfVideoTrimTimeline, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../common/basehalfVideoTrimSelection.js';
+import { BaseHalfVideoTrimHandle, BaseHalfVideoTrimTimeline, formatBaseHalfVideoHandleTime, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../common/basehalfVideoTrimSelection.js';
 import { BaseHalfMediaChange, BaseHalfPlayheadMove, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { IBaseHalfEditVideo } from './basehalfMediaEditService.js';
 import { BaseHalfStripEdgeFollow, baseHalfStripClock, BaseHalfTimeZoom } from './basehalfTimeZoom.js';
 import { readBaseHalfVideoTrimPictures } from './basehalfVideoTrimPictures.js';
 
 /**
- * The frame viewer under the player of a video in Card Detail (editing media,
- * "Editing a video"): the video's timeline, a strip of the original's frames
- * with the part kept in a yellow frame, its two handles, the playhead, and
- * the part's length. It plays the part in the player, spreads out around a
- * handle that is held still and where a pinch spreads it ("Zooming the
+ * The edit bar under the player of a video in Card Detail while it is edited
+ * (editing media, "Editing a video", D102): Play, and the frame viewer, a
+ * strip of the whole original's frames with a handle at each end, grey while
+ * the whole video is kept and yellow with the part kept in a yellow frame
+ * once trimmed, the playhead, and the time of a pressed handle in a bubble
+ * over it. It plays the part over and over in the player, spreads out around
+ * a handle that is held still and where a pinch spreads it ("Zooming the
  * picture and the time"), and makes a change of each handle or part let go.
- * While viewing ("Viewing and editing"), it is the timeline of the file as it
- * is: the frames of the part kept, with the playhead, which a press moves,
- * and no frame, handle, or length; the part plays once.
+ * While viewing ("Viewing and editing") the bar does not show, and the part
+ * plays once, as the file does; its pictures are read meanwhile, so that Edit
+ * shows them at once.
  */
 
 export interface IBaseHalfVideoFrameViewerOptions {
@@ -52,10 +54,10 @@ const PICTURES_DELAY_MILLISECONDS = 120;
 const PICTURES_FADE_MILLISECONDS = 120;
 /** A set of pictures that takes longer than this to read shows what is read then, in milliseconds (D101). */
 const PICTURES_WAIT_MILLISECONDS = 1000;
-/** Edit and Done glide the strip's stretch this long, in milliseconds (D101). */
-const STRIP_GLIDE_MILLISECONDS = 250;
-/** How long a handle is held still before the viewer spreads out around it. */
-const HOLD_MILLISECONDS = 400;
+/** A held handle's spread glides in and out this long, in milliseconds (D102). */
+const SPREAD_GLIDE_MILLISECONDS = 250;
+/** How long a handle is held still before the viewer spreads out around it, as a desktop video player's trim waits (D102). */
+const HOLD_MILLISECONDS = 800;
 /** What the viewer shows around a held handle: a tenth of the video, or this, whichever is longer. */
 const SPREAD_MIN_SECONDS = 2;
 /** A held handle's spread this close to the start or the end of the length shows it, in seconds. */
@@ -88,16 +90,18 @@ interface IStripView {
 export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMediaEditor {
 
 	readonly element: HTMLElement;
+	private readonly playButton: HTMLButtonElement;
 	private readonly strip: HTMLElement;
 	/** The pictures of the whole video, read once. */
 	private readonly pictures: HTMLElement;
 	/** The pictures of the stretch a pinch spread out, over the whole video's. */
 	private readonly zoomPictures: HTMLElement;
 	private readonly spreadPictures: HTMLElement;
-	private readonly length: HTMLElement;
 	private readonly startHandle: HTMLElement;
 	private readonly endHandle: HTMLElement;
 	private readonly playhead: HTMLElement;
+	/** The time of a pressed handle, over it (D102). */
+	private readonly bubble: HTMLElement;
 
 	private readonly onDidChangeEmitter = this._register(new Emitter<BaseHalfMediaChange>());
 	readonly onDidChange = this.onDidChangeEmitter.event;
@@ -123,7 +127,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	private readonly spreadLoad = this._register(new MutableDisposable());
 	/** The stretch of each set of pictures, read together and shown together (D101): a set is placed by its own times. */
 	private readonly setStretches = new WeakMap<HTMLElement, IStripView>();
-	/** The frame of a glide of the strip's stretch, as Edit and Done make, while one runs (D101). */
+	/** Where a glide of the strip's stretch goes, as a held handle's spread makes one, and what follows it, while one runs (D102). */
+	private glide: { readonly target: IStripView; readonly done?: () => void } | undefined;
 	private glideFrame: number | undefined;
 	/** A glide ends on time even in a window that draws no frames. */
 	private glideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -136,13 +141,18 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		const video = options.video.file.video!;
 		this.timeline = new BaseHalfVideoTrimTimeline(baseHalfVideoFrameEdges(video));
 		this.range = this.timeline.normalize(options.choices.keep?.[0]);
-		// It starts by viewing the file: the part kept.
-		this.view = { from: this.range.start, to: this.range.end };
+		// The strip shows the whole original, also while viewing, when it does not show (D102).
+		this.view = { from: 0, to: this.timeline.duration };
 
 		this.element = append(container, $('.basehalf-video-frames.viewing'));
 		this.element.setAttribute('role', 'group');
 		this.element.setAttribute('aria-label', localize('basehalf.mediaEdit.video.label', "Frames"));
+		// The bar is as wide as the picture is while editing, which the video's shape decides (D102).
+		this.element.style.setProperty('--basehalf-video-aspect', String(this.aspect()));
 		const row = append(this.element, $('.basehalf-video-frames-row'));
+		this.playButton = append(row, $<HTMLButtonElement>('button.basehalf-video-frames-play'));
+		this.playButton.type = 'button';
+		this.updatePlayButton();
 		this.strip = append(row, $('.basehalf-video-frames-strip'));
 		// The pictures are cut at the strip's edges, where its handles stand outside it.
 		const clip = append(this.strip, $('.basehalf-video-frames-clip'));
@@ -153,10 +163,11 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		append(this.strip, $('.basehalf-video-frames-shade.before'));
 		append(this.strip, $('.basehalf-video-frames-shade.after'));
 		append(this.strip, $('.basehalf-video-frames-part'));
-		this.length = append(this.strip, $('.basehalf-video-frames-length'));
 		this.playhead = append(this.strip, $('.basehalf-video-frames-playhead'));
 		this.startHandle = append(this.strip, $('.basehalf-video-frames-handle.start'));
 		this.endHandle = append(this.strip, $('.basehalf-video-frames-handle.end'));
+		this.bubble = append(this.strip, $('.basehalf-video-frames-time'));
+		this.bubble.setAttribute('aria-hidden', 'true');
 		for (const [handle, label] of [
 			[this.startHandle, localize('basehalf.mediaEdit.video.start', "Start")],
 			[this.endHandle, localize('basehalf.mediaEdit.video.end', "End")]
@@ -220,10 +231,6 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		// The player shows where the part starts.
 		this.options.player.seek(this.range.start + 1e-4);
 		this.applyChoice();
-		if (!this.editing) {
-			// Viewing shows the file, which the choices made anew.
-			this.showStretch();
-		}
 	}
 
 	setEditing(editing: boolean): void {
@@ -235,31 +242,31 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.editing = editing;
 		this.element.classList.toggle('viewing', !editing);
 		if (!editing) {
-			// Done shows the file's length again; the next Edit starts from the whole video.
+			// Done hides the bar; the next Edit shows the whole video.
 			this.zoom.reset();
 		}
 		this.showHandles();
 		this.applyChoice();
-		this.glideTo(this.restingView());
+		this.showStretch();
 	}
 
 	/**
-	 * Glides the strip's stretch to `target` over 250 ms, as Edit and Done
-	 * make it go from the part kept to the whole original and back (D101): each
-	 * set of pictures moves and scales with the times it shows, and the
-	 * pictures of the target are read once it is there.
+	 * Glides the strip's stretch to `target` over 250 ms, as a held handle's
+	 * spread goes in and out (D102): each set of pictures moves and scales with
+	 * the times it shows; `done` follows once the glide is there.
 	 */
-	private glideTo(target: IStripView): void {
+	private glideTo(target: IStripView, done?: () => void): void {
 		this.stopGlide();
 		const from = this.view;
 		if (from.from === target.from && from.to === target.to) {
-			this.showStretch();
+			done?.();
 			return;
 		}
+		this.glide = { target, done };
 		const window = getWindow(this.element);
 		const start = window.performance.now();
 		const step = () => {
-			const progress = Math.min(1, (window.performance.now() - start) / STRIP_GLIDE_MILLISECONDS);
+			const progress = Math.min(1, (window.performance.now() - start) / SPREAD_GLIDE_MILLISECONDS);
 			if (progress >= 1) {
 				this.finishGlide();
 				return;
@@ -273,11 +280,12 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			this.glideFrame = window.requestAnimationFrame(step);
 		};
 		this.glideFrame = window.requestAnimationFrame(step);
-		this.glideTimer = setTimeout(() => this.finishGlide(), STRIP_GLIDE_MILLISECONDS + 50);
+		this.glideTimer = setTimeout(() => this.finishGlide(), SPREAD_GLIDE_MILLISECONDS + 50);
 		this.element.classList.add('gliding');
 	}
 
 	private stopGlide(): void {
+		this.glide = undefined;
 		if (this.glideFrame !== undefined) {
 			getWindow(this.element).cancelAnimationFrame(this.glideFrame);
 			this.glideFrame = undefined;
@@ -291,10 +299,16 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 	/** A glide that ends, or that a press, a gesture, or a change meets, ends where it was going. */
 	private finishGlide(): void {
-		if (this.glideFrame !== undefined || this.glideTimer !== undefined) {
-			this.stopGlide();
-			this.showStretch();
+		const glide = this.glide;
+		if (!glide) {
+			return;
 		}
+		this.stopGlide();
+		this.view = glide.target;
+		this.element.classList.toggle('zoomed', !this.showsWhole());
+		this.placePictures();
+		this.render();
+		glide.done?.();
 	}
 
 	movePlayhead(move: BaseHalfPlayheadMove): void {
@@ -337,9 +351,16 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 	}
 
-	/** What the strip shows when no handle is held: the part kept while viewing, the file as it is; while editing, the stretch a pinch spread out, or the whole video. */
+	/** What the strip shows when no handle is held: the stretch a pinch spread out while editing, or the whole video. */
 	private restingView(): IStripView {
-		return this.editing ? this.zoom.stretch : { from: this.range.start, to: this.range.end };
+		return this.editing ? this.zoom.stretch : { from: 0, to: this.timeline.duration };
+	}
+
+	/** The shape of the video's picture, width over height, as it shows. */
+	private aspect(): number {
+		const video = this.options.video.file.video!;
+		const rotated = video.rotation === 90 || video.rotation === 270;
+		return (rotated ? video.displayHeight / video.displayWidth : video.displayWidth / video.displayHeight) || 16 / 9;
 	}
 
 	/** Whether the strip shows the whole video. */
@@ -377,10 +398,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	private pictureCount(width: number): number {
-		const video = this.options.video.file.video!;
-		const rotated = video.rotation === 90 || video.rotation === 270;
-		const aspect = (rotated ? video.displayHeight / video.displayWidth : video.displayWidth / video.displayHeight) || 16 / 9;
-		return Math.max(1, Math.ceil(width / (STRIP_HEIGHT * aspect)));
+		return Math.max(1, Math.ceil(width / (STRIP_HEIGHT * this.aspect())));
 	}
 
 	/**
@@ -459,15 +477,22 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		for (const type of ['timeupdate', 'seeked', 'loadedmetadata', 'durationchange'] as const) {
 			this._register(addDisposableListener(video, type, () => this.updatePlayhead()));
 		}
-		this._register(addDisposableListener(video, 'play', () => this.followPlayhead()));
+		this._register(addDisposableListener(video, 'play', () => {
+			this.followPlayhead();
+			this.updatePlayButton();
+		}));
 		this._register(addDisposableListener(video, 'pause', () => {
 			this.stopPlayhead();
 			this.updatePlayhead();
+			this.updatePlayButton();
 		}));
+		this._register(addDisposableListener(video, 'ended', () => this.updatePlayButton()));
 		// A press on the viewer is the viewer's: it reaches neither the player nor the canvas.
 		for (const type of ['mousedown', 'click', 'dblclick'] as const) {
 			this._register(addDisposableListener(this.element, type, event => event.stopPropagation()));
 		}
+		// Play of the edit bar plays and pauses the part, as Space does (D102).
+		this._register(addDisposableListener(this.playButton, 'click', () => this.options.player.togglePlay()));
 		this._register(addDisposableListener(this.strip, 'pointerdown', event => this.onPointerDown(event)));
 		this._register(addDisposableListener(this.strip, 'pointermove', event => this.onPointerMove(event)));
 		for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
@@ -510,21 +535,18 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	private onPointerDown(event: PointerEvent): void {
-		if (event.button !== 0) {
+		// While viewing, the bar does not show, and nothing on it takes a press (D102).
+		if (event.button !== 0 || !this.editing) {
 			return;
 		}
 		event.preventDefault();
 		event.stopPropagation();
 		this.finishGlide();
 		const time = this.timeAt(event.clientX);
-		const handle = this.editing ? this.handleAt(event) : undefined;
+		const handle = this.handleAt(event);
 		let kind: DragKind;
 		let grab = 0;
-		if (!this.editing) {
-			// While viewing, a press anywhere moves the playhead, and a drag from there moves it along.
-			kind = 'scrub';
-			this.options.player.seek(time);
-		} else if (handle) {
+		if (handle) {
 			kind = handle;
 			grab = time - (handle === 'start' ? this.range.start : this.range.end);
 			this.options.player.pause();
@@ -543,6 +565,10 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 			// A pointer that is no longer active cannot be captured; the press still counts.
 		}
 		this.element.classList.toggle('dragging', kind !== 'scrub' && kind !== 'press');
+		// A pressed handle shows its time over it at once, and the picture its frame.
+		if (handle) {
+			this.setRange(this.range, handle);
+		}
 	}
 
 	/** The handle under a press: where the two meet, the one on the press's side of the meeting point. */
@@ -589,6 +615,8 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 
 	/** A drag held at an edge of a held handle's spread: the spread moves by `seconds`, within the video, and what the drag holds follows the pointer. */
 	private moveSpread(seconds: number, clientX: number): void {
+		// A spread that still glides in is there first.
+		this.finishGlide();
 		const span = this.view.to - this.view.from;
 		const from = Math.min(Math.max(this.view.from + seconds, 0), Math.max(0, this.timeline.duration - span));
 		if (from === this.view.from) {
@@ -702,10 +730,10 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	/**
-	 * Spreads the viewer out around the held handle: it shows a tenth of the
-	 * video, or 2 s, whichever is longer, with the handle where it stands on
-	 * the screen, and its frames read anew; not when the stretch shown is as
-	 * short already, a pinch having spread it.
+	 * Spreads the viewer out around the held handle, gliding in 250 ms (D102):
+	 * it then shows a tenth of the video, or 2 s, whichever is longer, with the
+	 * handle under the pointer, and its frames read anew; not when the stretch
+	 * shown is as short already, a pinch having spread it.
 	 */
 	private spread(): void {
 		const drag = this.drag;
@@ -722,30 +750,33 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		const bounds = this.strip.getBoundingClientRect();
 		const fraction = bounds.width > 0 ? Math.min(Math.max((drag.lastX - bounds.left) / bounds.width, 0), 1) : 0.5;
 		const from = Math.min(Math.max(time - fraction * span, 0), duration - span);
-		this.view = { from, to: from + span };
-		drag.grab = this.timeAt(drag.lastX) - time;
+		const target = { from, to: from + span };
+		// The spread puts the handle's time under the pointer: a move from there takes it along with no jump.
+		drag.grab = 0;
 		this.element.classList.add('spread');
 		const width = this.strip.clientWidth;
-		this.readPictures(this.spreadPictures, this.spreadLoad, this.view, this.pictureCount(width), width);
-		this.render();
+		// The frames of the spread are read at once, and fade in where they stand once read.
+		this.readPictures(this.spreadPictures, this.spreadLoad, target, this.pictureCount(width), width);
+		this.glideTo(target);
 	}
 
+	/** Glides a held handle's spread back in 250 ms to the stretch a pinch chose, or the whole video, and lets its pictures go there (D102). */
 	private unspread(): void {
 		if (!this.element.classList.contains('spread')) {
 			return;
 		}
-		// The stretch a pinch chose shows again, or the whole video.
-		this.view = this.restingView();
-		this.element.classList.remove('spread');
 		this.spreadFollow.at(undefined);
 		this.spreadRest.clear();
-		this.spreadLoad.clear();
-		clearNode(this.spreadPictures);
-		if (this.zoomDrawn?.from !== this.view.from || this.zoomDrawn?.to !== this.view.to) {
-			this.readZoomPictures();
-		}
-		this.placePictures();
-		this.render();
+		const target = this.restingView();
+		this.glideTo(target, () => {
+			this.element.classList.remove('spread');
+			this.spreadLoad.clear();
+			clearNode(this.spreadPictures);
+			if (this.zoomDrawn?.from !== this.view.from || this.zoomDrawn?.to !== this.view.to) {
+				this.readZoomPictures();
+			}
+			this.placePictures();
+		});
 	}
 
 	/**
@@ -772,10 +803,9 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 	}
 
 	/**
-	 * Reads the pictures of the stretch shown, over the whole video's stretched
-	 * under them until they come. The whole video's own pictures show while
-	 * the strip shows it; the stretch's set is kept unseen, so that Done shows
-	 * the part kept again at once (D101).
+	 * Reads the pictures of the stretch a pinch spread out, over the whole
+	 * video's stretched under them until they come. The whole video's own
+	 * pictures show while the strip shows it.
 	 */
 	private readZoomPictures(): void {
 		if (this.showsWhole()) {
@@ -912,6 +942,18 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		}
 	}
 
+	/** Play of the edit bar says Pause while the video plays. */
+	private updatePlayButton(): void {
+		const video = this.options.player.video;
+		const playing = !video.paused && !video.ended;
+		clearNode(this.playButton);
+		this.playButton.append(baseHalfVideoPlayIcon(playing));
+		this.playButton.dataset.state = playing ? 'playing' : 'paused';
+		this.playButton.setAttribute('aria-label', playing
+			? localize('basehalf.mediaEdit.video.pause', "Pause")
+			: localize('basehalf.mediaEdit.video.play', "Play"));
+	}
+
 	/** Where a time stands on the strip, from 0 to 1, outside that range when the strip does not show it. */
 	private fractionOf(time: number): number {
 		const span = this.view.to - this.view.from;
@@ -941,11 +983,17 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		// The times the strip shows, in seconds, as its pictures and its handles stand.
 		this.strip.dataset.from = this.view.from.toFixed(3);
 		this.strip.dataset.to = this.view.to.toFixed(3);
+		// While the whole video is kept, the handles are grey and no frame stands on the strip (D102).
 		this.element.classList.toggle('whole', this.timeline.isWhole(this.range));
-		this.length.textContent = formatBaseHalfVideoTrimLength(this.range.end - this.range.start);
-		// A part narrower than its length shows the length above the strip.
-		const partWidth = (clamp(end) - clamp(start)) * this.strip.clientWidth;
-		this.length.classList.toggle('outside', partWidth < this.length.offsetWidth + 8);
+		// A pressed handle shows its time over it, and the playhead hides until it is let go (D102).
+		const pressed = this.drag?.kind === 'start' || this.drag?.kind === 'end' ? this.drag.kind : undefined;
+		this.element.classList.toggle('trimming', !!pressed);
+		if (pressed) {
+			const time = pressed === 'start' ? this.range.start : this.range.end;
+			this.bubble.textContent = formatBaseHalfVideoHandleTime(time);
+			this.bubble.classList.toggle('start', pressed === 'start');
+			this.strip.style.setProperty('--basehalf-video-frames-bubble', `${(clamp(pressed === 'start' ? start : end) * 100).toFixed(4)}%`);
+		}
 		for (const [handle, time] of [[this.startHandle, this.range.start], [this.endHandle, this.range.end]] as const) {
 			handle.setAttribute('aria-valuemax', String(Math.round(duration * 100) / 100));
 			handle.setAttribute('aria-valuenow', String(Math.round(time * 100) / 100));

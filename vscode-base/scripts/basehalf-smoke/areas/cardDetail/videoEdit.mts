@@ -3,8 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-// Card Detail's editor of a video (editing media): viewing first, Edit, a trim saved with nothing pressed, its undo and redo, Revert to Original,
-// Escape back to viewing, and viewing that shows the file as the trim made it and plays it once (D96).
+// Card Detail's editor of a video (editing media): viewing first, as large as fits with the player's own slider, Edit that glides the
+// picture to make room for the edit bar, the bubble of a pressed handle, a trim saved with nothing pressed, its undo and redo, Revert to
+// Original, Escape back to viewing, and viewing that shows the file as the trim made it and plays it once (D96, D102).
 
 import fs from 'fs';
 import path from 'path';
@@ -107,25 +108,35 @@ export async function assertCardDetailVideoEdit(page) {
 		await quickOpen(page, VIDEO);
 		await assertCardDetail(page, 'shot.mp4');
 
-		// Card Detail opens to view the video: the viewer is its timeline, with no handle, and the header holds Edit.
+		// Card Detail opens to view the video as large as fits, with its player's own slider and no edit bar, and the header holds Edit (D102).
 		await waitForViewer(page, undefined);
 		const first = await readPart(page);
-		const atOpen = await page.evaluate(({ detail, surface }) => ({
-			header: Array.from(document.querySelectorAll(`${detail} .basehalf-card-detail-header button`)).filter(button => button.offsetParent).map(button => button.getAttribute('aria-label') ?? button.textContent),
-			slider: getComputedStyle(document.querySelector(`${surface} .basehalf-canvas-video-player-slider`)).display,
-			sound: !!document.querySelector(`${surface} .basehalf-video-frames-sound`),
-			viewing: !!document.querySelector(`${surface} .basehalf-video-frames.viewing`),
-			handles: Array.from(document.querySelectorAll(`${surface} .basehalf-video-frames-handle`)).map(handle => getComputedStyle(handle).visibility)
-		}), { detail: DETAIL, surface: SURFACE });
-		if (!first.whole || await cardDetailModeLabel(page) !== 'Edit' || atOpen.header.some(label => /Done|Cancel|Revert|Save/.test(label ?? '')) || atOpen.slider !== 'none' || atOpen.sound
-			|| !atOpen.viewing || atOpen.handles.some(visibility => visibility !== 'hidden') || await lineText(page) !== '') {
-			throw new Error(`Card Detail of a video that was never edited opens to view it: its frame viewer is its timeline, with no handle, Edit in the header and no other control of editing, the player without a bar of its own, and an empty line: ${JSON.stringify({ first, atOpen, line: await lineText(page) })}`);
+		const atOpen = await page.evaluate(({ detail, surface }) => {
+			const player = document.querySelector(`${surface} .basehalf-canvas-video-player.detail`);
+			const video = player?.querySelector('video');
+			const host = document.querySelector(`${surface} .basehalf-card-detail-media-webview`).getBoundingClientRect();
+			const aspect = video.videoWidth / video.videoHeight;
+			// The size of a player of a video BaseHalf cannot edit, in the same space: it fits the whole of it.
+			const fits = Math.min(host.width - 48, (host.height - 48) * aspect, 900 * aspect, 1280);
+			return {
+				header: Array.from(document.querySelectorAll(`${detail} .basehalf-card-detail-header button`)).filter(button => button.offsetParent).map(button => button.getAttribute('aria-label') ?? button.textContent),
+				slider: getComputedStyle(document.querySelector(`${surface} .basehalf-canvas-video-player-slider`)).display,
+				bar: getComputedStyle(document.querySelector(`${surface} .basehalf-video-frames`)).visibility,
+				viewing: !!document.querySelector(`${surface} .basehalf-video-frames.viewing`),
+				handles: Array.from(document.querySelectorAll(`${surface} .basehalf-video-frames-handle`)).map(handle => getComputedStyle(handle).visibility),
+				width: Math.round(player.getBoundingClientRect().width * 10) / 10,
+				fits: Math.round(fits * 10) / 10
+			};
+		}, { detail: DETAIL, surface: SURFACE });
+		if (!first.whole || await cardDetailModeLabel(page) !== 'Edit' || atOpen.header.some(label => /Done|Cancel|Revert|Save/.test(label ?? '')) || atOpen.slider === 'none' || atOpen.bar !== 'hidden'
+			|| !atOpen.viewing || atOpen.handles.some(visibility => visibility !== 'hidden') || Math.abs(atOpen.width - atOpen.fits) > 1 || await lineText(page) !== '') {
+			throw new Error(`Card Detail of a video that was never edited opens to view it as large as fits, with its player's slider, no edit bar, Edit in the header and no other control of editing, and an empty line: ${JSON.stringify({ first, atOpen, line: await lineText(page) })}`);
 		}
-		// Generation cards, criteria 40 and 99 (D98): the controls float on their own backing, 8 px inside the picture, as wide as
-		// what they hold over a frame viewer; they show while the video is paused, and while it plays they fade once the pointer rests.
+		// Generation cards, criteria 40 and 99 (D98): the controls float on their own backing, 8 px inside the picture, in the middle,
+		// at most 480 px wide; they show while the video is paused, and while it plays they fade once the pointer rests.
 		const shape = await readVideoControlsShape(page, undefined);
-		if (!shape || shape.background !== 'none' || Math.abs(shape.bottom - 8) > 1 || Math.abs(shape.height - 30) > 1 || shape.left < 8 || shape.width > 240) {
-			throw new Error(`Card Detail's controls must float on their own backing, 8 px inside the picture, as wide as Play, the time, and Full Screen: ${JSON.stringify(shape)}`);
+		if (!shape || shape.background !== 'none' || Math.abs(shape.bottom - 8) > 1 || Math.abs(shape.height - 30) > 1 || shape.left < 7.5 || Math.abs(shape.left - shape.right) > 1 || shape.width > 480.5) {
+			throw new Error(`Card Detail's controls must float on their own backing, 8 px inside the picture, in the middle, at most 480 px wide: ${JSON.stringify(shape)}`);
 		}
 		const player = `${SURFACE} .basehalf-canvas-video-player.detail`;
 		const controls = () => page.evaluate(selector => document.querySelector(selector)?.dataset.controls ?? null, player);
@@ -152,24 +163,74 @@ export async function assertCardDetailVideoEdit(page) {
 		if (JSON.stringify(fade) !== JSON.stringify({ paused: 'shown', playing: 'shown', rested: 'faded', moved: 'shown', pausedAgain: 'shown' })) {
 			throw new Error(`Card Detail's controls show while the video is paused, and while it plays fade once the pointer rests and come back with a move: ${JSON.stringify(fade)}`);
 		}
-		// Edit shows the handles; the picture stays where it is, and so does the header around Edit.
+		// Editing media, criteria 29 and 36 (D102): Edit fades the player's controls and glides the picture, in every frame drawn, into
+		// the space above the edit bar, which lines up with it; the header around Edit stays.
 		const layout = () => page.evaluate(({ detail, surface }) => {
 			const box = selector => {
 				const rect = document.querySelector(selector)?.getBoundingClientRect();
 				return rect ? [rect.x, rect.y, rect.width, rect.height].map(value => Math.round(value * 10) / 10) : undefined;
 			};
+			const frames = document.querySelector(`${surface} .basehalf-video-frames`);
 			return {
 				picture: box(`${surface} .basehalf-canvas-video-player.detail`), header: box(`${detail} .basehalf-card-detail-header`),
-				mode: box(`${detail} .basehalf-card-detail-mode-button`), stage: box(`${surface} .basehalf-card-detail-video-stage`), line: box(`${surface} .basehalf-media-edit-line`),
-				detail: box(detail)
+				mode: box(`${detail} .basehalf-card-detail-mode-button`), bar: box(`${surface} .basehalf-video-frames`),
+				barShown: frames ? `${getComputedStyle(frames).visibility} ${Number(getComputedStyle(frames).opacity).toFixed(2)}` : undefined,
+				controls: getComputedStyle(document.querySelector(`${surface} .basehalf-canvas-video-player-bar`)).visibility
 			};
 		}, { detail: DETAIL, surface: SURFACE });
 		await waitForViewTransitions(page);
 		const atRest = await layout();
+		await page.evaluate(selector => {
+			const sampler = { running: true, samples: [] };
+			globalThis.basehalfGlideSampler = sampler;
+			const tick = () => {
+				if (!sampler.running) {
+					return;
+				}
+				const video = document.querySelector(`${selector} video`);
+				const rect = video?.getBoundingClientRect();
+				sampler.samples.push({ top: rect?.top ?? NaN, height: rect?.height ?? NaN, ready: video?.readyState ?? -1 });
+				requestAnimationFrame(tick);
+			};
+			requestAnimationFrame(tick);
+		}, player);
 		await enterEditing(page);
+		await page.waitForTimeout(400);
+		const glide = await page.evaluate(() => {
+			const sampler = globalThis.basehalfGlideSampler;
+			sampler.running = false;
+			return sampler.samples;
+		});
 		const editingLayout = await layout();
-		if (JSON.stringify(atRest) !== JSON.stringify(editingLayout) || await page.locator(`${FRAMES}.viewing`).count()) {
-			throw new Error(`Edit shows the editor in place: ${JSON.stringify({ atRest, editingLayout })}`);
+		const [pictureX, pictureY, pictureWidth, pictureHeight] = editingLayout.picture;
+		const [restX, restY, restWidth, restHeight] = atRest.picture;
+		const backward = glide.filter((sample, index) => index > 0 && (sample.top > glide[index - 1].top + 0.5 || sample.height > glide[index - 1].height + 0.5)).length;
+		const withoutPicture = glide.filter(sample => sample.ready < 2).length;
+		const barLinesUp = pictureWidth < 360 || (Math.abs(editingLayout.bar[0] - pictureX) <= 1 && Math.abs(editingLayout.bar[0] + editingLayout.bar[2] - pictureX - pictureWidth) <= 1);
+		if (JSON.stringify([atRest.header, atRest.mode]) !== JSON.stringify([editingLayout.header, editingLayout.mode]) || await page.locator(`${FRAMES}.viewing`).count()
+			|| !(pictureY < restY - 1 || pictureHeight < restHeight - 1) || pictureHeight > restHeight + 0.5 || Math.abs(pictureX + pictureWidth / 2 - restX - restWidth / 2) > 1
+			|| backward || withoutPicture || glide.length < 5 || editingLayout.barShown !== 'visible 1.00' || editingLayout.controls !== 'hidden' || !barLinesUp) {
+			throw new Error(`Edit glides the picture into the space above the edit bar in every frame, hides the player's controls, shows the bar lined up with the picture, and keeps the header: ${JSON.stringify({ atRest, editingLayout, backward, withoutPicture, frames: glide.length })}`);
+		}
+		// Criterion 37 (D102): a pressed handle shows its time in a bubble over it and hides the playhead; the handles are grey while the
+		// whole video is kept. A press that does not move changes nothing.
+		const startHandle = await page.locator(`${FRAMES} .basehalf-video-frames-handle.start`).boundingBox();
+		await page.mouse.move(startHandle.x + startHandle.width / 2, startHandle.y + startHandle.height / 2);
+		await page.mouse.down();
+		const pressed = await page.evaluate(selector => {
+			const viewer = document.querySelector(selector);
+			const bubble = viewer.querySelector('.basehalf-video-frames-time');
+			return {
+				whole: viewer.classList.contains('whole'),
+				bubble: getComputedStyle(bubble).visibility === 'visible' ? bubble.textContent : null,
+				playhead: getComputedStyle(viewer.querySelector('.basehalf-video-frames-playhead')).visibility,
+				handle: getComputedStyle(viewer.querySelector('.basehalf-video-frames-handle.start')).backgroundColor
+			};
+		}, FRAMES);
+		await page.mouse.up();
+		const released = await page.evaluate(selector => getComputedStyle(document.querySelector(`${selector} .basehalf-video-frames-time`)).visibility, FRAMES);
+		if (!pressed.whole || pressed.bubble !== '00:00.00' || pressed.playhead !== 'hidden' || /245, 196, 0|255, 214, 10/.test(pressed.handle) || released !== 'hidden') {
+			throw new Error(`A pressed handle shows its time over it and hides the playhead, the handles grey while the whole video is kept, and the bubble goes when it is let go: ${JSON.stringify({ pressed, released })}`);
 		}
 
 		// Exact undo, criterion 16: from the first write to the last undo and redo, the video's row in Files is there in every frame.
@@ -256,17 +317,21 @@ export async function assertCardDetailVideoEdit(page) {
 		await page.locator(DETAIL).waitFor({ state: 'hidden', timeout: 10_000 });
 		await waitUntil(() => !fs.existsSync(copies) || fs.readdirSync(copies).length === 0, 'the copy that the editor read to go when Card Detail closed', 10_000);
 
-		// Card Detail opened again views the file as the trim made it: the viewer shows the part, the player counts from its start, and Play plays it once.
+		// Card Detail opened again views the file as the trim made it: no edit bar, the player's slider and times span the part, and Play plays it once (D102).
 		await quickOpen(page, VIDEO);
 		await assertCardDetail(page, 'shot.mp4');
 		await waitForViewer(page, first.duration);
 		const viewed = await page.evaluate(selector => {
-			const strip = document.querySelector(`${selector} .basehalf-video-frames-strip`);
-			return { from: Number(strip.dataset.from), to: Number(strip.dataset.to), length: document.querySelector('.basehalf-card-detail-surface.active .basehalf-canvas-video-player-time.length')?.textContent };
+			const surface = '.basehalf-card-detail-surface.active';
+			return {
+				bar: getComputedStyle(document.querySelector(selector)).visibility,
+				slider: Number(document.querySelector(`${surface} .basehalf-canvas-video-player-slider`)?.getAttribute('aria-valuemax')),
+				length: document.querySelector(`${surface} .basehalf-canvas-video-player-time.length`)?.textContent
+			};
 		}, FRAMES);
 		const partLength = part.end - part.start;
-		if (Math.abs(viewed.from - part.start) > 0.02 || Math.abs(viewed.to - part.end) > 0.02 || !/^\d\.\ds$/.test(viewed.length ?? '') || Math.abs(parseFloat(viewed.length) - partLength) > 0.11 || await lineText(page) !== '') {
-			throw new Error(`Viewing an edited video shows the part it kept, its length on the player, and an empty line: ${JSON.stringify({ part, viewed, line: await lineText(page) })}`);
+		if (viewed.bar !== 'hidden' || Math.abs(viewed.slider - partLength) > 0.11 || !/^\d\.\ds$/.test(viewed.length ?? '') || Math.abs(parseFloat(viewed.length) - partLength) > 0.11 || await lineText(page) !== '') {
+			throw new Error(`Viewing an edited video shows no edit bar, the player's slider over the part it kept, its length on the player, and an empty line: ${JSON.stringify({ part, viewed, line: await lineText(page) })}`);
 		}
 		await page.locator(`${SURFACE} .basehalf-canvas-video-player-bar .basehalf-canvas-video-player-button[aria-label="Play"]`).click();
 		await page.waitForFunction(selector => !document.querySelector(`${selector} video`)?.paused, `${SURFACE} .basehalf-canvas-video-player.detail`, { timeout: 5_000 });

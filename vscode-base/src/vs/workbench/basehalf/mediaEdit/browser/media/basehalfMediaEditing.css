@@ -84,24 +84,3 @@
 .monaco-workbench .basehalf-card-detail-image-stage > .basehalf-media-edit-line {
 	padding-bottom: 10px;
 }
-
-/*
- * The frame viewer is the video's timeline: the player above it shows no bar
- * of its own for the time, and its floating bar is as wide as what it holds
- * (generation cards, "The player", D98).
- */
-.monaco-workbench .basehalf-media-editing .basehalf-canvas-video-player-slider {
-	display: none;
-}
-
-.monaco-workbench .basehalf-media-editing .basehalf-canvas-video-player-bar {
-	width: fit-content;
-	container-type: normal;
-}
-
-/* Side by side, the time played and the length read as one: "0.5s / 6.0s". */
-.monaco-workbench .basehalf-media-editing .basehalf-canvas-video-player-time.length::before {
-	content: '/';
-	margin-inline-end: 4px;
-	color: rgb(245 245 245 / 55%);
-}

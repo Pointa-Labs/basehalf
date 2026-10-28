@@ -223,7 +223,17 @@ async function pressCardDetailMode(page, from, to) {
 	await waitForViewTransitions(page);
 	await page.locator(MODE_BUTTON).click();
 	await page.waitForFunction(({ selector, to }) => document.querySelector(selector)?.getAttribute('aria-label') === to, { selector: MODE_BUTTON, to }, { timeout: 5_000 });
-	// Edit and Done glide the frame viewer's stretch for 250 ms (D101): a user sees the strip at rest after it.
+	// Edit and Done glide a video's picture for 200 ms to make room for its edit bar, or to give it back (D102): a user sees
+	// the picture and the bar at rest after it.
+	await page.waitForFunction(() => {
+		const room = document.querySelector('.basehalf-card-detail.visible .basehalf-card-detail-video-edit-room');
+		const stage = room?.closest('.basehalf-card-detail-video-stage');
+		if (!room || !stage) {
+			return true;
+		}
+		const target = stage.classList.contains('basehalf-media-edit-active') ? parseFloat(getComputedStyle(stage).getPropertyValue('--basehalf-video-edit-room')) : 0;
+		return Math.abs(room.getBoundingClientRect().height - target) < 0.5;
+	}, undefined, { timeout: 5_000 });
 	await page.waitForFunction(() => !document.querySelector('.basehalf-card-detail.visible .basehalf-video-frames.gliding'), undefined, { timeout: 5_000 });
 }
 

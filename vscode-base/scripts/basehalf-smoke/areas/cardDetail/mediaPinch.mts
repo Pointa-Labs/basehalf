@@ -137,29 +137,28 @@ function decodePng(png) {
 }
 
 /**
- * Editing media, criterion 33 (D101): a zoomed video shows under the frame viewer as a phone's photos show under its
- * bars. The picture reaches below the player's box, under the viewer, which stands on its translucent backing, and the
- * rows between the player and the strip are mostly the picture's: no band of Card Detail's background hides it.
+ * Editing media, criterion 33 (D101, D102): while viewing, a zoomed video shows to the media area's edge, under only the
+ * player's controls, as a phone's photos show under its bars. The picture reaches below the player's box, and the rows
+ * between the player and the area's foot are mostly the picture's: no band of Card Detail's background hides it.
  */
-async function assertPictureUnderViewer(page, when) {
+async function assertPictureToAreaFoot(page, when) {
 	const geometry = await page.evaluate(({ player, frames }) => {
 		const box = document.querySelector(player).getBoundingClientRect();
 		const picture = document.querySelector(`${player} video`).getBoundingClientRect();
 		const area = document.querySelector('.basehalf-card-detail-surface.active .basehalf-card-detail-media-webview').getBoundingClientRect();
-		const strip = document.querySelector(`${frames} .basehalf-video-frames-strip`).getBoundingClientRect();
 		return {
-			bottom: box.bottom, pictureBottom: picture.bottom, stripTop: strip.top, stripBottom: strip.bottom,
+			bottom: box.bottom, pictureBottom: picture.bottom, areaBottom: area.bottom,
 			left: Math.max(area.left, picture.left), right: Math.min(area.right, picture.right),
 			background: getComputedStyle(document.querySelector('.basehalf-card-detail.visible')).backgroundColor,
-			backing: getComputedStyle(document.querySelector(frames), '::before').opacity
+			bar: getComputedStyle(document.querySelector(frames)).visibility
 		};
 	}, { player: PLAYER, frames: FRAMES });
 	const top = Math.ceil(geometry.bottom);
-	const height = Math.floor(geometry.stripTop) - 6 - top;
+	const height = Math.floor(Math.min(geometry.areaBottom, geometry.pictureBottom)) - 1 - top;
 	const left = Math.ceil(geometry.left) + 1;
 	const width = Math.floor(geometry.right) - 1 - left;
-	if (height < 1 || width < 1 || geometry.pictureBottom <= geometry.stripBottom || geometry.backing !== '1') {
-		throw new Error(`${when}: the zoomed picture reaches under the frame viewer, which stands on its backing: ${JSON.stringify(geometry)}`);
+	if (height < 1 || width < 1 || geometry.pictureBottom <= geometry.bottom + 1 || geometry.bar !== 'hidden') {
+		throw new Error(`${when}: the zoomed picture reaches below its player toward the area's foot, and no edit bar shows while viewing: ${JSON.stringify(geometry)}`);
 	}
 	const shot = decodePng(await page.screenshot({ clip: { x: left, y: top, width, height } }));
 	const background = (geometry.background.match(/\d+/g) ?? []).slice(0, 3).map(Number);
@@ -171,7 +170,7 @@ async function assertPictureUnderViewer(page, when) {
 		}
 	}
 	if (same > shot.width * shot.height / 2) {
-		throw new Error(`${when}: under the player, down to the frame viewer, the picture shows, not a band of Card Detail's background: ${same} of ${shot.width * shot.height} pixels are ${geometry.background}, rows ${top} to ${top + height}`);
+		throw new Error(`${when}: under the player, down to the area's foot, the picture shows, not a band of Card Detail's background: ${same} of ${shot.width * shot.height} pixels are ${geometry.background}, rows ${top} to ${top + height}`);
 	}
 }
 
@@ -232,17 +231,22 @@ async function assertVideoPinch(page) {
 		|| !(zoomed.rect.x < zoomed.box.x - 1 && zoomed.rect.y < zoomed.box.y - 1 && zoomed.rect.x + zoomed.rect.width > zoomed.box.x + zoomed.box.width + 1)) {
 		throw new Error(`A pinch by 1.6 over the picture of a video draws it 1.6 times larger, past its player's box, the point under the pointer staying under it as far as the picture's edges allow, the player and its controls at their size: ${JSON.stringify({ before, zoomed, zoom, under, at, edges })}`);
 	}
-	await assertPictureUnderViewer(page, 'Zoomed in by a pinch');
+	await assertPictureToAreaFoot(page, 'Zoomed in by a pinch');
+	// The picture fits the whole media area while viewing (D102): at 1.6 times it may be no taller than the area, along
+	// which side it does not move (D101). One more pinch makes it larger than the area both ways for the swipes below.
+	await pinch(page, at.x, at.y, 1.6);
+	await page.waitForTimeout(400);
+	const deeper = await readPlayer(page);
 	// Criterion 20: a two-finger swipe moves the zoomed picture with the fingers, and zooms nothing. Up and to the right,
 	// the picture moves down and to the left, away from the area's bottom edge, which its own bottom edge is near.
 	await page.mouse.move(at.x, at.y);
 	await page.mouse.wheel(50, -30);
 	await page.waitForTimeout(250);
 	const swiped = await readPlayer(page);
-	if (Math.abs(swiped.rect.width - zoomed.rect.width) > 0.5 || Math.abs(swiped.rect.x - (zoomed.rect.x - 50)) > 1 || Math.abs(swiped.rect.y - (zoomed.rect.y + 30)) > 1) {
-		throw new Error(`A swipe moves the zoomed picture with the fingers and zooms nothing: ${JSON.stringify({ zoomed: zoomed.rect, swiped: swiped.rect })}`);
+	if (Math.abs(swiped.rect.width - deeper.rect.width) > 0.5 || Math.abs(swiped.rect.x - (deeper.rect.x - 50)) > 1 || Math.abs(swiped.rect.y - (deeper.rect.y + 30)) > 1) {
+		throw new Error(`A swipe moves the zoomed picture with the fingers and zooms nothing: ${JSON.stringify({ deeper: deeper.rect, swiped: swiped.rect })}`);
 	}
-	await assertPictureUnderViewer(page, 'Moved by a swipe');
+	await assertPictureToAreaFoot(page, 'Moved by a swipe');
 	// Criterion 33: a swipe far toward the top left takes the picture only as far as its own edges: its top left corner
 	// stops on the media area's, and no room around it shows; a swipe far the other way stops its bottom right corner so.
 	await page.mouse.wheel(-6000, -6000);
@@ -260,6 +264,7 @@ async function assertVideoPinch(page) {
 
 	// A drag moves the zoomed picture and plays nothing; a click plays it.
 	const middle = { x: before.box.x + before.box.width / 2, y: before.box.y + before.box.height / 2 };
+	const beforeDrag = await readPlayer(page);
 	await page.mouse.move(middle.x, middle.y);
 	await page.mouse.down();
 	for (let index = 1; index <= 8; index++) {
@@ -272,10 +277,13 @@ async function assertVideoPinch(page) {
 	await page.mouse.click(middle.x, middle.y);
 	await page.waitForFunction(selector => !document.querySelector(`${selector} video`)?.paused, PLAYER, { timeout: 5_000 }).catch(() => undefined);
 	const clicked = await readPlayer(page);
-	if (dragged.transform === zoomed.transform || !dragged.paused || clicked.paused) {
-		throw new Error(`A drag moves the zoomed picture without playing it, and a click then plays it: ${JSON.stringify({ zoomed: zoomed.transform, dragged, clicked: clicked.paused })}`);
+	if (dragged.transform === beforeDrag.transform || !dragged.paused || clicked.paused) {
+		throw new Error(`A drag moves the zoomed picture without playing it, and a click then plays it: ${JSON.stringify({ beforeDrag: beforeDrag.transform, dragged, clicked: clicked.paused })}`);
 	}
 	await page.mouse.click(middle.x, middle.y);
+	// Back to 1.6 times, from where a pinch by 0.5 shows the picture as it fits (criterion 16).
+	await pinch(page, middle.x, middle.y, 1 / 1.6);
+	await page.waitForTimeout(400);
 	await pinch(page, middle.x, middle.y, 0.5);
 	await page.waitForTimeout(300);
 	const back = await readPlayer(page);
@@ -283,17 +291,23 @@ async function assertVideoPinch(page) {
 		throw new Error(`A pinch by 0.5 shows the picture as it fits: ${JSON.stringify({ back, before })}`);
 	}
 
-	// Criterion 19: while viewing, a pinch over the frame viewer does nothing.
-	const viewed = await readStrip(page, FRAMES);
-	await pinch(page, viewed.x + viewed.width * 0.6, viewed.y + viewed.height / 2, 2);
-	await page.waitForTimeout(300);
-	const afterViewingPinch = await readStrip(page, FRAMES);
-	if (afterViewingPinch.from !== viewed.from || afterViewingPinch.to !== viewed.to) {
-		throw new Error(`While viewing, a pinch over the frame viewer spreads nothing out: ${JSON.stringify({ viewed, afterViewingPinch })}`);
+	// Criterion 33 while editing (D101, D102): a zoomed picture shows under the edit bar, which stands on its translucent backing.
+	await enterEditing(page);
+	const editingBox = (await readPlayer(page)).box;
+	await pinch(page, editingBox.x + editingBox.width / 2, editingBox.y + editingBox.height * 0.8, 2.5);
+	await page.waitForTimeout(500);
+	const underBar = await page.evaluate(({ player, frames }) => ({
+		pictureBottom: document.querySelector(`${player} video`).getBoundingClientRect().bottom,
+		barBottom: document.querySelector(frames).getBoundingClientRect().bottom,
+		backing: getComputedStyle(document.querySelector(frames), '::before').opacity
+	}), { player: PLAYER, frames: FRAMES });
+	if (underBar.pictureBottom <= underBar.barBottom || underBar.backing !== '1') {
+		throw new Error(`While editing, a zoomed picture shows under the edit bar, which stands on its backing: ${JSON.stringify(underBar)}`);
 	}
+	await pinch(page, editingBox.x + editingBox.width / 2, editingBox.y + editingBox.height * 0.8, 0.4);
+	await page.waitForTimeout(500);
 
 	// Criterion 18: after Edit, a pinch by 2 over the frame viewer spreads its time out around the pointer, and its pictures come.
-	await enterEditing(page);
 	const strip = await readStrip(page, FRAMES);
 	const pointer = { x: strip.x + strip.width * 0.6, y: strip.y + strip.height / 2 };
 	await pinch(page, pointer.x, pointer.y, 2);

@@ -153,6 +153,11 @@ export function formatBaseHalfCanvasVideoTime(seconds: number): string {
 	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
+/** The icon of Play, or of Pause while `playing`, as the player draws it: for the Play of a video's edit bar (editing media, "The frame viewer"). */
+export function baseHalfVideoPlayIcon(playing: boolean): SVGElement {
+	return playerIcon(playing ? PAUSE_PATH : PLAY_PATH);
+}
+
 /** The players on cards and in Card Detail. */
 const livePlayers = new Set<BaseHalfCanvasCardVideoPlayer>();
 
@@ -690,6 +695,8 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		if (duration === undefined) {
 			return false;
 		}
+		// A part that stands for the file is its whole length: Home goes to its first frame, End to its last (D102).
+		const { first, last } = this.bounds(duration);
 		let time: number | undefined;
 		switch (key) {
 			case 'ArrowLeft':
@@ -701,18 +708,24 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 				time = this.video.currentTime + BASEHALF_PLAYHEAD_STEP_SECONDS;
 				break;
 			case 'Home':
-				time = 0;
+				time = first;
 				break;
 			case 'End':
-				time = duration;
+				time = last;
 				break;
 		}
 		if (time === undefined) {
 			return false;
 		}
-		this.video.currentTime = Math.min(Math.max(time, 0), duration);
+		this.video.currentTime = Math.min(Math.max(time, first), last);
 		this.updateTime();
 		return true;
+	}
+
+	/** The times the position slider spans: the part that stands for the file, from its first frame to its last, or the whole video. */
+	private bounds(duration: number): { readonly first: number; readonly last: number } {
+		const part = this.range?.once ? this.range : undefined;
+		return part ? { first: part.start + RANGE_START_INSIDE, last: part.lastFrame + RANGE_START_INSIDE } : { first: 0, last: duration };
 	}
 
 	private play(): void {
@@ -772,7 +785,9 @@ class BaseHalfCanvasCardVideoPlayer extends Disposable implements IBaseHalfCanva
 		}
 		const bounds = this.slider.getBoundingClientRect();
 		const fraction = bounds.width > 0 ? Math.min(Math.max((clientX - bounds.left) / bounds.width, 0), 1) : 0;
-		this.video.currentTime = fraction * duration;
+		// The slider spans the part that stands for the file, its end at the part's last frame (D102).
+		const { first, last } = this.bounds(duration);
+		this.video.currentTime = Math.min(first + fraction * (last - first), last);
 		this.updateTime();
 	}
 

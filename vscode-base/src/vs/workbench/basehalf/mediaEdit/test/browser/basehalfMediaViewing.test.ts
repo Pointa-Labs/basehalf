@@ -22,10 +22,10 @@ import { BaseHalfSoundWaveform } from '../../browser/basehalfSoundWaveform.js';
 import { BaseHalfVideoFrameViewer } from '../../browser/basehalfVideoFrameViewer.js';
 
 /**
- * Viewing and editing (editing media, "Viewing and editing", D96): each
+ * Viewing and editing (editing media, "Viewing and editing", D96, D102): each
  * editor of Card Detail opens to view the file, with none of its controls of
- * editing reachable, and Edit and Done show them and take them away without
- * moving the picture.
+ * editing reachable, and Edit and Done show them and take them away; a
+ * video's edit bar does not show at all while viewing.
  */
 
 /** A video of 5 s at 10 frames a second, whose pictures are never read: it names no codec. */
@@ -91,9 +91,8 @@ suite('BaseHalfMediaViewing', () => {
 		return { disposables, container };
 	}
 
-	/** Edit and Done glide the frame viewer's stretch for 250 ms (D101): the test waits for it to end. */
-	function glided(): Promise<void> {
-		return new Promise(resolve => setTimeout(resolve, 340));
+	function wait(milliseconds: number): Promise<void> {
+		return new Promise(resolve => setTimeout(resolve, milliseconds));
 	}
 
 	function press(target: Element, x: number): void {
@@ -128,55 +127,114 @@ suite('BaseHalfMediaViewing', () => {
 			return { viewer, player, element, strip, handles, container };
 		}
 
-		test('opens to view the file: the part kept across the strip, no handle in the keyboard\'s order, and the part plays once', () => {
+		test('opens to view the file: the edit bar does not show, its strip holds the whole original, nothing of it takes the keyboard, and the part plays once (D102)', () => {
 			const { element, strip, handles, player } = setUp();
-			assert.ok(element.classList.contains('viewing'));
-			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['1.000', '4.500']);
-			assert.deepStrictEqual(handles.map(handle => [handle.tabIndex, handle.getAttribute('aria-hidden')]), [[-1, 'true'], [-1, 'true']]);
-			assert.strictEqual(player.range?.once, true);
+			const play = element.querySelector('.basehalf-video-frames-play') as HTMLButtonElement;
+			play.focus();
+			assert.deepStrictEqual({
+				viewing: element.classList.contains('viewing'),
+				shown: mainWindow.getComputedStyle(element).visibility,
+				stretch: [strip.dataset.from, strip.dataset.to],
+				handles: handles.map(handle => [handle.tabIndex, handle.getAttribute('aria-hidden')]),
+				playFocused: mainWindow.document.activeElement === play,
+				once: player.range?.once
+			}, { viewing: true, shown: 'hidden', stretch: ['0.000', '5.000'], handles: [[-1, 'true'], [-1, 'true']], playFocused: false, once: true });
 		});
 
-		test('while viewing, a press anywhere moves the playhead within the file, and starts no drag', () => {
+		test('while viewing, a press on the strip moves nothing and starts no drag (D102)', () => {
 			const { element, strip, player } = setUp();
 			const bounds = strip.getBoundingClientRect();
 			press(strip, bounds.left + bounds.width / 2);
-			assert.ok(Math.abs(player.seeks[player.seeks.length - 1] - 2.75) < 0.01, `seeked to ${player.seeks[player.seeks.length - 1]}`);
-			assert.ok(!element.classList.contains('dragging'));
+			assert.deepStrictEqual({ seeks: player.seeks, dragging: element.classList.contains('dragging') }, { seeks: [], dragging: false });
 			release(strip, bounds.left + bounds.width / 2);
 		});
 
-		test('Edit shows the whole original with the handles and the part over and over; Done shows the file again, each in a glide of 250 ms (D101)', async () => {
+		test('Edit shows the bar with the whole original, the handles, and the part over and over; Done hides it, the strip still the whole original (D102)', () => {
 			const { viewer, element, strip, handles, player } = setUp();
 			viewer.setEditing(true);
-			await glided();
-			assert.ok(!element.classList.contains('viewing'));
-			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['0.000', '5.000']);
-			assert.deepStrictEqual(handles.map(handle => [handle.tabIndex, handle.getAttribute('aria-hidden')]), [[0, null], [0, null]]);
-			assert.strictEqual(player.range?.once, undefined);
-			assert.deepStrictEqual([player.range?.start, player.range?.end], [1, 4.5]);
+			const editing = {
+				viewing: element.classList.contains('viewing'),
+				stretch: [strip.dataset.from, strip.dataset.to],
+				handles: handles.map(handle => [handle.tabIndex, handle.getAttribute('aria-hidden')]),
+				range: [player.range?.start, player.range?.end, player.range?.once]
+			};
 			viewer.setEditing(false);
-			await glided();
-			assert.ok(element.classList.contains('viewing'));
-			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['1.000', '4.500']);
-			assert.strictEqual(player.range?.once, true);
+			const viewing = { viewing: element.classList.contains('viewing'), stretch: [strip.dataset.from, strip.dataset.to], once: player.range?.once };
+			assert.deepStrictEqual({ editing, viewing }, {
+				editing: { viewing: false, stretch: ['0.000', '5.000'], handles: [[0, null], [0, null]], range: [1, 4.5, undefined] },
+				viewing: { viewing: true, stretch: ['0.000', '5.000'], once: true }
+			});
 		});
 
-		test('the pictures of the part kept stay while Edit shows the whole original, and show again at once with Done (D101)', async () => {
+		test('the whole original\'s pictures are read while viewing, and Edit and Done keep the same set (D102)', async () => {
 			const { viewer, element } = setUp();
-			const sets = () => Array.from(element.querySelectorAll('.basehalf-video-frames-pictures.zoom .basehalf-video-frames-set'));
-			await glided();
+			const sets = () => Array.from(element.querySelectorAll('.basehalf-video-frames-pictures:not(.zoom):not(.spread) > .basehalf-video-frames-set'));
+			await wait(200);
 			const before = sets();
 			viewer.setEditing(true);
-			await glided();
 			const whileEditing = sets();
 			viewer.setEditing(false);
-			await glided();
 			const after = sets();
 			assert.deepStrictEqual({
-				before: before.map(set => set.classList.contains('pending')),
+				read: before.length,
 				kept: whileEditing.length === 1 && whileEditing[0] === before[0],
 				again: after.length === 1 && after[0] === before[0]
-			}, { before: [false], kept: true, again: true });
+			}, { read: 1, kept: true, again: true });
+		});
+
+		test('a pressed handle shows its time over it and hides the playhead; the handles are grey until a drag trims, and let go the bubble goes (D102)', () => {
+			const { viewer, element, handles, player } = setUp({});
+			viewer.setEditing(true);
+			const bubble = element.querySelector('.basehalf-video-frames-time') as HTMLElement;
+			const start = handles[0].getBoundingClientRect();
+			const strip = element.querySelector('.basehalf-video-frames-strip') as HTMLElement;
+			const width = strip.getBoundingClientRect().width;
+			const x = start.left + start.width / 2;
+			const states: unknown[] = [];
+			const state = () => states.push({
+				whole: element.classList.contains('whole'),
+				trimming: element.classList.contains('trimming'),
+				bubble: mainWindow.getComputedStyle(bubble).visibility === 'visible' ? bubble.textContent : undefined,
+				shown: Math.round(player.currentTime * 10) / 10
+			});
+			press(strip, x);
+			state();
+			strip.dispatchEvent(new PointerEvent('pointermove', { button: 0, pointerId: 1, clientX: x + width * 0.4, clientY: 20, bubbles: true, cancelable: true }));
+			state();
+			release(strip, x + width * 0.4);
+			state();
+			assert.deepStrictEqual(states, [
+				{ whole: true, trimming: true, bubble: '00:00.00', shown: 0 },
+				{ whole: false, trimming: true, bubble: '00:02.00', shown: 2 },
+				{ whole: false, trimming: false, bubble: undefined, shown: 2 }
+			]);
+		});
+
+		test('Play of the edit bar plays and pauses the part, as Space does (D102)', () => {
+			const { viewer, element, player } = setUp();
+			viewer.setEditing(true);
+			const play = element.querySelector('.basehalf-video-frames-play') as HTMLButtonElement;
+			play.click();
+			assert.deepStrictEqual({ toggles: player.toggles, label: play.getAttribute('aria-label') }, { toggles: 1, label: 'Play' });
+		});
+
+		test('a handle held still for 0.8 s spreads the strip in a glide, and let go it glides back to the whole original (D102)', async () => {
+			const { viewer, element, handles, strip } = setUp({});
+			viewer.setEditing(true);
+			const end = handles[1].getBoundingClientRect();
+			const x = end.left + end.width / 2;
+			press(strip, x);
+			await wait(500);
+			const before = element.classList.contains('spread');
+			await wait(700);
+			const spread = { spread: element.classList.contains('spread'), length: Math.round((Number(strip.dataset.to) - Number(strip.dataset.from)) * 10) / 10 };
+			release(strip, x);
+			await wait(400);
+			assert.deepStrictEqual({ before, spread, after: [strip.dataset.from, strip.dataset.to, element.classList.contains('spread')] }, {
+				before: false,
+				spread: { spread: true, length: 2 },
+				after: ['0.000', '5.000', false]
+			});
 		});
 
 		test('a handle\'s keys and I and O change the part only while editing', () => {
@@ -223,7 +281,7 @@ suite('BaseHalfMediaViewing', () => {
 			assert.deepStrictEqual({ keyboard, toggles: player.toggles }, { keyboard: [true, true], toggles: 1 });
 		});
 
-		test('a pinch over the strip spreads its time only while editing', async () => {
+		test('a pinch over the strip spreads its time only while editing', () => {
 			const { viewer, strip } = setUp({});
 			const viewing = pinch(strip, 300);
 			assert.strictEqual(viewing.defaultPrevented, false);
@@ -232,9 +290,8 @@ suite('BaseHalfMediaViewing', () => {
 			const editing = pinch(strip, 300);
 			assert.strictEqual(editing.defaultPrevented, true);
 			assert.notStrictEqual(strip.dataset.to, '5.000');
-			// Done shows the file's length again.
+			// Done shows the whole length again, for the next Edit.
 			viewer.setEditing(false);
-			await glided();
 			assert.deepStrictEqual([strip.dataset.from, strip.dataset.to], ['0.000', '5.000']);
 		});
 	});

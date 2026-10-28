@@ -44,10 +44,16 @@ export interface IBaseHalfMediaEditingSession {
 	readonly offset: number;
 }
 
-/** Where Card Detail gives the editor room: a stage, under the player of a video. */
+/** Where Card Detail gives the editor room: a stage, with the player of a video. */
 export interface IBaseHalfMediaEditingView {
 	readonly stage: HTMLElement;
 	readonly player?: IBaseHalfCanvasCardVideoPlayer;
+	/**
+	 * Where the editor and the line under it stand when not in the stage
+	 * itself: the room under the player of a video, which opens while it is
+	 * edited (editing media, "What Card Detail shows", D102).
+	 */
+	readonly room?: HTMLElement;
 }
 
 /** How often the copy is made anew when the file changed while it was made. */
@@ -151,16 +157,17 @@ export class BaseHalfMediaEditing extends Disposable {
 		this.editorStore.value = store;
 		const { state } = session;
 		const choices = this.mediaEditService.choicesOf(this.file.resource, state);
+		const host = view.room ?? view.stage;
 		let editor: IBaseHalfMediaEditor;
 		let drawn = Promise.resolve();
 		if (session.video && view.player) {
-			editor = store.add(new BaseHalfVideoFrameViewer(view.stage, { video: session.video, player: view.player, stage: view.stage, choices }));
+			editor = store.add(new BaseHalfVideoFrameViewer(host, { video: session.video, player: view.player, stage: view.stage, choices }));
 		} else if (state.image) {
-			const crop = store.add(this.instantiationService.createInstance(BaseHalfImageCropView, view.stage, { source: session.source, size: { width: state.image.width, height: state.image.height }, choices }));
+			const crop = store.add(this.instantiationService.createInstance(BaseHalfImageCropView, host, { source: session.source, size: { width: state.image.width, height: state.image.height }, choices }));
 			drawn = crop.drawn;
 			editor = crop;
 		} else if (state.sound) {
-			editor = store.add(this.instantiationService.createInstance(BaseHalfSoundWaveform, view.stage, { source: session.source, info: state.sound, choices }));
+			editor = store.add(this.instantiationService.createInstance(BaseHalfSoundWaveform, host, { source: session.source, info: state.sound, choices }));
 		} else {
 			return undefined;
 		}
@@ -168,8 +175,10 @@ export class BaseHalfMediaEditing extends Disposable {
 		this.stage = view.stage;
 		editor.setEditing(this.editing);
 		view.stage.classList.add('basehalf-media-editing');
+		// The stage says whether the editor edits: a video's makes room for it then (D102).
+		view.stage.classList.toggle('basehalf-media-edit-active', this.editing);
 		store.add(toDisposable(() => {
-			view.stage.classList.remove('basehalf-media-editing');
+			view.stage.classList.remove('basehalf-media-editing', 'basehalf-media-edit-active');
 			if (this.editor === editor) {
 				this.editor = undefined;
 				this.stage = undefined;
@@ -177,7 +186,7 @@ export class BaseHalfMediaEditing extends Disposable {
 			}
 		}));
 		store.add(editor.onDidChange(change => this.mediaEditService.change(this.file, state, editor.choices, this.stepLabel(change))));
-		this.line = this.createLine(view.stage, store);
+		this.line = this.createLine(host, store);
 		this.renderLine();
 		return { drawn };
 	}
@@ -204,6 +213,7 @@ export class BaseHalfMediaEditing extends Disposable {
 		const keyboardInEditor = !!targetDocument?.activeElement && !!this.stage?.contains(targetDocument.activeElement);
 		this.editing = editing;
 		editor.setEditing(editing);
+		this.stage?.classList.toggle('basehalf-media-edit-active', editing);
 		this.renderLine();
 		if (!editing && keyboardInEditor) {
 			editor.focus();

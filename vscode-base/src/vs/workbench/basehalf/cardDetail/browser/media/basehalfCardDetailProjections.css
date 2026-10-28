@@ -210,13 +210,22 @@
 }
 
 /*
- * A video that BaseHalf can edit plays with its frame viewer and the line of
- * its edit under it (editing media, "The frame viewer"): they are centered
- * together, the viewer as wide as the player, and the player leaves their
- * height of the space.
+ * The room that a video BaseHalf can edit makes for its edit bar while it is
+ * edited (editing media, "What Card Detail shows", D102): while viewing it
+ * takes no height, and the player fits the whole space, as a video BaseHalf
+ * cannot edit does. Edit opens it over 200 ms, and the player, which leaves
+ * its height of the space, glides smaller in every frame; Done closes it the
+ * same way. It is registered as a length so that a transition carries it.
  */
+@property --basehalf-video-edit-space {
+	syntax: '<length>';
+	inherits: true;
+	initial-value: 0px;
+}
+
+/* The player and what stands under it, centered together: a sound's waveform, or a video's room. */
 .monaco-workbench .basehalf-card-detail-video-stage {
-	/* The room between the player and the frame viewer. */
+	/* The room between the player and what stands under it. */
 	--basehalf-video-stage-gap: 12px;
 	display: flex;
 	flex-direction: column;
@@ -224,8 +233,72 @@
 	gap: var(--basehalf-video-stage-gap);
 }
 
-.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing {
-	--basehalf-video-edit-space: 90px;
+.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) {
+	gap: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing:not(.sound) {
+	/* What the edit bar takes while editing: the gap over it, its strip, the gap under it, and the line. */
+	--basehalf-video-edit-room: 96px;
+	--basehalf-video-edit-space: 0px;
+	transition: --basehalf-video-edit-space 200ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing.basehalf-media-edit-active:not(.sound) {
+	--basehalf-video-edit-space: var(--basehalf-video-edit-room);
+}
+
+.monaco-workbench .basehalf-card-detail-video-edit-room {
+	position: relative;
+	z-index: 1;
+	flex: none;
+	align-self: stretch;
+	height: var(--basehalf-video-edit-space);
+}
+
+/*
+ * The edit bar stands 12 px under the picture as it is while editing, as wide
+ * as it, or 360 px under a narrower one as far as the space allows (editing
+ * media, "The frame viewer", D99, D102): its width is the player's own while
+ * editing, which the video's shape and the space decide, so it is the same
+ * while viewing, when it does not show, and its pictures are read once.
+ */
+.monaco-workbench .basehalf-card-detail-video-edit-room > .basehalf-video-frames {
+	position: absolute;
+	top: var(--basehalf-video-stage-gap);
+	left: 50%;
+	width: max(min(360px, calc(100cqw - 48px)), min(calc(100cqw - 48px), calc((100cqh - 48px - var(--basehalf-video-edit-room)) * var(--basehalf-video-aspect, 1.7778)), calc(900px * var(--basehalf-video-aspect, 1.7778)), 1280px));
+	min-width: 0;
+	transform: translateX(-50%);
+}
+
+/* The line under the editor stands under the bar while editing, and right under the picture while viewing, where it only says a write. */
+.monaco-workbench .basehalf-card-detail-video-stage .basehalf-card-detail-video-edit-room > .basehalf-media-edit-line {
+	position: absolute;
+	top: 0;
+	right: 0;
+	left: 0;
+	transition: top 200ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-edit-active .basehalf-card-detail-video-edit-room > .basehalf-media-edit-line {
+	top: calc(var(--basehalf-video-stage-gap) * 2 + 48px);
+}
+
+/* While editing, the player's own controls give way to the edit bar's (D102). */
+.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing.basehalf-media-edit-active .basehalf-canvas-video-player .basehalf-canvas-video-player-top,
+.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing.basehalf-media-edit-active .basehalf-canvas-video-player .basehalf-canvas-video-player-bar {
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition: opacity 150ms ease, visibility 0s linear 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-card-detail-video-stage.basehalf-media-editing:not(.sound),
+	.monaco-workbench .basehalf-card-detail-video-stage .basehalf-card-detail-video-edit-room > .basehalf-media-edit-line {
+		transition: none;
+	}
 }
 
 /*
@@ -260,20 +333,19 @@
 }
 
 /*
- * The frame viewer and the line under the editor keep their place over a
- * zoomed picture, which shows under them as a phone's photos show under its
- * bars (editing media, "Zooming the picture and the time", D101): while the
+ * The edit bar and the line under the editor keep their place over a zoomed
+ * picture, which shows under them as a phone's photos show under its bars
+ * (editing media, "Zooming the picture and the time", D101): while the
  * picture is zoomed in, they stand on a translucent backing that blurs it,
  * the player's controls' (D98), 6 px around them; at rest they stand on Card
  * Detail's background, and the backing is not there.
  */
-.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames,
 .monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line {
 	position: relative;
 	z-index: 1;
 }
 
-.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before,
+.monaco-workbench .basehalf-card-detail-video-edit-room > .basehalf-video-frames::before,
 .monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line::before {
 	content: '';
 	position: absolute;
@@ -294,13 +366,13 @@
 	border-radius: 8px;
 }
 
-.monaco-workbench .basehalf-card-detail-media-webview.basehalf-picture-zoomed-area .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before,
+.monaco-workbench .basehalf-card-detail-media-webview.basehalf-picture-zoomed-area .basehalf-card-detail-video-edit-room > .basehalf-video-frames::before,
 .monaco-workbench .basehalf-card-detail-media-webview.basehalf-picture-zoomed-area .basehalf-media-edit-line:has(.basehalf-media-edit-line-part:not([hidden]))::before {
 	opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.monaco-workbench .basehalf-card-detail-video-stage:not(.sound) > .basehalf-video-frames::before,
+	.monaco-workbench .basehalf-card-detail-video-edit-room > .basehalf-video-frames::before,
 	.monaco-workbench .basehalf-card-detail-media-webview .basehalf-media-edit-line::before {
 		transition: none;
 	}

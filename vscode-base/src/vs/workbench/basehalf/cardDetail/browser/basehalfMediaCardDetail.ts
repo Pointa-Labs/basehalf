@@ -646,8 +646,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	/**
 	 * The video or the sound in the player of Card Detail, from `start` or the
 	 * frame its card shows; a video that BaseHalf can edit plays the copy of its
-	 * original with the frame viewer under it. Resolves when it has the frame
-	 * it starts at.
+	 * original, with a room under it that opens for the edit bar while it is
+	 * edited (D102). Resolves when it has the frame it starts at.
 	 */
 	private renderPlayer(state: IBaseHalfCardDetailState, session: IBaseHalfMediaEditingSession | undefined, sound: boolean, focused: boolean, start?: number): Promise<void> {
 		const store = new DisposableStore();
@@ -678,7 +678,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		}));
 		if (!sound) {
 			// A pinch zooms the place under the fingers over the media area, as a browser zooms its page, and a swipe
-			// moves it; over the frame viewer and the line under the editor a gesture is theirs (editing media,
+			// moves it; over the edit bar and the line under the editor a gesture is theirs (editing media,
 			// "Zooming the picture and the time").
 			const zoom = store.add(new BaseHalfVideoPictureZoom(player.element, player.video, this.webviewHost,
 				target => target instanceof Element && !!target.closest('.basehalf-video-frames, .basehalf-media-edit-line')));
@@ -693,7 +693,9 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			}
 		}
 		if (session) {
-			this.editingStore.value?.show({ stage, player });
+			// Viewing shows the video as large as fits; Edit glides it smaller into the space above this room (D102).
+			const room = append(stage, $('.basehalf-card-detail-video-edit-room'));
+			this.editingStore.value?.show({ stage, player, room });
 		}
 		this.renderModeButton();
 		if (focused) {

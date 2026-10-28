@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { BaseHalfVideoTrimTimeline, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../../common/basehalfVideoTrimSelection.js';
+import { BaseHalfVideoTrimTimeline, formatBaseHalfVideoHandleTime, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../../common/basehalfVideoTrimSelection.js';
 
 /** The frame edges of a picture of `frames` frames at `fps` frames per second. */
 function edgesOf(frames: number, fps: number): number[] {
@@ -96,5 +96,17 @@ suite('BaseHalfVideoTrimSelection', () => {
 			formatBaseHalfVideoTrimLength(65.4),
 			formatBaseHalfVideoTrimLength(-1)
 		], ['1.0s', '1.0s', '0.9s', '3.5s', '59.9s', '1:00', '1:05', '0.0s']);
+	});
+
+	test('shows a handle\'s time in minutes, seconds, and hundredths, with hours from an hour on: never more than it is (D102)', () => {
+		assert.deepStrictEqual([
+			formatBaseHalfVideoHandleTime(0),
+			formatBaseHalfVideoHandleTime(26.4),
+			formatBaseHalfVideoHandleTime(0.3 + 0.7 - 1e-12),
+			formatBaseHalfVideoHandleTime(59.999),
+			formatBaseHalfVideoHandleTime(65.4),
+			formatBaseHalfVideoHandleTime(3723.4),
+			formatBaseHalfVideoHandleTime(-1)
+		], ['00:00.00', '00:26.40', '00:01.00', '00:59.99', '01:05.40', '1:02:03.40', '00:00.00']);
 	});
 });

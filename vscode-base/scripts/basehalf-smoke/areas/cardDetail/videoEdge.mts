@@ -26,7 +26,8 @@ export async function assertCardDetailVideoEdgeFollow(page) {
 	try {
 		await quickOpen(page, VIDEO);
 		await assertCardDetail(page, 'long.mp4');
-		await page.locator(`${FRAMES}.viewing`).waitFor({ state: 'visible', timeout: 15_000 });
+		// While viewing the edit bar is there, unseen (D102).
+		await page.locator(`${FRAMES}.viewing`).waitFor({ state: 'attached', timeout: 15_000 });
 		await enterEditing(page);
 		await page.locator(`${FRAMES}:not(.viewing) .basehalf-video-frames-handle.start`).waitFor({ state: 'visible', timeout: 10_000 });
 		const strip = await page.locator(`${FRAMES} .basehalf-video-frames-strip`).boundingBox();
@@ -50,8 +51,8 @@ export async function assertCardDetailVideoEdgeFollow(page) {
 		await page.mouse.move(handle.x + handle.width / 2, y);
 		await page.mouse.down();
 		await page.mouse.move(handle.x + handle.width / 2 + 6, y, { steps: 2 });
-		// Held still for 0.4 s, the viewer spreads out around the handle: 2 s of the 6 s.
-		await page.waitForTimeout(700);
+		// Held still for 0.8 s, the viewer spreads out around the handle in a glide of 250 ms: 2 s of the 6 s (D102).
+		await page.waitForTimeout(1300);
 		await page.mouse.move(strip.x + strip.width - 12, y, { steps: 10 });
 		await page.waitForTimeout(200);
 		const arrived = await page.evaluate(() => globalThis.basehalfEdgeSamples.length);

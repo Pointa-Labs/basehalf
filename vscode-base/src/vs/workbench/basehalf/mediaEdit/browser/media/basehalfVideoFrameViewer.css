@@ -4,11 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 /*
- * The frame viewer under the player of a video in Card Detail (editing media,
- * "The frame viewer"): the strip of the original's frames, the part kept in a
- * yellow frame with a handle on each side and the strip dimmed outside it,
- * the playhead, and the part's length. While the whole video is kept, the
- * frame is white.
+ * The edit bar under the player of a video in Card Detail while it is edited
+ * (editing media, "The frame viewer", D102): Play, and the strip of the
+ * original's frames, the part kept in a yellow frame with a handle on each
+ * side and the strip dimmed outside it, the playhead, and the time of a
+ * pressed handle. While the whole video is kept, no frame stands on the strip
+ * and the handles are grey. The waveform of a sound shares the strip's rules.
  */
 .monaco-workbench .basehalf-video-frames {
 	--basehalf-video-frames-yellow: #f5c400;
@@ -44,13 +45,57 @@
 }
 
 /*
- * The strip of a video lines up with the picture above it, while viewing and
- * while editing: its ends stand under the picture's edges, and its handles
- * outside them, in the room Card Detail leaves around the player (editing
- * media, "The frame viewer", D99).
+ * The edit bar of a video lines up with the picture above it while editing:
+ * Play stands at the picture's left edge, the strip after it with room for its
+ * start handle, and the end handle at the picture's right edge (editing
+ * media, "The frame viewer", D99, D102).
  */
 .monaco-workbench .basehalf-video-frames:not(.basehalf-sound-waveform) .basehalf-video-frames-row {
+	padding: 0 14px 0 0;
+}
+
+/* While viewing, the bar does not show; Edit fades it in as the picture makes room for it. */
+.monaco-workbench .basehalf-video-frames:not(.basehalf-sound-waveform) {
+	transition: opacity 150ms ease-out 60ms, visibility 0s;
+}
+
+.monaco-workbench .basehalf-video-frames.viewing:not(.basehalf-sound-waveform) {
+	visibility: hidden;
+	opacity: 0;
+	transition: opacity 120ms ease-out, visibility 0s linear 120ms;
+}
+
+/* Play of the edit bar, as tall as the strip, as a desktop photo app has it beside its frames. */
+.monaco-workbench .basehalf-video-frames-play {
+	display: grid;
+	width: 40px;
+	height: 48px;
+	flex: none;
+	place-items: center;
 	padding: 0;
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+	border: 0;
+	border-radius: 6px;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-frames-play:hover {
+	background: color-mix(in srgb, var(--vscode-editor-foreground) 16%, transparent);
+}
+
+.monaco-workbench .basehalf-video-frames-play .basehalf-canvas-video-player-icon {
+	width: 18px;
+	height: 18px;
+}
+
+.monaco-workbench .basehalf-video-frames-play:focus:not(:focus-visible) {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-video-frames-play:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
 }
 
 .monaco-workbench .basehalf-video-frames-strip {
@@ -266,6 +311,63 @@
 	visibility: hidden;
 }
 
+/* While a handle is pressed, the picture shows its frame and the playhead waits to stand there (D102). */
+.monaco-workbench .basehalf-video-frames.trimming .basehalf-video-frames-playhead {
+	visibility: hidden;
+}
+
+/*
+ * While the whole video is kept, no frame stands on the strip and the handles
+ * are grey with a light chevron, as a desktop photo app shows them; a trim
+ * turns them yellow (D102).
+ */
+.monaco-workbench .basehalf-video-frames.whole:not(.basehalf-sound-waveform) {
+	--basehalf-video-frames-frame: color-mix(in srgb, var(--vscode-editor-foreground) 30%, var(--vscode-editor-background));
+	--basehalf-video-frames-chevron: var(--vscode-editor-foreground);
+}
+
+.monaco-workbench .basehalf-video-frames.whole:not(.basehalf-sound-waveform) .basehalf-video-frames-part {
+	border-color: transparent;
+}
+
+/* The time of a pressed handle, in a bubble over it that points at it, as a desktop photo app shows it (D102). */
+.monaco-workbench .basehalf-video-frames-time {
+	position: absolute;
+	z-index: 4;
+	bottom: calc(100% + 10px);
+	left: calc(var(--basehalf-video-frames-bubble, 100%) + 7px);
+	padding: 3px 9px;
+	border-radius: 8px;
+	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+	background: var(--vscode-editorWidget-background);
+	box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	line-height: 16px;
+	white-space: nowrap;
+	transform: translateX(-50%);
+	visibility: hidden;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-frames-time.start {
+	left: calc(var(--basehalf-video-frames-bubble, 0%) - 7px);
+}
+
+.monaco-workbench .basehalf-video-frames-time::after {
+	content: '';
+	position: absolute;
+	top: 100%;
+	left: 50%;
+	border: 5px solid transparent;
+	border-top-color: var(--vscode-editorWidget-background);
+	transform: translateX(-50%);
+}
+
+.monaco-workbench .basehalf-video-frames.trimming .basehalf-video-frames-time {
+	visibility: visible;
+}
+
 .monaco-workbench .basehalf-video-frames-length {
 	position: absolute;
 	z-index: 2;
@@ -304,10 +406,10 @@
 }
 
 /*
- * While viewing (editing media, "Viewing and editing"), the strip is the
- * timeline of the file as it is: no yellow frame, handle, shade, or length.
- * They fade in and out as Edit and Done glide the strip (D101). The waveform
- * of a sound shares these rules.
+ * While viewing (editing media, "Viewing and editing"), the waveform of a
+ * sound shows the file as it is: no yellow frame, handle, shade, or length,
+ * which fade in and out with Edit and Done. A video's edit bar does not show
+ * then at all (D102).
  */
 .monaco-workbench .basehalf-video-frames .basehalf-video-frames-part,
 .monaco-workbench .basehalf-video-frames .basehalf-video-frames-handle,

@@ -221,6 +221,31 @@ suite('BaseHalfCanvasCardVideoPlayer', () => {
 		});
 	});
 
+	test('while a part stands for the file, the position slider spans the part: its middle is the part\'s middle, End its last frame, Home its first, and its time counts from the part (D102)', () => {
+		const { player, time, slider } = createPlayer();
+		player.setSelected(true);
+		// A part from 2 s to 6 s that plays once, as Card Detail views an edited video; its last frame starts at 5.9 s.
+		player.setPlayRange({ start: 2, end: 6, lastFrame: 5.9, once: true });
+		const bounds = slider().getBoundingClientRect();
+		const at = (fraction: number) => bounds.left + bounds.width * fraction;
+		const seen: number[] = [];
+		slider().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 7, clientX: at(0.5) }));
+		seen.push(time.value);
+		slider().dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 7, clientX: at(1) }));
+		seen.push(time.value);
+		slider().dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, clientX: at(1) }));
+		for (const key of ['Home', 'ArrowLeft', 'End', 'ArrowRight']) {
+			slider().dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }));
+			seen.push(time.value);
+		}
+		time.value = 4;
+		player.video.dispatchEvent(new Event('timeupdate'));
+		assert.deepStrictEqual({ seen: seen.map(value => Math.round(value * 1000) / 1000), valueText: slider().getAttribute('aria-valuetext') }, {
+			seen: [3.95, 5.9, 2, 2, 5.9, 5.9],
+			valueText: '2.0s of 4.0s'
+		});
+	});
+
 	test('the arrow keys on a control that has the focus are the control\'s, and reach no card', () => {
 		const { player, reachedCard, control } = createPlayer();
 		player.setSelected(true);
