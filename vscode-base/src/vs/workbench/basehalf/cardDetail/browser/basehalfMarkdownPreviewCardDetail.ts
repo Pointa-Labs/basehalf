@@ -14,7 +14,7 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
@@ -26,9 +26,10 @@ import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHa
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { installBaseHalfSidewaysScrollbar } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehalfMarkdownRichTextModel.js';
-import { BASEHALF_NOTE_ZOOM_STORAGE_KEY, isBaseHalfNoteZoomWheel, normalizeBaseHalfNoteZoom } from '../common/basehalfNoteZoom.js';
+import { isBaseHalfNoteZoomWheel } from '../common/basehalfNoteZoom.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from './basehalfNoteOutline.js';
 import { BaseHalfNoteZoomGesture } from './basehalfNoteZoomGesture.js';
+import { BaseHalfNoteZoomLevel } from './basehalfNoteZoomLevel.js';
 
 /** The rendered preview shares the rich projection's frontmatter boundary. */
 export function baseHalfMarkdownPreviewBody(source: string): string {
@@ -83,11 +84,15 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			reducedMotion: () => accessibilityService.isMotionReduced()
 		});
 		this._register(toDisposable(() => outline.dispose()));
+		// A level that changed in Rich or in another window reaches this page;
+		// the one this page reported does not come back to it.
+		const noteZoomLevel = this._register(new BaseHalfNoteZoomLevel(this.storageService, level => zoom.setLevel(level)));
 		const zoom = new BaseHalfNoteZoomGesture({
 			view: this.previewScroll,
 			page: this.previewContent,
+			reducedMotion: () => accessibilityService.isMotionReduced(),
 			onDidDraw: () => outline.refresh()
-		}, this.noteZoom(), level => this.storageService.store(BASEHALF_NOTE_ZOOM_STORAGE_KEY, level, StorageScope.PROFILE, StorageTarget.MACHINE));
+		}, noteZoomLevel.level, level => noteZoomLevel.report(level));
 		this._register(toDisposable(() => zoom.dispose()));
 		this._register(addDisposableListener(this.previewScroll, EventType.MOUSE_WHEEL, (event: WheelEvent) => {
 			if (!isBaseHalfNoteZoomWheel(event, isMacintosh)) {
@@ -97,7 +102,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			event.stopPropagation();
 			zoom.zoomBy(event);
 		}, { passive: false }));
-		this._register(this.storageService.onDidChangeValue(StorageScope.PROFILE, BASEHALF_NOTE_ZOOM_STORAGE_KEY, this._store)(() => zoom.setLevel(this.noteZoom())));
 		this.setSaveStatus('saving');
 
 		this._register(this.textFileService.files.onDidChangeDirty(model => {
@@ -252,12 +256,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		this.outline.refresh();
 		this.updateStatus();
 		this.revealSelection();
-	}
-
-	/** The level of notes in Card Detail, one for every note (zoom and outline of a note, rule 8). */
-	private noteZoom(): number {
-		// The storage's numbers are whole numbers; the level is read as text.
-		return normalizeBaseHalfNoteZoom(this.storageService.get(BASEHALF_NOTE_ZOOM_STORAGE_KEY, StorageScope.PROFILE));
 	}
 
 	private updateStatus(): void {

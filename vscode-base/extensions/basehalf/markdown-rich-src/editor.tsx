@@ -1745,7 +1745,7 @@ function MarkdownRichEditor(): JSX.Element {
 	// The zoom and the outline of a note in Card Detail (zoom and outline of a
 	// note). They are made with the first init of Card Detail's page; a later
 	// init only changes the level.
-	const ensureReadingAids = useCallback((level: number, reducedMotion: boolean): void => {
+	const ensureReadingAids = useCallback((level: number, motionReduced: boolean): void => {
 		const scroll = scrollRef.current;
 		const page = scroll?.querySelector<HTMLElement>(':scope > .basehalf-markdown-rich-page');
 		if (!scroll || !page) {
@@ -1753,16 +1753,18 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 		const existing = readingAids.current;
 		if (existing) {
-			existing.reducedMotion = reducedMotion;
+			existing.reducedMotion = motionReduced;
 			existing.zoom.setLevel(level);
 			return;
 		}
 		const text = () => scroll.querySelector<HTMLElement>('.ProseMirror');
+		const reducedMotion = () => aids.reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		let outline: BaseHalfNoteOutline | undefined;
 		const zoom = new BaseHalfNoteZoomGesture({
 			view: scroll,
 			page,
 			text,
+			reducedMotion,
 			onDidDraw: () => {
 				outline?.refresh();
 				// The page moved in its view as in a scroll. The editor's handles,
@@ -1785,10 +1787,10 @@ function MarkdownRichEditor(): JSX.Element {
 				text,
 				headings: () => baseHalfNoteOutlineHeadings(text()),
 				label: 'Outline',
-				reducedMotion: () => aids.reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+				reducedMotion,
 				minMargin: BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES,
 			}),
-			reducedMotion,
+			reducedMotion: motionReduced,
 		};
 		readingAids.current = aids;
 	}, [vscode]);

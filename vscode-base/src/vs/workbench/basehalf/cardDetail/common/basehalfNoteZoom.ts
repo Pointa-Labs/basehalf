@@ -21,15 +21,8 @@ const LARGEST_EVENT_DELTA = 10;
 /** How long after its last event a gesture has ended, in milliseconds (rule 6). */
 export const BASEHALF_NOTE_ZOOM_REST_MS = 150;
 
-/** The longest layout of a frame for which a gesture lays the page out in every frame (rule 6). */
-export const BASEHALF_NOTE_ZOOM_FRAME_BUDGET_MS = 16;
-
-/**
- * A page of more elements is taken to be laid out in more than a frame until
- * a layout of it has been measured (rule 6): 1,301 elements took 16 to 25 ms
- * on 2026-10-27, 227 took 3 to 8 ms.
- */
-export const BASEHALF_NOTE_ZOOM_LIVE_ELEMENTS = 1_500;
+/** How long a page that keeps its lines glides to its place once the fingers rest, in milliseconds (rule 6). */
+export const BASEHALF_NOTE_ZOOM_GLIDE_MS = 200;
 
 export interface IBaseHalfNoteZoomWheel {
 	readonly deltaY: number;

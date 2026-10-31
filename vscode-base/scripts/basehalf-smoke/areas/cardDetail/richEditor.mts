@@ -114,10 +114,12 @@ export async function assertMarkdownRichBlockMenuPortal(page) {
 }
 
 /**
- * The handles of a block stand beside the first line of the block under the pointer through a pinch (zoom and
- * outline of a note, rules 22 to 24, criteria 13 and 14): 8 pixels left of the text and in the middle of the line as
- * the page draws it, at 160% and again at 100% after a pinch back, with the pointer resting where it was. The note is
- * short, so the line under the pointer changes on the way.
+ * While the fingers of a pinch move, the point of the page under the pointer stays under it, across and up and down,
+ * and the lines of its block break nowhere anew: the page is drawn as a picture and laid out once the fingers rest
+ * (zoom and outline of a note, rules 4 and 6, criterion 3). The handles of a block then stand beside the first line of
+ * the block under the pointer (rules 22 to 24, criteria 13 and 14): 8 pixels left of the text and in the middle of the
+ * line as the page draws it, at 160% and again at 100% after a pinch back, with the pointer resting where it was. The
+ * note is short, so the line under the pointer changes on the way.
  */
 export async function assertMarkdownRichHandlesFollowZoom(page) {
 	const frame = await activeMarkdownRichFrame(page);
@@ -149,7 +151,80 @@ export async function assertMarkdownRichHandlesFollowZoom(page) {
 		};
 	}, pointer);
 	const besideFirstLine = (reading, scale) => Math.abs(reading.scale - scale) < 0.02 && Math.abs(reading.gap - 8) <= 1 && Math.abs(reading.fromMiddleOfLine) <= 1;
+	await frame.evaluate(({ x, y }) => {
+		const caret = document.caretRangeFromPoint(x, y);
+		const node = caret?.startContainer;
+		if (!caret || !node || node.nodeType !== Node.TEXT_NODE || node.length === 0) {
+			throw new Error(`No text under the pointer at ${x}, ${y}`);
+		}
+		const character = document.createRange();
+		const offset = Math.min(caret.startOffset, node.length - 1);
+		character.setStart(node, offset);
+		character.setEnd(node, offset + 1);
+		const block = node.parentElement.closest('.bn-block-content');
+		const notePage = document.querySelector('.basehalf-markdown-rich-page');
+		// Where each line of the block starts, as offsets into its text.
+		const lineStarts = () => {
+			const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+			const each = document.createRange();
+			const starts = [];
+			let lastTop = -Infinity;
+			let at = 0;
+			for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+				for (let index = 0; index < text.length; index++) {
+					each.setStart(text, index);
+					each.setEnd(text, index + 1);
+					const rect = each.getClientRects()[0];
+					if (rect && rect.top > lastTop + rect.height / 2) {
+						starts.push(at + index);
+						lastTop = rect.top;
+					}
+				}
+				at += text.length;
+			}
+			return starts.join(',');
+		};
+		const recorded = { frames: [], stop: false, forwarded: undefined };
+		window.__basehalfSmokePinch = recorded;
+		window.addEventListener('message', event => {
+			if (event.data?.type === 'basehalf.markdownRich.zoomGesture') {
+				recorded.forwarded ??= { x: event.data.gesture.x, y: event.data.gesture.y };
+			}
+		});
+		const sample = () => {
+			const box = character.getBoundingClientRect();
+			recorded.frames.push({ left: box.left, top: box.top, scale: notePage.getBoundingClientRect().width / notePage.offsetWidth, lines: lineStarts() });
+			if (!recorded.stop) {
+				requestAnimationFrame(sample);
+			}
+		};
+		sample();
+	}, pointer);
 	await pinch(page, box.x + 8, box.y + 8, 1.6);
+	// The fingers have just stopped; the page is laid out 150 ms later.
+	const { frames, forwarded } = await frame.evaluate(() => {
+		const recorded = window.__basehalfSmokePinch;
+		recorded.stop = true;
+		return recorded;
+	});
+	// The page grows around one point in every frame, the point under the pointer: the protocol rounds where its pinch
+	// is, so that point is found from the last frame and may be up to a pixel away from the pointer.
+	const first = frames[0];
+	const last = frames.at(-1);
+	const lastGrowth = last.scale / first.scale;
+	const centre = {
+		x: (last.left - first.left * lastGrowth) / (1 - lastGrowth),
+		y: (last.top - first.top * lastGrowth) / (1 - lastGrowth),
+	};
+	const off = frames.filter(sample => {
+		const grow = sample.scale / first.scale;
+		return Math.abs(sample.left - (centre.x + (first.left - centre.x) * grow)) > 1
+			|| Math.abs(sample.top - (centre.y + (first.top - centre.y) * grow)) > 1
+			|| sample.lines !== first.lines;
+	});
+	if (frames.length < 5 || lastGrowth < 1.3 || Math.abs(centre.x - pointer.x) > 2 || Math.abs(centre.y - pointer.y) > 2 || off.length > 0) {
+		throw new Error(`While the fingers move, the point under the pointer should stay under it and no line break anew: ${JSON.stringify({ frames: frames.length, pointer, box, forwarded, centre, first, off: off.slice(0, 3), last })}`);
+	}
 	await waitForReading(read, reading => besideFirstLine(reading, 1.6), 'the handles 8 pixels left of the text, in the middle of the first line of the block under the pointer, at 160%');
 	await pinch(page, box.x + 8, box.y + 8, 1 / 1.6);
 	const back = await waitForReading(read, reading => besideFirstLine(reading, 1), 'the handles beside the first line of the block under the pointer again at 100%');
