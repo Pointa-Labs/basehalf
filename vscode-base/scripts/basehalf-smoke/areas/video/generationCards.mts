@@ -107,7 +107,7 @@ import {
 	zoomCanvas
 } from '../../lib/canvas.mts';
 import { expectNotification } from '../../lib/notifications.mts';
-import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION, waitForProvidersPage } from '../../lib/providers.mts';
+import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderKinds, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION, waitForProvidersPage } from '../../lib/providers.mts';
 import { quickOpen, runCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
 import { step, waitForReading, waitUntil } from '../../lib/steps.mts';
@@ -760,13 +760,18 @@ async function assertPanelModelAndSettings(page) {
 	if (back.mode !== 'frames' || back.prompt !== VIDEO_PROMPT || back.params.seed !== undefined || back.params.camera_fixed !== undefined) {
 		throw new Error(`Choosing ${SEEDANCE} again must keep the values it takes and drop the others: ${JSON.stringify(back)}`);
 	}
-	// Set Up opens Providers at the provider that is not set up, from the
-	// first frame of Settings on, though Settings was last closed there.
+	// Set Up opens Providers at the provider that is not set up, under Video,
+	// the type of the card (settings pages, criterion 9), from the first frame
+	// of Settings on, though Settings was last closed there.
 	await watchSettingsFrames(page);
 	await panel.locator('button.bh-video-panel-reason-action').click();
 	const providers = await waitForProvidersPage(page);
 	await assertSettingsFramesShowedOnly(page, 'Providers', 'basehalf-video-providers', 'Set Up of the panel');
 	await waitForReading(() => readProviderEditor(providers), seen => seen.provider === SMOKE_PROVIDER, `Set Up to open Providers at ${SMOKE_PROVIDER}`);
+	const shownKind = (await readProviderKinds(providers)).find(kind => kind.chosen)?.kind;
+	if (shownKind !== 'video') {
+		throw new Error(`Set Up of a video card must open Providers under Video, not ${shownKind}`);
+	}
 	await closeProvidersPage(page, providers);
 	await clickBlankCanvas(page);
 }

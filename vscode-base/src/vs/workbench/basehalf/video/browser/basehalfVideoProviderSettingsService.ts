@@ -210,8 +210,9 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		this._onDidChange.fire();
 	}
 
-	async openSettings(providerId?: string): Promise<void> {
-		await this.commandService.executeCommand(BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, ...(providerId !== undefined ? [providerId] : []));
+	async openSettings(providerId?: string, kind?: BaseHalfGenerationKind): Promise<void> {
+		const args = kind !== undefined ? [providerId, kind] : providerId !== undefined ? [providerId] : [];
+		await this.commandService.executeCommand(BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, ...args);
 	}
 
 	/**

@@ -854,7 +854,8 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		this._register(addDisposableListener(this.reasonAction, 'click', () => {
 			const action = this.presentation?.reason?.action;
 			if (action) {
-				void this.providerSettings.openSettings(action.provider).catch(error => this.logService.error(error));
+				// Providers, at the card's type and the provider (D107).
+				void this.providerSettings.openSettings(action.provider, this.snapshot?.kind).catch(error => this.logService.error(error));
 			}
 		}));
 		this._register(addDisposableListener(this.element, 'keydown', event => this.onPanelKeyDown(event)));
@@ -1675,7 +1676,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		append(element, $('.bh-video-panel-menu-separator')).setAttribute('role', 'separator');
 		this.menuItem(element, menu.settingsLabel, () => {
 			this.closeMenu(false);
-			void this.providerSettings.openSettings(this.info().provider).catch(error => this.logService.error(error));
+			void this.providerSettings.openSettings(this.info().provider, this.snapshot?.kind).catch(error => this.logService.error(error));
 		}, { key: 'providers', icon: Codicon.settingsGear });
 	}
 

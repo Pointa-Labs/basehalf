@@ -15,7 +15,7 @@ import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/c
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { settingsCustomSectionRegistry } from '../../../contrib/preferences/browser/settingsCustomSections.js';
 import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
-import { BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID } from '../common/basehalfVideoProviderSettings.js';
+import { BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, formatBaseHalfProvidersPageInput, isBaseHalfModelKind } from '../common/basehalfVideoProviderSettings.js';
 import { BaseHalfVideoProvidersPage } from './basehalfVideoProvidersPage.js';
 
 /**
@@ -45,13 +45,18 @@ registerAction2(class OpenBaseHalfVideoProvidersAction extends Action2 {
 	}
 
 	/**
-	 * With a provider id of the catalog, the page shows that provider. Settings
-	 * opens on the page itself (settings pages, "Opening Settings at a page").
+	 * With a provider id of the catalog, the page shows that provider, and with
+	 * a card type, the providers of that type (D107). Settings opens on the
+	 * page itself (settings pages, "Opening Settings at a page").
 	 */
-	override async run(accessor: ServicesAccessor, providerId?: unknown): Promise<void> {
+	override async run(accessor: ServicesAccessor, providerId?: unknown, kind?: unknown): Promise<void> {
+		const input = formatBaseHalfProvidersPageInput({
+			...(typeof providerId === 'string' ? { provider: providerId } : {}),
+			...(isBaseHalfModelKind(kind) ? { kind } : {})
+		});
 		await accessor.get(IPreferencesService).openSettings({
 			jsonEditor: false,
-			customSection: { id: BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, ...(typeof providerId === 'string' ? { input: providerId } : {}) }
+			customSection: { id: BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, ...(input !== undefined ? { input } : {}) }
 		});
 	}
 });

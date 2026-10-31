@@ -10,6 +10,7 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { IConfirmation, IConfirmationResult, IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { TestDialogService } from '../../../../../platform/dialogs/test/common/testDialogService.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullHoverService } from '../../../../../platform/hover/test/browser/nullHoverService.js';
@@ -29,6 +30,18 @@ class GatedCredentialStore extends InMemoryCredentialStore {
 	override async set(key: string, value: string): Promise<void> {
 		await this.gate;
 		return super.set(key, value);
+	}
+}
+
+/** A dialog service that keeps the questions it was asked, and confirms them. */
+class RecordingDialogService extends TestDialogService {
+	readonly asked: IConfirmation[] = [];
+	constructor() {
+		super({ confirmed: true });
+	}
+	override async confirm(confirmation: IConfirmation): Promise<IConfirmationResult> {
+		this.asked.push(confirmation);
+		return super.confirm(confirmation);
 	}
 }
 
@@ -56,14 +69,14 @@ suite('BaseHalfVideoProvidersPage', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 	const [acme, borealis] = TEST_VIDEO_CATALOG.providers;
 
-	function createPage(state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_VIDEO_CATALOG }, credentials = new InMemoryCredentialStore()) {
+	function createPage(state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_VIDEO_CATALOG }, credentials = new InMemoryCredentialStore(), dialogs: IDialogService = new TestDialogService({ confirmed: true })) {
 		const store = disposables.add(new DisposableStore());
 		const providers = store.add(new BaseHalfVideoProviderSettingsService(store.add(new InMemoryStorageService()), credentials, new FakeProviderCommands(store.add(new FileService(new NullLogService()))), new NullLogService()));
 		const catalog = new StaticCatalogService(state);
 		store.add(catalog.changed);
 		const opened: string[] = [];
 		const opener = { open: async (target: URI | string) => { opened.push(target.toString()); return true; } } as Partial<IOpenerService> as IOpenerService;
-		const page = store.add(new BaseHalfVideoProvidersPage(catalog, providers, new TestDialogService({ confirmed: true }), NullHoverService, opener));
+		const page = store.add(new BaseHalfVideoProvidersPage(catalog, providers, dialogs, NullHoverService, opener));
 		const container = mainWindow.document.createElement('div');
 		mainWindow.document.body.appendChild(container);
 		store.add({ dispose: () => container.remove() });
@@ -139,6 +152,35 @@ suite('BaseHalfVideoProvidersPage', () => {
 		for (let index = 0; index < 5; index++) {
 			await timeout(0);
 		}
+	}
+
+	/** The card types above the list, the chosen one marked with a star; none while there is no choice. */
+	function kinds(container: HTMLElement): string[] {
+		const bar = descendants(container).find(element => element.getAttribute('role') === 'tablist');
+		return bar && !bar.hidden ? descendants(bar).map(tab => `${tab.dataset.kind}${tab.getAttribute('aria-selected') === 'true' ? '*' : ''}`) : [];
+	}
+
+	function kindTab(container: HTMLElement, kind: string): HTMLButtonElement {
+		const found = descendants(container).find(element => element.getAttribute('role') === 'tab' && element.dataset.kind === kind);
+		assert.ok(found, `no type ${kind}`);
+		return found as HTMLButtonElement;
+	}
+
+	/** Under the provider's name: whether it is set up, and which cards its key serves or how many models it has. */
+	function summary(container: HTMLElement): string | null | undefined {
+		return descendants(container).find(element => element.classList.contains('basehalf-video-provider-summary'))?.textContent;
+	}
+
+	/** The provider's lines of models, by their card type, in the order shown. */
+	function modelKinds(container: HTMLElement): (string | undefined)[] {
+		return descendants(container).filter(element => element.classList.contains('basehalf-video-provider-models')).map(line => line.dataset.kind);
+	}
+
+	/** A catalog of the four test providers and one whose image model is deprecated: it makes videos only. */
+	function catalogOfTypes(): IBaseHalfVideoCatalog {
+		const corvid = TEST_AUDIO_CATALOG.providers.find(provider => provider.id === 'corvid')!;
+		const egret = { ...corvid, id: 'egret', label: 'Egret Labs', models: corvid.models.map(model => model.kind === 'image' ? { ...model, deprecated: true } : model) };
+		return { ...TEST_AUDIO_CATALOG, providers: [...TEST_AUDIO_CATALOG.providers, egret] };
 	}
 
 	test('lists the catalog\'s providers in its order, and sets a credential without ever showing it again', async () => {
@@ -547,5 +589,142 @@ suite('BaseHalfVideoProvidersPage', () => {
 		field.dispatchEvent(new mainWindow.KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }));
 		await settle();
 		assert.deepStrictEqual({ focused: focused(), stored: providers.getStatus(acme).endpoint }, { focused: 'endpoint', stored: 'https://east.acme.example/api/v1' });
+	});
+
+	test('sorts the providers by card type: each type lists the providers that make it, in the catalog\'s order (D107)', () => {
+		const { container } = createPage({ kind: 'ready', catalog: catalogOfTypes() });
+		const lists: Record<string, string[]> = {};
+		for (const kind of ['image', 'video', 'audio']) {
+			kindTab(container, kind).click();
+			lists[kind] = rows(container);
+		}
+		const oneKind = createPage();
+		assert.deepStrictEqual({ kinds: kinds(container), lists, oneKind: { kinds: kinds(oneKind.container), rows: rows(oneKind.container) } }, {
+			kinds: ['image', 'video', 'audio*'],
+			lists: {
+				// A provider whose image models are all deprecated makes no images.
+				image: ['corvid:not set up*'],
+				video: ['acme:not set up', 'borealis:not set up', 'corvid:not set up*', 'egret:not set up'],
+				audio: ['dunlin:not set up*']
+			},
+			// A catalog of one kind offers no choice of type.
+			oneKind: { kinds: [], rows: ['acme:not set up*', 'borealis:not set up'] }
+		});
+	});
+
+	test('choosing another type keeps the provider shown when the type lists it, and the arrow keys choose the type (D107)', async () => {
+		const { container } = createPage({ kind: 'ready', catalog: TEST_AUDIO_CATALOG });
+		const first = { kinds: kinds(container), rows: rows(container) };
+		kindTab(container, 'video').click();
+		const video = rows(container);
+		const press = async (kind: string, key: string) => {
+			kindTab(container, kind).focus();
+			kindTab(container, kind).dispatchEvent(new mainWindow.KeyboardEvent('keydown', { key, bubbles: true }));
+			await settle();
+			return { kinds: kinds(container), rows: rows(container), focused: focused() };
+		};
+		const right = await press('video', 'ArrowRight');
+		const home = await press('audio', 'Home');
+		assert.deepStrictEqual({ first, video, right, home }, {
+			// The first type a provider of the catalog makes is chosen until the user chooses.
+			first: { kinds: ['image*', 'video', 'audio'], rows: ['corvid:not set up*'] },
+			// Corvid makes videos too: it stays.
+			video: ['acme:not set up', 'borealis:not set up', 'corvid:not set up*'],
+			// Corvid makes no audio: the first provider of audio is shown, and the keyboard stays on the type.
+			right: { kinds: ['image', 'video', 'audio*'], rows: ['dunlin:not set up*'], focused: 'kind:audio' },
+			home: { kinds: ['image*', 'video', 'audio'], rows: ['corvid:not set up*'], focused: 'kind:image' }
+		});
+	});
+
+	test('a provider of several types says which cards its one key serves, lists the models of the type chosen first, and is set up once for all of them (D107)', async () => {
+		const { page, providers, container } = createPage({ kind: 'ready', catalog: TEST_AUDIO_CATALOG });
+		const corvid = TEST_AUDIO_CATALOG.providers.find(provider => provider.id === 'corvid')!;
+		const underImage = { summary: summary(container), models: modelKinds(container) };
+		typeCredential(container, 'apiKey', 'corvid-secret');
+		action(credentialField(container, 'apiKey'), 'set').click();
+		await settle();
+		kindTab(container, 'video').click();
+		const underVideo = { summary: summary(container), models: modelKinds(container), rows: rows(container), replace: !!action(credentialField(container, 'apiKey'), 'replace') };
+		page.setInput('dunlin');
+		assert.deepStrictEqual({ underImage, underVideo, setUp: providers.getStatus(corvid).setUp, oneType: { summary: summary(container), models: modelKinds(container) } }, {
+			underImage: { summary: 'Not set up · One key for image and video cards', models: ['image', 'video'] },
+			underVideo: {
+				summary: 'Set up · One key for image and video cards',
+				models: ['video', 'image'],
+				rows: ['acme:not set up', 'borealis:not set up', 'corvid:set up*'],
+				replace: true
+			},
+			setUp: true,
+			// A provider of one type says how many models it has.
+			oneType: { summary: 'Not set up · 3 models', models: ['audio'] }
+		});
+	});
+
+	test('Remove names the cards of all of the provider\'s types, also under one of them (D107)', async () => {
+		const dialogs = new RecordingDialogService();
+		const { providers, container } = createPage({ kind: 'ready', catalog: TEST_AUDIO_CATALOG }, undefined, dialogs);
+		const corvid = TEST_AUDIO_CATALOG.providers.find(provider => provider.id === 'corvid')!;
+		await providers.setCredential(corvid, 'apiKey', 'corvid-secret');
+		await settle();
+		kindTab(container, 'video').click();
+		action(credentialField(container, 'apiKey'), 'remove').click();
+		await settle();
+		assert.deepStrictEqual({ asked: dialogs.asked.map(question => [question.message, question.detail]), setUp: providers.getStatus(corvid).setUp }, {
+			asked: [['Remove the API Key of Corvid Studio?', 'It is deleted from this computer, and image and video cards cannot use Corvid Studio until you set it again.']],
+			setUp: false
+		});
+	});
+
+	test('opens at a card type and a provider, at a provider alone under its first type, and at a type alone; also while the providers load (D107)', () => {
+		const { page, container } = createPage({ kind: 'ready', catalog: TEST_AUDIO_CATALOG });
+		const shown = () => ({ kinds: kinds(container), provider: rows(container).find(row => row.endsWith('*')) });
+		const opened: unknown[] = [];
+		for (const input of ['video:corvid', 'audio:corvid', 'dunlin', 'video:', undefined, 'image:nobody', 'music:acme']) {
+			page.setInput(input);
+			opened.push(shown());
+		}
+		const loading = createPage({ kind: 'loading' });
+		loading.page.setInput('audio:dunlin');
+		loading.catalog.state = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+		loading.catalog.changed.fire();
+		assert.deepStrictEqual({ opened, loaded: { kinds: kinds(loading.container), rows: rows(loading.container) } }, {
+			opened: [
+				{ kinds: ['image', 'video*', 'audio'], provider: 'corvid:not set up*' },
+				// Corvid makes no audio: it is shown under the first type that lists it.
+				{ kinds: ['image*', 'video', 'audio'], provider: 'corvid:not set up*' },
+				{ kinds: ['image', 'video', 'audio*'], provider: 'dunlin:not set up*' },
+				// A type alone keeps the provider shown when it lists it, and shows its first one otherwise.
+				{ kinds: ['image', 'video*', 'audio'], provider: 'acme:not set up*' },
+				// With neither, the page stays as it is.
+				{ kinds: ['image', 'video*', 'audio'], provider: 'acme:not set up*' },
+				// A provider the catalog does not have is not given: the type is.
+				{ kinds: ['image*', 'video', 'audio'], provider: 'corvid:not set up*' },
+				// An unknown type is not given: the provider is.
+				{ kinds: ['image', 'video*', 'audio'], provider: 'acme:not set up*' }
+			],
+			loaded: { kinds: ['image', 'video', 'audio*'], rows: ['dunlin:not set up*'] }
+		});
+	});
+
+	test('brings the provider an opening names into view in its list, and the list keeps its place when the page is drawn again (D107)', async () => {
+		const many = Array.from({ length: 14 }, (_, index) => ({ ...acme, id: `acme-${index}`, label: `Acme ${index}` }));
+		const { page, providers, container } = createPage({ kind: 'ready', catalog: { ...TEST_VIDEO_CATALOG, providers: many } });
+		page.layout({ width: 760, height: 420 });
+		page.setInput(':acme-12');
+		const list = descendants(container).find(element => element.classList.contains('basehalf-video-providers-list'))!;
+		const inView = (id: string) => {
+			const box = list.getBoundingClientRect();
+			const at = row(container, id).getBoundingClientRect();
+			return at.top >= box.top - 1 && at.bottom <= box.bottom + 1;
+		};
+		const opened = { scrolled: list.scrollTop > 0, inView: inView('acme-12') };
+		const scroll = list.scrollTop;
+		await providers.setCredential(many[12], 'apiKey', 'acme-secret');
+		await settle();
+		assert.deepStrictEqual({ opened, kept: list.scrollTop === scroll, setUp: rows(container)[12] }, {
+			opened: { scrolled: true, inView: true },
+			kept: true,
+			setUp: 'acme-12:set up*'
+		});
 	});
 });

@@ -129,8 +129,11 @@ export interface IBaseHalfVideoProviderSettingsService {
 	/** Remembers the last generation of a kind (`video` when no kind is given). */
 	setLastUsed(generation: IBaseHalfVideoGenerationChoice, kind?: BaseHalfGenerationKind): void;
 
-	/** Opens the page where the user sets up providers, on a provider when one is given. */
-	openSettings(providerId?: string): Promise<void>;
+	/**
+	 * Opens the page where the user sets up providers, on a provider when one
+	 * is given, under the card type of the card that asks (D107).
+	 */
+	openSettings(providerId?: string, kind?: BaseHalfGenerationKind): Promise<void>;
 }
 
 // --- generation ------------------------------------------------------------------------------

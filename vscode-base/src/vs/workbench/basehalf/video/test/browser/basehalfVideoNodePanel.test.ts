@@ -62,6 +62,7 @@ import {
 } from '../../common/basehalfVideoGeneration.js';
 import { baseHalfGenerationChoice, BaseHalfGenerationKind, IBaseHalfGenerationInfo, setBaseHalfGenerationChoice } from '../../common/basehalfGenerationInfo.js';
 import { IBaseHalfGenerationVoiceService, IBaseHalfVoices, IBaseHalfVoiceSample, IBaseHalfVoiceSampleFailure } from '../../common/basehalfGenerationVoices.js';
+import { formatBaseHalfProvidersPageInput } from '../../common/basehalfVideoProviderSettings.js';
 import type { VoicesResult } from '../../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { DUNLIN_VOICE, TEST_AUDIO_CATALOG, TEST_GENERATION_CATALOG, TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
@@ -253,8 +254,9 @@ class FakeProviderSettings extends Disposable implements IBaseHalfVideoProviderS
 	}
 	setLastUsed(): void { }
 
-	async openSettings(providerId?: string): Promise<void> {
-		this.opened.push(providerId);
+	/** Records the opening as the page reads it: the card type and the provider (D107). */
+	async openSettings(providerId?: string, kind?: BaseHalfGenerationKind): Promise<void> {
+		this.opened.push(formatBaseHalfProvidersPageInput({ provider: providerId, kind }));
 	}
 
 	change(): void {
@@ -1034,7 +1036,8 @@ suite('BaseHalfVideoNodePanel', () => {
 			notSetUp: { hidden: false, text: 'Borealis Media is not set up. Set it up in Providers.', action: 'Set Up', beforeFooter: true, height: notSetUp.height },
 			region: { hidden: false, text: 'Acme Still is not offered in West · Acme Global. Choose another model, or another region in Providers.', action: 'Providers…', beforeFooter: true },
 			ready: { hidden: true, height: 188 },
-			opened: ['borealis', 'acme']
+			// Under the card's type (D107).
+			opened: ['video:borealis', 'video:acme']
 		});
 		// The line takes its height above the footer: one line beside its action, or two.
 		assert.ok(notSetUp.height >= 188 + 8 + 20 && notSetUp.height <= 188 + 8 + 32, `the panel with a reason line is ${notSetUp.height} px tall`);
@@ -1152,8 +1155,16 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		assert.deepStrictEqual({ dimmed, opened: providers.opened }, {
 			dimmed: { unavailable: true, name: 'Acme Still', description: 'Not offered in West · Acme Global. Frames · 5–10s · 1080P', tooltip: 'Not offered in West · Acme Global' },
-			opened: ['acme']
+			opened: ['video:acme']
 		});
+	});
+
+	test('an image card\'s Providers… opens Providers under Image, at the card\'s provider (D107)', async () => {
+		const panel = await createImagePanel([]);
+		find(panel, '.bh-video-panel-model').click();
+		findAll(panel, '.bh-video-panel-menu-item').find(item => menuLabel(item) === 'Providers…')?.click();
+		await settle();
+		assert.deepStrictEqual(providers.opened, ['image:corvid']);
 	});
 
 	test('a setting changes at once and is saved, and the popover is drawn from the model\'s parameters for the mode', async () => {

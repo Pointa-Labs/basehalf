@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { root } from '../../context.mts';
-import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderLayout, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION } from '../../lib/providers.mts';
+import { chooseProviderKind, closeProvidersPage, openProvidersPage, readProviderEditor, readProviderKinds, readProviderLayout, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION } from '../../lib/providers.mts';
 import { runCommand } from '../../lib/quickInput.mts';
 import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
 import { waitForReading } from '../../lib/steps.mts';
@@ -71,44 +71,67 @@ export async function assertBaseHalfAboutPage(page) {
 	}
 }
 
-// Providers and the model catalog, criteria 8 and 13: the page lists the
-// providers of the model catalog, none of them set up in a new profile,
-// SMOKE_PROVIDER among them; each credential it declares is a masked field;
-// and each provider's models are named under Images and Videos, a line for
-// each kind it has models of. The retired Models & Providers page is gone.
+// Providers and the model catalog, criteria 8, 13, 21, and 22: the page
+// sorts the providers of the model catalog by card type, Image first; each
+// type lists the providers that make it, none of them set up in a new
+// profile, SMOKE_PROVIDER under Image and Video; each credential it declares
+// is a masked field; a provider of several types says that its one key serves
+// them, and names its models of the type chosen first, a line for each kind
+// it has models of. The retired Models & Providers page is gone.
 export async function assertProvidersPage(page) {
 	const providers = await openProvidersPage(page);
 	if (await page.locator('.basehalf-model-connections').count() !== 0) {
 		throw new Error('The retired Models & Providers page is still mounted beside Providers');
 	}
-	const rows = await waitForReading(() => readProviderRows(providers), seen => seen.length > 0, 'the providers of the model catalog to be listed', 30_000);
-	if (!rows.some(row => row.id === SMOKE_PROVIDER) || rows.some(row => row.setUp !== 'false')) {
-		throw new Error(`A new profile must list the catalog's providers, none set up, ${SMOKE_PROVIDER} among them: ${JSON.stringify(rows)}`);
+	await waitForReading(() => readProviderRows(providers), seen => seen.length > 0, 'the providers of the model catalog to be listed', 30_000);
+	const kinds = await readProviderKinds(providers);
+	if (JSON.stringify(kinds) !== JSON.stringify([{ kind: 'image', label: 'Image', chosen: true }, { kind: 'video', label: 'Video', chosen: false }, { kind: 'audio', label: 'Audio', chosen: false }])) {
+		throw new Error(`Providers must offer Image, Video, and Audio, with Image chosen as it opens: ${JSON.stringify(kinds)}`);
 	}
+	const lists = {};
+	for (const { kind } of kinds) {
+		await chooseProviderKind(providers, kind);
+		lists[kind] = await readProviderRows(providers);
+	}
+	const ids = kind => lists[kind].map(row => row.id);
+	const expected = { image: [SMOKE_PROVIDER, 'openai'], video: [SMOKE_PROVIDER, 'pixverse'], audio: ['elevenlabs', 'mureka'] };
+	const absent = { image: ['pixverse', 'elevenlabs'], video: ['openai', 'elevenlabs'], audio: [SMOKE_PROVIDER, 'pixverse', 'openai'] };
+	if (Object.keys(expected).some(kind => expected[kind].some(id => !ids(kind).includes(id)) || absent[kind].some(id => ids(kind).includes(id)))
+		|| Object.values(lists).flat().some(row => row.setUp !== 'false')) {
+		throw new Error(`Each type must list the providers that make it, none set up in a new profile: ${JSON.stringify(lists)}`);
+	}
+	await chooseProviderKind(providers, 'image');
 	await providers.locator(`.basehalf-video-provider-row[data-provider="${SMOKE_PROVIDER}"]`).click();
 	const editor = await waitForReading(() => readProviderEditor(providers), seen => seen.provider === SMOKE_PROVIDER, `the page to show ${SMOKE_PROVIDER}`);
 	if (!editor.credentials.length || editor.credentials.some(credential => credential.set || credential.input !== 'password')
 		|| !editor.regions.some(region => region.id === SMOKE_REGION) || !/^https:\/\//.test(editor.endpoint ?? '')) {
 		throw new Error(`The page must offer a masked field for every credential of ${SMOKE_PROVIDER}, its regions, and its endpoint: ${JSON.stringify(editor)}`);
 	}
-	// The provider's models by name, under Images and then Videos, so that the
-	// user can tell where to get credentials. A provider of images and videos
-	// has both lines; one of videos only, and one of images only, have one.
+	// The provider's models by name, those of the type chosen first, so that
+	// the user can tell where to get credentials and what else the key makes.
+	// A provider of images and videos has both lines; one of videos only, and
+	// one of images only, have one.
 	const lines = shown => shown.kinds.map(line => `${line.kind}:${line.label}`).join(' ');
-	if (lines(editor) !== 'image:Images video:Videos' || editor.kinds.some(line => !line.models.length || line.models.some(model => !model.id || !model.label))) {
-		throw new Error(`The page must name ${SMOKE_PROVIDER}'s models under Images and Videos: ${JSON.stringify(editor.kinds)}`);
+	if (lines(editor) !== 'image:Images video:Videos' || editor.summary !== 'Not set up · One key for image and video cards'
+		|| editor.kinds.some(line => !line.models.length || line.models.some(model => !model.id || !model.label))) {
+		throw new Error(`Under Image, the page must say that ${SMOKE_PROVIDER}'s key serves image and video cards, and name its images first: ${JSON.stringify(editor)}`);
 	}
-	for (const [provider, expected] of [['pixverse', 'video:Videos'], ['openai', 'image:Images']]) {
-		if (!rows.some(row => row.id === provider)) {
-			continue;
-		}
+	await chooseProviderKind(providers, 'video');
+	const underVideo = await waitForReading(() => readProviderEditor(providers), seen => seen.provider === SMOKE_PROVIDER && lines(seen) === 'video:Videos image:Images', `${SMOKE_PROVIDER} to stay, its videos first, under Video`);
+	if (underVideo.summary !== editor.summary) {
+		throw new Error(`${SMOKE_PROVIDER} must say the same of its key under each type: ${JSON.stringify(underVideo)}`);
+	}
+	for (const [kind, provider, expectedLines] of [['video', 'pixverse', 'video:Videos'], ['image', 'openai', 'image:Images']]) {
+		await chooseProviderKind(providers, kind);
 		await providers.locator(`.basehalf-video-provider-row[data-provider="${provider}"]`).click();
 		const other = await waitForReading(() => readProviderEditor(providers), seen => seen.provider === provider, `the page to show ${provider}`);
-		if (lines(other) !== expected || other.kinds.some(line => !line.models.length)) {
-			throw new Error(`The page must name the models of ${provider} under the one kind it makes, ${expected}: ${JSON.stringify(other.kinds)}`);
+		if (lines(other) !== expectedLines || other.kinds.some(line => !line.models.length) || !/^Not set up · \d+ models?$/.test(other.summary ?? '')) {
+			throw new Error(`The page must name the models of ${provider} under the one kind it makes, ${expectedLines}, and count them: ${JSON.stringify(other)}`);
 		}
 	}
-	await assertRegionsEasyToFind(providers, rows);
+	// Every provider of more than one region makes images.
+	await chooseProviderKind(providers, 'image');
+	await assertRegionsEasyToFind(providers, lists.image);
 	await closeProvidersPage(page, providers);
 }
 

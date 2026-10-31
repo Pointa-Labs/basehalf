@@ -8,9 +8,11 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import {
 	BaseHalfVideoProviderSettingsError,
 	baseHalfVideoProviderSecretAddress,
+	formatBaseHalfProvidersPageInput,
 	isBaseHalfLoopbackHost,
 	normalizeBaseHalfVideoCredentialValue,
 	normalizeBaseHalfVideoEndpoint,
+	parseBaseHalfProvidersPageInput,
 	parseBaseHalfVideoCredentialSecret,
 	parseBaseHalfVideoProviderSettings,
 	serializeBaseHalfVideoProviderSettings
@@ -81,5 +83,28 @@ suite('BaseHalfVideoProviderSettings', () => {
 		assert.throws(() => normalizeBaseHalfVideoCredentialValue('   ', 'Secret Key'), (error: Error) => error.message === 'Paste the Secret Key from the provider\'s console.');
 		assert.throws(() => normalizeBaseHalfVideoCredentialValue('two\nlines', 'API Key'), BaseHalfVideoProviderSettingsError);
 		assert.throws(() => normalizeBaseHalfVideoCredentialValue('x'.repeat(16 * 1024 + 1), 'API Key'), /longer than any provider uses/);
+	});
+
+	test('an opening of the Providers page carries a card type and a provider, and a type or an id that cannot be one is not given (D107)', () => {
+		const written = [
+			formatBaseHalfProvidersPageInput({ kind: 'audio', provider: 'elevenlabs' }),
+			formatBaseHalfProvidersPageInput({ kind: 'image' }),
+			formatBaseHalfProvidersPageInput({ provider: 'bytedance' }),
+			formatBaseHalfProvidersPageInput({})
+		];
+		assert.deepStrictEqual({
+			written,
+			read: written.map(parseBaseHalfProvidersPageInput),
+			// A provider id alone, as openings named it before the card types.
+			id: parseBaseHalfProvidersPageInput('kling'),
+			refused: ['music:mureka', 'video:Not An Id', 'Video:', ':', 'video'].map(parseBaseHalfProvidersPageInput)
+		}, {
+			written: ['audio:elevenlabs', 'image:', ':bytedance', undefined],
+			read: [{ kind: 'audio', provider: 'elevenlabs' }, { kind: 'image' }, { provider: 'bytedance' }, {}],
+			id: { provider: 'kling' },
+			// An unknown type, an id that cannot be one, and a type in capitals are not given; without a
+			// colon the input is the id of a provider, also when it is a word that names a type.
+			refused: [{ provider: 'mureka' }, { kind: 'video' }, {}, {}, { provider: 'video' }]
+		});
 	});
 });

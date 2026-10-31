@@ -24,6 +24,8 @@ import { BaseHalfGenerationVoiceService, IBaseHalfVoiceSampleContext, IBaseHalfV
 import { baseHalfVoiceLabel, baseHalfVoiceMenuStatus, baseHalfVoiceParameter, IBaseHalfGenerationVoiceService, parseBaseHalfVoicesResult } from '../../common/basehalfGenerationVoices.js';
 import { findBaseHalfVideoRegion, IBaseHalfVideoCatalogModel, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice, IBaseHalfVideoProviderAccess } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../../common/basehalfVideoGeneration.js';
+import { BaseHalfGenerationKind } from '../../common/basehalfGenerationInfo.js';
+import { formatBaseHalfProvidersPageInput } from '../../common/basehalfVideoProviderSettings.js';
 import { TEST_AUDIO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
 /** Dunlin Sound and its speech model as the window keeps them, whose voice the provider lists: Ember, the default, Pike, and Sable. */
@@ -115,8 +117,9 @@ class FakeProviderSettings extends Disposable implements IBaseHalfVideoProviderS
 
 	setLastUsed(): void { }
 
-	async openSettings(providerId?: string): Promise<void> {
-		this.opened.push(providerId);
+	/** Records the opening as the page reads it: the card type and the provider (D107). */
+	async openSettings(providerId?: string, kind?: BaseHalfGenerationKind): Promise<void> {
+		this.opened.push(formatBaseHalfProvidersPageInput({ provider: providerId, kind }));
 	}
 
 	change(): void {
@@ -502,7 +505,8 @@ suite('BaseHalfGenerationVoiceMenu', () => {
 				status: 'Set up Dunlin Sound to choose from all of its voices and your own. [Set Up]',
 				asked: 0
 			},
-			opened: ['dunlin']
+			// Under Audio (D107).
+			opened: ['audio:dunlin']
 		});
 	});
 

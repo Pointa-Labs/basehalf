@@ -84,10 +84,66 @@
 	overflow: auto;
 }
 
-.basehalf-video-providers-list {
-	padding: 4px;
+/* The card types above the providers of the type chosen (D107). */
+.basehalf-video-providers-side {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
 	border-right: 1px solid var(--vscode-widget-border, transparent);
 	background: color-mix(in srgb, var(--vscode-sideBar-background) 72%, transparent);
+}
+
+.basehalf-video-providers-list {
+	flex: 1;
+	padding: 4px;
+}
+
+/* A choice of one, in the shape of a segmented control: the type chosen is raised over the track. */
+.basehalf-video-providers-kinds {
+	display: flex;
+	flex: none;
+	gap: 2px;
+	margin: 6px 6px 2px;
+	padding: 2px;
+	border-radius: 7px;
+	background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+}
+
+.basehalf-video-providers-kinds[hidden] {
+	display: none;
+}
+
+.basehalf-video-providers-kind {
+	flex: 1 1 0;
+	min-width: 0;
+	min-height: 24px;
+	padding: 2px 6px;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	overflow: hidden;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.basehalf-video-providers-kind:hover {
+	color: var(--vscode-foreground);
+}
+
+.basehalf-video-providers-kind[aria-selected='true'] {
+	border-color: var(--vscode-widget-border, transparent);
+	background: var(--vscode-editor-background);
+	color: var(--vscode-foreground);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, .16);
+}
+
+.monaco-workbench .basehalf-video-providers .basehalf-video-providers-kind:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
 }
 
 /* While the catalog loads or after it failed, the message takes the whole width, with Try Again. */
@@ -95,7 +151,7 @@
 	grid-template-columns: minmax(0, 1fr);
 }
 
-.basehalf-video-providers-content.empty .basehalf-video-providers-list {
+.basehalf-video-providers-content.empty .basehalf-video-providers-side {
 	display: none;
 }
 
@@ -389,14 +445,15 @@
 		overflow: auto;
 	}
 
-	/* Stacked, the list and the editor keep their height and the page scrolls. */
+	/* Stacked, the types, the list, and the editor keep their height and the page scrolls. */
+	.basehalf-video-providers-side,
 	.basehalf-video-providers-list,
 	.basehalf-video-provider-editor {
 		flex: none;
 		overflow: visible;
 	}
 
-	.basehalf-video-providers-list {
+	.basehalf-video-providers-side {
 		border-right: 0;
 		border-bottom: 1px solid var(--vscode-widget-border, transparent);
 	}
@@ -404,11 +461,12 @@
 
 @media (forced-colors: active) {
 	.basehalf-video-providers-content,
-	.basehalf-video-providers-list {
+	.basehalf-video-providers-side {
 		border-color: CanvasText;
 	}
 
 	.basehalf-video-provider-row[aria-current='page'],
+	.basehalf-video-providers-kind[aria-selected='true'],
 	.basehalf-video-provider-field input:focus {
 		border-color: Highlight;
 	}

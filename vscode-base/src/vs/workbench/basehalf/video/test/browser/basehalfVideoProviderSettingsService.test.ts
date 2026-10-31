@@ -219,10 +219,15 @@ suite('BaseHalfVideoProviderSettingsService', () => {
 		});
 	});
 
-	test('opens the Providers page through its command, on a provider when one is given', async () => {
+	test('opens the Providers page through its command, on a provider when one is given, under the card type of the card that asks (D107)', async () => {
 		const { service, commands } = createHarness();
 		await service.openSettings();
 		await service.openSettings('acme');
-		assert.deepStrictEqual(commands.calls, [{ id: BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, args: [] }, { id: BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, args: ['acme'] }]);
+		await service.openSettings('acme', 'image');
+		assert.deepStrictEqual(commands.calls, [
+			{ id: BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, args: [] },
+			{ id: BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, args: ['acme'] },
+			{ id: BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, args: ['acme', 'image'] }
+		]);
 	});
 });

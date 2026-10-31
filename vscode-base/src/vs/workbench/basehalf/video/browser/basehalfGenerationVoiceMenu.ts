@@ -453,8 +453,8 @@ export class BaseHalfGenerationVoiceMenu extends Disposable {
 
 	private runStatusAction(): void {
 		if (this.statusKind === 'setUp') {
-			// As the panel's other Set Up does: Providers, at the provider.
-			void this.providerSettings.openSettings(this.target.provider.id).catch(error => this.logService.error(error));
+			// As the panel's other Set Up does: Providers, at the provider, under Audio (D107).
+			void this.providerSettings.openSettings(this.target.provider.id, 'audio').catch(error => this.logService.error(error));
 		} else if (this.statusKind === 'retry') {
 			this.ask();
 		}

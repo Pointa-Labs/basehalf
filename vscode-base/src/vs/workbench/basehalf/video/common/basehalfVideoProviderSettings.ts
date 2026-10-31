@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import { BASEHALF_VIDEO_PROVIDER_ID_PATTERN } from './basehalfVideoCatalog.js';
+import { BASEHALF_MODEL_KINDS, BASEHALF_VIDEO_PROVIDER_ID_PATTERN, BaseHalfModelKind } from './basehalfVideoCatalog.js';
 
 /**
  * How the providers of the catalog are set up on this computer (D59, video
@@ -16,11 +16,54 @@ import { BASEHALF_VIDEO_PROVIDER_ID_PATTERN } from './basehalfVideoCatalog.js';
  * encrypted credential store under {@link baseHalfVideoProviderSecretAddress}.
  */
 
-/** Opens Settings on the Providers page; with a provider id, on that provider. */
+/**
+ * Opens Settings on the Providers page; with a provider id, on that provider,
+ * and with a card type after it, under that type (D107).
+ */
 export const BASEHALF_VIDEO_PROVIDERS_COMMAND_ID = 'basehalf.video.providers';
 
 /** The Settings section that holds the Providers page. It keeps the place of the former Models & Providers page. */
 export const BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID = 'basehalf/models';
+
+/**
+ * What an opening asks the Providers page to show (settings pages, "Opening
+ * Settings at a page"; D107): a card type, a provider, both, or neither.
+ */
+export interface IBaseHalfProvidersPageTarget {
+	readonly kind?: BaseHalfModelKind;
+	readonly provider?: string;
+}
+
+/**
+ * The input of the Providers page, the text an opening of Settings carries:
+ * `<type>:<provider>`, either side empty when it is not given. A provider id
+ * never holds a colon, and the input of an opening with neither is none.
+ */
+export function formatBaseHalfProvidersPageInput(target: IBaseHalfProvidersPageTarget): string | undefined {
+	return target.kind === undefined && target.provider === undefined ? undefined : `${target.kind ?? ''}:${target.provider ?? ''}`;
+}
+
+/**
+ * What the input of the Providers page asks for. A provider id alone, without
+ * a colon, is a provider; a type or an id that cannot be one is not given.
+ */
+export function parseBaseHalfProvidersPageInput(input: string | undefined): IBaseHalfProvidersPageTarget {
+	if (!input) {
+		return {};
+	}
+	const colon = input.indexOf(':');
+	const kind = colon < 0 ? undefined : input.slice(0, colon);
+	const provider = colon < 0 ? input : input.slice(colon + 1);
+	return {
+		...(isBaseHalfModelKind(kind) ? { kind } : {}),
+		...(BASEHALF_VIDEO_PROVIDER_ID_PATTERN.test(provider) ? { provider } : {})
+	};
+}
+
+/** Whether a value is a card type: `image`, `video`, or `audio`. */
+export function isBaseHalfModelKind(value: unknown): value is BaseHalfModelKind {
+	return BASEHALF_MODEL_KINDS.some(kind => kind === value);
+}
 
 /** The region, the endpoint, and the ids of the credentials that are set, per provider. */
 export const BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY = 'basehalf.video.providers.v1';

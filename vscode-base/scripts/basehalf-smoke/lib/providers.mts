@@ -45,7 +45,7 @@ export async function closeProvidersPage(page, providers) {
 	await providers.waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
-// The providers the page lists, in order.
+// The providers the page lists, in order: those of the card type chosen (D107).
 export function readProviderRows(providers) {
 	return providers.evaluate(root => Array.from(root.querySelectorAll('.basehalf-video-provider-row')).map(row => ({
 		id: row.getAttribute('data-provider'),
@@ -55,8 +55,27 @@ export function readProviderRows(providers) {
 	})), undefined, { timeout: 2_000 });
 }
 
+// The card types above the list (D107): each type by its name, and the one chosen.
+export function readProviderKinds(providers) {
+	return providers.evaluate(root => Array.from(root.querySelectorAll('.basehalf-video-providers-kind')).map(tab => ({
+		kind: tab.getAttribute('data-kind'),
+		label: tab.textContent,
+		chosen: tab.getAttribute('aria-selected') === 'true'
+	})), undefined, { timeout: 2_000 });
+}
+
+// Shows the providers of a card type, as a click on the type does (D107).
+export async function chooseProviderKind(providers, kind) {
+	const tab = providers.locator(`.basehalf-video-providers-kind[data-kind="${kind}"]`);
+	if (await tab.getAttribute('aria-selected', { timeout: 10_000 }) !== 'true') {
+		await tab.click();
+	}
+	await providers.locator(`.basehalf-video-providers-list[data-kind="${kind}"]`).waitFor({ state: 'attached', timeout: 10_000 });
+}
+
 // The provider the page shows: its regions, its credentials and whether each
-// is set, its endpoint, and its models under Images and Videos.
+// is set, its endpoint, what it says of its key, and its models under Images,
+// Videos, and Audio.
 export function readProviderEditor(providers) {
 	return providers.evaluate(root => {
 		const editor = root.querySelector('.basehalf-video-provider-editor');
@@ -74,7 +93,8 @@ export function readProviderEditor(providers) {
 			})),
 			endpoint: endpoint?.value ?? null,
 			customEndpoint: endpoint?.getAttribute('data-custom') === 'true',
-			// The models by name, a line per kind: Images, then Videos.
+			summary: root.querySelector('.basehalf-video-provider-summary')?.textContent ?? null,
+			// The models by name, a line per kind, those of the card type chosen first.
 			kinds: Array.from(root.querySelectorAll('p.basehalf-video-provider-models')).map(line => ({
 				kind: line.getAttribute('data-kind'),
 				label: line.querySelector('.basehalf-video-provider-models-kind')?.textContent ?? null,

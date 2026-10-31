@@ -55,7 +55,7 @@ import {
 import { filesContaining } from './videoProvider.mts';
 import { workspacePath } from '../../context.mts';
 import { assertCanvasFolder, clickCanvasCreateAction, emptyCanvasPoint, panCanvasCardTo, setCanvasZoomPercent, waitForCanvasCardSelection } from '../../lib/canvas.mts';
-import { closeProvidersPage, openProvidersPage, readProviderEditor, waitForProvidersPage } from '../../lib/providers.mts';
+import { chooseProviderKind, closeProvidersPage, openProvidersPage, readProviderEditor, readProviderKinds, waitForProvidersPage } from '../../lib/providers.mts';
 import { quickOpen } from '../../lib/quickInput.mts';
 import { step, waitForReading, waitUntil } from '../../lib/steps.mts';
 
@@ -170,12 +170,13 @@ async function newAudioDraft(page) {
 }
 
 /**
- * Sets a provider up on the open Providers page as a user does: its endpoint
- * at the local test provider, then each credential, the test key. Returns
- * what the page shows of it then.
+ * Sets a provider of sounds up on the open Providers page as a user does: it
+ * is listed under Audio (D107); its endpoint at the local test provider, then
+ * each credential, the test key. Returns what the page shows of it then.
  */
 async function setUpProvider(page, providers, providerId, endpoint, key) {
 	if ((await readProviderEditor(providers)).provider !== providerId) {
+		await chooseProviderKind(providers, 'audio');
 		await providers.locator(`.basehalf-video-provider-row[data-provider="${providerId}"]`).click();
 	}
 	const editor = await waitForReading(() => readProviderEditor(providers), seen => seen.provider === providerId, `the page to show ${providerId}`);
@@ -359,6 +360,11 @@ async function assertVoiceMenuBeforeSetUp(page) {
 	await panel.locator('button.bh-voice-menu-status-action').click();
 	const providers = await waitForProvidersPage(page);
 	await waitForReading(() => readProviderEditor(providers), seen => seen.provider === 'elevenlabs', 'Set Up to open Providers at ElevenLabs');
+	// Under Audio, the type of the card (settings pages, criterion 9).
+	const shownKind = (await readProviderKinds(providers)).find(kind => kind.chosen)?.kind;
+	if (shownKind !== 'audio') {
+		throw new Error(`Set Up of the voice menu must open Providers under Audio, not ${shownKind}`);
+	}
 	const saved = await setUpProvider(page, providers, 'elevenlabs', provider.elevenLabsEndpoint, provider.key);
 	const audio = saved.kinds.find(line => line.kind === 'audio');
 	if (saved.kinds.length !== 1 || audio?.label !== 'Audio' || JSON.stringify(audio.models.map(model => model.id)) !== JSON.stringify(ELEVENLABS_MODELS)) {
