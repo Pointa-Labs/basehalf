@@ -216,6 +216,27 @@ export type CatalogParameter =
 	| TextParameter
 	| VoiceParameter;
 
+// --- Custom providers --------------------------------------------------------------------------
+
+/** One model of a custom provider (D108): the id its service gives it, which is also what is sent, and its card type. */
+export interface CustomModelDefinition {
+	readonly id: string;
+	readonly kind: ModelKind;
+}
+
+/** A custom provider as the user entered it (D108; `basehalfCustomProviders.ts` reads and describes it). */
+export interface CustomProviderDefinition {
+	/** `custom-` and eight hexadecimal digits, made when the provider is added. */
+	readonly id: string;
+	/** Its name. */
+	readonly label: string;
+	/** The base of the format's calls: `https://`, or `http://` on this computer, without a trailing slash. */
+	readonly baseUrl: string;
+	readonly models: readonly CustomModelDefinition[];
+	/** The voices of its speech models, by the service's ids; without them, the six of OpenAI's speech API. */
+	readonly voices?: readonly string[];
+}
+
 // --- The provider commands ---------------------------------------------------------------------
 
 /** Where a request goes and with what: the provider, its region, the endpoint in use, and the credential values by id. */
@@ -225,6 +246,8 @@ export interface ProviderAccess {
 	/** The region's base URL, or the one the user entered. */
 	readonly endpoint: string;
 	readonly credentials: Readonly<Record<string, string>>;
+	/** For a custom provider, what the user entered, from which the provider service builds its module for the call (D108). */
+	readonly custom?: CustomProviderDefinition;
 }
 
 /** A file of the workspace, or an image the window drew (an SVG made a PNG). */
@@ -271,6 +294,8 @@ export interface CheckRequest {
 	readonly prompt: string;
 	/** The files a generation would send; the module measures them. */
 	readonly inputs: PlannedMedia;
+	/** For a custom provider, what the user entered (D108). */
+	readonly custom?: CustomProviderDefinition;
 }
 
 /** A check as the window sends it: the prompt in parts, text inputs included. The window's `IBaseHalfVideoCheckRequest` is this shape. */

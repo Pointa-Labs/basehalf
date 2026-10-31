@@ -17,6 +17,8 @@ import { NullHoverService } from '../../../../../platform/hover/test/browser/nul
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
 import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
+import { IBaseHalfProviderService } from '../../../../../platform/basehalfProviders/common/basehalfProviders.js';
+import { BaseHalfVideoCatalogService } from '../../browser/basehalfVideoCatalogService.js';
 import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
 import { BaseHalfVideoProvidersPage } from '../../browser/basehalfVideoProvidersPage.js';
 import { BaseHalfVideoCatalogState, IBaseHalfVideoCatalog, IBaseHalfVideoCheckResult } from '../../common/basehalfVideoCatalog.js';
@@ -68,6 +70,37 @@ class StaticCatalogService implements IBaseHalfVideoCatalogService {
 suite('BaseHalfVideoProvidersPage', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 	const [acme, borealis] = TEST_VIDEO_CATALOG.providers;
+
+	/**
+	 * A page over the window's own catalog service, which adds the custom
+	 * providers to the catalog the provider service answers (D108).
+	 */
+	async function createCustomPage(dialogs: IDialogService = new TestDialogService({ confirmed: true })) {
+		const store = disposables.add(new DisposableStore());
+		const credentials = new InMemoryCredentialStore();
+		const providers = store.add(new BaseHalfVideoProviderSettingsService(store.add(new InMemoryStorageService()), credentials, new FakeProviderCommands(store.add(new FileService(new NullLogService()))), new NullLogService()));
+		const providerService: IBaseHalfProviderService = {
+			_serviceBrand: undefined,
+			catalog: async () => ({ ok: true, value: { schema: 1, providers: TEST_AUDIO_CATALOG.providers } }) as never,
+			check: async () => ({ ok: true, value: { problems: [], prompt: '' } }) as never,
+			submit: () => { throw new Error('not used'); },
+			poll: () => { throw new Error('not used'); },
+			download: () => { throw new Error('not used'); },
+			cancel: () => { throw new Error('not used'); },
+			place: () => { throw new Error('not used'); },
+			voices: () => { throw new Error('not used'); },
+			voicePreview: () => { throw new Error('not used'); }
+		};
+		const catalog = store.add(new BaseHalfVideoCatalogService(0, providerService, providers, new NullLogService()));
+		await catalog.whenReady();
+		const opener = { open: async () => true } as Partial<IOpenerService> as IOpenerService;
+		const page = store.add(new BaseHalfVideoProvidersPage(catalog, providers, dialogs, NullHoverService, opener));
+		const container = mainWindow.document.createElement('div');
+		mainWindow.document.body.appendChild(container);
+		store.add({ dispose: () => container.remove() });
+		page.create(container);
+		return { page, providers, credentials, container };
+	}
 
 	function createPage(state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_VIDEO_CATALOG }, credentials = new InMemoryCredentialStore(), dialogs: IDialogService = new TestDialogService({ confirmed: true })) {
 		const store = disposables.add(new DisposableStore());
@@ -174,6 +207,24 @@ suite('BaseHalfVideoProvidersPage', () => {
 	/** The provider's lines of models, by their card type, in the order shown. */
 	function modelKinds(container: HTMLElement): (string | undefined)[] {
 		return descendants(container).filter(element => element.classList.contains('basehalf-video-provider-models')).map(line => line.dataset.kind);
+	}
+
+	/** The field of a control of the page, by its focus key. */
+	function control<T extends HTMLElement = HTMLInputElement>(container: HTMLElement, key: string): T {
+		const found = descendants(container).find(element => element.dataset.focus === key);
+		assert.ok(found, `no control ${key}`);
+		return found as T;
+	}
+
+	function type(container: HTMLElement, key: string, text: string): void {
+		const input = control(container, key);
+		input.value = text;
+		input.dispatchEvent(new mainWindow.Event('change'));
+	}
+
+	/** The errors the page shows, by their text. */
+	function errors(container: HTMLElement): (string | null)[] {
+		return descendants(container).filter(element => element.getAttribute('role') === 'alert' && !element.hidden).map(element => element.textContent);
 	}
 
 	/** A catalog of the four test providers and one whose image model is deprecated: it makes videos only. */
@@ -725,6 +776,123 @@ suite('BaseHalfVideoProvidersPage', () => {
 			opened: { scrolled: true, inView: true },
 			kept: true,
 			setUp: 'acme-12:set up*'
+		});
+	});
+
+	test('Add Provider ends each list, its form says what cannot be taken, and Add adds a custom provider, set up, under its type, and shows it (D108)', async () => {
+		const { providers, credentials, container } = await createCustomPage();
+		kindTab(container, 'video').click();
+		control<HTMLButtonElement>(container, 'add').click();
+		const form = {
+			adding: descendants(container).find(element => element.classList.contains('basehalf-video-provider-editor'))?.dataset.adding,
+			fields: descendants(container).filter(element => element.dataset.focus?.startsWith('add:')).map(element => element.dataset.focus),
+			add: control(container, 'add').getAttribute('aria-current')
+		};
+		control<HTMLButtonElement>(container, 'add:submit').click();
+		await settle();
+		const empty = { errors: errors(container), added: providers.customProviders.length };
+		control(container, 'add:label').value = 'Harbour Relay';
+		control(container, 'add:address').value = 'https://relay.example.com/v1/';
+		control(container, 'add:apiKey').value = 'sk-relay-0123';
+		control(container, 'add:model').value = 'Wan/Video-2.2';
+		control(container, 'add:model').dispatchEvent(new mainWindow.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		await settle();
+		const [added] = providers.customProviders;
+		assert.deepStrictEqual({
+			form,
+			empty,
+			added: { label: added?.label, baseUrl: added?.baseUrl, models: added?.models },
+			key: [...credentials.values.values()],
+			rows: rows(container),
+			summary: summary(container),
+			fields: descendants(container).filter(element => element.dataset.focus?.startsWith('custom:') || element.dataset.focus?.startsWith('credential:')).map(element => element.dataset.focus),
+			regions: descendants(container).filter(element => element.dataset.region).length,
+			status: statusLine(container),
+			inDom: container.outerHTML.includes('sk-relay-0123')
+		}, {
+			form: { adding: 'video', fields: ['add:label', 'add:address', 'add:apiKey', 'add:model', 'add:submit'], add: 'page' },
+			empty: { errors: ['Enter a complete address that starts with https://, such as https://api.example.com/v1.'], added: 0 },
+			added: { label: 'Harbour Relay', baseUrl: 'https://relay.example.com/v1', models: [{ id: 'Wan/Video-2.2', kind: 'video' }] },
+			key: [JSON.stringify({ apiKey: 'sk-relay-0123' })],
+			rows: ['acme:not set up', 'borealis:not set up', 'corvid:not set up', `${added?.id}:set up*`],
+			summary: 'Set up · 1 model',
+			// No region, console, or endpoint of its own: its API address is its own.
+			fields: ['custom:model', 'custom:modelKind', 'custom:addModel', 'custom:label', 'custom:address', 'credential:apiKey:replace', 'credential:apiKey:remove', 'custom:removeProvider'],
+			regions: 0,
+			status: 'Harbour Relay added.',
+			inDom: false
+		});
+	});
+
+	test('a custom provider\'s page changes its name and its models, lists it under each type it makes, takes voices for speech, and Remove Provider removes it and its key (D108)', async () => {
+		const dialogs = new RecordingDialogService();
+		const { page, providers, credentials, container } = await createCustomPage(dialogs);
+		const id = await providers.addCustomProvider({ label: 'Harbour Relay', baseUrl: 'https://relay.example.com/v1', apiKey: 'sk-relay', model: { id: 'gpt-image-1', kind: 'image' } });
+		page.setInput(`image:${id}`);
+		type(container, 'custom:label', 'Pier Relay');
+		await settle();
+		const renamed = descendants(container).find(element => element.tagName === 'H2')?.textContent;
+		control(container, 'custom:model').value = 'tts-1';
+		control<HTMLSelectElement>(container, 'custom:modelKind').value = 'audio';
+		control<HTMLButtonElement>(container, 'custom:addModel').click();
+		await settle();
+		const withSpeech = {
+			models: providers.customProviders[0].models,
+			lines: modelKinds(container),
+			summary: summary(container),
+			voicesField: descendants(container).some(element => element.dataset.focus === 'custom:voices')
+		};
+		type(container, 'custom:voices', 'nova,  harbour-voice');
+		await settle();
+		kindTab(container, 'audio').click();
+		const underAudio = rows(container);
+		// Without its speech model, it makes no audio: it is removed where it is still listed.
+		kindTab(container, 'image').click();
+		control<HTMLButtonElement>(container, 'custom:remove:tts-1').click();
+		await settle();
+		const afterRemoving = { models: providers.customProviders[0].models, lastModelRemovable: descendants(container).some(element => element.dataset.focus?.startsWith('custom:remove:')) };
+		control<HTMLButtonElement>(container, 'custom:removeProvider').click();
+		await settle();
+		assert.deepStrictEqual({
+			renamed,
+			withSpeech,
+			voices: providers.customProviders.length ? undefined : 'removed',
+			underAudio,
+			afterRemoving,
+			asked: dialogs.asked.map(question => [question.message, question.detail]),
+			removed: { providers: providers.customProviders.length, keys: credentials.values.size, rows: rows(container) }
+		}, {
+			renamed: 'Pier Relay',
+			withSpeech: {
+				models: [{ id: 'gpt-image-1', kind: 'image' }, { id: 'tts-1', kind: 'audio' }],
+				lines: ['image', 'audio'],
+				summary: 'Set up · One key for image and audio cards',
+				voicesField: true
+			},
+			voices: 'removed',
+			underAudio: ['dunlin:not set up', `${id}:set up*`],
+			afterRemoving: { models: [{ id: 'gpt-image-1', kind: 'image' }], lastModelRemovable: false },
+			asked: [['Remove Pier Relay?', 'Its API Key is deleted from this computer, and image cards that use its models cannot generate until you choose another model.']],
+			removed: { providers: 0, keys: 0, rows: ['corvid:not set up*'] }
+		});
+	});
+
+	test('the voices of a custom provider\'s speech models are saved as the user enters them, each once (D108)', async () => {
+		const { page, providers, container } = await createCustomPage();
+		const id = await providers.addCustomProvider({ label: 'Harbour Relay', baseUrl: 'https://relay.example.com/v1', apiKey: 'sk-relay', model: { id: 'tts-1', kind: 'audio' } });
+		page.setInput(`audio:${id}`);
+		const before = control(container, 'custom:voices').placeholder;
+		type(container, 'custom:voices', 'nova,  harbour-voice nova');
+		await settle();
+		const saved = providers.customProviders[0].voices;
+		type(container, 'custom:voices', '');
+		await settle();
+		assert.deepStrictEqual({ before, saved, cleared: providers.customProviders[0].voices, shown: control(container, 'custom:voices').value }, {
+			before: 'alloy, echo, fable, onyx, nova, shimmer',
+			saved: ['nova', 'harbour-voice'],
+			// None goes back to the six voices of OpenAI's speech API.
+			cleared: undefined,
+			shown: ''
 		});
 	});
 });

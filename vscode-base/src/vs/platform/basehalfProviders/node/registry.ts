@@ -60,8 +60,13 @@ export function buildCatalog(modules: readonly ProviderModule[] = PROVIDER_MODUL
 	return deepFreeze({ schema: 1, providers: structuredClone(providers) });
 }
 
-/** Validates one provider's entry. Throws an error that names the declaration at fault. */
-export function validateProvider(provider: CatalogProvider): void {
+/**
+ * Validates one provider's entry. Throws an error that names the declaration at
+ * fault. The base URL of a custom provider's region (D108) is its API address,
+ * which `parseCustomProviderDefinition` has checked by the rules of an
+ * endpoint: `http://` on this computer too.
+ */
+export function validateProvider(provider: CatalogProvider, options: { readonly custom?: boolean } = {}): void {
 	const at = `provider ${provider.id}`;
 	text(provider.label, `${at}: label`);
 	check(provider.regions.length > 0, `${at}: at least one region is needed`);
@@ -72,7 +77,7 @@ export function validateProvider(provider: CatalogProvider): void {
 		check(!regions.has(region.id), `${where}: declared twice`);
 		regions.add(region.id);
 		text(region.label, `${where}: label`);
-		check(isHttps(region.baseUrl) && !region.baseUrl.endsWith('/'), `${where}: the base URL must be an https address without a trailing slash`);
+		check((options.custom === true || isHttps(region.baseUrl)) && !region.baseUrl.endsWith('/'), `${where}: the base URL must be an https address without a trailing slash`);
 		check(region.console === undefined || isHttps(region.console), `${where}: the console must be an https address`);
 	}
 	check(provider.credentials.length > 0, `${at}: at least one credential is needed`);

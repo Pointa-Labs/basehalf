@@ -652,7 +652,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			mode: mode.id,
 			params: sent,
 			prompt: prompt.parts,
-			inputs
+			inputs,
+			// A custom provider's check carries what the user entered, as its access does (D108).
+			...(access.custom ? { custom: access.custom } : {})
 		}), parseBaseHalfVideoCheckResult, false);
 		throwIfCancelled(token);
 		if (!checked.ok) {

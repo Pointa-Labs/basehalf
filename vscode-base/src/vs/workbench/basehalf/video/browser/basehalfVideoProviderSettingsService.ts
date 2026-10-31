@@ -7,7 +7,10 @@ import { Queue } from '../../../../base/common/async.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
+import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
+import { CustomProviderDefinitionError, isCustomProviderId, parseCustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfCustomProviders.js';
+import type { CustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -19,10 +22,11 @@ import {
 	IBaseHalfVideoGenerationChoice,
 	IBaseHalfVideoProviderAccess
 } from '../common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfCustomProviderChange, IBaseHalfCustomProviderEntry, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
 import { BASEHALF_GENERATION_KINDS, baseHalfGenerationChoice, BaseHalfGenerationKind, normalizeBaseHalfGenerationInfo } from '../common/basehalfGenerationInfo.js';
 import {
 	BASEHALF_AUDIO_LAST_USED_STORAGE_KEY,
+	BASEHALF_CUSTOM_PROVIDERS_STORAGE_KEY,
 	BASEHALF_IMAGE_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_LAST_USED_STORAGE_KEY,
 	BASEHALF_VIDEO_PROVIDERS_COMMAND_ID,
@@ -32,8 +36,10 @@ import {
 	IBaseHalfVideoStoredProviderSettings,
 	normalizeBaseHalfVideoCredentialValue,
 	normalizeBaseHalfVideoEndpoint,
+	parseBaseHalfCustomProviders,
 	parseBaseHalfVideoCredentialSecret,
 	parseBaseHalfVideoProviderSettings,
+	serializeBaseHalfCustomProviders,
 	serializeBaseHalfVideoProviderSettings
 } from '../common/basehalfVideoProviderSettings.js';
 
@@ -57,6 +63,9 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 	private settings: ReadonlyMap<string, IBaseHalfVideoStoredProviderSettings>;
 	/** The last values used, per kind, as stored and as read. */
 	private readonly lastUsed: Record<BaseHalfGenerationKind, { raw: string | undefined; value: IBaseHalfVideoGenerationChoice | undefined }>;
+	/** The custom providers the user added (D108), as stored and as read. */
+	private customRaw: string | undefined;
+	private custom: readonly CustomProviderDefinition[];
 
 	constructor(
 		@IStorageService private readonly storageService: IStorageService,
@@ -68,8 +77,19 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		this.settingsRaw = this.storageService.get(BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY, StorageScope.APPLICATION);
 		this.settings = parseBaseHalfVideoProviderSettings(this.settingsRaw);
 		this.lastUsed = { image: this.readLastUsed('image'), video: this.readLastUsed('video'), audio: this.readLastUsed('audio') };
+		this.customRaw = this.storageService.get(BASEHALF_CUSTOM_PROVIDERS_STORAGE_KEY, StorageScope.APPLICATION);
+		this.custom = parseBaseHalfCustomProviders(this.customRaw);
 
 		const listeners = this._register(new DisposableStore());
+		// Another window added, changed, or removed a custom provider.
+		this._register(this.storageService.onDidChangeValue(StorageScope.APPLICATION, BASEHALF_CUSTOM_PROVIDERS_STORAGE_KEY, listeners)(() => {
+			const raw = this.storageService.get(BASEHALF_CUSTOM_PROVIDERS_STORAGE_KEY, StorageScope.APPLICATION);
+			if (raw !== this.customRaw) {
+				this.customRaw = raw;
+				this.custom = parseBaseHalfCustomProviders(raw);
+				this._onDidChange.fire();
+			}
+		}));
 		// Another window changed a provider, or this one did: read it again only
 		// when the stored text differs from what this window knows.
 		this._register(this.storageService.onDidChangeValue(StorageScope.APPLICATION, BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY, listeners)(() => {
@@ -183,13 +203,87 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		if (!region) {
 			return undefined;
 		}
+		// A call for a custom provider carries what the user entered (D108).
+		const custom = isCustomProviderId(provider.id) ? this.custom.find(candidate => candidate.id === provider.id) : undefined;
+		if (isCustomProviderId(provider.id) && !custom) {
+			return undefined;
+		}
 		return Object.freeze({
 			provider: provider.id,
 			region: region.id,
 			// A task of another region is asked about where that region is.
 			endpoint: region.id === status.region.id ? status.endpoint : region.baseUrl,
-			credentials: Object.freeze(Object.fromEntries(provider.credentials.map(credential => [credential.id, values[credential.id]])))
+			credentials: Object.freeze(Object.fromEntries(provider.credentials.map(credential => [credential.id, values[credential.id]]))),
+			...(custom ? { custom } : {})
 		});
+	}
+
+	get customProviders(): readonly CustomProviderDefinition[] {
+		return this.custom;
+	}
+
+	async addCustomProvider(entry: IBaseHalfCustomProviderEntry): Promise<string> {
+		let added = '';
+		await this.mutations.queue(async () => {
+			let id: string;
+			do {
+				id = `custom-${generateUuid().replace(/-/g, '').slice(0, 8)}`;
+			} while (this.custom.some(provider => provider.id === id) || this.settings.has(id));
+			const definition = readCustomDefinition({ id, label: entry.label, baseUrl: normalizeBaseHalfVideoEndpoint(entry.baseUrl), models: [entry.model] });
+			const apiKey = normalizeBaseHalfVideoCredentialValue(entry.apiKey, localize('basehalf.video.providerSettings.customApiKey', "API Key"));
+			await this.credentialStore.set(baseHalfVideoProviderSecretAddress(id), JSON.stringify({ apiKey }));
+			this.write(id, { credentials: ['apiKey'] });
+			this.writeCustom([...this.custom, definition]);
+			added = id;
+		});
+		return added;
+	}
+
+	updateCustomProvider(providerId: string, change: IBaseHalfCustomProviderChange): Promise<void> {
+		return this.mutations.queue(async () => {
+			const current = this.custom.find(provider => provider.id === providerId);
+			if (!current) {
+				throw new BaseHalfVideoProviderSettingsError(localize('basehalf.video.providerSettings.noCustomProvider', "This custom provider was removed."));
+			}
+			const voices = change.voices !== undefined ? change.voices : current.voices;
+			const definition = readCustomDefinition({
+				id: current.id,
+				label: change.label ?? current.label,
+				baseUrl: change.baseUrl !== undefined ? normalizeBaseHalfVideoEndpoint(change.baseUrl) : current.baseUrl,
+				models: change.models ?? current.models,
+				...(voices?.length ? { voices } : {})
+			});
+			this.writeCustom(this.custom.map(provider => provider.id === providerId ? definition : provider));
+		});
+	}
+
+	removeCustomProvider(providerId: string): Promise<void> {
+		return this.mutations.queue(async () => {
+			if (!this.custom.some(provider => provider.id === providerId)) {
+				return;
+			}
+			await this.credentialStore.delete(baseHalfVideoProviderSecretAddress(providerId));
+			const next = new Map(this.settings);
+			next.delete(providerId);
+			const raw = serializeBaseHalfVideoProviderSettings(next);
+			if (raw !== this.settingsRaw) {
+				this.settingsRaw = raw;
+				this.settings = parseBaseHalfVideoProviderSettings(raw);
+				this.storageService.store(BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY, raw, StorageScope.APPLICATION, StorageTarget.MACHINE);
+			}
+			this.writeCustom(this.custom.filter(provider => provider.id !== providerId));
+		});
+	}
+
+	private writeCustom(providers: readonly CustomProviderDefinition[]): void {
+		const raw = serializeBaseHalfCustomProviders(providers);
+		if (raw === this.customRaw) {
+			return;
+		}
+		this.customRaw = raw;
+		this.custom = parseBaseHalfCustomProviders(raw);
+		this.storageService.store(BASEHALF_CUSTOM_PROVIDERS_STORAGE_KEY, raw, StorageScope.APPLICATION, StorageTarget.MACHINE);
+		this._onDidChange.fire();
 	}
 
 	getLastUsed(kind: BaseHalfGenerationKind = 'video'): IBaseHalfVideoGenerationChoice | undefined {
@@ -253,6 +347,15 @@ export class BaseHalfVideoProviderSettingsService extends Disposable implements 
 		this.settings = parseBaseHalfVideoProviderSettings(raw);
 		this.storageService.store(BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY, raw, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		this._onDidChange.fire();
+	}
+}
+
+/** What the user entered for a custom provider, read by the rules a request is held to; the reason in plain words when it breaks one. */
+function readCustomDefinition(value: unknown): CustomProviderDefinition {
+	try {
+		return parseCustomProviderDefinition(value);
+	} catch (error) {
+		throw new BaseHalfVideoProviderSettingsError(error instanceof CustomProviderDefinitionError ? error.message : getErrorMessage(error));
 	}
 }
 

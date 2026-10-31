@@ -6,6 +6,7 @@
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { isAbsolute } from '../../../base/common/path.js';
+import { CustomProviderDefinitionError, parseCustomProviderDefinition } from '../common/basehalfCustomProviders.js';
 import { MAX_SAMPLE_ADDRESS_LENGTH } from '../common/basehalfProviderVoices.js';
 import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, fitParams, keptLimits, measureItems, outputCount, resolveParams } from './check.js';
 import { downloadAddress, downloadFile, fetchSample, MAX_ADDRESS_LENGTH, type DownloadOptions } from './download.js';
@@ -13,9 +14,10 @@ import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unre
 import { BoundHttp, boundToCall, isSampleAddress, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.js';
 import { createMediaInspector, type MediaInspector } from './media.js';
 import type { ModulePollState, OutputAddress, OutputLocation, ProviderModule, RefusedOutput, VideoLocation } from './module.js';
+import { customProviderModule } from './custom.js';
 import { checkPlace, placeFile, type PlaceFileSystem } from './place.js';
 import { isPlannedInput, writeSharedPromptNames } from './prompt.js';
-import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES } from './registry.js';
+import { buildCatalog, MAX_OUTPUTS, PROVIDER_MODULES, validateProvider } from './registry.js';
 import { keptVoices, MAX_LISTED_VOICES, voiceParameterOf } from './voices.js';
 import type {
 	CancelResult,
@@ -26,6 +28,7 @@ import type {
 	CheckPayload,
 	CheckRequest,
 	CheckResult,
+	CustomProviderDefinition,
 	DownloadRequest,
 	DownloadResult,
 	Media,
@@ -302,10 +305,13 @@ export class VideoProviderCommands {
 		return true;
 	}
 
-	/** The module, the provider's entry, the region, and the model of a request. */
-	private resolve(request: { readonly provider: string; readonly region: string; readonly model: string; readonly credentials?: Readonly<Record<string, string>> }): Resolved {
-		const module = this.modules.get(request.provider);
-		const provider = this.catalogValue.providers.find(entry => entry.id === request.provider);
+	/**
+	 * The module, the provider's entry, the region, and the model of a request.
+	 * A custom provider's are built from what the user entered, which the
+	 * request carries (D108), for this call only.
+	 */
+	private resolve(request: { readonly provider: string; readonly region: string; readonly model: string; readonly credentials?: Readonly<Record<string, string>>; readonly custom?: CustomProviderDefinition }): Resolved {
+		const { module, provider } = request.custom ? this.customProvider(request.provider, request.custom) : { module: this.modules.get(request.provider), provider: this.catalogValue.providers.find(entry => entry.id === request.provider) };
 		if (!module || !provider) {
 			throw new ProviderFailure('unknownProvider', `BaseHalf has no provider "${request.provider}".`);
 		}
@@ -329,6 +335,25 @@ export class VideoProviderCommands {
 			}
 		}
 		return { module, provider, region, model };
+	}
+
+	/**
+	 * The module and the entry of a custom provider (D108), from what the
+	 * request carries, which `parseCustomProviderDefinition` has read: refused
+	 * when it names another provider than the request, or a built-in one.
+	 */
+	private customProvider(providerId: string, custom: CustomProviderDefinition): { readonly module: ProviderModule; readonly provider: CatalogProvider } {
+		if (custom.id !== providerId || this.modules.has(custom.id)) {
+			throw rejected(`The custom provider of the request is not ${providerId}. BaseHalf sent nothing.`);
+		}
+		const module = customProviderModule(custom);
+		const provider = module.describe();
+		try {
+			validateProvider(provider, { custom: true });
+		} catch (error) {
+			throw rejected(`BaseHalf cannot call the custom provider ${custom.label}: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		return { module, provider };
 	}
 
 	/**
@@ -702,18 +727,33 @@ export function parseCheckRequest(value: unknown): CheckPayload {
 	if (!isRecord(generation.inputs)) {
 		throw cannotRead('inputs');
 	}
-	return { provider: generation.provider, region: generation.region, model: generation.model, mode: generation.mode, params: generation.params, prompt: generation.prompt, inputs: parsePlannedMedia(generation.inputs) };
+	const custom = parseCustom(generation.custom);
+	return { provider: generation.provider, region: generation.region, model: generation.model, mode: generation.mode, params: generation.params, prompt: generation.prompt, inputs: parsePlannedMedia(generation.inputs), ...(custom ? { custom } : {}) };
+}
+
+/** What the user entered for a custom provider (D108), when a request carries it; one that breaks a rule is refused, and nothing is sent. */
+function parseCustom(value: unknown): CustomProviderDefinition | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	try {
+		return parseCustomProviderDefinition(value);
+	} catch (error) {
+		throw rejected(error instanceof CustomProviderDefinitionError ? `${error.message} BaseHalf sent nothing.` : 'BaseHalf cannot read the custom provider of the request, and sent nothing.');
+	}
 }
 
 function parseAccess(value: Record<string, unknown>, what: string): ProviderAccess {
 	if (!isRecord(value.credentials) || Object.values(value.credentials).some(entry => typeof entry !== 'string')) {
 		throw cannotRead(what);
 	}
+	const custom = parseCustom(value.custom);
 	return {
 		provider: field(value, 'provider', what, 64),
 		region: field(value, 'region', what, 64),
 		endpoint: field(value, 'endpoint', what, 2048),
-		credentials: { ...value.credentials as Record<string, string> }
+		credentials: { ...value.credentials as Record<string, string> },
+		...(custom ? { custom } : {})
 	};
 }
 

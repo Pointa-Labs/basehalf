@@ -8,7 +8,9 @@ import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
+import { describeCustomProvider } from '../../../../platform/basehalfProviders/common/basehalfCustomProviders.js';
 import { IBaseHalfProviderService } from '../../../../platform/basehalfProviders/common/basehalfProviders.js';
+import type { CustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -20,7 +22,7 @@ import {
 	parseBaseHalfVideoCatalog,
 	parseBaseHalfVideoCheckResult
 } from '../common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoCatalogService } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 
 /** How long a failed request for the catalog waits before it is tried once more. */
 export const BASEHALF_VIDEO_CATALOG_RETRY_DELAY = 1_000;
@@ -32,7 +34,8 @@ const READY_TIMEOUT = 30_000;
  * asks the provider service of the shared process (D75) the first time anyone
  * needs it, keeps the answer for the life of the window, and tries a failed
  * request once more a second later; a later {@link load} asks again after a
- * failure.
+ * failure. The custom providers the user added follow the built-in ones, and
+ * change with what the user entered (D108; providers, "Custom providers").
  */
 export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalfVideoCatalogService {
 	declare readonly _serviceBrand: undefined;
@@ -43,13 +46,23 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 	private current: BaseHalfVideoCatalogState = { kind: 'loading' };
 	private request: Promise<void> | undefined;
 	private disposed = false;
+	/** The catalog the provider service answered, before the custom providers are added. */
+	private builtIn: IBaseHalfVideoCatalog | undefined;
+	/** The custom providers as last added to the catalog. */
+	private customAdded: readonly CustomProviderDefinition[] = [];
 
 	constructor(
 		private readonly retryDelay: number,
 		@IBaseHalfProviderService private readonly providerService: IBaseHalfProviderService,
+		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
+		this._register(this.providerSettings.onDidChange(() => {
+			if (this.builtIn && this.providerSettings.customProviders !== this.customAdded && !this.disposed) {
+				this.setState({ kind: 'ready', catalog: this.withCustomProviders(this.builtIn) });
+			}
+		}));
 	}
 
 	override dispose(): void {
@@ -96,8 +109,10 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 	}
 
 	async check(request: IBaseHalfVideoCheckRequest): Promise<IBaseHalfVideoCheckResult | undefined> {
+		// A check of a custom provider's model carries what the user entered (D108).
+		const custom = this.providerSettings.customProviders.find(provider => provider.id === request.provider);
 		try {
-			const answer: unknown = await this.providerService.check(request);
+			const answer: unknown = await this.providerService.check(custom ? { ...request, custom } : request);
 			return isRecord(answer) && answer.ok === true ? parseBaseHalfVideoCheckResult(answer.value) : undefined;
 		} catch (error) {
 			this.logService.trace(`[BaseHalf video] check did not answer: ${getErrorMessage(error)}`);
@@ -120,7 +135,8 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 					this.logService.warn(`[BaseHalf video] The model catalog leaves out what it cannot read: ${problem}`);
 				}
 				if (!this.disposed) {
-					this.setState({ kind: 'ready', catalog });
+					this.builtIn = catalog;
+					this.setState({ kind: 'ready', catalog: this.withCustomProviders(catalog) });
 				}
 				return;
 			} catch (error) {
@@ -145,6 +161,25 @@ export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalf
 			throw new Error(answer.error.message.trim());
 		}
 		throw new Error(localize('basehalf.video.catalog.unreadable', "The provider service answered in a form BaseHalf cannot read."));
+	}
+
+	/**
+	 * The catalog with the custom providers after the built-in ones, each entry
+	 * built from what the user entered by the function the provider service
+	 * uses too, and read as the service's answer is.
+	 */
+	private withCustomProviders(builtIn: IBaseHalfVideoCatalog): IBaseHalfVideoCatalog {
+		const custom = this.providerSettings.customProviders;
+		this.customAdded = custom;
+		if (!custom.length) {
+			return builtIn;
+		}
+		const { catalog, problems } = parseBaseHalfVideoCatalog({ schema: 1, providers: custom.map(describeCustomProvider) });
+		for (const problem of problems) {
+			this.logService.warn(`[BaseHalf video] A custom provider is left out of the catalog: ${problem}`);
+		}
+		const builtInIds = new Set(builtIn.providers.map(provider => provider.id));
+		return Object.freeze({ ...builtIn, providers: Object.freeze([...builtIn.providers, ...catalog.providers.filter(provider => !builtInIds.has(provider.id))]) });
 	}
 
 	private setState(state: BaseHalfVideoCatalogState): void {

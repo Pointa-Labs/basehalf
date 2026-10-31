@@ -163,7 +163,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			const commands = new FakeProviderCommands(fileService);
 			commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [...(options.catalogProviders ?? [ACME, BOREALIS, CORVID])] } });
 			const context = new TestContextService(testWorkspace(root));
-			const catalogService = owner.add(new BaseHalfVideoCatalogService(0, commands.service, new NullLogService()));
+			const catalogService = owner.add(new BaseHalfVideoCatalogService(0, commands.service, providers, new NullLogService()));
 			const tasks = owner.add(new BaseHalfGenerationTaskStore(fileService, context, uriIdentity, new NullLogService()));
 			const cards = owner.add(new BaseHalfGenerationCardStore(
 				fileService,

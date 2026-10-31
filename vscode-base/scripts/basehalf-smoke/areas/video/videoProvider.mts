@@ -27,6 +27,8 @@ export interface VideoSmokeProvider {
 	/** The endpoints the smoke enters for ElevenLabs and Mureka: the relay, at the paths where the provider answers like each. */
 	readonly elevenLabsEndpoint: string;
 	readonly murekaEndpoint: string;
+	/** The API address the smoke enters for a custom provider (D108): the relay, at the path where the provider answers in the formats of custom providers. */
+	readonly relayEndpoint: string;
 	readonly key: string;
 	/** The fixture video, which the provider serves with a box of its own for each task. */
 	readonly video: Buffer;
@@ -117,6 +119,7 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 		endpoint: `http://127.0.0.1:${port}/api/v3`,
 		elevenLabsEndpoint: `http://127.0.0.1:${port}/elevenlabs`,
 		murekaEndpoint: `http://127.0.0.1:${port}/mureka`,
+		relayEndpoint: `http://127.0.0.1:${port}/relay/v1`,
 		key: mock.key,
 		video,
 		isVideo: bytes => bytes.byteLength > video.byteLength && bytes.subarray(0, video.byteLength).equals(video) && bytes.toString('latin1', video.byteLength + 4, video.byteLength + 8) === 'free',

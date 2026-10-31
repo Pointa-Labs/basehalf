@@ -5,22 +5,29 @@
 
 import './media/basehalfVideoProviders.css';
 import { $, addDisposableListener, append, clearNode, EventType, getActiveElement, isHTMLElement, isHTMLInputElement } from '../../../../base/browser/dom.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { DEFAULT_CUSTOM_VOICES, isCustomProviderId } from '../../../../platform/basehalfProviders/common/basehalfCustomProviders.js';
+import type { CustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { ISettingsCustomSection, ISettingsCustomSectionLayout } from '../../../contrib/preferences/browser/settingsCustomSections.js';
 import { BASEHALF_MODEL_KINDS, BaseHalfModelKind, BaseHalfVideoCatalogState, baseHalfVideoListedModels, baseHalfVideoRegionOffersModel, IBaseHalfVideoCatalogCredential, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
-import { IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfCustomProviderChange, IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
 import { BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH, BaseHalfVideoProviderSettingsError, IBaseHalfProvidersPageTarget, parseBaseHalfProvidersPageInput } from '../common/basehalfVideoProviderSettings.js';
 
 type BaseHalfVideoProvidersStatusKind = 'success' | 'warning';
 
-/** A control whose text survives a render: the endpoint, or the field of one credential. */
-type BaseHalfVideoProviderControl = 'endpoint' | `credential:${string}`;
+/**
+ * A control whose text survives a render: the endpoint, the field of one
+ * credential, a field of a custom provider, or a field of the form that adds
+ * one (D108).
+ */
+type BaseHalfVideoProviderControl = 'endpoint' | `credential:${string}` | `custom:${string}` | `add:${string}`;
 
 /** What a render keeps of the page before it: the control that had the focus, its selection, and text being typed. */
 interface IBaseHalfVideoProvidersKept {
@@ -83,6 +90,12 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	private pendingTarget: IBaseHalfProvidersPageTarget | undefined;
 	/** The provider selected is to be brought into view in its list, once the list has its height. */
 	private revealPending = false;
+	/** The card type whose form that adds a custom provider is shown in place of a provider (D108). */
+	private adding: BaseHalfModelKind | undefined;
+	/** A pointer is pressed on the page: a render waits until the click it begins has landed. */
+	private pointerDown = false;
+	private renderAfterPointer = false;
+	private readonly pointerRender = this._register(new MutableDisposable());
 	/** The provider the editor currently shows; typed text is kept only while it stays the same. */
 	private renderedId: string | undefined;
 	/** The catalog and each provider's settings as last drawn: a change of anything else, such as the last model used, draws nothing. */
@@ -120,7 +133,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		// While a change is saved, the render that ends it shows what changed meanwhile.
 		const refresh = () => {
 			if (!this.pendingSaves && this.changedSinceRender()) {
-				this.render();
+				this.renderWhenFree();
 			}
 		};
 		this._register(this.providerSettings.onDidChange(refresh));
@@ -155,8 +168,32 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		this.editor = append(this.content, $('.basehalf-video-provider-editor'));
 		this.editor.setAttribute('role', 'region');
 		this.editor.setAttribute('aria-label', localize('basehalf.video.providers.editorLabel', "Provider settings"));
+		// A field saved as the pointer leaves it is drawn again only after the click
+		// that took the focus has landed, so that it reaches what it clicked.
+		this._register(addDisposableListener(this.root, EventType.POINTER_DOWN, () => this.pointerDown = true, true));
+		const release = () => {
+			if (!this.pointerDown) {
+				return;
+			}
+			this.pointerDown = false;
+			if (this.renderAfterPointer) {
+				this.renderAfterPointer = false;
+				this.pointerRender.value = disposableTimeout(() => this.render(), 0);
+			}
+		};
+		this._register(addDisposableListener(this.root.ownerDocument, EventType.POINTER_UP, release, true));
+		this._register(addDisposableListener(this.root.ownerDocument, 'pointercancel', release, true));
 		// A catalog that could not be loaded is asked for again when the page opens.
 		this.catalogService.load();
+		this.render();
+	}
+
+	/** Draws the page now, or once the pointer that is pressed on it is released. */
+	private renderWhenFree(): void {
+		if (this.pointerDown) {
+			this.renderAfterPointer = true;
+			return;
+		}
 		this.render();
 	}
 
@@ -174,6 +211,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		if (target.kind !== undefined || target.provider !== undefined) {
 			this.pendingTarget = target;
 			this.revealPending = true;
+			this.adding = undefined;
 		}
 		this.render();
 	}
@@ -251,6 +289,10 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			return;
 		}
 		this.selectedKind = kind;
+		if (this.adding) {
+			// The form adds a provider of the type shown.
+			this.adding = kind;
+		}
 		const listed = providersOf(this.providers(), kind);
 		if (listed.length && !listed.some(provider => provider.id === this.selectedId)) {
 			this.select(listed[0].id);
@@ -318,8 +360,9 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			this.replacing.clear();
 			this.fieldErrors.clear();
 		}
-		// Text typed for one provider never moves to another one.
-		const sameProvider = this.selectedId !== undefined && this.selectedId === this.renderedId;
+		// Text typed for one provider never moves to another one, nor into the form that adds one.
+		const shownId = this.adding ? `add:${this.adding}` : this.selectedId;
+		const sameProvider = shownId !== undefined && shownId === this.renderedId;
 		const sameKind = this.selectedKind === this.renderedKind;
 		const kept = this.capture(sameProvider);
 		const listScroll = this.list.scrollTop;
@@ -333,7 +376,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		clearNode(this.kindsBar);
 		clearNode(this.list);
 		clearNode(this.editor);
-		this.renderedId = this.selectedId;
+		this.renderedId = shownId;
 		this.renderedKind = this.selectedKind;
 
 		const state = this.catalogService.state;
@@ -349,7 +392,9 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			this.renderKinds(kinds.length > 1 ? kinds : [], disposables);
 			this.renderList(listed, disposables);
 			const selected = providers.find(provider => provider.id === this.selectedId);
-			if (selected) {
+			if (this.adding) {
+				this.renderAddForm(this.adding, disposables);
+			} else if (selected) {
 				this.renderEditor(selected, disposables);
 			}
 		}
@@ -469,7 +514,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			this.focusable(row, `row:${provider.id}`);
 			row.type = 'button';
 			row.dataset.provider = provider.id;
-			const selected = provider.id === this.selectedId;
+			const selected = provider.id === this.selectedId && !this.adding;
 			row.tabIndex = selected ? 0 : -1;
 			if (selected) {
 				row.setAttribute('aria-current', 'page');
@@ -488,13 +533,36 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			row.dataset.setUp = String(status.setUp);
 			disposables.add(this.hoverService.setupDelayedHover(mark, { content: setUpLabel }));
 			disposables.add(addDisposableListener(row, EventType.CLICK, () => {
-				if (this.selectedId !== provider.id) {
+				if (this.selectedId !== provider.id || this.adding) {
 					this.select(provider.id);
+					this.adding = undefined;
 					this.setStatus('');
 					this.render();
 					this.rows.get(provider.id)?.focus();
 				}
 			}));
+		}
+		// Add Provider ends the list: a custom provider of the type shown (D108).
+		const add = append(list, $('button.basehalf-video-provider-add')) as HTMLButtonElement;
+		rows.push(add);
+		this.focusable(add, 'add');
+		add.type = 'button';
+		add.tabIndex = this.adding || !providers.length ? 0 : -1;
+		if (this.adding) {
+			add.setAttribute('aria-current', 'page');
+		}
+		append(add, $('span.codicon.codicon-add')).setAttribute('aria-hidden', 'true');
+		append(add, $('span')).textContent = localize('basehalf.video.providers.addProvider', "Add Provider");
+		disposables.add(addDisposableListener(add, EventType.CLICK, () => {
+			if (!this.adding) {
+				this.adding = this.selectedKind ?? 'image';
+				this.fieldErrors.clear();
+				this.setStatus('');
+				this.render();
+				this.focusables.get('add')?.focus();
+			}
+		}));
+		for (const row of rows) {
 			disposables.add(addDisposableListener(row, EventType.KEY_DOWN, (event: KeyboardEvent) => {
 				const index = rows.indexOf(row);
 				const next = event.key === 'ArrowDown' ? index + 1
@@ -506,6 +574,8 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 				}
 				event.preventDefault();
 				rows[next].click();
+				// The row drawn again for the choice takes the keyboard.
+				(next === rows.length - 1 ? this.focusables.get('add') : this.focusables.get(`row:${rows[next].dataset.provider}`))?.focus();
 			}));
 		}
 	}
@@ -513,7 +583,9 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	private renderEditor(provider: IBaseHalfVideoCatalogProvider, disposables: DisposableStore): void {
 		const editor = this.editor!;
 		const status = this.providerSettings.getStatus(provider);
+		const custom = this.customDefinition(provider.id);
 		editor.dataset.provider = provider.id;
+		delete editor.dataset.adding;
 		const heading = append(editor, $('.basehalf-video-provider-editor-heading'));
 		append(heading, $('h2')).textContent = provider.label;
 		const summary = append(heading, $('p.basehalf-video-provider-summary'));
@@ -543,6 +615,10 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 				const name = append(models, $('span.basehalf-video-provider-model'));
 				name.textContent = model.label;
 				name.dataset.model = model.id;
+				if (custom && custom.models.length > 1) {
+					// A custom provider's model can be removed, its last one excepted (D108).
+					this.renderRemoveModel(models, provider, custom, model.label, disposables);
+				}
 				if (!baseHalfVideoRegionOffersModel(model, status.region.id)) {
 					// Dimmed: the region does not offer it.
 					const notOffered = localize('basehalf.video.providers.modelNotOffered', "{0} is not offered in {1}.", model.label, status.region.label);
@@ -553,6 +629,10 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			}
 		}
 
+		if (custom) {
+			this.renderCustomFields(editor, provider, custom, status, disposables);
+			return;
+		}
 		if (provider.regions.length > 1) {
 			this.renderRegions(editor, provider, status, disposables);
 		}
@@ -575,6 +655,238 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			this.renderCredential(editor, provider, credential, status, disposables);
 		}
 		this.renderEndpoint(editor, provider, status, disposables);
+	}
+
+	/** What the user entered for a custom provider (D108), or nothing for a built-in one. */
+	private customDefinition(providerId: string | undefined): CustomProviderDefinition | undefined {
+		return providerId !== undefined && isCustomProviderId(providerId) ? this.providerSettings.customProviders.find(provider => provider.id === providerId) : undefined;
+	}
+
+	/** A labeled text field whose text a render keeps while it is typed in, with an optional hint and its error. */
+	private textField(parent: HTMLElement, control: BaseHalfVideoProviderControl, label: string, options: { readonly type?: 'text' | 'url' | 'password'; readonly value?: string; readonly placeholder?: string; readonly hint?: string; readonly maxLength?: number } = {}): HTMLInputElement {
+		const field = append(parent, $('.basehalf-video-provider-field'));
+		field.dataset.control = control;
+		const labelElement = append(field, $('label.basehalf-video-provider-field-label')) as HTMLLabelElement;
+		labelElement.textContent = label;
+		const input = append(field, $('input')) as HTMLInputElement;
+		this.focusable(input, control);
+		input.id = this.id(cssId(control));
+		labelElement.htmlFor = input.id;
+		input.type = options.type ?? 'text';
+		input.spellcheck = false;
+		input.autocapitalize = 'off';
+		input.autocomplete = options.type === 'password' ? 'new-password' : 'off';
+		if (options.maxLength) {
+			input.maxLength = options.maxLength;
+		}
+		input.value = options.value ?? '';
+		if (options.placeholder) {
+			input.placeholder = options.placeholder;
+		}
+		this.controls.set(control, input);
+		if (options.type === 'password') {
+			this.sensitiveInputs.add(input);
+		}
+		const described: string[] = [];
+		if (options.hint) {
+			const hint = append(field, $('p.basehalf-video-provider-field-hint'));
+			hint.id = this.id(`${cssId(control)}-hint`);
+			hint.textContent = options.hint;
+			described.push(hint.id);
+		}
+		described.push(this.errorElement(field, control).id);
+		input.setAttribute('aria-describedby', described.join(' '));
+		return input;
+	}
+
+	/** Runs `run` on Enter in a field, unless an input method uses the Enter to choose its text. */
+	private onEnter(input: HTMLInputElement, run: () => void, disposables: DisposableStore): void {
+		disposables.add(addDisposableListener(input, EventType.KEY_DOWN, (event: KeyboardEvent) => {
+			if (event.key === 'Enter' && !isComposing(event)) {
+				event.preventDefault();
+				run();
+			}
+		}));
+	}
+
+	/**
+	 * The form that adds a custom provider of a card type (D108; providers,
+	 * "On the Providers page"), in place of a provider: Name, API Address, API
+	 * Key, and the id of its first model, of the type shown.
+	 */
+	private renderAddForm(kind: BaseHalfModelKind, disposables: DisposableStore): void {
+		const editor = this.editor!;
+		delete editor.dataset.provider;
+		editor.dataset.adding = kind;
+		const heading = append(editor, $('.basehalf-video-provider-editor-heading'));
+		append(heading, $('h2')).textContent = localize('basehalf.video.providers.addTitle', "Add Provider");
+		append(heading, $('p.basehalf-video-provider-summary')).textContent = formatOf(kind);
+		const fields: HTMLInputElement[] = [
+			this.textField(editor, 'add:label', localize('basehalf.video.providers.customName', "Name"), { placeholder: localize('basehalf.video.providers.customNamePlaceholder', "My Relay"), maxLength: 64 }),
+			this.textField(editor, 'add:address', localize('basehalf.video.providers.customAddress', "API Address"), { type: 'url', placeholder: 'https://api.example.com/v1', hint: addressHint(kind), maxLength: BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH }),
+			this.textField(editor, 'add:apiKey', localize('basehalf.video.providers.customApiKey', "API Key"), { type: 'password', placeholder: localize('basehalf.video.providers.customApiKeyPlaceholder', "Paste the API Key") }),
+			this.textField(editor, 'add:model', modelFieldLabel(kind), { placeholder: modelPlaceholder(kind), hint: localize('basehalf.video.providers.customModelHint', "The id the provider gives the model. Add its other models once the provider is added.") })
+		];
+		const submitField = append(editor, $('.basehalf-video-provider-field.add-submit'));
+		const row = append(submitField, $('.basehalf-video-provider-key-row'));
+		const submit = this.button(row, localize('basehalf.video.providers.addSubmit', "Add Provider"), 'codicon-add', 'add:submit', true);
+		submit.dataset.action = 'add';
+		this.errorElement(submitField, 'add:form');
+		disposables.add(addDisposableListener(submit, EventType.CLICK, () => void this.addProvider(kind)));
+		for (const field of fields) {
+			this.onEnter(field, () => void this.addProvider(kind), disposables);
+		}
+	}
+
+	/** Adds the custom provider of the form; what cannot be taken is said under the form, and nothing is added. */
+	private async addProvider(kind: BaseHalfModelKind): Promise<void> {
+		if (this.saving.has('add')) {
+			return;
+		}
+		const value = (control: BaseHalfVideoProviderControl) => this.controls.get(control)?.value ?? '';
+		const label = value('add:label').trim();
+		const entry = { label, baseUrl: value('add:address'), apiKey: value('add:apiKey'), model: { id: value('add:model').trim(), kind } };
+		this.saving.add('add');
+		this.pendingSaves++;
+		this.fieldErrors.delete('add:form');
+		this.showFieldError('add:form', undefined);
+		let added: string | undefined;
+		let failure: string | undefined;
+		try {
+			added = await this.providerSettings.addCustomProvider(entry);
+		} catch (error) {
+			failure = saveFailure(error);
+		} finally {
+			this.saving.delete('add');
+			this.pendingSaves--;
+		}
+		if (this.disposed) {
+			return;
+		}
+		if (added !== undefined) {
+			this.adding = undefined;
+			this.select(added);
+			this.revealPending = true;
+			this.clearSensitiveInputs();
+			this.setStatus(localize('basehalf.video.providers.customAdded', "{0} added.", label), 'success');
+			this.render();
+			this.rows.get(added)?.focus();
+			return;
+		}
+		this.fieldErrors.set('add:form', failure!);
+		this.showFieldError('add:form', failure);
+		this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."), 'warning');
+		if (!this.pendingSaves && (this.outcomeToDraw || this.changedSinceRender())) {
+			this.render();
+		}
+	}
+
+	/** The button that removes a model of a custom provider, after its name. */
+	private renderRemoveModel(parent: HTMLElement, provider: IBaseHalfVideoCatalogProvider, custom: CustomProviderDefinition, serviceId: string, disposables: DisposableStore): void {
+		const remove = append(parent, $('button.basehalf-video-provider-model-remove')) as HTMLButtonElement;
+		remove.type = 'button';
+		this.focusable(remove, `custom:remove:${serviceId}`);
+		const label = localize('basehalf.video.providers.removeModel', "Remove {0}", serviceId);
+		remove.setAttribute('aria-label', label);
+		append(remove, $('span.codicon.codicon-close')).setAttribute('aria-hidden', 'true');
+		disposables.add(this.hoverService.setupDelayedHover(remove, { content: label }));
+		disposables.add(addDisposableListener(remove, EventType.CLICK, () => {
+			void this.save(provider, `remove:${serviceId}`, undefined, () => this.providerSettings.updateCustomProvider(provider.id, { models: custom.models.filter(model => model.id !== serviceId) }), {
+				success: localize('basehalf.video.providers.modelRemoved', "{0} removed.", serviceId)
+			});
+		}));
+	}
+
+	/**
+	 * What a custom provider's page holds after its models (D108): Add Model,
+	 * its Name and API Address, its key, its Voices when it has a speech model,
+	 * and Remove Provider. Each change is saved as the page saves the others.
+	 */
+	private renderCustomFields(editor: HTMLElement, provider: IBaseHalfVideoCatalogProvider, custom: CustomProviderDefinition, status: IBaseHalfVideoProviderStatus, disposables: DisposableStore): void {
+		const chosen = this.selectedKind ?? 'image';
+		// Add Model: an id and its card type, the type shown first.
+		const field = append(editor, $('.basehalf-video-provider-field.add-model'));
+		const label = append(field, $('label.basehalf-video-provider-field-label')) as HTMLLabelElement;
+		label.textContent = localize('basehalf.video.providers.addModel', "Add Model");
+		const row = append(field, $('.basehalf-video-provider-key-row'));
+		const input = append(row, $('input')) as HTMLInputElement;
+		this.focusable(input, 'custom:model');
+		input.id = this.id('custom-model');
+		label.htmlFor = input.id;
+		input.type = 'text';
+		input.spellcheck = false;
+		input.autocapitalize = 'off';
+		input.autocomplete = 'off';
+		input.placeholder = localize('basehalf.video.providers.addModelPlaceholder', "The id the provider gives the model");
+		this.controls.set('custom:model', input);
+		const kindSelect = append(row, $('select.basehalf-video-provider-kind-select')) as HTMLSelectElement;
+		this.focusable(kindSelect, 'custom:modelKind');
+		kindSelect.setAttribute('aria-label', localize('basehalf.video.providers.addModelKind', "Card type of the model"));
+		for (const kind of [chosen, ...BASEHALF_MODEL_KINDS.filter(other => other !== chosen)]) {
+			const option = append(kindSelect, $('option')) as HTMLOptionElement;
+			option.value = kind;
+			option.textContent = cardTypeLabel(kind);
+		}
+		const addModel = this.button(row, localize('basehalf.video.providers.addModelButton', "Add Model"), 'codicon-add', 'custom:addModel');
+		addModel.dataset.action = 'add-model';
+		const error = this.errorElement(field, 'custom:model');
+		input.setAttribute('aria-describedby', error.id);
+		const submitModel = () => {
+			const id = input.value.trim();
+			const kind = BASEHALF_MODEL_KINDS.find(candidate => candidate === kindSelect.value) ?? chosen;
+			void this.save(provider, 'models', 'custom:model', () => this.providerSettings.updateCustomProvider(provider.id, { models: [...custom.models, { id, kind }] }), {
+				success: localize('basehalf.video.providers.modelAdded', "{0} added.", id),
+				onSuccess: () => input.value = ''
+			});
+		};
+		disposables.add(addDisposableListener(addModel, EventType.CLICK, submitModel));
+		this.onEnter(input, submitModel, disposables);
+
+		const nameField = this.textField(editor, 'custom:label', localize('basehalf.video.providers.customName', "Name"), { value: custom.label, maxLength: 64 });
+		this.saveOnChange(nameField, provider, 'custom:label', () => custom.label, value => ({ label: value }), localize('basehalf.video.providers.nameSaved', "Name saved."), disposables);
+		const kinds = custom.models.map(model => model.kind);
+		const addressField = this.textField(editor, 'custom:address', localize('basehalf.video.providers.customAddress', "API Address"), { type: 'url', value: custom.baseUrl, hint: addressHint(kinds.includes(chosen) ? chosen : kinds[0]), maxLength: BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH });
+		this.saveOnChange(addressField, provider, 'custom:address', () => custom.baseUrl, value => ({ baseUrl: value }), localize('basehalf.video.providers.addressSaved', "API Address saved."), disposables);
+		for (const credential of provider.credentials) {
+			this.renderCredential(editor, provider, credential, status, disposables);
+		}
+		if (kinds.includes('audio')) {
+			const voices = this.textField(editor, 'custom:voices', localize('basehalf.video.providers.customVoices', "Voices"), {
+				value: (custom.voices ?? []).join(', '),
+				placeholder: DEFAULT_VOICE_LIST,
+				hint: localize('basehalf.video.providers.customVoicesHint', "The ids of the voices its speech models speak in, separated by commas. Empty, they speak in the six voices of OpenAI's speech API.")
+			});
+			this.saveOnChange(voices, provider, 'custom:voices', () => (custom.voices ?? []).join(', '), value => ({ voices: value.split(/[\s,]+/).filter(voice => voice) }), localize('basehalf.video.providers.voicesSaved', "Voices saved."), disposables);
+		}
+		const removeField = append(editor, $('.basehalf-video-provider-field.remove-provider'));
+		const remove = this.button(removeField, localize('basehalf.video.providers.removeProvider', "Remove Provider"), 'codicon-trash', 'custom:removeProvider');
+		remove.dataset.action = 'remove-provider';
+		disposables.add(addDisposableListener(remove, EventType.CLICK, () => void this.removeCustomProvider(provider, custom)));
+	}
+
+	/** Saves a field of a custom provider when it is left or on Enter, unless it holds what is stored. */
+	private saveOnChange(input: HTMLInputElement, provider: IBaseHalfVideoCatalogProvider, control: BaseHalfVideoProviderControl, stored: () => string, change: (value: string) => IBaseHalfCustomProviderChange, success: string, disposables: DisposableStore): void {
+		const run = () => {
+			if (input.value.trim() === stored().trim() && !this.fieldErrors.has(control)) {
+				return;
+			}
+			void this.save(provider, control, control, () => this.providerSettings.updateCustomProvider(provider.id, change(input.value)), { success });
+		};
+		disposables.add(addDisposableListener(input, EventType.CHANGE, run));
+		this.onEnter(input, run, disposables);
+	}
+
+	private async removeCustomProvider(provider: IBaseHalfVideoCatalogProvider, custom: CustomProviderDefinition): Promise<void> {
+		const { confirmed } = await this.dialogService.confirm({
+			message: localize('basehalf.video.providers.removeProviderConfirm', "Remove {0}?", custom.label),
+			detail: localize('basehalf.video.providers.removeProviderDetail', "Its API Key is deleted from this computer, and {0} that use its models cannot generate until you choose another model.", cardsOf(kindsOf(provider))),
+			primaryButton: localize({ key: 'basehalf.video.providers.removeProviderButton', comment: ['&& denotes a mnemonic'] }, "&&Remove")
+		});
+		if (confirmed) {
+			await this.save(provider, 'removeProvider', undefined, () => this.providerSettings.removeCustomProvider(provider.id), {
+				success: localize('basehalf.video.providers.providerRemoved', "{0} removed.", custom.label)
+			});
+		}
 	}
 
 	private renderRegions(editor: HTMLElement, provider: IBaseHalfVideoCatalogProvider, status: IBaseHalfVideoProviderStatus, disposables: DisposableStore): void {
@@ -818,7 +1130,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		if (this.pendingSaves) {
 			this.outcomeToDraw = true;
 		} else {
-			this.render();
+			this.renderWhenFree();
 		}
 		if (failure !== undefined && shown) {
 			outcome.onFailure?.();
@@ -966,9 +1278,10 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		if (sameProvider) {
 			for (const [control, input] of this.controls) {
 				// A focused field keeps what is being typed when another window changes the
-				// provider, a credential field keeps unsaved text, and the endpoint keeps text
-				// that its error is about.
-				if (input.value && (input === active || control !== 'endpoint' || this.fieldErrors.has(control))) {
+				// provider, a credential field and the form that adds a provider keep unsaved
+				// text, and a field of what is stored keeps text that its error is about.
+				const unsaved = control.startsWith('credential:') || control.startsWith('add:') || control === 'custom:model';
+				if (input.value && (input === active || unsaved || this.fieldErrors.has(control))) {
 					values.set(control, input.value);
 				}
 			}
@@ -1102,6 +1415,43 @@ function saveKey(provider: IBaseHalfVideoCatalogProvider, key: string): string {
 /** The outcome of a change of a provider that is not the one shown, with the provider's name. */
 function outcomeFor(provider: IBaseHalfVideoCatalogProvider, message: string): string {
 	return localize('basehalf.video.providers.outcomeFor', "{0}: {1}", provider.label, message);
+}
+
+/** The voices a custom speech model speaks in when the user entered none (D108). */
+const DEFAULT_VOICE_LIST = DEFAULT_CUSTOM_VOICES.join(', ');
+
+/** The format a custom provider's models of a card type are called in (D108; providers, "Formats"). */
+function formatOf(kind: BaseHalfModelKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.video.providers.formatImage', "A provider BaseHalf does not integrate, whose image models are called in OpenAI's Image API format. One key serves all of its models.");
+		case 'video': return localize('basehalf.video.providers.formatVideo', "A provider BaseHalf does not integrate, whose video models are called in the video format that relays share. One key serves all of its models.");
+		case 'audio': return localize('basehalf.video.providers.formatAudio', "A provider BaseHalf does not integrate, whose speech models are called in OpenAI's speech API format. One key serves all of its models.");
+	}
+}
+
+/** Where the calls of a card type go under the API address. */
+function addressHint(kind: BaseHalfModelKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.video.providers.addressHintImage', "The address before /images/generations; it usually ends in /v1. https://, or http:// on this computer.");
+		case 'video': return localize('basehalf.video.providers.addressHintVideo', "The address before /video/generations; it usually ends in /v1. https://, or http:// on this computer.");
+		case 'audio': return localize('basehalf.video.providers.addressHintAudio', "The address before /audio/speech; it usually ends in /v1. https://, or http:// on this computer.");
+	}
+}
+
+function modelFieldLabel(kind: BaseHalfModelKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.video.providers.imageModelId', "Image Model ID");
+		case 'video': return localize('basehalf.video.providers.videoModelId', "Video Model ID");
+		case 'audio': return localize('basehalf.video.providers.speechModelId', "Speech Model ID");
+	}
+}
+
+function modelPlaceholder(kind: BaseHalfModelKind): string {
+	switch (kind) {
+		case 'image': return localize('basehalf.video.providers.imageModelPlaceholder', "Such as gpt-image-1");
+		case 'video': return localize('basehalf.video.providers.videoModelPlaceholder', "The id the provider gives the model");
+		case 'audio': return localize('basehalf.video.providers.speechModelPlaceholder', "Such as tts-1");
+	}
 }
 
 /** The plain words of a change that was not saved. */

@@ -9,10 +9,14 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { runWithFakedTimers } from '../../../../../base/test/common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IBaseHalfProviderService } from '../../../../../platform/basehalfProviders/common/basehalfProviders.js';
+import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
 import { BaseHalfVideoCatalogService } from '../../browser/basehalfVideoCatalogService.js';
+import { BaseHalfVideoProviderSettingsService } from '../../browser/basehalfVideoProviderSettingsService.js';
 import { IBaseHalfVideoCheckRequest } from '../../common/basehalfVideoCatalog.js';
 import { ACME, ACME_MOTION, BOREALIS } from '../common/basehalfVideoCatalogFixture.js';
+import { FakeProviderCommands, InMemoryCredentialStore } from './basehalfVideoTestFixtures.js';
 
 /** The catalog and the check of the provider service, scripted; a call with no answer left does not reach it. */
 class CatalogCommands {
@@ -48,8 +52,12 @@ class CatalogCommands {
 suite('BaseHalfVideoCatalogService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
-	function createService(commands: CatalogCommands, retryDelay = 1_000): BaseHalfVideoCatalogService {
-		return disposables.add(new BaseHalfVideoCatalogService(retryDelay, commands.service, new NullLogService()));
+	function createSettings(): BaseHalfVideoProviderSettingsService {
+		return disposables.add(new BaseHalfVideoProviderSettingsService(disposables.add(new InMemoryStorageService()), new InMemoryCredentialStore(), new FakeProviderCommands(disposables.add(new FileService(new NullLogService()))), new NullLogService()));
+	}
+
+	function createService(commands: CatalogCommands, retryDelay = 1_000, settings = createSettings()): BaseHalfVideoCatalogService {
+		return disposables.add(new BaseHalfVideoCatalogService(retryDelay, commands.service, settings, new NullLogService()));
 	}
 
 	test('asks the provider service once when the catalog is first needed, and keeps the answer', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
@@ -143,4 +151,40 @@ suite('BaseHalfVideoCatalogService', () => {
 			seen: [request]
 		});
 	});
+
+	test('adds the custom providers after the built-in ones, follows what the user enters, and a check of one carries it (D108)', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+		const commands = new CatalogCommands();
+		commands.answers = [() => ({ ok: true, value: { schema: 1, providers: [ACME, BOREALIS] } })];
+		const settings = createSettings();
+		const service = createService(commands, 0, settings);
+		await service.whenReady();
+		const providers = () => service.state.kind === 'ready' ? service.state.catalog.providers.map(provider => `${provider.id}: ${provider.models.map(model => `${model.id} (${model.kind})`).join(', ')}`) : [];
+		const id = await settings.addCustomProvider({ label: 'Harbour Relay', baseUrl: 'https://relay.example.com/v1/', apiKey: 'sk-relay', model: { id: 'gpt-image-1', kind: 'image' } });
+		const added = providers();
+		await settings.updateCustomProvider(id, { models: [{ id: 'gpt-image-1', kind: 'image' }, { id: 'Wan/Video-2.2', kind: 'video' }] });
+		const changed = providers();
+		const seen: IBaseHalfVideoCheckRequest[] = [];
+		commands.check = checked => {
+			seen.push(checked);
+			return { ok: true, value: { problems: [], prompt: 'A pier' } };
+		};
+		await service.check({ provider: id, region: 'custom', model: 'gpt-image-1', mode: 'reference', params: {}, prompt: ['A pier'], inputs: { images: [], videos: [], audios: [] } });
+		await settings.removeCustomProvider(id);
+		const BUILT_IN = ['acme: acme-motion-2 (video), acme-still (video), acme-clip (video), acme-legacy (video)', 'borealis: borealis-one (video)'];
+		assert.deepStrictEqual({
+			added,
+			changed,
+			removed: providers(),
+			carried: seen.map(request => request.custom ? `${request.custom.id} at ${request.custom.baseUrl}` : 'nothing'),
+			asked: commands.calls.filter(call => call === 'catalog').length
+		}, {
+			added: [...BUILT_IN, `${id}: gpt-image-1 (image)`],
+			changed: [...BUILT_IN, `${id}: gpt-image-1 (image), wan-video-2.2-${changed[2].split('wan-video-2.2-')[1]?.slice(0, 6)} (video)`],
+			removed: [...BUILT_IN],
+			// The address as an endpoint is kept: without its trailing slash.
+			carried: [`${id} at https://relay.example.com/v1`],
+			// What the user entered changes the catalog without asking the provider service again.
+			asked: 1
+		});
+	}));
 });

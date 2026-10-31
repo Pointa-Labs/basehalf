@@ -259,6 +259,13 @@ class FakeProviderSettings extends Disposable implements IBaseHalfVideoProviderS
 		this.opened.push(formatBaseHalfProvidersPageInput({ provider: providerId, kind }));
 	}
 
+	readonly customProviders = [];
+	async addCustomProvider(): Promise<string> {
+		throw new Error('not used');
+	}
+	async updateCustomProvider(): Promise<void> { }
+	async removeCustomProvider(): Promise<void> { }
+
 	change(): void {
 		this.changed.fire();
 	}

@@ -550,7 +550,7 @@ share:
 | Card type | Format | Calls |
 | --- | --- | --- |
 | Image | OpenAI's Image API | `POST {address}/images/generations`, JSON `model`, `prompt`, `n`, and `size` and `quality` unless they are Auto, without reference images; with them, `POST {address}/images/edits`, a multipart form of the same fields with each image as an `image[]` file. The answer holds the images, each as `b64_json` or as a `url`. |
-| Video | the video API that relays share | `POST {address}/video/generations`, JSON `model`, `prompt`, `duration`, `width`, `height`, `image` (the start frame, as a data URL) and `seed` when given, answers `task_id`; `GET {address}/video/generations/{task_id}` answers `status`, `queued` or `in_progress` (`processing` in earlier versions) while it runs, `completed` (`succeeded`) with the video's `url`, or `failed` with `error.message`. There is no cancel. |
+| Video | the video API that relays share | `POST {address}/video/generations`, JSON `model`, `prompt`, `duration`, `width`, `height`, `image` (the start frame, as a data URL) and `seed` when given, answers `task_id`; `GET {address}/video/generations/{task_id}` answers `status`, `queued` or `in_progress` (`processing` in earlier versions) while it runs, `completed` (`succeeded`) with the video's `url`, or `failed` with `error.message`; the words other relays use for the same states, `pending`, `submitted`, `running`, `success`, `failure`, `error`, and `cancelled`, are read too, and a task wrapped in `data` as well. There is no cancel. |
 | Audio | OpenAI's speech API | `POST {address}/audio/speech`, JSON `model`, `input`, `voice`, `response_format: mp3`, and `speed`, answers the sound itself. The models make speech. |
 
 A model of a custom provider offers the settings of its format, the same for
@@ -562,7 +562,8 @@ every model of that format, and the service takes or refuses them:
   reference images, of at most 50 MB each. The prompt is required, up to
   32,000 characters. It delivers PNG unless the service answers another
   format.
-- A video model: Frames mode, with an optional start frame and no end frame;
+- A video model: Frames mode, with an optional start frame of at most 10 MB
+  and no end frame;
   Duration, 1 to 20 seconds, 5 by default; Resolution, 480p, 720p (the
   default), or 1080p; Ratio, 16:9 (the default), 9:16, 1:1, 4:3, or 3:4,
   which give `width` and `height`: the short side is the resolution's
@@ -590,8 +591,9 @@ service's common folder, which the window and the service share:
 - one credential, **API Key**;
 - each model under an id of the catalog made from the id the service gives
   it: in lower case, with every character that is not a letter, a digit, a
-  dot, a hyphen, or an underscore as a hyphen, cut to 56 characters, and,
-  when that changed it, a hyphen and six hexadecimal digits of the original
+  dot, a hyphen, or an underscore as a hyphen, with an `m` before one that
+  does not start with a letter or a digit, cut to 56 characters, and, when
+  that changed it, a hyphen and six hexadecimal digits of the original
   added, so that two ids never meet; its label is the service's id, which is
   also what is sent.
 
@@ -1156,13 +1158,12 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
 - Unit tests for criteria 23 to 26: what the user entered, read and refused,
   and the entry and the catalog ids built from it
   (`basehalfCustomProviders.test.ts`); the calls of each format against the
-  local test provider, which answers like a relay under `/relay/v1`
-  (`custom.test.ts`); a refused definition in each command
-  (`providerCommands.test.ts`); custom providers stored, given access, and
-  added to the window's catalog (`basehalfVideoProviderSettingsService.test.ts`,
-  `basehalfVideoCatalogService.test.ts`); and the page's form, a custom
-  provider's page, and Remove Provider (`basehalfVideoProvidersPage.test.ts`).
-  The workbench suite of the smoke adds a custom provider at the local test
-  provider and reads it under its type, and the video suite generates an
-  image through it.
+  local test provider, which answers like a relay under `/relay/v1`, and a
+  refused definition, which sends nothing (`custom.test.ts`); custom
+  providers added to the window's catalog, changed, removed, and carried by a
+  check (`basehalfVideoCatalogService.test.ts`); and the page's form, a
+  custom provider's page, its voices, and Remove Provider
+  (`basehalfVideoProvidersPage.test.ts`). The video suite of the smoke adds a
+  custom provider through Add Provider at the local test provider and
+  generates an image through it (`video-custom-provider-generates`).
 - No real provider is called by tests.

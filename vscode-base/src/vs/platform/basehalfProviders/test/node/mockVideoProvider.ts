@@ -43,6 +43,19 @@
  *     succeeded over a few seconds, with `n` choices (2 unless asked), each
  *     the address of an MP3 it serves without a key.
  *
+ * - A relay under `/relay/v1`, with `Authorization: Bearer <key>`, in the
+ *   formats of custom providers (D108):
+ *   - `POST /images/generations` (JSON) and `POST /images/edits` (a
+ *     multipart form, each reference an `image[]` file) check the request and
+ *     answer `n` small PNGs at once, as `b64_json`, or as addresses it serves
+ *     without a key for a prompt with `[mock:url]`.
+ *   - `POST /audio/speech` checks the request and answers an MP3 at once.
+ *   - `POST /video/generations` checks the request and answers `task_id`;
+ *     `GET /video/generations/{task_id}` moves it from `queued` to
+ *     `in_progress` to `completed` with its `url`, or with `[mock:legacy]` in
+ *     the prompt from `processing` to `succeeded`, as earlier versions name
+ *     them.
+ *
  * It never talks to a real provider.
  *
  *   node scripts/basehalf-video-mock-provider.mts \
@@ -155,6 +168,8 @@ export interface MockVideoProvider {
 	readonly elevenLabsUrl: string;
 	/** The base URL to enter as Mureka's endpoint: `http://127.0.0.1:<port>/mureka`. */
 	readonly murekaUrl: string;
+	/** The API address of a custom provider at the local relay: `http://127.0.0.1:<port>/relay/v1`. */
+	readonly relayUrl: string;
 	readonly key: string;
 	readonly requests: readonly MockVideoProviderRequest[];
 	configure(options: { readonly fail?: MockVideoProviderFailure; readonly durationMs?: number }): void;
@@ -171,6 +186,8 @@ interface MockTask {
 	readonly slow: boolean;
 	readonly params: Record<string, unknown>;
 	cancelled: boolean;
+	/** A task of the relay, which names its states as earlier versions of the format did. */
+	readonly legacy?: boolean;
 }
 
 /** A task of Mureka, of a song or an instrumental. */
@@ -339,6 +356,10 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			mureka(request, response, path.slice('/mureka'.length), body);
 			return;
 		}
+		if (path === '/relay/v1' || path.startsWith('/relay/v1/')) {
+			relay(request, response, path.slice('/relay/v1'.length), body);
+			return;
+		}
 		if (!path.startsWith('/api/v3/')) {
 			json(response, 404, { error: { code: 'PathNotFound', message: 'The path of api not found.' } });
 			return;
@@ -481,6 +502,162 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			answer();
 		}, durationMs);
 		timers.add(timer);
+	}
+
+	// --- the relay of custom providers ------------------------------------------------------------
+
+	/** A relay's answer to a request it refuses, in the form of OpenAI's errors. */
+	function relayError(response: ServerResponse, status: number, message: string, code: string): void {
+		json(response, status, { error: { message, type: 'invalid_request_error', param: null, code } });
+	}
+
+	/** The relay under `/relay/v1`: images and speech answered at once, and video tasks. */
+	function relay(request: IncomingMessage, response: ServerResponse, path: string, body: Buffer): void {
+		if (fail === 'key' || request.headers.authorization !== `Bearer ${key}`) {
+			relayError(response, 401, 'Incorrect API key provided.', 'invalid_api_key');
+			return;
+		}
+		if (request.method === 'POST' && (path === '/images/generations' || path === '/images/edits')) {
+			relayImages(request, response, path === '/images/edits', body);
+			return;
+		}
+		if (request.method === 'POST' && path === '/audio/speech') {
+			relaySpeech(request, response, parseJson(body));
+			return;
+		}
+		if (request.method === 'POST' && path === '/video/generations') {
+			relayCreateVideo(request, response, parseJson(body));
+			return;
+		}
+		const query = /^\/video\/generations\/(?<id>[^/]+)$/.exec(path)?.groups;
+		const task = query && request.method === 'GET' ? tasks.get(decodeURIComponent(query.id)) : undefined;
+		if (!task) {
+			relayError(response, 404, `Invalid URL (${request.method} /v1${path})`, 'not_found');
+			return;
+		}
+		json(response, 200, relayTaskObject(task));
+	}
+
+	/** Images in OpenAI's Image API: JSON, or a multipart form with `image[]` files; `n` PNGs answered at once. */
+	function relayImages(request: IncomingMessage, response: ServerResponse, edit: boolean, body: Buffer): void {
+		let payload: Record<string, unknown> | undefined;
+		const parts: string[] = [];
+		if (edit) {
+			const form = multipartFormParts(request.headers['content-type'], body) ?? [];
+			payload = {};
+			for (const part of form) {
+				if (part.fileName === undefined) {
+					payload[part.name] = part.bytes.toString('utf8');
+				} else if (part.name === 'image[]') {
+					parts.push(`image ${part.contentType ?? 'application/octet-stream'}`);
+				}
+			}
+		} else {
+			payload = parseJson(body);
+		}
+		const prompt = typeof payload?.prompt === 'string' ? payload.prompt : undefined;
+		const model = typeof payload?.model === 'string' ? payload.model : undefined;
+		const n = Number(payload?.n ?? 1);
+		requests.push({ kind: 'image', taskId: undefined, model, prompt, parts, body: redact(payload) });
+		const marker = (name: string) => prompt?.includes(`[mock:${name}]`) === true;
+		const invalid = !model ? 'model' : !prompt ? 'prompt' : !Number.isInteger(n) || n < 1 || n > 10 ? 'n'
+			: payload?.size !== undefined && !['1024x1024', '1536x1024', '1024x1536', 'auto'].includes(String(payload.size)) ? 'size'
+				: payload?.quality !== undefined && !['low', 'medium', 'high', 'auto'].includes(String(payload.quality)) ? 'quality'
+					: edit && !parts.length ? 'image' : undefined;
+		if (invalid) {
+			relayError(response, 400, `Invalid value for '${invalid}'.`, 'invalid_value');
+			return;
+		}
+		if (fail === 'reject' || marker('reject')) {
+			relayError(response, 400, 'Your request was rejected by the safety system.', 'moderation_blocked');
+			return;
+		}
+		if (fail === 'drop' || marker('drop')) {
+			// The relay made the images, but the answer never arrives.
+			request.socket.destroy();
+			return;
+		}
+		const id = `relay-${Date.now()}-${randomBytes(3).toString('hex')}`;
+		const data: Record<string, unknown>[] = [];
+		for (let number = 1; number <= n; number++) {
+			const image = mockPng(number, uniqueFiles ? `${id}-${number}` : undefined);
+			if (marker('url')) {
+				const name = `${id}-${number}.png`;
+				images.set(name, { bytes: image, type: 'image/png' });
+				data.push({ url: `${origin}/files/images/${encodeURIComponent(name)}` });
+			} else {
+				data.push({ b64_json: image.toString('base64') });
+			}
+		}
+		json(response, 200, { created: Math.floor(Date.now() / 1000), data });
+	}
+
+	/** Speech in OpenAI's speech API: checked, recorded, and answered at once with an MP3. */
+	function relaySpeech(request: IncomingMessage, response: ServerResponse, payload: Record<string, unknown> | undefined): void {
+		const input = typeof payload?.input === 'string' ? payload.input : undefined;
+		const voice = typeof payload?.voice === 'string' ? payload.voice : undefined;
+		requests.push({ kind: 'speech', taskId: undefined, model: typeof payload?.model === 'string' ? payload.model : undefined, prompt: input, ...(voice !== undefined ? { voice } : {}), parts: [], body: redact(payload) });
+		const invalid = typeof payload?.model !== 'string' ? 'model' : !input ? 'input' : !voice ? 'voice'
+			: payload?.response_format !== undefined && payload.response_format !== 'mp3' ? 'response_format'
+				: payload?.speed !== undefined && (typeof payload.speed !== 'number' || payload.speed < 0.25 || payload.speed > 4) ? 'speed' : undefined;
+		if (invalid) {
+			relayError(response, 400, `Invalid value for '${invalid}'.`, 'invalid_value');
+			return;
+		}
+		if (fail === 'drop' || input?.includes('[mock:drop]')) {
+			request.socket.destroy();
+			return;
+		}
+		sendSound(response, mockMp3(MOCK_SOUND_SECONDS, uniqueFiles ? `speech-${Date.now()}-${randomBytes(3).toString('hex')}` : undefined));
+	}
+
+	/** A video task in the relay's video API: checked, recorded, and answered with its `task_id`. */
+	function relayCreateVideo(request: IncomingMessage, response: ServerResponse, payload: Record<string, unknown> | undefined): void {
+		const prompt = typeof payload?.prompt === 'string' ? payload.prompt : undefined;
+		const model = typeof payload?.model === 'string' ? payload.model : undefined;
+		const image = typeof payload?.image === 'string' ? payload.image : undefined;
+		const parts = image === undefined ? [] : [image.startsWith('data:') ? `image ${image.slice(0, image.indexOf(';'))}` : 'image url'];
+		const marker = (name: string) => prompt?.includes(`[mock:${name}]`) === true;
+		const whole = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value > 0;
+		const invalid = !model ? 'model' : !prompt && !image ? 'prompt' : !whole(payload?.duration) ? 'duration'
+			: !whole(payload?.width) || !whole(payload?.height) ? 'width' : undefined;
+		if (invalid || fail === 'reject' || marker('reject')) {
+			requests.push({ kind: 'video', taskId: undefined, model, prompt, parts, body: redact(payload) });
+			relayError(response, 400, invalid ? `Invalid value for '${invalid}'.` : 'Your request was rejected by the safety system.', invalid ? 'invalid_value' : 'moderation_blocked');
+			return;
+		}
+		const task: MockTask = {
+			id: `video_${randomBytes(8).toString('hex')}`,
+			model: model!,
+			createdAt: Date.now(),
+			ends: fail === 'task' || marker('fail') ? 'failed' : 'succeeded',
+			slow: fail === 'slow' || marker('slow'),
+			params: { ...payload, image: undefined, model: undefined },
+			cancelled: false,
+			legacy: marker('legacy')
+		};
+		tasks.set(task.id, task);
+		requests.push({ kind: 'video', taskId: task.id, model, prompt, parts, body: redact(payload) });
+		if (fail === 'drop' || marker('drop')) {
+			request.socket.destroy();
+			return;
+		}
+		json(response, 200, { task_id: task.id, status: 'queued' });
+	}
+
+	/** A video task as the relay answers it: its status, and once it is done the video's `url`. */
+	function relayTaskObject(task: MockTask): Record<string, unknown> {
+		const state = stateOf(task);
+		const status = task.legacy
+			? { queued: 'processing', running: 'processing', succeeded: 'succeeded', failed: 'failed', expired: 'failed', cancelled: 'failed' }[state]
+			: { queued: 'queued', running: 'in_progress', succeeded: 'completed', failed: 'failed', expired: 'failed', cancelled: 'failed' }[state];
+		return {
+			task_id: task.id,
+			status,
+			...(state === 'succeeded' ? { url: `${origin}/files/${encodeURIComponent(task.id)}.mp4`, format: 'mp4' } : {}),
+			metadata: { duration: task.params.duration, width: task.params.width, height: task.params.height },
+			...(state === 'failed' || state === 'expired' ? { error: { code: 1, message: 'The video could not be made: the output may contain sensitive content.' } } : {})
+		};
 	}
 
 	// --- ElevenLabs ------------------------------------------------------------------------------
@@ -734,6 +911,7 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 		baseUrl: `${origin}/api/v3`,
 		elevenLabsUrl: `${origin}/elevenlabs`,
 		murekaUrl: `${origin}/mureka`,
+		relayUrl: `${origin}/relay/v1`,
 		key,
 		requests,
 		configure(settings) {

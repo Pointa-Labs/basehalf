@@ -107,7 +107,7 @@ import {
 	zoomCanvas
 } from '../../lib/canvas.mts';
 import { expectNotification } from '../../lib/notifications.mts';
-import { closeProvidersPage, openProvidersPage, readProviderEditor, readProviderKinds, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION, waitForProvidersPage } from '../../lib/providers.mts';
+import { chooseProviderKind, closeProvidersPage, openProvidersPage, readProviderEditor, readProviderKinds, readProviderRows, SMOKE_PROVIDER, SMOKE_REGION, waitForProvidersPage } from '../../lib/providers.mts';
 import { quickOpen, runCommand, visibleQuickInput } from '../../lib/quickInput.mts';
 import { assertSettingsFramesShowedOnly, watchSettingsFrames } from '../../lib/settingsFrames.mts';
 import { step, waitForReading, waitUntil } from '../../lib/steps.mts';
@@ -206,6 +206,8 @@ export async function runGenerationCardSteps(page) {
 	await step('video-conflict-markers-keep-the-card', () => assertConflictMarkersKeepTheCard(page));
 	await step('video-file-at-draft-path', () => assertFileAtDraftPath(page));
 	await step('video-delete-draft-and-undo', () => assertDeleteDraftAndUndo(page));
+	// Last: the image model of a custom provider becomes the one a new image draft starts with.
+	await step('video-custom-provider-generates', () => assertCustomProviderGenerates(page));
 }
 
 // Criterion 1: no partial file is in the folder of a card at any time while
@@ -2424,6 +2426,54 @@ async function assertImageArrivesAsJpeg(page) {
 	if (requests.length !== 1 || !JSON.stringify(requests[0].parts).includes('image data:image/png')) {
 		throw new Error(`One request must send the connected image as a reference: ${JSON.stringify(requests)}`);
 	}
+	await clickBlankCanvas(page);
+}
+
+// --- a custom provider --------------------------------------------------------------------------------
+
+const CUSTOM_PROVIDER_NAME = 'Smoke Relay';
+const CUSTOM_IMAGE_MODEL = 'gpt-image-1';
+
+// Providers, criteria 23 and 24 (D108): Add Provider under Image adds a
+// custom provider at the local test provider, which answers like a relay in
+// the formats of custom providers; it is set up and shown at once. A new
+// image draft offers its model under its name, and Generate sends the request
+// in OpenAI's Image API format to it and lands the image on the card.
+async function assertCustomProviderGenerates(page) {
+	const provider = await videoSmokeProvider();
+	const providers = await openProvidersPage(page);
+	await chooseProviderKind(providers, 'image');
+	await providers.locator('button.basehalf-video-provider-add').click();
+	const field = (key: string) => providers.locator(`[data-focus="${key}"]`);
+	await field('add:label').waitFor({ state: 'visible', timeout: 10_000 });
+	for (const [key, value] of [['add:label', CUSTOM_PROVIDER_NAME], ['add:address', provider.relayEndpoint], ['add:apiKey', provider.key], ['add:model', CUSTOM_IMAGE_MODEL]]) {
+		await field(key).click();
+		await page.keyboard.type(value);
+	}
+	await page.keyboard.press('Enter');
+	const rows = await waitForReading(() => readProviderRows(providers), seen => seen.some(row => row.label === CUSTOM_PROVIDER_NAME && row.setUp === 'true' && row.selected), `${CUSTOM_PROVIDER_NAME} to be added, set up, and shown`);
+	const customId = rows.find(row => row.label === CUSTOM_PROVIDER_NAME)?.id ?? '';
+	if (!/^custom-[0-9a-f]{8}$/.test(customId) || (await readProviderEditor(providers)).summary !== 'Set up · 1 model') {
+		throw new Error(`A custom provider must be added under an id of its own, set up: ${JSON.stringify({ rows, editor: await readProviderEditor(providers) })}`);
+	}
+	await closeProvidersPage(page, providers);
+	await clickBlankCanvas(page);
+	const { cardPath, panel } = await createDraftFromMenu(page, 'New Image');
+	await chooseModel(page, panel, cardPath, customId, CUSTOM_IMAGE_MODEL);
+	await setImageCount(page, panel, cardPath, 1);
+	await savePrompt(page, panel, cardPath, 'A lighthouse painted by the relay');
+	const requestsBefore = provider.mock.requests.length;
+	const watch = watchGenerations();
+	await clickGenerate(panel);
+	await watch.until(w => w.first()?.removed && fs.existsSync(workspaceFile(cardPath)) && readMade(cardPath) !== undefined, `the image of ${CUSTOM_PROVIDER_NAME} to land as ${cardPath}`);
+	watch.stop();
+	const made = readMade(cardPath);
+	const requests = provider.requestsSince(requestsBefore);
+	if (made.provider !== customId || made.model !== CUSTOM_IMAGE_MODEL || requests.length !== 1 || requests[0].kind !== 'image'
+		|| JSON.stringify(requests[0].body) !== JSON.stringify({ model: CUSTOM_IMAGE_MODEL, prompt: 'A lighthouse painted by the relay', n: 1 })) {
+		throw new Error(`Generate must send the image request of the custom provider once, in OpenAI's Image API format, and land its image: ${JSON.stringify({ made, requests })}`);
+	}
+	await waitForReading(() => readGenerationCard(page, cardPath), card => card?.generation === 'file' && card.image?.complete === true && card.image.width > 0, 'the card to show the image of the custom provider');
 	await clickBlankCanvas(page);
 }
 

@@ -6,6 +6,7 @@
 import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import type { CustomModelDefinition, CustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 import {
@@ -134,6 +135,43 @@ export interface IBaseHalfVideoProviderSettingsService {
 	 * is given, under the card type of the card that asks (D107).
 	 */
 	openSettings(providerId?: string, kind?: BaseHalfGenerationKind): Promise<void>;
+
+	/** The custom providers the user added on this computer, in the order they were added (D108). */
+	readonly customProviders: readonly CustomProviderDefinition[];
+
+	/**
+	 * Adds a custom provider with its first model and its key, set up, and
+	 * answers its id. Throws {@link BaseHalfVideoProviderSettingsError} with the
+	 * reason, and adds nothing, for what cannot be taken.
+	 */
+	addCustomProvider(entry: IBaseHalfCustomProviderEntry): Promise<string>;
+
+	/**
+	 * Changes what the user entered for a custom provider: its name, its API
+	 * address, its models, or its voices. Throws, and changes nothing, for what
+	 * cannot be taken.
+	 */
+	updateCustomProvider(providerId: string, change: IBaseHalfCustomProviderChange): Promise<void>;
+
+	/** Removes a custom provider: what was entered, its key, and its record on this computer. */
+	removeCustomProvider(providerId: string): Promise<void>;
+}
+
+/** What the form of a new custom provider holds (D108). */
+export interface IBaseHalfCustomProviderEntry {
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly apiKey: string;
+	readonly model: CustomModelDefinition;
+}
+
+/** A change of a custom provider: each given part replaces what was entered (D108). */
+export interface IBaseHalfCustomProviderChange {
+	readonly label?: string;
+	readonly baseUrl?: string;
+	readonly models?: readonly CustomModelDefinition[];
+	/** The voices of its speech models; none goes back to the six of OpenAI's speech API. */
+	readonly voices?: readonly string[];
 }
 
 // --- generation ------------------------------------------------------------------------------

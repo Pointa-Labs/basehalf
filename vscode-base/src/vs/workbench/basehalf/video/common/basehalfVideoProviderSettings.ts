@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
+import { parseCustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfCustomProviders.js';
+import type { CustomProviderDefinition } from '../../../../platform/basehalfProviders/common/basehalfProviderTypes.js';
 import { BASEHALF_MODEL_KINDS, BASEHALF_VIDEO_PROVIDER_ID_PATTERN, BaseHalfModelKind } from './basehalfVideoCatalog.js';
 
 /**
@@ -67,6 +69,8 @@ export function isBaseHalfModelKind(value: unknown): value is BaseHalfModelKind 
 
 /** The region, the endpoint, and the ids of the credentials that are set, per provider. */
 export const BASEHALF_VIDEO_PROVIDERS_STORAGE_KEY = 'basehalf.video.providers.v1';
+/** The custom providers the user added (D108): what was entered for each, never its key. */
+export const BASEHALF_CUSTOM_PROVIDERS_STORAGE_KEY = 'basehalf.providers.custom.v1';
 /** The provider, model, mode, and values of the last generation of a video on this computer. */
 export const BASEHALF_VIDEO_LAST_USED_STORAGE_KEY = 'basehalf.video.lastUsed.v2';
 /** The provider, model, mode, and values of the last generation of an image on this computer. */
@@ -194,6 +198,34 @@ export function serializeBaseHalfVideoProviderSettings(settings: ReadonlyMap<str
 			credentials: [...entry.credentials].sort()
 		};
 	}
+	return JSON.stringify({ version: SETTINGS_VERSION, providers });
+}
+
+/**
+ * Reads the custom providers the user added (D108), in the order they were
+ * added. One that breaks a rule of a custom provider is left out; nothing here
+ * throws.
+ */
+export function parseBaseHalfCustomProviders(raw: string | undefined): readonly CustomProviderDefinition[] {
+	const value = parseJson(raw);
+	if (!isRecord(value) || value.version !== SETTINGS_VERSION || !Array.isArray(value.providers)) {
+		return [];
+	}
+	const providers: CustomProviderDefinition[] = [];
+	for (const entry of value.providers.slice(0, MAX_PROVIDERS)) {
+		try {
+			const definition = parseCustomProviderDefinition(entry);
+			if (!providers.some(provider => provider.id === definition.id)) {
+				providers.push(definition);
+			}
+		} catch {
+			// Left out: the window offers only what a request may carry.
+		}
+	}
+	return Object.freeze(providers);
+}
+
+export function serializeBaseHalfCustomProviders(providers: readonly CustomProviderDefinition[]): string {
 	return JSON.stringify({ version: SETTINGS_VERSION, providers });
 }
 

@@ -146,6 +146,94 @@
 	outline-offset: -1px;
 }
 
+/* Add Provider ends each list: a custom provider of the type shown (D108). */
+.basehalf-video-provider-add {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-height: 38px;
+	margin-top: 4px;
+	padding: 6px 10px;
+	border: 1px dashed var(--vscode-widget-border, var(--vscode-descriptionForeground));
+	border-radius: 8px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.basehalf-video-provider-add:hover {
+	background: var(--vscode-list-hoverBackground);
+	color: var(--vscode-foreground);
+}
+
+.basehalf-video-provider-add[aria-current='page'] {
+	border-style: solid;
+	border-color: color-mix(in srgb, var(--vscode-focusBorder) 76%, transparent);
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+
+.monaco-workbench .basehalf-video-providers .basehalf-video-provider-add:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+/* The button after a custom provider's model that removes it. */
+.basehalf-video-provider-model-remove {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin-left: 2px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	vertical-align: -3px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+}
+
+.basehalf-video-provider-model-remove .codicon {
+	font-size: 12px;
+}
+
+.basehalf-video-provider-model-remove:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .basehalf-video-providers .basehalf-video-provider-model-remove:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 0;
+}
+
+/* The card type of a model added to a custom provider. */
+.basehalf-video-provider-kind-select {
+	flex: none;
+	min-height: 30px;
+	padding: 4px 6px;
+	border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border, transparent));
+	border-radius: 6px;
+	background: var(--vscode-dropdown-background);
+	color: var(--vscode-dropdown-foreground);
+	font: inherit;
+}
+
+.basehalf-video-provider-kind-select:focus {
+	border-color: var(--vscode-focusBorder);
+	outline: 0;
+}
+
+.basehalf-video-provider-field.remove-provider {
+	justify-items: start;
+	margin-top: 6px;
+}
+
 /* While the catalog loads or after it failed, the message takes the whole width, with Try Again. */
 .basehalf-video-providers-content.empty {
 	grid-template-columns: minmax(0, 1fr);
