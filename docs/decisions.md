@@ -3550,6 +3550,11 @@ before, because its cells have the default background.
 
 ## D87 — A pinch zooms a note in Card Detail, and its left margin shows its outline (NEW, 2026-10-27)
 
+> **Revised by D105 (2026-10-31).** While the fingers move, a pinch draws the
+> note's page as a picture of itself around the pointer, and the page is
+> laid out once, when they rest, instead of in every frame. The rest of D87
+> stands.
+
 **Decision.** In Card Detail, a pinch of the trackpad, or the wheel with the
 zoom key or Ctrl held, zooms a note in its Rich and its Preview projection.
 The note's page is laid out larger or smaller, from 50% to 300%, around the
@@ -4896,3 +4901,66 @@ three as one item list in about 75 ms from a separate process.
   a drop of them does.
 - Command-C in Card Detail of a video, a sound, or an image BaseHalf can
   edit copies its file.
+
+## D105 — A pinch zooms a note as a picture under the fingers, and the note is laid out once they rest (NEW, 2026-10-31)
+
+**Decision.** In Card Detail, while the fingers of a pinch move over a note,
+in Rich or in Preview, the note's page is drawn as a picture of itself,
+larger or smaller around the pointer: the point under the pointer stays under
+it, across and up and down, also past the start or the end of the note and
+past the sides of the view, and nothing of the page is laid out. 150 ms after
+the last event the page is laid out once, at the level, with its column in
+the middle of the view and the line under the pointer at its height as far
+as the note can scroll. When that layout breaks no line anew, the page glides
+to its place in 200 ms; when lines break anew, it is there at once. A page is
+no longer sent back the level it reported. See
+[zoom and outline of a note](specs/note-zoom-and-outline.md#zoom).
+
+**Why.** On 2026-10-31 the user reported that the pinch over a note was not
+right ("主要是双指缩小或放大的这一环节不太对") and asked whether the editor
+library was the cause. Measured that day, D87 laid the page out at the level
+of every frame and drew it larger from the top middle of its column. In a
+Card Detail of 848 pixels, where the user works with the sidebar and the
+Agent Area open, the column is as wide as the view at 100%, and a pinch to
+180% broke the lines of the paragraph under the pointer anew in 17 of its 33
+frames, moved the page by up to 51 pixels in one frame, and left the
+character under the pointer 166 pixels to one side of it. At the start of a
+note a pinch out moved the text away from the fingers by up to 29 pixels a
+frame. A note of 151 KB was drawn past both sides of the view during the
+pinch, with frames of up to 66 ms, and jumped when its lines broke anew at
+the end. The library was not the cause: its newest release has no zoom of
+its own, and Preview, drawn in the window without the library and its
+webview, did the same with the same zoom (20 of 33 frames, 179 pixels). A
+picture drawn around the pointer and composited kept the point under it
+within 4 pixels sideways and 0 pixels up and down, with no frame over 20 ms
+on the note of 151 KB. A pinch over an image or a video already follows the
+fingers and settles once they rest (D96, D101).
+
+**What was set aside.**
+- Laying the page out in every frame, D87's choice: exact at every level,
+  but in the Card Detail the user works in, its lines break anew in half the
+  frames of a pinch, and the text runs from line to line under the fingers.
+- Drawing the page larger and never laying it out, as a browser's pinch
+  does: a page larger than the view would have to be scrolled sideways to
+  read each line.
+- Drawing the picture anew in every frame, sharp at every size: on the note
+  of 151 KB those frames took 50 to 66 ms. The picture is drawn from how the
+  page looked when the gesture began, a little soft when zoomed in, until
+  the fingers rest.
+- Gliding when the lines break anew: the page that glides would hold other
+  lines than the picture did, and the text would move twice.
+- Moving the note's editor out of its webview to mend the pinch: Preview, in
+  the window, had the same faults. Whether the editor belongs in the window
+  is a question of its own.
+
+**Consequences.**
+- [Zoom and outline of a note](specs/note-zoom-and-outline.md): rules 2, 4,
+  6, 8, 23, and 24, limits L1 and L7, and criteria 1, 3, 16, and 17.
+- The number of a page's elements and the measured time of its last layout
+  no longer decide how a pinch is drawn: a gesture lays the page out once.
+- The window keeps the level a page reports and passes it to the other
+  projections and windows, not back to that page.
+- The window measures the point of a pinch from the frame that draws the
+  note, not from the element that holds the frame: that element can be
+  scrolled a few pixels as focus moves in it (4 pixels in the smoke), and the
+  page then grew around a point that far from the pointer.

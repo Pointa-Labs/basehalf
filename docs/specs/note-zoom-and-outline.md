@@ -1,7 +1,8 @@
 # Zoom and outline of a note in Card Detail
 
-Status: Draft (2026-10-27, revised 2026-10-28)
-Decision: [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27)
+Status: Draft (2026-10-27, revised 2026-10-28 and 2026-10-31)
+Decision: [D87](../decisions.md#d87--a-pinch-zooms-a-note-in-card-detail-and-its-left-margin-shows-its-outline-new-2026-10-27),
+revised by [D105](../decisions.md#d105--a-pinch-zooms-a-note-as-a-picture-under-the-fingers-and-the-note-is-laid-out-once-they-rest-new-2026-10-31)
 Related: [note rendering](note-rendering.md) (what a note shows),
 [PDFs and books](documents-and-books.md#the-pdf-reader) (the zoom of a PDF
 and the text size of a book), [opening and closing Card Detail](card-detail-opening.md)
@@ -46,6 +47,23 @@ Measured on 2026-10-27 in a development window of 1440 × 900 points:
   left them where they were, beside another paragraph. The editor measured
   a block once, when the pointer reached it, and placed its handles by that
   measure until the pointer reached another block.
+- **A pinch did not stay under the fingers** (measured on 2026-10-31 in the
+  same window, at 120 frames a second). The page was laid out at the level
+  of every frame and drawn larger from the top middle of its column. In a
+  Card Detail of 848 pixels, where the column is as wide as the view at
+  100%, a pinch from 100% to 180% broke the lines of the paragraph under the
+  pointer anew in 17 of its 33 frames, moved the page by up to 51 pixels in
+  one frame when a paragraph above gained a line, and left the character
+  under the pointer 166 pixels to one side of it. The Preview projection,
+  drawn in the window itself, did the same: 20 of 33 frames, 40 and 179
+  pixels. At the start of a note, a pinch to 60% moved the line under the
+  pointer up by 6 to 29 pixels a frame. Over a note of 151 KB, whose layout
+  takes longer than a frame, the column grew past both sides of the view and
+  cut its text, the handles of a block went off the view, frames took up to
+  66 ms, and the lines broke anew in one jump when the fingers rested. Once,
+  after a pinch whose events paused for 170 ms, the page went back from 180%
+  to 178% for 175 ms and then to 180% again: the window had sent the page
+  back levels the page had reported, and the older one arrived last.
 
 ## Scope
 
@@ -90,38 +108,44 @@ Not in scope, and unchanged:
 1. A pinch of the trackpad over the note zooms the page. So does the wheel
    with the zoom key held (Command on macOS, Ctrl elsewhere) and with Ctrl
    held, as on the canvas. Without them the wheel scrolls as before.
-2. The page is laid out at the level, not drawn larger as a picture: its
-   text, images, tables, and code blocks, and the text column itself, are
-   that much larger. The column grows until it is as wide as the view and
-   then stays as wide as the view, its text wrapping in it. The page never
-   scrolls sideways, and the column stays in the middle of the view.
+2. Once the fingers rest, the page is laid out at the level, not drawn
+   larger as a picture: its text, images, tables, and code blocks, and the
+   text column itself, are that much larger. The column grows until it is as
+   wide as the view and then stays as wide as the view, its text wrapping in
+   it. At rest the page never scrolls sideways, and the column stays in the
+   middle of the view.
 3. The level follows the fingers: fingers that spread to 1.5 times their
    distance make the page 1.5 times larger. Each event changes the level by
    the factor e^(−Δy / 100), the browser's own measure of a pinch, and a
    notch of a mouse wheel changes it by at most 10%.
-4. The line under the pointer stays at the height of the pointer while the
-   level changes, as far as the note can scroll: at its start or its end
-   the page grows or shrinks from there.
+4. While the fingers move, the page is drawn as a picture of itself, larger
+   or smaller around the pointer, as a browser zooms its page: the point of
+   the page under the pointer stays under it, across and up and down, also
+   where the picture passes the start or the end of the note or a side of the
+   view. Nothing of the page is laid out anew while the fingers move, so no
+   line breaks anew.
 5. The level is between 50% and 300%. A gesture that ends between 94% and
    106% ends at 100%.
-6. While the browser lays the page out within 16 ms, every frame of a gesture
-   shows the page laid out at the level of that frame. When a layout takes
-   longer, which a long note does (rule L1), the other frames of that gesture
-   show the page as it was last laid out, made larger or smaller around the
-   line under the pointer, and the page is laid out at the level the gesture
-   ends at, 150 ms after its last event. A page of more than 1,500 elements
-   is taken to need longer until one of its layouts has been measured, and so
-   is a page whose last layout needed longer.
+6. 150 ms after the last event of a gesture the fingers have rested, and the
+   page is laid out once, at the level the gesture ends at (rule 5). The
+   line under the pointer then stays at the pointer's height as far as the
+   note can scroll, and the column is in the middle of the view. When that
+   layout breaks no line anew, the page glides there from where the picture
+   was, in 200 ms, its level too when the gesture ends at 100%; when lines
+   break anew, the page is there in the frame of the layout. With reduced
+   motion it is there at once.
 7. A zoom changes nothing else of the note: the caret, the selection, what
    agents can see of it, the editor's undo, and an open menu of the editor
    stay as they were. A click, a drag, and typing work in a zoomed page as at
    100%. The editor's toolbars and menus keep their size, and in every frame
-   of a gesture they stand at the text they belong to, as the handles of a
-   block do (rule 23).
+   of a gesture and of its glide they stand at the text they belong to, as
+   the handles of a block do (rule 23).
 8. The level is one for every note, kept on this computer for the user's
    profile (`basehalf.noteZoom`), as the text size of the book reader is. A
    note opens at that level from its first frame, in Rich and in Preview,
-   and a change in one projection or window reaches the others.
+   and a change in one projection or window reaches the others. A page is
+   never sent back a level it reported itself: arriving late, such a level
+   would take the page back from a newer gesture.
 
 ### The outline
 
@@ -205,29 +229,33 @@ Not in scope, and unchanged:
     by half of what the line has grown, or higher by half of what it has
     shrunk.
 23. Every frame in which the page moves shows the handles where rule 22 puts
-    them in that frame: each frame of a zoom, whether it lays the page out or
-    only draws it (rule 6), each frame of a scroll, and a frame in which the
-    page is laid out anew, as when Card Detail changes its width or a
-    picture above the block finishes loading.
+    them in that frame: each frame of a zoom, while the fingers move, in the
+    frame of its layout, and while the page glides to its place (rules 4 and
+    6), each frame of a scroll, and a frame in which the page is laid out
+    anew, as when Card Detail changes its width or a picture above the block
+    finishes loading.
 24. The handles are those of the block under the pointer. When the page
     moves under a pointer that stays still, in a zoom, a scroll, or a change
     of the width of Card Detail, they pass in that frame to the block that is
     then under the pointer, as if it had moved, and go while no block is
-    under it. A zoom keeps the line under the pointer (rule 4), so they stay
-    with their block as far as the note can scroll. Handles that a key has
+    under it. While the fingers move, the point under the pointer stays under
+    it (rule 4), so they stay with their block; when the page glides to its
+    place or breaks its lines anew, they pass to the block then under the
+    pointer. Handles that a key has
     hidden, as typing does, come back with the next move of the pointer, not
     with a move of the page. While a button is held, the menu of the drag
     handle is open, or a block is being dragged, they stay with their block.
 
 ## Limits
 
-- L1. A long note is laid out in more than 16 ms. Measured on 2026-10-27,
-  one layout of the whole page after a change of level: a note of 3 KB with
-  227 elements in 3 to 8 ms, 25 KB with 1,301 elements in 16 to 25 ms,
-  151 KB with 5,685 elements in 75 to 87 ms, and 203 KB with 7,803 elements
-  in about 100 ms. Such a note is shown as rule 6 says, so its text can
-  break into new lines once the fingers rest, when the column has reached
-  the width of the view during the gesture.
+- L1. While the fingers move, the page is drawn from how it looked when the
+  gesture began, as a browser draws a page under a pinch: zoomed in, its text
+  is a little soft until the fingers rest, and sharp from the frame of the
+  layout. That one layout takes longer than a frame in a long note. Measured
+  on 2026-10-27, one layout of the whole page after a change of level: a note
+  of 3 KB with 227 elements in 3 to 8 ms, 25 KB with 1,301 elements in 16 to
+  25 ms, 151 KB with 5,685 elements in 75 to 87 ms, and 203 KB with 7,803
+  elements in about 100 ms.
 - L2. The outline shows at every width of Card Detail. In Rich the text
   column gives up the width that rule 21 takes: 48 pixels in a Card Detail
   of 834 pixels, 122 in one of 700 (530 are left for the text).
@@ -249,6 +277,9 @@ Not in scope, and unchanged:
 - L6. The handles of a table's rows and columns go as soon as the page moves
   under them, in a zoom as in a scroll, and come back with the next move of
   the pointer: the editor draws them so.
+- L7. The events of a pinch do not say when the fingers leave the trackpad.
+  Fingers that stop for 150 ms in the middle of a pinch rest as far as the
+  page knows: it is laid out, and the rest of the pinch zooms from there.
 
 ## Failure and recovery
 
@@ -259,14 +290,18 @@ its scroll position. Nothing of this is written into the workspace.
 ## Acceptance criteria
 
 1. A pinch made through the browser's protocol over a note in Rich zooms the
-   page by the pinch's scale; the computed size of the text is that much
-   larger once the fingers rest, and no transform remains on the page.
+   page by the pinch's scale: once the fingers rest, the text is drawn that
+   much larger.
 2. The same pinch over the note's text in Preview zooms it the same, and
    switching to Rich shows the note at that level from its first frame.
-3. Sampled on every frame of a pinch over a short note, every frame shows
-   the page laid out, and the line under the pointer stays within 2 pixels of
-   its height. Over a note of 151 KB, no frame of the gesture takes longer
-   than 34 ms, and the page is laid out once, 150 ms after the last event.
+3. Sampled on every frame of a pinch over a short note and over a note of
+   151 KB, in a Card Detail of 1130 and of 848 pixels: while the fingers
+   move, the point of the page under the pointer stays within 1 pixel of
+   it, across and up and down, also at the start of the note, and no frame
+   lays the page out, breaks a line anew, or takes longer than 34 ms. The
+   page is laid out once, 150 ms after the last event: the line under the
+   pointer is then within 2 pixels of its height as far as the note can
+   scroll, and the column is in the middle of the view.
 4. After zooming to 150%, a click on a word puts the caret in that word,
    typing adds the letters there, and Command and Z takes them back.
 5. A wheel with Command held over the note zooms it; without it the wheel
@@ -305,6 +340,13 @@ its scroll position. Nothing of this is written into the workspace.
     hidden.
 15. With the drag handle's menu open, a pinch leaves the menu open, and the
     handles stand beside their block in every frame.
+16. A pinch to 60% at the start of a short note, sampled on every frame,
+    keeps the point under the pointer under it past the top of the note;
+    once the fingers rest, the page glides back to its top and its column to
+    the middle in 200 ms, with the handles beside their block in every frame,
+    and it breaks no line anew.
+17. The level a page reported when its fingers rested is not sent back to
+    it: the window stores it, and only another projection or window gets it.
 
 ## Verification
 
@@ -312,19 +354,28 @@ its scroll position. Nothing of this is written into the workspace.
   level read from storage (`basehalfNoteZoom.test.ts`); the headings of a
   page, the lengths and the distance of the ticks, the current heading, and
   where the panel stands (`basehalfNoteOutline.test.ts`); the zoom of a page
-  frame by frame with a slow layout and a fast one, and the line under the
-  pointer (`basehalfNoteZoomGesture.test.ts`); the messages of the Rich
-  projection's page (`basehalfMarkdownRichWebviewProtocol.test.ts`); the box
-  the handles of a block stand by on a drawn page, how far they move down at
-  a level, and the pointer they pass with when the page moves under it
+  frame by frame: the point under the pointer while the fingers move, also
+  past the start of the note, no layout until they rest, one layout then
+  with the line under the pointer, the glide when no line breaks anew, and
+  a level from elsewhere that waits for the gesture
+  (`basehalfNoteZoomGesture.test.ts`); the messages of the Rich projection's
+  page (`basehalfMarkdownRichWebviewProtocol.test.ts`); the level a page
+  reported, which is not sent back to it
+  (`basehalfNoteZoomLevel.test.ts`); the box the handles of a block
+  stand by on a drawn page, how far they move down at a level, and the
+  pointer they pass with when the page moves under it
   (`basehalfBlockHandles.test.ts`).
 - The `cardDetail` suite of the smoke pinches a short note to 160% and
-  back with the handles of a block shown, and checks where they stand: 8
-  pixels left of the text, at the middle of the block's first line.
+  back with the handles of a block shown. On every frame of the pinch it
+  checks that the point under the pointer stays under it and that no line
+  breaks anew until the fingers rest, and once they rest, where the handles
+  stand: 8 pixels left of the text, at the middle of the block's first line.
 - In the window, recorded on every frame by the page itself: a pinch made
   through the browser's protocol over Rich and over Preview, on a short note
-  and on the 151 KB note; the height of the line under the pointer, the
-  level, and the layout of each frame; a click, typing, and undo at 150%;
+  and on the 151 KB note, in a Card Detail of 1130 and of 848 pixels; the
+  point under the pointer across and up and down, where the lines of the
+  paragraph under it break, the level, the layout, and the time of each
+  frame, and the glide once the fingers rest; a click, typing, and undo at 150%;
   the outline at rest, with the pointer in the margin, over the ticks, after
   a click on a name, after typing a heading, and at 200%; the box of the
   handles of a block against the edge of the text and the block's first
