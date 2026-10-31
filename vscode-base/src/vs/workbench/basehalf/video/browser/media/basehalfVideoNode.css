@@ -153,7 +153,7 @@
 	background: var(--bh-video-panel-hover);
 }
 
-/* The footer: one row with the model, the settings, and Generate. */
+/* The footer: one row, the two buttons that add an input at its start and the settings, the voice, the model, and Generate at its end (D106). */
 
 .monaco-workbench .bh-video-panel-footer {
 	display: flex;
@@ -213,9 +213,14 @@
 }
 
 .monaco-workbench .bh-video-panel-settings {
-	/* Ends in an ellipsis when the model's name and Generate need the room. */
+	/*
+	 * Takes the room the voice and the model leave, up to its whole summary: it gives way first, down to its
+	 * least width, and the voice's name only after it (D106). It grows from nothing instead of shrinking from its
+	 * whole width, so that the voice is never shrunk by a share of a pixel, which would cut its name.
+	 */
 	min-width: 72px;
-	flex: 0 1 auto;
+	max-width: max-content;
+	flex: 1 0 0;
 	padding: 0 12px;
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 	background: var(--bh-video-panel-fill);
@@ -225,7 +230,7 @@
 	border-radius: 14px;
 }
 
-/* The voice of a model that speaks (D78): its glyph and its name, between the model and the settings. */
+/* The voice of a model that speaks (D78): its glyph and its name, between the settings and the model (D106). */
 .monaco-workbench .bh-video-panel-voice {
 	display: inline-flex;
 	height: 28px;
@@ -269,9 +274,10 @@
 	background: var(--bh-video-panel-hover);
 }
 
+/* Pushes what follows to the footer's right end, with the room the parts leave once the summary of the settings is whole (D106). */
 .monaco-workbench .bh-video-panel-footer-space {
-	min-width: 0;
-	flex: 1 1 auto;
+	flex: none;
+	margin-left: auto;
 }
 
 .monaco-workbench .bh-video-panel-generate {

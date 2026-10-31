@@ -901,7 +901,7 @@ async function assertImagePanelOfItsOwn(page) {
 			})
 		};
 	});
-	const footer = ['bh-add-inputs', 'bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'];
+	const footer = ['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-settings', 'bh-video-panel-model', 'bh-video-panel-generate'];
 	const empty = await read();
 	if (empty.height !== 132 || empty.row || empty.says !== 0 || JSON.stringify(empty.footer) !== JSON.stringify(footer) || empty.buttons.length !== 2) {
 		throw new Error(`An image draft with nothing connected must be its prompt and its footer, 132 px tall, its footer beginning with the two buttons, and no line about references: ${JSON.stringify(empty)}`);
@@ -1258,8 +1258,9 @@ async function assertPickOnCanvas(page) {
 	}
 }
 
-// D71, criteria 69 to 72: the panel's top right has Pick on Canvas and Import
-// File… as two icon buttons, named by their tooltips, and the row has no
+// D71 and D106, criteria 69 to 72 and 100: the start of the panel's footer
+// has Pick on Canvas and Import File… as two icon buttons, named by their
+// tooltips, the footer ends with the model beside Generate, and the row has no
 // plus; a click on Pick on Canvas highlights it, and a second ends picking.
 // The pointer over a tile is the arrow, and over its cross the pointing hand.
 // A click on a tile's @ while the pointer is on it puts its name in the
@@ -1278,17 +1279,24 @@ async function assertInputBoxButtons(page) {
 		throw new Error(`The step starts where Pick on Canvas left ${VIDEO}: ${JSON.stringify({ upstream: readUpstreamSidecar(VIDEO), info: readGenerationInfo(VIDEO) })}`);
 	}
 
-	// Criterion 69: two icon buttons at the top right, Pick on Canvas first, and no plus.
+	// Criteria 69 and 100 (D106): two icon buttons at the start of the footer, Pick on Canvas first, and no plus; the footer ends with the model beside Generate at the panel's right edge.
 	const corner = await panel.evaluate(element => {
 		const box = element.getBoundingClientRect();
 		const style = element.ownerDocument.defaultView.getComputedStyle(element);
+		const left = box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
 		const right = box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
-		const top = box.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
-		const actions = Array.from(element.querySelectorAll('.bh-input-row .bh-add-input'));
+		const footer = element.querySelector('.bh-video-panel-footer');
+		const actions = Array.from(footer?.querySelectorAll('.bh-add-input') ?? []);
+		const model = element.querySelector('.bh-video-panel-model')?.getBoundingClientRect();
+		const generate = element.querySelector('.bh-video-panel-generate')?.getBoundingClientRect();
 		return {
 			plus: element.querySelectorAll('.bh-input-row-add').length,
-			buttons: actions.map(button => ({ key: button.getAttribute('data-key'), name: button.getAttribute('aria-label'), top: Math.round(button.getBoundingClientRect().top - top), pressed: button.getAttribute('aria-pressed'), icon: Array.from(button.querySelector('.codicon')?.classList ?? []).find(name => name.startsWith('codicon-') && name !== 'codicon') ?? null })),
-			right: actions.length ? Math.round(right - actions.at(-1).getBoundingClientRect().right) : null,
+			inRow: element.querySelectorAll('.bh-input-row .bh-add-input').length,
+			first: footer?.firstElementChild?.classList[0] ?? null,
+			buttons: actions.map(button => ({ key: button.getAttribute('data-key'), name: button.getAttribute('aria-label'), pressed: button.getAttribute('aria-pressed'), icon: Array.from(button.querySelector('.codicon')?.classList ?? []).find(name => name.startsWith('codicon-') && name !== 'codicon') ?? null })),
+			left: actions.length ? Math.round(actions[0].getBoundingClientRect().left - left) : null,
+			generate: generate ? Math.round(right - generate.right) : null,
+			model: model && generate ? Math.round(generate.left - model.right) : null,
 			// No control of the card shows a cloud: nothing is uploaded anywhere.
 			clouds: element.ownerDocument.querySelectorAll('.bh-video-panel .codicon-cloud-upload, .basehalf-video-context-toolbar .codicon-cloud-upload').length,
 			toolbar: element.ownerDocument.querySelectorAll('.basehalf-video-context-toolbar').length
@@ -1296,13 +1304,17 @@ async function assertInputBoxButtons(page) {
 	});
 	const expectedCorner = {
 		plus: 0,
-		buttons: [{ key: 'pick', name: 'Pick on Canvas', top: 0, pressed: 'false', icon: 'codicon-inspect' }, { key: 'import', name: 'Import File…', top: 0, pressed: null, icon: 'codicon-attach' }],
-		right: 0,
+		inRow: 0,
+		first: 'bh-add-inputs',
+		buttons: [{ key: 'pick', name: 'Pick on Canvas', pressed: 'false', icon: 'codicon-inspect' }, { key: 'import', name: 'Import File…', pressed: null, icon: 'codicon-attach' }],
+		left: 0,
+		generate: 0,
+		model: 6,
 		clouds: 0,
 		toolbar: 0
 	};
 	if (canonicalJson(corner) !== canonicalJson(expectedCorner)) {
-		throw new Error(`Pick on Canvas and Import File…, with the paperclip, must be two buttons at the panel's top right, with no plus, no cloud, and no toolbar above the draft: ${JSON.stringify(corner)}`);
+		throw new Error(`Pick on Canvas and Import File…, with the paperclip, must be two buttons at the start of the panel's footer, which ends with the model beside Generate, with no plus, no cloud, and no toolbar above the draft: ${JSON.stringify(corner)}`);
 	}
 	await panel.locator(PICK_BUTTON).hover();
 	await page.locator('.workbench-hover', { hasText: 'Pick on Canvas' }).waitFor({ state: 'visible', timeout: 10_000 });

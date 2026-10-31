@@ -11,7 +11,7 @@
  * text, and New Version.
  */
 
-/* The line and the model's name begin at the panel's left edge, as the tiles and the prompt do. */
+/* The line begins at the panel's left edge, as the tiles and the prompt do; the footer ends as a draft's does (D106). */
 .monaco-workbench .bh-record-panel-line {
 	flex: none;
 	padding: 0;
@@ -37,7 +37,7 @@
 	/* The model's name stays whole up to its width; the summary of the settings gives way first. */
 	max-width: 208px;
 	flex: 0 0 auto;
-	padding: 0 4px 0 0;
+	padding: 0 4px;
 	color: var(--bh-card-text-primary, var(--vscode-foreground));
 	font-weight: 600;
 }
@@ -48,7 +48,7 @@
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 }
 
-/* The voice a speech model spoke in (D78): its glyph and its name, between the model and the settings. */
+/* The voice a speech model spoke in (D78): its glyph and its name, between the settings and the model (D106). */
 .monaco-workbench .bh-record-panel-voice {
 	/* The voice's name stays whole up to its width, as the model's does; the summary of the settings gives way first. */
 	display: inline-flex;

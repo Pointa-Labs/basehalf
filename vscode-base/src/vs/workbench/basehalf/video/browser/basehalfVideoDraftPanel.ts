@@ -9,18 +9,17 @@ import { BaseHalfVideoNodePanel, IBaseHalfDraftPanelParts } from './basehalfVide
 /**
  * The panel of a video draft (generation cards, "The panel of each kind";
  * D91): the input row whenever the card has inputs or its mode takes any,
- * with its Start and End frames and the swap arrow, its other inputs, what a
- * row without inputs says, and at its right end, the panel's top right, the
- * two buttons that add an input (D71); the prompt; the reason line; and a
- * footer of the model, the settings, and Generate.
+ * with its Start and End frames and the swap arrow, its other inputs, and
+ * what a row without inputs says; the prompt; the reason line; and a footer
+ * that begins with the two buttons that add an input and ends with the
+ * settings, the model, and Generate (D106).
  */
 export class BaseHalfVideoDraftPanel extends BaseHalfVideoNodePanel {
 
 	protected override arrange(element: HTMLElement, parts: IBaseHalfDraftPanelParts): void {
-		parts.inputRow.holdAddButtons(parts.addButtons);
 		element.append(parts.inputRow.element, parts.prompt, parts.notice, parts.reason);
 		const footer = append(element, $('.bh-video-panel-footer'));
-		footer.append(parts.model, parts.settings, $('.bh-video-panel-footer-space'), parts.generate);
+		footer.append(parts.addButtons.element, $('.bh-video-panel-footer-space'), parts.settings, parts.model, parts.generate);
 	}
 
 	/** Every video model starts from frames, from references, or from a clip: the row shows for a new card. */

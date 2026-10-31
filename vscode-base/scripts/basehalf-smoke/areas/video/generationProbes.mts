@@ -969,7 +969,7 @@ export async function drawCanvasConnectionInto(page, sourcePath, targetPath) {
 	await page.mouse.up();
 }
 
-/** The button of Pick on Canvas: at the panel's top right on a video or an audio card (D71), at the start of the footer on an image card (D91). */
+/** The button of Pick on Canvas: at the start of the panel's footer on every kind (D71, D106). */
 export const PICK_BUTTON = 'button.bh-add-input[data-key="pick"]';
 
 /** What the two buttons that add an input tell assistive technology while the draft picks (D71, D91). */

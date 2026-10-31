@@ -3,19 +3,13 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-/* Pick on Canvas and Import File…, the two buttons that add an input (D71, D91). */
+/* Pick on Canvas and Import File…, the two buttons that add an input, at the start of every panel's footer (D71, D106). */
 
 .monaco-workbench .bh-add-inputs {
 	display: flex;
 	flex: none;
 	align-items: center;
 	gap: 4px;
-}
-
-/* At the right end of a video or an audio card's input row: the panel's top right (D71). */
-.monaco-workbench .bh-input-row > .bh-add-inputs {
-	align-self: flex-start;
-	margin-left: auto;
 }
 
 .monaco-workbench .bh-add-input {

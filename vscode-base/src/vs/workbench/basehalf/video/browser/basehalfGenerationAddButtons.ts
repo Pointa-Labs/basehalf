@@ -25,10 +25,9 @@ export interface IBaseHalfAddButtonsDelegate {
  * The two buttons that add an input to a draft (generation cards, "The
  * panel"; D71, D91): Pick on Canvas, highlighted while the draft picks, and
  * Import File…, each an icon whose name is its tooltip and its accessible
- * name. It is one part of every kind's panel, which places it: the input row
- * of a video or an audio card holds it at its right end, the footer of an
- * image card at its start. While the draft picks, it tells assistive
- * technology what a click does without showing it.
+ * name. It is one part of every kind's panel, which places it at the start
+ * of its footer (D106). While the draft picks, it tells assistive technology
+ * what a click does without showing it.
  */
 export class BaseHalfGenerationAddButtons extends Disposable {
 

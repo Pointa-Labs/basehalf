@@ -13,7 +13,6 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { baseHalfCanvasMediaUrlAt } from '../../canvas/browser/basehalfCanvasCardMedia.js';
 import { BaseHalfVideoInputKind } from '../common/basehalfVideoCatalog.js';
-import type { BaseHalfGenerationAddButtons } from './basehalfGenerationAddButtons.js';
 
 /** One input of the row (generation cards, "The panel", D68). */
 export interface IBaseHalfInputTile {
@@ -88,9 +87,9 @@ const LOOK_MARGIN = 12;
 
 /**
  * The input row of a generation card's panel (generation cards, "The panel",
- * D68): the card's connections as tiles, in the order of its list, and, on
- * a kind whose panel puts them there, at its right end, the panel's top
- * right, the two buttons that add an input (D71, D91; {@link holdAddButtons}).
+ * D68): the card's connections as tiles, in the order of its list. The two
+ * buttons that add an input are not the row's: every kind's panel puts them
+ * at the start of its footer (D106).
  * A tile shows the input's picture and on a frame its mark, and no number;
  * pointing at it shows a larger look above it with its name, a cross that
  * removes the connection, and an `@` that puts its mention into the prompt; a
@@ -133,8 +132,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 	/** The control of the row that takes its one tab stop. */
 	private focusKey: string | undefined;
 	private dragging = false;
-	/** The two buttons that add an input, when the row holds them at its right end (D71, D91). */
-	private addButtons: BaseHalfGenerationAddButtons | undefined;
 
 	constructor(
 		private readonly delegate: IBaseHalfInputRowDelegate,
@@ -228,10 +225,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 		if (model.hint && !model.picking) {
 			append(this.element, $('span.bh-input-row-hint')).textContent = model.hint;
 		}
-		if (model.editable && this.addButtons) {
-			// At the panel's top right (D71).
-			this.element.append(this.addButtons.element);
-		}
 		this.dropUndrawnPictures();
 		list.scrollLeft = scrolled;
 		this.keepOrHideLook(looked);
@@ -240,19 +233,6 @@ export class BaseHalfGenerationInputRow extends Disposable {
 			this.findByKey(focused)?.focus({ preventScroll: true });
 		}
 		this.updateOverflow();
-	}
-
-	/**
-	 * Holds the two buttons that add an input at the row's right end, the
-	 * panel's top right, while the inputs can be added to (D71): the place a
-	 * video or an audio card's panel gives them (D91). The arrow keys reach
-	 * them as the row's other controls.
-	 */
-	holdAddButtons(buttons: BaseHalfGenerationAddButtons): void {
-		this.addButtons = buttons;
-		// Drawn again with them.
-		this.renderedKey = undefined;
-		this.update(this.model);
 	}
 
 	/** Fits the row to its width again: the fades at its edges and the look's place. */

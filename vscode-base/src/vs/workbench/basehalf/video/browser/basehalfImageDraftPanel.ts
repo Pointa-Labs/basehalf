@@ -12,9 +12,9 @@ import { BaseHalfVideoNodePanel, IBaseHalfDraftPanelParts } from './basehalfVide
  * D91): no input row until the card has an input, and then its tiles alone,
  * since no image model takes a frame or a clip; the prompt; the reason line;
  * and a footer that begins with the two buttons that add an input, Pick on
- * Canvas and Import File…, then the model and the settings, and ends with
- * Generate. With nothing connected it is its prompt and its footer, and no
- * line says what can be added: the two buttons, the `@` menu, and the
+ * Canvas and Import File…, and ends with the settings, the model, and
+ * Generate (D106). With nothing connected it is its prompt and its footer,
+ * and no line says what can be added: the two buttons, the `@` menu, and the
  * prompt's placeholder do.
  */
 export class BaseHalfImageDraftPanel extends BaseHalfVideoNodePanel {
@@ -23,7 +23,7 @@ export class BaseHalfImageDraftPanel extends BaseHalfVideoNodePanel {
 		element.append(parts.inputRow.element, parts.prompt, parts.notice, parts.reason);
 		// The buttons stay where they are when the first input brings the row.
 		const footer = append(element, $('.bh-video-panel-footer'));
-		footer.append(parts.addButtons.element, parts.model, parts.settings, $('.bh-video-panel-footer-space'), parts.generate);
+		footer.append(parts.addButtons.element, $('.bh-video-panel-footer-space'), parts.settings, parts.model, parts.generate);
 	}
 
 	protected override showsInputRowBeforeRead(): boolean {

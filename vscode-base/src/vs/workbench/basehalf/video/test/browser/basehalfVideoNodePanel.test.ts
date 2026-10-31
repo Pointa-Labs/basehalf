@@ -546,7 +546,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
 	}
 
-	/** The button at the panel's top right: `pick` or `import` (D71). */
+	/** A button at the start of the footer: `pick` or `import` (D71, D106). */
 	function action(panel: BaseHalfVideoNodePanel, key: 'pick' | 'import'): HTMLButtonElement {
 		return find<HTMLButtonElement>(panel, `.bh-add-input[data-key="${key}"]`);
 	}
@@ -1351,7 +1351,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		return { parts: [...panel.element.children].map(name), footer: children('.bh-video-panel-footer'), row: children('.bh-input-row') };
 	}
 
-	test('an image draft\'s panel is its prompt and its footer, which begins with the two buttons that add an input; its first input brings a row of its tiles, and its last takes the row away (D91)', async () => {
+	test('an image draft\'s panel is its prompt and its footer, which begins with the two buttons that add an input and ends with the settings, the model, and Generate; its first input brings a row of its tiles, and its last takes the row away (D91, D106)', async () => {
 		const panel = await createImagePanel([]);
 		const empty = { ...partsOf(panel), height: panel.height, hints: findAll(panel, '.bh-input-row-hint').length };
 		store.upstream = ['refs/c.png'];
@@ -1359,7 +1359,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		const connected = { ...partsOf(panel), tiles: findAll(panel, '.bh-input-tile').map(tile => tile.dataset.path), height: panel.height };
 		store.upstream = [];
 		await panel.refresh();
-		const footer = ['bh-add-inputs', 'bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'];
+		const footer = ['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-settings', 'bh-video-panel-model', 'bh-video-panel-generate'];
 		assert.deepStrictEqual({ empty, connected, again: { parts: partsOf(panel).parts, height: panel.height } }, {
 			empty: {
 				parts: ['bh-input-row (hidden)', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
@@ -1428,23 +1428,27 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('a video draft and an audio draft keep their row, with its empty frames or what it says and the two buttons at its right end, and an audio draft its voice (D91)', async () => {
+	test('a video draft and an audio draft keep their row, with its empty frames or what it says, and their footers begin with the two buttons that add an input, a speech draft\'s too, which has no row (D91, D106)', async () => {
 		store.upstream = [];
 		const video = partsOf(await createPanel());
 		const song = partsOf(await createAudioPanel({ prompt: 'A sea shanty.', provider: 'dunlin', model: 'dunlin-song', mode: 'reference', params: { count: 2 } }));
-		const speech = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
-		assert.deepStrictEqual({ video, song, speech: partsOf(speech).footer }, {
+		const speech = partsOf(await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH }));
+		assert.deepStrictEqual({ video, song, speech }, {
 			video: {
 				parts: ['bh-input-row', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
-				footer: ['bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
-				row: ['bh-input-row-list', 'bh-add-inputs']
+				footer: ['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-settings', 'bh-video-panel-model', 'bh-video-panel-generate'],
+				row: ['bh-input-row-list']
 			},
 			song: {
 				parts: ['bh-input-row', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
-				footer: ['bh-video-panel-model', 'bh-video-panel-voice (hidden)', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
-				row: ['bh-input-row-list', 'bh-input-row-hint', 'bh-add-inputs']
+				footer: ['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-settings', 'bh-video-panel-voice (hidden)', 'bh-video-panel-model', 'bh-video-panel-generate'],
+				row: ['bh-input-row-list', 'bh-input-row-hint']
 			},
-			speech: ['bh-video-panel-model', 'bh-video-panel-voice', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate']
+			speech: {
+				parts: ['bh-input-row (hidden)', 'bh-video-panel-prompt', 'bh-video-panel-notice (hidden)', 'bh-video-panel-reason (hidden)', 'bh-video-panel-footer', 'bh-video-panel-layer'],
+				footer: ['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-settings', 'bh-video-panel-voice', 'bh-video-panel-model', 'bh-video-panel-generate'],
+				row: []
+			}
 		});
 	});
 
@@ -1653,7 +1657,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 		copy.remove();
 		assert.deepStrictEqual({
-			left: [find(panel, '.bh-input-tile'), find(panel, '.bh-prompt-chip'), find(panel, '.bh-video-panel-reason-icon'), find(panel, '.bh-video-panel-model')].map(element => at(box(element).left - left)),
+			left: [find(panel, '.bh-input-tile'), find(panel, '.bh-prompt-chip'), find(panel, '.bh-video-panel-reason-icon'), action(panel, 'pick')].map(element => at(box(element).left - left)),
 			right: [find(panel, '.bh-video-panel-reason-action'), find(panel, '.bh-video-panel-generate')].map(element => at(right - box(element).right)),
 			baselines
 		}, { left: [0, 0, 0, 0], right: [0, 0], baselines: [0, 0] });
@@ -1676,10 +1680,10 @@ suite('BaseHalfVideoNodePanel', () => {
 				return element.scrollWidth > element.clientWidth;
 			};
 			const outer = panel.element.getBoundingClientRect();
-			// What the footer holds: the model, the voice of a model that speaks, the settings, and Generate, and no price (video node, acceptance criterion 22).
+			// What the footer holds: the two buttons that add an input, the settings, the voice of a model that speaks, the model, and Generate, and no price (video node, acceptance criterion 22; D106).
 			const footerHolds = Array.from(find(panel, '.bh-video-panel-footer').children).map(child => child.classList[0]);
 			// The controls of the footer that show, from left to right.
-			const shownInFooter = ['.bh-video-panel-model', '.bh-video-panel-settings', '.bh-video-panel-generate']
+			const shownInFooter = ['.bh-add-inputs', '.bh-video-panel-settings', '.bh-video-panel-model', '.bh-video-panel-generate']
 				.filter(selector => !find(panel, selector).hidden)
 				.map(selector => box(selector));
 			const footer = box('.bh-video-panel-footer');
@@ -1717,7 +1721,7 @@ suite('BaseHalfVideoNodePanel', () => {
 				modelClipped: false,
 				settingsClipped: false,
 				// A video card's footer has no voice: no video model speaks (D91).
-				footerHolds: ['bh-video-panel-model', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
+				footerHolds: ['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-settings', 'bh-video-panel-model', 'bh-video-panel-generate'],
 				footerInOrder: true,
 				footerInside: true,
 				slotsInside: true,
@@ -1726,6 +1730,105 @@ suite('BaseHalfVideoNodePanel', () => {
 			},
 			// A long model id ends with an ellipsis and shows in full in its tooltip; the rest keeps its place.
 			long: { modelClipped: true, footerInOrder: true }
+		});
+	});
+
+	/** A frame of the workbench, 512 px wide unless `style` says otherwise, for measuring a panel with its stylesheets. */
+	function workbenchFrame(style = 'left: 0; width: 512px;'): HTMLElement {
+		const frame = mainWindow.document.createElement('div');
+		frame.className = 'monaco-workbench';
+		frame.style.cssText = `position: absolute; top: 0; ${style} --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;`;
+		mainWindow.document.body.appendChild(frame);
+		mounted.push(frame);
+		return frame;
+	}
+
+	test('every kind\'s footer begins with Pick on Canvas at the panel\'s left edge and ends with Generate at its right edge, the model 6 px before it, also while the draft generates; the menus of its right end where their button ends, and an empty frame\'s begins where the frame begins (D106)', async () => {
+		// Away from the window's left edge, so that a menu that ends where its button ends has the room to open there.
+		const frame = workbenchFrame('left: 280px; width: 512px;');
+		const box = (element: Element) => element.getBoundingClientRect();
+		const at = (value: number) => Math.round(value * 2) / 2;
+		const footerOf = (panel: BaseHalfVideoNodePanel, menus: readonly ('settings' | 'voice' | 'model')[]) => {
+			frame.replaceChildren(panel.element);
+			const outer = box(panel.element);
+			const style = mainWindow.getComputedStyle(panel.element);
+			const left = outer.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+			const right = outer.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+			const generate = find(panel, '.bh-video-panel-generate');
+			const opened: Record<string, number> = {};
+			for (const kind of menus) {
+				const button = find(panel, `.bh-video-panel-${kind}`);
+				button.click();
+				opened[kind] = at(box(find(panel, `.bh-video-panel-menu.${kind}`)).right - box(button).right);
+				press(mainWindow.document.activeElement as HTMLElement, 'Escape');
+			}
+			return {
+				order: [...find(panel, '.bh-video-panel-footer').children].filter(child => box(child).width > 0).sort((a, b) => box(a).left - box(b).left).map(child => child.classList[0]),
+				pick: at(box(action(panel, 'pick')).left - left),
+				generate: at(right - box(generate).right),
+				model: at(box(generate).left - box(find(panel, '.bh-video-panel-model')).right),
+				menus: opened
+			};
+		};
+		// A video draft with empty frames, and while it generates.
+		providers.notSetUp = new Set();
+		store.upstream = [];
+		const panel = await createPanel();
+		const video = footerOf(panel, ['settings', 'model']);
+		const slot = find(panel, '.bh-input-tile.empty');
+		slot.click();
+		const frameMenu = at(box(find(panel, '.bh-video-panel-menu.add')).left - box(slot).left);
+		press(mainWindow.document.activeElement as HTMLElement, 'Escape');
+		const places = () => [find(panel, '.bh-video-panel-model'), find(panel, '.bh-video-panel-generate')].map(element => `${at(box(element).left)}..${at(box(element).right)}`);
+		const idle = places();
+		generation.generating = true;
+		catalog.set(catalog.state);
+		await settle();
+		const generating = { buttons: find(panel, '.bh-add-inputs').hidden, places: places() };
+		generation.generating = false;
+		const image = footerOf(await createImagePanel([]), ['settings', 'model']);
+		const speech = footerOf(await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH }), ['settings', 'voice', 'model']);
+		const right = ['bh-video-panel-settings', 'bh-video-panel-model', 'bh-video-panel-generate'];
+		const edges = { pick: 0, generate: 0, model: 6 };
+		assert.deepStrictEqual({ image, video, frameMenu, speech, generating }, {
+			image: { order: ['bh-add-inputs', ...right], ...edges, menus: { settings: 0, model: 0 } },
+			video: { order: ['bh-add-inputs', ...right], ...edges, menus: { settings: 0, model: 0 } },
+			frameMenu: 0,
+			speech: { order: ['bh-add-inputs', 'bh-video-panel-settings', 'bh-video-panel-voice', 'bh-video-panel-model', 'bh-video-panel-generate'], ...edges, menus: { settings: 0, voice: 0, model: 0 } },
+			generating: { buttons: true, places: idle }
+		});
+	});
+
+	test('when the footer has no room for every label, the summary of the settings gives way first, down to its least width, then the voice\'s name, and the model\'s name stays whole (D106)', async () => {
+		const frame = workbenchFrame('left: 0; width: 760px;');
+		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH, params: { voice: 'vx-harbour-guide', speed: 1 } });
+		frame.replaceChildren(panel.element);
+		const footer = find(panel, '.bh-video-panel-footer');
+		const width = (selector: string) => find(panel, selector).getBoundingClientRect().width;
+		const clipped = (selector: string) => find(panel, selector).scrollWidth > find(panel, selector).clientWidth;
+		const read = () => ({
+			settings: width('.bh-video-panel-settings'),
+			voice: width('.bh-video-panel-voice'),
+			model: width('.bh-video-panel-model'),
+			clipped: ['.bh-video-panel-settings-label', '.bh-video-panel-voice-label', '.bh-video-panel-model-label'].map(clipped)
+		});
+		// With room for every label: each part is as wide as what it says.
+		const whole = read();
+		const parts = [...footer.children].filter(child => !(child as HTMLElement).hidden);
+		const needed = parts.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0) + parseFloat(mainWindow.getComputedStyle(footer).columnGap) * (parts.length - 1);
+		const chrome = panel.element.getBoundingClientRect().width - footer.getBoundingClientRect().width;
+		const at = (room: number) => {
+			frame.style.width = `${needed + chrome - room}px`;
+			const seen = read();
+			return { settings: Math.round(seen.settings), settingsGave: Math.round(whole.settings - seen.settings), voiceGave: Math.round(whole.voice - seen.voice), modelGave: Math.round(whole.model - seen.model), clipped: seen.clipped };
+		};
+		// 20 px short of the room every label needs, and then that much short of it with the summary at its least width.
+		const short = at(20);
+		const shorter = at(Math.round(whole.settings) - 72 + 20);
+		assert.deepStrictEqual({ whole: whole.clipped, short: { ...short, settings: undefined }, shorter: { ...shorter, settingsGave: undefined } }, {
+			whole: [false, false, false],
+			short: { settings: undefined, settingsGave: 20, voiceGave: 0, modelGave: 0, clipped: [true, false, false] },
+			shorter: { settings: 72, settingsGave: undefined, voiceGave: 20, modelGave: 0, clipped: [true, true, false] }
 		});
 	});
 
@@ -1757,7 +1860,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		return panel;
 	}
 
-	test('a speech model\'s panel has the voice button between the model and the settings, with its voice\'s name; its menu saves a chosen voice as any setting is saved, and the settings leave the voice out (D78)', async () => {
+	test('a speech model\'s panel has the voice button between the settings and the model, with its voice\'s name; its menu saves a chosen voice as any setting is saved, and the settings leave the voice out (D78, D106)', async () => {
 		const panel = await createAudioPanel({ prompt: 'Welcome to the coast.', ...SPEECH });
 		const footer = Array.from(find(panel, '.bh-video-panel-footer').children).filter(child => !(child as HTMLElement).hidden).map(child => child.classList[0]);
 		const voice = find<HTMLButtonElement>(panel, '.bh-video-panel-voice');
@@ -1787,7 +1890,7 @@ suite('BaseHalfVideoNodePanel', () => {
 			saved: store.info
 		}, {
 			shown: {
-				footer: ['bh-video-panel-model', 'bh-video-panel-voice', 'bh-video-panel-settings', 'bh-video-panel-footer-space', 'bh-video-panel-generate'],
+				footer: ['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-settings', 'bh-video-panel-voice', 'bh-video-panel-model', 'bh-video-panel-generate'],
 				label: 'Ember',
 				name: 'Voice: Ember',
 				tooltip: 'Voice',
@@ -1929,7 +2032,7 @@ suite('BaseHalfVideoNodePanel', () => {
 		await settle();
 		const box = (selector: string) => find(panel, selector).getBoundingClientRect();
 		const outer = panel.element.getBoundingClientRect();
-		const footer = ['.bh-video-panel-model', '.bh-video-panel-voice', '.bh-video-panel-settings', '.bh-video-panel-generate'].map(box);
+		const footer = ['.bh-add-inputs', '.bh-video-panel-settings', '.bh-video-panel-voice', '.bh-video-panel-model', '.bh-video-panel-generate'].map(box);
 		const label = find(panel, '.bh-video-panel-voice-label');
 		find(panel, '.bh-video-panel-voice').click();
 		const menu = box('.bh-video-panel-menu.voice');
