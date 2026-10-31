@@ -724,7 +724,8 @@ The providers, their models, and the credentials users enter for them are
 specified in [providers and the model catalog](providers.md). The user sets
 them up in Settings, on the **Providers** page, which sorts them by card
 type, Image, Video, and Audio; a provider of several types is set up once
-for all of them (D107). A card offers the models of its kind: an image card
+for all of them (D107), and a provider the user adds there, a custom
+provider, offers its models as a built-in one does (D108). A card offers the models of its kind: an image card
 the image models, a video card the video models, and an audio card the
 audio models, of speech, music, and sound effects alike. Every way from a
 card to the page, Set Up and Providers… of its panel and Set Up of its voice

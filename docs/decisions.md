@@ -5107,3 +5107,56 @@ show it.
   18, and 85.
 - The opening of the page carries the card type with the provider; nothing
   that is stored or sent changes.
+
+## D108 — Users add the providers BaseHalf does not integrate, in the formats that relays share (NEW, 2026-10-31)
+
+**Decision.** At the end of each card type's list on the Providers page,
+**Add Provider** adds a custom provider: a name, an API address, an API key,
+and the ids of its models, each of one card type, and for its speech models
+the ids of their voices. Its image models are called in OpenAI's Image API
+(`/images/generations`, and `/images/edits` with reference images), its video
+models in the video API that relays share (`/video/generations` and its
+task), and its speech models in OpenAI's speech API (`/audio/speech`). A
+custom model offers the settings of its format, the same for every model of
+that format. The window adds custom providers to the catalog after the
+built-in ones, every call for one carries what the user entered, and the
+provider service builds its module for that call. See
+[providers, Custom providers](specs/providers.md#custom-providers).
+
+**Why.** On 2026-10-31, right after D107, the user said that the Providers
+page should let users add their own, since BaseHalf cannot cover every
+provider ("Provider 这里应该还允许用户自定义，因为难免有我们没有覆盖到的"). Of
+four kinds of customization offered (a custom provider in shared formats,
+new model ids under a built-in provider, a second instance of a built-in
+provider, and model platforms whose settings come from their published
+schemas), the user chose the custom provider. Relays built on the most used
+relay software answer images and speech in OpenAI's formats, and videos at
+`/video/generations` with a task to ask about; general clients add a provider
+the same way, with a name, a format, an address, a key, and model ids. Since
+D59, a model the catalog did not list could not run at all, and a company
+BaseHalf does not integrate could not be reached.
+
+**What was set aside.**
+- New model ids under a built-in provider, and a second instance of a
+  built-in provider at another address with its own key: not chosen this
+  time.
+- Model platforms whose settings would be drawn from each model's published
+  schema: which input is a start frame and which a reference would have to
+  be guessed.
+- User-written request scripts, as D58's channels and the open-source canvas
+  had: a script per model holds the knowledge in a place no release checks.
+- Guessing a model's exact settings, as D58's general profile did: a custom
+  model offers its format's settings, the same for every model, and the
+  service takes or refuses them; the built-in catalog keeps its exact
+  declarations.
+
+**Consequences.**
+- Revises D59: "no general relay format" now holds for request scripts and
+  for formats other than these three; the catalog of a window holds the
+  user's custom providers besides the built-in ones.
+- [Providers](specs/providers.md): Goals, Non-goals, Terms, a section
+  "Custom providers", and criteria 23 to 26.
+- Requests (`ProviderAccess`, and `check`) carry `custom` for a custom
+  provider; the provider service stays without state.
+- What a custom provider is stored as: `basehalf.providers.custom.v1` in the
+  application storage of this computer, and its key as every provider's.

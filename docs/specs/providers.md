@@ -1,6 +1,6 @@
 # Providers and the model catalog
 
-Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78; the region is the user's choice and the other region is easy to find, 2026-10-27, D94; the Providers page sorts the providers by card type, and a provider's one key serves every card type it makes, 2026-10-31, D107)
+Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78; the region is the user's choice and the other region is easy to find, 2026-10-27, D94; the Providers page sorts the providers by card type, and a provider's one key serves every card type it makes, 2026-10-31, D107; custom providers in the formats that relays share, 2026-10-31, D108)
 Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
@@ -8,7 +8,8 @@ Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
 [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
 [D94](../decisions.md#d94--the-region-of-a-provider-is-the-users-choice-and-the-other-region-is-easy-to-find-new-2026-10-27),
-[D107](../decisions.md#d107--the-providers-page-sorts-the-providers-by-card-type-and-a-providers-one-key-serves-every-card-type-it-makes-new-2026-10-31)
+[D107](../decisions.md#d107--the-providers-page-sorts-the-providers-by-card-type-and-a-providers-one-key-serves-every-card-type-it-makes-new-2026-10-31),
+[D108](../decisions.md#d108--users-add-the-providers-basehalf-does-not-integrate-in-the-formats-that-relays-share-new-2026-10-31)
 Related: [generation cards](generation-cards.md),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
@@ -51,21 +52,27 @@ the sound of a video.
   declares its models and calls its API. Nothing in the window knows a
   provider or a model. The catalog and every request and answer have one
   definition, which the window and the service share (D75).
-- Every model runs with exactly the options its provider accepts, and the
-  panel offers nothing else.
+- Every model of a built-in provider runs with exactly the options its
+  provider accepts, and the panel offers nothing else.
 - Users set up a provider once: a region, their own credentials, and, when
   they use a relay or a private gateway, its endpoint. The same setup serves
   the provider's image, video, and audio models, and lists the voices of the
   user's account.
+- A provider BaseHalf does not integrate can still be used: the user adds it
+  as a custom provider, in one of the formats that relays and many providers
+  share ([Custom providers](#custom-providers), D108).
 - Inputs reach the provider without any service of BaseHalf in between.
 
 ## Non-goals
 
 - A service, proxy, credit balance, or storage of BaseHalf's own.
-- Models a provider offers that the catalog does not list. They come with a
-  release.
-- User-written request scripts, and a general format for relays. A relay that
-  mirrors a provider's own API is used through that provider.
+- Models of a built-in provider that the catalog does not list. They come
+  with a release.
+- User-written request scripts, and formats other than the three of custom
+  providers. A relay that mirrors a built-in provider's own API is used
+  through that provider.
+- The exact settings of a custom provider's model: it offers the settings of
+  its format, the same for every model of that format.
 - Inputs that a provider takes only as public URLs and for which it has no
   upload endpoint. Such inputs are not offered for that provider.
 - Editing tools that are not generation: upscaling, background removal,
@@ -93,6 +100,9 @@ the sound of a video.
   the catalog, each with its own id, label, and credentials.
 - **Card type**: the kind of card a model makes: Image, Video, or Audio, the
   kinds `image`, `video`, and `audio` of the catalog.
+- **Built-in provider**: a provider whose module ships with BaseHalf.
+- **Custom provider**: a provider the user adds, with a name, an API address,
+  a key, and the ids of its models (D108).
 - **Region**: one deployment of a provider with its own base URL and keys,
   such as Volcengine Ark (China) and BytePlus ModelArk (international) for
   ByteDance.
@@ -512,6 +522,107 @@ so BaseHalf shows where the other region is chosen wherever that matters:
 Nothing is asked and nothing changes by itself: the region is not chosen for
 the user, not told from the key by trying it in each region, and not switched
 after a refusal.
+
+## Custom providers
+
+A provider that BaseHalf does not integrate, such as a relay that serves
+many companies' models under one key, or a company whose API follows a
+shared format, is added by the user as a **custom provider** (D108). It has:
+
+- a **name**, 1 to 64 characters of plain text;
+- an **API address**: the base of the format's calls, usually ending in
+  `/v1`, an `https` address, or an `http` one on this computer, by the rules
+  of an endpoint ([Credentials, regions, and endpoints](#credentials-regions-and-endpoints));
+- an **API Key**, stored as the credentials of every provider are, and sent
+  as `Authorization: Bearer <key>`;
+- its **models**, 1 to 64, each by the id the service gives it (1 to 256
+  characters without spaces) and with its card type, Image, Video, or Audio;
+  an id is the model of one type;
+- for its speech models, the **voices** they speak in, 1 to 64 ids of the
+  service's; without them, the six voices that every model of OpenAI's speech
+  API has: alloy, echo, fable, onyx, nova, and shimmer.
+
+### Formats
+
+Each card type is generated in one format, which many relays and providers
+share:
+
+| Card type | Format | Calls |
+| --- | --- | --- |
+| Image | OpenAI's Image API | `POST {address}/images/generations`, JSON `model`, `prompt`, `n`, and `size` and `quality` unless they are Auto, without reference images; with them, `POST {address}/images/edits`, a multipart form of the same fields with each image as an `image[]` file. The answer holds the images, each as `b64_json` or as a `url`. |
+| Video | the video API that relays share | `POST {address}/video/generations`, JSON `model`, `prompt`, `duration`, `width`, `height`, `image` (the start frame, as a data URL) and `seed` when given, answers `task_id`; `GET {address}/video/generations/{task_id}` answers `status`, `queued` or `in_progress` (`processing` in earlier versions) while it runs, `completed` (`succeeded`) with the video's `url`, or `failed` with `error.message`. There is no cancel. |
+| Audio | OpenAI's speech API | `POST {address}/audio/speech`, JSON `model`, `input`, `voice`, `response_format: mp3`, and `speed`, answers the sound itself. The models make speech. |
+
+A model of a custom provider offers the settings of its format, the same for
+every model of that format, and the service takes or refuses them:
+
+- An image model: Ratio, `1:1` (`1024x1024`), `3:2` (`1536x1024`), `2:3`
+  (`1024x1536`), or Adaptive (Auto, the default, no `size`); Quality, Auto
+  (the default), Low, Medium, or High; Images, 1 to 4; and up to 16
+  reference images, of at most 50 MB each. The prompt is required, up to
+  32,000 characters. It delivers PNG unless the service answers another
+  format.
+- A video model: Frames mode, with an optional start frame and no end frame;
+  Duration, 1 to 20 seconds, 5 by default; Resolution, 480p, 720p (the
+  default), or 1080p; Ratio, 16:9 (the default), 9:16, 1:1, 4:3, or 3:4,
+  which give `width` and `height`: the short side is the resolution's
+  number, the long side that times the ratio, rounded to an even number
+  (720p 16:9 is 1280 × 720); and Seed, optional, under More. The prompt is
+  required without a start frame, up to 4,000 characters.
+- A speech model: Voice, the provider's voices, the first by default; and
+  Speed, 0.5 to 2, 1 by default. The prompt is what is said, up to 4,096
+  characters.
+
+A prompt names its inputs with the shared names ([Names in the
+prompt](#names-in-the-prompt)).
+
+### In the catalog
+
+The window adds each custom provider to the catalog that the provider service
+answers, after the built-in providers, in the order they were added. Its
+entry is built from what the user entered by one function of the provider
+service's common folder, which the window and the service share:
+
+- its id, `custom-` and eight hexadecimal digits, made when it is added and
+  never changed; its label, its name;
+- one region, **Custom**, whose base URL is the API address, without a
+  console;
+- one credential, **API Key**;
+- each model under an id of the catalog made from the id the service gives
+  it: in lower case, with every character that is not a letter, a digit, a
+  dot, a hyphen, or an underscore as a hyphen, cut to 56 characters, and,
+  when that changed it, a hyphen and six hexadecimal digits of the original
+  added, so that two ids never meet; its label is the service's id, which is
+  also what is sent.
+
+Every call for a custom provider, `check` too, carries what the user entered
+(`custom` of the request), and the provider service builds the provider's
+module and entry from it for that call, under the rules above; it keeps
+nothing. A request whose `custom` breaks a rule, names another id than its
+provider's, or uses the id of a built-in provider is refused, and nothing is
+sent.
+
+### On the Providers page
+
+- Each card type's list ends with **Add Provider**. It shows a form in
+  place of a provider: Name, API Address, API Key, and the id of a first
+  model of the type chosen, with the format the type uses. **Add** adds the
+  provider, set up, and shows it; what cannot be taken is shown under its
+  field, and nothing is added.
+- A custom provider is listed under each type it has a model of, as a
+  built-in one is. Its page shows its name; whether it is set up and which
+  cards its key serves; its models by type, each with a button that removes
+  it, the last one excepted; **Add Model**, with the id and its card type,
+  the type chosen first; then **Name**, **API Address**, and **API Key**,
+  saved as the endpoint and the credentials of every provider are; **Voices**,
+  when it has a speech model, ids separated by commas, saved when the field
+  is left; and **Remove Provider**.
+- Remove Provider asks first, then removes the provider, its key, and its
+  record from this computer. A card that used it says that its model is not
+  in the catalog, as for a model a release removed.
+- What the user entered is stored in the application storage of this
+  computer under `basehalf.providers.custom.v1`, the key under the address of
+  every provider's credentials, so every window has it at once.
 
 ## Requests
 
@@ -947,6 +1058,28 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     each of its types at once, without a credential of a type. The page of
     such a provider says which cards its key serves, and Remove names the
     cards of all of its types (D107).
+23. A custom provider added with a name, an API address, a key, and the id
+    of a first model is set up at once, listed under the type of its model,
+    and offered in the model menu of a card of that type under its name; a
+    model added later lists it under that model's type too; Remove Provider
+    removes it, its key, and its record from this computer (D108).
+24. A custom provider's models send the calls of their formats, with the key
+    as a Bearer token and nothing else of the user's: an image from the
+    prompt alone as JSON to `/images/generations`, and with reference images
+    as a multipart form to `/images/edits`, keeping the images answered as
+    `b64_json` or as a `url`; a video to `/video/generations`, asked about at
+    `/video/generations/{task_id}` through each of its statuses, the earlier
+    names too, until its `url` lands; and speech to `/audio/speech`, answered
+    with the sound (D108).
+25. Every call for a custom provider carries what the user entered, and the
+    provider service refuses, sending nothing, one that breaks a rule: an id
+    that is not `custom-` and eight hexadecimal digits, or another than the
+    request's provider; an address of another computer over `http`; no model,
+    or more than 64; a model id with a space, or the same id twice; a voice
+    id that cannot be one (D108).
+26. The catalog id of a custom model is the same for the same id of the
+    service each time, and two ids of the service that differ only in what
+    the catalog does not take get two ids of the catalog (D108).
 
 ## Verification
 
@@ -1020,4 +1153,16 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   workbench suite of the smoke reads the providers of each type of the real
   catalog in the window, and a window at 1440 × 900 points was looked at in
   both themes.
+- Unit tests for criteria 23 to 26: what the user entered, read and refused,
+  and the entry and the catalog ids built from it
+  (`basehalfCustomProviders.test.ts`); the calls of each format against the
+  local test provider, which answers like a relay under `/relay/v1`
+  (`custom.test.ts`); a refused definition in each command
+  (`providerCommands.test.ts`); custom providers stored, given access, and
+  added to the window's catalog (`basehalfVideoProviderSettingsService.test.ts`,
+  `basehalfVideoCatalogService.test.ts`); and the page's form, a custom
+  provider's page, and Remove Provider (`basehalfVideoProvidersPage.test.ts`).
+  The workbench suite of the smoke adds a custom provider at the local test
+  provider and reads it under its type, and the video suite generates an
+  image through it.
 - No real provider is called by tests.
