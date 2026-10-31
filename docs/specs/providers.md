@@ -1,13 +1,14 @@
 # Providers and the model catalog
 
-Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78; the region is the user's choice and the other region is easy to find, 2026-10-27, D94)
+Status: Draft (2026-10-22; video providers active since 2026-10-19; no price, 2026-10-21; image models, D64; each module names the inputs of a prompt, 2026-10-24, D74; audio models, voices, and three new providers, 2026-10-25, D78; the region is the user's choice and the other region is easy to find, 2026-10-27, D94; the Providers page sorts the providers by card type, and a provider's one key serves every card type it makes, 2026-10-31, D107)
 Decisions: [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22),
 [D70](../decisions.md#d70--what-the-inputs-leave-room-for-is-what-the-settings-offer-and-generate-says-why-it-cannot-run-where-it-is-new-2026-10-24),
 [D74](../decisions.md#d74--a-prompt-mentions-its-inputs-files-and-each-provider-module-names-them-as-its-model-reads-them-new-2026-10-24),
 [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
-[D94](../decisions.md#d94--the-region-of-a-provider-is-the-users-choice-and-the-other-region-is-easy-to-find-new-2026-10-27)
+[D94](../decisions.md#d94--the-region-of-a-provider-is-the-users-choice-and-the-other-region-is-easy-to-find-new-2026-10-27),
+[D107](../decisions.md#d107--the-providers-page-sorts-the-providers-by-card-type-and-a-providers-one-key-serves-every-card-type-it-makes-new-2026-10-31)
 Related: [generation cards](generation-cards.md),
 [built-in AI Video and no plugins](built-in-ai-video-and-no-plugins.md),
 [BaseHalf's pages in Settings](settings-pages.md) (how Settings opens at the
@@ -85,8 +86,13 @@ the sound of a video.
 
 ## Terms
 
-- **Provider**: a company's API for generative media, such as ByteDance's
-  ModelArk.
+- **Provider**: a company's API for generative media that one set of
+  credentials opens, such as ByteDance's ModelArk. Its credentials serve all
+  of its models, of every kind (D107). A company whose models of one kind
+  need credentials of their own, from another console, is two providers in
+  the catalog, each with its own id, label, and credentials.
+- **Card type**: the kind of card a model makes: Image, Video, or Audio, the
+  kinds `image`, `video`, and `audio` of the catalog.
 - **Region**: one deployment of a provider with its own base URL and keys,
   such as Volcengine Ark (China) and BytePlus ModelArk (international) for
   ByteDance.
@@ -376,13 +382,36 @@ whether it knows it.
 
 Settings has one **Providers** page
 ([BaseHalf's pages in Settings](settings-pages.md) owns how it opens). It
-lists the providers of the catalog, each with its region under its name when
-it has more than one, and shows the one selected, in this order:
+sorts the providers by card type (D107):
 
-- Its name, whether it is set up, and its models, by name, under Images,
-  Videos, and Audio, so that the user can tell which provider to get
-  credentials from. A kind the provider has no model of has no line; a model
-  the region does not offer is dimmed and says so.
+- **The card types.** Above the list of providers, a choice of **Image**,
+  **Video**, and **Audio**, in this order, one of them chosen. A type that no
+  provider of the catalog makes is not offered, and with one type there is
+  no choice.
+- **The list** holds the providers of the type chosen: each provider with a
+  model of that kind that is not deprecated, in the catalog's order. A
+  provider of several types is in the list of each: on 2026-10-31, 11
+  providers make images, 12 videos, and 5 audio, and 10 of the 16 make more
+  than one. A row shows the provider's name; under it, its region when it
+  has more than one, and otherwise how many models of the type it has; and
+  whether it is set up.
+- **Choosing another type** keeps the provider shown when the type lists it,
+  and shows the type's first provider otherwise.
+- **One setup.** A provider is set up once for all of its types: its region,
+  credentials, and endpoint, and whether it is set up, are the same in each
+  list, and a change made under one type shows under the others at once.
+  There are no credentials of a type.
+
+It shows the provider selected, in this order:
+
+- Its name, and whether it is set up; for a provider of several types, then
+  which cards its key serves, "Set up · One key for image and video cards",
+  and for a provider of one type, how many models it has. Then its models, by
+  name: those of the type chosen first, then those of its other types, each
+  type under Images, Videos, or Audio, so that the user can tell which
+  provider to get credentials from and what else the same key makes. A type
+  the provider has no model of has no line; a model the region does not
+  offer is dimmed and says so.
 - **Region**, when the provider has more than one: a button per region, in
   the catalog's order, the chosen one marked. Its hint says that each region
   has its own console, keys, and models, and asks for the region the user's
@@ -396,6 +425,9 @@ it has more than one, and shows the one selected, in this order:
 - **Credentials**: one field per value the provider declares. A value is
   stored encrypted on this computer, never in the workspace, and never shown
   again: the field says whether it is set and offers Replace and Remove.
+  Remove asks first, and names the cards that can no longer use the
+  provider, those of all of its types: "It is deleted from this computer, and
+  image and video cards cannot use ByteDance until you set it again."
 - **Endpoint**: the region's base URL unless the user enters another one, an
   `https` URL, or an `http` URL on this computer. It is how a relay or a
   private gateway that mirrors the provider's own API is used.
@@ -433,7 +465,7 @@ region's base URL, goes back to the region's base URL.
 
 The credential values of a provider are stored as one secret, a JSON object
 of the declared ids, under `basehalf.modelServices.video.<provider>.apiKey`,
-a name from before image models that serves both kinds; a provider id is
+a name from before image models that serves every kind; a provider id is
 lowercase letters, digits, and hyphens. The region, the
 endpoint, and the ids of the credential values that are set, never the
 values, are stored in the application storage of this computer under
@@ -847,7 +879,8 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
    reload or a restart, not by a second window, and not when an agent and the
    user start the same card at once.
 8. A card offers only the models of its kind, and the Providers page lists
-   each provider's models under Images, Videos, and Audio.
+   the provider selected's models under Images, Videos, and Audio, those of
+   the card type chosen first.
 9. An image request with `count` above 1 lands one file per output, and an
    output the provider refused alone is reported while the others land.
 10. A prompt in parts is written by the provider module of the request:
@@ -904,6 +937,16 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
     lines a card shows of its error; at an endpoint the user entered, for a
     provider of one region, and while BaseHalf asks about a task the provider
     accepted, the words name no region (D94).
+21. The Providers page offers Image, Video, and Audio, and lists under each,
+    in the catalog's order, every provider with a model of that kind that is
+    not deprecated, and no other; a type no provider makes is not offered.
+    Choosing another type keeps the provider shown when the type lists it,
+    and shows the type's first provider otherwise (D107).
+22. A provider of several types is set up once: credentials set, replaced,
+    or removed, or a region or an endpoint chosen, under one type show under
+    each of its types at once, without a credential of a type. The page of
+    such a provider says which cards its key serves, and Remove names the
+    cards of all of its types (D107).
 
 ## Verification
 
@@ -967,4 +1010,14 @@ catalog once its module is in `PROVIDER_MODULES`, and not before.
   2026-10-27 a ByteDance image card generated in each region with a key the
   region refused, against the local test provider put at both regions'
   addresses, showed both regions in its two lines.
+- Unit tests of the Providers page for criteria 21 and 22: the types
+  offered, and none for a catalog of one kind; the providers of each type,
+  in order, a deprecated model counting for none; the provider kept or the
+  first shown when the type changes; the keyboard on the types; what the
+  page of a provider of one and of several types says, and its models of the
+  type chosen first; a credential set under one type shown as set under
+  another without a render of its own; and the words of Remove. The
+  workbench suite of the smoke reads the providers of each type of the real
+  catalog in the window, and a window at 1440 × 900 points was looked at in
+  both themes.
 - No real provider is called by tests.

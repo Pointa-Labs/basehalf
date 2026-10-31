@@ -5045,3 +5045,65 @@ with its model's name, at the other end from New Version.
   [Copy, paste, and drop](specs/copy-paste-and-drop.md#the-input-row-of-a-draft):
   a click on one of the two buttons gives the panel the keyboard.
 - Nothing that is stored or sent changes.
+
+## D107 — The Providers page sorts the providers by card type, and a provider's one key serves every card type it makes (NEW, 2026-10-31)
+
+**Decision.** Above the list of the Providers page in Settings, a choice of
+**Image**, **Video**, and **Audio** shows the providers of that card type:
+each provider with a model of that kind, in the catalog's order. A provider
+is one set of credentials, which serves all of its models, so a provider of
+several types is in the list of each and is set up once: its region,
+credentials, and endpoint, and whether it is set up, are the same under each
+type. Its page says which cards its key serves ("One key for image and video
+cards"), lists the models of the type chosen first, and Remove names the
+cards of all of its types. Set Up and Providers… of a card's panel, and Set
+Up of its voice menu, open the page at the card's type and the card's
+provider. A company whose models of one kind need credentials of their own
+is listed as a second provider, under the types of those models. See
+[providers](specs/providers.md#credentials-regions-and-endpoints) and
+[BaseHalf's pages in Settings](specs/settings-pages.md#opening-settings-at-a-page).
+
+**Why.** On 2026-10-31 the user asked for the providers in Settings to be
+sorted, since one key of some providers serves several kinds of media and
+others each have their own key, and for the logic and the page to agree,
+preferably by card type ("有的是一个 key 管好几个多模态（图片、视频），还有各有各的key，我们这里的逻辑和 UI 要理顺。最好还是按卡片类型去分类").
+Measured that day in a window of 1440 × 900 points, the page listed its 16
+providers in one column, 927 pixels tall in a list that shows 378, so about
+six were in view; the three providers that make only audio were its last
+three rows. A row said only the provider's region or how many models of all
+kinds it has, and nothing on the page said that one key serves several
+types: its subtitle and the question before Remove named image and video
+cards only, ElevenLabs' too, which makes only audio. Of the 16 providers, 10
+make more than one type with one key (eight images and videos; MiniMax and
+Google also audio), and 6 make one (PixVerse and LTX videos, OpenAI images,
+ElevenLabs, Fish Audio, and Mureka audio). Sorted by type, 11 providers make
+images, 12 videos, and 5 audio. The catalog already declared one set of
+credentials per provider for all of its models, as D64 chose because a user
+who set up video should get images without a new key; only the page did not
+show it.
+
+**What was set aside.**
+- A page per type in the Settings table of contents, such as Image
+  Providers: the key of a provider of several types would be on two or three
+  pages, the split that D64 ended when it merged Video Providers into
+  Providers, and the application menu's Providers would have to choose one.
+- Credentials per type of a provider, so that a key is entered for images
+  and again for videos: every provider in the catalog takes the same key for
+  all of its models, so a second field would ask for the same value and
+  could hold two that disagree.
+- The three types as headings of one list: 28 rows, since 10 providers would
+  be listed twice or three times.
+- Sorting by how many types a key serves: the user chose the card type.
+- Listing the providers that are set up first, as the model menu does: a row
+  would move under the pointer as its key is set.
+
+**Consequences.**
+- [Providers](specs/providers.md): the terms Provider and Card type,
+  "Credentials, regions, and endpoints", and criteria 8, 21, and 22.
+- [BaseHalf's pages in Settings](specs/settings-pages.md): Providers opens at
+  a card type and a provider; criterion 9.
+- [Generation cards](specs/generation-cards.md): Providers, the model menu's
+  Providers…, Set Up of the panel and of the voice menu, and criteria 13,
+  18, and 85.
+- The opening of the page carries the card type with the provider; nothing
+  that is stored or sent changes.

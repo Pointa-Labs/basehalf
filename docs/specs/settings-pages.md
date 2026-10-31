@@ -1,13 +1,15 @@
 # BaseHalf's pages in Settings
 
 Status: Active (2026-10-21; the Video Providers page is Providers since
-2026-10-22, D64)
+2026-10-22, D64; Providers opens at a card type since 2026-10-31, D107)
 Decisions: [D49](../decisions.md#d49--the-state-of-an-update-is-a-page-in-settings-not-a-card-new-2026-10-12)
 put the About page in Settings,
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
-the Video Providers page, and
+the Video Providers page,
 [D64](../decisions.md#d64--basehalf-generates-images-with-the-same-cards-panel-and-providers-new-2026-10-22)
-renamed it Providers.
+renamed it Providers, and
+[D107](../decisions.md#d107--the-providers-page-sorts-the-providers-by-card-type-and-a-providers-one-key-serves-every-card-type-it-makes-new-2026-10-31)
+sorted it by card type.
 Related: [providers](providers.md#credentials-regions-and-endpoints)
 (what the Providers page holds), [app update](app-update.md#where-an-update-shows)
 (what the About page holds), [generation cards](generation-cards.md#the-panel)
@@ -97,9 +99,23 @@ About:
 ## Opening Settings at a page
 
 These open Settings at a page: **Set Up** and **Providers…** of the panel of
-a generation card and its model menu, the command **Providers** (also in the
-Preferences part of the application menu), and the command **About
-BaseHalf**. Providers opens at a provider when one is given.
+a generation card and its model menu, **Set Up** of its voice menu, the
+command **Providers** (also in the Preferences part of the application
+menu), and the command **About BaseHalf**.
+
+Providers opens at a card type and a provider when they are given
+([providers](providers.md#credentials-regions-and-endpoints), D107):
+
+- From a card, at the card's type and the card's provider: an audio card's
+  Set Up opens Audio with its provider selected.
+- With a provider alone, or with a type that does not list the provider, at
+  the first type that lists it. With a type alone, at that type, where the
+  provider shown stays when the type lists it, as when the type is chosen on
+  the page. A type the page does not offer, or a provider the catalog does
+  not have, is not given.
+- With neither, as from the application menu: where the page is, when
+  Settings shows it already, and otherwise at Image and its first provider.
+- The provider selected is in view in its list.
 
 - **The first frame shows the page.** Settings never shows another page or a
   list of settings before it, and the overlay never shows an empty body.
@@ -140,7 +156,8 @@ BaseHalf**. Providers opens at a provider when one is given.
   pages, from the id of a page's entry to the page.
 - `ISettingsEditorOptions.customSection` in
   `services/preferences/common/preferences.ts`: opening Settings at a page,
-  with what the page should show (for Providers, a provider). The
+  with what the page should show (for Providers, a card type and a
+  provider). The
   option travels with the opening, as the base's own `query` does, so the
   first drawing of Settings already holds the page.
 - `contrib/preferences/browser/settingsEditor2.ts`: shows a page in place of
@@ -170,6 +187,10 @@ BaseHalf**. Providers opens at a provider when one is given.
 8. Clicking a page, or a control on it, draws no focus ring; choosing a
    region with the arrow keys keeps the focus on the region, with a ring,
    and Escape then closes Settings; after Set, the focus is on Replace.
+9. Set Up and Providers… of an image, a video, and an audio card, and Set Up
+   of the voice menu, open Providers at the card's type with the card's
+   provider selected and in view in the list; the command Providers opens it
+   at Image, or where it is when Settings shows it already (D107).
 
 ## Verification
 
@@ -181,5 +202,12 @@ BaseHalf**. Providers opens at a provider when one is given.
   of the table of contents and no heading of the settings list
   (`settingsCustomSections.test.ts`).
 - The smoke: Settings opens at Providers from its command and from Set Up
-  (`areas/workbench/settings.mts`, `areas/video/videoNode.mts`). The smoke
-  runs Settings in the editor area.
+  (`areas/workbench/settings.mts`, `areas/video/generationCards.mts`), at
+  Image from the command and at Audio from the Set Up of a speech card's
+  voice menu (`areas/video/audioCards.mts`). The smoke runs Settings in the
+  editor area.
+- Unit tests of the Providers page for criterion 9: an opening at a type and
+  a provider, at a provider alone, and with neither while the page is shown
+  (`basehalfVideoProvidersPage.test.ts`); the type that each panel and the
+  voice menu open at (`basehalfVideoNodePanel.test.ts`,
+  `basehalfGenerationVoiceMenu.test.ts`).

@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes; 2026-10-31, D106: every panel's footer begins with the two buttons that add an input and ends with the model beside Generate, and the panel of a card with its file ends with its model's name beside New Version)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes; 2026-10-31, D106: every panel's footer begins with the two buttons that add an input and ends with the model beside Generate, and the panel of a card with its file ends with its model's name beside New Version; D107: Set Up and Providers… open Providers at the card's type)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -17,7 +17,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D90](../decisions.md#d90--an-image-cards-panel-shows-what-image-models-take-new-2026-10-27),
 [D91](../decisions.md#d91--each-kind-of-generation-card-has-a-panel-of-its-own-new-2026-10-27),
 [D104](../decisions.md#d104--copy-paste-and-a-drop-hand-over-one-transfer-and-the-place-that-has-the-keyboard-takes-it-new-2026-10-29),
-[D106](../decisions.md#d106--every-panels-footer-begins-with-the-buttons-that-add-an-input-and-ends-with-the-model-beside-generate-new-2026-10-31)
+[D106](../decisions.md#d106--every-panels-footer-begins-with-the-buttons-that-add-an-input-and-ends-with-the-model-beside-generate-new-2026-10-31),
+[D107](../decisions.md#d107--the-providers-page-sorts-the-providers-by-card-type-and-a-providers-one-key-serves-every-card-type-it-makes-new-2026-10-31)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -721,10 +722,14 @@ write, and what the panel shows as a chip with the file's name
 
 The providers, their models, and the credentials users enter for them are
 specified in [providers and the model catalog](providers.md). The user sets
-them up in Settings, on the **Providers** page. A card offers the models of
-its kind: an image card the image models, a video card the video models,
-and an audio card the audio models, of speech, music, and sound effects
-alike.
+them up in Settings, on the **Providers** page, which sorts them by card
+type, Image, Video, and Audio; a provider of several types is set up once
+for all of them (D107). A card offers the models of its kind: an image card
+the image models, a video card the video models, and an audio card the
+audio models, of speech, music, and sound effects alike. Every way from a
+card to the page, Set Up and Providers… of its panel and Set Up of its voice
+menu, opens it at the card's type and the card's provider
+([settings pages](settings-pages.md#opening-settings-at-a-page)).
 
 ## Settings
 
@@ -1033,7 +1038,8 @@ parts, in the order a panel shows them:
      of that many thousand pixels a side, so 720p < 768p < 1k < 1080p <
      1.5k < 2k < 3k < 4k. A model the provider's region does not offer is shown
      dimmed with the reason, and can still be chosen. Deprecated models are
-     listed only for a card that uses one. The menu ends with **Providers…**.
+     listed only for a card that uses one. The menu ends with **Providers…**,
+     which opens Providers at the card's type and the card's provider.
    - While the catalog loads, the model button says so and its menu holds
      only **Providers…**; when it could not be loaded, the menu says why. The
      window asks the provider service for the catalog once and keeps it; a failed request
@@ -1087,7 +1093,7 @@ parts, in the order a panel shows them:
        the list of the region comes. When the provider is not set
        up, it shows the catalog's voices and "Set up <provider> to choose
        from all of its voices and your own." with **Set Up**, which opens
-       Providers at the provider. When the list cannot be loaded, it shows
+       Providers at Audio and the provider. When the list cannot be loaded, it shows
        the last list it has, or else the catalog's voices, with "The voices
        could not be loaded: <reason>" and **Try Again**. When the provider
        had more voices than BaseHalf lists, a line at the end says "Showing
@@ -1148,8 +1154,9 @@ model button is outlined and its tooltip says the same.
 
 The panel also shows that reason as a line above the footer, at most two
 lines tall, only when it is fixed outside the panel (D70): **Set Up** opens
-Providers at the provider that is not set up, **Providers…** opens it at the
-provider whose region does not offer the model or the mode, and a catalog
+Providers at the card's type and the provider that is not set up,
+**Providers…** opens it at the card's type and the provider whose region
+does not offer the model or the mode, and a catalog
 that could not be loaded says why. A reason that the panel itself fixes, an
 input, a setting, the model, or the prompt, shows no line: Generate is
 dimmed, its pointer is the not-allowed one, and its tooltip says why, as a
@@ -2155,10 +2162,11 @@ Inputs
 
 Providers
 
-13. Providers lists the catalog's providers, each with its models under Images,
-    Videos, and Audio; a provider is set up with a region and its credentials, which
-    are stored encrypted and are in no workspace file and not in the page's
-    DOM.
+13. Providers lists the catalog's providers by card type, Image, Video, and
+    Audio, a provider of several types under each with one setup, and shows
+    a provider's models under Images, Videos, and Audio; a provider is set
+    up with a region and its credentials, which are stored encrypted and are
+    in no workspace file and not in the page's DOM.
 14. The model menu of a card lists the catalog's models of the card's kind by
     provider, the providers that are set up first, each model with its
     abilities on a second line, and marks a provider that is not set up and a
@@ -2178,7 +2186,7 @@ Panel and card
 18. The Generate button is disabled with the first blocker as its tooltip and
     accessible name, in the specified order; the panel shows that reason as a
     line above the footer only when it is fixed outside the panel, whose Set
-    Up opens Providers at the provider.
+    Up opens Providers at the card's type and the provider.
 19. A name in the prompt that matches no input is underlined as a warning;
     `@` opens the reference menu (criterion 54).
 
@@ -2460,7 +2468,7 @@ Audio cards (D78)
     sound, does not.
 85. With the provider not set up, the voice menu lists the catalog's voices
     and says "Set up <provider> to choose from all of its voices and your
-    own." with Set Up, which opens Providers at the provider; once the
+    own." with Set Up, which opens Providers at Audio and the provider; once the
     provider is set up while the menu is open, the menu says "Loading
     voices…" and asks for the voices. With a list that cannot be loaded, it
     lists the catalog's voices with the reason and Try Again; a voice the
