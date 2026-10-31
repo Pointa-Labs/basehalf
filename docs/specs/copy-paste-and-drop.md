@@ -200,12 +200,13 @@ place that should take something needed code of its own, and most had none.
 
 ### The input row of a draft
 
-- The input row has the keyboard after a click on it, on a tile, on an empty
-  frame, or on one of the two buttons that add an input
-  ([generation cards](generation-cards.md#the-panel)). A press anywhere on
+- The input row has the keyboard after a click on it, on a tile, or on an
+  empty frame. A click on one of the two buttons that add an input, at the
+  start of the panel's footer (D106,
+  [generation cards](generation-cards.md#the-panel)), or a press anywhere on
   the panel where it has no control gives the panel the keyboard, with no
-  ring, and a paste there is a paste in the input row. So an image draft,
-  which shows no input row until it has an input, takes a paste too.
+  ring, and a paste there is a paste in the input row. So a draft that shows
+  no input row, as an image draft until it has an input, takes a paste too.
 - Items of this workspace folder are connected where they are, as Pick on
   Canvas connects a card; nothing is copied or moved, also when they were
   cut, and the clipboard stays as it is. Drafts are connected as cards are.

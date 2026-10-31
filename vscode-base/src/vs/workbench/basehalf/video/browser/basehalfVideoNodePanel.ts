@@ -244,9 +244,10 @@ interface IPendingCheck {
  * The panel under a selected draft (D63, D64, D78, generation cards, "The
  * panel"), named for the Video node it began as: the parts every kind's panel
  * is made of and the rules they keep wherever a kind places them (D91). Its
- * parts are the card's inputs, the two buttons that add one, its prompt, and
- * a footer with the model of the card's kind, the voice of a model that
- * speaks, the settings, and Generate, all drawn from the model catalog. It
+ * parts are the card's inputs, its prompt, and a footer with the two buttons
+ * that add an input at its start and the settings, the voice of a model that
+ * speaks, the model of the card's kind, and Generate at its end (D106), all
+ * drawn from the model catalog. It
  * reads and writes the card's generation information through the card store,
  * edits its connections through the reference edit service, and generates and
  * stops through the generation service. It keeps its element
@@ -276,7 +277,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 
 	/** The card's connections as tiles (D68). */
 	private readonly inputRow: BaseHalfGenerationInputRow;
-	/** Pick on Canvas and Import File…, where the card's kind places them (D71, D91). */
+	/** Pick on Canvas and Import File…, at the start of the footer of every kind (D71, D106). */
 	private readonly addButtons: BaseHalfGenerationAddButtons;
 	private readonly promptBox: HTMLElement;
 	/** The prompt, whose names of inputs are chips (D68). */
@@ -288,7 +289,7 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 	private readonly reasonAction: HTMLButtonElement;
 	private readonly modelButton: HTMLButtonElement;
 	private readonly modelLabel: HTMLElement;
-	/** The voice of a model that speaks, after the model (D78). */
+	/** The voice of a model that speaks, between the settings and the model (D78, D106). */
 	private readonly voiceButton: HTMLButtonElement;
 	private readonly voiceLabel: HTMLElement;
 	private readonly settingsButton: HTMLButtonElement;
@@ -1350,7 +1351,9 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 			store,
 			content: store.add(new DisposableStore()),
 			anchor: () => this.menuAnchor(kind, trigger),
-			align: 'start',
+			// The settings, the voice, and the model end the footer: their menus end where the button ends,
+			// over the panel; an empty frame's menu begins where the frame begins (D106).
+			align: kind === 'add' ? 'start' : 'end',
 			byPointer
 		};
 		this.openMenu = menu;
@@ -1467,8 +1470,9 @@ export abstract class BaseHalfVideoNodePanel extends Disposable {
 		menu.element.dataset.side = placement.side;
 		menu.element.style.width = `${placement.width}px`;
 		menu.element.style.maxHeight = `${placement.maxHeight}px`;
-		menu.element.style.left = `${placement.left - (panel.left - canvas.left)}px`;
-		menu.element.style.top = `${placement.top - (panel.top - canvas.top)}px`;
+		// The layer that holds the menu lies inside the panel's border.
+		menu.element.style.left = `${placement.left - (panel.left + this.element.clientLeft - canvas.left)}px`;
+		menu.element.style.top = `${placement.top - (panel.top + this.element.clientTop - canvas.top)}px`;
 	}
 
 	/**

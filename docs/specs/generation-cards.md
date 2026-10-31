@@ -1,6 +1,6 @@
 # Generation cards
 
-Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes)
+Status: Draft (2026-10-22, reviewed once; replaces the Video node specification of 2026-10-15 to 2026-10-22; 2026-10-23, D67: a draft is what will be made, a card with its file shows what made it, New Version, and every input of a draft is used; 2026-10-24, D68: the input row is the card's connections as tiles, a name in the prompt is a chip that follows its input, and `@` opens the reference menu; D69: Pick on Canvas stays on and shows what a click does; D70: the inputs narrow the settings, and Generate says why it cannot run; D71: adding an input is two buttons at the panel's top right, and notes are in the reference menu; D74: a prompt mentions its inputs' files, and each provider module names them as its model reads them; 2026-10-25, D78: audio cards that make speech, music, and sound effects, the voice button, Lyrics mode, and notes that are spoken or sung; 2026-10-27, D90: an image card's panel shows what image models take: no mode, a count of 1 to 4 as buttons, and only the kinds of input an image model uses; D91: each kind has a panel of its own, made of the same parts over the same rules; an image card's has no input row until it has an input, its two buttons that add one are at the start of its footer, and its count goes as far as its model makes; 2026-10-31, D106: every panel's footer begins with the two buttons that add an input and ends with the model beside Generate, and the panel of a card with its file ends with its model's name beside New Version)
 Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
 [D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19),
 [D61](../decisions.md#d61--basehalf-shows-no-price-new-2026-10-21),
@@ -16,7 +16,8 @@ Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connecti
 [D78](../decisions.md#d78--basehalf-makes-speech-music-and-sound-effects-with-the-same-cards-panel-and-providers-new-2026-10-25),
 [D90](../decisions.md#d90--an-image-cards-panel-shows-what-image-models-take-new-2026-10-27),
 [D91](../decisions.md#d91--each-kind-of-generation-card-has-a-panel-of-its-own-new-2026-10-27),
-[D104](../decisions.md#d104--copy-paste-and-a-drop-hand-over-one-transfer-and-the-place-that-has-the-keyboard-takes-it-new-2026-10-29)
+[D104](../decisions.md#d104--copy-paste-and-a-drop-hand-over-one-transfer-and-the-place-that-has-the-keyboard-takes-it-new-2026-10-29),
+[D106](../decisions.md#d106--every-panels-footer-begins-with-the-buttons-that-add-an-input-and-ends-with-the-model-beside-generate-new-2026-10-31)
 Related: [providers and the model catalog](providers.md),
 [reference graph](reference-graph.md),
 [following moved items](following-moved-items.md),
@@ -117,6 +118,21 @@ decoupled, since one of them cannot govern every card (D91):
   generation, Grok Imagine Image and GPT Image up to 10, Kling Image 3.0 and
   MiniMax Image-01 up to 9, and Qwen-Image up to 6; the panel offered 1 to 4,
   and only an agent could ask for more (D90).
+
+Found on 2026-10-31, when the user asked that every panel be laid out as the
+input box of an agent app, with the button that sends at the bottom right,
+the model left of it, and the buttons that add an input at the bottom left
+(D106):
+
+- **The buttons that add an input were in two places.** A video and an audio
+  card held them at the panel's top right, at the end of the input row
+  (D71), and an image card at the start of its footer (D91). An audio card
+  whose model takes no input, as a speech model, shows no row, and so had
+  neither: a note to be spoken could be connected only on the canvas or with
+  `@`.
+- **The model began the footer**, with the settings between it and Generate,
+  and the panel of a card with its file began with its model's name, at the
+  other end from New Version.
 
 ## Goals
 
@@ -818,14 +834,15 @@ buttons that add an input, the prompt, the reason line, the model button, the
 voice button, the settings button, and Generate, which work by the same rules
 wherever they are; each kind's panel shows the parts its models use, where
 that kind places them ([The panel of each kind](#the-panel-of-each-kind)), and
-a change to one kind's panel changes no other kind's. The parts, in the order
-a panel shows them:
+a change to one kind's panel changes no other kind's. Every kind lays out its
+footer alike, as a box where text is written lays out its own (D106): what
+adds an input at its start, and the model beside Generate at its end. The
+parts, in the order a panel shows them:
 
 1. **Input row**, when the card has inputs, and on a video or an audio card
    also when its mode takes any: the card's connections as tiles, in the
-   order of its `upstream` list, and on a video or an audio card at its right
-   end, the panel's top right, the two buttons that add an input (D71).
-   The row and the connections on the canvas are one list. A connection made
+   order of its `upstream` list. The row and the connections on the canvas
+   are one list. A connection made
    or removed anywhere adds or takes away its tile at once; removing a tile
    removes its connection; and every way the row adds an input draws its
    connection, or is refused as a connection on the canvas is
@@ -869,9 +886,8 @@ a panel shows them:
      tile is the arrow, also while it is dragged, since a tile is no card
      that moves; over its cross and its `@` it is the pointing hand (D71).
      The swap arrow exchanges the two frames' entries in `upstream`.
-   - **The two buttons** that add an input, at the row's right end on a
-     video or an audio card and at the start of the footer on an image card
-     (D91), are **Pick on Canvas**, which
+   - **The two buttons** that add an input, at the start of the footer on
+     every kind's panel (D106), are **Pick on Canvas**, which
      starts and ends picking, where clicking cards of the canvas connects
      them ([Pick on Canvas](#pick-on-canvas)), and is highlighted while the
      draft picks; and **Import File…**, which copies a file into the card's
@@ -917,8 +933,7 @@ a panel shows them:
      as the drawing from the folder places them. Without the panel, as for
      an undo after the card was left, the canvas draws the change when it
      reads the folder.
-   - The tiles scroll sideways when they do not fit; the two buttons, where
-     the row has them, stay at the right.
+   - The tiles scroll sideways when they do not fit.
 2. **Prompt**: a text field that grows to five lines and then scrolls.
    - **Its placeholder says what the prompt is**, by the card's kind, what
      its model makes, and the mode that is used: "Describe the image.",
@@ -984,9 +999,15 @@ a panel shows them:
      composes text. Saving never opens a dialog. When the file changes
      underneath while the field has the focus, the field keeps what the user
      typed; at rest it shows the new prompt.
-3. **Footer**: on an image card the two buttons that add an input first
-   (D91); the model button, the voice button when the model speaks, the
-   settings button, and the Generate button.
+3. **Footer**, laid out on every kind's panel as a box where text is written
+   lays out its own (D106): at its left, the two buttons that add an input,
+   Pick on Canvas and Import File…; at its right, the settings button, the
+   voice button when the model speaks, the model button, and the Generate
+   button, which ends the footer, so that the model is chosen beside the
+   button that generates. While the draft generates, the two buttons are
+   gone and the right keeps its place. When the footer has no room for every
+   label, the summary of the settings ends in an ellipsis first, and then the
+   voice's name; the model's name stays whole up to its width, 208 px.
    - The model button shows the model's name. A tooltip it showed goes when
      what it says changes under the pointer, as Generate's does, so that a
      model chosen from its menu is never followed by "Choose a model to
@@ -1018,8 +1039,8 @@ a panel shows them:
      window asks the provider service for the catalog once and keeps it; a failed request
      is tried once more a second later, and again when a panel or the
      Providers page opens.
-   - **The voice button**, after the model button when the model has a
-     `voice` parameter ([providers, Voices](providers.md#voices)), shows the
+   - **The voice button**, between the settings button and the model button
+     when the model has a `voice` parameter ([providers, Voices](providers.md#voices)), shows the
      glyph of a voice and the voice's name: the name the catalog or the last
      list of the provider gives it, or its id when neither has it. A voice
      that only that list names, one the catalog does not declare for a model
@@ -1100,10 +1121,10 @@ a panel shows them:
 
 The rows share the panel's edges. The tiles, the text of the prompt, a chip
 at the start of a line of it, the warning icon of the reason that Generate
-cannot run, and the footer's first button, the model button or on an image
-card Pick on Canvas, begin at one left edge, and the reason's
-action ends where the Generate button ends; in the panel of a card with its
-file, the line under the prompt and the model's name begin there too. A
+cannot run, and the footer's first button, Pick on Canvas, begin at one left
+edge, and the reason's action ends where the Generate button ends; in the
+panel of a card with its file, the line under the prompt begins there too,
+and New Version ends where Generate ends (D106). A
 chip in the prompt stands on the line of its text: its name and the text
 around it share a baseline.
 
@@ -1161,9 +1182,9 @@ enabled. `Escape` closes the innermost open menu or popover, and with none
 open, returns focus to the card. The input row is one stop of Tab: Left and
 Right move between its tiles and buttons, Delete or Backspace on a tile
 removes its connection, Enter on a tile puts its mention into the prompt,
-and Alt+Left and Alt+Right move the tile one place. On an image card the two
-buttons that add an input are stops of Tab of their own, in the footer before
-the model button. Menus follow the
+and Alt+Left and Alt+Right move the tile one place. The two buttons that add
+an input are stops of Tab of their own, the first of the footer, before the
+settings button (D106). Menus follow the
 arrow keys, Home, End, and Enter. A menu starts at its checked item; without one, a menu opened from
 the keyboard starts at its first item, and a menu opened by a click has no
 current item until Down chooses the first or Up the last.
@@ -1179,8 +1200,7 @@ chosen with the mouse leaves no ring on the model button.
 ### Pick on Canvas
 
 **Pick on Canvas**, the first of the two buttons that add an input, at the
-panel's top right on a video or an audio card and at the start of the footer
-on an image card (D91),
+start of the panel's footer (D106),
 connects cards of the canvas to the draft by clicking them (D69). It stays on until it is ended,
 and a click on a connected card removes it again. A card with its file and a
 draft that generates do not offer it.
@@ -1234,12 +1254,13 @@ there.
 
 ### The panel of each kind
 
-Each kind's panel shows these parts, from top to bottom (D91):
+Each kind's panel shows these parts, from top to bottom (D91), and its
+footer from left to right (D106):
 
 - **An image card**: the input row only while the card has inputs, with its
   tiles alone, since no image model takes a frame or a clip; the prompt; the
-  reason line; and the footer: Pick on Canvas and Import File…, the model
-  button, the settings button, and Generate. With nothing connected the
+  reason line; and the footer: Pick on Canvas and Import File…, then at its
+  right the settings button, the model button, and Generate. With nothing connected the
   panel is its prompt and its footer, 132 px tall, with the reason line when
   one shows, and no line says what can be added: the two buttons, the
   reference menu that `@` opens, and the prompt's placeholder do. The first
@@ -1248,14 +1269,16 @@ Each kind's panel shows these parts, from top to bottom (D91):
   removing the last one takes the row away again.
 - **A video card**: the input row whenever the card has inputs or its mode
   takes any, with its Start and End frames, the swap arrow, its other inputs,
-  what a row without inputs says, and the two buttons at its right end
-  (D71); the prompt; the reason line; and the footer: the model button, the
-  settings button, and Generate.
+  and what a row without inputs says; the prompt; the reason line; and the
+  footer: Pick on Canvas and Import File…, then at its right the settings
+  button, the model button, and Generate.
 - **An audio card**: the input row whenever the card has inputs or its mode
-  takes any, with its inputs, what a row without inputs says, and the two
-  buttons at its right end; the prompt; the reason line; and the footer: the
-  model button, the voice button when the model speaks (D78), the settings
-  button, and Generate.
+  takes any, with its inputs and what a row without inputs says; the prompt;
+  the reason line; and the footer: Pick on Canvas and Import File…, then at
+  its right the settings button, the voice button when the model speaks
+  (D78), the model button, and Generate. A card whose model takes no input,
+  as a speech model, has no row until an input is connected, as a note to be
+  spoken, and has the two buttons in its footer all the same.
 
 What each part shows comes from one presentation of the card's generation
 information, its inputs, and the catalog, the same for every kind, so that
@@ -1284,12 +1307,14 @@ top to bottom:
    file adds how it was edited: "Edited: Trimmed to 1.0s–4.5s.", "Edited:
    Turned · Cropped to 1600 × 900.", "Edited: Trimmed to 3 parts."
    ([editing media](media-editing.md#generation-cards)).
-4. **Footer**: the model's name, the voice it spoke in for a speech model,
-   and the summary of the settings it was made with, as text, with the names
+4. **Footer**, at its right as a draft's (D106): the summary of the settings
+   it was made with, the voice it spoke in for a speech model, and the
+   model's name, as text, with the names
    from the catalog, or for the voice from the provider's last list of
    voices in the region the record names, when they have them, and the
-   recorded ids otherwise; and **New Version** at the right, where a draft
-   has Generate. A voice that only that list names, as a voice of the
+   recorded ids otherwise; and **New Version**, which ends the footer where a
+   draft has Generate, with the model's name beside it as a draft's model
+   button is beside Generate. A voice that only that list names, as a voice of the
    account, has the window ask for the list once, as the voice button does
    ([The panel](#the-panel)), when that region is the one in use, and is
    named once it comes. The model's name and the voice's stay whole up to
@@ -1318,7 +1343,10 @@ card is off the canvas, the panel is hidden. Opening the panel never pans or
 zooms the canvas. Moving or resizing the card takes the panel along on the
 side it was on. A menu or popover of the panel opens upward when there is no
 room below, stays inside the canvas, and scrolls inside itself; a menu of the
-footer that opens below opens below the panel.
+footer that opens below opens below the panel. The menu of a control at the
+footer's right, the settings, the voice, and the model, ends where its
+control ends, so that it opens over the panel and not past its right edge;
+the menu of an empty frame begins where the frame begins (D106).
 
 **A panel shows in the shape it keeps** (D91). The panel of a draft and the
 panel of a card with its file show once they have read the card and its
@@ -2332,9 +2360,9 @@ Pick on Canvas (D69)
     pointer changes its look in one frame: the accent outline appears or
     goes once, and the card's element, picture, and video stay.
 63. The tiles, the prompt's text and a chip at its start, the reason's icon,
-    and the model button begin at one left edge, within half a pixel, and
-    the reason's action and the Generate button end at one right edge; a
-    chip's text and the prompt's text share a baseline.
+    and Pick on Canvas begin at one left edge, within half a pixel, and the
+    reason's action and the Generate button end at one right edge; a chip's
+    text and the prompt's text share a baseline.
 64. A connection made or removed in the panel, and its undo and redo while
     the panel is shown, changes the canvas's line in the frame that changes
     the tile or the next one, also while the computer is busy: frames are
@@ -2355,9 +2383,8 @@ Ranges, lengths, and Generate (D70)
 
 Adding inputs and notes (D71)
 
-69. A video or an audio draft's panel has Pick on Canvas and Import File… as
-    two icon buttons at its top right, at the end of the input row, and an
-    image draft's at the start of its footer (D91), with their names as
+69. A draft's panel of every kind has Pick on Canvas and Import File… as
+    two icon buttons at the start of its footer (D106), with their names as
     tooltips, and no plus; Import File…'s icon is the paperclip, and no
     control of a generation card shows a cloud; a click on Pick on Canvas
     starts picking and highlights it with the accent, and a second click
@@ -2491,16 +2518,17 @@ Each kind's panel (D91)
 95. An image draft with nothing connected has a panel of its prompt and its
     footer, 132 px tall, with no input row and no "Add images as
     references"; its footer begins with Pick on Canvas and Import File…,
-    then the model button and the settings button, and ends with Generate.
+    and ends with the settings button, the model button, and Generate
+    (D106).
     Connecting an image, by the reference menu, Pick on Canvas, or a line
     drawn on the canvas, shows the row with its tile above the prompt while
     the two buttons stay where they were, and removing it takes the row
     away again.
-96. A new video draft's panel still shows its empty Start and End frames,
-    the swap arrow, and the two buttons at its top right, and an audio
-    draft's its row's hint and the two buttons there, with the voice button
-    in the footer for a model that speaks: what D91 changed of an image
-    card's panel changed nothing of theirs.
+96. A new video draft's panel still shows its empty Start and End frames
+    and the swap arrow, and an audio draft's its row's hint, with the voice
+    button in the footer for a model that speaks: what D91 changed of an
+    image card's panel changed nothing of theirs. Their two buttons that add
+    an input are in the footer, as an image draft's are (D106).
 97. While an image draft picks, its Pick on Canvas in the footer is
     highlighted with the accent and tells assistive technology what a click
     does, the bar over the canvas shows, and a second click on the button,
@@ -2518,6 +2546,28 @@ Each kind's panel (D91)
     8 px inside the picture's edges, 30 px high, and at most 480 px wide.
     The time on the bar reads over a white picture and over a black one. A
     card at rest shows its picture with nothing over it.
+
+Each panel's footer (D106)
+
+100. The footer of an image, a video, and an audio draft's panel, also of a
+     speech model's, which has no input row, holds Pick on Canvas and Import
+     File… at its left and the settings button, the voice button for a model
+     that speaks, the model button, and Generate at its right, in that order:
+     Pick on Canvas begins at the panel's left edge and Generate ends at its
+     right edge, and the model button ends 6 px before Generate begins. While
+     the draft generates, the two buttons are gone and the model button and
+     the stop square keep their places.
+101. When the footer has no room for every label, as for a speech model with
+     a long name and a long voice's name, the summary of the settings ends in
+     an ellipsis first, the voice's name next, and the model's name stays
+     whole up to 208 px.
+102. The menus of the settings button, the voice button, and the model button
+     end where their button ends, as far as the canvas's edge allows; the
+     menu of an empty frame begins where the frame begins.
+103. The footer of the panel of a card with its file ends with New Version at
+     the panel's right edge, with the model's name 6 px before it, and the
+     voice for a speech model and the summary of the settings before the
+     model's name.
 
 ## Verification
 
@@ -2622,13 +2672,20 @@ Each kind's panel (D91)
   (`basehalfVideoNodePanel.test.ts`); the panel shown once it has read its
   card, the panel before it kept until then, one still reading that is never
   shown, and the 300 ms after which a panel shows as it is
-  (`basehalfCanvasVideoPanel.contribution.test.ts`); the buttons the input
-  row holds (`basehalfGenerationInputRow.test.ts`);
+  (`basehalfCanvasVideoPanel.contribution.test.ts`);
   the count's buttons from 1 to as far as the model makes, in rows, and the
   model menu's line (`basehalfGenerationKindParts.test.ts`).
+- Unit tests for D106: the footer of each kind's panel from left to right,
+  a speech model's with its two buttons and no row, where its parts begin
+  and end, the summary of the settings that gives way before the voice's
+  name, and the footer while the draft generates; the menus of the footer's
+  right that end where their button ends (`basehalfVideoNodePanel.test.ts`);
+  and the footer of the panel of a card with its file, New Version at its
+  end and the model's name before it
+  (`basehalfGenerationRecordPanel.test.ts`).
 - The tests of each provider module ([providers](providers.md#verification)).
 - `npm run basehalf:smoke` with steps for criteria 1 to 8, 13 to 30, 32 to 38,
-  42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 73 to 76, 78, and 95 to 97, against the local test provider through the ByteDance module, and
+  42 to 46, 49, 50, 52, 54, 56, 59, 60, 62 to 64, 69 to 76, 78, 95 to 97, and 100, against the local test provider through the ByteDance module, and
   for criteria 80 to 89 through the ElevenLabs and Mureka modules
   (`audioCards.mts`; the canvas suite checks that the Create menu offers New
   Audio and makes an audio draft from Create from Connection), with a test
@@ -2668,6 +2725,8 @@ Each kind's panel (D91)
   panels of an image, a video, and an audio draft on one canvas, an image
   connected to an image draft and removed with every frame of the panel
   sampled, picking from the image draft's footer, and the counts of image
-  models of several providers.
+  models of several providers; and for D106, the footers of an image, a
+  video, a speech, and a music draft and of a card with its file, before and
+  after the change, with the model, voice, and settings menus open.
 - A generation with a real provider is run by a person with their own key
   before a release that adds or changes a provider module.

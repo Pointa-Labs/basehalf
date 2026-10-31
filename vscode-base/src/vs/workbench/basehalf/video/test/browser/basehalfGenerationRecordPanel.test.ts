@@ -277,7 +277,7 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		assert.deepStrictEqual([texts(panel, '.bh-record-panel-model'), panel.element.querySelectorAll('.bh-input-tile.dimmed').length], [['Acme Motion 2'], 0]);
 	});
 
-	test('names the voice a speech model spoke in between the model and the settings, as the provider\'s last list names it once it comes, and says which song of how many it is (D78)', async () => {
+	test('names the voice a speech model spoke in between the settings and the model, as the provider\'s last list names it once it comes, and says which song of how many it is (D78, D106)', async () => {
 		catalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
 		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'narrator-7', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
 		snapshot = { resource: SOUND, path: 'shots/audio.mp3', kind: AUDIO, hasFile: true, info: { prompt: '' }, infoReadable: true, made: spoken, upstream: [] };
@@ -292,8 +292,8 @@ suite('BaseHalfGenerationRecordPanel', () => {
 		await settle();
 		assert.deepStrictEqual({ byId, byList, song: { line: texts(panel, '.bh-record-panel-line'), voice: texts(panel, '.bh-record-panel-voice') } }, {
 			// The voice is named once, beside the model, and the summary of the settings leaves it out.
-			byId: { footer: ['Dunlin Voice', 'narrator-7', 'From Text · Speed 1', '', 'New Version'], voice: 'Voice: narrator-7', label: 'What made the sound audio.mp3' },
-			byList: ['Dunlin Voice', 'My Narrator', 'From Text · Speed 1', '', 'New Version'],
+			byId: { footer: ['', 'From Text · Speed 1', 'narrator-7', 'Dunlin Voice', 'New Version'], voice: 'Voice: narrator-7', label: 'What made the sound audio.mp3' },
+			byList: ['', 'From Text · Speed 1', 'My Narrator', 'Dunlin Voice', 'New Version'],
 			song: { line: ['Song 1 of 2'], voice: [] }
 		});
 	});
@@ -318,6 +318,34 @@ suite('BaseHalfGenerationRecordPanel', () => {
 			ofAccount: ['dunlin/main/dunlin-voice'],
 			ofCatalog: [],
 			withoutCatalog: []
+		});
+	});
+
+	test('ends its footer as a draft\'s does: New Version at the panel\'s right edge, the model\'s name 6 px before it, and the voice and the summary of the settings before the model\'s name (D106)', async () => {
+		catalogState = { kind: 'ready', catalog: TEST_AUDIO_CATALOG };
+		const spoken: IBaseHalfGenerationMade = { ...MADE, provider: 'dunlin', region: 'main', model: 'dunlin-voice', providerModel: 'voice-1', mode: 'reference', params: { voice: 'vx-pike', speed: 1 }, prompt: 'Welcome to the coast.', inputs: [] };
+		snapshot = { resource: SOUND, path: 'shots/audio.mp3', kind: AUDIO, hasFile: true, info: { prompt: '' }, infoReadable: true, made: spoken, upstream: [] };
+		const frame = mainWindow.document.createElement('div');
+		frame.className = 'monaco-workbench';
+		frame.style.cssText = 'position: absolute; left: 0; top: 0; width: 512px; --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;';
+		mainWindow.document.body.appendChild(frame);
+		mounted.push(frame);
+		const panel = await createPanel(SOUND);
+		frame.append(panel.element);
+		const box = (selector: string) => panel.element.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+		const at = (value: number) => Math.round(value * 2) / 2;
+		const outer = panel.element.getBoundingClientRect();
+		const style = mainWindow.getComputedStyle(panel.element);
+		const right = outer.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+		const footer = [...panel.element.querySelector<HTMLElement>('.bh-video-panel-footer')!.children].filter(child => child.getBoundingClientRect().width > 0);
+		assert.deepStrictEqual({
+			order: footer.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left).map(child => child.classList[0]),
+			newVersion: at(right - box('.bh-record-panel-new-version').right),
+			model: at(box('.bh-record-panel-new-version').left - box('.bh-record-panel-model').right)
+		}, {
+			order: ['bh-record-panel-settings', 'bh-record-panel-voice', 'bh-record-panel-model', 'bh-record-panel-new-version'],
+			newVersion: 0,
+			model: 6
 		});
 	});
 

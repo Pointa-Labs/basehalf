@@ -246,14 +246,15 @@ async function assertNewAudioMakesDraft(page) {
 	if (shown.kind !== 'audio' || shown.model !== 'Choose Model' || shown.generate?.label !== 'Choose a model to generate.' || shown.placeholder !== PLACEHOLDER.sound || shown.voice !== null) {
 		throw new Error(`The panel of an audio draft without a model must ask for a model and describe the sound: ${JSON.stringify(shown)}`);
 	}
-	// Criterion 96 (D91): an audio draft's panel is its own and keeps its row, which says what it takes, with the two buttons at its right end.
+	// Criteria 96 and 100 (D91, D106): an audio draft's panel is its own and keeps its row, which says what it takes; its footer begins with the two buttons that add an input and ends with the model beside Generate.
 	const parts = await panel.evaluate(element => ({
 		row: Array.from(element.querySelector('.bh-input-row')?.children ?? []).map(child => child.classList[0]),
 		hint: element.querySelector('.bh-input-row-hint')?.textContent ?? null,
-		footer: element.querySelector('.bh-video-panel-footer')?.firstElementChild?.classList[0] ?? null
+		footer: Array.from(element.querySelector('.bh-video-panel-footer')?.children ?? []).filter(child => !child.hidden).map(child => child.classList[0])
 	}));
-	if (JSON.stringify(parts.row) !== JSON.stringify(['bh-input-row-list', 'bh-input-row-hint', 'bh-add-inputs']) || parts.hint !== 'Add images or audio as references' || parts.footer !== 'bh-video-panel-model') {
-		throw new Error(`An audio draft's row must say what it takes and hold the two buttons at its right end, and its footer begin with the model: ${JSON.stringify(parts)}`);
+	if (JSON.stringify(parts.row) !== JSON.stringify(['bh-input-row-list', 'bh-input-row-hint']) || parts.hint !== 'Add images or audio as references'
+		|| JSON.stringify(parts.footer) !== JSON.stringify(['bh-add-inputs', 'bh-video-panel-footer-space', 'bh-video-panel-model', 'bh-video-panel-generate'])) {
+		throw new Error(`An audio draft's row must say what it takes, and its footer begin with the two buttons that add an input and end with the model beside Generate: ${JSON.stringify(parts)}`);
 	}
 	// What a draft takes is added from its panel: no toolbar above it.
 	await page.waitForTimeout(400);
@@ -325,9 +326,10 @@ async function assertAudioModelMenu(page) {
 
 // --- the voice menu --------------------------------------------------------------------------------
 
-// Criteria 83 and 85: a speech model's panel has the voice button between the
-// model button and the settings button, with the default voice's name, and
-// the settings summary names no voice. With ElevenLabs not set up, the voice
+// Criteria 83, 85, and 100: a speech model's panel has the voice button
+// between the settings button and the model button, with the default voice's
+// name, and the settings summary names no voice; its footer begins with the
+// two buttons that add an input, although it has no input row (D106). With ElevenLabs not set up, the voice
 // menu lists the catalog's voices and says how to choose from all of them,
 // with Set Up, which opens Providers at ElevenLabs; there the step sets it up
 // with the test key and its endpoint at the local test provider, and the page
@@ -339,12 +341,13 @@ async function assertVoiceMenuBeforeSetUp(page) {
 	if (shown.voice.name !== `Voice: ${DEFAULT_VOICE.label}` || !shown.settings || shown.settings.includes(DEFAULT_VOICE.label) || /\bVoice\b/.test(shown.settings)) {
 		throw new Error(`The voice button must name the voice, and the settings summary none: ${JSON.stringify(shown)}`);
 	}
-	const footer = await panel.evaluate(element => ['model', 'voice', 'settings'].map(name => {
-		const rect = element.querySelector(`button.bh-video-panel-${name}`)?.getBoundingClientRect();
+	const footer = await panel.evaluate(element => ['.bh-add-inputs', 'button.bh-video-panel-settings', 'button.bh-video-panel-voice', 'button.bh-video-panel-model', 'button.bh-video-panel-generate'].map(selector => {
+		const part = element.querySelector(selector);
+		const rect = part && !part.hidden ? part.getBoundingClientRect() : undefined;
 		return rect ? { left: rect.left, right: rect.right, middle: rect.top + rect.height / 2 } : null;
 	}));
-	if (footer.some(rect => rect === null) || !(footer[0].right <= footer[1].left && footer[1].right <= footer[2].left) || Math.abs(footer[0].middle - footer[1].middle) > 2 || Math.abs(footer[1].middle - footer[2].middle) > 2) {
-		throw new Error(`The voice button must stand between the model button and the settings button: ${JSON.stringify(footer)}`);
+	if (footer.some(rect => rect === null) || footer.some((rect, index) => index > 0 && (footer[index - 1].right > rect.left || Math.abs(footer[index - 1].middle - rect.middle) > 2))) {
+		throw new Error(`A speech draft's footer must hold the two buttons that add an input, then the settings button, the voice button, the model button, and Generate, in one row: ${JSON.stringify(footer)}`);
 	}
 	const menu = await openVoiceMenu(panel);
 	const eldrin = voiceInMenu(menu, DEFAULT_VOICE.label);

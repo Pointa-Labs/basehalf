@@ -64,9 +64,10 @@ const HOVER_GROUP = 'basehalf-video-panel';
  * where a draft's panel has the same parts. The inputs in order as the tiles
  * of a draft's input row, and the prompt with its names as chips (D68), both
  * read only; the prompt can be selected and copied. Then which image or song
- * of how many it is or that it is a copy, and a footer with the model, the
- * voice a speech model spoke in, and the settings as text, and New Version
- * where a draft has Generate. Nothing in it changes the card.
+ * of how many it is or that it is a copy, and a footer that ends as a
+ * draft's does (D106): the settings, the voice a speech model spoke in, and
+ * the model as text, and New Version where a draft has Generate. Nothing in
+ * it changes the card.
  *
  * The workbench creates one for the only selected card with its file, gives
  * the scene its {@link element} and {@link height}, and disposes it.
@@ -170,14 +171,15 @@ export class BaseHalfGenerationRecordPanel extends Disposable {
 		this.notice = append(this.element, $('.bh-video-panel-notice'));
 		this.notice.hidden = true;
 
+		// At its right as a draft's footer (D106): the settings, the voice, and the model, beside New Version where a draft has Generate.
 		this.footer = append(this.element, $('.bh-video-panel-footer'));
-		this.modelLabel = append(this.footer, $('span.bh-record-panel-model'));
+		append(this.footer, $('.bh-video-panel-footer-space'));
+		this.settingsLabel = append(this.footer, $('span.bh-record-panel-settings'));
 		this.voiceLabel = append(this.footer, $('span.bh-record-panel-voice'));
 		this.voiceLabel.hidden = true;
 		this.voiceLabel.append(renderCodicon(Codicon.voiceMode, 'bh-record-panel-voice-icon'));
 		this.voiceText = append(this.voiceLabel, $('span.bh-record-panel-voice-text'));
-		this.settingsLabel = append(this.footer, $('span.bh-record-panel-settings'));
-		append(this.footer, $('.bh-video-panel-footer-space'));
+		this.modelLabel = append(this.footer, $('span.bh-record-panel-model'));
 		this.newVersionButton = append(this.footer, $<HTMLButtonElement>('button.bh-record-panel-new-version'));
 		this.newVersionButton.type = 'button';
 		this.newVersionButton.append(renderCodicon(Codicon.versions));

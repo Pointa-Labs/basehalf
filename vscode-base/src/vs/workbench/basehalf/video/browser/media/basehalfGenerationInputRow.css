@@ -15,7 +15,7 @@
 	overflow: hidden;
 }
 
-/* The tiles take the width they need and scroll sideways beyond the row; the buttons stay at its right end. */
+/* The tiles take the width they need and scroll sideways beyond the row. */
 .monaco-workbench .bh-input-row-list {
 	position: relative;
 	display: flex;

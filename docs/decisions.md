@@ -2557,6 +2557,10 @@ seconds, a request the provider refuses.
 > **Revised by D91 (2026-10-27).** On an image card the two buttons are at
 > the start of the panel's footer, since its panel has no input row until it
 > has an input. The rest of D71 stands.
+>
+> **Revised by D106 (2026-10-31).** On every kind the two buttons are at the
+> start of the panel's footer, and the input row holds none. The rest of D71
+> stands.
 
 **Decision.** The plus at the end of a draft's input row gives way to two
 icon buttons at the panel's top right, at the row's right end: **Pick on
@@ -3858,6 +3862,11 @@ after a model was chosen from its menu.
 
 ## D91 — Each kind of generation card has a panel of its own (NEW, 2026-10-27)
 
+> **Revised by D106 (2026-10-31).** Every kind's footer begins with the two
+> buttons that add an input and ends with the settings button, the model
+> button, and Generate, so the buttons of a video and an audio card are in
+> their footers too. Each kind still places its parts in a module of its own.
+
 **Decision.** The panel under an image, a video, and an audio draft is its
 kind's own. The three are made of the same parts, the input row, the two
 buttons that add an input, the prompt with its mentions, the reason line,
@@ -4964,3 +4973,75 @@ fingers and settles once they rest (D96, D101).
   note, not from the element that holds the frame: that element can be
   scrolled a few pixels as focus moves in it (4 pixels in the smoke), and the
   page then grew around a point that far from the pointer.
+
+## D106 — Every panel's footer begins with the buttons that add an input and ends with the model beside Generate (NEW, 2026-10-31)
+
+**Decision.** The footer of every generation card's panel is laid out as the
+footer of a box where text is written, the same for an image, a video, and
+an audio card:
+
+- **At its left**, the two buttons that add an input, Pick on Canvas and
+  Import File…. They are no longer at the panel's top right, at the end of a
+  video or an audio card's input row, and an audio card whose model takes no
+  input, as a speech model, has them too.
+- **At its right**, Generate, which ends the footer; directly left of it, the
+  model button; and left of the model button, the voice button of a model
+  that speaks and, before it, the settings button. What the model makes is
+  set beside the model, and the model is chosen beside the button that
+  generates.
+- **The panel of a card with its file** ends its footer in the same way: New
+  Version where Generate is, its model's name beside it, then the voice and
+  the summary of the settings.
+- **The menus** of the settings, the voice, and the model end where their
+  button ends, so they open over the panel and not past its right edge.
+- When the footer has no room for every label, the summary of the settings
+  gives way first, then the voice's name; the model's name stays whole up to
+  its width.
+
+The input row keeps its tiles, its frames, and its hint, and the parts keep
+their menus and their rules. See
+[generation cards](specs/generation-cards.md#the-panel).
+
+**Why.** On 2026-10-31 the user showed the input box of an agent app, with
+the button that sends at the bottom right, the model left of it, and the
+button that attaches at the bottom left, and asked that every card's panel
+be laid out so: Generate at the bottom right, the model left of it, and Pick
+and Import File at the bottom left. In the code, the two buttons were in two
+places by kind (D71, D91): held by the input row at the panel's top right on
+a video or an audio card, and at the start of the footer on an image card.
+An audio card whose model takes no input shows no row, so a speech draft had
+neither button, and a note to be spoken could be connected only on the
+canvas or with `@`. The model button began the footer, the width of the
+settings away from Generate, and the panel of a card with its file began
+with its model's name, at the other end from New Version.
+
+**What was set aside.**
+- The settings at the left, after the two buttons, where some boxes put a
+  mode of their own: the settings are the model's, its modes, sizes, and
+  lengths, and change with it, so they stand beside it, and the left keeps
+  what adds an input.
+- The settings shown on the model button, as the model's name with one
+  setting: a video has several settings and a popover of its own, so one
+  button would open two menus.
+- The two buttons at the top right on a video or an audio card, as D71 had
+  them: the user asked for one place on every panel, and a box where text is
+  written keeps what it attaches at the start of its footer.
+- Keeping the model's name at the start of the footer of a card with its
+  file: the model would be at one end of a draft's panel and at the other end
+  of the panel that replaces it when its file lands.
+
+**Consequences.**
+- Revises D71: the two buttons are at the start of the footer, not at the
+  panel's top right, and the input row holds none.
+- Revises D91: an image card's footer has the settings button before the
+  model button, and the video and audio panels' buttons move to their
+  footers with it.
+- The two buttons are stops of Tab of their own on every kind, the first of
+  the footer; the input row's Left and Right keys reach its tiles, its
+  frames, and the swap arrow.
+- [Generation cards](specs/generation-cards.md): "The panel", Pick on Canvas,
+  "The panel of each kind", "The panel of a card with its file", Placement,
+  criteria 63, 69, 95, and 96, and criteria 100 to 103.
+  [Copy, paste, and drop](specs/copy-paste-and-drop.md#the-input-row-of-a-draft):
+  a click on one of the two buttons gives the panel the keyboard.
+- Nothing that is stored or sent changes.
