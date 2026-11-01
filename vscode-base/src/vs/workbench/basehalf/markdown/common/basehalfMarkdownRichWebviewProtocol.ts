@@ -97,8 +97,6 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly editable: boolean;
 		readonly surface: BaseHalfMarkdownRichSurface;
 		readonly selection?: IBaseHalfMarkdownRichTextSelection;
-		/** The level of notes in Card Detail, which the page is laid out at from its first frame. */
-		readonly zoom?: number;
 		/** Whether motion is reduced, for the outline (zoom and outline of a note, rule 20). */
 		readonly reducedMotion?: boolean;
 	}
@@ -106,12 +104,6 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly type: 'basehalf.markdownRich.zoomGesture';
 		readonly key: string;
 		readonly gesture: IBaseHalfMarkdownRichZoomGesture;
-	}
-	| {
-		/** The level of notes changed elsewhere: in Preview, or in another window. */
-		readonly type: 'basehalf.markdownRich.setZoom';
-		readonly key: string;
-		readonly zoom: number;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.applyYjsUpdate';
@@ -297,12 +289,6 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly endLineNumber?: number;
 	}
 	| {
-		/** A zoom ended at this level, which the window keeps for every note. */
-		readonly type: 'basehalf.markdownRich.zoomChanged';
-		readonly key: string;
-		readonly zoom: number;
-	}
-	| {
 		readonly type: 'basehalf.markdownRich.error';
 		readonly key: string;
 		readonly message: string;
@@ -329,12 +315,9 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& typeof candidate.editable === 'boolean'
 				&& isBaseHalfMarkdownRichSurface(candidate.surface)
 				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection))
-				&& (candidate.zoom === undefined || isPositiveNumber(candidate.zoom))
 				&& (candidate.reducedMotion === undefined || typeof candidate.reducedMotion === 'boolean');
 		case 'basehalf.markdownRich.zoomGesture':
 			return isBaseHalfMarkdownRichZoomGesture(candidate.gesture);
-		case 'basehalf.markdownRich.setZoom':
-			return isPositiveNumber(candidate.zoom);
 		case 'basehalf.markdownRich.applyYjsUpdate':
 			return candidate.update instanceof ArrayBuffer;
 		case 'basehalf.markdownRich.setEditable':
@@ -444,8 +427,6 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return typeof candidate.text === 'string' && (candidate.text.length === 0
 				? candidate.startLineNumber === undefined && candidate.endLineNumber === undefined
 				: isPositiveInteger(candidate.startLineNumber) && isPositiveInteger(candidate.endLineNumber) && candidate.startLineNumber <= candidate.endLineNumber);
-		case 'basehalf.markdownRich.zoomChanged':
-			return isPositiveNumber(candidate.zoom);
 		case 'basehalf.markdownRich.error':
 			return typeof candidate.message === 'string'
 				&& (candidate.stack === undefined || typeof candidate.stack === 'string');
@@ -576,10 +557,6 @@ function isBaseHalfMarkdownRichZoomGesture(value: unknown): value is IBaseHalfMa
 
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value);
-}
-
-function isPositiveNumber(value: unknown): value is number {
-	return isFiniteNumber(value) && value > 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {

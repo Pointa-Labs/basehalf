@@ -7,12 +7,15 @@
  * (zoom and outline of a note). The rich editor's page draws it with the
  * same rules in its own stylesheet, `editor.css`. */
 
-/* It lies in the view's flow before the page, takes no height, and sticks to
- * the top of the view; the ticks and the panel are placed from there. */
+/* It lies in the view's flow before the page, takes no room, and sticks to
+ * the top left corner of the view, also while a magnified page moves
+ * sideways (rule 19); the ticks and the panel are placed from there. */
 .monaco-workbench .basehalf-note-outline {
 	position: sticky;
 	top: 0;
+	left: 0;
 	z-index: 3;
+	width: 0;
 	height: 0;
 }
 

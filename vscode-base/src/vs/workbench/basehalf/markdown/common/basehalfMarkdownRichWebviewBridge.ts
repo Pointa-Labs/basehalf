@@ -50,7 +50,7 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		editable: boolean,
 		surface: BaseHalfMarkdownRichSurface,
 		selection?: IBaseHalfMarkdownRichTextSelection,
-		reading?: { readonly zoom: number; readonly reducedMotion: boolean }
+		reading?: { readonly reducedMotion: boolean }
 	): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.init',
@@ -61,7 +61,7 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			editable,
 			surface,
 			...(selection ? { selection } : {}),
-			...(reading ? { zoom: reading.zoom, reducedMotion: reading.reducedMotion } : {})
+			...(reading ? { reducedMotion: reading.reducedMotion } : {})
 		});
 	}
 
@@ -70,14 +70,6 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			type: 'basehalf.markdownRich.zoomGesture',
 			key: this.key,
 			gesture
-		});
-	}
-
-	sendZoom(zoom: number): Promise<boolean> {
-		return this.transport.postMessage({
-			type: 'basehalf.markdownRich.setZoom',
-			key: this.key,
-			zoom
 		});
 	}
 

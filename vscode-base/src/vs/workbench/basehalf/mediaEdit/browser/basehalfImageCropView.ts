@@ -39,8 +39,8 @@ import {
 	IBaseHalfSize
 } from '../common/basehalfImageCrop.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
-import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
-import { BASEHALF_EDGE_FOLLOW_MARGIN, BASEHALF_PAGE_AT_REST, BASEHALF_TIME_ZOOM_REST_MS, baseHalfClampPageZoom, baseHalfEdgeFollowRate, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, baseHalfZoomPageFollowing, IBaseHalfPageZoom, IBaseHalfPictureBox } from '../common/basehalfMediaZoom.js';
+import { BASEHALF_ZOOM_REST_MS, baseHalfZoomFactor, isBaseHalfZoomWheel } from '../../cardDetail/common/basehalfCardDetailZoom.js';
+import { BASEHALF_EDGE_FOLLOW_MARGIN, BASEHALF_PAGE_AT_REST, baseHalfClampPageZoom, baseHalfEdgeFollowRate, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageAround, baseHalfZoomPageFollowing, IBaseHalfPageZoom, IBaseHalfPictureBox } from '../common/basehalfMediaZoom.js';
 import { BaseHalfMediaChange, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
 import { BaseHalfPageZoomGlide } from './basehalfPageZoomGlide.js';
 
@@ -944,7 +944,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			this.gestureBefore = this.state;
 		}
 		this.element.classList.add('gesturing');
-		this.gestureRest.value = this.clock.timeout(() => this.endGesture(), BASEHALF_TIME_ZOOM_REST_MS);
+		this.gestureRest.value = this.clock.timeout(() => this.endGesture(), BASEHALF_ZOOM_REST_MS);
 	}
 
 	/** A pinch or a swipe has rested: it is one change, and a frame away from its rest glides there a second later. */
@@ -998,7 +998,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 		if (this.drag) {
 			return;
 		}
-		const zoom = isBaseHalfNoteZoomWheel(event, isMacintosh);
+		const zoom = isBaseHalfZoomWheel(event, isMacintosh);
 		if (this.editing) {
 			if (!zoom && this.element.classList.contains('whole')) {
 				// The whole picture kept: there is nothing to move under the frame.
@@ -1008,7 +1008,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			event.stopPropagation();
 			this.gesturing();
 			if (zoom) {
-				this.zoomCropAround(this.viewPoint(event), baseHalfNoteZoomFactor(event));
+				this.zoomCropAround(this.viewPoint(event), baseHalfZoomFactor(event));
 			} else {
 				this.moveCropBy(baseHalfWheelMove(event));
 			}
@@ -1018,7 +1018,7 @@ export class BaseHalfImageCropView extends Disposable implements IBaseHalfMediaE
 			event.preventDefault();
 			event.stopPropagation();
 			this.settleKeys();
-			this.pinchAround(this.viewPoint(event), baseHalfNoteZoomFactor(event));
+			this.pinchAround(this.viewPoint(event), baseHalfZoomFactor(event));
 			return;
 		}
 		if (this.page.zoom <= 1) {

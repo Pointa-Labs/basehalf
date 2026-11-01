@@ -12,7 +12,8 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import { BASEHALF_PLAYHEAD_STEP_SECONDS, baseHalfVideoPlayIcon, IBaseHalfCanvasCardVideoPlayer } from '../../canvas/browser/basehalfCanvasCardVideoPlayer.js';
 import { IBaseHalfMediaChoices } from '../common/basehalfEditRecord.js';
-import { BASEHALF_TIME_ZOOM_REST_MS, BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
+import { BASEHALF_ZOOM_REST_MS } from '../../cardDetail/common/basehalfCardDetailZoom.js';
+import { BASEHALF_TIME_ZOOM_SHORTEST_SECONDS } from '../common/basehalfMediaZoom.js';
 import { baseHalfVideoFrameEdges } from '../common/basehalfVideoFile.js';
 import { BaseHalfVideoTrimHandle, BaseHalfVideoTrimTimeline, formatBaseHalfVideoHandleTime, formatBaseHalfVideoTrimLength, IBaseHalfVideoTrimRange } from '../common/basehalfVideoTrimSelection.js';
 import { BaseHalfMediaChange, BaseHalfPlayheadMove, IBaseHalfMediaEditor } from './basehalfMediaEditor.js';
@@ -625,7 +626,7 @@ export class BaseHalfVideoFrameViewer extends Disposable implements IBaseHalfMed
 		this.render();
 		// The pictures drawn slide with it; once it rests, the frames of the new stretch are read.
 		this.spreadRest.value = toDisposable((() => {
-			const timer = setTimeout(() => this.readSpreadPictures(), BASEHALF_TIME_ZOOM_REST_MS);
+			const timer = setTimeout(() => this.readSpreadPictures(), BASEHALF_ZOOM_REST_MS);
 			return () => clearTimeout(timer);
 		})());
 	}

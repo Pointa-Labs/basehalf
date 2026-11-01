@@ -9,7 +9,7 @@
 // network, and every link to the web goes to the workbench.
 
 import './bookReader.css';
-import { baseHalfNoteZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteZoom.js';
+import { baseHalfZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { makeComicBook } from 'foliate-js/comic-book.js';
 import { Overlayer } from 'foliate-js/overlayer.js';
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from 'foliate-js/vendor/zip.js';
@@ -436,7 +436,7 @@ window.addEventListener('message', event => {
 	}
 	window.clearTimeout(pinchRest);
 	pinchRest = window.setTimeout(() => pinchSpread = 0, 300);
-	pinchSpread += Math.log(baseHalfNoteZoomFactor(message));
+	pinchSpread += Math.log(baseHalfZoomFactor(message));
 	const index = BASEHALF_BOOK_TEXT_SIZES.indexOf(preferences.textSize);
 	const larger = BASEHALF_BOOK_TEXT_SIZES[index + 1];
 	const smaller = BASEHALF_BOOK_TEXT_SIZES[index - 1];

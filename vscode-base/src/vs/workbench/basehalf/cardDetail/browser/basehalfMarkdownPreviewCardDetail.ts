@@ -14,7 +14,6 @@ import { isMacintosh } from '../../../../base/common/platform.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
-import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
@@ -26,10 +25,9 @@ import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHa
 import { splitBaseHalfMarkdownFrontmatter } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { installBaseHalfSidewaysScrollbar } from '../../shell/browser/basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../markdown/common/basehalfMarkdownRichTextModel.js';
-import { isBaseHalfNoteZoomWheel } from '../common/basehalfNoteZoom.js';
+import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from './basehalfNoteOutline.js';
-import { BaseHalfNoteZoomGesture } from './basehalfNoteZoomGesture.js';
-import { BaseHalfNoteZoomLevel } from './basehalfNoteZoomLevel.js';
+import { BaseHalfNoteZoom } from './basehalfNoteZoom.js';
 
 /** The rendered preview shares the rich projection's frontmatter boundary. */
 export function baseHalfMarkdownPreviewBody(source: string): string {
@@ -38,6 +36,8 @@ export function baseHalfMarkdownPreviewBody(source: string): string {
 
 export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private readonly previewScroll: HTMLElement;
+	/** As wide as the view, with the room around the text: what a pinch magnifies (zoom and outline of a note, rule 2). */
+	private readonly previewPage: HTMLElement;
 	private readonly previewContent: HTMLElement;
 	private readonly outline: BaseHalfNoteOutline;
 	private readonly rendered = this._register(new DisposableStore());
@@ -59,14 +59,14 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
 		@ILogService private readonly logService: ILogService,
-		@IStorageService private readonly storageService: IStorageService,
 		@IAccessibilityService accessibilityService: IAccessibilityService
 	) {
 		super();
 
 		const root = append(this.container, $('.basehalf-card-detail-markdown-preview'));
 		this.previewScroll = append(root, $('.basehalf-card-detail-markdown-preview-scroll'));
-		this.previewContent = append(this.previewScroll, $('.basehalf-card-detail-markdown-preview-content'));
+		this.previewPage = append(this.previewScroll, $('.basehalf-card-detail-markdown-preview-page'));
+		this.previewContent = append(this.previewPage, $('.basehalf-card-detail-markdown-preview-content'));
 		// A table or a code block that is scrolled sideways shows one bar inside
 		// its lower edge, as on a card (note rendering).
 		this._register(installBaseHalfSidewaysScrollbar(this.previewScroll, {
@@ -84,18 +84,14 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			reducedMotion: () => accessibilityService.isMotionReduced()
 		});
 		this._register(toDisposable(() => outline.dispose()));
-		// A level that changed in Rich or in another window reaches this page;
-		// the one this page reported does not come back to it.
-		const noteZoomLevel = this._register(new BaseHalfNoteZoomLevel(this.storageService, level => zoom.setLevel(level)));
-		const zoom = new BaseHalfNoteZoomGesture({
+		const zoom = new BaseHalfNoteZoom({
 			view: this.previewScroll,
-			page: this.previewContent,
-			reducedMotion: () => accessibilityService.isMotionReduced(),
+			page: this.previewPage,
 			onDidDraw: () => outline.refresh()
-		}, noteZoomLevel.level, level => noteZoomLevel.report(level));
+		});
 		this._register(toDisposable(() => zoom.dispose()));
 		this._register(addDisposableListener(this.previewScroll, EventType.MOUSE_WHEEL, (event: WheelEvent) => {
-			if (!isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+			if (!isBaseHalfZoomWheel(event, isMacintosh)) {
 				return;
 			}
 			event.preventDefault();

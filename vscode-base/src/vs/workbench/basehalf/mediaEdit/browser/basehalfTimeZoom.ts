@@ -6,10 +6,9 @@
 import { $, addDisposableListener, append, getWindow } from '../../../../base/browser/dom.js';
 import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
-import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../../cardDetail/common/basehalfNoteZoom.js';
+import { BASEHALF_ZOOM_REST_MS, baseHalfZoomFactor, isBaseHalfZoomWheel } from '../../cardDetail/common/basehalfCardDetailZoom.js';
 import {
 	BASEHALF_EDGE_FOLLOW_MARGIN,
-	BASEHALF_TIME_ZOOM_REST_MS,
 	baseHalfEdgeSeconds,
 	baseHalfFitStretch,
 	baseHalfIsWholeStretch,
@@ -287,13 +286,13 @@ export class BaseHalfTimeZoom extends Disposable {
 		if (!(length > 0) || !(width > 0) || this.options.active?.() === false) {
 			return;
 		}
-		if (isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+		if (isBaseHalfZoomWheel(event, isMacintosh)) {
 			// A pinch, or the wheel with the zoom key: the time under the pointer stays under it.
 			event.preventDefault();
 			event.stopPropagation();
 			const bounds = this.options.strip.getBoundingClientRect();
 			const at = bounds.width > 0 ? (event.clientX - bounds.left) / bounds.width : 0.5;
-			const next = baseHalfSpreadStretch(this.current, length, at, baseHalfNoteZoomFactor(event), this.options.shortest());
+			const next = baseHalfSpreadStretch(this.current, length, at, baseHalfZoomFactor(event), this.options.shortest());
 			if (next.from !== this.current.from || next.to !== this.current.to) {
 				this.current = next;
 				this.changed();
@@ -320,6 +319,6 @@ export class BaseHalfTimeZoom extends Disposable {
 		this.rest.value = this.clock.timeout(() => {
 			this.rest.clear();
 			this.options.onDidChange(true);
-		}, BASEHALF_TIME_ZOOM_REST_MS);
+		}, BASEHALF_ZOOM_REST_MS);
 	}
 }

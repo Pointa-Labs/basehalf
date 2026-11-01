@@ -10,7 +10,7 @@ import { IBaseHalfSize } from '../../mediaEdit/common/basehalfImageCrop.js';
 import { BaseHalfPageZoomGlide } from '../../mediaEdit/browser/basehalfPageZoomGlide.js';
 import { baseHalfStripClock } from '../../mediaEdit/browser/basehalfTimeZoom.js';
 import { BASEHALF_PAGE_AT_REST, baseHalfClampPageZoom, baseHalfContainedSize, baseHalfMovePage, baseHalfPictureMaxZoom, baseHalfWheelMove, baseHalfZoomPageFollowing, IBaseHalfPageZoom, IBaseHalfPictureBox } from '../../mediaEdit/common/basehalfMediaZoom.js';
-import { baseHalfNoteZoomFactor, isBaseHalfNoteZoomWheel } from '../common/basehalfNoteZoom.js';
+import { baseHalfZoomFactor, isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 
 /** A press that moves less than this, in pixels, is a click, which plays and pauses the video. */
 const DRAG_THRESHOLD = 3;
@@ -155,13 +155,13 @@ export class BaseHalfVideoPictureZoom extends Disposable {
 			return;
 		}
 		this.areaSize = this.size();
-		if (isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+		if (isBaseHalfZoomWheel(event, isMacintosh)) {
 			// A pinch, or the wheel with the zoom key: the place under the pointer grows, as a page does.
 			event.preventDefault();
 			event.stopPropagation();
 			// It follows the fingers, past the picture's edges if they go there, and settles within them once the pinch rests.
 			const bounds = this.currentArea().getBoundingClientRect();
-			this.page = baseHalfZoomPageFollowing(this.page, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, baseHalfNoteZoomFactor(event), this.maxZoom());
+			this.page = baseHalfZoomPageFollowing(this.page, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, baseHalfZoomFactor(event), this.maxZoom());
 			this.apply();
 			this.glide.pinched(() => this.settled());
 			return;

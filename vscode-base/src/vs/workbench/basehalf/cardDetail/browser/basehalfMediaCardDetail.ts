@@ -34,7 +34,7 @@ import { BaseHalfPlayheadMove } from '../../mediaEdit/browser/basehalfMediaEdito
 import { baseHalfMediaVersion, IBaseHalfMediaEditService } from '../../mediaEdit/browser/basehalfMediaEditService.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../common/basehalfContentRendering.js';
 import { baseHalfPdfFailureFromMessage, baseHalfPdfSelectionChangeFromMessage, baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfMediaEscapeMessage, IBaseHalfPdfViewState, isBaseHalfMediaEscapeMessage, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../common/basehalfMediaViewState.js';
-import { BASEHALF_PAGE_PINCH_MESSAGE } from '../common/basehalfNoteZoom.js';
+import { BASEHALF_PAGE_PINCH_MESSAGE } from '../common/basehalfCardDetailZoom.js';
 import { BaseHalfVideoPictureZoom } from './basehalfVideoPictureZoom.js';
 import { IBaseHalfAgentSelectionDocumentText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { IBaseHalfDocumentSelection } from '../../documents/common/basehalfDocumentBranch.js';

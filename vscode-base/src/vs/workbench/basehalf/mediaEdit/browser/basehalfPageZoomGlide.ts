@@ -4,11 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { BASEHALF_ZOOM_REST_MS } from '../../cardDetail/common/basehalfCardDetailZoom.js';
 import { baseHalfPageZoomToward, IBaseHalfPageZoom } from '../common/basehalfMediaZoom.js';
 import { IBaseHalfTimeZoomClock } from './basehalfTimeZoom.js';
 
-/** A pinch has ended once no event of it came for this long, in milliseconds: the zoom then settles. */
-export const BASEHALF_PAGE_ZOOM_SETTLE_MS = 150;
 /** A zoom glides to where it settles, or back to as it fits, this long, in milliseconds (D97, D101). */
 export const BASEHALF_PAGE_ZOOM_GLIDE_MS = 200;
 
@@ -34,13 +33,13 @@ export class BaseHalfPageZoomGlide extends Disposable {
 		super();
 	}
 
-	/** A pinch moved the zoom: once it rests, the zoom glides to where `settled` says. */
+	/** A pinch moved the zoom: once its fingers rest, the zoom glides to where `settled` says. */
 	pinched(settled: () => IBaseHalfPageZoom): void {
 		this.stop();
 		this.settle.value = this.clock.timeout(() => {
 			this.settle.clear();
 			this.glide(settled());
-		}, BASEHALF_PAGE_ZOOM_SETTLE_MS);
+		}, BASEHALF_ZOOM_REST_MS);
 	}
 
 	/** Glides the zoom to `target`, fast at first and slow at the end; a zoom that is there already stays. */

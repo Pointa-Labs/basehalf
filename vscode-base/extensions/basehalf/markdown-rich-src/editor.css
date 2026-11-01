@@ -86,27 +86,26 @@ body,
 	background-color: color-mix(in srgb, var(--vscode-editor-foreground) 24%, transparent);
 }
 
-/* At a level of zoom the page is laid out as wide as the view allows at that
- * level and drawn larger from its top middle (zoom and outline of a note). */
 .basehalf-markdown-rich-page {
 	box-sizing: border-box;
-	max-width: min(760px, calc(100% / var(--basehalf-note-zoom, 1)));
-	min-height: calc(100% / var(--basehalf-note-zoom, 1));
+	max-width: 760px;
+	min-height: 100%;
 	margin: 0 auto;
 	padding: 56px 24px 80px;
-	transform-origin: top center;
 }
 
 .basehalf-markdown-rich:not(.ready) .basehalf-markdown-rich-page {
 	opacity: 0.65;
 }
 
-/* In Card Detail the page keeps 85 pixels at each side of its text, at every
- * level and width: the outline's strip at the edge and the editor's handles of
- * a block beside the text never lie on each other, and the text stays in the
- * middle (zoom and outline of a note, rule 21). */
+/* In Card Detail the page is as wide as the view and keeps 85 pixels at each
+ * side of its text, which is at most 712 pixels wide: the outline's strip at
+ * the edge and the editor's handles of a block beside the text never lie on
+ * each other, the text stays in the middle, and a pinch magnifies that room
+ * with the text (zoom and outline of a note, rules 2 and 21). */
 .basehalf-markdown-rich.surface-detail .basehalf-markdown-rich-page {
-	padding-inline: max(24px, calc((85px - max(0px, (100% - 760px * var(--basehalf-note-zoom, 1)) / 2)) / var(--basehalf-note-zoom, 1)));
+	max-width: none;
+	padding-inline: max(85px, calc((100% - 712px) / 2));
 }
 
 .basehalf-markdown-rich.surface-canvas {
@@ -643,14 +642,17 @@ body,
  * `cardDetail/browser/media/basehalfNoteOutline.css`. */
 
 
-/* It lies in the view's flow before the page, takes no height, and sticks to
- * the top of the view; the ticks and the panel are placed from there. */
+/* It lies in the view's flow before the page, takes no room, and sticks to
+ * the top left corner of the view, also while a magnified page moves
+ * sideways (rule 19); the ticks and the panel are placed from there. */
 .basehalf-note-outline {
 	position: sticky;
 	top: 0;
+	left: 0;
 	/* Above the editor's own menus and handles of a block (the portal, 30),
 	 * which would otherwise be drawn over the panel. */
 	z-index: 31;
+	width: 0;
 	height: 0;
 }
 

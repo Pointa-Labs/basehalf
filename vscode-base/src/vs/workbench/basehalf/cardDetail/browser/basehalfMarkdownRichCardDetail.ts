@@ -27,7 +27,6 @@ import { TooLargeFileOperationError } from '../../../../platform/files/common/fi
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IQuickInput, IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
-import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -73,8 +72,7 @@ import { IBaseHalfMarkdownAttachmentService } from '../../markdown/common/baseha
 import { baseHalfMarkdownFrontmatterLineCount } from '../../markdown/common/basehalfMarkdownProjection.js';
 import { IBaseHalfAgentSelectionText } from '../../agentArea/common/basehalfAgentSelection.js';
 import { baseHalfUserFacingErrorMessage } from '../../shell/common/basehalfPlainFailureReason.js';
-import { isBaseHalfNoteZoomWheel } from '../common/basehalfNoteZoom.js';
-import { BaseHalfNoteZoomLevel } from './basehalfNoteZoomLevel.js';
+import { isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 import { localize } from '../../../../nls.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
@@ -251,8 +249,6 @@ export function baseHalfMarkdownRichLocale(value: string): string {
 
 export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private readonly webviewHost: HTMLElement;
-	/** The level of notes, in Card Detail only (zoom and outline of a note, rule 8). */
-	private readonly noteZoomLevel: BaseHalfNoteZoomLevel | undefined;
 	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
 	private readonly pendingFlushes = new Map<string, { readonly resolve: (ok: boolean) => void; readonly timer: number; readonly handoff?: true }>();
 	/** Bodies of rich saves the host is writing now. */
@@ -315,7 +311,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfMarkdownAttachmentService private readonly attachmentService: IBaseHalfMarkdownAttachmentService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@ILogService private readonly logService: ILogService,
-		@IStorageService private readonly storageService: IStorageService,
 		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
 		super();
@@ -328,7 +323,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			// element of the page, not to the page that draws the note: the window
 			// passes it on (zoom and outline of a note, rule 1).
 			this._register(addDisposableListener(this.webviewHost, EventType.MOUSE_WHEEL, (event: WheelEvent) => {
-				if (!isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+				if (!isBaseHalfZoomWheel(event, isMacintosh)) {
 					return;
 				}
 				event.preventDefault();
@@ -336,14 +331,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				// The point in the page is measured from the frame the pinch is aimed
 				// at: the element that holds it can be scrolled a few pixels, as
 				// focus moves in it, and the frame with it (zoom and outline of a
-				// note, rule 4).
+				// note, rule 2).
 				const target = event.target as HTMLElement | null;
 				const box = (target?.tagName === 'IFRAME' ? target : this.webviewHost).getBoundingClientRect();
 				void this.bridge?.sendZoomGesture({ deltaY: event.deltaY, deltaMode: event.deltaMode, x: event.clientX - box.left, y: event.clientY - box.top });
 			}, { passive: false }));
-			// A level that changed in Preview or in another window reaches this
-			// page; the one this page reported does not come back to it.
-			this.noteZoomLevel = this._register(new BaseHalfNoteZoomLevel(this.storageService, level => void this.bridge?.sendZoom(level)));
 		}
 		applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'booting');
 		this.setSaveStatus('saving');
@@ -838,9 +830,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.selectionChanged':
 				this.options.onSelectionChange?.(this.selectedText(state, model, message.text, message.startLineNumber, message.endLineNumber));
 				break;
-			case 'basehalf.markdownRich.zoomChanged':
-				this.noteZoomLevel?.report(message.zoom);
-				break;
 			case 'basehalf.markdownRich.error':
 				this.setSaveStatus('saving');
 				this.logService.error(message.stack ?? message.message);
@@ -1054,7 +1043,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
-		const reading = this.noteZoomLevel ? { zoom: this.noteZoomLevel.level, reducedMotion: this.accessibilityService.isMotionReduced() } : undefined;
+		const reading = this.surface === 'detail' ? { reducedMotion: this.accessibilityService.isMotionReduced() } : undefined;
 		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection, reading);
 		await this.sendAdhdState(state);
 	}

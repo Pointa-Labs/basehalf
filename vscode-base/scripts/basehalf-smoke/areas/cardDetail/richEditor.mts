@@ -114,12 +114,11 @@ export async function assertMarkdownRichBlockMenuPortal(page) {
 }
 
 /**
- * While the fingers of a pinch move, the point of the page under the pointer stays under it, across and up and down,
- * and the lines of its block break nowhere anew: the page is drawn as a picture and laid out once the fingers rest
- * (zoom and outline of a note, rules 4 and 6, criterion 3). The handles of a block then stand beside the first line of
- * the block under the pointer (rules 22 to 24, criteria 13 and 14): 8 pixels left of the text and in the middle of the
- * line as the page draws it, at 160% and again at 100% after a pinch back, with the pointer resting where it was. The
- * note is short, so the line under the pointer changes on the way.
+ * While the fingers of a pinch move and once they rest, the point of the page under the pointer stays under it,
+ * across and up and down, and the lines of its block break nowhere anew: the page is magnified, never laid out at the
+ * level (zoom and outline of a note, rules 2 and 6, criterion 3). The handles of a block then stand beside the first
+ * line of the block under the pointer (rules 22 to 24, criteria 13 and 14): 8 pixels left of the text and in the middle
+ * of the line as the page draws it, at 160% and again at 100% after a pinch back, with the pointer resting where it was.
  */
 export async function assertMarkdownRichHandlesFollowZoom(page) {
 	const frame = await activeMarkdownRichFrame(page);
@@ -201,7 +200,8 @@ export async function assertMarkdownRichHandlesFollowZoom(page) {
 		sample();
 	}, pointer);
 	await pinch(page, box.x + 8, box.y + 8, 1.6);
-	// The fingers have just stopped; the page is laid out 150 ms later.
+	// The fingers rest 150 ms after their last event; nothing of the page moves then.
+	await page.waitForTimeout(300);
 	const { frames, forwarded } = await frame.evaluate(() => {
 		const recorded = window.__basehalfSmokePinch;
 		recorded.stop = true;
@@ -223,7 +223,7 @@ export async function assertMarkdownRichHandlesFollowZoom(page) {
 			|| sample.lines !== first.lines;
 	});
 	if (frames.length < 5 || lastGrowth < 1.3 || Math.abs(centre.x - pointer.x) > 2 || Math.abs(centre.y - pointer.y) > 2 || off.length > 0) {
-		throw new Error(`While the fingers move, the point under the pointer should stay under it and no line break anew: ${JSON.stringify({ frames: frames.length, pointer, box, forwarded, centre, first, off: off.slice(0, 3), last })}`);
+		throw new Error(`While the fingers move and once they rest, the point under the pointer should stay under it and no line break anew: ${JSON.stringify({ frames: frames.length, pointer, box, forwarded, centre, first, off: off.slice(0, 3), last })}`);
 	}
 	await waitForReading(read, reading => besideFirstLine(reading, 1.6), 'the handles 8 pixels left of the text, in the middle of the first line of the block under the pointer, at 160%');
 	await pinch(page, box.x + 8, box.y + 8, 1 / 1.6);

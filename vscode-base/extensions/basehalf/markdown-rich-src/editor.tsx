@@ -76,8 +76,8 @@ import {
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNoteMarkdownHtml.js';
 import dompurify from '../../../src/vs/base/browser/dompurify/dompurify.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
-import { isBaseHalfNoteZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteZoom.js';
-import { BaseHalfNoteZoomGesture } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoomGesture.js';
+import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
+import { BaseHalfNoteZoom } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteZoom.js';
 import { BaseHalfNoteOutline, baseHalfNoteOutlineHeadings } from '../../../src/vs/workbench/basehalf/cardDetail/browser/basehalfNoteOutline.js';
 import { BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteOutlineLayout.js';
 import {
@@ -291,7 +291,6 @@ interface IIncomingInit {
 	readonly baseUri: string;
 	readonly surface: BaseHalfMarkdownRichSurface;
 	readonly selection?: IBaseHalfMarkdownRichTextSelection;
-	readonly zoom?: number;
 	readonly reducedMotion?: boolean;
 	/** Arrival order; a payload older than the latest arrival is stale. */
 	readonly generation: number;
@@ -299,9 +298,35 @@ interface IIncomingInit {
 
 /** The zoom and the outline of a note in Card Detail (zoom and outline of a note). */
 interface IReadingAids {
-	readonly zoom: BaseHalfNoteZoomGesture;
+	readonly zoom: BaseHalfNoteZoom;
 	readonly outline: BaseHalfNoteOutline;
+	/** Gives the document back its own way of finding the elements at a point. */
+	readonly restoreLookUp: () => void;
 	reducedMotion: boolean;
+}
+
+/** How far inside the view a point past it is looked up: clear of the scroll bars, which the browser finds at the view's edges. */
+const LOOK_UP_INSIDE_VIEW = 24;
+
+/**
+ * BlockNote finds the block under the pointer, then looks once more at the
+ * right edge of that block, on the pointer's line, and hides the handles of a
+ * block when the browser finds nothing there. Past the edge of the view the
+ * browser finds nothing, and a magnified page carries the right edge of a
+ * block there (zoom and outline of a note, rules 5 and 24): a point past the
+ * view is looked up inside it, on the same line. A point in the view is looked
+ * up where it is.
+ */
+function lookUpWithinView(view: HTMLElement): () => void {
+	const lookUp = document.elementsFromPoint;
+	const inside = (at: number, start: number, length: number) => at >= start && at < start + length ? at : Math.min(Math.max(at, start + LOOK_UP_INSIDE_VIEW), start + length - LOOK_UP_INSIDE_VIEW);
+	document.elementsFromPoint = (x, y) => {
+		const box = view.getBoundingClientRect();
+		return lookUp.call(document, inside(x, box.left + view.clientLeft, view.clientWidth), inside(y, box.top + view.clientTop, view.clientHeight));
+	};
+	return () => {
+		document.elementsFromPoint = lookUp;
+	};
 }
 
 const macintosh = /Mac/.test(navigator.platform);
@@ -1743,9 +1768,9 @@ function MarkdownRichEditor(): JSX.Element {
 	// compositionend — mutating the document mid-composition would abort the
 	// user's uncommitted input.
 	// The zoom and the outline of a note in Card Detail (zoom and outline of a
-	// note). They are made with the first init of Card Detail's page; a later
-	// init only changes the level.
-	const ensureReadingAids = useCallback((level: number, motionReduced: boolean): void => {
+	// note). They are made with the first init of Card Detail's page; another
+	// note shows at 100% (rule 8).
+	const ensureReadingAids = useCallback((anotherNote: boolean, motionReduced: boolean): void => {
 		const scroll = scrollRef.current;
 		const page = scroll?.querySelector<HTMLElement>(':scope > .basehalf-markdown-rich-page');
 		if (!scroll || !page) {
@@ -1754,17 +1779,17 @@ function MarkdownRichEditor(): JSX.Element {
 		const existing = readingAids.current;
 		if (existing) {
 			existing.reducedMotion = motionReduced;
-			existing.zoom.setLevel(level);
+			if (anotherNote) {
+				existing.zoom.reset();
+			}
 			return;
 		}
 		const text = () => scroll.querySelector<HTMLElement>('.ProseMirror');
 		const reducedMotion = () => aids.reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		let outline: BaseHalfNoteOutline | undefined;
-		const zoom = new BaseHalfNoteZoomGesture({
+		const zoom = new BaseHalfNoteZoom({
 			view: scroll,
 			page,
-			text,
-			reducedMotion,
 			onDidDraw: () => {
 				outline?.refresh();
 				// The page moved in its view as in a scroll. The editor's handles,
@@ -1774,11 +1799,6 @@ function MarkdownRichEditor(): JSX.Element {
 				// this one (zoom and outline of a note, rules 7 and 23).
 				scroll.dispatchEvent(new Event('scroll'));
 			},
-		}, level, settled => {
-			const key = session.current.key;
-			if (key) {
-				vscode.postMessage({ type: 'basehalf.markdownRich.zoomChanged', key, zoom: settled });
-			}
 		});
 		const aids: IReadingAids = {
 			zoom,
@@ -1790,14 +1810,16 @@ function MarkdownRichEditor(): JSX.Element {
 				reducedMotion,
 				minMargin: BASEHALF_NOTE_OUTLINE_MIN_MARGIN_WITH_HANDLES,
 			}),
+			restoreLookUp: lookUpWithinView(scroll),
 			reducedMotion: motionReduced,
 		};
 		readingAids.current = aids;
-	}, [vscode]);
+	}, []);
 
 	useEffect(() => () => {
 		readingAids.current?.zoom.dispose();
 		readingAids.current?.outline.dispose();
+		readingAids.current?.restoreLookUp();
 		readingAids.current = undefined;
 	}, []);
 
@@ -1806,7 +1828,7 @@ function MarkdownRichEditor(): JSX.Element {
 	useEffect(() => {
 		const onWheel = (event: WheelEvent): void => {
 			const aids = readingAids.current;
-			if (!aids || !isBaseHalfNoteZoomWheel(event, macintosh)) {
+			if (!aids || !isBaseHalfZoomWheel(event, macintosh)) {
 				return;
 			}
 			event.preventDefault();
@@ -1835,8 +1857,7 @@ function MarkdownRichEditor(): JSX.Element {
 		session.current.baseUri = payload.baseUri;
 		renderedNote.baseUri = payload.baseUri;
 		if (payload.surface === 'detail') {
-			// The page is laid out at the level of notes before the note fills it.
-			ensureReadingAids(payload.zoom ?? 1, payload.reducedMotion ?? false);
+			ensureReadingAids(session.current.key !== payload.key, payload.reducedMotion ?? false);
 		}
 		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
 			.catch(() => false);
@@ -1937,7 +1958,6 @@ function MarkdownRichEditor(): JSX.Element {
 						surface: message.surface,
 						generation: ++initGeneration.current,
 						...(message.selection ? { selection: message.selection } : {}),
-						...(message.zoom !== undefined ? { zoom: message.zoom } : {}),
 						...(message.reducedMotion !== undefined ? { reducedMotion: message.reducedMotion } : {})
 					}).catch(reportError);
 					break;
@@ -1948,9 +1968,6 @@ function MarkdownRichEditor(): JSX.Element {
 						clientX: message.gesture.x,
 						clientY: message.gesture.y,
 					});
-					break;
-				case 'basehalf.markdownRich.setZoom':
-					readingAids.current?.zoom.setLevel(message.zoom);
 					break;
 				case 'basehalf.markdownRich.applyYjsUpdate':
 					if (!state.ready || state.structuralFrozen) {

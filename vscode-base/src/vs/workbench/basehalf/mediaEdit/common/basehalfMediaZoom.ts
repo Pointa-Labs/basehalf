@@ -3,28 +3,24 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { BASEHALF_ZOOM_MAX } from '../../cardDetail/common/basehalfCardDetailZoom.js';
 import { IBaseHalfPoint, IBaseHalfSize } from './basehalfImageCrop.js';
 
 /**
- * What a zoom in Card Detail computes (editing media, "Zooming the picture
- * and the time"): how far a picture zooms, the media area zoomed around a
- * point as a browser zooms its page and moved by a swipe, and the stretch of
- * time that the frame viewer of a video or the waveform of a sound shows when
- * a pinch spreads it out. The factor of a pinch or of the wheel with the zoom
- * key is a note's (`baseHalfNoteZoomFactor`).
+ * What a zoom of media in Card Detail computes (editing media, "Zooming the
+ * picture and the time"): how far a picture zooms, the media area zoomed
+ * around a point as a browser zooms its page and moved by a swipe, and the
+ * stretch of time that the frame viewer of a video or the waveform of a sound
+ * shows when a pinch spreads it out. Which events zoom, the factor of each,
+ * how far a page grows, and when the fingers rest are every zoom's of Card
+ * Detail (`basehalfCardDetailZoom`).
  */
-
-/** A media area zooms up to this many times as it fits, as a browser zooms a page (D96). */
-export const BASEHALF_PAGE_ZOOM_MAX = 5;
 
 /** A picture zooms at least up to this many screen pixels for each of its pixels. */
 export const BASEHALF_PICTURE_ZOOM_MAX_SCALE = 2;
 
 /** The shortest stretch of time that a pinch spreads the frame viewer or the waveform out to, in seconds. */
 export const BASEHALF_TIME_ZOOM_SHORTEST_SECONDS = 0.5;
-
-/** How long after the last event of a gesture it has ended, in milliseconds: the frame viewer then reads the frames of its new stretch. */
-export const BASEHALF_TIME_ZOOM_REST_MS = 150;
 
 /**
  * A handle held against an edge of what an editor shows makes it follow, as a
@@ -64,7 +60,7 @@ function pixels(delta: number, deltaMode: number): number {
  * pixels when that is more (D96).
  */
 export function baseHalfPictureMaxZoom(scale: number): number {
-	return scale > 0 && Number.isFinite(scale) ? Math.max(BASEHALF_PAGE_ZOOM_MAX, BASEHALF_PICTURE_ZOOM_MAX_SCALE / scale) : BASEHALF_PAGE_ZOOM_MAX;
+	return scale > 0 && Number.isFinite(scale) ? Math.max(BASEHALF_ZOOM_MAX, BASEHALF_PICTURE_ZOOM_MAX_SCALE / scale) : BASEHALF_ZOOM_MAX;
 }
 
 /**

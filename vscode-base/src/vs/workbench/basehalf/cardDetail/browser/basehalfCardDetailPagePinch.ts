@@ -9,7 +9,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IWebviewService } from '../../../contrib/webview/browser/webview.js';
-import { BASEHALF_PAGE_PINCH_MESSAGE, IBaseHalfPagePinchMessage, isBaseHalfNoteZoomWheel } from '../common/basehalfNoteZoom.js';
+import { BASEHALF_PAGE_PINCH_MESSAGE, IBaseHalfPagePinchMessage, isBaseHalfZoomWheel } from '../common/basehalfCardDetailZoom.js';
 
 /**
  * Hands a pinch over a page of Card Detail to that page. The browser gives a
@@ -27,7 +27,7 @@ export class BaseHalfCardDetailPagePinch extends Disposable implements IWorkbenc
 	}
 
 	private onWheel(event: WheelEvent): void {
-		if (!isBaseHalfNoteZoomWheel(event, isMacintosh)) {
+		if (!isBaseHalfZoomWheel(event, isMacintosh)) {
 			return;
 		}
 		const frame = event.target as HTMLIFrameElement | null;

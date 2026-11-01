@@ -18,7 +18,7 @@ import EmbedPDF, {
 	type ZoomLevel
 } from '@embedpdf/snippet';
 import { FontCharset, PdfErrorCode } from '@embedpdf/models';
-import { baseHalfNoteZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfNoteZoom.js';
+import { baseHalfZoomFactor, baseHalfPagePinchFromMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
 import { BASEHALF_PDF_AUTOMATIC_ZOOM_MAX, BASEHALF_PDF_SELECTION_TEXT_LIMIT, type BaseHalfPdfWebviewMessage, type BaseHalfPdfZoom, type IBaseHalfPdfSelection, type IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfMediaViewState.js';
 
 interface VsCodeApi {
@@ -344,7 +344,7 @@ async function initializeRegistry(registry: PluginRegistry): Promise<void> {
 				zoomScope.requestZoom(Math.min(5, Math.max(0.25, shown * next.factor)), { vx: next.x, vy: next.y });
 			});
 		}
-		pinch.factor *= baseHalfNoteZoomFactor(message);
+		pinch.factor *= baseHalfZoomFactor(message);
 	});
 	// While the PDF fits the width of Card Detail, it follows the width.
 	new ResizeObserver(() => {
