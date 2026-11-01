@@ -3558,6 +3558,11 @@ before, because its cells have the default background.
 > note's page as a picture of itself around the pointer, and the page is
 > laid out once, when they rest, instead of in every frame. The rest of D87
 > stands.
+>
+> **Revised by D109 (2026-11-01).** A pinch magnifies the note as a browser
+> magnifies its page, from 100% to 500%, and nothing of it is laid out anew;
+> a magnified note moves sideways too. The level is kept nowhere: a note
+> shows at 100% when it opens. The outline stands.
 
 **Decision.** In Card Detail, a pinch of the trackpad, or the wheel with the
 zoom key or Ctrl held, zooms a note in its Rich and its Preview projection.
@@ -4913,6 +4918,10 @@ three as one item list in about 75 ms from a separate process.
 
 ## D105 — A pinch zooms a note as a picture under the fingers, and the note is laid out once they rest (NEW, 2026-10-31)
 
+> **Superseded by D109 (2026-11-01).** The page is never laid out at a level:
+> it stays magnified where the fingers left it, and nothing moves once they
+> rest. The pinch point measured from the frame of the page stands.
+
 **Decision.** In Card Detail, while the fingers of a pinch move over a note,
 in Rich or in Preview, the note's page is drawn as a picture of itself,
 larger or smaller around the pointer: the point under the pointer stays under
@@ -5160,3 +5169,85 @@ BaseHalf does not integrate could not be reached.
   provider; the provider service stays without state.
 - What a custom provider is stored as: `basehalf.providers.custom.v1` in the
   application storage of this computer, and its key as every provider's.
+
+## D109 — A pinch magnifies a note in Card Detail as a browser magnifies its page, and nothing of it is laid out anew (NEW, 2026-11-01)
+
+**Decision.** In Card Detail a pinch, or the wheel with the zoom key or Ctrl
+held, magnifies a note in Rich and in Preview as a browser magnifies its page
+and as Card Detail magnifies a picture: the page, with the room around its
+text, is drawn larger around the pointer, from 100% to 500%, and no line of
+it breaks anew, while the fingers move or once they rest. A magnified note
+moves with a two-finger swipe, the wheel, and the scroll bars, up and down
+and sideways, as far as its edges. Once the fingers rest nothing moves: the
+text is drawn sharp where it is. The zoom is the view's and is kept nowhere:
+a note shows at 100% when Card Detail opens it and when it switches between
+Rich and Preview. A pinch means this everywhere in Card Detail, and each page
+draws it on its own surface: a picture settles within its own edges (D101), a
+PDF draws its pages anew at its zoom (D81), and a book, laid out page by page,
+changes its text size by steps. See
+[zoom and outline of a note](specs/note-zoom-and-outline.md#zoom).
+
+**Why.** On 2026-11-01 the user found zooming a note in and out "很奇怪", and
+asked what the experience should be at its root, whether one rule should
+serve every card or each its own, and that what is redundant be deleted.
+Measured that day in a Card Detail of 859 pixels, near the user's 848: 155 ms
+after a pinch to 180% had ended, D105 laid the page out at the level, and in
+that frame the paragraph under the pointer went from 3 lines to 4 and the
+character under the pointer jumped 166 pixels sideways; 158 ms after a pinch
+to 60% had ended, the page jumped 155 pixels up and into the middle. The note
+moved by itself after the hand had let go of it. D87 had laid it out in every
+frame, and its words ran from line to line under the fingers. Both have one
+cause: a pinch holds what is under the fingers, and a size of text laid out
+anew cannot keep the words there, whenever it is done. Every other place a
+pinch reaches in BaseHalf keeps what it holds: the canvas, a picture in Card
+Detail (D93, D96, D101), and a PDF (D81); and a browser's page, which the user
+named as the model for a pinch in Card Detail on 2026-10-27 ("像浏览器里面那样，
+双指捏合就可以放大这个地方了"). A larger text laid out anew is another act,
+which the window's zoom does for everything with Command and `=`.
+
+**What was set aside.**
+- Laying the page out once the fingers rest (D105), or in every frame (D87):
+  the words move under or after the hand.
+- Drawing a page that is narrower than the view in its middle and letting it
+  follow the fingers only once it fills the width, as viewers of pages do: in
+  a Card Detail wider than the page, a pinch to 150% that starts 50 pixels
+  into the text would leave that word 86 pixels from the fingers.
+- The page's own edges as the limit of a move, as a picture's are (D101): the
+  room beside the text has the page's color and shows no edge, and a page
+  that went past such an edge under the fingers would glide back after they
+  rest. The edges of the magnified view are the limit instead, as in a
+  browser, which holds the place under the fingers without any glide.
+- Levels below 100%: Card Detail shows a note at the size it is read at; the
+  card on the canvas is the small view, and the outline in the margin shows
+  where the headings are.
+- One level for every note, kept in the profile (D87): a magnified view
+  belongs to the view, as a picture's zoom does (D93) and a browser's pinch
+  does. The level kept and sent between projections and windows also needed
+  code of its own so that a page was never sent back its own level (D105).
+- A pinch that magnifies a book's page: a book is laid out page by page for
+  the size of Card Detail, a magnified page would have to be moved around to
+  turn it, and its pinch already changes its text size by the steps of
+  Larger Text and Smaller Text, as an e-book reader does.
+- A snap to 100% near it (D87): no other zoom of Card Detail has one.
+
+**Consequences.**
+- Revises D87 and D105. [Zoom and outline of a note](specs/note-zoom-and-outline.md):
+  the Problem, Scope, Terms, rules 1 to 8, 19, 21 to 24, L1, L5, L7, L8, and
+  criteria 1 to 6, 11, 14, 16, and 17.
+- In Card Detail the page of Rich and of Preview is as wide as the view, with
+  the room for the outline and the handles of a block inside it, so that the
+  room is magnified with the text. At 100% every line is where it was.
+- Deleted: the level in the profile's storage (`basehalf.noteZoom`) and the
+  messages that carried it between the window and the Rich page; the page
+  laid out at a level; D105's picture, the element that held the view's
+  scroll range, the line kept under the pointer, and the glide; the snap to
+  100%.
+- One module holds what every zoom of Card Detail shares: which wheel events
+  zoom, the factor of each, the largest level of a page, and the 150 ms after
+  which the fingers rest. The note, the picture and the time of media, the
+  PDF, and the book use it.
+- The editor of Rich looks for the block under the pointer once more at the
+  block's right edge, which a magnified page carries past the view, where the
+  browser finds nothing; the handles of a block then went. In Card Detail a
+  point past the view is looked up inside it, on the same line, clear of the
+  scroll bars.
