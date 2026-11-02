@@ -11,17 +11,29 @@ import { insertOrUpdateBlockForSlashMenu, SideMenuExtension } from '@blocknote/c
 import { en, zh, zhTW, type Dictionary } from '@blocknote/core/locales';
 import { BlockNoteView, type Theme } from '@blocknote/mantine';
 import {
+	AddButton,
+	DeleteButton,
+	DragHandleMenu,
+	FileRenameButton,
 	FormattingToolbar,
 	FormattingToolbarController,
 	GenericPopover,
+	RemoveBlockItem,
 	SideMenu,
 	SuggestionMenuController,
+	TableHandle,
+	TableHandleMenu,
+	TableHandlesController,
 	getFormattingToolbarItems,
 	useBlockNoteEditor,
 	useCreateBlockNote,
+	useDictionary,
 	useExtensionState,
+	useSelectedBlocks,
 	type FloatingUIOptions,
 	type GenericPopoverReference,
+	type TableCellButtonProps,
+	type TableHandleProps,
 } from '@blocknote/react';
 import { applyUpdate, Doc as YDoc, type XmlFragment } from 'yjs';
 import { ySyncPluginKey } from 'y-prosemirror';
@@ -33,7 +45,10 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type CSSProperties,
+	type FunctionComponent,
 	type JSX,
+	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
@@ -63,6 +78,8 @@ import {
 	type IBaseHalfMarkdownSaveContribution,
 } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfMarkdownProjection.js';
 import { createBaseHalfNoteEditorApi } from './noteConversions.js';
+import { makeBaseHalfNoteShapeExtension } from './noteShape.js';
+import { BASEHALF_NOTE_PALETTE, BASEHALF_NOTE_PALETTE_COLORS } from '../../../src/vs/workbench/basehalf/markdown/common/basehalfNotePalette.js';
 import { baseHalfNoteToggleState, installBaseHalfNoteToggleState } from './noteToggleState.js';
 import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/shell/browser/basehalfSidewaysScrollbar.js';
 import { isBaseHalfZoomWheel } from '../../../src/vs/workbench/basehalf/cardDetail/common/basehalfCardDetailZoom.js';
@@ -133,6 +150,8 @@ const baseHalfBlockNoteTheme: Theme = {
 		shadow: '0 4px 18px rgb(0 0 0 / 28%)',
 		border: 'var(--vscode-widget-border)',
 		sideMenu: 'var(--vscode-descriptionForeground)',
+		// The nine colors as the note stores them, in every appearance (note formats, rules 46 and 47).
+		highlights: Object.fromEntries(BASEHALF_NOTE_PALETTE_COLORS.map(name => [name, { ...BASEHALF_NOTE_PALETTE[name] }])),
 	},
 	borderRadius: 4,
 	fontFamily: 'var(--vscode-font-family)',
@@ -557,7 +576,7 @@ function BaseHalfSideMenuController({ portalElement }: { readonly portalElement:
 			focusManagerProps={{ disabled: true }}
 			elementProps={{ style: { zIndex: 20 } }}
 		>
-			{state?.blockId && <SideMenu />}
+			{state?.blockId && <SideMenu dragHandleMenu={BaseHalfDragHandleMenu} />}
 		</GenericPopover>
 	);
 }
@@ -593,6 +612,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
+	const noteShapeExtension = useMemo(() => makeBaseHalfNoteShapeExtension(), []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
 	const contextMenuRef = useRef<HTMLDivElement>(null);
 	const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
@@ -646,7 +666,7 @@ function MarkdownRichEditor(): JSX.Element {
 		dictionary: baseHalfBlockNoteDictionary(),
 		uploadFile,
 		resolveFileUrl,
-		extensions: [adhdExtension, selectionRevealExtension],
+		extensions: [adhdExtension, selectionRevealExtension, noteShapeExtension],
 		collaboration: {
 			fragment: fragment as XmlFragment,
 			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
@@ -2368,7 +2388,8 @@ function MarkdownRichEditor(): JSX.Element {
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) {
+			// Shift-Mod-S is strikethrough in Rich (note formats, rule 69).
+			if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey) || event.shiftKey) {
 				return;
 			}
 			event.preventDefault();
@@ -2448,6 +2469,7 @@ function MarkdownRichEditor(): JSX.Element {
 			onPointerDownCapture={notifyEditorActivated}
 			onFocusCapture={notifyEditorActivated}
 			onDoubleClick={beginCanvasAuthoring}
+			onKeyDown={stopUsedKeys}
 		>
 			{usesEmbeddedControls && (
 				<div
@@ -2455,6 +2477,7 @@ function MarkdownRichEditor(): JSX.Element {
 					className="basehalf-markdown-rich-portal bn-root bn-mantine"
 					data-color-scheme={colorScheme}
 					data-mantine-color-scheme={colorScheme}
+					style={paletteVariables}
 				/>
 			)}
 			{state.conflictDisk !== undefined && (
@@ -2512,15 +2535,16 @@ function MarkdownRichEditor(): JSX.Element {
 						linkToolbar={usesEmbeddedControls}
 						slashMenu={usesEmbeddedControls}
 						filePanel={usesEmbeddedControls}
-						tableHandles={usesEmbeddedControls}
+						tableHandles={false}
 						emojiPicker={usesEmbeddedControls}
-						comments={usesEmbeddedControls}
+						comments={false}
 						portalElements={usesEmbeddedControls ? portalElements : undefined}
 					>
 						{usesEmbeddedControls && (
 							<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
 						)}
 						{usesEmbeddedControls && <BaseHalfSideMenuController portalElement={portalElement} />}
+						{usesEmbeddedControls && <TableHandlesController tableHandle={BaseHalfTableHandle} tableCellHandle={BaseHalfNoTableCellHandle} portalElement={portalElement} />}
 						{usesEmbeddedControls && <BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />}
 					</BlockNoteView>
 				</div>
@@ -2529,10 +2553,76 @@ function MarkdownRichEditor(): JSX.Element {
 	);
 }
 
+// What the note cannot store, or what BaseHalf does otherwise (note formats,
+// rules 2 and 3): alignment, Nest and Unnest (Tab and Shift-Tab stay),
+// merged cells, comments, a file's preview, and its download.
+const baseHalfRemovedToolbarItems: ReadonlySet<string> = new Set([
+	'tableCellMergeButton', 'fileDownloadButton', 'filePreviewButton',
+	'textAlignLeftButton', 'textAlignCenterButton', 'textAlignRightButton',
+	'nestBlockButton', 'unnestBlockButton', 'addCommentButton', 'addTiptapCommentButton',
+]);
+
+/**
+ * A key the editor used does only what the editor does with it (note
+ * formats, rule 69): the page forwards every key that reaches it to the
+ * window, where Shift-Mod-S is Save As and Mod-B shows or hides the sidebar.
+ */
+function stopUsedKeys(event: ReactKeyboardEvent): void {
+	if (event.nativeEvent.defaultPrevented) {
+		event.nativeEvent.stopPropagation();
+	}
+}
+
 function BaseHalfFormattingToolbar(): JSX.Element {
-	const items = getFormattingToolbarItems().filter(item => item.key !== 'fileDownloadButton');
+	const items = getFormattingToolbarItems()
+		.filter(item => !baseHalfRemovedToolbarItems.has(String(item.key)))
+		.map(item => item.key === 'fileRenameButton' ? <BaseHalfFileRenameButton key={'fileRenameButton'} /> : item);
 	return <FormattingToolbar>{items}</FormattingToolbar>;
 }
+
+/** Rename for a picture and a file: the note stores no name of a video or a sound (rule 22). */
+function BaseHalfFileRenameButton(): JSX.Element | null {
+	const editor = useBlockNoteEditor();
+	const blocks = useSelectedBlocks(editor);
+	return blocks.length === 1 && (blocks[0].type === 'image' || blocks[0].type === 'file') ? <FileRenameButton /> : null;
+}
+
+/** The menu of a block's drag handle holds Delete only (rule 4). */
+function BaseHalfDragHandleMenu(): JSX.Element {
+	const dictionary = useDictionary();
+	return (
+		<DragHandleMenu>
+			<RemoveBlockItem>{dictionary.drag_handle.delete_menuitem}</RemoveBlockItem>
+		</DragHandleMenu>
+	);
+}
+
+/** A table's rows and columns offer Delete and Add, and no header, color, merge, or split (rule 6). */
+function BaseHalfTableHandleMenu({ orientation }: { readonly orientation: 'row' | 'column' }): JSX.Element {
+	return (
+		<TableHandleMenu orientation={orientation}>
+			<DeleteButton orientation={orientation} />
+			{orientation === 'row'
+				? <><AddButton orientation={'row'} side={'above'} /><AddButton orientation={'row'} side={'below'} /></>
+				: <><AddButton orientation={'column'} side={'left'} /><AddButton orientation={'column'} side={'right'} /></>}
+		</TableHandleMenu>
+	);
+}
+
+function BaseHalfTableHandle(props: TableHandleProps): JSX.Element {
+	return <TableHandle {...props} tableHandleMenu={BaseHalfTableHandleMenu as FunctionComponent} />;
+}
+
+/** The cells of a table offer nothing to merge, split, or color. */
+function BaseHalfNoTableCellHandle(_props: TableCellButtonProps): null {
+	return null;
+}
+
+/** The palette's colors on BaseHalf's portal, where the editor's menus are drawn: the editor sets them on its own root only. */
+const paletteVariables: CSSProperties = Object.fromEntries(BASEHALF_NOTE_PALETTE_COLORS.flatMap(name => [
+	[`--bn-colors-highlights-${name}-text`, BASEHALF_NOTE_PALETTE[name].text],
+	[`--bn-colors-highlights-${name}-background`, BASEHALF_NOTE_PALETTE[name].background],
+]));
 
 const root = document.getElementById('root');
 if (!root) {

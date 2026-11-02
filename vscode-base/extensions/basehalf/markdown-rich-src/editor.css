@@ -613,6 +613,11 @@ body,
 	scrollbar-width: none;
 }
 
+/* A tab in code is as wide as the four spaces the card shows for it (note formats, rule 32). */
+.basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] > pre {
+	tab-size: 4;
+}
+
 /* The bar is placed in the page, which moves with what it holds. */
 .basehalf-markdown-rich-page {
 	position: relative;

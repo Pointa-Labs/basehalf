@@ -120,13 +120,33 @@ const rawPassthroughSpec = createBlockSpec(
  */
 const codeBesideOtherMarks = createStyleSpecFromTipTapMark(defaultStyleSpecs.code.implementation.mark.extend({ excludes: 'code' }), 'boolean');
 
+/**
+ * A block's spec without props the note cannot store (note formats, rules 1
+ * to 3): Rich offers no control for them, and a paste brings none of them.
+ */
+function withoutProps<T extends { readonly config: { readonly propSchema: object } }>(spec: T, names: readonly string[]): T {
+	const propSchema = Object.fromEntries(Object.entries(spec.config.propSchema).filter(([name]) => !names.includes(name)));
+	return { ...spec, config: { ...spec.config, propSchema } };
+}
+
+// The color of a block and the alignment of a paragraph or a picture: Markdown has no syntax for them.
+const blockLook = ['textColor', 'backgroundColor', 'textAlignment'];
+
 export const baseHalfNoteSchema = BlockNoteSchema.create({
 	blockSpecs: {
 		...defaultBlockSpecs,
-		audio: ReactAudioBlock(),
-		file: ReactFileBlock(),
-		image: ReactImageBlock(),
-		video: ReactVideoBlock(),
+		paragraph: withoutProps(defaultBlockSpecs.paragraph, blockLook),
+		heading: withoutProps(defaultBlockSpecs.heading, blockLook),
+		quote: withoutProps(defaultBlockSpecs.quote, blockLook),
+		bulletListItem: withoutProps(defaultBlockSpecs.bulletListItem, blockLook),
+		numberedListItem: withoutProps(defaultBlockSpecs.numberedListItem, blockLook),
+		checkListItem: withoutProps(defaultBlockSpecs.checkListItem, blockLook),
+		toggleListItem: withoutProps(defaultBlockSpecs.toggleListItem, blockLook),
+		audio: withoutProps(ReactAudioBlock(), ['backgroundColor']),
+		// A file's caption: the note stores a file as a link, which holds none.
+		file: withoutProps(ReactFileBlock(), ['backgroundColor', 'caption']),
+		image: withoutProps(ReactImageBlock(), ['backgroundColor', 'textAlignment']),
+		video: withoutProps(ReactVideoBlock(), ['backgroundColor', 'textAlignment']),
 		[BASEHALF_RAW_PASSTHROUGH_BLOCK]: rawPassthroughSpec,
 	},
 	styleSpecs: {

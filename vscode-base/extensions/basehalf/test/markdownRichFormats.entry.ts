@@ -559,11 +559,51 @@ async function toggles(t: INoteFormatsTest): Promise<void> {
 }
 
 /**
+ * Part c, the schema (note formats, rules 1 to 3): no block holds a color of
+ * its own or an alignment, and a file holds no caption; the editor draws and
+ * writes no such attribute, and a paste brings none.
+ */
+async function schema(t: INoteFormatsTest): Promise<void> {
+	await t.load('A paragraph.\n\n![pic](pic.png)\n\n[handout.pdf](handout.pdf)\n');
+	await t.frames();
+	const props = (type: string) => Object.keys(t.editor.schema.blockSpecs[type as keyof typeof t.editor.schema.blockSpecs].config.propSchema).sort();
+	const drawn = t.editor.domElement?.innerHTML ?? '';
+	const html = t.editor.blocksToFullHTML(t.editor.document);
+	const pasted = t.editor.tryParseHTMLToBlocks('<p style="text-align:center;color:red;background-color:yellow">centered red</p><img src="pic.png" style="text-align:right">');
+	t.check('no block holds a color of its own or an alignment, and a file holds no caption', {
+		paragraph: props('paragraph'),
+		heading: props('heading'),
+		image: props('image'),
+		video: props('video'),
+		audio: props('audio'),
+		file: props('file'),
+	}, {
+		paragraph: [],
+		heading: ['isToggleable', 'level'],
+		image: ['caption', 'name', 'previewWidth', 'showPreview', 'url'],
+		video: ['caption', 'name', 'previewWidth', 'showPreview', 'url'],
+		audio: ['caption', 'name', 'showPreview', 'url'],
+		file: ['name', 'url'],
+	});
+	const looks = /data-(?:text-color|background-color|text-alignment)=/;
+	t.check('the editor draws and writes no color of a block and no alignment, and a paste brings none', {
+		drawn: looks.test(drawn),
+		html: looks.test(html),
+		pasted: pasted.map(block => ({ type: block.type, looks: Object.keys(block.props).filter(name => ['textColor', 'backgroundColor', 'textAlignment'].includes(name)) })),
+	}, {
+		drawn: false,
+		html: false,
+		pasted: [{ type: 'paragraph', looks: [] }, { type: 'image', looks: [] }],
+	});
+}
+
+/**
  * The parts of the test, by name. Each runs on a note of its own and records
  * its checks with `t.check`. Parts a to i of D110 join here.
  */
 const PARTS: Record<string, (t: INoteFormatsTest) => Promise<void>> = {
 	'0': testBed,
+	c: schema,
 	g: toggles,
 };
 

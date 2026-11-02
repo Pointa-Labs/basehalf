@@ -43,6 +43,7 @@ import {
 	assertSourceCardSaveActionHidden,
 	scrollCanvasWorkbenchForCardDetail
 } from './areas/cardDetail/cardDetail.mts';
+import { assertNoteFormatsKeysStayInRich, assertNoteFormatsOfferOnlyWhatTheFileKeeps, openNoteFormatsNote } from './areas/cardDetail/noteFormats.mts';
 import { assertBookCardDetail, assertBookGrowsBranch, assertBookTurnsPages } from './areas/cardDetail/books.mts';
 import { assertCardDetailEditShowsOnItsCard } from './areas/cardDetail/editOnCard.mts';
 import { assertCardDetailImageCropBack } from './areas/cardDetail/imageCropBack.mts';
@@ -270,6 +271,9 @@ async function runCardDetailSuite(page) {
 	await step('card-detail-edit-shows-on-its-card', () => assertCardDetailEditShowsOnItsCard(page));
 	await step('card-detail-sound-edit', () => assertCardDetailSoundEdit(page));
 	await step('card-detail-media-pinch', () => assertCardDetailMediaPinch(page));
+	await step('note-formats-open', () => openNoteFormatsNote(page));
+	await step('note-formats-offer-only-what-the-file-keeps', () => assertNoteFormatsOfferOnlyWhatTheFileKeeps(page));
+	await step('note-formats-keys-stay-in-rich', () => assertNoteFormatsKeysStayInRich(page));
 }
 
 /** Quick Text Search, the Explorer, back and forward between folders and cards, and what happens to the files of the workspace. */
